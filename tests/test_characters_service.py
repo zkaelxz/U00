@@ -191,8 +191,25 @@ def test_h1_no_echo_in_service_errors(isolated_db):
 def test_h1_unsupported_engine_message_has_no_engine_name(isolated_db):
     did = _drama(isolated_db, source_language="zh")
     with pytest.raises(InvalidInputError) as e:
-        cs.update_character(did, "A", clone_engine="chatterbox")
-    assert "chatterbox" not in str(e.value)
+        cs.update_character(did, "A", clone_engine="nope_engine")
+    assert "nope_engine" not in str(e.value)
+
+
+@pytest.mark.parametrize("key,label", [("tada", "TADA"), ("chatterbox", "Chatterbox"),
+                                       ("gpt_sovits", "GPT-SoVITS")])
+def test_a_removed_engine_cannot_be_chosen_but_a_stored_one_loads(isolated_db, key, label):
+    did = _drama(isolated_db, source_language="zh")
+    removed = f"The {label} engine was removed. Pick another voice engine in Dub."
+    with pytest.raises(InvalidInputError) as e:
+        cs.update_character(did, "A", clone_engine=key)
+    assert str(e.value) == removed
+    isolated_db.upsert_character(did, "A", clone_engine=key, ref_audio_filename="a.wav", ref_text="t")
+    entry = _by_label(cs.list_characters(did), "A")
+    assert (entry["clone_engine"], entry["clone_engine_removed"]) == (key, removed)
+    # picking another engine clears it; the clip and transcript stay
+    cs.update_character(did, "A", clone_engine="omnivoice")
+    entry = _by_label(cs.list_characters(did), "A")
+    assert entry["clone_engine_removed"] == "" and entry["has_ref_audio"] is True
 
 
 def test_h1_oversized_ids(isolated_db):
@@ -230,8 +247,17 @@ class TestVoiceBankHardening:
             cs.apply_voice_bank_entry(did, "A", eid)
 
     def test_entry_engine_language_rule(self, isolated_db, tmp_path):
-        eid = self._entry(isolated_db, tmp_path, engine="chatterbox")
-        did = _drama(isolated_db, source_language="zh")
+        eid = self._entry(isolated_db, tmp_path, engine="omnivoice")
+        did = _drama(isolated_db, source_language="en")
         with pytest.raises(InvalidInputError):
             cs.apply_voice_bank_entry(did, "A", eid)
         assert _by_label(cs.list_characters(did), "A")["has_ref_audio"] is False
+
+    def test_an_entry_saved_with_a_removed_engine_still_applies_and_reads_as_removed(
+            self, isolated_db, tmp_path):
+        eid = self._entry(isolated_db, tmp_path, engine="chatterbox")
+        did = _drama(isolated_db, source_language="zh")
+        entry = cs.apply_voice_bank_entry(did, "A", eid)
+        assert entry["has_ref_audio"] is True and entry["clone_engine"] == "chatterbox"
+        assert entry["clone_engine_removed"] == (
+            "The Chatterbox engine was removed. Pick another voice engine in Dub.")

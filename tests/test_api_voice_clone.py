@@ -452,22 +452,22 @@ class TestBankLinkActor:
 # ---- dub clone warning --------------------------------------------------------------
 
 class TestDubWarning:
-    def test_warns_when_clone_engine_has_no_source(self, client, isolated_db, tools):
+    def test_warns_about_a_removed_engine_or_a_missing_clip(self, client, isolated_db, tools):
         did = _drama(speakers=("A", "B", "C", "D"))
-        db.upsert_character(did, "A", clone_engine="gpt_sovits")            # no clip/design: falls back
+        db.upsert_character(did, "A", clone_engine="gpt_sovits")            # removed engine
         db.upsert_character(did, "B", clone_engine="omnivoice", voice_design="low, calm")
-        db.upsert_character(did, "C", clone_engine="chatterbox")            # built-in voice, fine
-        db.upsert_character(did, "D", clone_engine="gpt_sovits", ref_audio_filename="gone.wav")
+        db.upsert_character(did, "C", clone_engine="omnivoice")             # no clip: designed voice, fine
+        db.upsert_character(did, "D", clone_engine="omnivoice", ref_audio_filename="gone.wav")
         body = client.get(f"/api/dub/dramas/{did}/config").json()
         by = {s["speaker_label"]: s for s in body["speakers"]}
-        assert "voice of the engine picked in Dub" in by["A"]["clone_warning"]
-        assert by["A"]["engine"] == "omnivoice"
+        assert by["A"]["clone_warning"] == "The GPT-SoVITS engine was removed. Pick another voice engine in Dub."
+        assert by["A"]["engine"] == "gpt_sovits"
         assert by["B"]["clone_warning"] is None and by["C"]["clone_warning"] is None
         assert "missing" in by["D"]["clone_warning"] and "gone.wav" not in json.dumps(body)
 
     def test_no_warning_after_upload(self, client, isolated_db, tools):
         did = _drama()
-        db.upsert_character(did, "A", clone_engine="gpt_sovits")
+        db.upsert_character(did, "A", clone_engine="omnivoice")
         _upload(client, did)
         by = {s["speaker_label"]: s for s in client.get(f"/api/dub/dramas/{did}/config").json()["speakers"]}
         assert by["A"]["clone_warning"] is None and by["A"]["has_clone_ref"] is True

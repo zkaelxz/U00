@@ -227,21 +227,21 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
           <details className="voice-details">
             <summary>Voice settings for {label}{form.clone_engine ? ` (${form.clone_engine})` : ''}</summary>
             <div className="voice-grid">
-              <Field label="Clone engine" help={engines ? `Engines usable for ${engines.source_language || 'this source language'}.` : undefined}>
-                <select aria-label={`Clone engine for ${label}`} value={form.clone_engine} onChange={(e) => set('clone_engine', e.target.value)}>
-                  <option value="">Default{engines?.default_engine ? ` (${engines.default_engine})` : ''}</option>
-                  {form.clone_engine && !engineIds.includes(form.clone_engine) && (
-                    <option value={form.clone_engine}>
-                      {entry.clone_engine_removed ? `${form.clone_engine} (removed)` : form.clone_engine}
-                    </option>
-                  )}
-                  {engines?.engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
-                </select>
-              </Field>
               {entry.clone_engine_removed && (
-                <p className="voice-warning voice-wide" role="note" data-testid={`engine-removed-${label}`}>
-                  {entry.clone_engine_removed}
-                </p>
+                <>
+                  <Field label="Clone engine" help="Pick OmniVoice, or Default, to use this character again.">
+                    <select aria-label={`Clone engine for ${label}`} value={form.clone_engine} onChange={(e) => set('clone_engine', e.target.value)}>
+                      <option value="">Default{engines?.default_engine ? ` (${engines.default_engine})` : ''}</option>
+                      {form.clone_engine && !engineIds.includes(form.clone_engine) && (
+                        <option value={form.clone_engine}>{`${form.clone_engine} (removed)`}</option>
+                      )}
+                      {engines?.engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+                    </select>
+                  </Field>
+                  <p className="voice-warning voice-wide" role="note" data-testid={`engine-removed-${label}`}>
+                    {entry.clone_engine_removed}
+                  </p>
+                </>
               )}
               <Field label="Voice design" help="Describe the voice for engines that design one from text.">
                 <input aria-label={`Voice design for ${label}`} value={form.voice_design} onChange={(e) => set('voice_design', e.target.value)} />

@@ -5,12 +5,10 @@ track) can instead speak the drama's own source-language text (via
 narrate_original) -- video/audio dubbing (build_dub_track) always speaks
 the translation, since a video already has its own original-language audio.
 
-Every voice comes from a local engine (see CLONE_ENGINES): OmniVoice,
-Chatterbox, TADA or a GPT-SoVITS server. Reference clips can be
-auto-extracted per speaker from the original audio (extract_reference_clips())
-or set manually. A speaker with no clip gets a designed voice (OmniVoice,
-from a plain description) or Chatterbox's built-in voice, depending on the
-engine chosen for the run. build_dub_track() and build_narration_track()
+Every voice comes from OmniVoice, the one voice engine (see CLONE_ENGINES).
+Reference clips can be auto-extracted per speaker from the original audio
+(extract_reference_clips()) or set manually. A speaker with no clip gets a
+designed voice from a plain description. build_dub_track() and build_narration_track()
 both take a character_clone_map (clone_map_from_characters() builds it, one
 entry per speaker) and speak each line with that speaker's entry. Wired
 into the UI at Workspace section 6 (extract/set reference clips, pick each
@@ -35,18 +33,14 @@ DEFAULT_VOICE_DESCRIPTIONS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Voice engines, chosen per character (characters.clone_engine) or, for
-# speakers without one, per run. Each is optional and imported only when
-# used. Written against each project's own documented Python/HTTP API, not
-# verified end-to-end -- sanity-check one short line before narrating a
-# whole novel.
+# The voice engine, chosen per character (characters.clone_engine) or, for
+# speakers without one, per run. Optional and imported only when used.
+# Written against the project's own documented Python API, not verified
+# end-to-end -- sanity-check one short line before narrating a whole novel.
 # ---------------------------------------------------------------------------
 
 CLONE_ENGINES = {
     "omnivoice": "OmniVoice (clone from a clip, or describe a voice)",
-    "gpt_sovits": "GPT-SoVITS (clone from a clip; needs its own local server running)",
-    "chatterbox": "Chatterbox (emotion-aware delivery; clip optional)",
-    "tada": "TADA (stays on-script over long runs; clone from a clip)",
 }
 DEFAULT_CLONE_ENGINE = "omnivoice"
 
@@ -57,6 +51,9 @@ REMOVED_VOICE_ENGINES = {
     "edge_tts": "Edge TTS", "edge": "Edge TTS",
     "offline": "Piper", "piper": "Piper",
     "f5tts": "F5-TTS", "f5": "F5-TTS",
+    "tada": "TADA",
+    "chatterbox": "Chatterbox",
+    "gpt_sovits": "GPT-SoVITS",
 }
 
 
@@ -73,42 +70,27 @@ def engine_refusal(engine):
     return removed_engine_message(engine) or "Unknown voice engine."
 
 
-# Which clone backends are confirmed to speak non-English text well, for
-# gating novel narration's "original language" mode. Checked directly
-# against each engine's own real capabilities, not assumed -- GPT-SoVITS
-# isn't here because it is already language-aware (via text_lang/ref_language
-# below):
-#   - OmniVoice: k2-fsa's own release claims 600+ languages zero-shot --
-#     covers zh/ja/ko.
-#   - TADA: HumeAI's own supported-language list includes zh/ja but not
-#     ko -- matches this file's own _TADA_ALIGNER_LANGUAGES below, which
-#     has no "ko" entry either.
-#   - Chatterbox: this app loads chatterbox.tts.ChatterboxTTS, Resemble
-#     AI's base English-primary model -- not their separate multilingual
-#     release -- so it isn't confirmed for zh/ja/ko at all.
+# Which engines are confirmed to speak non-English text well, for gating
+# novel narration's "original language" mode. OmniVoice: k2-fsa's own
+# release claims 600+ languages zero-shot, which covers zh/ja/ko.
 CLONE_ENGINE_ORIGINAL_LANGUAGES = {
     "omnivoice": {"zh", "ja", "ko"},
-    "tada": {"zh", "ja"},
-    "chatterbox": set(),
 }
 
 
 def clone_engine_supports_language(engine: str, language: str) -> bool:
     """Whether `engine` is confirmed to generate `language` well. An engine
-    not in CLONE_ENGINE_ORIGINAL_LANGUAGES (GPT-SoVITS) isn't gated here --
-    always True."""
+    not in CLONE_ENGINE_ORIGINAL_LANGUAGES (a removed one) isn't gated here
+    -- always True; engine_refusal is what stops it."""
     if engine not in CLONE_ENGINE_ORIGINAL_LANGUAGES:
         return True
     return language in CLONE_ENGINE_ORIGINAL_LANGUAGES[engine]
 
 
-# Engines that load a local model (or, for GPT-SoVITS, talk to a local
-# model server) -- dub generation takes the GPU slot for these. Clips are
-# generated one at a time: one shared model on one GPU gains nothing from
-# threads, Chatterbox is confirmed unsafe to overlap (its generate() stores
-# the reference voice and exaggeration on the model itself, self.conds), and
-# GPT-SoVITS's server handles one request at a time.
-LOCAL_MODEL_ENGINES = {"omnivoice", "gpt_sovits", "chatterbox", "tada"}
+# Engines that load a local model -- dub generation takes the GPU slot for
+# these. Clips are generated one at a time: one shared model on one GPU
+# gains nothing from threads.
+LOCAL_MODEL_ENGINES = {"omnivoice"}
 
 
 def _cuda_available() -> bool:
@@ -162,165 +144,17 @@ def synthesize_line_omnivoice(text: str, out_path: str, ref_audio_path: str = No
     return out_path
 
 
-GPT_SOVITS_DEFAULT_URL = "http://127.0.0.1:9880"
-# GPT-SoVITS's own language codes -- used both for the reference clip's
-# transcript (prompt_lang) and, for original-language narration, the text actually being
-# spoken (text_lang, previously hardcoded to "en").
-# One spoken line as WAV is a few MB; the cap leaves room for a very long one.
-GPT_SOVITS_AUDIO_MAX_BYTES = 128 * 1024 * 1024
-GPT_SOVITS_ERROR_MAX_BYTES = 64 * 1024
-_GPT_SOVITS_LANGUAGES = {"zh": "zh", "ja": "ja", "ko": "ko", "en": "en"}
-
-
-def synthesize_line_gpt_sovits(text: str, ref_audio_path: str, ref_text: str, out_path: str,
-                               ref_language: str = "zh", text_lang: str = "en",
-                               base_url: str = GPT_SOVITS_DEFAULT_URL):
-    """GPT-SoVITS (MIT) isn't a pip package -- it runs as its own local
-    server (`python api_v2.py` from its folder, port 9880 by default), the
-    same way pyvideotrans and VideoLingo use it. ref_audio_path must be a
-    3-10s clip; the server reads it from disk, so this passes an absolute
-    path on the same machine. text_lang: the language of `text` itself --
-    "en" for ordinary dubbing/translation-mode narration, or the drama's
-    source_language for original-language narration mode."""
-    import requests
-    try:
-        resp = requests.post(f"{base_url.rstrip('/')}/tts", json={
-            "text": text, "text_lang": _GPT_SOVITS_LANGUAGES.get(text_lang, "en"),
-            "ref_audio_path": os.path.abspath(ref_audio_path),
-            "prompt_text": ref_text or "",
-            "prompt_lang": _GPT_SOVITS_LANGUAGES.get(ref_language, "zh"),
-            "media_type": "wav",
-        }, timeout=300, stream=True)
-    except requests.ConnectionError as e:
-        raise RuntimeError(f"GPT-SoVITS server isn't reachable at {base_url} -- start it with "
-                           "`python api_v2.py` in your GPT-SoVITS folder") from e
-    from services import capped_body
-
-    def too_big():
-        return RuntimeError("GPT-SoVITS sent back more audio than one line can need.")
-    if resp.status_code != 200:
-        detail = capped_body.read_capped(resp, GPT_SOVITS_ERROR_MAX_BYTES, 300,
-                                         too_big).decode("utf-8", errors="replace")
-        raise RuntimeError(f"GPT-SoVITS server error {resp.status_code}: {detail[:300]}")
-    audio = capped_body.read_capped(resp, GPT_SOVITS_AUDIO_MAX_BYTES, 300, too_big)
-    with open(out_path, "wb") as f:
-        f.write(audio)
-    return out_path
-
-
-_chatterbox = None  # (model, its built-in voice conditionals)
-
-
-def _get_chatterbox():
-    """Lazily loads Chatterbox (`pip install chatterbox-tts`, MIT). Every
-    clip it generates carries Resemble AI's imperceptible PerTh
-    watermark -- built into the model, not something this app adds."""
-    global _chatterbox
-    if _chatterbox is None:
-        cuda = _cuda_available()
-        if cuda:
-            _check_vram("Chatterbox")
-        from chatterbox.tts import ChatterboxTTS
-        model = ChatterboxTTS.from_pretrained(device="cuda" if cuda else "cpu")
-        _chatterbox = (model, model.conds)
-    return _chatterbox
-
-
-def synthesize_line_chatterbox(text: str, out_path: str, ref_audio_path: str = None,
-                               exaggeration: float = 0.5):
-    """exaggeration: emotional intensity, 0.4-0.7 recommended -- see
-    emotion.chatterbox_exaggeration(). With no ref_audio_path, speaks in
-    Chatterbox's built-in voice."""
-    import soundfile as sf
-    model, builtin_voice = _get_chatterbox()
-    if not ref_audio_path:
-        # generate() leaves the last clip's voice on the model (self.conds);
-        # without this, a character with no clip would speak in whichever
-        # character's clip was used before it.
-        model.conds = builtin_voice
-    wav = model.generate(text, audio_prompt_path=ref_audio_path or None, exaggeration=exaggeration)
-    sf.write(out_path, wav.squeeze(0).cpu().numpy(), model.sr)
-    return out_path
-
-
-TADA_MODEL_ID = "HumeAI/tada-3b-ml"
-TADA_SAMPLE_RATE = 24000
-# TADA's per-language aligners for the reference clip; anything else uses
-# its default (English) aligner, guided by the clip's transcript.
-_TADA_ALIGNER_LANGUAGES = {"zh": "ch", "ja": "ja"}
-_tada = {"model": None, "encoders": {}, "prompts": {}}
-
-
-def _get_tada(aligner_language):
-    """Lazily loads TADA (`pip install hume-tada`). Code is MIT; the model
-    weights are under Meta's Llama 3.2 Community License, and downloading
-    them needs a Hugging Face account that has accepted that license."""
-    device = "cuda" if _cuda_available() else "cpu"
-    if _tada["model"] is None and device == "cuda":
-        _check_vram("TADA 3B")
-    import torch
-    from tada.modules.encoder import Encoder
-    from tada.modules.tada import TadaForCausalLM
-    if _tada["model"] is None:
-        _tada["model"] = TadaForCausalLM.from_pretrained(
-            TADA_MODEL_ID, torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32).to(device)
-    if aligner_language not in _tada["encoders"]:
-        kwargs = {"language": aligner_language} if aligner_language else {}
-        _tada["encoders"][aligner_language] = Encoder.from_pretrained(
-            "HumeAI/tada-codec", subfolder="encoder", **kwargs).to(device)
-    return _tada["model"], _tada["encoders"][aligner_language], device
-
-
-def synthesize_line_tada(text: str, ref_audio_path: str, ref_text: str, out_path: str,
-                         ref_language: str = None):
-    """TADA needs a reference clip (its "prompt") plus that clip's
-    transcript. The encoded prompt is cached per clip, so a long narration
-    encodes each character's clip once, not once per line."""
-    import soundfile as sf
-    import torch
-    aligner = _TADA_ALIGNER_LANGUAGES.get(ref_language)
-    model, encoder, device = _get_tada(aligner)
-    key = (ref_audio_path, ref_text or "", aligner)
-    prompt = _tada["prompts"].get(key)
-    if prompt is None:
-        data, sr = sf.read(ref_audio_path, dtype="float32", always_2d=True)
-        audio = torch.from_numpy(data.mean(axis=1)).unsqueeze(0).to(device)
-        kwargs = {"text": [ref_text]} if ref_text else {}
-        prompt = encoder(audio, sample_rate=sr, **kwargs)
-        _tada["prompts"][key] = prompt
-    wav = model.generate(prompt=prompt, text=text).audio[0]
-    if wav is None:
-        raise RuntimeError("TADA produced no audio for this line")
-    sf.write(out_path, wav.float().cpu().numpy(), TADA_SAMPLE_RATE)
-    return out_path
-
-
-def _synthesize_cloned(clone: dict, text: str, out_path: str, exaggeration: float = 0.5,
-                       text_lang: str = "en"):
-    """Routes one character_clone_map entry to its engine. text_lang only
-    reaches GPT-SoVITS, the one engine here whose API takes an explicit
-    language for the text being spoken -- the others are zero-shot/
-    multilingual and infer it from the text itself. A missing or broken
-    engine install surfaces as a plain sentence, not an ImportError."""
+def _synthesize_cloned(clone: dict, text: str, out_path: str):
+    """Routes one character_clone_map entry to its engine. A missing or
+    broken engine install surfaces as a plain sentence, not an ImportError."""
     engine = clone.get("engine")
     refusal = engine_refusal(engine)
     if refusal:
         raise RuntimeError(refusal)
     try:
-        if engine == "omnivoice":
-            return synthesize_line_omnivoice(
-                text, out_path, ref_audio_path=clone.get("ref_audio"),
-                ref_text=clone.get("ref_text"), instruct=clone.get("instruct"))
-        if engine == "gpt_sovits":
-            return synthesize_line_gpt_sovits(
-                text, clone["ref_audio"], clone.get("ref_text"), out_path,
-                ref_language=clone.get("ref_language", "zh"), text_lang=text_lang,
-                base_url=clone.get("base_url") or GPT_SOVITS_DEFAULT_URL)
-        if engine == "chatterbox":
-            return synthesize_line_chatterbox(text, out_path, ref_audio_path=clone.get("ref_audio"),
-                                              exaggeration=exaggeration)
-        return synthesize_line_tada(text, clone["ref_audio"], clone.get("ref_text"), out_path,
-                                    ref_language=clone.get("ref_language"))
+        return synthesize_line_omnivoice(
+            text, out_path, ref_audio_path=clone.get("ref_audio"),
+            ref_text=clone.get("ref_text"), instruct=clone.get("instruct"))
     except ImportError as e:
         # A package that is installed but can't load (e.g. a transformers
         # version clash) must not reach the user as a raw traceback.
@@ -329,7 +163,6 @@ def _synthesize_cloned(clone: dict, text: str, out_path: str, exaggeration: floa
 
 
 def clone_map_from_characters(characters, drama_dir: str,
-                              gpt_sovits_url: str = None, ref_language: str = "zh",
                               default_engine: str = DEFAULT_CLONE_ENGINE,
                               speaker_labels=()) -> dict:
     """{speaker_label: clone entry} for build_dub_track/build_narration_track,
@@ -338,18 +171,13 @@ def clone_map_from_characters(characters, drama_dir: str,
     Per character, first match wins (the engine is the character's
     clone_engine, else default_engine, the run's choice):
       1. a reference clip, cloned with that engine;
-      2. a voice description (OmniVoice voice design, no clip needed);
-      3. Chatterbox with no clip (its built-in voice, still emotion-aware).
+      2. a voice description (OmniVoice voice design, no clip needed).
     A character whose engine was removed or is unknown gets no entry (see
     engine_blockers, which the caller checks before generating).
     speaker_labels: every speaker in the lines (None for lines with no
-    speaker). One with no entry yet gets default_engine's voice for
-    someone with nothing set up -- a distinct designed voice for OmniVoice,
-    the built-in voice for Chatterbox. GPT-SoVITS and TADA can't speak
-    without a clip, so they leave the speaker out (speakers_without_voice
-    reports it). A character's elevenlabs_voice_id (hosted cloning, since
-    removed) is ignored -- see clone_removed_message(). ref_language: the
-    drama's source language -- the language spoken in its reference clips."""
+    speaker). One with no entry yet gets a distinct designed voice when
+    default_engine is OmniVoice. A character's elevenlabs_voice_id (hosted
+    cloning, since removed) is ignored -- see clone_removed_message()."""
     out = {}
     for c in characters:
         label = c["speaker_label"]
@@ -357,34 +185,18 @@ def clone_map_from_characters(characters, drama_dir: str,
         if engine not in CLONE_ENGINES:
             continue
         if c.get("ref_audio_filename"):
-            entry = {"engine": engine, "ref_audio": os.path.join(drama_dir, c["ref_audio_filename"]),
-                     "ref_text": c.get("ref_text") or ""}
-            if engine in ("gpt_sovits", "tada"):
-                entry["ref_language"] = ref_language
-            if engine == "gpt_sovits":
-                entry["base_url"] = gpt_sovits_url or GPT_SOVITS_DEFAULT_URL
-            out[label] = entry
+            out[label] = {"engine": engine, "ref_audio": os.path.join(drama_dir, c["ref_audio_filename"]),
+                          "ref_text": c.get("ref_text") or ""}
         elif (c.get("voice_design") or "").strip():
             out[label] = {"engine": "omnivoice", "instruct": c["voice_design"].strip()}
-        elif engine == "chatterbox":
-            out[label] = {"engine": "chatterbox", "ref_audio": None}
 
-    bare = sorted((s for s in set(speaker_labels) if s not in out), key=lambda s: s or "")
     if default_engine == "omnivoice":
+        bare = sorted((s for s in set(speaker_labels) if s not in out), key=lambda s: s or "")
         taken = {e["instruct"] for e in out.values() if e.get("instruct")}
         pool = [d for d in DEFAULT_VOICE_DESCRIPTIONS if d not in taken] or DEFAULT_VOICE_DESCRIPTIONS
         for i, label in enumerate(bare):
             out[label] = {"engine": "omnivoice", "instruct": pool[i % len(pool)]}
-    elif default_engine == "chatterbox":
-        for label in bare:
-            out[label] = {"engine": "chatterbox", "ref_audio": None}
     return out
-
-
-def speakers_without_voice(clone_map: dict, speaker_labels) -> list:
-    """Speakers (sorted) that clone_map_from_characters left without an
-    entry: they have no clip and the run's engine needs one."""
-    return sorted((s for s in set(speaker_labels) if s not in clone_map), key=lambda s: s or "")
 
 
 def engine_blockers(characters, tts_engine) -> list:
@@ -407,7 +219,7 @@ def engine_blockers(characters, tts_engine) -> list:
 # their stored voice id (the column stays, as the record of how their
 # already-generated audio was made) -- they're simply not cloned any more.
 REMOVED_CLONE_MESSAGE = ("This character was previously cloned via ElevenLabs, which has been "
-                         "removed. Re-clone via OmniVoice or GPT-SoVITS to keep using a cloned "
+                         "removed. Re-clone via OmniVoice to keep using a cloned "
                          "voice for them.")
 
 
@@ -431,7 +243,7 @@ def extract_reference_clips(audio_path: str, speaker_segments, drama_dir: str,
 
     clips: {speaker_label: {"path", "start", "end"}} for every speaker
     a suitable segment was found for. Pair this with the matching
-    line's Chinese text as `ref_text` when calling synthesize_line_cloned
+    line's Chinese text as `ref_text` when calling synthesize_line_omnivoice
     -- the original audio's own words, not the translation, since the
     clip is still in the original voice.
 
@@ -484,20 +296,17 @@ def extract_reference_clips(audio_path: str, speaker_segments, drama_dir: str,
 def clip_signature(text: str, voice: dict) -> str:
     """Short hash of the text sent to TTS plus the voice/engine settings
     (a character_clone_map entry)."""
-    voice = {k: v for k, v in voice.items() if k != "base_url"}  # where a server runs isn't the voice
     blob = json.dumps([text, voice], sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:10]
 
 
-def _voice_for_signature(clone, exaggeration=None, lang=None) -> dict:
+def _voice_for_signature(clone, lang=None) -> dict:
     """lang: the narration language mode ("zh"/"ja"/"ko" for
     original-language narration, omitted/None for ordinary translation-mode
     narration or dubbing) -- folded into the signature explicitly so
     switching a drama's narration language always regenerates its clips,
     rather than relying on the spoken text alone happening to differ."""
     out = dict(clone)
-    if clone.get("engine") == "chatterbox":
-        out["exaggeration"] = exaggeration
     if lang:
         out["narration_lang"] = lang
     return out
@@ -592,13 +401,11 @@ def pacing_for_line(ln, pacing: dict):
     return None
 
 
-NO_VOICE_ERROR = ("This speaker has no voice set up: the chosen engine needs a reference clip. "
-                  "Upload or extract one, or pick OmniVoice or Chatterbox in Dub.")
+NO_VOICE_ERROR = "This speaker has no voice set up. Upload or extract a clip, or describe a voice."
 
 
 def build_dub_track(lines, drama_dir: str, character_clone_map: dict, progress_cb=None,
-                     emotion_map: dict = None, max_speedup: float = DUB_MAX_SPEEDUP,
-                     max_slowdown: float = DUB_MAX_SLOWDOWN):
+                     max_speedup: float = DUB_MAX_SPEEDUP, max_slowdown: float = DUB_MAX_SLOWDOWN):
     """
     Synthesizes one clip per line, placed at its correct timestamp, and
     mixes them into a single dub track for the whole episode.
@@ -614,9 +421,6 @@ def build_dub_track(lines, drama_dir: str, character_clone_map: dict, progress_c
     A speaker with no entry has no voice: its lines fail with
     NO_VOICE_ERROR and stay silent.
 
-    emotion_map: optional {line_idx: {"emotion", "intensity"}} (as
-    db.load_emotions returns) -- sets Chatterbox's delivery per line.
-
     max_speedup/max_slowdown: the time-stretch clamp (see
     stretch_for_window). Each line's resulting pacing -- fit / stretched
     / still overflowing, and the factor applied -- is written to
@@ -624,11 +428,9 @@ def build_dub_track(lines, drama_dir: str, character_clone_map: dict, progress_c
     """
     from pydub import AudioSegment
     from translate_engines import call_with_backoff
-    from emotion import chatterbox_exaggeration
 
     clips_dir = os.path.join(drama_dir, "dub_clips")
     os.makedirs(clips_dir, exist_ok=True)
-    emotion_map = emotion_map or {}
     errors = []
 
     total_end = max((ln.end for ln in lines), default=0.0)
@@ -645,8 +447,7 @@ def build_dub_track(lines, drama_dir: str, character_clone_map: dict, progress_c
             if progress_cb:
                 progress_cb((i + 1) / n)
             continue
-        exaggeration = chatterbox_exaggeration(emotion_map.get(ln.idx))
-        signature = clip_signature(ln.en, _voice_for_signature(clone, exaggeration))
+        signature = clip_signature(ln.en, _voice_for_signature(clone))
         # The signature is part of the name (see clip_signature): an edited
         # line gets a fresh clip, an unchanged one is reused on resume.
         clip_path = os.path.join(clips_dir, f"line_{ln.idx:04d}_{signature}.wav")
@@ -666,7 +467,7 @@ def build_dub_track(lines, drama_dir: str, character_clone_map: dict, progress_c
             # clip_path for the "already exists" check above to reuse.
             partial = clip_path[:-len(".wav")] + ".partial.wav"
             try:
-                call_with_backoff(lambda: _synthesize_cloned(clone, ln.en, partial, exaggeration))
+                call_with_backoff(lambda: _synthesize_cloned(clone, ln.en, partial))
                 os.replace(partial, clip_path)
                 clip = AudioSegment.from_file(clip_path)
             except Exception as e:
@@ -709,10 +510,7 @@ def build_dub_track(lines, drama_dir: str, character_clone_map: dict, progress_c
 # Novel narration generates a text unit of up to this many characters in
 # one TTS call -- several consecutive lines of the same speaker joined, for
 # better cross-sentence prosody than one call per subtitle-sized line.
-# Chatterbox's own output length cap (about 40s per call) needs a smaller
-# unit.
 NARRATION_TTS_MAX_CHARS = 500
-_ENGINE_TTS_MAX_CHARS = {"chatterbox": 300}
 
 NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
 
@@ -748,18 +546,15 @@ def narration_paragraph_ends(lines, drama_dir: str):
         return novel_paragraph_ends(lines, f.read())
 
 
-def _narration_steps(lines, character_clone_map, emotion_map, paragraph_ends,
-                     narrate_original: bool = False):
+def _narration_steps(lines, character_clone_map, paragraph_ends, narrate_original: bool = False):
     """Splits narration lines, in order, into ("blank", line) for a line
     with nothing to say and ("unit", unit) for one TTS call. A unit joins
-    consecutive lines while they share a speaker (so one voice) and, for
-    Chatterbox, the same emotional delivery, up to the engine's character
-    budget -- never across a paragraph end or a chapter heading, which
-    always stands alone so it can mark an audiobook chapter.
+    consecutive lines while they share a speaker (so one voice), up to
+    NARRATION_TTS_MAX_CHARS -- never across a paragraph end or a chapter
+    heading, which always stands alone so it can mark an audiobook chapter.
 
     narrate_original: speaks ln.zh (the drama's source text)
     instead of ln.en -- for novel narration's "original language" mode."""
-    from emotion import chatterbox_exaggeration
     steps, current = [], None
     for ln in lines:
         text = (ln.zh if narrate_original else ln.en).strip()
@@ -768,18 +563,14 @@ def _narration_steps(lines, character_clone_map, emotion_map, paragraph_ends,
             current = None
             continue
         clone = character_clone_map.get(ln.speaker or None)
-        engine = clone.get("engine") if clone else None
-        exaggeration = chatterbox_exaggeration(emotion_map.get(ln.idx)) if engine == "chatterbox" else None
         heading = is_chapter_heading(ln)
         if (current is not None and not heading and current["speaker"] == ln.speaker
-                and current["exaggeration"] == exaggeration
-                and len(current["text"]) + 1 + len(text) <= _ENGINE_TTS_MAX_CHARS.get(
-                    engine, NARRATION_TTS_MAX_CHARS)):
+                and len(current["text"]) + 1 + len(text) <= NARRATION_TTS_MAX_CHARS):
             current["lines"].append(ln)
             current["text"] += " " + text
         else:
             current = {"lines": [ln], "text": text, "speaker": ln.speaker, "clone": clone,
-                       "engine": engine, "exaggeration": exaggeration, "error": None}
+                       "error": None}
             steps.append(("unit", current))
         if heading or (paragraph_ends is not None and ln.idx in paragraph_ends):
             current = None
@@ -787,7 +578,7 @@ def _narration_steps(lines, character_clone_map, emotion_map, paragraph_ends,
 
 
 def build_narration_track(lines, drama_dir: str, character_clone_map: dict, progress_cb=None,
-                           gap_ms: int = 350, emotion_map: dict = None,
+                           gap_ms: int = 350,
                            narrate_original: bool = False, source_language: str = "zh"):
     """
     For novel-narration mode: there's no pre-existing timing to sync
@@ -823,12 +614,10 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
 
     clips_dir = os.path.join(drama_dir, "dub_clips")
     os.makedirs(clips_dir, exist_ok=True)
-    emotion_map = emotion_map or {}
     errors = []
 
-    steps = _narration_steps(lines, character_clone_map, emotion_map,
+    steps = _narration_steps(lines, character_clone_map,
                              narration_paragraph_ends(lines, drama_dir), narrate_original=narrate_original)
-    text_lang = source_language if narrate_original else "en"
     units = [unit for kind, unit in steps if kind == "unit"]
     for unit in units:
         first, last = unit["lines"][0].idx, unit["lines"][-1].idx
@@ -836,7 +625,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
             unit["error"] = NO_VOICE_ERROR
             continue
         signature = clip_signature(unit["text"], _voice_for_signature(
-            unit["clone"], unit["exaggeration"],
+            unit["clone"],
             lang=(source_language if narrate_original else None)))
         span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
         # Signature in the name for the same reason as build_dub_track's
@@ -852,11 +641,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
         # to reuse.
         partial = unit["clip_path"][:-len(".wav")] + ".partial.wav"
         try:
-            exaggeration = unit["exaggeration"]
-            call_with_backoff(lambda: _synthesize_cloned(
-                unit["clone"], unit["text"], partial,
-                **({} if exaggeration is None else {"exaggeration": exaggeration}),
-                text_lang=text_lang))
+            call_with_backoff(lambda: _synthesize_cloned(unit["clone"], unit["text"], partial))
             os.replace(partial, unit["clip_path"])
             return None
         except Exception as e:
@@ -1077,7 +862,7 @@ def mix_original_background(track_path: str, source_audio_path: str, drama_dir: 
     return track_path
 
 
-def build_track_subprocess_worker(lines, drama_dir, character_clone_map, is_narration, emotion_map,
+def build_track_subprocess_worker(lines, drama_dir, character_clone_map, is_narration,
                                   max_speedup, max_slowdown, result_queue,
                                   narrate_original=False, source_language="zh",
                                   background_source=None, separation_backend="auto"):
@@ -1107,11 +892,11 @@ def build_track_subprocess_worker(lines, drama_dir, character_clone_map, is_narr
     try:
         if is_narration:
             out_path, errors = build_narration_track(
-                lines, drama_dir, character_clone_map, emotion_map=emotion_map,
+                lines, drama_dir, character_clone_map,
                 narrate_original=narrate_original, source_language=source_language)
         else:
             out_path, errors = build_dub_track(
-                lines, drama_dir, character_clone_map, emotion_map=emotion_map,
+                lines, drama_dir, character_clone_map,
                 max_speedup=max_speedup, max_slowdown=max_slowdown)
         result = {"lines": lines, "out_path": out_path, "errors": errors}
         if background_source and not is_narration:

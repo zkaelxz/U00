@@ -15,7 +15,7 @@ const cfg = {
   is_narration: false,
   narration_language: 'en',
   tts_engines: [
-    { key: 'chatterbox', label: 'Chatterbox' },
+    { key: 'other', label: 'Other engine' },
     { key: 'omnivoice', label: 'OmniVoice' },
   ],
   default_engine: 'omnivoice',

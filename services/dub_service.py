@@ -7,8 +7,7 @@ characters_service. Speakers and lines come from the database, not the
 browser's unsaved session lines.
 
 No FastAPI import: plain dicts out. Nothing secret or
-location-revealing is returned (D2): no filesystem path, no GPT-SoVITS URL,
-only booleans such as `gpt_sovits_configured`.
+location-revealing is returned (D2): no filesystem path.
 """
 import functools
 import importlib.metadata
@@ -19,7 +18,6 @@ import shutil
 import background_jobs
 import db
 import dub
-from services import settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -29,12 +27,9 @@ TTS_ENGINES = [{"key": key, "label": label} for key, label in dub.CLONE_ENGINES.
 
 NO_ENGINE_INSTALLED_MESSAGE = "No voice engine is installed. Install one in Diagnostics."
 
-# Python module and display name of each engine's package. GPT-SoVITS is a
-# separate server, so it has no entry here.
-_ENGINE_PACKAGES = {"omnivoice": ("omnivoice", "OmniVoice"), "chatterbox": ("chatterbox", "Chatterbox"),
-                    "tada": ("tada", "TADA")}
-# OmniVoice needs a newer transformers than the other engines; the install
-# can exist but not load (Qwen3-ASR pins transformers 4.57.6).
+# Python module and display name of each engine's package.
+_ENGINE_PACKAGES = {"omnivoice": ("omnivoice", "OmniVoice")}
+# OmniVoice needs transformers 5.3+; the install can exist but not load.
 _OMNIVOICE_MIN_TRANSFORMERS = (5, 3)
 
 
@@ -71,10 +66,7 @@ def get_dub_config(drama_id: int) -> dict:
     by_label = {c["speaker_label"]: c for c in chars}
 
     speaker_labels = sorted({ln.speaker for ln in lines if ln.speaker})
-    gpt_sovits_url = settings_service.resolve_key("gpt_sovits_url")
-    clone_map = dub.clone_map_from_characters(
-        chars, ddir, gpt_sovits_url=gpt_sovits_url or None, ref_language=source_language,
-        speaker_labels=speaker_labels)
+    clone_map = dub.clone_map_from_characters(chars, ddir, speaker_labels=speaker_labels)
 
     speakers = []
     for label in speaker_labels:
@@ -109,7 +101,6 @@ def get_dub_config(drama_id: int) -> dict:
         "gpu_required": dub.clone_map_uses_local_model(clone_map),
         "speakable_line_count": sum(1 for ln in lines if (getattr(ln, text_field) or "").strip()),
         "track_available": os.path.exists(os.path.join(ddir, track_name)),
-        "gpt_sovits_configured": bool(gpt_sovits_url),
         "can_keep_background": (not is_narration and _source_audio_path(drama) is not None
                                 and _missing_separation_dependency(
                                     drama.get("separation_backend") or "auto") is None),
@@ -126,30 +117,19 @@ def _shown_engine(character, clone) -> str:
     return clone["engine"] if clone else stored
 
 
-NO_CLONE_SOURCE_WARNING = ("{engine} is chosen, but this speaker has no reference clip or voice "
-                           "description, so it will use the voice of the engine picked in Dub. "
-                           "Upload or extract a clip, apply one from the voice bank, or describe a voice.")
 MISSING_CLIP_WARNING = ("This speaker's reference clip is missing from the drama folder, so "
                         "cloning it will fail. Upload or extract a new clip.")
 
 
 def clone_setup_warning(character, clone):
     """Fixed-text reason a speaker won't be cloned as set up, or None
-    (voice-clone setup, parity C09): a clone engine is chosen but
-    dub.clone_map_from_characters found no clip or voice design (it
-    silently falls back to plain TTS), or the stored clip file is gone.
-    Chatterbox with no clip is a real voice, not a fallback. A stored
-    engine that was removed reads as that removal. Never names a path or
-    filename."""
-    engine = (character or {}).get("clone_engine") or ""
-    removed = dub.removed_engine_message(engine)
+    (voice-clone setup, parity C09): the stored clip file is gone, or the
+    stored engine was removed. A speaker with no clip is not a problem: it
+    gets a designed voice. Never names a path or filename."""
+    removed = dub.removed_engine_message((character or {}).get("clone_engine") or "")
     if removed:
         return removed
-    if clone is None or (clone.get("engine") != engine and engine in dub.CLONE_ENGINES):
-        if engine and engine in dub.CLONE_ENGINES:
-            return NO_CLONE_SOURCE_WARNING.format(engine=dub.CLONE_ENGINES[engine])
-        return None
-    ref = clone.get("ref_audio")
+    ref = (clone or {}).get("ref_audio")
     if ref and not os.path.isfile(ref):
         return MISSING_CLIP_WARNING
     return None
@@ -211,11 +191,7 @@ def _transformers_version():
 
 def _engine_install_problem(engine: str):
     """Fixed-text reason `engine` can't run on this PC, or None. Never names
-    a path or the server address."""
-    if engine == "gpt_sovits":
-        if not settings_service.resolve_key("gpt_sovits_url"):
-            return "GPT-SoVITS needs its server address. Set it in Settings."
-        return None
+    a path."""
     module, label = _ENGINE_PACKAGES[engine]
     if importlib.util.find_spec(module) is None:
         return f"{label} is not installed. Install it in Diagnostics."
@@ -239,7 +215,8 @@ def _engine_unavailable_reason(engine: str, narrate_original: bool, source_langu
     if missing:
         return missing
     if narrate_original and not dub.clone_engine_supports_language(engine, source_language):
-        return "This engine can't speak the original language. Pick another voice engine."
+        return (f"{_ENGINE_PACKAGES[engine][1]} can't speak this title's original language. "
+                "Narrate the translation instead.")
     return None
 
 
@@ -275,18 +252,6 @@ def require_can_generate(tts_engine: str, characters, narrate_original: bool = F
     reason = _engine_unavailable_reason(tts_engine, narrate_original, source_language)
     if reason:
         raise DependencyUnavailableError(reason)
-
-
-def require_every_speaker_voiced(clone_map: dict, lines) -> None:
-    """InvalidInputError naming speakers the picked engine can't voice (it
-    needs a clip and they have none), so the run isn't started only to
-    leave their lines silent."""
-    missing = dub.speakers_without_voice(clone_map, {ln.speaker or None for ln in lines})
-    if missing:
-        names = ", ".join(m or "unlabelled lines" for m in missing)
-        raise InvalidInputError(
-            "This voice engine needs a reference clip for every speaker. Missing: "
-            f"{names}. Upload or extract a clip, or pick OmniVoice or Chatterbox.")
 
 
 def resolve_pacing_limits(max_speedup, max_slowdown) -> tuple:
@@ -348,9 +313,9 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
                   max_slowdown=None, narration_language=None,
                   keep_background: bool = False) -> dict:
     """Starts "Generate dub/narration track" as a background process job
-    (`dub_<drama_id>`), with the same voice/clone/emotion/pacing inputs as
-    `cli dub` (per-speaker voices; GPT-SoVITS URL from settings; drama
-    glossary/locale are not used by TTS). The result is applied by an
+    (`dub_<drama_id>`), with the same voice/clone/pacing inputs as
+    `cli dub` (per-speaker voices; drama glossary/locale are not used
+    by TTS). The result is applied by an
     on_done hook, not by a UI render loop. Raises NotFoundError (unknown drama), InvalidInputError (bad
     engine/pacing/narration language, a removed engine, a speaker the
     engine can't voice, or nothing speakable),
@@ -403,10 +368,7 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
     ddir = db.drama_dir(drama_id)
     source_lang = drama.get("source_language") or "zh"
     clone_map = dub.clone_map_from_characters(
-        chars, ddir, gpt_sovits_url=settings_service.resolve_key("gpt_sovits_url") or None,
-        ref_language=source_lang, default_engine=tts_engine,
-        speaker_labels={ln.speaker or None for ln in lines})
-    require_every_speaker_voiced(clone_map, lines)
+        chars, ddir, default_engine=tts_engine, speaker_labels={ln.speaker or None for ln in lines})
 
     started = background_jobs.start_process_job(
         job_id,
@@ -415,8 +377,7 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
         functools.partial(dub.build_track_subprocess_worker, narrate_original=narrate_original,
                           source_language=source_lang, background_source=background_source,
                           separation_backend=separation_backend),
-        args=(lines, ddir, clone_map, is_narration, db.load_emotions(drama_id),
-              max_speedup, max_slowdown),
+        args=(lines, ddir, clone_map, is_narration, max_speedup, max_slowdown),
         gpu_touching=dub.clone_map_uses_local_model(clone_map),
         description=f"Dub generation (drama #{drama_id})",
         on_done=lambda _jid, result: apply_dub_result(drama_id, result))

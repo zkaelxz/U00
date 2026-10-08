@@ -23,8 +23,6 @@ import sys
 # where the loader uses it. Low on purpose: see the module docstring.
 MODEL_VRAM_MB = {
     "OmniVoice": 2000,
-    "Chatterbox": 2000,
-    "TADA 3B": 6500,
     "PaddleOCR-VL-For-Manga": 3000,
 }
 
@@ -66,4 +64,4 @@ def check_fits(what: str, required_mb=None, free_mb=None) -> None:
         f"Not enough free GPU memory to load {what}: it needs about "
         f"{required / 1024:.1f} GB and only {max(free, 0) / 1024:.1f} GB is free. "
         "Close other programs using the GPU (or wait for another Baihe job to "
-        "finish), then try again, or pick a lighter voice engine.")
+        "finish), then try again.")

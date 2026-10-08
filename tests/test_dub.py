@@ -1,7 +1,7 @@
 """
-tests/test_dub.py -- dub.py: voice routing per speaker (OmniVoice,
-Chatterbox, TADA, GPT-SoVITS), dub-track and narration-track assembly, the
-removed Edge TTS / Piper / F5-TTS engines and the clip cache.
+tests/test_dub.py -- dub.py: voice routing per speaker (OmniVoice), dub-track
+and narration-track assembly, the removed Edge TTS / Piper / F5-TTS / TADA /
+Chatterbox / GPT-SoVITS engines and the clip cache.
 
 pydub and the engines' packages aren't installed in this sandbox (no
 ffmpeg-backed audio library, no network, no GPU) -- each is faked at its
@@ -105,49 +105,25 @@ def _fake_omnivoice(calls=None, fail_on=None):
     return synth
 
 
-def _install_fake_requests(monkeypatch, captured):
-    """Registers a fake requests module -- real requests calls out over the
-    network. Appends each posted JSON payload to `captured`, so a test can
-    assert on exactly what GPT-SoVITS's /tts endpoint was asked to say."""
-    fake_module = types.ModuleType("requests")
-
-    class FakeResponse:
-        status_code = 200
-        headers = {}
-        text = ""
-
-        def iter_content(self, size):
-            yield b"fake-audio"
-
-        def close(self):
-            pass
-
-    def fake_post(url, json=None, timeout=None, stream=False):
-        captured.append(json)
-        return FakeResponse()
-
-    class FakeConnectionError(Exception):
-        pass
-
-    fake_module.post = fake_post
-    fake_module.ConnectionError = FakeConnectionError
-    monkeypatch.setitem(sys.modules, "requests", fake_module)
-
-
 class TestRemovedEngines:
-    """Edge TTS, Piper and F5-TTS were removed: nothing of them is left to
+    """Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed:
+    nothing of them is left to
     call, and anything stored under their names is refused in plain words,
     never silently handed to another engine."""
 
     @pytest.mark.parametrize("name", ["synthesize_line", "edge_tts_synthesize", "EdgeTTSBlockedError",
                                       "synthesize_line_offline", "piper_voices_dir", "piper_model_path",
                                       "synthesize_line_cloned", "DEFAULT_VOICE_POOL",
-                                      "DEFAULT_OFFLINE_VOICE_POOL", "PARALLEL_SAFE_ENGINES"])
+                                      "DEFAULT_OFFLINE_VOICE_POOL", "PARALLEL_SAFE_ENGINES",
+                                      "synthesize_line_tada", "synthesize_line_chatterbox",
+                                      "synthesize_line_gpt_sovits", "_get_tada", "_get_chatterbox",
+                                      "GPT_SOVITS_DEFAULT_URL", "TADA_MODEL_ID", "speakers_without_voice"])
     def test_their_code_is_gone(self, name):
         assert not hasattr(dub, name)
 
     @pytest.mark.parametrize("key,label", [("edge_tts", "Edge TTS"), ("offline", "Piper"),
-                                           ("f5tts", "F5-TTS"), ("f5", "F5-TTS")])
+                                           ("f5tts", "F5-TTS"), ("f5", "F5-TTS"), ("tada", "TADA"),
+                                           ("chatterbox", "Chatterbox"), ("gpt_sovits", "GPT-SoVITS")])
     def test_a_stored_key_gets_the_plain_removal_message(self, key, label):
         assert dub.removed_engine_message(key) == (
             f"The {label} engine was removed. Pick another voice engine in Dub.")
@@ -157,10 +133,10 @@ class TestRemovedEngines:
         for engine in dub.CLONE_ENGINES:
             assert dub.engine_refusal(engine) is None and dub.removed_engine_message(engine) is None
         assert dub.engine_refusal("nope") == "Unknown voice engine."
-        assert set(dub.CLONE_ENGINES) == {"omnivoice", "gpt_sovits", "chatterbox", "tada"}
+        assert set(dub.CLONE_ENGINES) == {"omnivoice"}
         assert dub.DEFAULT_CLONE_ENGINE == "omnivoice"
 
-    @pytest.mark.parametrize("key", ["edge_tts", "offline", "f5tts"])
+    @pytest.mark.parametrize("key", ["edge_tts", "offline", "f5tts", "tada", "chatterbox", "gpt_sovits"])
     def test_routing_a_removed_engine_entry_raises_the_message_not_a_traceback(self, key, tmp_path):
         with pytest.raises(RuntimeError, match="was removed. Pick another voice engine in Dub"):
             dub._synthesize_cloned({"engine": key, "ref_audio": "/r.wav", "ref_text": "x"}, "Hi",
@@ -216,24 +192,18 @@ class TestFallbackVoices:
         out = dub.clone_map_from_characters([], str(tmp_path), speaker_labels=labels)
         assert len(out) == len(labels)
 
-    def test_chatterbox_uses_its_built_in_voice(self, tmp_path):
-        out = dub.clone_map_from_characters([], str(tmp_path), default_engine="chatterbox",
-                                            speaker_labels=["A"])
-        assert out == {"A": {"engine": "chatterbox", "ref_audio": None}}
-
-    @pytest.mark.parametrize("engine", ["tada", "gpt_sovits"])
-    def test_engines_that_need_a_clip_leave_a_clipless_speaker_without_a_voice(self, engine, tmp_path):
+    @pytest.mark.parametrize("engine", ["tada", "chatterbox", "gpt_sovits"])
+    def test_a_removed_run_engine_voices_nobody(self, engine, tmp_path):
         chars = [{"speaker_label": "A", "ref_audio_filename": "a.wav", "ref_text": "hi"}]
-        out = dub.clone_map_from_characters(chars, str(tmp_path), default_engine=engine,
-                                            speaker_labels=["A", "B", None])
-        assert set(out) == {"A"} and out["A"]["engine"] == engine
-        assert dub.speakers_without_voice(out, ["A", "B", None]) == [None, "B"]
+        assert dub.clone_map_from_characters(chars, str(tmp_path), default_engine=engine,
+                                             speaker_labels=["A", "B", None]) == {}
 
     def test_a_character_without_its_own_engine_follows_the_runs_engine(self, tmp_path):
         chars = [{"speaker_label": "A", "ref_audio_filename": "a.wav", "ref_text": "hi"},
                  {"speaker_label": "B", "ref_audio_filename": "b.wav", "clone_engine": "tada"}]
-        out = dub.clone_map_from_characters(chars, str(tmp_path), default_engine="chatterbox")
-        assert out["A"]["engine"] == "chatterbox" and out["B"]["engine"] == "tada"
+        out = dub.clone_map_from_characters(chars, str(tmp_path), default_engine="omnivoice")
+        assert out["A"]["engine"] == "omnivoice"
+        assert "B" not in out  # its stored engine was removed; engine_blockers refuses the run
 
 
 class TestBuildDubTrackVoiceRouting:
@@ -249,19 +219,16 @@ class TestBuildDubTrackVoiceRouting:
                             lambda text, out_path, ref_audio_path=None, ref_text=None, instruct=None:
                             calls.append(("omnivoice", text, ref_audio_path, ref_text, instruct))
                             or open(out_path, "w").close())
-        monkeypatch.setattr(dub, "synthesize_line_chatterbox",
-                            lambda text, out_path, ref_audio_path=None, exaggeration=0.5:
-                            calls.append(("chatterbox", text, ref_audio_path)) or open(out_path, "w").close())
 
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A"),
                  Line(idx=1, start=1, end=2, zh="y", en="Bye", speaker="B")]
         _, errors = dub.build_dub_track(lines, str(tmp_path), {
             "A": {"engine": "omnivoice", "ref_audio": "/refs/a.wav", "ref_text": "你好"},
-            "B": {"engine": "chatterbox", "ref_audio": None}})
+            "B": {"engine": "omnivoice", "instruct": "male, low pitch"}})
 
         assert errors == []
         assert calls == [("omnivoice", "Hello", "/refs/a.wav", "你好", None),
-                         ("chatterbox", "Bye", None)]
+                         ("omnivoice", "Bye", None, None, "male, low pitch")]
 
     def test_a_speaker_with_no_entry_stays_silent_with_a_plain_error(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
@@ -421,28 +388,21 @@ class TestNarrateOriginalLanguage:
         # roughly 1/4 vs 3/4 of the clip -- not a 50/50 split
         assert lines[0].end < 0.4
 
-    def test_original_mode_reaches_gpt_sovits_with_the_drama_source_language(self, monkeypatch, tmp_path):
+    def test_original_mode_speaks_the_source_text(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        captured = []
-        _install_fake_requests(monkeypatch, captured)
-        clone_map = {"A": {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi",
-                           "ref_language": "zh"}}
+        calls = []
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), clone_map,
-                                  narrate_original=True, source_language="zh")
-        assert captured[0]["text"] == "你好"
-        assert captured[0]["text_lang"] == "zh"
+        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
+        assert [text for text, _ in calls] == ["你好"]
 
-    def test_translation_mode_still_reaches_gpt_sovits_with_english(self, monkeypatch, tmp_path):
+    def test_translation_mode_speaks_the_translation(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        captured = []
-        _install_fake_requests(monkeypatch, captured)
-        clone_map = {"A": {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi",
-                           "ref_language": "zh"}}
+        calls = []
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), clone_map)
-        assert captured[0]["text"] == "Hello"
-        assert captured[0]["text_lang"] == "en"
+        dub.build_narration_track(lines, str(tmp_path), ALL)
+        assert [text for text, _ in calls] == ["Hello"]
 
     def test_original_mode_narration_lines_still_export_bilingual_subtitles(self, timed, tmp_path):
         import subtitle_formats
@@ -466,71 +426,23 @@ class TestNarrationChaptersOriginalLanguage:
         assert chapters[0][1] == "Chapter One"
 
 
-class TestGPTSoVITSTextLang:
-    """Step 26c: text_lang (the language of the text being spoken) used to
-    be hardcoded "en" -- now driven by narration mode."""
-
-    def test_defaults_to_english(self, tmp_path, monkeypatch):
-        captured = []
-        _install_fake_requests(monkeypatch, captured)
-        dub.synthesize_line_gpt_sovits("Hello", "/ref.wav", "ref text", str(tmp_path / "out.wav"))
-        assert captured[0]["text_lang"] == "en"
-
-    def test_an_explicit_text_lang_is_mapped_to_gpt_sovits_own_codes(self, tmp_path, monkeypatch):
-        captured = []
-        _install_fake_requests(monkeypatch, captured)
-        dub.synthesize_line_gpt_sovits("你好", "/ref.wav", "ref text", str(tmp_path / "out.wav"),
-                                       text_lang="zh")
-        assert captured[0]["text_lang"] == "zh"
-
-    def test_an_unrecognized_text_lang_falls_back_to_english(self, tmp_path, monkeypatch):
-        captured = []
-        _install_fake_requests(monkeypatch, captured)
-        dub.synthesize_line_gpt_sovits("Hello", "/ref.wav", "ref text", str(tmp_path / "out.wav"),
-                                       text_lang="fr")
-        assert captured[0]["text_lang"] == "en"
-
-    def test_synthesize_cloned_threads_text_lang_through_without_touching_ref_language(
-            self, tmp_path, monkeypatch):
-        captured = []
-        _install_fake_requests(monkeypatch, captured)
-        clone = {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi", "ref_language": "ja"}
-        dub._synthesize_cloned(clone, "こんにちは", str(tmp_path / "out.wav"), text_lang="ja")
-        assert captured[0]["text_lang"] == "ja"
-        assert captured[0]["prompt_lang"] == "ja"  # the reference clip's own language, unaffected
-
-    def test_synthesize_cloned_defaults_text_lang_to_english(self, tmp_path, monkeypatch):
-        """build_dub_track's own call site never passes text_lang -- video
-        dubbing always speaks the translation (Step 26c item 5)."""
-        captured = []
-        _install_fake_requests(monkeypatch, captured)
-        clone = {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi", "ref_language": "zh"}
-        dub._synthesize_cloned(clone, "Hello", str(tmp_path / "out.wav"))
-        assert captured[0]["text_lang"] == "en"
-
-
 class TestCloneEngineOriginalLanguages:
-    """Step 26c: which of the multi-engine clone backends are confirmed to
-    speak zh/ja/ko well, gating novel narration's original-language mode
-    in the Workspace character-engine picker."""
+    """Which engines are confirmed to speak zh/ja/ko well, gating novel
+    narration's original-language mode in the Workspace character-engine
+    picker."""
 
     def test_omnivoice_supports_all_three(self):
         for lang in ("zh", "ja", "ko"):
             assert dub.clone_engine_supports_language("omnivoice", lang)
 
-    def test_tada_supports_zh_and_ja_but_not_ko(self):
-        assert dub.clone_engine_supports_language("tada", "zh")
-        assert dub.clone_engine_supports_language("tada", "ja")
-        assert not dub.clone_engine_supports_language("tada", "ko")
+    def test_a_language_outside_the_table_is_not_confirmed(self):
+        assert not dub.clone_engine_supports_language("omnivoice", "en")
 
-    def test_chatterbox_is_not_confirmed_for_any_of_them(self):
-        for lang in ("zh", "ja", "ko"):
-            assert not dub.clone_engine_supports_language("chatterbox", lang)
-
-    def test_engines_outside_the_table_are_unrestricted(self):
-        # GPT-SoVITS is already language-aware on its own terms
-        # (ref_language/text_lang) -- not gated by this table.
-        assert dub.clone_engine_supports_language("gpt_sovits", "ko")
+    def test_removed_engines_are_not_gated_here_but_still_refused(self):
+        # engine_refusal, not the language table, is what stops them.
+        for engine in ("tada", "chatterbox", "gpt_sovits"):
+            assert dub.clone_engine_supports_language(engine, "ko")
+            assert dub.engine_refusal(engine)
 
 
 class TestExtractReferenceClips:
@@ -610,7 +522,7 @@ class TestBuildTrackSubprocessWorker:
         worker_lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            worker_lines, str(tmp_path), ALL, False, {}, 1.4, 0.85, result_queue)
+            worker_lines, str(tmp_path), ALL, False, 1.4, 0.85, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("ok", {"lines": worker_lines, "out_path": direct_out_path,
@@ -627,7 +539,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), ALL, True, {}, 1.4, 0.85, result_queue)
+            lines, str(tmp_path), ALL, True, 1.4, 0.85, result_queue)
         outcome = result_queue.get_nowait()
 
         # only build_narration_track rewrites .start/.end onto the lines
@@ -644,7 +556,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), ALL, False, {}, 1.4, 0.85, result_queue)
+            lines, str(tmp_path), ALL, False, 1.4, 0.85, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("error", "RuntimeError", "boom")
@@ -976,7 +888,7 @@ class TestDubWorkerArgumentBinding:
         queue = object()
         bound = functools.partial(dub.build_track_subprocess_worker,
                                   narrate_original=True, source_language="ja")
-        positional = ([], "/d", {}, False, {}, 1.4, 0.85)
+        positional = ([], "/d", {}, False, 1.4, 0.85)
         call = inspect.signature(bound).bind(*positional, queue)
         call.apply_defaults()  # partial-bound keywords show up as defaults
         assert call.arguments["result_queue"] is queue

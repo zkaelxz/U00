@@ -18,7 +18,7 @@ FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
 KNOWN_PYPI_DISTS = {
     "faster-whisper", "ctranslate2", "opencv-python", "anthropic", "openai", "requests",
     "beautifulsoup4", "pyannote-audio", "soundfile", "pydub",
-    "omnivoice", "chatterbox-tts", "hume-tada", "pytesseract", "pillow", "paddleocr",
+    "omnivoice", "pytesseract", "pillow", "paddleocr",
     "manga-ocr", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
     "transformers", "torch", "torchaudio", "uroman", "sentencepiece", "yt-dlp",
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",

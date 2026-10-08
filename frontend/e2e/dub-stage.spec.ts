@@ -10,7 +10,7 @@ const dubConfig = (over: object = {}) => ({
   default_engine: 'omnivoice',
   defaults: { max_speedup: 1.3, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
   speakers: [], gpu_required: false, speakable_line_count: 3, track_available: false,
-  gpt_sovits_configured: false, can_keep_background: true, ...over,
+  can_keep_background: true, ...over,
 })
 
 const job = (status: string) => ({

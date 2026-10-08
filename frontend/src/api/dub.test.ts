@@ -26,7 +26,6 @@ const cfg = (over: Partial<DubConfig> = {}): DubConfig => ({
   gpu_required: false,
   speakable_line_count: 4,
   track_available: false,
-  gpt_sovits_configured: false,
   can_keep_background: false,
   ...over,
 })

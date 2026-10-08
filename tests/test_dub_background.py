@@ -44,7 +44,7 @@ def test_keep_background_binds_source_and_backend(isolated_db, started):
     target = started[0]["target"]
     assert target.keywords["background_source"].endswith("a.wav")
     assert target.keywords["separation_backend"] == "demucs"
-    assert len(started[0]["args"]) == 7  # queue is appended by background_jobs
+    assert len(started[0]["args"]) == 6  # queue is appended by background_jobs
 
 
 def test_default_has_no_background(isolated_db, started):
@@ -82,7 +82,7 @@ def _worker(monkeypatch, tmp_path, mixer):
     monkeypatch.setattr(dub, "mix_original_background", mixer)
     q = queue.Queue()
     dub.build_track_subprocess_worker(
-        [Line(idx=0, start=0, end=1, zh="x", en="h")], str(tmp_path), {}, False, {}, 1.4, 0.85, q,
+        [Line(idx=0, start=0, end=1, zh="x", en="h")], str(tmp_path), {}, False, 1.4, 0.85, q,
         background_source="/src/a.wav")
     return q.get_nowait()
 

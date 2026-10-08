@@ -48,7 +48,7 @@ Remote access must be in place first: `docs/STATUS.md` says the API must not be 
 
 ### Server-only by nature
 
-Dub and TTS (`services/dub_service.py:303-330`: writes into the title folder, reads voice references and the GPT-SoVITS key, uses network TTS), live capture (`live_service.py:230`), Scanlate and OCR, translate jobs (glossary, style guide, locale, engine keys), benchmark. Autotune, SenseVoice and re-split are v2 candidates.
+Dub and TTS (`services/dub_service.py:303-330`: writes into the title folder, reads voice references), live capture (`live_service.py:230`), Scanlate and OCR, translate jobs (glossary, style guide, locale, engine keys), benchmark. Autotune, SenseVoice and re-split are v2 candidates.
 
 ### CLI (`cli.py`)
 

@@ -223,39 +223,3 @@ def emotion_summary(emotion_map: dict) -> dict:
     return {"total": len(emotion_map), "by_emotion": by_emotion, "high_risk": high_risk}
 
 
-# Chatterbox's `exaggeration` dial: its README recommends 0.4-0.7, with 0.5
-# (its own default) as the neutral read.
-CHATTERBOX_EXAGGERATION_MIN = 0.4
-CHATTERBOX_EXAGGERATION_MAX = 0.7
-CHATTERBOX_NEUTRAL_EXAGGERATION = 0.5
-
-# Registers voiced with more energy than a neutral read push toward the top
-# of the range; subdued/controlled ones toward the bottom. Anything not
-# listed (neutral, or an unknown tag) stays at the neutral default.
-_CHATTERBOX_HIGH_ENERGY = {"angry", "anxious", "playful", "commanding", "flirtatious", "sarcastic"}
-_CHATTERBOX_LOW_ENERGY = {"sad", "suppressed_anger", "intimate", "warm", "formal", "dry_humor", "evasive"}
-
-
-def chatterbox_exaggeration(emotion_info: dict = None) -> float:
-    """Maps one line's detected emotion ({"emotion", "intensity"}, the shape
-    detect_emotions/db.load_emotions return per line) to a Chatterbox
-    exaggeration value, always inside the recommended 0.4-0.7 range. The
-    distance from neutral scales with intensity, so a mildly annoyed line
-    moves only a little and a furious one reaches the top. No tag at all
-    (None, or never detected) reads as neutral."""
-    if not emotion_info:
-        return CHATTERBOX_NEUTRAL_EXAGGERATION
-    emo = emotion_info.get("emotion")
-    if emo in _CHATTERBOX_HIGH_ENERGY:
-        target = CHATTERBOX_EXAGGERATION_MAX
-    elif emo in _CHATTERBOX_LOW_ENERGY:
-        target = CHATTERBOX_EXAGGERATION_MIN
-    else:
-        return CHATTERBOX_NEUTRAL_EXAGGERATION
-    try:
-        intensity = max(0.0, min(1.0, float(emotion_info.get("intensity", 0.5))))
-    except (TypeError, ValueError):
-        intensity = 0.5
-    value = CHATTERBOX_NEUTRAL_EXAGGERATION + (target - CHATTERBOX_NEUTRAL_EXAGGERATION) * intensity
-    return round(value, 2)
-
