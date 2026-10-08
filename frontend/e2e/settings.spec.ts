@@ -89,7 +89,7 @@ test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page)
   const switches = page.locator('#settings-jobs').getByRole('switch')
-  await expect(switches).toHaveCount(4)
+  await expect(switches).toHaveCount(5)
   await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible()
   await expect(page.getByRole('checkbox')).toHaveCount(0)
   const sw = page.getByRole('switch', { name: /Gemini free tier/ })
