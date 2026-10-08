@@ -27,6 +27,9 @@ __all__ = [
     "TrackedSeries",
     "SourceNotification",
     "SourceToggle",
+    "SourcePaceRequest",
+    "SourceExtensionOnlyRequest",
+    "SourceExtensionOnly",
     "SourcesSettingsUpdate",
     "SourceCacheClearRequest",
     "SourceProfileRollbackRequest",
@@ -130,7 +133,8 @@ class DiscoverSearchLinks(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Sources registry and status (S-1). Read-only; S-2 adds
+# Sources registry and status. Read-only; the write
+# request models below follow.
 # the write request models below. No proxy URL, path or query string is ever
 # part of these shapes.
 # ---------------------------------------------------------------------------
@@ -158,6 +162,10 @@ class SourceSummary(BaseModel):
     adult_enabled: bool
     health: str = Field(description="green, yellow or red.")
     has_saved_signin: bool
+    pace: str = Field(description="careful, normal or fast.")
+    fast_allowed: bool = Field(description="False until the adapter records evidence for fast.")
+    slowed_down: bool = Field(description="True while this session's automatic slowdown is active.")
+    extension_only: bool = Field(default=False, description="The person marked this source as working only through the browser extension.")
 
 
 class SourceHealth(BaseModel):
@@ -199,6 +207,10 @@ class SourceDetail(SourceSummary):
                                   "Enforcement is off: never read this as permitted.")
     terms_enforced: bool
     health_detail: SourceHealth
+    extension_marked_at: Optional[float] = None
+    extension_note: str = ""
+    extension_works_without: bool = Field(
+        default=False, description="A Static or Browser test passed after the marker was set.")
 
 
 class SourceAttempt(BaseModel):
@@ -264,6 +276,7 @@ class TrackedSeries(BaseModel):
     drama_id: Optional[int] = None
     last_checked: Optional[float] = None
     last_check_error: Optional[str] = None
+    extension_only: bool = Field(default=False, description="Scheduled checks skip this series: its source works only through the browser extension.")
     # New chapters are also saved as CBZ files (comic sources).
     save_cbz: bool = False
 
@@ -278,10 +291,28 @@ class SourceNotification(BaseModel):
     dismissed: bool
 
 
-# Sources config writes (S-2).
+# Sources config writes.
 class SourceToggle(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: StrictBool
+
+
+class SourcePaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pace: str = Field(max_length=20, description="careful, normal or fast (fast only where allowed).")
+
+
+class SourceExtensionOnlyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    extension_only: StrictBool
+    note: Optional[StrictStr] = Field(default=None, max_length=200)
+
+
+class SourceExtensionOnly(BaseModel):
+    extension_only: bool
+    extension_marked_at: Optional[float] = None
+    extension_note: str = ""
+    extension_works_without: bool = False
 
 
 class SourcesSettingsUpdate(BaseModel):
@@ -327,7 +358,7 @@ class SourceTrackRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: Discover network helpers (spec D-2) -- /api/discover/...
+# Discover network helpers -- /api/discover/...
 # ---------------------------------------------------------------------------
 class DiscoverTranslateQueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -430,7 +461,7 @@ class DiscoverBulkCommitResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: Sources search / series (spec S-3) -- /api/sources/...
+# Sources search / series -- /api/sources/...
 # ---------------------------------------------------------------------------
 class SourcesSearchRequest(BaseModel):
     """Names and text only, never URLs (adapters build their own)."""
@@ -465,7 +496,7 @@ class SourcesJobResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Sources S-4 chapter import (services/sources_import_service.py). Results
+# Sources chapter import (services/sources_import_service.py). Results
 # are read with GET /api/sources/jobs/{job_id}/result (SourcesJobResult).
 # ---------------------------------------------------------------------------
 class SourcesChapterImportRequest(BaseModel):
@@ -486,7 +517,7 @@ class SourcesChapterSaveRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Sources S-5 paste-a-URL preview and novel import
+# Sources paste-a-URL preview and novel import
 # (services/sources_url_service.py, services/sources_import_service.py).
 # Results are read with GET /api/sources/jobs/{job_id}/result.
 # ---------------------------------------------------------------------------
@@ -496,15 +527,15 @@ class SourcesUrlPreviewRequest(BaseModel):
 
 
 class SourcesUrlImportRequest(BaseModel):
-    """Novel text only (thin slice). The drama must be a novel drama."""
+    """Novel text only (thin version). The drama must be a novel drama."""
     model_config = ConfigDict(extra="forbid")
     url: StrictStr = Field(min_length=1, max_length=2000)
     drama_id: int = Field(ge=1)
 
 
 # ---------------------------------------------------------------------------
-# Sources S-6 sign-in, SO17 tier tests, S-7 check-now, tracked-series drama
-# link and the SO18 proxy (services/sources_signin_service.py,
+# Sources sign-in, tier tests, check-now, tracked-series drama
+# link and the proxy (services/sources_signin_service.py,
 # services/sources_tracking_service.py, services/sources_registry_service.py).
 # Jobs are read with GET /api/sources/jobs/{job_id}/result.
 # ---------------------------------------------------------------------------

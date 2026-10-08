@@ -1,24 +1,59 @@
 # Agent notes (OpenCode and other local-model agents)
 
-OpenCode reads this file, not CLAUDE.md. Read `CLAUDE.md` and
-`docs/small-model-checklist.md` before changing anything; they are the rules.
+OpenCode loads this file, not `CLAUDE.md`. You must still read the project rules in
+`CLAUDE.md`; if the two disagree, `CLAUDE.md` wins. Read the section below that touches your task.
 
-- Your context is small. Do not read many files. Run `python tools/repo_map.py`
-  (or `--find "<word>"`, or `python tools/repo_map.py <module>`) on demand.
-- Work in small tasks: one task, a handful of files. If it needs more than about
-  four files, stop and split it.
-- While iterating run only the matching file: `python -m pytest -q tests/test_<area>.py`.
-  Per-area commands: `docs/testing-and-ci.md`. Run the full suite once at the end
-  (command in CLAUDE.md).
-- Never skip or weaken a test.
+## How to work
+- Search before opening. `python tools/repo_map.py --find "<word>"` searches names, signatures
+  and docstrings only. For function bodies, tests and docs use `git grep -n "<text>"`.
+- Read the module you change and one caller. List a module first
+  (`python tools/repo_map.py <module>`), then read by line range.
+- Files listed in `OVERSIZED_MODULE_BYTES` (`tests/test_static_analysis.py`): use `--part N`, never open whole.
+- A task brief's allowed files are binding. More than about four files: stop and say how to split the task.
+- Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Run the full suite once at the
+  end: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`.
+- Never skip, delete or loosen a test.
+- Skip `docs/archive/` (history only), `docs/specs/`, `docs/design/` and `.claude/` unless the task is about them.
 
-Rules from CLAUDE.md that bite most:
-- Match LLM results back to lines by explicit id, never by list position.
-- No secrets in logs, URLs or stored errors: keys go in headers; pass error text
+## Rules that bite
+A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set.
+- Match LLM results to lines by explicit id, never by list position.
+- No secrets in URLs, logs, stored errors or API responses. Keys go in headers; pass error text
   through `translate_engines.redact_secrets`.
 - Every outbound HTTP call has `timeout=`.
-- Every API route declares exactly one of `require_permission(...)`,
-  `public_route()` or `local_only()`.
+- Every API route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()`
+  and has its row in `docs/route-permissions.md`.
+- Jobs save only their own fields: `db.save_lines(id, lines, fields=("en",))`.
+- A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db` and is listed in
+  `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
+- CLI and app behave the same: change one, check the other.
+- Keep the removed-name sets, because old saved settings still name removed engines:
+  `REMOVED_ENGINES` (`engine_backends/engine_registry.py`), `REMOVED_VOICE_ENGINES` (`dub.py`),
+  `REMOVED_ASR_BACKENDS` (`services/asr_options_service.py`), `REMOVED_SOURCES` (`sources/registry.py`).
+
+## Fragile seams
+- db: `configure_library_dir` rebinds `LIBRARY_DIR`, `DB_PATH` and friends, so read them as `db.X`
+  when used and never copy them. A read-then-write transaction starts with `BEGIN IMMEDIATE`. See `docs/database.md`.
+- Process-job workers (`diarize.py`, `resegment.py`, `dub.py`, `dub_narration.py`, `services/transcribe_service.py`) stay
+  top-level and picklable: Windows starts them in a fresh interpreter. Only transcribe forces spawn, so a bad
+  worker passes Linux CI and fails on Windows. See `docs/background-jobs.md`.
+- `background_jobs`: the `_jobs` dict under `_lock` is the authority. Never start a thread or process while holding `_lock`.
+- Tests patch the module that uses a name, not a front door that re-exports it.
+
+## Splitting files
+40 KB is a ceiling, not a target. A new file must own one domain or workflow, cut what a model reads for a
+typical task, and be easier to edit than the whole; no forwarding-only modules, no grab-bags of helpers.
+Done means:
+1. Moved, not rewritten: behaviour, messages and signatures unchanged.
+2. Callers import from the new module. Old names stay importable only through the front doors
+   `db`, `translate_engines`, `api.schemas`, or where the brief says.
+3. A test patch on a moved name points at the module that now uses it; no assertion removed or loosened; same pass count.
+4. Inside the `db` package (once it exists) call other db functions as `db.<name>`.
+5. The new module is named in `FILE_ORGANIZATION.md`; a new top-level `.py` is also added to the
+   expected-files list (today `diagnostics.EXPECTED_TOP_LEVEL_FILES`; check the current location first).
+6. Split PRs do not edit `OVERSIZED_MODULE_BYTES`: stale entries only warn, and one ratchet PR after each wave removes them.
+7. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
+   `tests/test_diagnostics_and_export.py`, then the full suite, and report counts.
 
 ## Where to look
 
@@ -39,7 +74,7 @@ whole: `db`, `background_jobs`, `diagnostics`, `cli`, `core`, plus every file li
 | Review / lines | workspace/stages/ReviewStage.tsx, workspace/stages/review/ | lines_routes.py, review_lines_routes.py, review_extras_routes.py, review_records_routes.py | lines_service.py, review_lines_service.py, line_tools_service.py | line_tools.py, auto_qc.py, resegment.py | lines, line_history, line_provenance | test_lines_service.py, test_review_lines_service.py, test_api_lines.py | review-*.spec.ts | api-and-services.md |
 | Characters / glossary | workspace/stages/CharactersPanel.tsx, workspace/stages/GlossaryPanel.tsx | characters_routes.py, glossary_routes.py, series_people_routes.py | characters_service.py, glossary_service.py, series_people_service.py | translation_memory.py | characters, series_characters, glossary_terms | test_characters_service.py, test_glossary_service.py, test_api_glossary.py | characters-*.spec.ts, glossary-*.spec.ts | database.md |
 | Live translate | Live.tsx, live/ | live_routes.py | live_service.py | live_translate.py, live_fetch.py | n/a | test_live_service.py, test_live_translate.py, test_live_fetch.py, test_api_live.py | live*.spec.ts | n/a |
-| Dubbing | workspace/stages/DubStage.tsx, workspace/stages/VoiceClonePanel.tsx | dub_routes.py, voice_clone_routes.py, narration_routes.py | dub_service.py, voice_clone_service.py, narration_service.py | dub.py, voice_id.py | voice_bank, characters | test_dub.py, test_dub_service.py, test_api_dub.py, test_voice_id.py | dub-*.spec.ts, voice-*.spec.ts | engine-backends.md |
+| Dubbing | workspace/stages/DubStage.tsx, workspace/stages/VoiceClonePanel.tsx | dub_routes.py, voice_clone_routes.py, narration_routes.py | dub_service.py, voice_clone_service.py, narration_service.py | dub.py, dub_narration.py, voice_id.py | voice_bank, characters | test_dub.py, test_dub_service.py, test_api_dub.py, test_voice_id.py | dub-*.spec.ts, voice-*.spec.ts | engine-backends.md |
 | Scanlate / OCR | Comic.tsx, comic/, SavedManga.tsx | scanlate_routes.py, comic_routes.py, saved_comics_routes.py | scanlate_run_service.py, scanlate_pages_service.py, comic_view_service.py | scanlate.py, ocr.py, hardsub_ocr.py | pages, bubbles | test_scanlate.py, test_ocr.py, test_hardsub_ocr.py, test_api_comic_viewer.py | scanlate*.spec.ts, comic*.spec.ts | n/a |
 | Sources / adapters | Sources.tsx, sources/, Discover.tsx | source_routes.py, sources_*_routes.py | source_service.py, sources_*_service.py | sources/ (adapters in sources/adapters/), page_fetch.py | `sources.db` via sources/store.py | test_sources_*.py, test_api_sources_*.py, test_source_service.py | sources*.spec.ts, source-*.spec.ts | adding-source.md, content-sources.md |
 | Benchmark lab | Benchmark.tsx, benchmark/ | benchmark_routes.py, model_reeval_routes.py, model_registry_routes.py | benchmark_lab_service.py, model_reeval_service.py, model_registry_service.py | benchmark.py, asr_benchmark.py | benchmark_*, model_candidates, model_decisions | test_benchmark_lab.py, test_benchmark.py, test_model_reeval.py, test_api_benchmark.py | lab-*.spec.ts, bench-sections.spec.ts | database.md |

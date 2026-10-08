@@ -3,6 +3,7 @@ no ffmpeg, yt-dlp, Whisper or network."""
 import os
 import re
 import socket
+import threading
 import time
 
 import pytest
@@ -45,7 +46,7 @@ def live(monkeypatch, isolated_db):
         return p
 
     monkeypatch.setattr(live_translate, "start_segment_capture", fake_capture)
-    monkeypatch.setattr(live_translate, "stop_capture", lambda proc: setattr(proc, "stopped", True))
+    monkeypatch.setattr(live_translate, "stop_capture", lambda proc, **kw: setattr(proc, "stopped", True))
     yield calls
     for sid in list(live_service._sessions):
         live_translate.bump_generation(sid)
@@ -214,6 +215,32 @@ def test_dir_removed_on_cancel_while_running(live):
     assert _terminal(sid)
     assert live_service.get_session(sid)["status"] == "cancelled"
     assert not os.path.exists(out_dir)
+
+
+def test_status_names_the_stage_and_what_a_stop_waits_on(live, monkeypatch):
+    release = threading.Event()
+    inside = threading.Event()
+
+    def blocked_chunk(path, idx, seg, lang, size, engine, on_stage=None, **k):
+        on_stage("transcribing")
+        inside.set()
+        release.wait(10)
+        return []
+
+    monkeypatch.setattr(live_translate, "process_chunk", blocked_chunk)
+    sid = _start(overlap_seconds=0)
+    assert _wait(lambda: "out_dir" in live)
+    for i in range(2):
+        open(os.path.join(live["out_dir"], f"chunk_{i:05d}.wav"), "wb").close()
+    assert inside.wait(8)
+    assert "Chunk 0: transcribing with Whisper small" in live_service.get_session(sid)["message"]
+
+    live_service.stop_session(sid)
+    message = live_service.get_session(sid)["message"]
+    assert "cannot be interrupted" in message
+    assert "finishes the current step first" not in message
+    release.set()
+    assert _terminal(sid)
 
 
 def test_dir_removed_on_cancel_while_queued(live, monkeypatch):
