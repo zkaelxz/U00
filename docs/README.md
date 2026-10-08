@@ -38,7 +38,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`household-access.md`** — step-by-step guide to reach Baihe from
   household devices through Caddy (`deploy/caddy/Caddyfile.template`).
 - **`windows-installer-design.md`** — the Windows installer/uninstaller:
-  Step 80's design, as built in Step 80b (`installer/`).
+  what `installer/` builds and why: install layout, build steps, upgrade and uninstall, the boot service. Cut history: `archive/windows-installer-design-history.md`.
 - **`technical-notes.md`** — an engineering changelog of real bugs found
   and how they were fixed, kept separate from the user-facing docs.
 - **`RELEASE.md`** — building the Windows installer and the frontend release zip.
@@ -56,7 +56,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   truth: the migration review, handoff and React/FastAPI phase log, the
   old roadmap master tracker, the Streamlit test triage, the superseded
   remote-access and browser-extension handoffs, the installer research
-  notes, the Step 19 click-through audit, and the unbuilt Jellyfin/Plex metadata
+  notes and cut installer-design history, the Step 19 click-through audit, and the unbuilt Jellyfin/Plex metadata
   design.
 
 ## `docs/secondary-review-notes.md` — not present here
