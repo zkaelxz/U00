@@ -51,6 +51,11 @@
    "category": "kinship"
   },
   {
+   "source": "青梅竹馬",
+   "en": "childhood friend",
+   "category": "kinship"
+  },
+  {
    "source": "闺蜜",
    "en": "best friend",
    "category": "kinship",
@@ -124,6 +129,11 @@
   },
   {
    "source": "打赏",
+   "en": "tip",
+   "category": "streamer"
+  },
+  {
+   "source": "打賞",
    "en": "tip",
    "category": "streamer"
   }

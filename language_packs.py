@@ -241,17 +241,16 @@ def matching_entries(choices: dict, text: str, user_terms=None,
     for src in taken:
         if src in text:
             claimants[src] = None
-    claimed = []
-
-    def free(span):
-        return not any(span[0] < c[1] and c[0] < span[1] for c in claimed)
-
+    # One flag per character instead of a list of spans: this runs on a whole
+    # run's text, and checking each candidate against every claimed span was quadratic.
+    claimed = bytearray(len(text))
     keep = set()
     for src in sorted(claimants, key=lambda w: -len(w)):
-        spans = [sp for sp in _spans(src, text) if free(sp)]
+        spans = [sp for sp in _spans(src, text) if not any(claimed[sp[0]:sp[1]])]
         if spans:
             keep.add(src)
-            claimed.extend(spans)
+            for start, end in spans:
+                claimed[start:end] = b"\x01" * (end - start)
     found = []
     for pack_id in in_scope:
         for entry in packs[pack_id]["entries"]:

@@ -121,7 +121,27 @@
    "context": "to an older male fellow disciple"
   },
   {
+   "source": "師兄",
+   "en": {
+    "natural": "senior brother",
+    "pinyin": "shixiong"
+   },
+   "category": "honorific",
+   "note": "Cultivation and martial settings; a fellow disciple.",
+   "context": "to an older male fellow disciple"
+  },
+  {
    "source": "师姐",
+   "en": {
+    "natural": "senior sister",
+    "pinyin": "shijie"
+   },
+   "category": "honorific",
+   "note": "Cultivation and martial settings; a fellow disciple.",
+   "context": "to an older female fellow disciple"
+  },
+  {
+   "source": "師姐",
    "en": {
     "natural": "senior sister",
     "pinyin": "shijie"
@@ -140,7 +160,25 @@
    "context": "to a younger male fellow disciple"
   },
   {
+   "source": "師弟",
+   "en": {
+    "natural": "junior brother",
+    "pinyin": "shidi"
+   },
+   "category": "honorific",
+   "context": "to a younger male fellow disciple"
+  },
+  {
    "source": "师妹",
+   "en": {
+    "natural": "junior sister",
+    "pinyin": "shimei"
+   },
+   "category": "honorific",
+   "context": "to a younger female fellow disciple"
+  },
+  {
+   "source": "師妹",
    "en": {
     "natural": "junior sister",
     "pinyin": "shimei"
@@ -159,7 +197,26 @@
    "context": "disciple to their teacher in a cultivation setting"
   },
   {
+   "source": "師尊",
+   "en": {
+    "natural": "Master",
+    "pinyin": "shizun"
+   },
+   "category": "honorific",
+   "note": "Respectful; keep capitalised.",
+   "context": "disciple to their teacher in a cultivation setting"
+  },
+  {
    "source": "师父",
+   "en": {
+    "natural": "master",
+    "pinyin": "shifu"
+   },
+   "category": "honorific",
+   "context": "disciple to teacher, or to a skilled craftsperson"
+  },
+  {
+   "source": "師父",
    "en": {
     "natural": "master",
     "pinyin": "shifu"

@@ -167,6 +167,36 @@ class TestSelection:
         found = lp.matching_entries({"zh-address": None, "zh-common": None}, "老師，學長說媽媽的彈幕")
         assert {"老師", "學長", "媽媽", "彈幕"} <= {e["source"] for e in found}
 
+    def test_every_simplified_zh_entry_has_a_traditional_twin(self):
+        # Only the characters the shipped entries use; a dependency for full conversion isn't worth it.
+        to_traditional = str.maketrans({
+            "师": "師", "辈": "輩", "长": "長", "妈": "媽", "弹": "彈",
+            "闺": "閨", "总": "總", "马": "馬", "赏": "賞", "学": "學",
+        })
+        for pack_id in ("zh-address", "zh-common"):
+            sources = {e["source"] for e in lp.all_packs()[pack_id]["entries"]}
+            missing = [s for s in sources if s.translate(to_traditional) != s
+                       and s.translate(to_traditional) not in sources]
+            assert not missing, f"{pack_id} lacks a traditional form for {missing}"
+
+    def test_traditional_cultivation_and_streamer_terms_match(self):
+        found = lp.matching_entries({"zh-address": None, "zh-common": None}, "師兄、師姐、師弟、師妹、師尊、師父，青梅竹馬，打賞")
+        assert {"師兄", "師姐", "師弟", "師妹", "師尊", "師父", "青梅竹馬", "打賞"} <= {e["source"] for e in found}
+
+    def test_longer_word_of_a_turned_off_pack_still_blocks_a_short_entry(self):
+        ko = lp.matching_entries({"ko-address": None}, "회장님")
+        assert "님" not in [e["source"] for e in ko]
+        ja = lp.matching_entries({"ja-address": None}, "お疲れ様")
+        assert "様" not in [e["source"] for e in ja]
+
+    def test_matching_is_linear_in_the_text_length(self):
+        import time
+        text = "田中さん、山田様。" * 25000
+        start = time.perf_counter()
+        found = lp.matching_entries({"ja-address": None}, text)
+        assert time.perf_counter() - start < 1.0
+        assert {"さん", "様"} <= {e["source"] for e in found}
+
     def test_prompt_is_capped(self):
         pack = lp.validate_pack(_pack(entries=[{"source": f"w{i}", "en": "x"} for i in range(100)]), "f")
         lp._cache = {"t-pack": pack}
