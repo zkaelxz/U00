@@ -34,7 +34,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `voice_id.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**: `translate_engines.py`, `translation_guide.py`, `translation_memory.py`, `auto_qc.py`, `en_cleanup.py`,
-`emotion.py`, `bulk_translate.py`, `live_translate.py`, `live_fetch.py`, `glossary_io.py` (term categories/policies and glossary file import/export; re-exported by `translation_guide.py`)
+`emotion.py`, `bulk_translate.py`, `live_translate.py`, `live_fetch.py`, `glossary_io.py` (term categories/policies and glossary file import/export; re-exported by the translation guide module)
 
 **Dubbing, subtitles & video**: `dub.py`, `video_export.py`, `media_inspect.py`, `subtitle_formats.py`, `video_download.py`
 
