@@ -235,6 +235,7 @@ baihe-subtitler/
 │   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
 │   ├── usage_recost_service.py   opt-in re-cost of old usage_log rows of a reviewed list of mis-costed models: preview, apply (old value kept), undo
+│   ├── spend_history_service.py  read-only spend by month (usage_log, same cost column and month boundary as the cap) with operation / engine+model / title breakdowns and a CSV of the month table
 │   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
 │   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
 │   ├── diagnostics_gaps_service.py  M1 -- setup checks, model versions and cache,
@@ -503,6 +504,7 @@ baihe-subtitler/
 │   │   ├── __init__.py     re-exports every module, so `from api.schemas import X` works
 │   │   ├── common.py       error envelope, API_VERSION and models shared by several domains
 │   │   ├── system.py       health, settings, diagnostics/setup, jobs, updates, notifications, extension, ports, bug reports
+│   │   ├── spend_history.py  GET /api/settings/spend-history: month table and breakdowns
 │   │   ├── review.py       line views and edits, records/versions, restructure and resegment, Review AI extras
 │   │   ├── characters.py   characters, glossary and series-person models
 │   │   ├── translate.py    standalone translator, translate runs, workflow tiers, presets, bulk jobs
@@ -683,6 +685,7 @@ baihe-subtitler/
 │       ├── asr_options_routes.py /api/settings/asr-options (GET admin.settings, POST local_only;
 │       │                         Steps 103/104)
 │       ├── usage_recost_routes.py /api/settings/usage-recost (GET admin.settings; /apply, /undo POST local_only)
+│       ├── spend_history_routes.py /api/settings/spend-history (GET admin.settings; /export.csv GET local_only)
 │       ├── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
 │       │                         /dramas/{id}/send -- all local_only (Step 39)
 │       ├── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,

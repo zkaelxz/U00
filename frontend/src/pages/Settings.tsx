@@ -25,6 +25,7 @@ import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { NotionSection } from './settings/NotionSection'
 import { PastCostsCard } from './settings/PastCostsCard'
+import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
 import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
@@ -245,6 +246,7 @@ export default function SettingsPage() {
             <DefaultsCard {...prefProps} />
             <SpendingCard {...prefProps} />
             <PastCostsCard />
+            <SpendHistoryCard />
           </Fold>
           <Fold id="alerts" signals={signals} summary="Notifications, automatic backups, app updates">
             <NotificationsSection />
