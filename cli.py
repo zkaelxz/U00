@@ -75,6 +75,7 @@ import translate_engines
 import translation_guide as tguide
 import bulk_translate, raw_transcript
 import dub as dub_module
+import dub_narration as dn
 import background_jobs
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
@@ -980,7 +981,7 @@ def cmd_dub(args):
             chars, ddir, default_engine=tts_engine,
             speaker_labels={ln.speaker or None for ln in lines})
 
-        build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
+        build_fn = dub_service.track_builder(is_narration)
         stretch = {} if is_narration else dict(
             max_speedup=max_speedup, max_slowdown=max_slowdown)
         narration_kwargs = (dict(narrate_original=narrate_original, source_language=source_lang)
@@ -1028,7 +1029,7 @@ def cmd_dub(args):
                       fields=("dub_filename", "start", "end") if is_narration else ("dub_filename",))
         db.update_drama(d["id"], status="dubbed")
         if is_narration and getattr(args, "m4b", False):
-            m4b_path = dub_module.export_narration_m4b(
+            m4b_path = dn.export_narration_m4b(
                 lines, ddir, title=d.get("title_en") or d.get("title_zh"),
                 narrate_original=narrate_original)
             print(f"\n#{d['id']} audiobook: {m4b_path}")

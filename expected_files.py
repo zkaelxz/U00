@@ -3,7 +3,7 @@
 # missing file shows up as "missing" rather than just not being checked.
 EXPECTED_TOP_LEVEL_FILES = [
     "core.py", "db.py", "translate_engines.py",
-    "diarize.py", "dub.py", "video_export.py", "ocr.py", "segment.py",
+    "diarize.py", "dub.py", "dub_narration.py", "video_export.py", "ocr.py", "segment.py",
     "dictionary.py", "reader.py", "scanlate.py", "metadata_lookup.py",
     "known_sites.py", "title_library.py", "vocab_export.py",
     "qa.py", "bulk_import.py", "epub_io.py", "cli.py", "diagnostics.py",
