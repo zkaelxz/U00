@@ -17,6 +17,8 @@ const els = {
   cancelCapture: document.getElementById("cancelCapture"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
+  dramaTitle: document.getElementById("dramaTitle"),
+  openLink: document.getElementById("openInBaihe"),
   notice: document.getElementById("notice"),
   noticeText: document.getElementById("noticeText"),
   noticeAction: document.getElementById("noticeAction"),
@@ -27,6 +29,12 @@ const els = {
 // "unreachable" without the popup reading the token itself.
 const NO_TOKEN_PREFIX = "No token yet";
 let noticeHandler = null;
+
+// The Baihe app (not the extension bridge on 8756) serves the comic page. It binds this port by
+// default (api/api_config.DEFAULT_PORT); opening a tab to it needs no host permission, and the
+// link carries only a drama id.
+const APP_URL = "http://127.0.0.1:8600";
+const dramaTitles = new Map();
 
 function setControlsEnabled(enabled) {
   for (const el of els.controls) el.disabled = !enabled;
@@ -43,6 +51,40 @@ function showNotice(text, actionLabel, handler) {
 function say(message, bad = false) {
   els.status.textContent = message;
   els.status.classList.toggle("bad", !!bad);
+  // A new message replaces the result it described, so its link goes too.
+  els.openLink.hidden = true;
+}
+
+function showDramaTitle() {
+  // A <select> truncates long titles with no way to wrap them, so the full title is repeated
+  // here (and as a tooltip) once one is picked.
+  const title = dramaTitles.get(els.drama.value) || "";
+  els.dramaTitle.textContent = title;
+  els.dramaTitle.hidden = !title;
+  els.drama.title = title;
+}
+
+function showOpenLink(dramaId) {
+  els.openLink.href = `${APP_URL}/#/comic/${dramaId}`;
+  els.openLink.hidden = false;
+}
+
+// The result line has to say where pages went: a bare count left it unclear whether anything
+// was saved.
+function describeDestination({ sent, cached, store, dramaId }) {
+  const title = dramaTitles.get(String(dramaId)) || "the drama";
+  const parts = [];
+  if (!store) {
+    if (sent) parts.push(`Drew ${sent} page${sent === 1 ? "" : "s"} on the page only, not saved`);
+  } else if (sent) {
+    parts.push(`Sent ${sent} page${sent === 1 ? "" : "s"} to ${title}`);
+  }
+  if (cached) {
+    parts.push(store
+      ? `${cached} already translated, not sent again`
+      : `${cached} already translated, redrawn only`);
+  }
+  return parts;
 }
 
 async function activeTab() {
@@ -91,11 +133,14 @@ async function load() {
     option.textContent = drama.media_type
       ? `${drama.title} (${drama.media_type})`
       : drama.title;
+    option.title = drama.title;
+    dramaTitles.set(option.value, drama.title);
     els.drama.appendChild(option);
   }
   // Reading a long series shouldn't be a per-page decision.
   const remembered = (settings.dramaBySite || {})[site];
   if (remembered) els.drama.value = String(remembered);
+  showDramaTitle();
   els.overlay.checked = settings.overlay !== false;
 
   const direction = settings.textDirection || { source: "zh", target: "en" };
@@ -141,18 +186,24 @@ async function run(all) {
     if (!result || !result.ok) {
       return say((result && result.error) || "That didn't work.", true);
     }
-    const pages = (result.data.pages || []).length;
+    const pageList = result.data.pages || [];
     const cached = result.data.cached || 0;
     const skipped = (result.data.skipped || []).length;
-    const notes = (result.data.pages || []).flatMap((p) => p.notes || []);
-    const parts = [];
-    if (pages) parts.push(`${pages} page${pages === 1 ? "" : "s"} translated`);
-    if (cached) parts.push(`${cached} already done`);
+    const notes = pageList.flatMap((p) => p.notes || []);
+    // The server reports per page whether it was really saved (no drama, or store off, means not).
+    const saved = pageList.filter((p) => p.stored).length;
+    const store = els.store.checked;
+    const parts = describeDestination({
+      sent: store ? saved : pageList.length, cached, store, dramaId });
+    if (store && pageList.length > saved) {
+      parts.push(`${pageList.length - saved} drawn only, not saved`);
+    }
     if (skipped) parts.push(`${skipped} skipped as not a page`);
     const failed = result.data.failed;
     if (failed) parts.push(failed.message);
     say(parts.join(", ") + (notes.length ? ` — ${notes[0][1]}` : ""),
         !!failed || notes.some((n) => n[0] === "error"));
+    if (store && dramaId && saved) showOpenLink(dramaId);
   } catch (e) {
     // The usual cause is a page the browser won't let an extension into
     // (the Chrome Web Store, a PDF viewer, chrome:// pages).
@@ -245,6 +296,7 @@ async function runText() {
   }
 }
 
+els.drama.addEventListener("change", showDramaTitle);
 els.translate.addEventListener("click", () => run(false));
 els.translateAll.addEventListener("click", () => run(true));
 els.captureChapter.addEventListener("click", () => runCapture(false));
@@ -273,6 +325,11 @@ els.toggle.addEventListener("click", async () => {
   } catch (e) {
     say(`Couldn't reach this page (${e.message}).`, true);
   }
+});
+els.openLink.addEventListener("click", (event) => {
+  // An extension popup can't follow a plain link into a new tab on its own.
+  event.preventDefault();
+  chrome.tabs.create({ url: els.openLink.href });
 });
 els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
 

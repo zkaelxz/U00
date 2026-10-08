@@ -26,7 +26,6 @@ class ComicChapter(BaseModel):
     id: str
     title: str
     known: bool
-    host: str
     first_page: int
     page_count: int
     hidden_count: int

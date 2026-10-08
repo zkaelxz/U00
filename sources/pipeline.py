@@ -435,8 +435,7 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                     try:
                         outcome = {"pages": add_page_images(
                             drama_id, images, ids_out=page_ids,
-                            chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, ch.url,
-                                                               source))}
+                            chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, source))}
                     except Exception:
                         _warn("Could not add a chapter's pages")
                         # If this raises, pages may remain: the chapter stays "partial".

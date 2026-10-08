@@ -233,3 +233,29 @@ class TestImageHashWorksOnPlainHttpPages:
         code = _code("content.js")
         assert "crypto.subtle" in code and "weakHash(buffer)" in code
         assert code.index("weakHash(buffer)") < code.index("crypto.subtle.digest")
+
+
+class TestThePopupSaysWherePagesWent:
+    def test_the_open_link_targets_the_comic_route_with_only_an_id(self):
+        import api.api_config as api_config
+        popup = _code("popup.js")
+        assert f'APP_URL = "http://127.0.0.1:{api_config.DEFAULT_PORT}"' in popup
+        assert "/#/comic/${dramaId}" in popup
+        assert "token" not in popup.lower().split("showopenlink", 1)[1].split("}", 1)[0]
+
+    def test_opening_the_link_needs_no_new_permission(self, manifest):
+        assert "tabs" not in manifest["permissions"]
+        assert manifest["host_permissions"] == ["http://127.0.0.1:8756/*"]
+
+    def test_the_result_line_names_the_destination_and_the_unsaved_case(self):
+        popup = _code("popup.js")
+        for wording in ("Sent ${sent} page", "already translated, not sent again",
+                        "on the page only, not saved"):
+            assert wording in popup
+
+    def test_the_markup_keeps_its_ids_and_shows_the_full_drama_title(self):
+        html = _read("popup.html")
+        for element_id in ("drama", "store", "status", "openInBaihe", "dramaTitle"):
+            assert f'id="{element_id}"' in html
+        assert 'aria-live="polite"' in html
+        assert "width: 340px" in html

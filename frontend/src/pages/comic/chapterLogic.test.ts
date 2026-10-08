@@ -18,7 +18,7 @@ const page = (n: number, chapter: string, over: Partial<ComicPageInfo> = {}): Co
   chapter_id: chapter, ...over,
 })
 const ch = (id: string, title: string, first: number, count: number, hidden = 0, known = true): ComicChapter => ({
-  id, title, known, host: '', first_page: first, page_count: count, hidden_count: hidden,
+  id, title, known, first_page: first, page_count: count, hidden_count: hidden,
 })
 
 // Chapter a: pages 1-3 (page 1 hidden), chapter b: pages 4-5.
