@@ -205,7 +205,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
                                     settings.session_max_days * 86400)
     if settings.auth_enabled:
         # Innermost: gives each request a holder for "who started this job"
-        # (auth B2, api.auth.ActingPrincipalMiddleware).
+        # (api.auth.ActingPrincipalMiddleware).
         app.add_middleware(ActingPrincipalMiddleware)
         # Added before CORS so CORS stays the outermost layer (dev preflight).
         app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
