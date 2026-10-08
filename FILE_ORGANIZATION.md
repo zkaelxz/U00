@@ -56,7 +56,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `diagnostics_service.py`, `diarization_service.py`, `discover_catalog_service.py`,
 `discover_lookup_service.py`, `disk_usage_service.py`, `drama_service.py`, `dub_service.py`,
 `egress_proxy.py`, `engine_routing_service.py`, `event_stream_service.py`, `export_service.py`,
-`extension_service.py`, `fixflag_transcribe.py`, `glossary_retranslate_service.py`, `glossary_service.py`, `jellyfin_service.py`,
+`extension_service.py`, `fixflag_transcribe.py`, `glossary_extract_service.py`, `glossary_retranslate_service.py`, `glossary_service.py`, `jellyfin_service.py`,
 `job_checkpoint_service.py`, `job_timing_service.py`, `jobs_service.py`, `library_admin_service.py`,
 `library_service.py`, `line_ai_service.py`, `line_provenance_service.py`, `line_tools_service.py`,
 `lines_service.py`, `live_service.py`, `lncrawl_service.py`, `maintenance_assistant_service.py`,
