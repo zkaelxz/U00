@@ -582,7 +582,7 @@ def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referen
                  "style_guidelines": style_guidelines, "style_preset": style_preset},
                 batch_size=batch_size, force_retranslate=force_retranslate)
         if engine_name == "deepseek":
-            # thinking is the run's own: the job starts hours later
+            # the run's own thinking: the job starts later
             return bulk_translate.schedule_offpeak_translation(
                 drama_id, lines, engine_name, getattr(engine, "model", ""),
                 {"style_note": style_note, "locale": locale, "glossary_terms": glossary_terms,
