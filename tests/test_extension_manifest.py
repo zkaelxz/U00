@@ -165,6 +165,60 @@ class TestBatchSizeMatchesTheServer:
         assert int(match.group(1)) == page_server.MAX_IMAGES_PER_REQUEST
 
 
+class TestChapterCaptureStaysPolite:
+    """The scroll-through capture reads what the reader has already
+    rendered; these pin the numbers and shapes that keep it that way."""
+
+    def _const(self, name):
+        import re
+        match = re.search(rf"const {name} = (\d+);", _code("content.js"))
+        assert match, f"content.js must declare {name}"
+        return int(match.group(1))
+
+    def test_the_page_cap_is_the_documented_300(self):
+        assert self._const("CAPTURE_MAX_PAGES") == 300
+
+    def test_steps_are_paced_like_a_person_scrolling(self):
+        low, high = self._const("CAPTURE_STEP_MIN_MS"), self._const("CAPTURE_STEP_MAX_MS")
+        assert 250 <= low < high <= 600
+
+    def test_the_scroll_step_matches_the_server_side_scroll(self):
+        import re
+        import page_scroll
+        assert "innerHeight * 0.9" in page_scroll.SCROLL_THROUGH_JS
+        assert re.search(r"const CAPTURE_STEP_FRACTION = 0\.9;", _code("content.js"))
+
+    def test_capture_sends_through_the_shared_batcher_at_the_servers_limit(self):
+        code = _code("content.js")
+        assert code.count("async function sendInBatches(") == 1
+        run = code[code.index("async function runCapture("):]
+        assert "sendInBatches(batch," in run
+        assert "limit = MAX_IMAGES_PER_REQUEST" in run
+        assert self._const("MAX_IMAGES_PER_REQUEST") == page_server.MAX_IMAGES_PER_REQUEST
+
+    def test_translate_is_refused_while_a_capture_runs(self):
+        code = _code("content.js")
+        visible = code[code.index("async function translateVisible("):]
+        assert "if (state.capture)" in visible[:visible.index("looksLikeChallengePage")]
+        popup = _code("popup.js")
+        capturing = popup[popup.index("function showCapturing("):popup.index("async function runCapture(")]
+        assert "els.translate.disabled = running" in capturing
+        assert "els.translateAll.disabled = running" in capturing
+
+    def test_canvases_get_a_per_canvas_draw_target(self):
+        code = _code("content.js")
+        assert "canvasIds = new WeakMap()" in code
+        run = code[code.index("async function runCapture("):]
+        assert "srcKey === null" not in run
+        assert "drawTargetKey(el) === srcKey" in run
+
+    def test_capture_makes_no_calls_of_its_own(self):
+        code = _code("content.js")
+        capture = code[code.index("const CAPTURE_MAX_PAGES"):code.index("function cancelCapture")]
+        for banned in ("fetch(", "XMLHttpRequest", "sendBeacon", "new WebSocket"):
+            assert banned not in capture
+
+
 class TestTextCaptureStaysWithinTheSameModel:
     """Step 96's text-capture mode is a second input surface on the same
     extension, not a second extension -- it has to follow the same rules
@@ -195,3 +249,29 @@ class TestImageHashWorksOnPlainHttpPages:
         code = _code("content.js")
         assert "crypto.subtle" in code and "weakHash(buffer)" in code
         assert code.index("weakHash(buffer)") < code.index("crypto.subtle.digest")
+
+
+class TestThePopupSaysWherePagesWent:
+    def test_the_open_link_targets_the_comic_route_with_only_an_id(self):
+        import api.api_config as api_config
+        popup = _code("popup.js")
+        assert f'APP_URL = "http://127.0.0.1:{api_config.DEFAULT_PORT}"' in popup
+        assert "/#/comic/${dramaId}" in popup
+        assert "token" not in popup.lower().split("showopenlink", 1)[1].split("}", 1)[0]
+
+    def test_opening_the_link_needs_no_new_permission(self, manifest):
+        assert "tabs" not in manifest["permissions"]
+        assert manifest["host_permissions"] == ["http://127.0.0.1:8756/*"]
+
+    def test_the_result_line_names_the_destination_and_the_unsaved_case(self):
+        popup = _code("popup.js")
+        for wording in ("Sent ${sent} page", "already translated, not sent again",
+                        "on the page only, not saved"):
+            assert wording in popup
+
+    def test_the_markup_keeps_its_ids_and_shows_the_full_drama_title(self):
+        html = _read("popup.html")
+        for element_id in ("drama", "store", "status", "openInBaihe", "dramaTitle"):
+            assert f'id="{element_id}"' in html
+        assert 'aria-live="polite"' in html
+        assert "width: 340px" in html

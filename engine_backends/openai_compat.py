@@ -6,6 +6,7 @@ from services import capped_body
 
 from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_listed_extra_models
 from .prompts import build_batch_user_message, build_stable_system_text
+from .thinking import deepseek_extra_body
 from .shared import (
     ContentModerationBlocked,
     ProviderResponseTooLarge,
@@ -29,7 +30,7 @@ class DeepSeekEngine:
     name = "deepseek"
     supports_reference = True
 
-    def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):
+    def __init__(self, api_key: str, model: str = "deepseek-flash"):
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com",
                              timeout=SDK_REQUEST_TIMEOUT)
@@ -47,6 +48,7 @@ class DeepSeekEngine:
                     {"role": "system", "content": system_text},
                     {"role": "user", "content": build_batch_user_message(context, numbered)},
                 ],
+                **deepseek_extra_body(context),
             )
             usage = getattr(resp, "usage", None)
             if usage:

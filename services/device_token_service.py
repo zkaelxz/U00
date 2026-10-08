@@ -47,6 +47,9 @@ _TOKEN_RE = re.compile(r"baihe_dt_[A-Za-z0-9_-]{43}")
 MAX_LABEL_CHARS = 40
 MAX_LIVE_TOKENS = 10
 MAX_EXPIRY_DAYS = 365
+# An omitted expiry must not mean a token that lives forever; only an explicit
+# None (the settings page's "Never" choice) does.
+DEFAULT_EXPIRY_DAYS = 90
 _TOUCH_INTERVAL_SECONDS = 60
 _KEEP_ENDED_SECONDS = 30 * 24 * 3600
 _GENERIC_401 = "Authentication required."
@@ -119,7 +122,7 @@ def _require_pc_for_admin(is_admin: bool, at_pc: bool):
 
 # --- the signed-in user's own tokens -------------------------------------------
 
-def create_token(principal: dict, label, expires_in_days=None, ip: str = "",
+def create_token(principal: dict, label, expires_in_days=DEFAULT_EXPIRY_DAYS, ip: str = "",
                  at_pc: bool = False, now: float = None) -> dict:
     """{"token": <shown once>, "device_token": <public row>}. 404 without an
     account (the owner at the PC with sign-in off has none), 403 without

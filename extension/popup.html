@@ -23,6 +23,7 @@
     .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     #translate { width: 100%; min-height: 44px; }
     #translateText { width: 100%; }
+    #dramaTitle { overflow-wrap: anywhere; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -39,9 +40,10 @@
       <div>
         <label for="drama">Send pages to</label>
         <select id="drama"><option value="">— pick a drama —</option></select>
+        <p id="dramaTitle" class="hint" hidden></p>
       </div>
       <div class="switches">
-        <label class="switch"><input type="checkbox" role="switch" id="store" checked><span>Save page into drama</span></label>
+        <label class="switch"><input type="checkbox" role="switch" id="store" checked><span>Also save the page into that drama</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="overlay" checked><span>Draw over page</span></label>
       </div>
       <button id="translate" class="primary" type="button">Translate this page</button>
@@ -49,6 +51,11 @@
         <button id="translateAll" type="button">Everything visible</button>
         <button id="toggle" type="button">Show / hide</button>
       </div>
+      <div class="segmented">
+        <button id="captureChapter" type="button">Capture whole chapter</button>
+        <button id="captureFromHere" type="button">Capture from here</button>
+      </div>
+      <button id="cancelCapture" type="button" hidden>Cancel capture</button>
     </section>
 
     <section id="textSection" class="quiet" aria-label="Translate selected text">
@@ -69,6 +76,7 @@
     </section>
 
     <p id="status" class="status" role="status" aria-live="polite">Checking the app…</p>
+    <a id="openInBaihe" href="#" hidden>Open in Baihe</a>
   </main>
   <script src="popup.js"></script>
 </body>

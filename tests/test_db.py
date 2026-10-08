@@ -2118,7 +2118,8 @@ class TestInitDbSchema:
         assert not missing, (
             f"db.py adds these columns to existing tables but _INIT_DB_MIGRATED_COLUMNS in "
             f"tests/test_db.py doesn't list them, so no test upgrades an old database "
-            f"through them: {missing}")
+            f"through them: {missing}. Add each (table, column) to _INIT_DB_MIGRATED_COLUMNS: "
+            f"{{table: [columns]}}.")
 
     def test_old_database_upgrades_to_the_fresh_schema(self, isolated_db):
         fresh = _schema_shape(isolated_db.DB_PATH)

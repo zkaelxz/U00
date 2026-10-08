@@ -11,6 +11,7 @@ and the dependency accepts no session cookie, query string or second header.
 import hashlib
 import re
 import sqlite3
+import time
 
 import pytest
 
@@ -161,6 +162,19 @@ class TestCreate:
         u, s = _member()
         r = _remote(_app()).post(OWN, json={"label": "L", "expires_in_days": days}, headers=_h(s))
         assert r.status_code == 422
+
+    def test_omitted_expiry_is_90_days_and_null_is_explicit_never(self, isolated_db):
+        u, s = _member()
+        c = _remote(_app())
+        before = time.time()
+        r = c.post(OWN, json={"label": "Default"}, headers=_h(s))
+        assert r.status_code == 200, r.text
+        expires = r.json()["device_token"]["expires_at"]
+        assert abs(expires - (before + 90 * 86400)) < 60
+        r = c.post(OWN, json={"label": "Never", "expires_in_days": None}, headers=_h(s))
+        assert r.status_code == 200 and r.json()["device_token"]["expires_at"] is None
+        assert svc.create_token({"user_id": u["id"], "permissions": ["extension.send"]},
+                                "Svc")["device_token"]["expires_at"] is not None
 
     def test_needs_extension_send(self, isolated_db):
         u, s = _member(send=False)

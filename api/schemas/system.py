@@ -307,6 +307,8 @@ class SettingsPreferences(BaseModel):
     monthly_cap_usd: Optional[float] = None
     max_upload_mb: int = 20480
     ollama_num_ctx_override: int
+    keep_free_vram_gb: float = 0.0
+    keep_free_ram_gb: float = 0.0
     whisper_model_path: str
     ocr_backend: str
     ocr_prefer_paddle_vl_manga: bool
@@ -392,6 +394,8 @@ class SettingsUpdateRequest(BaseModel):
     monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None
     max_upload_mb: Optional[StrictInt] = None
     ollama_num_ctx_override: Optional[StrictInt] = None
+    keep_free_vram_gb: Optional[Union[StrictInt, StrictFloat]] = None
+    keep_free_ram_gb: Optional[Union[StrictInt, StrictFloat]] = None
     whisper_model_path: Optional[StrictStr] = Field(None, max_length=1024)
     ocr_backend: Optional[StrictStr] = Field(None, max_length=40)
     ocr_prefer_paddle_vl_manga: Optional[StrictBool] = None
@@ -772,7 +776,8 @@ class DeviceTokenList(BaseModel):
 class DeviceTokenCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: StrictStr = Field(..., min_length=1, max_length=40)
-    expires_in_days: Optional[StrictInt] = Field(None, ge=1, le=365)
+    # Omitted means 90 days; an explicit null means the token never expires.
+    expires_in_days: Optional[StrictInt] = Field(90, ge=1, le=365)
 
 
 class DeviceTokenCreated(BaseModel):
