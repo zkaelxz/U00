@@ -32,6 +32,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
 - **`starting-a-project.md`** — a retrospective: the day-one setup, session habits and feature rules to follow when starting a project like this from scratch.
+- **`user-guide.md`** — the feature walkthroughs, CLI, dev setup and ports, troubleshooting, Diagnostics and Benchmark Lab that used to be in the root `README.md`.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
 - **`household-access.md`** — step-by-step guide to reach Baihe from
@@ -39,8 +40,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`windows-installer-design.md`** — the Windows installer/uninstaller:
   Step 80's design, as built in Step 80b (`installer/`).
 - **`technical-notes.md`** — an engineering changelog of real bugs found
-  and how they were fixed, kept separate from the main `README.md` so
-  that stays focused on using the app.
+  and how they were fixed, kept separate from the user-facing docs.
 - **`RELEASE.md`** — building the Windows installer and the frontend release zip.
 - **`database.md`** — the database layer: `db.py` and `sources.db`, migrations and the guard test, a table map, the rules learned from bugs, backups, and what sits on disk beside the database.
 - **`runbook.md`** — one-page maintainer steps: installer lock, tests, restore, certificate, benchmark.
