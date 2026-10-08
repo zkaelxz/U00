@@ -1,11 +1,11 @@
 """
 api/routers/diagnostics_gaps_routes.py -- the Diagnostics features the
-read-only overview (diagnostics_routes.py) lacks (API batch 1). Thin: see services/diagnostics_gaps_service.py.
+read-only overview (diagnostics_routes.py) lacks. Thin: see services/diagnostics_gaps_service.py.
 
-Reads are `admin.diagnostics`: setup checks (Q01), model cache (Q14, list
-only), pyannote readiness (Q15; `check_access=true` asks Hugging Face with
-the server-side token and returns booleans only), finished-job history
-(Q09), log tail with keyword filter (Q18), the support report (Q17) and
+Reads are `admin.diagnostics`: setup checks, model cache (list
+only), pyannote readiness (`check_access=true` asks Hugging Face with
+the server-side token and returns booleans only), finished-job history,
+log tail with keyword filter, the support report and
 install presets (packages grouped by task, installed versions, approx.
 sizes, PyPI links) and GPU PyTorch status. `POST /gpu-torch/check` (the
 status plus a CUDA check in a fresh Python; 409 while a job or another
@@ -15,12 +15,12 @@ asks PyPI (a fixed https://pypi.org/pypi/<dist>/json per static dist name,
 with a timeout) only when called, and caches the answer for Upgrade.
 
 Writes are `local_only()` plus `confirm=true`: dependency install and
-upgrade (Q06, package names from the service's whitelist only; upgrade
+upgrade (package names from the service's whitelist only; upgrade
 takes the `target` the user confirmed and is 409 when the last update check
 no longer says so), the GPU
 PyTorch setup (a fixed variant; versions and index come from diagnostics.py's
 static table, never the request) and the
-library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
+library reset (also `confirm_text` "RESET"). Each refuses while any
 background job runs (409). Deleting a cached model or model
 file (torch.hub checkpoints, audio-separator models) is also
 `local_only()` + `confirm=true`, refused while a job runs, and takes only a
