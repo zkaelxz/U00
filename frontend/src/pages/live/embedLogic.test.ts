@@ -220,6 +220,10 @@ describe('captionDelay', () => {
   it('is the clamped window when the slider asks for more than the stream keeps', () => {
     expect(captionDelay(report({ duration: 10, currentTime: 0 }), 30, flags)).toBe(10)
   })
+  it('follows the measured delay when the viewer scrubs away from the target', () => {
+    expect(captionDelay(report({ duration: 300, currentTime: 300 }), 15, flags)).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 290 }), 30, flags)).toBe(10)
+  })
   it('is 0 while the picture is not yet behind live', () => {
     expect(captionDelay(null, 15, flags)).toBe(0)
     expect(captionDelay(report({ duration: 300 }), 15, flags)).toBe(0)

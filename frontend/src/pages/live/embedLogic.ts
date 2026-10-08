@@ -214,15 +214,18 @@ export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupp
  * a stream that rewinds less than the slider asks is not outrun by its own
  * captions. 0 while the picture is not behind live (not started, moving,
  * unreported, ignoring seeks), because holding captions then only makes them
- * later still.
+ * later still. Once a seek was confirmed, a picture that no longer sits at the
+ * target (the viewer used the player's own LIVE button or scrubbed) is held for
+ * what it measures, since the overlay cannot intercept those clicks.
  */
 export function captionDelay(info: PlayerInfo | null, delay: number, opts: { unsupported: boolean; moving: boolean; unreachable: boolean; offset?: number }): number {
   const offset = opts.offset ?? 0
   if (notStarted(info) || opts.unsupported || opts.moving) return 0
   const m = measuredDelay(info, offset)
   if (m === null || m > IMPLAUSIBLE_DELAY_S) return 0
-  if (opts.unreachable && !delayReached(info, delay, offset)) return 0
-  return reachableDelay(info, delay, offset)
+  const reached = delayReached(info, delay, offset)
+  if (opts.unreachable && !reached) return 0
+  return reached ? reachableDelay(info, delay, offset) : m
 }
 
 /** The postMessage payloads for the YouTube player. */

@@ -143,6 +143,7 @@ test('shows a waiting note until the player reports, then asks again when seeks 
 test('before the player reports the note says it is waiting', async ({ page }) => {
   test.setTimeout(45_000)
   const { live } = await startRunning(page, YT, '<p>silent</p>')
+  await expect(live.getByTestId('live-video-note')).toHaveText('Waiting for the player…')
 })
 
 test('Larger video gives the picture the row and puts the lines under it, and is remembered', async ({ page }) => {
@@ -294,6 +295,23 @@ test('captions wait only as long as the picture really is behind live when the w
   const spoken = Math.round((Date.now() - started) / 1000) + 13
   m.state.cues = [cue(0), cue(1), { ...cue(2), id: 2, start: spoken, end: spoken + 2, translated: 'Clamped line' }]
   await expect(live.getByTestId('live-caption')).toContainText('Clamped line', { timeout: 15_000 })
+})
+
+test('captions stop waiting once the viewer scrubs the picture back to live', async ({ page }) => {
+  test.setTimeout(60_000)
+  const { m, live } = await startRunning(page)
+  const note = live.getByTestId('live-video-note')
+  await live.getByLabel('Video delay', { exact: true }).fill('30')
+  await expect(note).toHaveText('Playing about 30 s behind live.', { timeout: 20_000 })
+  // The player's own LIVE button: the caption overlay lets clicks through, so the slider does not know.
+  await ytFrame(page)!.evaluate(() => {
+    const w = window as unknown as { cur: number; edge: number; report: () => void }
+    w.cur = w.edge
+    w.report()
+  })
+  await expect(note).toHaveText('Playing about 0 s behind live.')
+  m.state.cues = [cue(0), cue(1), cue(2)]
+  await expect(live.getByTestId('live-caption')).toContainText('Line 2:', { timeout: 10_000 })
 })
 
 test('captions are not held while the player has not started', async ({ page }) => {

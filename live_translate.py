@@ -605,8 +605,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
 
     Stale-chunk guard: this call's generation (bump_generation(), captured
     at the top) is re-checked before a chunk is applied. If Stop bumped it
-    mid-chunk, the chunk is not added to the cues (its ids are reused); the
-    lines on_cues showed stay pending/cancelled until the next result.
+    mid-chunk, its cues are not added; whatever on_cues last published
+    (pending, cancelled or done) remains the final result.
 
     overlap_seconds: how much of each chunk's own audio tail is prepended
     to the next chunk before transcribing it (see the module docstring
