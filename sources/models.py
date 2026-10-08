@@ -334,6 +334,7 @@ class AttemptRecord:
     text_length: Optional[int] = None
     headers: dict = field(default_factory=dict)
     at: Optional[float] = None
+    missing: str = ""   # NOT_INSTALLED only: what is absent (ladder.MISSING_*)
     # Which browser translator, if any, had already rewritten the page
     # before this app ever saw it. Not a failure -- the page loaded --
     # but it means the text here is a translation, not the source.

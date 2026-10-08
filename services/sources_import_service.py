@@ -575,15 +575,46 @@ _BILIBILI_MANGA_HINT = (
     "page, or save the chapter page from your own browser and import that file.")
 
 
+_BILIBILI_NEEDS_BROWSER = (
+    " Bilibili Manga builds its pages with scripts, so the images only appear in a real browser.")
+_PLAYWRIGHT_MISSING = (
+    " The browser step could not run because the Playwright package is not installed. "
+    "Install it in Diagnostics > Packages (group 'Novels & reader', 'Novel sources from "
+    "websites'), then try again. No browser download is needed when Chrome or Edge is installed.")
+_BROWSER_MISSING = (
+    " The browser step could not run because no Chrome or Edge was found on this computer. "
+    "Install one of them, then try again.")
+_NO_BROWSER_TRIED = (
+    " No browser was used for this request; import it from the PC the app runs on, or save "
+    "the chapter page from your own browser and import that file.")
+
+
+def _bilibili_manga_cause(browser_tier: str) -> str:
+    """Names why Bilibili Manga's client-rendered page showed no images: a
+    browser that couldn't start comes first, since sign-in only matters once
+    the page actually rendered."""
+    if browser_tier == ladder.MISSING_PLAYWRIGHT:
+        return _BILIBILI_NEEDS_BROWSER + _PLAYWRIGHT_MISSING
+    if browser_tier == ladder.MISSING_BROWSER:
+        return _BILIBILI_NEEDS_BROWSER + _BROWSER_MISSING
+    if browser_tier == "ran":
+        return _BILIBILI_MANGA_HINT
+    return _BILIBILI_NEEDS_BROWSER + _NO_BROWSER_TRIED
+
+
 def _no_pages_error(exc, url) -> dict:
     """The 422 for a page with no usable images, saying why (the report's
     reason and each tier's line, scrubbed) instead of only the generic text."""
     report = getattr(exc, "report", None)
     reason = scrub((getattr(report, "reason", "") or "").strip())[:300]
     lines = [scrub(x)[:300] for x in (getattr(report, "access_lines", None) or [])][:10]
-    message = _NO_PAGES + (f" Why: {reason}" if reason else "")
+    why = f" Why: {reason}" if reason else ""
+    message = _NO_PAGES + why
     if (urlsplit(url or "").hostname or "").lower().endswith("manga.bilibili.com"):
-        message += _BILIBILI_MANGA_HINT
+        cause = _bilibili_manga_cause(getattr(report, "browser_tier", ""))
+        # A browser that couldn't start is the cause, so it leads; the generic
+        # "no image tags" reason is only a symptom of it.
+        message = _NO_PAGES + cause + why if cause != _BILIBILI_MANGA_HINT else message + cause
     return {"status": 422, "code": InvalidInputError.code, "message": message,
             "details": {"reason": "NO_CONTENT", "diagnostic": lines}}
 

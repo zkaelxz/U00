@@ -39,6 +39,10 @@ from .models import (AccessTier, AiMlUse, AttemptRecord, AutomationPermission,
                      TechnicalStatus, TermsProhibited, TierResult, explain_protection,
                      SPA_SHELL_BROWSER_NOTE, SPA_SHELL_STATIC_NOTE)
 
+MISSING_PLAYWRIGHT = "playwright"
+MISSING_BROWSER = "browser"
+_BROWSER_TIERS = (AccessTier.RENDERED_BROWSER.value, AccessTier.AUTHENTICATED_BROWSER.value)
+
 TIER_LABELS = {
     AccessTier.STATIC_HTTP: "Static HTTP",
     AccessTier.RENDERED_BROWSER: "Browser",
@@ -60,6 +64,7 @@ class TierOutcome:
     evidence: dict = field(default_factory=dict)
     data: object = None                             # tier-specific payload (e.g. API metadata)
     stop: bool = False                              # refused address -- try no further tier
+    missing: str = ""                               # NOT_INSTALLED only: MISSING_PLAYWRIGHT / MISSING_BROWSER
 
 
 @dataclass
@@ -171,9 +176,10 @@ def _browser_outcome(url, client, fetch, action) -> TierOutcome:
             html, _text = fetch(url)
     except ImportError as e:
         return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED],
-                           detail=str(e).splitlines()[0])
+                           detail=str(e).splitlines()[0], missing=MISSING_PLAYWRIGHT)
     except page_fetch.BrowserNotFound as e:
-        return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED], detail=str(e))
+        return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED], detail=str(e),
+                           missing=MISSING_BROWSER)
     except Exception as e:
         from translate_engines import redact_secrets
         reason = FailureReason.TIMEOUT if "timeout" in type(e).__name__.lower() \
@@ -277,7 +283,7 @@ def run_ladder(url: str, tiers: dict, source: str = None, log: bool = True) -> L
             detail=outcome.detail, at=time.time(),
             http_status=ev.get("http_status"), final_url=ev.get("final_url") or "",
             page_title=ev.get("page_title") or "", text_length=ev.get("text_length"),
-            headers=ev.get("headers") or {})
+            headers=ev.get("headers") or {}, missing=outcome.missing)
         result.attempts.append(attempt)
         for r in outcome.reasons:
             if r not in result.reasons:
@@ -342,6 +348,17 @@ def _resolve_status(result: LadderResult):
         result.technical_status = TechnicalStatus.BLOCKED_IN_CURRENT_ENVIRONMENT.value
     else:
         result.technical_status = TechnicalStatus.UNRESOLVED.value
+
+
+def browser_tier_state(result: LadderResult) -> str:
+    """What happened to the browser tiers: MISSING_PLAYWRIGHT or
+    MISSING_BROWSER when they couldn't start on this machine, "ran" when one
+    opened the page, "" when none was tried."""
+    attempts = [a for a in result.attempts if a.tier in _BROWSER_TIERS]
+    for a in attempts:
+        if a.missing:
+            return a.missing
+    return "ran" if attempts else ""
 
 
 # ---------------------------------------------------------------------------
