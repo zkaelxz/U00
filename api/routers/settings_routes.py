@@ -8,7 +8,7 @@ and preferences; secrets use the key/endpoint routes below.
 Settings parity: POST also takes the persisted preferences (defaults for
 new dramas, spending cap, Ollama num_ctx, offline Whisper folder, OCR
 defaults, yt-dlp cookies); `/endpoints/{name}` sets or clears the Ollama
-and GPT-SoVITS URLs in .env behind the same guard as keys.
+URL in .env behind the same guard as keys.
 
 Write-only engine key endpoints (`POST /keys/{engine}` and
 `/keys/{engine}/clear`). Off by default (BAIHE_API_ALLOW_KEY_WRITES=1) and
@@ -142,7 +142,7 @@ async def clear_engine_key(engine: str, request: Request):
 
 
 @router.post("/endpoints/{name}", dependencies=[local_only()], response_model=EndpointUrlResult,
-             summary="Set the Ollama or GPT-SoVITS URL in .env (local PC only)")
+             summary="Set the Ollama URL in .env (local PC only)")
 async def set_endpoint_url(name: str, request: Request):
     require_local_admin(request)
     body = await read_body(request, EndpointUrlSetRequest)

@@ -45,7 +45,7 @@ const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   gemini: 'Gemini',
   openai: 'OpenAI',
   ollama: 'Ollama (local)',
-  nllb: 'NLLB (offline)',
+  nllb: 'NLLB (removed)', // still shown for old history rows
 }
 
 // The API's `label` is a long description, not a name, so the picker shows
@@ -55,6 +55,17 @@ export function engineShortName(engine: Pick<TranslateEngine, 'name'>): string {
   if (known) return known
   const words = engine.name.replace(/[_-]+/g, ' ').trim()
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : engine.name
+}
+
+// Closed <select> text for an engine: its short name, never the note. The
+// selects sit in narrow grid cells, so the note goes in the field's help
+// (engineNotesHelp) instead of being cut off mid-word.
+export function engineOptionLabel(engine: Pick<TranslateEngine, 'name' | 'key_configured'>): string {
+  return `${engineShortName(engine)}${engine.key_configured ? '' : ' (no key)'}`
+}
+
+export function engineNotesHelp(engines: Pick<TranslateEngine, 'name' | 'label'>[]): string {
+  return engines.map((e) => `${engineShortName(e)}: ${e.label}`).join(' ')
 }
 
 // One-line description of the chosen engine: the first sentence of the text

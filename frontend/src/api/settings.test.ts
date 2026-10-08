@@ -20,6 +20,7 @@ const overview = {
   engine_keys: { gemini: true },
   gpu_limit_enabled: false,
   gpu_max_parallel: 1,
+  unload_ollama_before_transcribe: true,
   notify_on_completion: true,
   use_gpu: false,
   gemini_free_tier: false,
@@ -35,6 +36,7 @@ describe('settings api', () => {
       'bulk_auto_resume',
       'gpu_limit_enabled',
       'notify_on_completion',
+      'unload_ollama_before_transcribe',
       'use_gpu',
     ])
   })

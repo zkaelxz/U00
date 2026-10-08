@@ -18,7 +18,6 @@ import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
-import { useMossExperimental } from '../../../hooks/useMossExperimental'
 import type {
   DiarizationConfig,
   MediaStatus,
@@ -69,7 +68,6 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_asr: 'Qwen3 ASR',
   qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
   qwen3_asr_long: 'Qwen3 ASR on long windows (no Whisper)',
-  moss_td: 'MOSS-Transcribe-Diarize (experimental)',
   auto: 'Automatic',
   normal: 'Normal (default)',
   sensitive: 'More sensitive',
@@ -168,7 +166,6 @@ export default function TranscribeStage({
   mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, onJobStarted,
 }: Props) {
   const { dramaId, drama } = useStage()
-  const mossEnabled = useMossExperimental()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
@@ -382,7 +379,7 @@ export default function TranscribeStage({
     if (!req || !config || !cf) return
     const update = checkConfig()
     if (!update) return
-    const refused = runOptionProblem(config.transcript_mode, cf.alignment_method, cf.asr_backend_choice, mossEnabled)
+    const refused = runOptionProblem(config.transcript_mode, cf.alignment_method)
     if (refused) {
       flag(refused)
       return
@@ -685,9 +682,9 @@ export default function TranscribeStage({
                 ? 'Qwen3 forced alignment lines up the transcript you supply against the audio for more exact timing.'
                 : 'Forced alignment lines up a transcript you provide; for raw audio, pick Whisper or Qwen3-ASR.',
               haveTranscript ? [] : ['qwen3_forced_align'])}
-            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(mossEnabled), asrBackendHelp(asrBackendOptions(mossEnabled)))}
+            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(), [asrBackendHelp(asrBackendOptions()), config?.asr_backend_notice].filter(Boolean).join('\n'))}
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
-            {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
+            {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'auto'], 'PaddleOCR reads Chinese, Korean and Japanese captions with the matching language model. Automatic uses it when installed and falls back to Tesseract, with a note.')}
           </div>
           <p className="muted" data-testid="auto-prompt">
             {config?.auto_initial_prompt
