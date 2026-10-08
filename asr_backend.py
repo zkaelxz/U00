@@ -40,6 +40,7 @@ import os
 import tempfile
 from typing import Optional
 
+import ollama_unload
 from core import (
     SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, ModelDownloadError, SplitRules, is_gpu_error,
     is_network_error, diagnose_hostname, extract_audio_slice, transcribe_for_timing,
@@ -195,6 +196,7 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
     the GPU and reports it again.
     """
     cache_key = f"{model_size}_{'gpu' if use_gpu else 'cpu'}"
+    ollama_unload.prepare_gpu_for_transcription(use_gpu)
     if cache_key in _asr_model_cache:
         if on_device:
             on_device("GPU" if use_gpu else "CPU")

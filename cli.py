@@ -63,6 +63,7 @@ import traceback
 import audio_preprocess
 import core as core_module
 import db
+import ollama_unload
 import diagnostics
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
@@ -529,6 +530,8 @@ def cmd_align(args):
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
                 repeat_guard=cfg["whisper_repeat_guard"],
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
+        if "ollama_notice" in (notice := ollama_unload.take_notice_result()):
+            print(f"#{d['id']} WARNING: {notice['ollama_notice']}")
         if not segments:
             release_gpu_models()
             print(f"#{d['id']} skipped: no speech was found in the audio, so nothing was "
@@ -1169,7 +1172,7 @@ def cmd_transcribe(args):
         print(f"{label} device: {result['device']}")
     if result.get("device_notice"):
         print(f"{label} NOTICE: {result['device_notice']}")
-    for key in ("coverage_warning", "word_align_error", "forced_align_error",
+    for key in ("coverage_warning", "ollama_notice", "word_align_error", "forced_align_error",
                 "asr_backend_notice"):
         if result.get(key):
             print(f"{label} WARNING: {translate_engines.redact_secrets(str(result[key]))}")
