@@ -28,9 +28,23 @@ describe('setup rows', () => {
   it('adds a browser row only when the server reports one', () => {
     expect(setupRows(checks(), gpu).map((r) => r.key)).not.toContain('browser')
     const ok = setupRows(checks({ browser: { found: true, name: 'Chrome' } }), gpu).find((r) => r.key === 'browser')
-    expect(ok?.text).toBe('Browser for JavaScript-only sites: found (Chrome)')
+    expect(ok?.text).toBe('Browser for JavaScript-only sites: Using Google Chrome')
     const bad = setupRows(checks({ browser: { found: false, name: null } }), gpu).find((r) => r.key === 'browser')
     expect(bad?.problem).toBe(true)
+  })
+
+  it.each([
+    [true, true, 'Playwright package: installed', 'Using Google Chrome'],
+    [false, true, 'Problem: Playwright package not installed', 'Using Google Chrome'],
+    [true, false, 'Playwright package: installed', 'Problem: None found: install Chrome or Edge'],
+    [false, false, 'Problem: Playwright package not installed', 'Problem: None found: install Chrome or Edge'],
+  ])('reports the package and the browser separately (package %s, browser %s)', (pkg, found, pkgText, browserText) => {
+    const rows = setupRows(checks({ browser: { found, name: found ? 'Chrome' : null, package: pkg } }), gpu)
+    expect(rows.find((r) => r.key === 'playwright')?.text).toContain(pkgText)
+    const browser = rows.find((r) => r.key === 'browser')?.text ?? ''
+    expect(browser).toContain(browserText)
+    expect(browser).not.toContain('not installed')
+    if (!pkg) expect(rows.find((r) => r.key === 'playwright')?.text).toContain('no browser download is needed')
   })
 
   it('reads "Label: value" when everything is fine', () => {
@@ -116,7 +130,7 @@ describe('packages', () => {
 
   it('gives one blocked reason for install and for reset', () => {
     expect(installBlockedReason(false, null)).toBeNull()
-    expect(installBlockedReason(true, null)).toBe('Wait for running jobs to finish before installing.')
+    expect(installBlockedReason(true, null)).toBe('Wait for running jobs to finish.')
     expect(installBlockedReason(false, { kind: 'install', name: 'x' })).toBe('Wait for the install to finish.')
     expect(installBlockedReason(false, { kind: 'reset', name: 'library' })).toBe('Wait for the reset to finish.')
     expect(resetBlockedReason(true, null)).toBe('Stop running jobs first (see Jobs above).')
@@ -165,7 +179,7 @@ describe('reconcileModels', () => {
       eng('Whisper (faster-whisper)'),
       eng('pyannote diarization model', { package: null, version: 'pyannote/speaker-diarization-3.1, pyannote/segmentation-3.0' }),
       eng('Qwen3-ASR', { installed: false, version: 'not installed' }),
-      eng('edge-tts'),
+      eng('pydub'),
     ]
     const { rows, other } = reconcileModels(engines, [
       hf('Systran/faster-whisper-large-v3', 'a'), hf('Systran/faster-whisper-small', 'b'),
@@ -178,7 +192,7 @@ describe('reconcileModels', () => {
   })
 
   it('flags an installed weight-downloading engine with nothing cached', () => {
-    const { rows } = reconcileModels([eng('Whisper (faster-whisper)'), eng('Qwen3-ASR', { installed: false }), eng('edge-tts')], [])
+    const { rows } = reconcileModels([eng('Whisper (faster-whisper)'), eng('Qwen3-ASR', { installed: false }), eng('pydub')], [])
     expect(rows.map((r) => r.notDownloaded)).toEqual([true, false, false])
   })
 })
@@ -195,13 +209,11 @@ describe('other sections', () => {
     expect(modelCacheSummary({
       hf_cache: Array.from({ length: 7 }, (_, i) => ({ repo_id: `r${i}`, repo_type: 'model', revision: 'x', size_bytes: 1 })),
       hf_total_bytes: 12_000_000_000,
-      piper_voices: [{ voice: 'a', size_bytes: 1 }, { voice: 'b', size_bytes: 1 }],
-      piper_total_bytes: 400_000_000,
       model_files: [],
       model_files_total_bytes: 0,
-    })).toBe('12.4 GB · 7 models · 2 voices')
+    })).toBe('12.0 GB · 7 models')
     expect(modelCacheSummary({
-      hf_cache: [], hf_total_bytes: 0, piper_voices: [], piper_total_bytes: 0,
+      hf_cache: [], hf_total_bytes: 0,
       model_files: [{ folder: 'torch', name: 'htdemucs.th', size_bytes: 1 }],
       model_files_total_bytes: 84_000_000,
     })).toBe('84.0 MB · 1 model file')

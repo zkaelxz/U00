@@ -1,6 +1,6 @@
 """
 api/routers/review_extras_routes.py -- the Review stage's optional extras
-(inventory R46, R37, R35, R03): merge short adjacent lines (read-only preview,
+(merge short adjacent lines (read-only preview,
 then apply with a stale-id/stale-plan guard and a history snapshot), learn my
 style (one synchronous LLM call; paid-engine gate and the shared LLM slot;
 reset is PC-only),
@@ -17,7 +17,8 @@ from fastapi.responses import FileResponse
 from api.auth import (is_auth_enabled, is_local_request, local_only, require_engines_allowed,
                       require_permission)
 from api.llm_slots import llm_slot
-from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, ErrorResponse,
+from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, EnCleanupApply,
+                         EnCleanupPreview, EnCleanupResult, ErrorResponse,
                          MergeShortApply, MergeShortPreview, MergeShortResult, SenseVoiceStarted,
                          SenseVoiceTags, StyleApplyRequest, StyleLearnRequest, StyleResetRequest,
                          StyleRestoreRequest, StyleState)
@@ -31,7 +32,7 @@ _R = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
       503: {"model": ErrorResponse}}
 
 
-# --- R46: merge short adjacent lines ---------------------------------------
+# --- Merge short adjacent lines ---------------------------------------
 
 @router.get("/dramas/{drama_id}/merge-short/preview", dependencies=[require_permission("lines.read")],
             response_model=MergeShortPreview,
@@ -51,7 +52,23 @@ def post_merge_short_apply(body: MergeShortApply, drama_id: int = Path(ge=1)):
                                  body.min_duration, body.max_gap, body.max_chars)
 
 
-# --- R37: learn my style -----------------------------------------------------
+# --- English cleanup: deterministic fix of common errors ----------------------
+
+@router.get("/dramas/{drama_id}/en-cleanup/preview", dependencies=[require_permission("lines.read")],
+            response_model=EnCleanupPreview,
+            summary="Preview the English cleanup (read-only, no AI)", responses=_R)
+def get_en_cleanup_preview(drama_id: int = Path(ge=1)):
+    return svc.preview_en_cleanup(drama_id)
+
+
+@router.post("/dramas/{drama_id}/en-cleanup/apply", dependencies=[require_permission("lines.edit")],
+             response_model=EnCleanupResult,
+             summary="Apply the previewed English cleanup (snapshot first)", responses=_R)
+def post_en_cleanup_apply(body: EnCleanupApply, drama_id: int = Path(ge=1)):
+    return svc.apply_en_cleanup(drama_id, body.expected_plan_hash)
+
+
+# --- Learn my style -----------------------------------------------------
 
 def _global_style_pc_only(request: Request, drama_id: int) -> None:
     """A drama with no series uses the library-wide learned profile, which
@@ -111,7 +128,7 @@ def post_style_restore(body: StyleRestoreRequest, drama_id: int = Path(ge=1)):
     return svc.restore_style(drama_id, body.index)
 
 
-# --- R35: SenseVoice audio tags ---------------------------------------------
+# --- SenseVoice audio tags ---------------------------------------------
 
 @router.post("/dramas/{drama_id}/sensevoice", dependencies=[require_permission("jobs.start")],
              response_model=SenseVoiceStarted,
@@ -129,7 +146,7 @@ def get_sensevoice(drama_id: int = Path(ge=1)):
     return svc.get_sensevoice(drama_id)
 
 
-# --- R03: burned-subtitle preview clip --------------------------------------
+# --- Burned-subtitle preview clip --------------------------------------
 
 @router.post("/dramas/{drama_id}/burn-preview", dependencies=[require_permission("jobs.start")],
              response_model=BurnPreviewStarted,

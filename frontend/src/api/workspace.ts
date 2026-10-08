@@ -7,6 +7,10 @@ import type {
   CompareResult,
   CompareRunRequest,
   CompareRunResult,
+  RetimeApplyRequest,
+  RetimeApplyResult,
+  RetimeResult,
+  RetimeRunRequest,
   DiarizationConfig,
   JobStarted,
   LncrawlImportRequest,
@@ -35,9 +39,12 @@ type Fetch = typeof fetch
 export const getMediaStatus = (id: number, f?: Fetch) =>
   getJson<MediaStatus>(`/api/media/dramas/${id}/status`, f)
 
-export const uploadMedia = (id: number, file: File, f?: Fetch) => {
+// confirmReplace: the drama already has audio/video (the server refuses with
+// 422 reason "confirm_replace_audio" otherwise); the old file is kept.
+export const uploadMedia = (id: number, file: File, confirmReplace: boolean, f?: Fetch) => {
   const form = new FormData()
   form.append('file', file)
+  if (confirmReplace) form.append('confirm_replace_audio', 'true')
   return postMultipart<MediaUploadResult>(`/api/media/dramas/${id}/upload`, form, f)
 }
 
@@ -46,10 +53,12 @@ export const uploadAndTranscribe = (
   id: number,
   file: File,
   opts: TranscribeRunRequest,
+  confirmReplace: boolean,
   f?: Fetch,
 ) => {
   const form = new FormData()
   form.append('file', file)
+  if (confirmReplace) form.append('confirm_replace_audio', 'true')
   for (const [key, value] of Object.entries(opts)) {
     if (value !== undefined && value !== null) form.append(key, String(value))
   }
@@ -181,3 +190,14 @@ export const applyCompare = (id: number, req: CompareApplyRequest, f?: Fetch) =>
 // P16/P17: the drama's current stage and per-stage state for the stage bar.
 export const getWorkflowProgress = (id: number, f?: Fetch) =>
   getJson<WorkflowProgress>(`/api/workflow/dramas/${id}/progress`, f)
+
+// Review > Re-time with the Qwen3 aligner: new start/end for lines that already exist.
+const retimeBase = (id: number) => `/api/transcribe/dramas/${id}/retime`
+
+export const startRetime = (id: number, req: RetimeRunRequest, f?: Fetch) =>
+  postJson<CompareRunResult>(`${retimeBase(id)}/run`, req, f)
+
+export const getRetimeResult = (id: number, f?: Fetch) => getJson<RetimeResult>(`${retimeBase(id)}/result`, f)
+
+export const applyRetime = (id: number, req: RetimeApplyRequest, f?: Fetch) =>
+  postJson<RetimeApplyResult>(`${retimeBase(id)}/apply`, req, f)

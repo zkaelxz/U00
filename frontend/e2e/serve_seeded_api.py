@@ -74,6 +74,13 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
         "ok": False, "output_tail": list(E2E_STUB_OUTPUT)})
     setattr_(diag, "verify_torch", lambda blocking=True: {"error": "stubbed in e2e"})
     setattr_(diag, "reset_library", refuse_reset)
+    # The Transcribe button is disabled while faster-whisper is missing; specs that
+    # press it need the config to say it is installed. transcription-missing mocks
+    # the config to cover the missing case.
+    import diagnostics
+    real_check = diagnostics.check_dependency
+    setattr_(diagnostics, "check_dependency",
+             lambda name, *a, **k: True if name == "faster_whisper" else real_check(name, *a, **k))
     setattr_(ext, "set_enabled", lambda enabled, start_now=True: {
         "enabled": bool(enabled), "running": False, "restart_needed": False})
     setattr_(ext, "reveal_token", lambda confirm=False: {"token": E2E_STUB_TOKEN})

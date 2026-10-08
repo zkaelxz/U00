@@ -9,13 +9,16 @@ import {
   cookiesSummary,
   parseCap,
   parseNumCtx,
+  parseUploadMb,
 } from './preferences'
 
 const saved: SettingsPreferences = {
   default_engine: 'claude',
   default_locale: 'en-US',
   default_style_note: '',
+  scene_aware_batches: true,
   episode_summary_engine: 'ollama',
+  max_upload_mb: 20480,
   monthly_cap_usd: null,
   ollama_num_ctx_override: 0,
   whisper_model_path: '',
@@ -54,6 +57,16 @@ describe('settings preferences', () => {
     expect(parseNumCtx('16384')).toEqual({ ok: true, value: 16384 })
     expect(parseNumCtx('1.5').ok).toBe(false)
     expect(parseNumCtx('99999999').ok).toBe(false)
+  })
+
+  it('parses the upload limit: 100 to 1,048,576 MB, blank is the default', () => {
+    expect(parseUploadMb('', 20480)).toEqual({ ok: true, value: 20480 })
+    expect(parseUploadMb(' 4096 ', 20480)).toEqual({ ok: true, value: 4096 })
+    expect(parseUploadMb('100', 20480).ok).toBe(true)
+    expect(parseUploadMb('1048576', 20480).ok).toBe(true)
+    for (const bad of ['99', '0', '-5', '1048577', '1.5', '2 GB', '1e3']) {
+      expect(parseUploadMb(bad, 20480).ok).toBe(false)
+    }
   })
 
   it('checks paths for control characters and length', () => {

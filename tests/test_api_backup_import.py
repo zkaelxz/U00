@@ -335,7 +335,7 @@ def test_oversize_upload_rejected(client, monkeypatch):
     data = _manual_zip()
     monkeypatch.setenv("BAIHE_MAX_UPLOAD_MB", "0.01")
     r = _post_list(client, data)
-    assert r.status_code == 422 and "too large" in r.text
+    assert r.status_code == 422 and "larger than the" in r.text
     assert len(_dramas()) == 3
 
 
@@ -461,12 +461,13 @@ COPIED = {
                "publication_status", "chapter_count", "custom_tags", "last_translate_errors",
                "personal_notes", "created_at", "chinese_script",
                "source_url", "transcript_mode", "whisper_size", "alignment_method",
-               "asr_backend_choice", "min_silence_ms", "vad_threshold", "beam_size",
+               "asr_backend_choice", "min_silence_ms", "vad_threshold", "beam_size", "hallucination_silence_sec", "min_pause_sec", "sensitivity_preset",
                "separate_vocals_first", "separation_backend", "realign_long_segments",
                "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
-               "project_instructions"},
+               "project_instructions", "reading_speed_mode", "default_female_pronouns",
+               "include_genre_notes", "whisper_repeat_guard", "split_by_sentences"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
-              "speaker_manual", "sfx", "lang"},
+              "speaker_manual", "sfx", "lang", "word_timings"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
                    "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "pronouns"},

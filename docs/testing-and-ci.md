@@ -18,6 +18,33 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 CI is the merge gate while the repo is public. If the repo becomes private or Actions minutes run out, the gate is the full local suite
 (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands (tier 3 above). Never skip or weaken a test.
 
+## Focused checks per area
+
+Area names match the "Where to look" table in `AGENTS.md`. Run the pytest line while iterating, the vitest line for a
+frontend change, and the Playwright spec only for a UI flow. Run from the repo root for pytest and from `frontend/` for the
+other two (`npx vitest run <paths>`, `npx playwright test <spec>`; Playwright needs `PLAYWRIGHT_CHROMIUM_PATH`, see tier 3).
+A folder path runs every test under it. Add `tests/test_api_permissions.py` whenever you add or change a route.
+
+| Area | pytest (`python -m pytest -q ...`) | vitest (`npx vitest run ...`) | Playwright (`npx playwright test ...`) |
+|---|---|---|---|
+| Library / titles | `tests/test_library_service.py tests/test_drama_service.py tests/test_api_dramas.py tests/test_title_library.py` | `src/api/library.test.ts src/pages/libraryForm.test.ts src/pages/libraryParity` | `e2e/library.spec.ts` |
+| Transcription (ASR) | `tests/test_transcribe_service.py tests/test_asr_backend.py tests/test_diarize.py` | `src/api/asrOptions.test.ts` | `e2e/transcribe-card.spec.ts` |
+| Translation + engines | `tests/test_translate_engines.py tests/test_translate_run_service.py tests/test_bulk_translate.py tests/test_engine_routing.py` | `src/api/translate.test.ts src/pages/translateFile.test.ts src/pages/workspace/translateForm.test.ts` | `e2e/translate.spec.ts` |
+| Review / lines | `tests/test_lines_service.py tests/test_review_lines_service.py tests/test_api_lines.py` | `src/api/review.test.ts src/pages/workspace/stages/review` | `e2e/review-stage.spec.ts` |
+| Characters / glossary | `tests/test_characters_service.py tests/test_glossary_service.py tests/test_api_glossary.py` | `src/api/characters.test.ts src/pages/workspace/stages/glossaryExtract.test.ts` | `e2e/characters-rename.spec.ts` |
+| Live translate | `tests/test_live_service.py tests/test_live_translate.py tests/test_live_fetch.py tests/test_api_live.py` | `src/api/live.test.ts src/pages/live` | `e2e/live.spec.ts` |
+| Dubbing | `tests/test_dub.py tests/test_dub_service.py tests/test_api_dub.py tests/test_voice_id.py` | `src/api/dub.test.ts src/pages/workspace/stages/dubForm.test.ts` | `e2e/dub-stage.spec.ts` |
+| Scanlate / OCR | `tests/test_scanlate.py tests/test_ocr.py tests/test_hardsub_ocr.py tests/test_api_comic_viewer.py` | `src/api/scanlate.test.ts src/pages/comic` | `e2e/scanlate.spec.ts` |
+| Sources / adapters | `tests/test_sources_core.py tests/test_api_sources_search.py tests/test_source_service.py` (an adapter: `tests/test_sources_<site>.py`) | `src/api/sources.test.ts src/pages/sources` | `e2e/sources.spec.ts` |
+| Benchmark lab | `tests/test_benchmark_lab.py tests/test_benchmark.py tests/test_model_reeval.py tests/test_api_benchmark.py` | `src/api/benchmark.test.ts src/pages/benchmark` | `e2e/lab-benchmark.spec.ts` |
+| Diagnostics / installs | `tests/test_diagnostics_service.py tests/test_api_diagnostics_installs.py tests/test_install_presets.py` | `src/api/diagnostics.test.ts src/pages/diagnostics` | `e2e/diagnostics.spec.ts` |
+| Jobs | `tests/test_background_jobs.py tests/test_jobs_service.py tests/test_api_job_cancel.py` | `src/api/jobs.test.ts src/pages/jobs` | `e2e/jobs.spec.ts` |
+| Settings / backups | `tests/test_settings_service.py tests/test_auto_backup_service.py tests/test_api_backups.py tests/test_user_backup.py` | `src/api/settings.test.ts src/pages/settings` | `e2e/settings.spec.ts e2e/backups.spec.ts` |
+| Auth / permissions | `tests/test_api_permissions.py tests/test_auth_service.py tests/test_auth_login.py tests/test_api_admin_users.py` | `src/api/auth.test.ts src/hooks/useSession.test.ts` | `e2e/signin.spec.ts` |
+| Installer / updates | `tests/test_installer_service.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
+| Database / migrations | `tests/test_db.py tests/test_save_lines_write_race.py` | n/a | n/a |
+| Repo guards | `tests/test_static_analysis.py tests/test_repo_map.py` | n/a | n/a |
+
 ## Tests
 
 - Run with `python run_tests.py` (wraps `pytest`).

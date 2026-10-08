@@ -1,11 +1,7 @@
 import type { DramaSummary } from '../../api/types'
 import { humanizeValue } from '../../components/labels'
-import type {
-  CheckResult,
-  SourcesSettings,
-  SourcesSettingsUpdate,
-  SourceSummary,
-} from '../../types/sources'
+import type { CheckResult, SourcesSettings, SourcesSettingsUpdate, SourceSummary } from '../../types/sources'
+
 
 const CACHE_LABELS: Record<string, string> = {
   none: 'Keep nothing',

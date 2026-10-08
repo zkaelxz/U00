@@ -2,6 +2,7 @@ import { ApiError } from '../../api/client'
 import { humanize, humanizeValue } from '../../components/labels'
 import type { OpenSeries, SeriesChapter, SeriesInfo, SeriesLink, SeriesResult } from '../../types/sources'
 
+
 export function seriesMeta(display: string, info: SeriesInfo | null, chapters: number): string {
   const parts = [display, `${chapters} chapter${chapters === 1 ? '' : 's'}`]
   if (info?.status) parts.push(humanizeValue(info.status))

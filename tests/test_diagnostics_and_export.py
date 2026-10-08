@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import db
 import diagnostics
+import expected_files
 from core import Line, lines_to_srt, lines_to_bilingual_srt
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -85,7 +86,7 @@ class TestDiagnostics:
         expected = {"yt-dlp": "yt_dlp", "torchaudio": "torchaudio", "uroman": "uroman",
                     "sentencepiece": "sentencepiece",
                     "opencc-python-reimplemented": "opencc",
-                    "sudachidict_core": "sudachidict_core", "piper-tts": "piper"}
+                    "sudachidict_core": "sudachidict_core"}
         for pip_name, import_name in expected.items():
             assert pip_name in deps, pip_name
             assert deps[pip_name][0] == import_name
@@ -135,7 +136,7 @@ class TestDiagnostics:
         requirements-media.txt, not requirements-core.txt, so the Core
         panel (which shows "required" as "needed for the app to run at
         all") must not list them -- they belong in "feature", same tier
-        as edge_tts (also media-only)."""
+        as pydub (also media-only)."""
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["faster_whisper"][2] == "feature"
         assert deps["cv2"][2] == "feature"
@@ -155,9 +156,10 @@ class TestDiagnostics:
         real_files = {f for f in os.listdir(PROJECT_ROOT)
                      if f.endswith(".py") and os.path.isfile(os.path.join(PROJECT_ROOT, f))
                      and f not in ("__init__.py", "conftest.py")}
-        missing_from_list = real_files - set(diagnostics.EXPECTED_TOP_LEVEL_FILES)
+        missing_from_list = real_files - set(expected_files.EXPECTED_TOP_LEVEL_FILES)
         assert missing_from_list == set(), \
-            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES: {missing_from_list}"
+            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES in expected_files.py: " \
+            f"{missing_from_list}. Add each name to that list."
 
     def test_file_completeness_reports_missing_in_empty_dir(self, tmp_path_str):
         result = diagnostics.check_file_completeness(tmp_path_str)
@@ -330,50 +332,6 @@ class TestHfCacheScanAndDelete:
         assert diagnostics.delete_hf_cache_revision("x") is False
 
 
-class TestPiperVoiceScanAndDelete:
-    """Step 25d item 14: this disk-management panel only ever scanned the
-    Hugging Face model cache -- Piper voices (Step 25c item 1's
-    offline-voice picker) download to library/piper_voices instead, so
-    they were invisible to it and to whatever cleanup/disk-usage view
-    relies on it."""
-
-    def _make_voice(self, voices_dir, name, onnx_bytes=b"x" * 5000, with_json=True):
-        os.makedirs(voices_dir, exist_ok=True)
-        with open(os.path.join(voices_dir, f"{name}.onnx"), "wb") as f:
-            f.write(onnx_bytes)
-        if with_json:
-            with open(os.path.join(voices_dir, f"{name}.onnx.json"), "wb") as f:
-                f.write(b"{}")
-
-    def test_lists_voices_with_real_sizes_largest_first(self, tmp_path_str):
-        self._make_voice(tmp_path_str, "en_US-amy-medium", b"x" * 5000)
-        self._make_voice(tmp_path_str, "en_US-ryan-low", b"x" * 1000)
-        entries = diagnostics.scan_piper_voices(tmp_path_str)
-        assert [e["voice"] for e in entries] == ["en_US-amy-medium", "en_US-ryan-low"]
-        assert entries[0]["size_bytes"] >= 5000
-        assert entries[1]["size_bytes"] >= 1000
-
-    def test_empty_when_the_directory_does_not_exist_yet(self, tmp_path_str):
-        missing = os.path.join(tmp_path_str, "does_not_exist")
-        assert diagnostics.scan_piper_voices(missing) == []
-
-    def test_only_onnx_files_are_counted_as_voices(self, tmp_path_str):
-        self._make_voice(tmp_path_str, "en_US-amy-medium")
-        with open(os.path.join(tmp_path_str, "README.txt"), "w") as f:
-            f.write("not a voice")
-        entries = diagnostics.scan_piper_voices(tmp_path_str)
-        assert [e["voice"] for e in entries] == ["en_US-amy-medium"]
-
-    def test_delete_removes_both_the_model_and_its_config(self, tmp_path_str):
-        self._make_voice(tmp_path_str, "en_US-amy-medium")
-        assert diagnostics.delete_piper_voice("en_US-amy-medium", tmp_path_str) is True
-        assert not os.path.exists(os.path.join(tmp_path_str, "en_US-amy-medium.onnx"))
-        assert not os.path.exists(os.path.join(tmp_path_str, "en_US-amy-medium.onnx.json"))
-
-    def test_delete_of_an_unknown_voice_fails_cleanly(self, tmp_path_str):
-        assert diagnostics.delete_piper_voice("does-not-exist", tmp_path_str) is False
-
-
 class TestModelFolders:
     """torch.hub checkpoints (TORCH_HOME) and the audio-separator models
     live outside the Hugging Face cache; the model panel lists and deletes
@@ -451,17 +409,15 @@ class TestModelEngineVersions:
 
     def test_step_11b_voice_engines_have_rows(self):
         rows = {v["name"]: v for v in diagnostics.get_model_engine_versions()}
-        for name in ("OmniVoice", "GPT-SoVITS", "Chatterbox", "TADA"):
-            assert name in rows
-        # a separate server, not a pip package -- says so rather than "not installed"
-        assert rows["GPT-SoVITS"]["version"] == "Separate local server (not pip-installed)"
+        assert "OmniVoice" in rows
+        for removed in ("GPT-SoVITS", "Chatterbox", "TADA"):
+            assert removed not in rows
 
     def test_step_11b_pip_engines_are_registered_dependencies(self):
         # keyed by the real pip name, since the Install button runs `pip install <key>`
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["omnivoice"][0] == "omnivoice"
-        assert deps["chatterbox-tts"][0] == "chatterbox"
-        assert deps["hume-tada"][0] == "tada"
+        assert "chatterbox-tts" not in deps and "hume-tada" not in deps
 
     def test_ollama_tag_appended_only_when_given(self):
         assert not any(v["name"].startswith("Ollama") for v in diagnostics.get_model_engine_versions())
@@ -486,8 +442,6 @@ class TestModelEngineVersions:
         assert pkg_row["installed"] == (pkg_row["version"] != "not installed")
         # a "repo" kind has no real "not installed" state -- always installed
         assert rows["pyannote diarization model"]["installed"] is True
-        # a "service" kind (a separate server, not pip-installed) likewise
-        assert rows["GPT-SoVITS"]["installed"] is True
 
     def test_ollama_row_is_installed(self):
         rows = {v["name"]: v for v in diagnostics.get_model_engine_versions("qwen3:8b")}
@@ -587,7 +541,7 @@ class TestStreamDependencyInstall:
         monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
 
         list(diagnostics.stream_dependency_install("torch"))
-        assert captured["pip_args"] == ["torch"]
+        assert captured["pip_args"] == ["torch", *diagnostics.constraints_pip_args()]
 
     def test_other_dependencies_always_use_a_plain_install(self, monkeypatch):
         monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
@@ -599,7 +553,7 @@ class TestStreamDependencyInstall:
         monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
 
         list(diagnostics.stream_dependency_install("audio-separator"))
-        assert captured["pip_args"] == ["audio-separator"]
+        assert captured["pip_args"] == ["audio-separator", *diagnostics.constraints_pip_args()]
 
 
 class TestPyannoteGatedAccessCheck:
@@ -887,6 +841,11 @@ class TestRedactForSupport:
         assert "/home/bob" not in text
         assert "audio.wav" in text
 
+    def test_repr_escaped_windows_paths_are_redacted(self):
+        text = diagnostics.redact_for_support(
+            "Command '['ffmpeg', '-i', 'C:\\\\Users\\\\bob\\\\U00\\\\audio.wav']' failed")
+        assert "bob" not in text and "Users" not in text and ".../audio.wav" in text
+
     def test_collapses_windows_paths_to_the_last_segment(self):
         text = diagnostics.redact_for_support(r"saved to C:\Users\bob\U00\library\drama_3\audio.wav")
         assert "bob" not in text
@@ -901,6 +860,29 @@ class TestRedactForSupport:
         text = diagnostics.redact_for_support(
             "saved to /home/x/My Documents/Baihe Data/library/12/audio.wav, retrying")
         assert text == "saved to .../audio.wav, retrying"
+
+    def test_collapses_windows_paths_with_spaces_in_folders_and_filename(self):
+        text = diagnostics.redact_for_support(
+            r"saved to C:\Users\x\My Documents\my file name.wav, retrying")
+        assert text == "saved to .../my file name.wav, retrying"
+
+    def test_collapses_posix_paths_with_spaces_in_folders_and_filename(self):
+        text = diagnostics.redact_for_support(
+            "saved to /home/x/My Documents/my file name.wav then stopped")
+        assert text == "saved to .../my file name.wav then stopped"
+
+    def test_prose_after_an_unspaced_filename_is_kept(self):
+        text = diagnostics.redact_for_support(
+            r"failed to open C:\a\b.wav because the disk is full")
+        assert text == "failed to open .../b.wav because the disk is full"
+        text = diagnostics.redact_for_support(
+            "failed to open /a/b.wav because the disk is full, see notes.txt")
+        assert text == "failed to open .../b.wav because the disk is full, see notes.txt"
+
+    def test_two_paths_in_one_sentence_stay_separate(self):
+        text = diagnostics.redact_for_support(
+            r"copy C:\a\b.wav to C:\c d\e f.txt now")
+        assert text == "copy .../b.wav to .../e f.txt now"
 
     def test_empty_text_is_safe(self):
         assert diagnostics.redact_for_support("") == ""

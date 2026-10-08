@@ -345,7 +345,7 @@ class TestModelSelection:
         import inspect
         import translate_engines as te
         default = inspect.signature(te.ClaudeEngine.__init__).parameters["model"].default
-        assert default == "claude-sonnet-5"
+        assert default == "claude-sonnet-5-5"
 
     def test_every_selectable_model_has_pricing(self):
         import translate_engines as te
@@ -505,6 +505,89 @@ class TestFilterHallucinatedSegments:
         import inspect
         params = inspect.signature(filter_hallucinated_segments).parameters
         assert params["min_repeat_count"].default == 4
+
+
+class TestStockPhraseFilter:
+    def _seg(self, start, end, text):
+        return {"start": start, "end": end, "text": text}
+
+    def test_isolated_stock_phrases_are_dropped(self):
+        for text in ("Subtitles by the Amara.org community", "ご視聴ありがとうございました",
+                     "请不吝点赞 订阅 转发 打赏", "字幕由Amara.org社群提供",
+                     "MBC 뉴스 이덕영입니다", "Thanks for watching!"):
+            segments = [self._seg(0, 2, "real line"), self._seg(30, 32, text),
+                        self._seg(60, 62, "another line")]
+            assert filter_hallucinated_segments(segments) == [segments[0], segments[2]], text
+
+    def test_a_stock_phrase_at_the_end_of_the_audio_is_dropped(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(40, 42, "Thanks for watching")]
+        assert filter_hallucinated_segments(segments) == [segments[0]]
+
+    def test_a_stock_phrase_inside_dialogue_is_kept(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "Thanks for watching"),
+                    self._seg(4.5, 6, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_silent_on_one_side_only_is_kept(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "Thanks for watching"),
+                    self._seg(60, 62, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_real_dialogue_containing_the_words_is_kept_even_when_isolated(self):
+        segments = [self._seg(0, 2, "real line"),
+                    self._seg(30, 33, "He said thanks for watching over her all those years"),
+                    self._seg(60, 62, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+
+class TestHallucinationSilenceThreshold:
+    def _run(self, model_cls, **kwargs):
+        import sys, types
+        import core
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: model_cls()
+        sys.modules["faster_whisper"] = fake_fw
+        core._whisper_model_cache.clear()
+        return core.transcribe_for_timing("/fake/audio.mp3", **kwargs)
+
+    def test_off_by_default_and_overridable(self):
+        seen = {}
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.clear()
+                seen.update(kwargs)
+                return iter([]), None
+
+        self._run(Model)
+        assert "hallucination_silence_threshold" not in seen
+        self._run(Model, hallucination_silence_sec=3.5)
+        assert seen["hallucination_silence_threshold"] == 3.5
+
+    def test_zero_does_not_pass_it(self):
+        seen = {}
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([]), None
+
+        self._run(Model, hallucination_silence_sec=0)
+        assert "hallucination_silence_threshold" not in seen
+
+    def test_an_older_faster_whisper_without_the_parameter_still_runs(self):
+        seen = {}
+
+        class OldModelStrict:
+            def transcribe(self, audio_path, language=None, vad_filter=False, beam_size=5,
+                           vad_parameters=None, word_timestamps=False,
+                           condition_on_previous_text=True, no_repeat_ngram_size=0,
+                           repetition_penalty=1.0, initial_prompt=None):
+                seen["ok"] = True
+                return iter([]), None
+
+        self._run(OldModelStrict)
+        assert seen == {"ok": True}
 
 
 class TestTranscribeForTimingHallucinationFilter:
@@ -1204,3 +1287,287 @@ class TestSplitLongSegments:
         import core
         seg = self._seg("Pi is 3.14159 and e is 2.71828 which is nice", 0.0, 30.0)
         assert core.split_long_segments([seg], max_seconds=8) == [seg]
+
+
+class TestWordTimestampsKept:
+    """Whisper's word timings ride on the segments so split_long_segments can cut
+    an unpunctuated line at a real pause."""
+
+    @staticmethod
+    def _words(text, step=0.25, pauses=None):
+        """One word per character: {start, end, word}, `step` seconds each, with the
+        extra silences in `pauses` ({char index: seconds}) inserted before a char."""
+        out, t = [], 0.0
+        for i, ch in enumerate(text):
+            t += (pauses or {}).get(i, 0.0)
+            out.append({"start": t, "end": t + step * 0.9, "word": ch})
+            t += step
+        return out
+
+    @classmethod
+    def _seg(cls, text, pauses=None, **extra):
+        words = cls._words(text, pauses=pauses)
+        return {"start": words[0]["start"], "end": words[-1]["end"], "text": text,
+                "words": words, **extra}
+
+    def test_transcribe_keeps_the_words_as_plain_dicts(self):
+        import core, sys, types
+
+        class Word:
+            def __init__(self, start, end, word):
+                self.start, self.end, self.word, self.probability = start, end, word, 0.9
+
+        class Seg:
+            start, end, text = 0.0, 2.0, " 你好 "
+            words = [Word(0.2, 0.6, "你"), Word(0.6, 1.0, "好")]
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                return iter([Seg()]), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: Model()
+        sys.modules["faster_whisper"] = fake_fw
+        core._whisper_model_cache.clear()
+        assert core.transcribe_for_timing("/fake/audio.mp3") == [
+            {"start": 0.2, "end": 1.0, "text": "你好",
+             "words": [{"start": 0.2, "end": 0.6, "word": "你"},
+                       {"start": 0.6, "end": 1.0, "word": "好"}]}]
+
+    def test_fast_mode_gets_the_same_word_timestamps_kwarg(self):
+        import core, sys, types
+        seen = {}
+
+        class Seg:
+            start, end, text, words = 0.0, 1.0, "hi", []
+
+        class Pipeline:
+            def __init__(self, model):
+                pass
+
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([Seg()]), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: object()
+        fake_fw.BatchedInferencePipeline = Pipeline
+        sys.modules["faster_whisper"] = fake_fw
+        core._whisper_model_cache.clear()
+        core.transcribe_for_timing("/fake/audio.mp3", fast_mode=True)
+        assert seen["word_timestamps"] is True
+
+    def test_a_line_with_no_punctuation_is_cut_at_the_real_pauses(self):
+        import core
+        text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心" * 2
+        # 66 chars at 0.25 s = 16.5 s, plus 1.6 s of real silences after chars 22 and 44
+        seg = self._seg(text, pauses={22: 0.9, 44: 0.7})
+        assert seg["end"] - seg["start"] > 17
+        out = core.split_long_segments([seg])
+        assert [p["text"] for p in out] == [text[:22], text[22:44], text[44:]]
+        assert "".join(p["text"] for p in out) == text
+        words = seg["words"]
+        assert [(p["start"], p["end"]) for p in out] == [
+            (words[0]["start"], words[21]["end"]), (words[22]["start"], words[43]["end"]),
+            (words[44]["start"], words[-1]["end"])]
+        assert [p["words"] for p in out] == [words[:22], words[22:44], words[44:]]
+
+    def test_a_17_second_unpunctuated_clip_with_four_pauses_is_cut(self):
+        import core
+        # about 17 s and 56 characters: 56 * 0.25 s = 14 s of speech plus 3 s of pauses
+        text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心真的太好玩了下次还想再来而且天气特别好大家都很高兴一直玩到天黑才回家"[:56]
+        assert len(text) == 56
+        seg = self._seg(text, pauses={14: 0.75, 28: 1.0, 42: 0.75, 49: 0.5})
+        assert 16.5 < seg["end"] - seg["start"] < 17.5
+        out = core.split_long_segments([seg])
+        assert len(out) >= 2 and "".join(p["text"] for p in out) == text
+        assert all(p["end"] - p["start"] <= core.SPLIT_MAX_SECONDS for p in out)
+
+    def test_cuts_happen_only_while_pieces_are_still_too_long(self):
+        import core
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg(text, pauses={10: 0.5, 20: 0.9, 30: 0.5})
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert [p["text"] for p in out] == [text[:20], text[20:]]
+
+    def test_pieces_near_the_middle_win_among_similar_pauses(self):
+        import core
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg(text, pauses={5: 0.9, 20: 0.8, 35: 0.9})
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert out[0]["text"] == text[:20]
+
+    def test_punctuation_cuts_use_the_word_times(self):
+        import core
+        text = "我们先去吃饭。然后再去看电影吧。"
+        seg = self._seg(text, pauses={7: 1.5})
+        out = core.split_long_segments([seg], max_seconds=3)
+        assert [p["text"] for p in out] == ["我们先去吃饭。", "然后再去看电影吧。"]
+        assert out[1]["start"] == seg["words"][7]["start"]
+        assert out[0]["end"] == seg["words"][6]["end"]
+        assert out[0]["end"] < out[1]["start"] - 1.4
+
+    def test_mixed_latin_and_cjk_text_maps_exactly(self):
+        import core
+        words = [("我们", 0.0, 1.0), (" 用", 1.0, 1.5), (" Python", 1.5, 3.0), (" 写", 3.0, 4.0),
+                 ("程序", 4.0, 5.5), (" 然后", 7.0, 8.5), (" 发布", 8.5, 10.0),
+                 (" 到", 10.0, 11.0), (" GitHub", 11.0, 12.5)]
+        text = "我们 用 Python 写程序 然后 发布 到 GitHub"
+        seg = {"start": 0.0, "end": 12.5, "text": text,
+               "words": [{"start": s, "end": e, "word": w} for w, s, e in words]}
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert [p["text"] for p in out] == ["我们 用 Python 写程序", "然后 发布 到 GitHub"]
+        assert (out[0]["end"], out[1]["start"]) == (5.5, 7.0)
+
+    def test_words_that_do_not_spell_the_text_leave_the_line_alone(self):
+        import core
+        text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心" * 2
+        seg = self._seg(text, pauses={22: 0.9, 44: 0.7})
+        seg["words"][10]["word"] = "错"
+        assert core.split_long_segments([seg]) == [seg]
+        seg["words"][10]["word"] = text[10]
+        seg["text"] = text + "。"  # words no longer cover the text
+        assert [p["text"] for p in core.split_long_segments([seg])] == [seg["text"]]
+
+    def test_a_punctuation_cut_inside_a_word_falls_back_to_the_estimate(self):
+        import core
+        text = "我们先去吃饭。然后再去看电影吧。" * 2
+        seg = self._seg(text)
+        seg["words"][6:8] = [{"start": seg["words"][6]["start"], "end": seg["words"][7]["end"],
+                             "word": text[6:8]}]
+        out = core.split_long_segments([seg], max_seconds=3)
+        assert len(out) > 1 and "words" not in out[0]
+        assert out[0]["start"] == seg["start"] and out[-1]["end"] == seg["end"]
+
+    def test_the_default_pause_is_035_within_its_bounds(self):
+        import core
+        assert core.MIN_WORD_GAP_SECONDS == 0.35
+        assert (core.MIN_WORD_GAP_SECONDS_MIN, core.MIN_WORD_GAP_SECONDS_MAX) == (0.1, 2.0)
+
+    def test_the_pause_setting_decides_which_pauses_cut(self):
+        import core
+        text = "一二三四五六七八九十" * 7
+        seg = self._seg(text, pauses={17: 0.30, 52: 0.50})
+
+        def cuts(**kw):
+            return [len(p["text"]) for p in core.split_long_segments([seg], max_seconds=8, **kw)]
+        assert cuts(min_pause=0.25) == [17, 35, 18]  # both pauses
+        assert cuts(min_pause=0.35) == [52, 18]  # only the 0.50 s one
+        assert cuts(min_pause=0.45) == [52, 18]
+        assert cuts(min_pause=0.55) == [70]
+        assert cuts() == [52, 18]  # the default is 0.35
+
+    def test_pause_offsets_follow_the_setting(self):
+        import core
+        text = "一二三四五六七八九十" * 2
+        index = core._WordIndex.build(text, self._seg(text, pauses={5: 0.30, 12: 0.50})["words"])
+        assert core.pause_offsets(index, 0.25) == {5, 12}
+        assert core.pause_offsets(index, 0.4) == {12}
+        assert core.pause_offsets(index) == {12}
+
+    def test_no_pause_long_enough_leaves_the_line_whole(self):
+        import core
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg(text, pauses={20: core.MIN_WORD_GAP_SECONDS - 0.05})
+        assert core.split_long_segments([seg], max_seconds=8) == [seg]
+
+    @staticmethod
+    def _seg_with_exact_gap(text, gap):
+        """Words that touch (end = next start) except `gap` before char 20; every
+        time is a multiple of 1/16, exact in binary, so the gap is exact."""
+        words, t = [], 0.0
+        for i, ch in enumerate(text):
+            t += gap if i == 20 else 0.0
+            words.append({"start": t, "end": t + 0.25, "word": ch})
+            t += 0.25
+        return {"start": 0.0, "end": t, "text": text, "words": words}
+
+    def test_pause_exactly_at_the_minimum_is_a_cut_point(self):
+        import core
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg_with_exact_gap(text, 0.25)  # a binary-exact gap, so >= is tested exactly
+        assert len(core.split_long_segments([seg], max_seconds=8, min_pause=0.25)) == 2
+
+    def test_pause_just_under_the_minimum_is_not_a_cut_point(self):
+        import core
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg_with_exact_gap(text, 0.25 - 0.0625)
+        assert core.split_long_segments([seg], max_seconds=8, min_pause=0.25) == [seg]
+
+    def test_floors_keep_a_stub_from_being_cut_off(self):
+        import core
+        text = "一二三四五六七八九十" * 4
+        # the only long pauses leave 2 chars (0.5 s) on one side
+        seg = self._seg(text, pauses={2: 1.0, 38: 1.0})
+        assert core.split_long_segments([seg], max_seconds=8) == [seg]
+
+    def test_re_split_rules_apply_to_word_cuts(self):
+        import core
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg(text, pauses={10: 0.4, 25: 0.6})
+        rules = core.SplitRules(max_seconds=None, max_chars=25)
+        out = core.split_long_segments([seg], rules=rules)
+        assert [p["text"] for p in out] == [text[:25], text[25:]]
+        rules = core.SplitRules(max_seconds=None, max_chars=12)
+        out = core.split_long_segments([seg], rules=rules)
+        assert "".join(p["text"] for p in out) == text
+        assert all(len(p["text"]) >= core.MIN_PIECE_CJK_CHARS for p in out)
+
+    def test_other_keys_are_copied_and_unused_words_stay_on_a_short_line(self):
+        import core
+        seg = self._seg("一二三四五", speaker="A")
+        assert core.split_long_segments([seg]) == [seg]
+        long_seg = self._seg("一二三四五六七八九十" * 4, pauses={20: 0.9}, speaker="B")
+        assert {p["speaker"] for p in core.split_long_segments([long_seg], max_seconds=8)} == {"B"}
+
+    def test_segments_without_words_behave_as_before(self):
+        import core
+        seg = {"start": 0.0, "end": 20.0, "text": "一二三四五六七八九十" * 10}
+        assert core.split_long_segments([seg]) == [seg]
+
+    def test_hallucination_filter_and_coverage_ignore_the_extra_key(self):
+        import core
+        from services.transcribe_service import coverage_warning
+        segs = [self._seg("你好吗"), self._seg("你好吗"), self._seg("再见了")]
+        assert core.filter_hallucinated_segments(segs) == segs
+        coverage_warning(segs, 100.0)
+
+    def test_a_hundred_thousand_characters_is_not_quadratic(self):
+        import time
+        import core
+        # 100k one-character words with a pause every 20 words, in one line
+        text = "一二三四五六七八九十" * 10000
+        pauses = {i: 0.5 for i in range(20, len(text), 20)}
+        seg = self._seg(text, pauses=pauses)
+        started = time.perf_counter()
+        out = core.split_long_segments([seg])
+        elapsed = time.perf_counter() - started
+        assert "".join(p["text"] for p in out) == text
+        assert all(p["end"] - p["start"] <= 8.0 + 1e-6 for p in out)
+        assert elapsed < 10.0
+
+    def test_growing_pauses_do_not_peel_one_piece_at_a_time(self):
+        import time
+        import core
+        # the biggest pause is always at the far end: a naive pick-the-largest scan is quadratic
+        text = "一二三四五六七八九十" * 5000
+        pauses = {i: 0.3 + i / 1e5 for i in range(10, len(text), 10)}
+        seg = self._seg(text, pauses=pauses)
+        started = time.perf_counter()
+        out = core.split_long_segments([seg])
+        assert "".join(p["text"] for p in out) == text
+        assert time.perf_counter() - started < 10.0
+
+    def test_random_pauses_always_give_lossless_ordered_pieces(self):
+        import random
+        import core
+        rng = random.Random(165)
+        for _ in range(60):
+            text = "".join(rng.choice("我你他是不了在有人这中大来上国个到说们为") for _ in range(rng.randint(30, 400)))
+            pauses = {i: rng.choice([0.0, 0.0, 0.1, 0.3, 0.6, 1.2]) for i in range(1, len(text))}
+            seg = self._seg(text, pauses=pauses)
+            out = core.split_long_segments([seg])
+            assert "".join(p["text"] for p in out) == text
+            assert all(a["end"] <= b["start"] for a, b in zip(out, out[1:]))
+            assert all(p["start"] < p["end"] for p in out)
+            assert sum(len(p["words"]) for p in out) == len(text)

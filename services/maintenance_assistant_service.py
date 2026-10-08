@@ -1004,6 +1004,8 @@ def _tier_failure(error: ServiceError, engine_name: str, ladder: list) -> Servic
     Nothing is sent to the next tier: the user decides."""
     details = error.details if isinstance(error.details, dict) else {}
     reason = details.get("reason")
+    if reason == "no_key":
+        reason = "unavailable"
     if reason is None:
         if isinstance(error, UnsupportedOperationError):
             # The monthly cap refusal, or an engine that can't chat.

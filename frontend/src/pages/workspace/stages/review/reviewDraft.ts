@@ -1,5 +1,7 @@
 import type { LinePatch, ReviewLine } from '../../../../types/review'
+import { lineNumber } from '../../../../lineNumber'
 import { languageLabel } from '../../../../labels'
+
 
 export interface LineDraft {
   zh: string
@@ -85,35 +87,33 @@ export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | stri
   return patch
 }
 
+export type TimingField = 'start' | 'end'
+
+type Timed = Pick<ReviewLine, 'idx' | 'start' | 'end'>
+
+// A timing hotkey as a normal line patch. Uses buildPatch's end-after-start
+// rule, and refuses to push a boundary into a neighbouring line (only when the
+// move makes the overlap worse, so a line that already overlaps can be pulled out).
+// Neighbours count only when adjacent in the script: a filtered or searched
+// list can put unrelated lines side by side.
+export function timingPatch(
+  line: ReviewLine,
+  neighbours: { prev?: Timed | null; next?: Timed | null },
+  field: TimingField,
+  seconds: number,
+): LinePatch | string | null {
+  const value = Math.max(0, Math.round(seconds * 1000) / 1000)
+  const { prev, next } = neighbours
+  if (field === 'start' && prev && prev.idx === line.idx - 1 && value < prev.end && value < line.start) {
+    return `Start would overlap line #${lineNumber(prev.idx)}.`
+  }
+  if (field === 'end' && next && next.idx === line.idx + 1 && value > next.start && value > line.end) {
+    return `End would overlap line #${lineNumber(next.idx)}.`
+  }
+  return buildPatch(line, { ...draftFromLine(line), [field]: String(value) })
+}
+
 // A draft that would send something (or is invalid) is dirty: navigation saves it first.
 export function isDirty(line: ReviewLine, draft: LineDraft): boolean {
   return buildPatch(line, draft) !== null
-}
-
-export const CONFLICT_MESSAGE = 'This line changed elsewhere. Reload and try again.'
-
-export const AI_UNAVAILABLE_MESSAGE =
-  'AI help is not set up. Add an API key under Settings, then try again.'
-
-export const AI_STALE_MESSAGE = 'The line changed after this suggestion was made. Ask again.'
-
-// A suggestion is applied like any other edit: only "en" is sent, with the
-// value it was made against as the expected old value (a mismatch is a 409).
-export function suggestionPatch(line: ReviewLine, suggestion: string): LinePatch | null {
-  if (suggestion === line.en) return null
-  return { en: suggestion, expected: { en: line.en } }
-}
-
-// The line's panel slot: the AI panel (LineAi) or a study tool (LineTools, R17-R19).
-export type ToolMode = 'alternatives' | 'grammar' | 'pronounce'
-
-export type PanelMode = 'improve' | 'explain' | ToolMode
-
-export const isToolMode = (m: PanelMode): m is ToolMode =>
-  m === 'alternatives' || m === 'grammar' || m === 'pronounce'
-
-// The suggestion was made for current_en; if the row shows something else now
-// it is stale and must not be applied.
-export function suggestionIsStale(line: ReviewLine, currentEn: string): boolean {
-  return line.en !== currentEn
 }

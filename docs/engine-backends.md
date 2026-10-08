@@ -22,7 +22,7 @@ name from the `engine_backends/` package so `import translate_engines` and
 | `claude.py` | `ClaudeEngine` (Anthropic SDK) |
 | `openai_compat.py` | `DeepSeekEngine` (OpenAI SDK pointed at `api.deepseek.com`), `OpenAIEngine` (plain `requests` call to Chat Completions) |
 | `gemini.py` | `GeminiEngine` (plain `requests` call to `generateContent`), free-tier pacing and rate status |
-| `local.py` | `OllamaEngine` (REST to a local server), `NLLBEngine` (offline, `transformers` pipeline), `check_ollama_reachable` |
+| `local.py` | `OllamaEngine` (REST to a local server), `check_ollama_reachable` |
 | `llm_tasks.py` | `call_llm_json` and the single-prompt helpers (speaker tagging, pacing rewrite, consistency check, episode summary, flagging) |
 | `engine_registry.py` | `ENGINES`, capability tags, notes, model overrides, `get_engine` |
 | `fallback.py` | `FallbackEngine`, the translate fallback chain |
@@ -38,7 +38,6 @@ Engine map today:
 | `openai` | `OpenAIEngine` | `requests` | key |
 | `gemini` | `GeminiEngine` | `requests` | key (free-tier keys are paced client-side) |
 | `ollama` | `OllamaEngine` | `requests` to the local server | none; a running Ollama |
-| `nllb` | `NLLBEngine` | local `transformers` pipeline | none; model downloads once |
 
 The `deepseek` engine needs the `openai` package, which is why
 `diagnostics.OPTIONAL_DEPENDENCIES["openai"]` is described as "DeepSeek
@@ -109,17 +108,34 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
   hand: `ENV_NAMES` in `services/settings_service.py` against `SECRET_ENGINES`
   in `frontend/src/pages/settingsKeys.ts`, and `tests/test_engine_key_lists.py`
   fails if they drift.
-- **Free vs paid.** `FREE_ENGINES = {"ollama", "nllb"}` are free every time.
+- **Free vs paid.** `FREE_ENGINES = {"ollama"}` is free every time.
   Gemini is not in it because free or paid depends on the key; the per-run
   "Gemini free tier" setting decides, and `engine_picker_label` swaps in
-  `GEMINI_FREE_TIER_NOTE`. `KEYLESS_ENGINES` (the same two) skip key checks.
+  `GEMINI_FREE_TIER_NOTE`. `KEYLESS_ENGINES` (the same one) skips key checks.
+- **Picker notes.** `ENGINE_NOTES` and `GEMINI_FREE_TIER_NOTE` are one short
+  sentence each (at most 80 characters, pinned by a test, and short enough to stay readable in the narrow closed select) because the closed
+  engine `<select>` shows them whole. Detail that used to sit in them:
+  - Claude: model names are left out of the note; defaults are Sonnet 5.5 and Opus 5.5 (`CLAUDE_MODELS`); supports
+    novel reference and prompt caching.
+  - DeepSeek: roughly 5-10 cents per drama on V4 Flash; prompt caching makes
+    the repeated glossary/style block nearly free; OpenAI-compatible API.
+  - Gemini: close to DeepSeek pricing on Flash-Lite. Google renames and
+    reprices often, so check `GEMINI_MODELS` if a run starts failing.
+  - OpenAI: Chat Completions API, key from platform.openai.com; check
+    `OPENAI_MODELS` if a run starts failing.
+  - Ollama: runs `OLLAMA_MODELS` (Gemma 4) on your own GPU; free, private and
+    unlimited. See the model sizes in `OLLAMA_MODELS` for what fits a 12 GB card.
+  - Gemini free tier (`GEMINI_FREE_TIER_LIMITS`): Flash 10 requests/min and
+    250/day; Flash-Lite 15/min and 1000/day; 250,000 tokens/min shared across
+    models. Pro isn't available. The free-tier note drops these numbers. Google may use the text to improve its
+    products, and people may read it.
   Callers without `engines.paid` are limited to `FREE_ENGINES`
   (`translate_run_service`, `discover_lookup_service`).
 - **Capabilities.** `ENGINE_CAPABILITIES` tags (`translate`, `instructions`,
   `long_context`, `local`, `cheap`, `grounded_search`) feed
   `services/engine_routing_service`, which resolves a task such as "episode
   summary" to an engine. Nothing switches engine on its own.
-- **"Can't do this" messages.** `TRANSLATION_ONLY_ENGINES = {"nllb"}` has no
+- **"Can't do this" messages.** `TRANSLATION_ONLY_ENGINES` (empty now) names engines with no
   instruction following. Services that need it refuse with
   "`<engine>` is a translation-only engine and can't do this." (see
   `line_ai_service`, `reader_service`, `restructure_service`,
@@ -173,7 +189,7 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
    outside those goes on that list. Bodies of unknown size are read with
    `read_json_capped` (see above).
 4. **Patch the module that uses a name, not the front door.** A test patches
-   `engine_backends.llm_tasks.call_llm_json`, `engine_backends.local._nllb_pipeline_cache`,
+   `engine_backends.llm_tasks.call_llm_json`, `engine_backends.local._ollama_reachability_cache`,
    and so on. Patching `translate_engines.X` only affects code that reads `X`
    from `translate_engines` at call time, so it silently does nothing for
    engine-internal callers.
@@ -183,6 +199,12 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
 6. **Ollama context.** `estimate_ollama_num_ctx` sizes `num_ctx` per request
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
+7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS` (default `OLLAMA_DEFAULT_MODEL`,
+   `gemma4:12b`); the API and CLI also accept any tag typed by hand, and a title
+   or preset that saved an older tag (Qwen, say) keeps it. Models too big for a 12 GB card
+   (`gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
+   `<think>` blocks in a reply are stripped before parsing; a separate
+   `thinking` field is never read.
 
 ## 3. Transcription (ASR)
 
@@ -194,12 +216,21 @@ root modules below.
 |---|---|---|
 | `whisper` (default) | `asr_backend.WhisperBackend` -> `core.transcribe_for_timing` | local faster-whisper with VAD segmentation; `core.load_whisper_model` falls back from GPU to CPU |
 | `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; needs `qwen-asr`; batching (`qwen_asr_batch_size`) is honoured only on the tested qwen-asr version (`effective_qwen_batch_size`) |
-| `moss_td` | `asr_backend.MossTranscribeDiarizeBackend` | experimental one-pass transcript with speaker labels; refused unless `moss_experimental` is on; downloads pinned remote code (see `asr-experiments.md`) |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 
-`BACKENDS` / `get_backend` and `EXPERIMENTAL_BACKENDS` in `asr_backend.py` are
-the registry. Groq is not in it: it is a flag on the Whisper path in
-`transcribe_service`.
+`BACKENDS` / `get_backend` in `asr_backend.py` are the registry: every
+selectable backend by its stored `asr_backend_choice`, and `get_backend` raises
+`ValueError` for an unknown name. There is no separate experimental list; the
+choices `transcribe_service` accepts are
+`asr_options_service.ASR_BACKEND_CHOICES`, and removed backends are marked by
+`asr_options_service.REMOVED_ASR_BACKENDS`. Groq is not in the registry: it is a
+flag on the Whisper path in `transcribe_service`.
+
+A title saved with a removed backend (`REMOVED_ASR_BACKENDS`: `moss_td`) runs and
+displays as the backend a title with no saved choice gets
+(`asr_options_service.stored_asr_backend`: `qwen3_asr_long` or `whisper`, see
+below), with `removed_asr_backend_notice()` shown in the Transcribe stage and
+printed by the CLI. The saved value is not rewritten.
 
 Alignment is a separate choice (`alignment_method`): `whisper_diff` (the
 default, `core.align_transcript_to_timing`) or `qwen3_forced_align`
@@ -212,7 +243,19 @@ aligner returns zero-length or out-of-order spans.
 `vad_segments.py` (`speech_spans`, `merge_close`, `cap_spans`) builds Silero
 speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`
 (`asr_backend_choice` `qwen3_asr_vad`, opt-in) uses it to feed Qwen3 spans of
-at most about 15 s instead of Whisper's segments.
+at most about 15 s instead of Whisper's segments. `Qwen3ASRLongBackend`
+(`qwen3_asr_long`, the default for Chinese and Japanese titles that never chose
+a backend, when qwen-asr, torch and faster-whisper are installed and Groq is off
+for the title; otherwise `whisper`) runs the same stages with gentler speech
+detection (threshold 0.35, no minimum span, 300 ms padding), spans packed into
+windows of up to 30 s, one line per sentence (`asr_backend.SENTENCE_SPLIT_RULES`) and
+the forced aligner always on, so line length comes from the text and aligned
+timings rather than from where the detector found a pause.
+
+The per-title "Split lines by sentences" option (`split_by_sentences`) does the
+same for Whisper and Qwen3 ASR: Whisper's speech detection splits only at 2 s
+pauses (`asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS`, faster-whisper's default) and the
+lines are cut by `asr_backend.SENTENCE_SPLIT_RULES` using Whisper's word timings.
 
 `mixed_language.py` backs the "mixed languages" option (`mixed_languages` in
 the ASR options): language is detected per speech span, the text's script is
@@ -225,29 +268,28 @@ one that still can't be confirmed gets the `language_uncertain` flag.
 passed as `local_model_path` and used instead of a download. Downloads honour an
 HF token (`hf_token` key, `HF_TOKEN`). In portable mode `portable.py` redirects
 `HF_HOME`, `TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` under one
-`model_cache/` folder so copying the app folder carries the models. Qwen3 ASR,
-the Qwen3 aligner and MOSS download from Hugging Face on first use; a blocked
+`model_cache/` folder so copying the app folder carries the models. Qwen3 ASR
+and the Qwen3 aligner download from Hugging Face on first use; a blocked
 `huggingface.co` becomes `ModelDownloadError` with a DNS-blocker diagnosis.
 
 ## 4. TTS and dubbing at a glance
 
 All in `dub.py`; this page only maps them.
 
-- **Stock voices:** `synthesize_line` (Edge TTS, online, the only engine in
-  `PARALLEL_SAFE_ENGINES`) and `synthesize_line_offline` (Piper, local,
-  serialized by a lock). Edge TTS falls back to Piper when blocked
-  (`EdgeTTSBlockedError`).
-- **Cloned voices:** `CLONE_ENGINES` = `f5tts` (default), `omnivoice`,
-  `gpt_sovits` (its own local server, `gpt_sovits_url`), `chatterbox`, `tada`.
-  All but Edge/Piper are in `LOCAL_MODEL_ENGINES` and run single-threaded on
-  one model. `clone_engine_supports_language` gates by language.
+- **Voices:** `CLONE_ENGINES` = `omnivoice` only. It is in
+  `LOCAL_MODEL_ENGINES` and runs one clip at a time on one model.
+  `clone_engine_supports_language` gates original-language narration (zh/ja/ko).
+  `clone_map_from_characters` builds one entry per speaker; a speaker with
+  no clip gets an OmniVoice designed voice. Emotion tags do not reach the
+  voice engine; they only steer translation.
+- **Removed engines:** `REMOVED_VOICE_ENGINES` (Edge TTS, Piper, F5-TTS, TADA, Chatterbox, GPT-SoVITS). A
+  stored `clone_engine` or request naming one gets `removed_engine_message`;
+  nothing is rewritten or deleted.
 - **Timing:** `build_dub_track` fits each clip to its subtitle window with
   `stretch_for_window` (speed-up capped at `DUB_MAX_SPEEDUP`, slow-down at
   `DUB_MAX_SLOWDOWN`) and writes `pacing.json`.
-- The optional packages for these (`edge_tts`, `piper-tts`, `f5_tts`,
-  `omnivoice`, `chatterbox-tts`, `hume-tada`, `pydub`) are all in
-  `diagnostics.OPTIONAL_DEPENDENCIES`; OmniVoice, Chatterbox and TADA cannot
-  share one environment.
+- The optional packages for this (`omnivoice`, `pydub`) are in
+  `diagnostics.OPTIONAL_DEPENDENCIES`.
 
 ## 5. App and CLI share these paths
 
@@ -290,7 +332,7 @@ not diverge.
    `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
 6. **Routes and permissions:** if you add an API route, give it exactly one of
    `require_permission(...)`, `public_route()` or `local_only()` and update the
-   route table in `remote-access-decision.md`.
+   route table in `route-permissions.md`.
 7. **Tests:** mocked only (no network, GPU or keys). Patch the module that uses
    a name. Cover the id-keyed path (a short reply must blank only its own
    line), the refusal signal, rate-limit backoff, secret redaction, and the

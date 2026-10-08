@@ -8,6 +8,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import glossary_io
 import translation_guide as tg
 
 
@@ -97,6 +98,15 @@ class TestCharacterGenderHints:
     def test_empty_list_returns_empty(self):
         assert tg.build_character_gender_hints([]) == ""
 
+    def test_she_her_default_covers_unlisted_speakers_without_changing_listed_ones(self):
+        chars = [{"character_name": "Liang", "gender": "male"}]
+        plain = tg.build_character_gender_hints(chars)
+        with_default = tg.build_character_gender_hints(chars, default_female_pronouns=True)
+        assert "not listed" not in plain
+        assert "Liang: he/him" in with_default
+        assert "not listed here: she/her" in with_default
+        assert tg.build_character_gender_hints([], default_female_pronouns=True) == ""
+
 
 class TestCharacterPronouns:
     """Step 1e: pronouns as free text (she/her, he/him, they/them, or a
@@ -178,12 +188,12 @@ class TestGlossaryInGuidelines:
 
 class TestTermCategoriesAndPolicies:
     def test_every_policy_has_label_example_guidance(self):
-        for key, pol in tg.TERM_POLICIES.items():
+        for key, pol in glossary_io.TERM_POLICIES.items():
             assert pol.get("label") and pol.get("example") and pol.get("guidance")
 
     def test_categories_cover_expected_cnovel_types(self):
         for expected in ("person_name", "clan_sect", "honorific", "cultivation_realm"):
-            assert expected in tg.TERM_CATEGORIES
+            assert expected in glossary_io.TERM_CATEGORIES
 
 
 class TestGroupNotesByLine:
@@ -409,71 +419,71 @@ class TestGlossaryFileImport:
     def test_csv_with_header(self):
         text = ("term_original,term_translation,category,policy,enforce_exact,notes\n"
                 "沈清疑,Shen Qingyi,person_name,keep_pinyin,yes,protagonist")
-        entries, warnings = tg.parse_glossary_file(text, "g.csv")
+        entries, warnings = glossary_io.parse_glossary_file(text, "g.csv")
         assert len(entries) == 1
         assert entries[0]["term_translation"] == "Shen Qingyi"
         assert entries[0]["enforce_exact"] is True
 
     def test_headerless_two_column_csv_warns(self):
-        entries, warnings = tg.parse_glossary_file("沈清疑,Shen Qingyi", "g.csv")
+        entries, warnings = glossary_io.parse_glossary_file("沈清疑,Shen Qingyi", "g.csv")
         assert len(entries) == 1
         assert any("No header" in w for w in warnings)
 
     def test_tsv_and_column_aliases(self):
-        entries, _ = tg.parse_glossary_file("term\ttranslation\n洛神\tLuo Shen", "g.tsv")
+        entries, _ = glossary_io.parse_glossary_file("term\ttranslation\n洛神\tLuo Shen", "g.tsv")
         assert entries[0]["term_original"] == "洛神"
         assert entries[0]["term_translation"] == "Luo Shen"
 
     def test_json_import(self):
-        entries, _ = tg.parse_glossary_file(
+        entries, _ = glossary_io.parse_glossary_file(
             '[{"term_original":"道","term_translation":"dao","policy":"keep_with_note"}]', "g.json")
         assert entries[0]["policy"] == "keep_with_note"
 
     def test_unknown_category_corrected_and_warned(self):
-        entries, warnings = tg.parse_glossary_file(
+        entries, warnings = glossary_io.parse_glossary_file(
             "term_original,category\nX,not_a_real_category", "g.csv")
         assert entries[0]["category"] == "other"
         assert any("category" in w for w in warnings)
 
     def test_unknown_policy_corrected_and_warned(self):
-        entries, warnings = tg.parse_glossary_file(
+        entries, warnings = glossary_io.parse_glossary_file(
             "term_original,policy\nX,not_a_real_policy", "g.csv")
         assert entries[0]["policy"] == "keep_pinyin"
         assert any("policy" in w for w in warnings)
 
     def test_row_without_term_skipped_with_warning(self):
-        entries, warnings = tg.parse_glossary_file(
+        entries, warnings = glossary_io.parse_glossary_file(
             "term_original,term_translation\n,orphan translation\nX,ok", "g.csv")
         assert len(entries) == 1
         assert any("no original term" in w for w in warnings)
 
     def test_empty_file(self):
-        entries, warnings = tg.parse_glossary_file("", "g.csv")
+        entries, warnings = glossary_io.parse_glossary_file("", "g.csv")
         assert entries == [] and warnings
 
     def test_malformed_json_reports_error(self):
-        entries, warnings = tg.parse_glossary_file("{not valid json", "g.json")
+        entries, warnings = glossary_io.parse_glossary_file("{not valid json", "g.json")
         assert entries == [] and "parse" in warnings[0].lower()
 
     def test_json_not_a_list_rejected(self):
-        entries, warnings = tg.parse_glossary_file('{"a":1}', "g.json")
+        entries, warnings = glossary_io.parse_glossary_file('{"a":1}', "g.json")
         assert entries == [] and warnings
 
 
 class TestGlossaryExport:
     def test_csv_has_header_row(self):
-        out = tg.glossary_to_csv([])
+        out = glossary_io.glossary_to_csv([])
         assert out.splitlines()[0].startswith("term_original")
 
     def test_round_trip_preserves_fields(self):
         original = [{"term_original": "沈清疑", "term_translation": "Shen Qingyi",
                      "category": "person_name", "policy": "keep_pinyin",
                      "enforce_exact": True, "notes": "lead"}]
-        back, _ = tg.parse_glossary_file(tg.glossary_to_csv(original), "r.csv")
+        back, _ = glossary_io.parse_glossary_file(glossary_io.glossary_to_csv(original), "r.csv")
         assert back[0]["term_original"] == "沈清疑"
         assert back[0]["enforce_exact"] is True
         assert back[0]["category"] == "person_name"
 
     def test_export_handles_missing_optional_fields(self):
-        out = tg.glossary_to_csv([{"term_original": "X"}])
+        out = glossary_io.glossary_to_csv([{"term_original": "X"}])
         assert "X" in out

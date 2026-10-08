@@ -42,6 +42,7 @@ interface Props {
   onView: (view: SheetView) => void
   onClose: () => void
   onPlay: () => void
+  onPlayRange?: (start: number, end: number) => void
   onEditDetails: () => void
   canRetranscribe: boolean
   onRetranscribe: () => void
@@ -191,6 +192,7 @@ export function LineActionsSheet(p: Props) {
               busy={p.busy}
               blocked={blocked}
               onSplit={p.onSplit}
+              onPlayRange={p.hasMedia ? p.onPlayRange : undefined}
               onCancel={back}
             />
           )}
@@ -241,11 +243,6 @@ export function LineActionsSheet(p: Props) {
               <li>
                 <button type="button" disabled={!line.zh} onClick={() => p.onTool('grammar')}>
                   Grammar breakdown (AI)
-                </button>
-              </li>
-              <li>
-                <button type="button" disabled={!line.zh} onClick={() => p.onTool('pronounce')}>
-                  Pronounce the source
                 </button>
               </li>
               <li>

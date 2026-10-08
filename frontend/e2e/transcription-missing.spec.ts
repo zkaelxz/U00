@@ -16,6 +16,8 @@ test('not installed: the card says so, and Diagnostics leads with the same insta
   await page.goto('/#/drama/1/source')
   const note = page.locator('#transcribe-not-installed')
   await expect(note).toContainText("Transcription isn't installed yet.")
+  // Disabled up front: the note above is the reason, so nothing can start and fail with a raw error.
+  await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeDisabled()
 
   await note.getByRole('link', { name: 'Install transcription' }).click()
   await expect(page).toHaveURL(/#\/diagnostics\?install=transcription/)

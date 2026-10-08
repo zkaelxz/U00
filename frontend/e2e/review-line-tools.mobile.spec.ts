@@ -85,7 +85,7 @@ test('per-line tools fit a phone; next flagged crosses pages', async ({ page }) 
   await expectNoHorizontalOverflow(page)
 
   await row(page, 0).getByRole('button', { name: 'More actions for line 1' }).tap()
-  for (const item of ['Alternatives (AI)', 'Grammar breakdown (AI)', 'Pronounce the source']) {
+  for (const item of ['Alternatives (AI)', 'Grammar breakdown (AI)']) {
     await expect(page.getByRole('button', { name: item })).toBeVisible()
   }
   await page.getByRole('button', { name: 'Alternatives (AI)' }).tap()

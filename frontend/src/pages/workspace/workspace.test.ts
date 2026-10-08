@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DramaDetail } from '../../api/types'
 import {
   checkUploadFile,
+  isUploadLimitProblem,
   loadSourceForm,
   parseExpectedSpeakers,
   parseSpeakerHints,
@@ -69,7 +70,9 @@ describe('upload pre-check', () => {
     expect(checkUploadFile('notes.txt', 10, 10)).toMatch(/not supported/)
     expect(checkUploadFile('noext', 10, 10)).toMatch(/not supported/)
     expect(checkUploadFile('a.wav', 0, 10)).toMatch(/empty/)
-    expect(checkUploadFile('a.wav', 10 * MB + 1, 10)).toMatch(/10 MB/)
+    expect(checkUploadFile('a.wav', 10 * MB + 1, 10)).toMatch(/10 MB upload limit/)
+    expect(isUploadLimitProblem(checkUploadFile('a.wav', 10 * MB + 1, 10) ?? '')).toBe(true)
+    expect(isUploadLimitProblem('That file is empty.')).toBe(false)
   })
 })
 
@@ -78,9 +81,20 @@ describe('config validation', () => {
     expect(validateConfig({ beam_size: 5, min_silence_ms: 300, vad_threshold: 0.9 })).toBeNull()
     expect(validateConfig({ beam_size: 0 })).toMatch(/Beam size/)
     expect(validateConfig({ beam_size: 2.5 })).toMatch(/whole number/)
-    expect(validateConfig({ min_silence_ms: 3001 })).toMatch(/300 and 3000/)
+    expect(validateConfig({ min_silence_ms: 99 })).toMatch(/100 and 3000/)
+    expect(validateConfig({ min_silence_ms: 100 })).toBeNull()
+    expect(validateConfig({ min_silence_ms: 3000 })).toBeNull()
+    expect(validateConfig({ min_silence_ms: 3001 })).toMatch(/100 and 3000/)
+    expect(validateConfig({ min_pause_sec: 0.35 })).toBeNull()
+    expect(validateConfig({ min_pause_sec: 0.09 })).toMatch(/0.1 and 2/)
+    expect(validateConfig({ min_pause_sec: 0.1 })).toBeNull()
+    expect(validateConfig({ min_pause_sec: 2 })).toBeNull()
+    expect(validateConfig({ min_pause_sec: 2.01 })).toMatch(/0.1 and 2/)
+    expect(validateConfig({ min_pause_sec: Number.NaN })).toMatch(/0.1 and 2/)
     expect(validateConfig({ vad_threshold: 0.05 })).toMatch(/0.1 and 0.9/)
     expect(validateConfig({ hardsub_interval_sec: Number.NaN })).toMatch(/0.5 and 3/)
+    expect(validateConfig({ hallucination_silence_sec: 0 })).toBeNull()
+    expect(validateConfig({ hallucination_silence_sec: 0.2 })).toMatch(/0.5 and 10/)
   })
   it('parses expected speakers', () => {
     expect(parseExpectedSpeakers('')).toBeUndefined()

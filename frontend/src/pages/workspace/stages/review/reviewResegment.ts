@@ -1,15 +1,53 @@
 import { ApiError } from '../../../../api/client'
-import type { ResegmentPreview } from '../../../../types/restructure'
+import type { ResegmentPreview, ResplitResult, ResplitSensitivity } from '../../../../types/restructure'
 import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { humanize } from '../../../../components/labels'
 import { reflectAvailable } from '../../translateForm'
 import { spendText } from './reviewResults'
-import { JOB_RUNNING_MESSAGE } from './reviewStructure'
+
+
+export const JOB_RUNNING_MESSAGE = 'A job is running on this drama. Structure edits wait until it finishes.'
 
 export function resegmentSummary(p: ResegmentPreview): string {
   const notes = `${p.notes} note${p.notes === 1 ? '' : 's'}`
   return `${p.line_count_before} → ${p.line_count_after} lines; ${p.changed.length} change; ${p.translated} translated, ${p.flagged} flagged, ${notes} would be split`
+}
+
+/** "Split 31 lines into 118; speakers re-assigned" from a re-split summary. */
+export function resplitSummary(r: ResplitResult): string {
+  const n = r.split_lines ?? 0
+  if (n === 0) return r.note || 'No line is over the length limits. Nothing changed.'
+  const pieces = (r.line_count ?? 0) - (r.lines_before ?? 0) + n
+  const parts = [`Split ${n} line${n === 1 ? '' : 's'} into ${pieces}`]
+  if (r.timing === 'aligned') parts.push(`${r.aligned_lines ?? 0} timed from the audio`)
+  if (r.speakers_reassigned) parts.push('speakers re-assigned')
+  if (r.cleared_translations) parts.push(`${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} cleared`)
+  return parts.join('; ') + '.' + (r.note ? ` ${r.note}` : '')
+}
+
+export const RESPLIT_SENSITIVITIES: { value: ResplitSensitivity; label: string }[] = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'more', label: 'More' },
+  { value: 'sentence', label: 'Sentence by sentence' },
+]
+
+/** Seconds offered for "Also split by duration"; null keeps the preset's own limit. */
+export const RESPLIT_DURATION_CAPS = [5, 10, 15, 20]
+
+/** "Preview: 31 lines would be split into 118." from a dry-run result. */
+export function resplitPreviewSummary(r: ResplitResult): string {
+  const n = r.split_lines ?? 0
+  if (n === 0) return r.note || 'Preview: no line would be split.'
+  const cleared = r.cleared_translations
+    ? ` ${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} would be cleared.`
+    : ''
+  return `Preview: ${n} line${n === 1 ? '' : 's'} would be split into ${r.pieces ?? 0}.${cleared}`
+}
+
+/** The server asks for confirm=true when a long line already has English. */
+export function resplitNeedsConfirm(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 422 && /confirm/i.test(e.message)
 }
 
 // Translation-only engines cannot suggest split points (the server refuses

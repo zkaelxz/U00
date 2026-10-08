@@ -62,7 +62,7 @@ class TestRegistry:
         item = _item(svc.get_status(), "deepseek", "deepseek-chat")
         assert item["status"] == "retired" and item["kind"] == "preset"
         assert "deepseek-chat" in item["message"] and "deepseek" in item["message"]
-        assert item["replacement"] == "deepseek-v4-flash"
+        assert item["replacement"] == "deepseek-flash"
         assert item["can_switch"] is True
 
     def test_defaults_and_tiers_are_listed_but_not_switchable(self, isolated_db):
@@ -84,7 +84,7 @@ class TestProviderCheck:
 
         def fake_get(url, headers=None, timeout=None, allow_redirects=True, stream=False):
             seen.update(url=url, headers=headers, timeout=timeout, redirects=allow_redirects)
-            return FakeResp({"data": [{"id": "claude-sonnet-5"}, {"id": "claude-haiku-4-5-20251001"}]})
+            return FakeResp({"data": [{"id": "claude-sonnet-5-5"}, {"id": "claude-haiku-4-5-20251001"}]})
         monkeypatch.setattr(requests, "get", fake_get)
         status = svc.check_providers()
         item = _item(status, "claude", "claude-opus-4-8")
@@ -94,7 +94,7 @@ class TestProviderCheck:
         # Key in a header, never the URL; a timeout on the call.
         assert "SECRETKEY" not in seen["url"] and seen["headers"]["x-api-key"].startswith("sk-ant-")
         assert seen["timeout"] and seen["redirects"] is False
-        assert _item(status, "claude", "claude-sonnet-5")["status"] == "current"
+        assert _item(status, "claude", "claude-sonnet-5-5")["status"] == "current"
 
     def test_engines_without_key_are_not_called(self, isolated_db, keys, monkeypatch):
         import requests
@@ -164,17 +164,17 @@ class TestGuidedSwitch:
         db.save_preset("Old DS", translation_engine="deepseek", engine_model="deepseek-chat",
                        style_preset="novel", locale="en-GB")
         pid = db.list_presets()[0]["id"]
-        out = svc.switch_preset_model(pid, "deepseek-chat", "deepseek-v4-flash")
-        assert out["to_model"] == "deepseek-v4-flash"
+        out = svc.switch_preset_model(pid, "deepseek-chat", "deepseek-flash")
+        assert out["to_model"] == "deepseek-flash"
         p = db.list_presets()[0]
         assert (p["engine_model"], p["translation_engine"], p["style_preset"], p["locale"]) == \
-            ("deepseek-v4-flash", "deepseek", "novel", "en-GB")
+            ("deepseek-flash", "deepseek", "novel", "en-GB")
 
     def test_stale_view_is_a_conflict(self, isolated_db):
         db.save_preset("P", translation_engine="deepseek", engine_model="deepseek-v4-pro")
         pid = db.list_presets()[0]["id"]
         with pytest.raises(ConflictError):
-            svc.switch_preset_model(pid, "deepseek-chat", "deepseek-v4-flash")
+            svc.switch_preset_model(pid, "deepseek-chat", "deepseek-flash")
 
     def test_unoffered_model_rejected(self, isolated_db):
         db.save_preset("P", translation_engine="deepseek", engine_model="deepseek-chat")
@@ -270,6 +270,7 @@ class TestClaudeAliases:
                 assert i["listed_by_provider"] is None
 
     def test_undated_ids_in_the_list_make_absence_meaningful(self, isolated_db, keys, monkeypatch):
+        db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
         status = self._check(monkeypatch, ["claude-sonnet-5", "claude-other-9-20260101"])
         item = next(i for i in status["items"]
                     if i["engine"] == "claude" and i["model"] == "claude-opus-4-8")
@@ -326,13 +327,13 @@ class TestOfferProviderModels:
                             "claude-Bad Id", "claude-sonnet-6"],
                     gemini=["gemini-flash-latest", "gemini-9-pro", "gemini-embedding-001",
                             "gemini-2.5-flash-image", "imagen-4"],
-                    deepseek=["deepseek-v4-flash", "deepseek-v5"])
+                    deepseek=["deepseek-flash", "deepseek-v5"])
         c = self._models("claude")
         assert c["models"] == list(translate_engines.CLAUDE_MODELS) + ["claude-sonnet-6"]
         assert "highest Claude rate" in c["model_labels"]["claude-sonnet-6"]
         assert self._models("gemini")["models"][-1:] == ["gemini-9-pro"]
         assert len(self._models("gemini")["models"]) == len(translate_engines.GEMINI_MODELS) + 1
-        assert self._models("deepseek")["models"] == ["deepseek-v4-flash", "deepseek-v5"]
+        assert self._models("deepseek")["models"] == ["deepseek-flash", "deepseek-v5"]
 
     def test_openai_offers_only_listed_gpt5_and_later_chat_models(self, isolated_db):
         db.set_app_setting("offer_provider_models", True)
@@ -398,8 +399,22 @@ class TestUnpricedModelCost:
 class _StubDeepSeek:
     name = "deepseek"
 
-    def __init__(self, api_key, model="deepseek-v4-flash"):
+    def __init__(self, api_key, model="deepseek-flash"):
         self.model = model
+
+
+class TestSavedClaudeModelsSurviveDefaultChange:
+    def test_a_saved_older_id_is_kept_and_still_runs(self, isolated_db):
+        from services import translate_run_service as run
+        pid = db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
+        assert next(p for p in db.list_presets() if p["id"] == pid)["engine_model"] == "claude-opus-4-8"
+        for old in ("claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6"):
+            run._require_offered_model("claude", old)
+
+    def test_an_unknown_id_is_still_refused(self, isolated_db):
+        from services import translate_run_service as run
+        with pytest.raises(InvalidInputError):
+            run._require_offered_model("claude", "claude-opus-9-9")
 
 
 class TestModelOverrides:
@@ -419,31 +434,31 @@ class TestModelOverrides:
                     if i["kind"] == "default" and i["engine"] == engine)
 
     def test_no_override_means_built_in(self, isolated_db):
-        assert translate_engines.effective_default_model("deepseek") == "deepseek-v4-flash"
-        assert translate_engines.get_engine("deepseek", "k").model == "deepseek-v4-flash"
+        assert translate_engines.effective_default_model("deepseek") == "deepseek-flash"
+        assert translate_engines.get_engine("deepseek", "k").model == "deepseek-flash"
         item = self._default_item("deepseek")
-        assert item["is_override"] is False and item["builtin_model"] == "deepseek-v4-flash"
+        assert item["is_override"] is False and item["builtin_model"] == "deepseek-flash"
 
     def test_override_applies_in_get_engine_and_offered_and_runs(self, isolated_db):
         from services import translate_run_service as run
-        out = svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        out = svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
         assert out["to_model"] == "deepseek-v4-pro"
         assert translate_engines.get_engine("deepseek", "k").model == "deepseek-v4-pro"
         # an explicit model still wins
         assert translate_engines.get_engine("deepseek", "k", "deepseek-x1").model == "deepseek-x1"
         deepseek = next(e for e in translate_service.list_engines() if e["name"] == "deepseek")
-        assert deepseek["models"] == ["deepseek-v4-flash", "deepseek-v4-pro"]
+        assert deepseek["models"] == ["deepseek-flash", "deepseek-v4-pro"]
         run._require_offered_model("deepseek", "deepseek-v4-pro")
-        run._require_offered_model("deepseek", "deepseek-v4-flash")
+        run._require_offered_model("deepseek", "deepseek-flash")
         with pytest.raises(InvalidInputError):
             run._require_offered_model("deepseek", "deepseek-other")
         assert run._default_model("deepseek") == "deepseek-v4-pro"
         item = self._default_item("deepseek")
         assert item["model"] == "deepseek-v4-pro" and item["is_override"] is True
-        assert item["builtin_model"] == "deepseek-v4-flash"
+        assert item["builtin_model"] == "deepseek-flash"
 
     def test_cost_of_an_unpriced_override_uses_the_highest_provider_rate(self, isolated_db):
-        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v9-new")
+        svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v9-new")
         assert "deepseek-v9-new" not in translate_engines.PRICING_PER_MILLION_TOKENS
         engine = translate_engines.get_engine("deepseek", "k")
         assert translate_engines.estimate_cost_for_engine(engine, 1_000_000, 1_000_000) > 0
@@ -455,7 +470,7 @@ class TestModelOverrides:
         assert translate_engines.effective_tier_model("standard") == "claude-opus-4-8"
         assert translate_engines.effective_tier("standard")["engine_model"] == "claude-opus-4-8"
         assert translate_engines.WORKFLOW_TIERS["standard"]["engine_model"] == tier["engine_model"]
-        assert translate_engines.effective_tier("release")["engine_model"] == "claude-opus-4-8"
+        assert translate_engines.effective_tier("release")["engine_model"] == "claude-opus-5-5"
         # the tier model the form receives is the effective one
         db_id = db.create_drama(title_en="T", status="aligned")
         assert run.apply_workflow_tier(db_id, "standard")["engine_model"] == "claude-opus-4-8"
@@ -464,7 +479,7 @@ class TestModelOverrides:
         assert item["builtin_model"] == tier["engine_model"]
 
     def test_draft_tier_follows_the_engine_default_override(self, isolated_db):
-        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
         assert translate_engines.effective_tier("draft")["engine_model"] == "deepseek-v4-pro"
         assert translate_engines.effective_tier_model("draft") == "deepseek-v4-pro"
         with pytest.raises(InvalidInputError):
@@ -499,20 +514,20 @@ class TestModelOverrides:
         with pytest.raises(InvalidInputError):
             svc.set_model_override("preset", "1", "a", "b")
         with pytest.raises(InvalidInputError):
-            svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-flash")
+            svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-flash")
 
     def test_stale_from_model_is_a_conflict(self, isolated_db):
-        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
         with pytest.raises(ConflictError):
-            svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-max")
+            svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-max")
         assert translate_engines.effective_default_model("deepseek") == "deepseek-v4-pro"
 
     def test_clear_restores_the_built_in(self, isolated_db):
-        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
         out = svc.clear_model_override("default", "deepseek")
-        assert out["model"] == "deepseek-v4-flash"
-        assert translate_engines.get_engine("deepseek", "k").model == "deepseek-v4-flash"
-        assert svc.clear_model_override("default", "deepseek")["model"] == "deepseek-v4-flash"
+        assert out["model"] == "deepseek-flash"
+        assert translate_engines.get_engine("deepseek", "k").model == "deepseek-flash"
+        assert svc.clear_model_override("default", "deepseek")["model"] == "deepseek-flash"
         assert next(e for e in translate_service.list_engines()
                     if e["name"] == "deepseek")["models"] is None
 
@@ -520,26 +535,26 @@ class TestModelOverrides:
         db.set_app_setting(translate_engines.MODEL_OVERRIDE_DEFAULTS_KEY,
                            {"gone-engine": "x-1", "deepseek": "bad value ../", "claude": 5})
         db.set_app_setting(translate_engines.MODEL_OVERRIDE_TIERS_KEY, ["not", "a", "dict"])
-        assert translate_engines.effective_default_model("deepseek") == "deepseek-v4-flash"
+        assert translate_engines.effective_default_model("deepseek") == "deepseek-flash"
         assert translate_engines.override_models("deepseek") == []
         assert translate_engines.effective_tier_model("standard") == \
             translate_engines.WORKFLOW_TIERS["standard"]["engine_model"]
         svc.get_status()
 
     def test_saved_presets_are_never_touched(self, isolated_db):
-        db.save_preset("P", translation_engine="deepseek", engine_model="deepseek-v4-flash")
-        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
-        assert db.list_presets()[0]["engine_model"] == "deepseek-v4-flash"
+        db.save_preset("P", translation_engine="deepseek", engine_model="deepseek-flash")
+        svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
+        assert db.list_presets()[0]["engine_model"] == "deepseek-flash"
 
     def test_candidates_are_the_listed_models_and_replacement(self, isolated_db):
         item = self._default_item("deepseek")
         assert item["candidates"] == []
-        self._cache(deepseek=["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-embed-1", "other-2"])
+        self._cache(deepseek=["deepseek-flash", "deepseek-v4-pro", "deepseek-embed-1", "other-2"])
         item = self._default_item("deepseek")
         assert item["candidates"] == ["deepseek-v4-pro"]
 
     def test_cli_get_engine_uses_the_override(self, isolated_db):
-        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
         import cli
         seen = {}
         import argparse
