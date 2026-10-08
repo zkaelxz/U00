@@ -54,7 +54,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `characters_service.py`, `comic_view_service.py`, `compare_transcription_service.py`, `cover_art_service.py`,
 `delete_service.py`, `diagnostics_gaps_service.py`, `diagnostics_installs_service.py`,
 `diagnostics_service.py`, `diarization_service.py`, `discover_catalog_service.py`,
-`discover_lookup_service.py`, `disk_usage_service.py`, `drama_service.py`, `dub_service.py`,
+`discover_lookup_service.py`, `disk_usage_clips_service.py`, `disk_usage_service.py`, `drama_service.py`, `dub_service.py`,
 `egress_proxy.py`, `engine_routing_service.py`, `event_stream_service.py`, `export_service.py`,
 `extension_service.py`, `fixflag_transcribe.py`, `glossary_retranslate_service.py`, `glossary_service.py`, `jellyfin_service.py`,
 `job_checkpoint_service.py`, `job_timing_service.py`, `jobs_service.py`, `library_admin_service.py`, `loaded_models_service.py`,
