@@ -106,7 +106,7 @@ class SourceAdapter:
 
     def __init__(self, client: SourceClient = None, allow_adult: bool = None, **client_kwargs):
         if client is None:
-            client_kwargs.setdefault("policy", PacingPolicy.from_settings(self.host_min_interval, self.name, self.pacing_profile))
+            client_kwargs.setdefault("policy", pacing.for_source(PacingPolicy.from_settings(self.host_min_interval), self.name, self.pacing_profile))
             client_kwargs.setdefault("default_headers", dict(self.default_headers))
             client = SourceClient(self.name, **client_kwargs)
         self.client = client

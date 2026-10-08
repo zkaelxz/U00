@@ -18,6 +18,11 @@ import threading
 from dataclasses import dataclass, replace
 from typing import Optional
 
+import applog
+
+from . import store
+from .models import ENVIRONMENT_BLOCK_REASONS, FailureReason
+
 LEVELS = ("careful", "normal", "fast")
 DEFAULT_LEVEL = "normal"
 
@@ -69,6 +74,11 @@ def effective_level(profile: Optional[PacingProfile], level: Optional[str]) -> s
     if level == "fast" and not (profile and profile.fast_allowed):
         return DEFAULT_LEVEL
     return level
+
+
+def for_source(policy, source: str, profile: Optional[PacingProfile]):
+    """`policy` at the level the person chose for `source`."""
+    return apply_level(policy, profile, store.source_pace(source))
 
 
 def _override(policy, entry: PaceLevel):
@@ -180,3 +190,35 @@ def note_success(source: str) -> bool:
         e["quiet"] = 0
         e["mult"] = max(1.0, e["mult"] / 2)
         return True
+
+
+_PUSHBACK_KINDS = {FailureReason.RATE_LIMIT.value: "rate_limit", FailureReason.TIMEOUT.value: "timeout"}
+_BLOCK_VALUES = {r.value for r in ENVIRONMENT_BLOCK_REASONS}
+
+
+def pushback_kind(reason: str) -> Optional[str]:
+    """The `note_trouble` kind for a failed attempt's reason; None when the
+    failure says nothing about how fast we are going."""
+    return _PUSHBACK_KINDS.get(reason) or ("block" if reason in _BLOCK_VALUES else None)
+
+
+def wait_seconds(source: str, last: Optional[float], gap: float, now: float) -> float:
+    """How long to wait before the next request to a host last used at `last`
+    (None: never): the gap, or a Retry-After the source sent if that is longer."""
+    return max(hold_remaining(source, now), last + gap - now if last is not None else 0.0)
+
+
+def note_pushback(source: str, kind: Optional[str], headers, now: float,
+                  already_slowed: bool) -> Optional[str]:
+    """Feeds a 429 / block / timeout / challenge into the slowdown. One request
+    doubles the delays at most once, however often it is retried. Returns the
+    notice to show when the delays were doubled just now, else None."""
+    if kind is None:
+        return None
+    ra = {k.lower(): v for k, v in headers.items()}.get("retry-after")
+    retry_after = float(ra) if ra and str(ra).strip().isdigit() else None
+    if not note_trouble(source, kind, now, retry_after, escalate=not already_slowed):
+        return None
+    message = f"Slowed down: {source} asked us to wait"
+    applog.get_logger().warning(message)
+    return message

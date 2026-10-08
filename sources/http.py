@@ -36,12 +36,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
-import applog
 from translate_engines import safe_url
 
-from . import detect, health, pacing, store
+from . import charset_sniff, detect, health, pacing, store
 from .cache import RawCache
-from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REASONS, ENVIRONMENT_BLOCK_REASONS,
+from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REASONS,
                      FailureReason, FetchFailed, SourceUnavailable)
 
 DEFAULT_TIMEOUT = 20
@@ -170,17 +169,7 @@ class PacingPolicy:
     session_break_max_delay: float = 90.0
 
     @classmethod
-    def from_settings(cls, host_min_interval: dict = None, source: str = None,
-                      profile=None) -> "PacingPolicy":
-        """The global pace, adjusted to the level chosen for `source` when an
-        adapter passes its pacing profile; without one nothing changes."""
-        policy = cls._from_global(host_min_interval)
-        if source is None or profile is None:
-            return policy
-        return pacing.apply_level(policy, profile, store.source_pace(source))
-
-    @classmethod
-    def _from_global(cls, host_min_interval: dict = None) -> "PacingPolicy":
+    def from_settings(cls, host_min_interval: dict = None) -> "PacingPolicy":
         s = store.all_settings()
         lo = max(0.0, float(s["pace_min_delay"]))
         hi = max(lo, float(s["pace_max_delay"]))
@@ -224,78 +213,9 @@ class Response:
 _META_CHARSET = re.compile(rb"""<meta[^>]+charset=["']?([\w-]+)""", re.I)
 
 
-# Encodings tried, in order, for a page that declares no charset and is not
-# valid UTF-8. Order is the tie-break when two score the same.
-_SNIFF_CANDIDATES = ("gb18030", "big5", "cp932", "euc_jp", "euc_kr")
-_SNIFF_SAMPLE = 64 * 1024
 # Declared names that are strict subsets of GB18030: decode with the superset
 # so a character outside the declared table still comes out right.
 _GB_SUBSETS = {"gb2312", "gb_2312", "gb_2312-80", "gbk", "x-gbk", "cp936", "gb-2312", "euc-cn", "euccn"}
-
-
-# Very common ideographs (simplified, traditional and shared kanji forms). A
-# wrong legacy decode yields ideographs too, but rarely these ones.
-_COMMON_HANZI = frozenset(
-    "的一是不了人我在有他这中大来上国个到说们为子和你地出道也时年得就那要下以生会自着去之过家学对可她里后小么心多天而能好都然没日于起还发成事只作当想看文无开手十用主行方又如前所本见经头面公同三已老从动两长知民样现分将外但身些与高意进把法此实回二理美点月明其种声全工话儿者向情部正名定女问力机给等几很业最间新什写活加相"
-    "的一是不了人我在有他這中大來上國個到說們為子和你地出道也時年得就那要下以生會自著去之過家學對可她裡後小麼心多天而能好都然沒日於起還發成事只作當想看文無開手十用主行方又如前所本見經頭面公同三已老從動兩長知民樣現分將外但身些與高意進把法此實回二理美點月明其種聲全工話兒者向情部正名定女問力機給等幾很業最間新什寫活加相"
-    "第章節話卷後彼私俺僕君達的様事時間何者人日本語今見行来出会思言生学校手気分中女男子大小上下前後年月"
-)
-
-
-def _sniff_score(text: str, kana_counts: bool = True, hanja_weight: float = 0.2) -> float:
-    """How much `text` looks like real CJK prose. Kana and hangul are strong
-    evidence, common ideographs are good evidence, other ideographs weak;
-    replacement, control, private-use, rare (extension / compatibility)
-    ideographs (in Korean, any non-common one) and half-width katakana (what EUC-JP looks like when misread
-    as Shift-JIS) count heavily against."""
-    score = 0.0
-    for ch in text:
-        o = ord(ch)
-        if 0x3040 <= o <= 0x30FF:
-            # GB2312 has kana in the same cells as EUC-JP, so they say nothing
-            # when the candidate is GB18030.
-            score += 1.5 if kana_counts else 0
-        elif 0xAC00 <= o <= 0xD7A3:
-            score += 1
-        elif ch in _COMMON_HANZI:
-            score += 2
-        elif 0x4E00 <= o <= 0x9FFF:
-            score += hanja_weight
-        elif o == 0xFFFD or o < 0x20 and ch not in "\t\n\r" or 0x7F <= o < 0xA0 \
-                or 0xE000 <= o <= 0xF8FF or 0x3400 <= o <= 0x4DBF or 0xF900 <= o <= 0xFAFF \
-                or 0xFF61 <= o <= 0xFF9F:
-            score -= 10
-    return score
-
-
-def _sniff_decode(content: bytes) -> str:
-    """Decodes bytes with no declared charset: BOM, then strict UTF-8, then
-    the best-scoring legacy CJK encoding on a bounded sample. Never raises."""
-    for bom, enc in ((b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16")):
-        if content.startswith(bom):
-            return content.decode(enc, errors="replace")
-    try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError:
-        pass
-    sample = content[:_SNIFF_SAMPLE]
-    best, best_score = None, 0.0
-    for enc in _SNIFF_CANDIDATES:
-        text = None
-        # The sample may cut a multi-byte character in half.
-        for trim in range(4):
-            try:
-                text = (sample[:len(sample) - trim] if trim else sample).decode(enc)
-                break
-            except UnicodeDecodeError:
-                continue
-        if text is None:
-            continue
-        score = _sniff_score(text, kana_counts=enc != "gb18030",
-                             hanja_weight=-1.0 if enc == "euc_kr" else 0.2)
-        if score > best_score:
-            best, best_score = enc, score
-    return content.decode(best or "utf-8", errors="replace")
 
 
 def decode_html(content: bytes, headers: dict = None) -> str:
@@ -315,13 +235,13 @@ def decode_html(content: bytes, headers: dict = None) -> str:
         mm = _META_CHARSET.search(content[:4096])
         enc = mm.group(1).decode("ascii", "ignore") if mm else None
     if not enc:
-        return _sniff_decode(content)
+        return charset_sniff.sniff_decode(content)
     if enc.lower() in _GB_SUBSETS:
         enc = "gb18030"
     try:
         return content.decode(enc, errors="replace").lstrip("\ufeff")
     except LookupError:
-        return _sniff_decode(content)
+        return charset_sniff.sniff_decode(content)
 
 
 MAX_REDIRECTS = 5
@@ -787,8 +707,6 @@ def _state(source: str, max_concurrent: int) -> dict:
 
 
 _DEFAULT_PORTS = {"http": 80, "https": 443}
-_PUSHBACK_KINDS = {FailureReason.RATE_LIMIT.value: "rate_limit", FailureReason.TIMEOUT.value: "timeout"}
-_BLOCK_VALUES = {r.value for r in ENVIRONMENT_BLOCK_REASONS}
 
 
 def _host_key(url: str) -> str:
@@ -931,12 +849,10 @@ class SourceClient:
         try:
             gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
             gap = max(gap, hs["min_interval"]) * pacing.multiplier(self.source)
-            held = pacing.hold_remaining(self.source, self.clock())
-            if hs["last"] is not None or held > 0:
-                wait = max(held, hs["last"] + gap - self.clock() if hs["last"] is not None else 0.0)
-                if wait > 0:
-                    self._status(f"Waiting {wait:.1f}s before next request...", wait)
-                    self._sleep_cancellable(wait)
+            wait = pacing.wait_seconds(self.source, hs["last"], gap, self.clock())
+            if wait > 0:
+                self._status(f"Waiting {wait:.1f}s before next request...", wait)
+                self._sleep_cancellable(wait)
             hs["last"] = self.clock()
         finally:
             hs["lock"].release()
@@ -1096,9 +1012,7 @@ class SourceClient:
                 retryable = reason == FailureReason.RATE_LIMIT or resp.status_code >= 500
 
             self.attempts.append(attempt)
-            slowed = self._note_pushback(_PUSHBACK_KINDS.get(attempt.reason)
-                                         or ("block" if attempt.reason in _BLOCK_VALUES else None),
-                                         resp, slowed)
+            slowed = self._note_pushback(pacing.pushback_kind(attempt.reason), resp, slowed)
             if retryable and attempt_no < self.policy.max_retries:
                 backoff = min(self.policy.backoff_base * (2 ** attempt_no), MAX_SINGLE_BACKOFF)
                 retry_hdr = (resp.headers if resp is not None else {})
@@ -1120,25 +1034,15 @@ class SourceClient:
             self._status("Idle", 0.0)
             raise FetchFailed(attempt.describe(), FailureReason(attempt.reason), attempt)
 
-    def _note_pushback(self, kind, resp, already_slowed: bool) -> bool:
-        """Feeds a 429 / block / timeout / challenge into the source's
-        automatic slowdown. One request doubles the delays at most once,
-        however many times it is retried. Returns whether it has by now."""
-        if kind is None:
-            return already_slowed
-        retry_after = None
-        if resp is not None:
-            ra = {k.lower(): v for k, v in resp.headers.items()}.get("retry-after")
-            if ra and str(ra).strip().isdigit():
-                retry_after = float(ra)
-        if not pacing.note_trouble(self.source, kind, self.clock(), retry_after,
-                                   escalate=not already_slowed):
-            return already_slowed
-        message = f"Slowed down: {self.source} asked us to wait"
-        self.stats["notice"] = message
-        self._status(message)
-        applog.get_logger().warning(message)
-        return True
+    def _note_pushback(self, kind, resp, slowed: bool) -> bool:
+        """Feeds a pushback into the source's automatic slowdown; True once
+        this request has slowed it, so retries of it do not slow it again."""
+        notice = pacing.note_pushback(self.source, kind, resp.headers if resp is not None else {},
+                                      self.clock(), slowed)
+        if notice:
+            self.stats["notice"] = notice
+            self._status(notice)
+        return slowed or bool(notice)
 
     def paced(self, fn, url: str, access_method: str, action: str = None):
         """Runs a non-HTTP fetch (e.g. a headless-browser render) under the

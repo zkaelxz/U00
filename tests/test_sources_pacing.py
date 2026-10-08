@@ -82,9 +82,9 @@ class TestLevels:
 
     def test_from_settings_uses_the_saved_level_only_with_a_profile(self, isolated_db):
         store.set_source_pace("vet", "fast")
-        assert PacingPolicy.from_settings(None, "vet", VETTED).min_delay == 1.0
-        assert PacingPolicy.from_settings(None, "vet", None).min_delay == 3.0   # no profile
-        assert PacingPolicy.from_settings(None, "vet", pacing.DEFAULT_PROFILE).min_delay == 3.0
+        assert pacing.for_source(PacingPolicy.from_settings(), "vet", VETTED).min_delay == 1.0
+        assert pacing.for_source(PacingPolicy.from_settings(), "vet", None).min_delay == 3.0   # no profile
+        assert pacing.for_source(PacingPolicy.from_settings(), "vet", pacing.DEFAULT_PROFILE).min_delay == 3.0
 
     def test_adapter_default_is_the_neutral_profile(self):
         assert SourceAdapter.pacing_profile is pacing.DEFAULT_PROFILE
