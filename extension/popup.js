@@ -158,19 +158,20 @@ async function load() {
 let pageRunInFlight = false;
 
 async function run(all) {
-  if (pageRunInFlight) return;
-  const tab = await activeTab();
-  if (!tab || !tab.id) return say("No active tab.", true);
-  const dramaId = els.drama.value ? Number(els.drama.value) : null;
-  if (els.store.checked && !dramaId) {
-    return say("Pick a drama to save into, or untick saving.", true);
-  }
-  say(all ? "Reading every visible page…" : "Reading this page…");
-  // A capture started now would send the same pages a second time.
+  // Claimed before any await: a second click lands while activeTab() is pending.
+  if (pageRunInFlight || captureInFlight) return;
   pageRunInFlight = true;
+  // A capture started now would send the same pages a second time.
   els.captureChapter.disabled = true;
   els.captureFromHere.disabled = true;
   try {
+    const tab = await activeTab();
+    if (!tab || !tab.id) return say("No active tab.", true);
+    const dramaId = els.drama.value ? Number(els.drama.value) : null;
+    if (els.store.checked && !dramaId) {
+      return say("Pick a drama to save into, or untick saving.", true);
+    }
+    say(all ? "Reading every visible page…" : "Reading this page…");
     await ensureContentScript(tab.id);
     // Prefer the host the page reports about itself: `tab.url` is only
     // populated when this extension has access to that tab, and keying
@@ -242,7 +243,7 @@ function showCapturing(running) {
 let captureInFlight = false;
 
 async function runCapture(fromHere) {
-  if (pageRunInFlight) return;
+  if (pageRunInFlight || captureInFlight) return;
   captureInFlight = true;
   try {
     await startCapture(fromHere);

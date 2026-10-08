@@ -225,6 +225,15 @@ class TestChapterCaptureStaysPolite:
         assert "els.captureChapter.disabled = true" in run
         assert "pageRunInFlight = false" in run
 
+    def test_double_send_guards_claim_before_any_await(self):
+        popup = _code("popup.js")
+        run = popup[popup.index("async function run(all)"):popup.index("function showCapturing")]
+        capture = popup[popup.index("async function runCapture("):popup.index("async function startCapture(")]
+        guard = "if (pageRunInFlight || captureInFlight) return;"
+        assert guard in run and guard in capture
+        assert run.index("pageRunInFlight = true") < run.index("await")
+        assert capture.index("captureInFlight = true") < capture.index("await")
+
     def test_capture_makes_no_calls_of_its_own(self):
         code = _code("content.js")
         capture = code[code.index("const CAPTURE_MAX_PAGES"):code.index("function cancelCapture")]
