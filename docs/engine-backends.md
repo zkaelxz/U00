@@ -218,14 +218,19 @@ root modules below.
 | `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; needs `qwen-asr`; batching (`qwen_asr_batch_size`) is honoured only on the tested qwen-asr version (`effective_qwen_batch_size`) |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 
-`BACKENDS` / `get_backend` and `EXPERIMENTAL_BACKENDS` in `asr_backend.py` are
-the registry. Groq is not in it: it is a flag on the Whisper path in
-`transcribe_service`.
+`BACKENDS` / `get_backend` in `asr_backend.py` are the registry: every
+selectable backend by its stored `asr_backend_choice`, and `get_backend` raises
+`ValueError` for an unknown name. There is no separate experimental list; the
+choices `transcribe_service` accepts are
+`asr_options_service.ASR_BACKEND_CHOICES`, and removed backends are marked by
+`asr_options_service.REMOVED_ASR_BACKENDS`. Groq is not in the registry: it is a
+flag on the Whisper path in `transcribe_service`.
 
-A title saved with a removed backend (`asr_options_service.REMOVED_ASR_BACKENDS`:
-`moss_td`) runs and displays as the default backend, with
-`removed_asr_backend_notice()` shown in the Transcribe stage and printed by the CLI.
-The saved value is not rewritten.
+A title saved with a removed backend (`REMOVED_ASR_BACKENDS`: `moss_td`) runs and
+displays as the backend a title with no saved choice gets
+(`asr_options_service.stored_asr_backend`: `qwen3_asr_long` or `whisper`, see
+below), with `removed_asr_backend_notice()` shown in the Transcribe stage and
+printed by the CLI. The saved value is not rewritten.
 
 Alignment is a separate choice (`alignment_method`): `whisper_diff` (the
 default, `core.align_transcript_to_timing`) or `qwen3_forced_align`
@@ -240,7 +245,8 @@ speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`
 (`asr_backend_choice` `qwen3_asr_vad`, opt-in) uses it to feed Qwen3 spans of
 at most about 15 s instead of Whisper's segments. `Qwen3ASRLongBackend`
 (`qwen3_asr_long`, the default for Chinese and Japanese titles that never chose
-a backend, when qwen-asr is installed) runs the same stages with gentler speech
+a backend, when qwen-asr, torch and faster-whisper are installed and Groq is off
+for the title; otherwise `whisper`) runs the same stages with gentler speech
 detection (threshold 0.35, no minimum span, 300 ms padding), spans packed into
 windows of up to 30 s, one line per sentence (`asr_backend.SENTENCE_SPLIT_RULES`) and
 the forced aligner always on, so line length comes from the text and aligned
