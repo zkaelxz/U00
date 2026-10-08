@@ -148,6 +148,28 @@ def test_bad_month_is_refused(isolated_db):
             svc.get_spend_history(bad, now=NOW)
 
 
+@pytest.mark.parametrize("bad", ["0000-05", "9999-12", "0001-01", "1999-12"])
+def test_out_of_range_year_is_refused(isolated_db, bad):
+    with pytest.raises(InvalidInputError):
+        svc.get_spend_history(bad, now=NOW)
+    c = _client()
+    assert c.get(f"/api/settings/spend-history?month={bad}").status_code == 422
+    # The CSV takes no month; a stray one must not reach the service.
+    assert c.get(f"/api/settings/spend-history/export.csv?month={bad}").status_code == 200
+
+
+def test_range_edges_and_valid_month(isolated_db):
+    _log(1.0, datetime.datetime(2026, 9, 2))
+    assert svc.get_spend_history("2026-09", now=NOW)["selected_month"] == "2026-09"
+    for edge in ("2000-01", "9998-12"):
+        assert svc.get_spend_history(edge, now=NOW)["selected_month"] == edge
+
+
+def test_add_months_overflow_is_a_422_not_a_crash():
+    with pytest.raises(InvalidInputError):
+        svc._add_months(datetime.datetime(9999, 12, 1), 1)
+
+
 def test_csv(isolated_db):
     _log(1.25, datetime.datetime(2026, 10, 2), inp=3, out=4)
     lines = svc.export_months_csv(now=NOW).splitlines()
