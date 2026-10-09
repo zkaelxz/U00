@@ -27,7 +27,8 @@ import { ProxyForm } from './ProxyForm'
 import { RecentExtractions } from './RecentExtractions'
 import { SourceDetail } from './SourceDetail'
 import { SourceDomains } from './SourceDomains'
-import { healthText, healthTone, pacingSummary, profileLine, settingsSummary } from './sourcesFormat'
+import { healthText, healthTone } from './sourcesFormat'
+import { pacingSummary, profileLine, settingsSummary } from './sourcesSettings'
 
 type Props = {
   pc: PcMode

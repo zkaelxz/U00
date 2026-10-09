@@ -2,15 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
 import type { SourceSummary } from '../../types/sources'
-import {
-  TIER_TESTS,
-  checkSummary,
-  pageUrlProblem,
-  proxyProblem,
-  tierLabel,
-  tierTestLine,
-  trackedDramaChoices,
-} from './sourcesFormat'
+import { TIER_TESTS, tierLabel, tierTestLine } from './sourcesFormat'
+import { checkSummary, pageUrlProblem, proxyProblem, trackedDramaChoices } from './sourcesSettings'
 
 const drama = (id: number, media_type: string | null) => ({ id, title_en: `D${id}`, media_type }) as unknown as DramaSummary
 const source = (comic: boolean) =>

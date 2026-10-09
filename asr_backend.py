@@ -159,6 +159,10 @@ class WhisperBackend:
         )
 
 
+def qwen3_asr_repo_id(model_size: str) -> str:
+    return f"Qwen/Qwen3-ASR-{model_size}"
+
+
 def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=None,
                    on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ASR model. Same GPU-fallback/network-

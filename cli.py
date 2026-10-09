@@ -76,6 +76,7 @@ import translation_guide as tguide
 import bulk_translate, raw_transcript
 import dub as dub_module
 import dub_narration as dn
+import real_model_check_cli
 import background_jobs
 import cli_subtitle
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
@@ -786,8 +787,6 @@ def cmd_translate(args):
                 d["id"], d, lines, style_preset,
                 include_genre_notes=include_genre_notes,
                 default_female_pronouns=default_female_pronouns)
-        translate_run_service.save_style_toggles(
-            d["id"], include_genre_notes, default_female_pronouns)
         target_ids = None
         if glossary_affected:
             # Same selection as the app's "Re-translate lines affected by the
@@ -833,6 +832,7 @@ def cmd_translate(args):
             if refusal:
                 raise RuntimeError(refusal)
             caps.append(cap)
+        translate_run_service.save_style_toggles(d["id"], include_genre_notes, default_female_pronouns, getattr(args, "thinking", None))
         if fallback_names:
             engine = translate_engines.FallbackEngine(
                 [engine] + [_engine_for(n) for n in fallback_names], chain_names, caps,
@@ -1369,9 +1369,9 @@ def main():
                            help="Also replace speakers you corrected by hand")
     p_diarize.set_defaults(func=cmd_diarize)
 
-    p_translate = sub.add_parser("translate")
-    p_translate.add_argument("--id", type=int, default=None)
-    p_translate.add_argument("--status", default=None)
+    p_translate = translate_engines.think_flag(sub.add_parser("translate"))
+    p_translate.add_argument("--id", type=int)
+    p_translate.add_argument("--status")
     # No argparse choices: a removed engine name gets the same plain refusal
     # as the API instead of a generic "invalid choice" error.
     p_translate.add_argument("--engine", default=None,
@@ -1633,6 +1633,7 @@ def main():
                           help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_doctor.set_defaults(func=cmd_doctor)
 
+    real_model_check_cli.register(sub)
     args = p.parse_args()
     args.func(args)
 

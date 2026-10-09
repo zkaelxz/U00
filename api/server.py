@@ -49,10 +49,12 @@ from api.routers import (
     characters_routes,
     comic_routes,
     delete_routes,
+    device_token_routes,
     diagnostics_gaps_routes,
     disk_usage_routes,
     diagnostics_installs_routes,
     diagnostics_routes,
+    real_model_check_routes,
     diarization_routes,
     discover_lookup_routes,
     discover_routes,
@@ -301,6 +303,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(series_people_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(admin_users_routes.router)
+    app.include_router(device_token_routes.router)
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
@@ -309,6 +312,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(model_reeval_routes.router)
 
     app.include_router(diagnostics_installs_routes.router)
+    app.include_router(real_model_check_routes.router)
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)
     app.include_router(assistant_routes.router)

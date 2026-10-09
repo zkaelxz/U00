@@ -33,6 +33,7 @@ import uuid
 from typing import Optional
 
 import background_jobs
+import live_cue_feed
 import live_translate
 import translate_engines
 from core import SOURCE_LANGUAGES
@@ -351,7 +352,9 @@ def _status(job) -> str:
 
 def get_session(session_id, after=0, principal=None) -> dict:
     """{status, message, progress, cues[after:], next_index}. Never a
-    traceback, a filesystem path or a key."""
+    traceback, a filesystem path or a key. A cue is added untranslated and
+    changes in place when its translation lands, so a client that wants those
+    updates asks again from its oldest still-pending cue's id."""
     job = _require(session_id, principal)
     _reap()
     with _lock:
@@ -368,10 +371,14 @@ def get_session(session_id, after=0, principal=None) -> dict:
     if not isinstance(cues, list):
         cues = []
     out = []
-    for c in cues[after:]:
-        out.append({"start": float(c.get("start", 0)), "end": float(c.get("end", 0)),
-                    "text": _cue_text(c.get("text")),
-                    "translated": _cue_text(c.get("translated"))})
+    for pos, c in enumerate(cues[after:], start=after):
+        translated = _cue_text(c.get("translated"))
+        out.append({"id": int(c.get("id", pos)),
+                    "start": float(c.get("start", 0)), "end": float(c.get("end", 0)),
+                    "text": _cue_text(c.get("text")), "translated": translated,
+                    "translation": c.get("translation") or (
+                        live_cue_feed.FAILED if translated.startswith(live_cue_feed.FAILED_PREFIX)
+                        else live_cue_feed.DONE)})
     return {"session_id": session_id, "status": status, "message": message,
             "engine": entry.get("engine"), "model": entry.get("model"),
             "progress": float((job or {}).get("progress") or 0.0),

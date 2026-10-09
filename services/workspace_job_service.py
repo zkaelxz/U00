@@ -21,7 +21,8 @@ import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
-from services import fixflag_transcribe, job_timing_service, language_pack_service, line_provenance_service, settings_service
+from services import (auth_service, fixflag_transcribe, job_timing_service, language_pack_service,
+                      line_provenance_service, settings_service)
 
 
 def _id_by_idx(lines):
@@ -93,7 +94,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
                        summary_engine_choice=None, target_ids=None,
-                       summary_monthly_cap_usd=None, own_lines_only=False):
+                       summary_monthly_cap_usd=None, own_lines_only=False, thinking=None):
     """
     The actual translation work, run inside a background thread. Touches
     only plain Python objects and the database, both of which are safe
@@ -134,10 +135,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                          translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
                                                                     cache_write),
                          cache_read_tokens=cache_read)
-    # {speaker_label: "Name (pronouns)"}, named characters only -- a line
-    # whose speaker has no name set is shown to the translator with no
-    # name at all (see translate_lines_with_engine's own docstring),
-    # never the raw diarization label, which isn't a name.
+    # {speaker_label: "Name (pronouns)"}, named characters only: an unnamed
+    # speaker is shown with no name, never the raw diarization label.
     _series_id = (db.get_drama(drama_id) or {}).get("series_id")
     character_names = tguide.build_speaker_labels(
         db.list_characters_with_series_names(drama_id),
@@ -149,7 +148,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         style_preset=style_preset, reflect=bool(reflect), context_window=context_window,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         style_note=style_note or "", style_guidelines=style_guidelines or "",
-        scene_aware_batches=scene_aware)
+        scene_aware_batches=scene_aware, thinking=thinking)
 
     if own_lines_only:
         _save, _notes = bulk_translate.own_lines_callbacks(drama_id, lines, provenance)
@@ -170,7 +169,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         batch_size=batch_size, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
-        cost_cap_usd=cost_cap_usd,
+        thinking=thinking, cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes,
         detail_cb=lambda frac, message: background_jobs.update_progress(
@@ -648,10 +647,8 @@ def restore_kept_names():
             page_server.TOKEN_FILENAME, storage.TEMP_DIRNAME)
 
 
-# library.db tables that hold who may sign in and what they may do; a
-# restore keeps the current rows (auth_sessions is then emptied: every
-# session is revoked). See _build_staged_databases.
-_RESTORE_KEPT_AUTH_TABLES = ("users", "user_permissions", "auth_sessions", "audit_log")
+# Who may sign in and what they may do: never from the upload (auth_service).
+_RESTORE_KEPT_AUTH_TABLES = auth_service.RESTORE_KEPT_TABLES
 
 # app_settings keys a restore takes from the current library, never from the
 # upload: the automatic-backup identity (auto_backup_service.IDENTITY_KEY).
@@ -897,7 +894,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
             raise ValueError(BAD_LIBRARY_DB) from None
         _rebuild_from_upload(staged, scratch, skip_tables=_RESTORE_KEPT_AUTH_TABLES,
                              live_path=os.path.join(library_dir, "library.db"),
-                             live_tables=("users", "user_permissions", "audit_log"),
+                             live_tables=auth_service.RESTORE_LIVE_TABLES,
                              message=BAD_LIBRARY_DB)
         try:
             conn = _open_carry_conn(staged)
@@ -1215,7 +1212,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             # like every other Ollama translation job in the app, and
             # needs the same GPU-job guard so it can't run
             # alongside another GPU-touching job.
-            gpu_touching=engine_choice == "ollama",
+            gpu_touching=translate_engines.ollama_touches_local_gpu(
+                engine_choice, getattr(engine, "model", None)),
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None)
         if not started:
             results["skipped_running"].append(did)

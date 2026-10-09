@@ -412,6 +412,17 @@ class TestCmdTranslateSpendingCaps:
         assert engine.calls == 0
         assert not any(r["en"] for r in isolated_db.load_lines(did))
 
+    def test_thinking_is_saved_only_once_the_run_is_accepted(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: self._Engine())
+        did = self._drama(isolated_db, n=2)
+        isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 50.0)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            try:
+                cli.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0, thinking=True))
+            except (SystemExit, RuntimeError):
+                pass
+        assert isolated_db.get_drama(did)["translate_thinking"] is None
+
 
 class TestCmdTranslateRetryAndWorkspaceParity:
     """Step 25c item 4: the CLI marked a drama "translated" even after a

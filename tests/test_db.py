@@ -1509,6 +1509,9 @@ class TestImportTimeSafety:
         shutil.copy(os.path.join(project_root, "core.py"), os.path.join(temp_dir, "core.py"))
         # db.py takes its library location from portable.data_dir() (Step 80b).
         shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
+        # init_db creates the extension device-token table from its own module.
+        shutil.copy(os.path.join(project_root, "device_tokens.py"),
+                    os.path.join(temp_dir, "device_tokens.py"))
 
     def test_bare_import_does_not_touch_any_library_dir(self):
         temp_dir = tempfile.mkdtemp(prefix="baihe_import_check_")
@@ -1969,7 +1972,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
         "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
-        "split_by_sentences", "vocabulary_hint"),
+        "split_by_sentences", "vocabulary_hint", "translate_thinking"),
     "series": ("instructions", "owner_user_id", "is_private"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
