@@ -69,7 +69,7 @@ describe('applyNote', () => {
 
 describe('gaps', () => {
   const gap = (start: number, end: number, over = {}) => ({
-    start, end, seconds: end - start, pieces: 1, after_line_id: 1, before_line_id: 2, speech: null, ...over,
+    start, end, seconds: end - start, pieces: 1, part: 1, parts: 1, after_line_id: 1, before_line_id: 2, speech: null, ...over,
   })
   it('keeps only gaps that touch the view', () => {
     const gaps = [gap(0, 5), gap(10, 15), gap(30, 40)]

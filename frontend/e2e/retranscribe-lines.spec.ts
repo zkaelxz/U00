@@ -98,7 +98,7 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=
   })
   const lines = (await (await page.request.get('/api/review/dramas/3/lines?page=1&page_size=50&only=all')).json()).lines as { id: number }[]
   await page.route('**/api/transcribe/dramas/3/gaps', (route) =>
-    route.fulfill({ json: { gaps: [{ start: 4, end: 13, seconds: 9, pieces: 1, after_line_id: lines[1].id, before_line_id: lines[2].id, speech: true }], speech_checked: true } }))
+    route.fulfill({ json: { gaps: [{ start: 4, end: 13, seconds: 9, pieces: 1, part: 1, parts: 1, after_line_id: lines[1].id, before_line_id: lines[2].id, speech: true }], speech_checked: true } }))
   const adds: unknown[] = []
   await page.route('**/api/transcribe/dramas/3/gaps/add-lines', (route) => {
     adds.push(route.request().postDataJSON())

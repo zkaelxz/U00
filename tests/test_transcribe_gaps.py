@@ -208,6 +208,13 @@ class TestAddGapLines:
         assert all(0 < ln.end - ln.start <= 30.0 for ln in added)
         assert all(a.end == b.start for a, b in zip(added, added[1:]))
 
+    def test_a_600_second_window_survives_float_error(self, isolated_db, monkeypatch):
+        did, ids = _drama(isolated_db, spans=((0, 500.9), (1100.9, 1104)))
+        monkeypatch.setattr(svc, "_pauses", lambda *a: None)
+        assert 1100.9 - 500.9 > svc.MAX_ADD_SECONDS
+        out = svc.add_gap_lines(did, ids, start=500.9, end=1100.9, after_line_id=ids[0])
+        assert out["new_line_ids"]
+
     def test_pauses_decide_the_cuts_when_the_detector_has_them(self, isolated_db, monkeypatch):
         did, ids = _drama(isolated_db, spans=((0, 3), (100, 103)))
         decoded = []

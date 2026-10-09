@@ -190,7 +190,8 @@ def add_gap_lines(drama_id: int, expected_line_ids, *, start, end,
     changed) or a job is running on the title; NotFoundError for an unknown
     after_line_id."""
     start, end = restructure._number("start", start), restructure._number("end", end)
-    if not MIN_ADD_SECONDS <= end - start <= MAX_ADD_SECONDS:
+    # Rounded so 1100.9 - 500.9 (600.0000000000001) still counts as 600 s.
+    if not MIN_ADD_SECONDS <= round(end - start, 3) <= MAX_ADD_SECONDS:
         raise InvalidInputError(
             f"A gap to add must be {MIN_ADD_SECONDS:g} to {MAX_ADD_SECONDS:g} seconds long.")
     drama = restructure._require_drama(drama_id)
