@@ -170,6 +170,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
 - `glossary_service.py`
+- `gpu_lock_recovery_service.py` (frees GPU slots a killed server left behind; wait message for them)
 - `jellyfin_service.py`
 - `job_checkpoint_service.py`
 - `job_stage_service.py`
