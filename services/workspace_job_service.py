@@ -94,7 +94,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
                        summary_engine_choice=None, target_ids=None,
-                       summary_monthly_cap_usd=None, own_lines_only=False):
+                       summary_monthly_cap_usd=None, own_lines_only=False, thinking=None):
     """
     The actual translation work, run inside a background thread. Touches
     only plain Python objects and the database, both of which are safe
@@ -135,10 +135,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                          translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
                                                                     cache_write),
                          cache_read_tokens=cache_read)
-    # {speaker_label: "Name (pronouns)"}, named characters only -- a line
-    # whose speaker has no name set is shown to the translator with no
-    # name at all (see translate_lines_with_engine's own docstring),
-    # never the raw diarization label, which isn't a name.
+    # {speaker_label: "Name (pronouns)"}, named characters only: an unnamed
+    # speaker is shown with no name, never the raw diarization label.
     _series_id = (db.get_drama(drama_id) or {}).get("series_id")
     character_names = tguide.build_speaker_labels(
         db.list_characters_with_series_names(drama_id),
@@ -150,7 +148,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         style_preset=style_preset, reflect=bool(reflect), context_window=context_window,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         style_note=style_note or "", style_guidelines=style_guidelines or "",
-        scene_aware_batches=scene_aware)
+        scene_aware_batches=scene_aware, thinking=thinking)
 
     if own_lines_only:
         _save, _notes = bulk_translate.own_lines_callbacks(drama_id, lines, provenance)
@@ -171,7 +169,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         batch_size=batch_size, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
-        cost_cap_usd=cost_cap_usd,
+        thinking=thinking, cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes,
         detail_cb=lambda frac, message: background_jobs.update_progress(

@@ -5,6 +5,7 @@ from .fallback import FallbackEngine
 from .llm_tasks import call_llm_json
 from .pricing import estimate_cost_for_engine
 from .prompts import build_batch_context, build_stable_prompt
+from .thinking import title_thinking
 from .shared import (
     ContentModerationBlocked,
     FreeTierDailyLimitReached,
@@ -221,10 +222,18 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
                               locale: str = "en-US", glossary_terms=None, style_guidelines: str = "",
-                              ollama_num_ctx_override: int = None) -> dict:
+                              ollama_num_ctx_override: int = None, thinking: bool = None) -> dict:
     """The per-job context every engine's prompt is built from -- shared by
-    live translation and bulk submission so both send the same prompt."""
+    live translation and bulk submission so both send the same prompt.
+
+    thinking: let a model that can reason do so. None means the title's
+    remembered choice, else off, so a run is fast and cheap by default;
+    engines without a request switch ignore it."""
+    if thinking is None:
+        thinking = title_thinking(drama_meta)
     return {
+        "reply_without_thinking": not thinking,
+        "reply_with_thinking": bool(thinking),
         "drama_meta": drama_meta,
         "style_note": style_note,
         "novel_reference": novel_reference if getattr(engine, "supports_reference", False) else None,
@@ -286,8 +295,12 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  character_names: dict = None, ollama_num_ctx_override: int = None,
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float = None,
                                  cap_cb=None, target_ids=None, detail_cb=None,
-                                 scene_aware_batches: bool = False):
-    """scene_aware_batches: start batches at scene breaks (plan_batches)
+                                 scene_aware_batches: bool = False, thinking: bool = None):
+    """thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
+    answering; None = the title's remembered choice, else off. Its reasoning is
+    never saved with a line.
+
+    scene_aware_batches: start batches at scene breaks (plan_batches)
     instead of cutting fixed slices of batch_size. Same maximum size.
 
     detail_cb: optional callable (fraction, message) for a job that wants
@@ -412,7 +425,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     context = build_translation_context(
         engine, drama_meta, style_note=style_note, novel_reference=novel_reference, locale=locale,
         glossary_terms=glossary_terms, style_guidelines=style_guidelines,
-        ollama_num_ctx_override=ollama_num_ctx_override)
+        ollama_num_ctx_override=ollama_num_ctx_override, thinking=thinking)
     errors = []
     stop_run = []
     spent = 0.0
