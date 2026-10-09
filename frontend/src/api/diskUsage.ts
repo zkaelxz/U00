@@ -75,4 +75,4 @@ export const trashUnusedVoiceClips = (clips: Pick<UnusedVoiceClip, 'id' | 'size_
   )
 
 /** Deletes everything in Baihe's own temp folder (409 while a job runs). */
-export const cleanTempFiles = (f?: Fetch) => postJson<TempCleanDone>(`${BASE}/clean-temp`, {}, pcOnlyFetch(f))
+export const cleanTempFiles = (f?: Fetch) => postJson<TempCleanDone>(`${BASE}/clean-temp`, { confirm: true }, pcOnlyFetch(f))

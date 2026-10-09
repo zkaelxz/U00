@@ -244,10 +244,59 @@ def new_partial_file(prefix: str, suffix: str = ".part") -> str:
 
 
 # Work folders in use by this process. A sweep never touches them, so "clean
-# now" can't pull a folder out from under a browser or export that is not a
-# registered job (the sign-in window, a restore).
+# now" can't pull a folder out from under a browser, an import or an export
+# that is not a registered job (the sign-in window, a restore). Paths are kept
+# normalised: a hand-edited portable marker can spell the library root with
+# other separators or case than mkdtemp returns.
 _held_lock = threading.Lock()
 _held = set()
+# Lets another Baihe process on the same library see that a folder is in use;
+# the in-memory set only protects this process.
+HOLD_MARKER = ".baihe-hold"
+# A pid can be reused after a crash, so a marker this old is ignored.
+HOLD_MARKER_MAX_AGE = 3 * 24 * 3600
+
+
+def _norm(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
+
+
+@contextlib.contextmanager
+def holding(path: str):
+    """Keeps sweeps (this process and others) off `path` while the block runs.
+    Does not remove it."""
+    key = _norm(path)
+    with _held_lock:
+        _held.add(key)
+    try:
+        with open(os.path.join(path, HOLD_MARKER), "w", encoding="utf-8") as fh:
+            fh.write(str(os.getpid()))
+    except OSError:
+        pass  # the in-memory hold still covers this process
+    try:
+        yield path
+    finally:
+        with _held_lock:
+            _held.discard(key)
+        # A folder that outlives the hold (a live session's) must not keep
+        # claiming to be in use.
+        with contextlib.suppress(OSError):
+            os.remove(os.path.join(path, HOLD_MARKER))
+
+
+def _held_by_other_process(path: str, now: float) -> bool:
+    marker = os.path.join(path, HOLD_MARKER)
+    try:
+        if now - os.lstat(marker).st_mtime > HOLD_MARKER_MAX_AGE:
+            return False
+        with open(marker, encoding="utf-8") as fh:
+            pid = int(fh.read().strip())
+    except (OSError, ValueError):
+        return False
+    if pid == os.getpid():
+        return False  # ours but not in _held: left by a block that has ended
+    import background_jobs
+    return background_jobs.owner_process_alive(pid)
 
 
 @contextlib.contextmanager
@@ -257,14 +306,11 @@ def job_workdir(job_id=None, dir=None):
         path = tempfile.mkdtemp(dir=dir)
     else:
         path = new_workdir(job_id)
-    with _held_lock:
-        _held.add(path)
     try:
-        yield path
+        with holding(path):
+            yield path
     finally:
         shutil.rmtree(path, ignore_errors=True)
-        with _held_lock:
-            _held.discard(path)
 
 
 def _is_link(path: str) -> bool:
@@ -278,10 +324,11 @@ def _is_link(path: str) -> bool:
     return bool(getattr(st, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
 
 
-# Folders Baihe once created straight in the system temp folder. Matched by
+# Folders Baihe creates straight in the system temp folder (older versions
+# made more of them than current code does). Matched by
 # name prefix only: the system temp is shared with every other program, so a
 # folder is Baihe's only when it carries one of these.
-LEGACY_TEMP_PREFIXES = (
+SYSTEM_TEMP_PREFIXES = (
     "baihe_live_", "baihe_vocab_", "baihe_scanlate_", "baihe_vocalsep_chunks_",
     "baihe_pronounce_", "baihe_anki_", "baihe_deno_", "baihe_upgrade_check_",
     "baihe_qwen3_asr_", "baihe_forced_align_", "baihe_sensevoice_",
@@ -338,12 +385,14 @@ def _sweep_folder(root: str, accept, max_age: float, now: float, live: set,
             break
         path = os.path.join(root, name)
         owner = name.rsplit(_OWNER_SEP, 1)[0] if _OWNER_SEP in name else None
-        if owner in live or path in held or _is_link(path) or not accept(name, path):
+        if owner in live or _norm(path) in held or _is_link(path) or not accept(name, path):
             continue
         try:
             if now - os.lstat(path).st_mtime < max_age:
                 continue
             is_dir = os.path.isdir(path)
+            if is_dir and _held_by_other_process(path, now):
+                continue
             size = (_tree_bytes(path) if is_dir else os.lstat(path).st_size) if measure else 0
             if is_dir:
                 shutil.rmtree(path)
@@ -370,12 +419,12 @@ def sweep_library_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None,
 
 def sweep_legacy_system_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None,
                              system_temp: str = None) -> int:
-    """Removes folders left in the system temp folder by older Baihe versions
-    (LEGACY_TEMP_PREFIXES, folders only). Nothing else there is touched."""
+    """Removes stale folders Baihe left in the system temp folder
+    (SYSTEM_TEMP_PREFIXES, folders only). Nothing else there is touched."""
     now = time.time() if now is None else now
     root = system_temp or tempfile.gettempdir()
     return _sweep_folder(
-        root, lambda name, path: name.startswith(LEGACY_TEMP_PREFIXES) and os.path.isdir(path),
+        root, lambda name, path: name.startswith(SYSTEM_TEMP_PREFIXES) and os.path.isdir(path),
         max_age, now, set(), False)["removed"]
 
 

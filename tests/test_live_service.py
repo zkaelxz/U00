@@ -517,3 +517,18 @@ def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
     with pytest.raises(local.OllamaUnavailableError) as exc:
         local.check_ollama_model_installed("http://x", "gemma4:12b")
     assert exc.value.reason == "ollama_model_missing" and 'ollama pull gemma4:12b' in exc.value.message
+
+
+def test_session_folder_is_held_until_the_job_is_registered(live, monkeypatch):
+    import storage
+    real_start = background_jobs.start_job
+    swept = {}
+
+    def start_after_a_clean_now(*a, **kw):
+        swept["removed"] = storage.sweep_library_temp(max_age=0)["removed"]
+        return real_start(*a, **kw)
+
+    monkeypatch.setattr(background_jobs, "start_job", start_after_a_clean_now)
+    sid = _start()
+    assert swept["removed"] == 0
+    assert os.path.isdir(live_service._sessions[sid]["dir"])

@@ -77,6 +77,7 @@ describe('disk usage api', () => {
     await expect(cleanTempFiles(f)).resolves.toEqual({ removed: 2, freed_mb: 1.5 })
     expect(mock.mock.calls[0][0]).toBe('/api/data-usage/clean-temp')
     expect(mock.mock.calls[0][1].method).toBe('POST')
+    expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({ confirm: true })
     expect(header(mock.mock.calls[0][1], 'X-Baihe-Local')).toBe('1')
   })
 

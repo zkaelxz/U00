@@ -9,6 +9,7 @@ import types
 import pytest
 
 import background_jobs
+import db
 import page_fetch
 import storage
 from services import temp_cleanup_service
@@ -120,6 +121,64 @@ def test_held_workdir_is_not_swept(isolated_db):
         assert storage.sweep_library_temp(max_age=0)["removed"] == 0
         assert os.path.isdir(path)
     assert not os.path.exists(path)
+
+
+def test_held_workdir_survives_a_differently_spelled_library_root(isolated_db, monkeypatch):
+    # A hand-edited portable marker can give the root other separators/case
+    # than mkdtemp's return value.
+    with storage.job_workdir("signin") as path:
+        os.utime(path, (0, 0))
+        alt = db.LIBRARY_DIR
+        monkeypatch.setattr(db, "LIBRARY_DIR", os.path.join(alt, "sub", "..") + os.sep)
+        assert storage.sweep_library_temp(max_age=0)["removed"] == 0
+        assert os.path.isdir(path)
+
+
+def test_holding_protects_a_folder_without_removing_it(isolated_db):
+    path = _make(os.path.join(storage.temp_root(), "live_x~1"))
+    with storage.holding(path):
+        assert storage.sweep_library_temp(max_age=0)["removed"] == 0
+    assert os.path.isdir(path)
+    assert not os.path.exists(os.path.join(path, storage.HOLD_MARKER))
+    assert storage.sweep_library_temp(max_age=0)["removed"] == 1
+
+
+def test_folder_marked_by_a_live_other_process_is_kept(isolated_db, monkeypatch):
+    path = _make(os.path.join(storage.temp_root(), "other~1"))
+    with open(os.path.join(path, storage.HOLD_MARKER), "w") as fh:
+        fh.write("424242")
+    alive = {"v": True}
+    monkeypatch.setattr(background_jobs, "owner_process_alive", lambda pid: alive["v"])
+    assert storage.sweep_library_temp(max_age=0)["removed"] == 0
+    alive["v"] = False
+    assert storage.sweep_library_temp(max_age=0)["removed"] == 1
+
+
+def test_scanlate_import_staging_is_held_for_the_whole_import(isolated_db, monkeypatch):
+    from services import scanlate_pages_service as sps
+    seen = {}
+
+    def commit(drama_id, staged):
+        seen["removed"] = storage.sweep_library_temp(max_age=0)["removed"]
+        seen["dirs"] = [d for d in os.listdir(storage.temp_root())]
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(sps, "require_drama", lambda _id: None)
+    monkeypatch.setattr(sps, "_commit_pages", commit)
+    png = (b"\x89PNG\r\n\x1a\n" + b"\0" * 64)
+
+    def stage(raw, staging, tag, slice_strips):
+        out = os.path.join(staging, tag + ".png")
+        with open(out, "wb") as fh:
+            fh.write(b"x")
+        return [out]
+
+    monkeypatch.setattr(sps, "_stage_image", stage)
+    import io
+    with pytest.raises(RuntimeError):
+        sps.add_page_images(1, [("a.png", io.BytesIO(png))])
+    assert seen["removed"] == 0 and seen["dirs"]
+    assert os.listdir(storage.temp_root()) == []
 
 
 def test_sweep_measures_freed_bytes_on_request(isolated_db):

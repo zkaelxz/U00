@@ -265,6 +265,17 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
 
     session_id = f"live_{uuid.uuid4().hex}"
     out_dir = storage.new_workdir(session_id)
+    # Held until the job is registered: before that nothing owns the folder, so
+    # a "clean temp now" in the gap would delete it.
+    with storage.holding(out_dir):
+        return _start_registered(session_id, out_dir, url, source_language, whisper_size,
+                                 segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
+                                 use_gpu, use_saved_cookies, reply_without_thinking)
+
+
+def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
+                      overlap_seconds, max_minutes, eng, engine_name, use_gpu,
+                      use_saved_cookies, reply_without_thinking):
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
