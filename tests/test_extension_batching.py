@@ -122,3 +122,11 @@ def test_already_stored_pages_are_totalled():
         already_stored: body.images.length } })"""
     data = run(20, reply, cap=10)["result"]["data"]
     assert data["alreadyStored"] == 20
+
+
+def test_a_byte_closed_batch_takes_the_short_tail_instead_of_leaving_it_alone():
+    # Two 10MB images close a batch by bytes; the lone banner after them must
+    # not go out alone, because the app only filters a request of 2+ images.
+    got = run(3, ECHO, cap=12, size=10 * 1024 * 1024)
+    sizes = [len(r["keys"]) for r in got["requests"]]
+    assert sizes == [3]

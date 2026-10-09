@@ -173,3 +173,18 @@ def test_a_recycled_canvas_is_counted_again_but_a_repeat_failure_is_not():
                          capture_output=True, text=True, timeout=30)
     assert out.returncode == 0, out.stderr
     assert json.loads(out.stdout.strip().splitlines()[-1]) == [True, False, True, True, True]
+
+
+def test_two_failed_pages_on_one_recycled_canvas_are_both_counted():
+    expression = """(() => {
+        const { canvasSignature, unreadableLog } = sandbox.window.__baihe;
+        const log = unreadableLog();
+        const canvas = { tagName: "CANVAS", width: 800, height: 1200 };
+        return [log.isNew(canvas, canvasSignature(canvas, 3)),
+                log.isNew(canvas, canvasSignature(canvas, 3)),
+                log.isNew(canvas, canvasSignature(canvas, 4))];
+    })()"""
+    out = subprocess.run(["node", "-e", CONTENT_HARNESS, str(CONTENT), expression],
+                         capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == [True, False, True]

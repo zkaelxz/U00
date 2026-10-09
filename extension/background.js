@@ -134,6 +134,12 @@ function planBatches(images, cap, minSize = 1) {
   const prev = batches[batches.length - 2];
   if (last && prev && last.length < minSize) {
     while (last.length < minSize && prev.length > minSize) last.unshift(prev.pop());
+    // A batch closed by bytes can be too small to lend an image, so the short
+    // tail joins it; the 64MB body cap leaves room for a few more images.
+    if (last.length < minSize && prev.length + last.length <= cap) {
+      prev.push(...last);
+      batches.pop();
+    }
   }
   return batches;
 }

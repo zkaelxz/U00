@@ -1026,6 +1026,53 @@ class TestRecapturingKeepsSavedWork:
         assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction", ""]
         assert second["pages"][0]["notes"][0][0] == "warning"
 
+    def test_a_translation_typed_during_the_llm_call_is_not_overwritten(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        import scanlate
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        gap_id = db.load_bubbles(page["id"])[1]["id"]
+        rev = db.get_page(page["id"])["rev"]
+
+        def translate_while_someone_types(bubbles, engine, drama_meta, **kwargs):
+            db.update_bubble_fields(gap_id, {"translated_text": "typed meanwhile"})
+            for b in bubbles:
+                b["translated_text"] = "the translation"
+            return "ctx"
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate_while_someone_types)
+        second = _post(token, body).payload
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == [
+            "my correction", "typed meanwhile"]
+        assert db.get_page(page["id"])["rev"] == rev + 1
+        assert second["failed"] == []
+        assert "changed meanwhile" in second["pages"][0]["notes"][0][1]
+
+    def test_filling_a_gap_bumps_the_page_rev(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        rev = db.get_page(page["id"])["rev"]
+        _post(token, body)
+        assert db.get_page(page["id"])["rev"] == rev + 1
+
+    def test_an_empty_reused_page_written_to_meanwhile_is_left_alone(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        import scanlate
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        db.save_bubbles(page["id"], [])
+        mine = {"x": 1, "y": 2, "w": 3, "h": 4, "source_text": "他", "translated_text": "job's",
+                "kind": "bubble", "font_category": "regular", "reading_order": 0}
+
+        def translate_while_a_job_saves(bubbles, engine, drama_meta, **kwargs):
+            db.replace_bubbles_if_unchanged(page["id"], [], [mine])
+            return "ctx"
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate_while_a_job_saves)
+        second = _post(token, body).payload
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["job's"]
+        assert second["failed"] == []
+        assert "changed meanwhile" in second["pages"][0]["notes"][-1][1]
+
     def test_a_shared_page_keeps_its_bubbles_and_other_chapters_context(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db

@@ -982,6 +982,14 @@
   // Unreadable pages are counted once per element and what it held: a
   // virtualised reader recycles elements, so the element alone would drop a
   // later miss, while re-reading the same failure every step would repeat it.
+  // elementKey is null for a canvas, and a virtualised reader recycles
+  // same-sized canvases, so the page's place in the chapter must be part of
+  // the signature or a second failed page on one canvas is never counted.
+  function canvasSignature(el, place) {
+    const { width, height } = elementSize(el);
+    return `canvas|${width}x${height}|${place}`;
+  }
+
   function unreadableLog() {
     const last = new WeakMap();
     return {
@@ -1110,8 +1118,8 @@
           extracted = await extractBytes(el);
         } catch (e) {
           unreadable = String(e && e.message ? e.message : e);
-          // elementKey is null for a canvas, so its size stands in.
-          const signature = key !== null ? key : `canvas|${elementSize(el).width}x${elementSize(el).height}`;
+          const signature = key !== null ? key
+            : canvasSignature(el, readerIndexOf(el) ?? Math.round(scroller.positionOf(el)));
           if (unreadableAs.isNew(el, signature)) {
             unreadablePages.push({ position: seen.size + unreadablePages.length + 1,
                                    error: unreadable });
@@ -1313,7 +1321,7 @@
   });
 
   // Exposed for the popup's injected checks and for tests.
-  window.__baihe = { translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
+  window.__baihe = { canvasSignature, translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, unreadableLog };

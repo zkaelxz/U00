@@ -309,7 +309,8 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     return db.get_page(ids[0], drama_id)
 
 
-def _translate_missing(saved: list, drama: dict, drama_id, source_url: str, config: dict) -> list:
+def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_url: str,
+                       config: dict) -> list:
     """Fills only the untranslated bubbles of a stored page, written by
     bubble id so no existing translation is overwritten. Returns notes."""
     import db
@@ -327,6 +328,10 @@ def _translate_missing(saved: list, drama: dict, drama_id, source_url: str, conf
     key = str(drama_id) if drama_id else f"url:{source_url}"
     with _context_lock:
         previous = _contexts.get(key, "")
+    # translate_page_bubbles mutates the dicts, so the values the writes
+    # compare against are taken first.
+    originals = {b["id"]: {"translated_text": b.get("translated_text") or "",
+                           "source_text": b.get("source_text") or ""} for b in missing}
     try:
         new_context = scanlate.translate_page_bubbles(
             missing, engine, drama or {}, previous_context=previous,
@@ -335,9 +340,19 @@ def _translate_missing(saved: list, drama: dict, drama_id, source_url: str, conf
         return [["warning", f"translation failed ({translate_engines.redact_secrets(str(e))})"]]
     with _context_lock:
         _contexts[key] = new_context
+    # The LLM call ran without any page lock, so another writer (a Scanlate
+    # job, a manual edit) may have touched the bubble; the compare-and-set
+    # leaves their data alone and bumps the page rev for the writes we make.
+    changed = 0
     for b in missing:
-        if (b.get("translated_text") or "").strip():
-            db.update_bubble_text(b["id"], b["translated_text"])
+        text = (b.get("translated_text") or "").strip()
+        if not text:
+            continue
+        if not db.update_bubble_fields(b["id"], {"translated_text": text},
+                                       expected=originals[b["id"]], page_id=page_id):
+            changed += 1
+    if changed:
+        return [["warning", f"{changed} bubble(s) changed meanwhile and were left as they are"]]
     return []
 
 
@@ -381,9 +396,12 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 # Scanlate; a page without bubbles has nothing to lose.
                 # Capture sends no chapter labels, so an identical page
                 # shared by two chapters (credits) is reused, not added.
+                # Read before the bubbles so a write between the two reads
+                # makes the rev check below fail instead of passing.
+                reused_rev = int((db.get_page(page["id"]) or {}).get("rev") or 0)
                 saved = db.load_bubbles(page["id"])
                 if saved:
-                    reuse_notes = _translate_missing(saved, drama, drama_id, source_url, config)
+                    reuse_notes = _translate_missing(saved, page["id"], drama, drama_id, source_url, config)
                     width, height = page_capture_checks.image_size(data)
                     return {
                         "width": width, "height": height,
@@ -445,8 +463,14 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             elif bubbles and engine is None:
                 notes.append(_no_engine_note(config, "read"))
 
-            if page is not None:
+            if page is not None and newly_stored:
                 db.save_bubbles(page["id"], bubbles)
+            elif page is not None:
+                # A reused page was empty when checked, but the LLM call
+                # ran unlocked: only replace it if nobody wrote since.
+                if db.replace_bubbles_if_unchanged(
+                        page["id"], [], bubbles, expected_rev=reused_rev) is None:
+                    notes.append(["warning", "the page changed meanwhile, so this read was not saved"])
         except BaseException:
             # A page whose reading failed must not stay behind as an empty
             # page: the caller reports it as not delivered, and a retry
