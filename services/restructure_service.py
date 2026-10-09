@@ -41,6 +41,7 @@ import threading
 from typing import Optional
 
 import background_jobs
+import bulk_translate
 import core as core_module
 import db
 import diarize
@@ -146,6 +147,7 @@ def _commit(drama_id: int, current, new_lines, label: str) -> int:
     for i, ln in enumerate(new_lines):
         ln.idx = i
     db.save_lines(drama_id, new_lines)
+    bulk_translate.sync_translation_status(drama_id)
     return history_id
 
 
