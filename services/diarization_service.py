@@ -17,7 +17,7 @@ from typing import Optional
 import background_jobs
 import db
 import diarize
-from services import drama_service, settings_service
+from services import drama_service, run_settings_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
@@ -284,6 +284,9 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
                                    min_speakers, max_speakers))
     if not started:
         raise ConflictError(f"A diarization job is already running for drama {drama_id}.")
+    run_settings_service.record(
+        job_id, use_gpu=settings_service.get_use_gpu(), expected_speakers=expected_speakers,
+        min_speakers=min_speakers, max_speakers=max_speakers, overwrite_manual=overwrite_manual)
     return {"job_id": job_id}
 
 

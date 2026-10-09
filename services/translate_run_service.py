@@ -40,8 +40,8 @@ import db
 import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
-from services import (engine_routing_service, library_service, settings_service,
-                      translate_service, workspace_job_service)
+from services import (engine_routing_service, library_service, run_settings_service,
+                      settings_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -499,6 +499,13 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     if force_retranslate and any(ln.en for ln in lines):
         db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
     novel_reference = load_novel_reference(drama_id, drama)
+    resp = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
+            "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
+            "fallback_engines": [c["engine"] for c in chain[1:]], "reflect": reflect, "bulk": bulk}
+    run_settings_service.record(
+        job_id, locals(), model=resp["model"], pronoun_hint=default_female_pronouns,
+        genre_notes=include_genre_notes, glossary=bool(glossary_terms),
+        style_guide=bool(style_guidelines))
     if bulk:
         submit = _bulk_submitter(drama_id, drama, engines[0], engine_name, reflect,
                                  novel_reference, glossary_terms, style_guidelines,
@@ -512,10 +519,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         if not started:
             raise ConflictError("A translation is already running for this drama.")
         save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
-        return {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
-                "model": getattr(engines[0], "model", model),
-                "target_line_count": len(eligible), "fallback_engines": [],
-                "reflect": reflect, "bulk": True}
+        return {**resp, "fallback_engines": []}
 
     summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
 
@@ -535,14 +539,10 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     if not started:
         raise ConflictError("A translation is already running for this drama.")
     save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
-    started = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
-               "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
-               "fallback_engines": [c["engine"] for c in chain[1:]],
-               "reflect": reflect, "bulk": False}
     if target_ids is not None:
         # expected_en may have dropped some of the caller's ids.
-        started["line_ids"] = sorted(ln.id for ln in eligible)
-    return started
+        resp["line_ids"] = sorted(ln.id for ln in eligible)
+    return resp
 
 
 def save_style_toggles(drama_id: int, include_genre_notes=None,

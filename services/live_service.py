@@ -38,7 +38,7 @@ import live_translate
 import translate_engines
 from core import SOURCE_LANGUAGES
 from services import (egress_proxy, job_stage_service, jobs_service, ownership_service,
-                      settings_service, translate_service, url_guard)
+                      run_settings_service, settings_service, translate_service, url_guard)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -285,6 +285,11 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "owner_user_id": ownership_service.acting_user_id()}
     try:
+        run_settings_service.record(
+            session_id, engine=engine_name, model=getattr(eng, "model", None),
+            whisper_size=whisper_size, source_language=source_language,
+            segment_seconds=segment_seconds, overlap_seconds=overlap_seconds, use_gpu=bool(use_gpu),
+            reply_without_thinking=bool(reply_without_thinking), max_minutes=max_minutes)
         started = background_jobs.start_job(
             session_id, _make_target(session_id),
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,

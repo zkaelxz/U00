@@ -90,7 +90,7 @@ def _mirror_locked(job_id):
     result_json = None
     try:
         from services.jobs_service import project_result_json
-        result_json = project_result_json(job.get("result"))
+        result_json = project_result_json(job.get("result"), job_id)
     except Exception:
         import applog
         applog.get_logger().warning(f"job {job_id}: could not project result", exc_info=True)

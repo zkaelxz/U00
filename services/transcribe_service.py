@@ -71,7 +71,7 @@ import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
-from services import asr_options_service, diarization_service, settings_service, source_service
+from services import asr_options_service, diarization_service, run_settings_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -684,6 +684,11 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             _remove_scratch_dir(scratch_dir)
     if not started:
         raise ConflictError(f"A transcription is already running for drama {drama_id}.")
+    run_settings_service.record(
+        job_id, drama, whisper_size=whisper_size, beam_size=beam_size, use_gpu=use_gpu,
+        asr_backend=asr_backend_choice, alignment_method=alignment_method,
+        transcript_mode=transcript_mode, diarize=bool(hf_token),
+        min_speakers=min_speakers, max_speakers=max_speakers)
     return {"job_id": job_id}
 
 

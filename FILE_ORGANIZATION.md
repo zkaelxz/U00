@@ -211,6 +211,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `review_jobs_service.py`
 - `review_lines_service.py`
 - `review_records_service.py`
+- `run_settings_service.py` (allow-listed settings a job run used, shown in Jobs Details)
 - `safe_fetch.py`
 - `saved_comics_service.py`
 - `scanlate_pages_service.py`
