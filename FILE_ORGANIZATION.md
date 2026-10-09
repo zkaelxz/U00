@@ -31,6 +31,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `action_tiers.py`
 - `applog.py`
 - `background_jobs.py`
+- `job_process_kill.py` (stopping a job's child process or process tree; re-exported by `background_jobs`)
 - `benchmark.py`
 - `check_setup.py`
 - `cli.py`
@@ -53,6 +54,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `audio_preprocess.py`
 - `diarize.py`
 - `forced_align.py`
+- `gpu_wait_message.py` (the waiting text when another program is using the GPU)
+- `long_line_split.py` (last-resort even split for lines no punctuation or pause can cut, and the plain-words reasons a re-split found nothing)
 - `memory_headroom.py` (the Settings keep-free VRAM/RAM check the model loaders call)
 - `mixed_language.py`
 - `ollama_unload.py`
@@ -72,12 +75,14 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
+- `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
 - `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
 - `live_cue_translation.py` (the per-cue context and error note for Live)
 - `live_fetch.py`
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
+- `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
 - `translate_engines.py`
 - `translation_guide.py`
 - `translation_memory.py`
@@ -158,6 +163,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `disk_usage_clips_service.py`
 - `disk_usage_links.py`
 - `disk_usage_service.py`
+- `temp_cleanup_service.py`
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
@@ -166,6 +172,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `export_service.py`
 - `extension_service.py`
 - `fixflag_transcribe.py`
+- `bulk_job_view.py` (public view of a bulk_jobs row)
 - `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
@@ -178,6 +185,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `jobs_service.py`
 - `language_pack_service.py`
 - `library_admin_service.py`
+- `library_restore_sql.py` (SQL helpers for the library restore)
 - `library_service.py`
 - `line_ai_service.py`
 - `line_provenance_service.py`
@@ -207,11 +215,13 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `real_model_check_service.py`
 - `remote_health_service.py`
 - `restructure_service.py`
+- `retranscribe_worker.py` (the spawned worker and result hook of the one-line re-transcription; start, read and apply stay in transcribe_service)
 - `retime_service.py`
 - `review_extras_service.py`
 - `review_jobs_service.py`
 - `review_lines_service.py`
 - `review_records_service.py`
+- `run_settings_service.py` (allow-listed settings a job run used, shown in Jobs Details)
 - `safe_fetch.py`
 - `saved_comics_service.py`
 - `scanlate_pages_service.py`

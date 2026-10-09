@@ -15,6 +15,8 @@ import background_jobs
 import db
 import translate_engines
 import translation_guide as tguide
+from engine_backends import llm_tasks
+from engine_backends.shared import TranslationCancelled
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service
 from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text
@@ -132,19 +134,34 @@ def _novel_glossary_cache(engine, engine_name, fresh=False):
     return get, put
 
 
+def _bounded_calls(job_id):
+    """Deadline and Cancel for the job's LLM calls, with retry notices in its
+    message so a wait never looks like a hang."""
+    def on_wait(delay, next_attempt, max_retries):
+        # Keep the bar where it is: this notice can arrive mid-run.
+        current = (background_jobs.get_status(job_id) or {}).get("progress") or 0.0
+        background_jobs.update_progress(
+            job_id, current, f"The AI engine is slow or busy; retrying (attempt {next_attempt} of {max_retries})...")
+    return llm_tasks.bounded_llm_calls(
+        job_id, lambda: background_jobs.is_cancel_requested(job_id), on_wait, no_thinking=True)
+
+
 def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_text, en_text,
                             source_language, known_terms, fresh=False):
     try:
-        proposals = tguide.extract_glossary_from_novel(
-            src_text, engine, source_language=source_language, english_translation=en_text,
-            known_terms=known_terms,
-            response_cache=_novel_glossary_cache(engine, engine_name, fresh),
-            progress_cb=lambda f: background_jobs.update_progress(
-                job_id, f, f"Reading... {f * 100:.0f}%"),
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_name, getattr(engine, "model", engine_name),
-                "glossary_from_novel", inp, out,
-                translate_engines.estimate_cost_for_engine(engine, inp, out)))
+        with _bounded_calls(job_id):
+            proposals = tguide.extract_glossary_from_novel(
+                src_text, engine, source_language=source_language, english_translation=en_text,
+                known_terms=known_terms,
+                response_cache=_novel_glossary_cache(engine, engine_name, fresh),
+                progress_cb=lambda f: background_jobs.update_progress(
+                    job_id, f, f"Reading... {f * 100:.0f}%"),
+                usage_cb=lambda inp, out: db.log_usage(
+                    drama_id, engine_name, getattr(engine, "model", engine_name),
+                    "glossary_from_novel", inp, out,
+                    translate_engines.estimate_cost_for_engine(engine, inp, out)))
+    except TranslationCancelled:
+        raise background_jobs.JobCancelled() from None
     except Exception as exc:
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
@@ -490,16 +507,18 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
         raise background_jobs.JobCancelled()
     background_jobs.update_progress(job_id, 0.1, f"Scanning {len(source_lines)} lines...")
     try:
-        proposals = tguide.extract_terms_llm(
-            source_lines, engine, source_language=source_language, known_terms=known_terms,
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_name, getattr(engine, "model", engine_name),
-                "extract_terms", inp, out,
-                translate_engines.estimate_cost_for_engine(engine, inp, out)))
+        with _bounded_calls(job_id):
+            proposals = tguide.extract_terms_llm(
+                source_lines, engine, source_language=source_language, known_terms=known_terms,
+                usage_cb=lambda inp, out: db.log_usage(
+                    drama_id, engine_name, getattr(engine, "model", engine_name),
+                    "extract_terms", inp, out,
+                    translate_engines.estimate_cost_for_engine(engine, inp, out)))
+    except TranslationCancelled:
+        raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError(
             _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
-    # One LLM call can't be interrupted; a cancel during it drops the result.
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
     # `renderings` is the novel path's cross-window tally; a single call has no

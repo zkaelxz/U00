@@ -233,7 +233,7 @@ class TranscribeRunResult(BaseModel):
 # ---------------------------------------------------------------------------
 class LiveSessionStart(BaseModel):
     """Keys are resolved server-side; no browser cookies over the API.
-    Numbers are clamped to the service's ranges (segment 10-60 s, overlap
+    Numbers are clamped to the service's ranges (segment 3-60 s, overlap
     0-8 s and at most half the segment, max_minutes 1-240)."""
     model_config = ConfigDict(extra="forbid")
     url: str = Field(min_length=1, max_length=2000)
@@ -276,6 +276,7 @@ class LiveSessionStatus(BaseModel):
     engine: Optional[str] = None
     model: Optional[str] = None
     progress: float
+    notes: List[str] = []   # newest last: skipped chunks, catching up
     cues: List[LiveCue]
     next_index: int
 

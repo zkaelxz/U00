@@ -4,6 +4,7 @@ import { ApiError } from '../../../api/client'
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
 import {
   autotuneEta,
+  isResumableScan,
   formatElapsed,
   AUTOTUNE_EXPIRED,
   ENGINE_CHANGED_TEXT,
@@ -138,5 +139,18 @@ describe('highConfidenceTerms', () => {
     const low = { ...p('low'), confidence: 'low' as const }
     expect([...highConfidenceTerms([p('a'), low, p('b', true), p('c')])]).toEqual(['a', 'c'])
     expect(highConfidenceTerms([]).size).toBe(0)
+  })
+})
+
+describe('isResumableScan', () => {
+  it('reopens running, failed and finished-with-proposals scans only', () => {
+    expect(isResumableScan({ status: 'queued' })).toBe(true)
+    expect(isResumableScan({ status: 'running' })).toBe(true)
+    expect(isResumableScan({ status: 'error' })).toBe(true)
+    expect(isResumableScan({ status: 'done', proposals: [{}] })).toBe(true)
+    expect(isResumableScan({ status: 'done', proposals: [] })).toBe(false)
+    expect(isResumableScan({ status: 'done', proposals: null })).toBe(false)
+    expect(isResumableScan({ status: 'cancelled' })).toBe(false)
+    expect(isResumableScan({ status: 'idle' })).toBe(false)
   })
 })

@@ -98,6 +98,9 @@ def _find_preset(preset_id):
     return next((p for p in db.list_presets() if p["id"] == preset_id), None)
 
 
+SENTENCE_SPLIT_DEFAULT_LANGUAGES = ("zh", "ja")
+
+
 def create_drama(*, source_language, title_en="", title_zh="", author="", studio="",
                  director="", voice_actors="", summary="", media_type="audio_drama",
                  series_id=None, new_series_name=None, preset_id=None,
@@ -145,6 +148,11 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     fields = dict(texts, media_type=media_type, source_language=source_language, **owned)
     if series_id is not None:
         fields["series_id"] = series_id
+    if source_language in SENTENCE_SPLIT_DEFAULT_LANGUAGES:
+        # Chinese and Japanese speech runs long between pauses; without it a
+        # Whisper or Whisper + Qwen title comes back as minute-long lines.
+        # Existing titles keep their stored value.
+        fields["split_by_sentences"] = 1
     if preset and preset.get("translation_engine"):
         fields["translation_engine"] = preset["translation_engine"]
     else:

@@ -45,6 +45,8 @@ export interface LiveSessionStatus {
   engine?: string | null
   model?: string | null
   progress: number
+  /** Skipped chunks and catching up, newest last. */
+  notes?: string[]
   cues: LiveCue[]
   next_index: number
 }

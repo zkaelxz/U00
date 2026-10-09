@@ -10,6 +10,7 @@ Endpoints (https://github.com/ollama/ollama/blob/main/docs/api.md):
 GET /api/ps lists loaded models; POST /api/generate with {"model", "keep_alive": 0}
 unloads one.
 """
+import contextlib
 import re
 import threading
 import time
@@ -36,6 +37,65 @@ _MAX_TAGS_IN_NOTICE = 3
 # Per thread, because each job runs on its own thread and its result is built
 # on that same thread: a second job's check must not hide or steal this one's.
 _state = threading.local()
+
+
+class JobScope:
+    """A Live job's own unload policy. A Live job transcribes every chunk on a
+    fresh thread, so the per-thread throttle above would never apply and every
+    chunk would unload Ollama and then wait for its translation to reload it.
+    Under a scope the loader hook acts per JOB: the first call frees a local
+    Ollama once, a later one only while no Whisper call has succeeded yet and
+    free VRAM is below what the model needs. A cloud translator never touches
+    Ollama, and the notice is kept here because the thread that sets it is gone
+    by the time the job reads it."""
+
+    def __init__(self, local_ollama: bool, min_free_mb: float = 0.0, clock=time.monotonic):
+        self.local_ollama = local_ollama
+        self.min_free_mb = min_free_mb
+        self.model_ready = False
+        self.notice = None
+        self._checked_at = None
+        self._clock = clock
+        self._lock = threading.Lock()
+
+    def _admit(self) -> bool:
+        with self._lock:
+            if not self.local_ollama:
+                return False
+            now = self._clock()
+            if self._checked_at is None:
+                self._checked_at = now
+                return True
+            if self.model_ready or now - self._checked_at < RECHECK_SECONDS:
+                return False
+            free = _free_vram_mb()
+            if free is None or free >= self.min_free_mb:
+                return False
+            self._checked_at = now
+            return True
+
+    def take_notice(self):
+        with self._lock:
+            notice, self.notice = self.notice, None
+        return notice
+
+
+def _free_vram_mb():
+    """Free VRAM per nvidia-smi, or None when it can't be read."""
+    import diagnostics
+    load = diagnostics.external_gpu_load()
+    return None if load is None else load["memory_free_mb"]
+
+
+@contextlib.contextmanager
+def job_scope(scope: "JobScope"):
+    """Makes `scope` the policy for this thread; enter it inside the worker."""
+    previous = getattr(_state, "scope", None)
+    _state.scope = scope
+    try:
+        yield scope
+    finally:
+        _state.scope = previous
 
 
 def is_enabled() -> bool:
@@ -114,15 +174,16 @@ def _notice(tags, setting_on: bool) -> str:
             "GPU memory and fall back to the CPU. " + fix + ".")
 
 
-def _free_ollama_gpu_memory() -> None:
+def _free_ollama_gpu_memory():
+    """Frees what it can; returns the notice to show when a model is left loaded."""
     base = _local_base_url()
     if base is None:
-        return
+        return None
     start = time.monotonic()
     remaining = lambda: UNLOAD_WAIT_SECONDS - (time.monotonic() - start)  # noqa: E731
     loaded = _loaded_models(base, min(REQUEST_TIMEOUT_SECONDS, remaining()))
     if not loaded:
-        return
+        return None
     setting_on = is_enabled()
     if setting_on:
         for name in loaded:
@@ -132,9 +193,9 @@ def _free_ollama_gpu_memory() -> None:
         while remaining() > 0:
             loaded = _loaded_models(base, max(0.5, min(REQUEST_TIMEOUT_SECONDS, remaining())))
             if not loaded:  # empty, or unreadable: nothing left to warn about
-                return
+                return None
             time.sleep(min(POLL_INTERVAL_SECONDS, max(0.0, remaining())))
-    _state.notice = _notice(loaded, setting_on)
+    return _notice(loaded, setting_on)
 
 
 def prepare_gpu_for_transcription(use_gpu) -> None:
@@ -142,15 +203,25 @@ def prepare_gpu_for_transcription(use_gpu) -> None:
     run. Never raises."""
     if not use_gpu:
         return
-    now = time.monotonic()
-    if now - getattr(_state, "checked_at", float("-inf")) < RECHECK_SECONDS:
-        return
-    _state.checked_at = now
-    _state.notice = None
+    scope = getattr(_state, "scope", None)
+    if scope is not None:
+        if not scope._admit():
+            return
+    else:
+        now = time.monotonic()
+        if now - getattr(_state, "checked_at", float("-inf")) < RECHECK_SECONDS:
+            return
+        _state.checked_at = now
+        _state.notice = None
     try:
-        _free_ollama_gpu_memory()
+        notice = _free_ollama_gpu_memory()
     except Exception as exc:
         _warn("freeing Ollama's GPU memory failed", exc)
+        return
+    if scope is not None:
+        scope.notice = notice
+    else:
+        _state.notice = notice
 
 
 def take_notice_result() -> dict:
