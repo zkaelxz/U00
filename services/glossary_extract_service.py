@@ -138,8 +138,10 @@ def _bounded_calls(job_id):
     """Deadline and Cancel for the job's LLM calls, with retry notices in its
     message so a wait never looks like a hang."""
     def on_wait(delay, next_attempt, max_retries):
+        # Keep the bar where it is: this notice can arrive mid-run.
+        current = (background_jobs.get_status(job_id) or {}).get("progress") or 0.0
         background_jobs.update_progress(
-            job_id, 0.1, f"The AI engine is slow or busy; retrying (attempt {next_attempt} of {max_retries})...")
+            job_id, current, f"The AI engine is slow or busy; retrying (attempt {next_attempt} of {max_retries})...")
     return llm_tasks.bounded_llm_calls(
         job_id, lambda: background_jobs.is_cancel_requested(job_id), on_wait, no_thinking=True)
 
