@@ -149,7 +149,10 @@ Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and acc
 ### Live (experimental)
 
 The Live page pulls a running stream, cuts it into short chunks (your choice of length), transcribes and translates each in the background, and shows a growing feed. Needs `yt-dlp` and `ffmpeg`.
-- Latency is at least one chunk; shorter chunks lower it but give Whisper less context.
+- Latency is at least one chunk; shorter chunks lower it but give Whisper less context. **Fast captions** (Advanced) sets a 4 s chunk, 1 s overlap, Whisper small and no thinking for sooner, rougher lines. It replaces the current values of those four options, which the browser then remembers; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).
+- Whisper loads before capture starts, so the first chunk is not behind the stream. The status names each step and how fast the last chunk was (audio seconds, time taken, times real time).
+- If Whisper is slower than the stream, the oldest waiting audio is skipped ("Skipped N s to catch up") instead of falling further behind. A chunk Whisper cannot finish in max(30 s, 6 x chunk length) is skipped ("Skipped chunk N") and the run goes on; while an abandoned Whisper call is still running, further chunks are skipped ("Whisper is still busy") instead of starting a second one. Skips are counted in one line per reason and stay listed under the status.
+- Stop returns within a couple of seconds, even in the middle of a Whisper call.
 - Accuracy is lower than the normal pipeline: each chunk is transcribed alone with a few seconds of overlap and no glossary priming.
 - The feed is not saved to the Library; copy what you want before you stop.
 - A resolved stream URL can expire after a few hours; stop and start again.

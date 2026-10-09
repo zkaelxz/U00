@@ -164,6 +164,24 @@ def _fake_engine_installed():
 
 
 @pytest.fixture(autouse=True)
+def _live_whisper_not_loaded():
+    """A Live job loads Whisper before it captures; no test may load a real
+    model. The real function stays on `warm_up.real` for its own tests.
+    Restores by hand, like the fixture below."""
+    import live_whisper
+    saved = live_whisper.warm_up
+
+    def stub(*args, **kwargs):
+        return None
+    stub.real = saved
+    live_whisper.warm_up = stub
+    try:
+        yield
+    finally:
+        live_whisper.warm_up = saved
+
+
+@pytest.fixture(autouse=True)
 def _private_separator_model_dir(tmp_path_factory):
     """The vocal-separator model folder defaults to ~/.cache; the startup
     sweep and the download guard list and delete files there, so no test
@@ -340,7 +358,10 @@ def _no_ollama_unload_requests(request):
     import ollama_unload
     original = ollama_unload.prepare_gpu_for_transcription
     if not request.module.__name__.endswith("test_ollama_unload"):
-        ollama_unload.prepare_gpu_for_transcription = lambda use_gpu: None
+        def stub(use_gpu):
+            return None
+        stub.real = original   # for tests of a caller's own unload policy
+        ollama_unload.prepare_gpu_for_transcription = stub
     try:
         yield
     finally:

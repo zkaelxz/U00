@@ -454,7 +454,10 @@ class TestStaleChunkGuard:
             monkeypatch, job_id,
             [(0, "chunk_00000.wav"), (1, "chunk_00001.wav"), (2, "chunk_00002.wav")])
         # All three "arrive" in the same list_completed_chunks call, like a
-        # burst of chunks finishing while the loop was busy elsewhere.
+        # burst of chunks finishing while the loop was busy elsewhere. The
+        # backlog limit is raised so none is dropped as catch-up: this test is
+        # about Stop, not about skipping.
+        monkeypatch.setattr(lt, "MAX_BACKLOG_CHUNKS", 3)
         monkeypatch.setattr(lt, "list_completed_chunks",
                             lambda out_dir, last_completed: [
                                 (0, "chunk_00000.wav"), (1, "chunk_00001.wav"),

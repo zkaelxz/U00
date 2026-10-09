@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
   describeLiveError, feedCues, fmtTs, getLive, isActive, pickSession, startLive, statusLine, stopLive,
 } from './live'
 import { ApiError } from './client'
@@ -33,10 +33,16 @@ describe('buildStartBody', () => {
 
   it('clamps numbers, caps overlap at half the chunk and drops unknown choices', () => {
     const b = buildStartBody({
-      ...DEFAULT_FORM, url: 'https://a.test', segment_seconds: 5, overlap_seconds: 8, max_minutes: 9999,
+      ...DEFAULT_FORM, url: 'https://a.test', segment_seconds: 2, overlap_seconds: 8, max_minutes: 9999,
       source_language: 'xx', whisper_size: 'huge', engine: '', use_gpu: true,
     })
-    expect(b).toMatchObject({ segment_seconds: 10, overlap_seconds: 5, max_minutes: 240, source_language: 'zh', whisper_size: 'small', engine: null, use_gpu: true })
+    expect(b).toMatchObject({ segment_seconds: 3, overlap_seconds: 1.5, max_minutes: 240, source_language: 'zh', whisper_size: 'small', engine: null, use_gpu: true })
+  })
+
+  it('Fast captions is a short chunk that still goes out as chosen, and DEFAULT_FORM itself is unchanged', () => {
+    expect(DEFAULT_FORM).toMatchObject({ segment_seconds: 20, overlap_seconds: 3, whisper_size: 'small', reply_without_thinking: true })
+    const b = buildStartBody({ ...DEFAULT_FORM, ...FAST_CAPTIONS, url: 'https://a.test' })
+    expect(b).toMatchObject({ segment_seconds: 4, overlap_seconds: 1, whisper_size: 'small', reply_without_thinking: true })
   })
 
   it('falls back to defaults for blank (NaN or null) numbers', () => {

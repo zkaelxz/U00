@@ -27,7 +27,7 @@ export const LIVE_LANGUAGES = [
   { code: 'ko', label: 'Korean' },
 ]
 export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium']
-export const SEGMENT_RANGE: [number, number] = [10, 60]
+export const SEGMENT_RANGE: [number, number] = [3, 60]
 export const OVERLAP_RANGE: [number, number] = [0, 8]
 export const MAX_MINUTES_RANGE: [number, number] = [1, 240]
 export const MAX_URL_LEN = 2000
@@ -73,6 +73,14 @@ export const DEFAULT_FORM: LiveForm = {
 
 // The options remembered per browser (everything but the link).
 export type LiveOptions = Omit<LiveForm, 'url'>
+
+/** Sooner lines at some accuracy. Pressing it overwrites the remembered options for these keys; DEFAULT_FORM itself is unchanged. */
+export const FAST_CAPTIONS: Partial<LiveOptions> = {
+  segment_seconds: 4,
+  overlap_seconds: 1,
+  whisper_size: 'small',
+  reply_without_thinking: true,
+}
 export const DEFAULT_OPTIONS: LiveOptions = (({ url: _url, ...rest }) => rest)(DEFAULT_FORM)
 
 const SID = /^live_[0-9a-f]{32}$/

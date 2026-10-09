@@ -420,8 +420,9 @@ def _note_gpu_wait_reason_locked(job_id):
     job = _jobs.get(job_id)
     if job is None or job.get("status") != "queued":
         return
-    reason = None
-    if _running_gpu_job_count_locked(job_id) == 0:
+    import live_whisper
+    reason = live_whisper.WAIT_MESSAGE if live_whisper.outstanding_label() else None
+    if reason is None and _running_gpu_job_count_locked(job_id) == 0:
         try:
             import diagnostics
             from gpu_wait_message import external_gpu_wait_message
@@ -768,7 +769,9 @@ def wait_for_job_threads(timeout: float, job_ids=None) -> bool:
                    and (job_ids is None or getattr(t, "baihe_job_id", None) in job_ids)]
     for t in threads:
         t.join(max(0.0, deadline - time.monotonic()))
-    return not any(t.is_alive() for t in threads)
+    import live_whisper
+    return not any(t.is_alive() for t in threads) and (
+        job_ids is not None or live_whisper.wait_for_outstanding(deadline - time.monotonic()))
 
 
 def _promote_next_queued_gpu_job():
@@ -875,9 +878,11 @@ def acquire_exclusive(label: str) -> bool:
     process or another exclusive hold is active; otherwise take the hold,
     so no new job can start until release_exclusive()."""
     global _exclusive_label
+    import live_whisper
     with _lock:
         if _exclusive_label is not None or _maintenance_count or any(
-                j.get("status") in ("running", "queued") for j in _jobs.values()):
+                j.get("status") in ("running", "queued") for j in _jobs.values()
+        ) or live_whisper.outstanding_label():
             return False
         _exclusive_label = label
         return True
