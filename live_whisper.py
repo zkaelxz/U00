@@ -84,7 +84,17 @@ def outstanding_label():
     return None
 
 
-CLAIM_HOLDER = "live-whisper:abandoned"
+def gpu_claim_held() -> bool:
+    """True while an abandoned GPU call of this process holds its gpu_lock claim."""
+    with _outstanding_lock:
+        entry = _outstanding
+        return bool(entry is not None and entry["claimed"] and entry["worker"].is_alive())
+
+
+CLAIM_PREFIX = "live-whisper:"
+# Per process, so a second launch's startup sweep can tell this process's
+# claim from a dead one's.
+CLAIM_HOLDER = f"{CLAIM_PREFIX}{os.getpid()}"
 # Shown on a queued job when only the abandoned call holds the GPU.
 WAIT_MESSAGE = "Waiting for the GPU (a Live Whisper call is still finishing)"
 
@@ -104,20 +114,31 @@ def wait_for_outstanding(timeout: float) -> bool:
     row after its job has ended."""
     with _outstanding_lock:
         entry = _outstanding
-    if entry is not None:
+    if entry is not None and entry["worker"].is_alive():
         entry["worker"].join(max(0.0, timeout))
     return outstanding_label() is None
 
 
 def release_stale_claims() -> int:
-    """Deletes every `live-whisper:` gpu_lock row; run at server startup, when
-    no Whisper thread of this process exists yet. A claim whose process died
-    would otherwise keep GPU jobs queued until the row goes stale."""
+    """Deletes `live-whisper:<pid>` gpu_lock rows whose process is gone; run at
+    server startup. A claim whose process died would otherwise keep GPU jobs
+    queued until the row goes stale. A live pid's row is another running
+    instance's abandoned decode, still in its VRAM. This process's own pid
+    counts as gone: no Whisper thread exists yet, so the row is from an earlier
+    run that had the same pid."""
     import contextlib
     import db
+    released = 0
     with contextlib.closing(db.get_conn()) as conn:
-        released = conn.execute(
-            "DELETE FROM gpu_lock WHERE holder LIKE ?", ("live-whisper:%",)).rowcount
+        rows = conn.execute(
+            "SELECT holder FROM gpu_lock WHERE holder LIKE ?", (CLAIM_PREFIX + "%",)).fetchall()
+        for row in rows:
+            suffix = row["holder"][len(CLAIM_PREFIX):]
+            if suffix.isdigit() and int(suffix) != os.getpid() and (
+                    background_jobs.owner_process_alive(int(suffix))):
+                continue
+            released += conn.execute(
+                "DELETE FROM gpu_lock WHERE holder = ?", (row["holder"],)).rowcount
         conn.commit()
     return released
 
@@ -226,8 +247,9 @@ class WhisperRunner:
             current = _outstanding
             if current is not None and current["worker"].is_alive():
                 raise WhisperBusy(current["label"])
-            _outstanding = entry
             worker.start()
+            # Only a started thread is outstanding: join() on an unstarted one raises.
+            _outstanding = entry
         deadline = self._clock() + timeout
         while True:
             worker.join(self._poll)

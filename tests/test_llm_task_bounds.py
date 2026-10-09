@@ -190,8 +190,34 @@ def test_retry_is_reported_and_late_result_is_fine(no_abandoned):
 
 def test_empty_reply_is_a_clear_error_not_a_crash():
     engine, _ = _engine("deepseek", lambda n: _reply(None))
-    with pytest.raises(RuntimeError, match="empty reply"):
+    with llm_tasks.bounded_llm_calls("j0", lambda: False):
+        with pytest.raises(RuntimeError, match="empty reply"):
+            llm_tasks.call_llm_json(engine, "p")
+
+
+@pytest.mark.parametrize("text", [None, ""])
+def test_empty_reply_outside_a_scope_stays_an_empty_string(text):
+    engine, _ = _engine("deepseek", lambda n: _reply(text))
+    assert llm_tasks.call_llm_json(engine, "p") == ""
+
+
+def test_sdk_retries_are_off_only_inside_a_scope():
+    seen = []
+
+    class Client:
+        chat = SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kw: _reply("[]")))
+
+        def with_options(self, **kw):
+            seen.append(kw)
+            return self
+
+    engine = SimpleNamespace(name="someother", model="m", client=Client())
+    llm_tasks.call_llm_json(engine, "p")
+    assert seen == []
+    with llm_tasks.bounded_llm_calls("j0", lambda: False):
         llm_tasks.call_llm_json(engine, "p")
+    assert seen[0]["max_retries"] == 0 and seen[0]["timeout"]
 
 
 def test_abandoned_worker_stops_retrying_and_reports_nothing(no_abandoned):
