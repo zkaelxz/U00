@@ -13,7 +13,7 @@ the last result live in timing_check.json beside the title's audio, so they
 survive a restart; the job record alone would not.
 
 Runs by itself after a transcription whose backend is Qwen-only
-(start_after_transcription), and on demand for any title.
+(after_run), and on demand for any title.
 """
 import datetime
 import json
@@ -195,10 +195,11 @@ def start_timing_check(drama_id: int, after_transcription: bool = False) -> dict
     return {"job_id": job_id}
 
 
-def start_after_transcription(drama_id: int, asr_backend: Optional[str]) -> bool:
-    """Starts the check for a finished Qwen-only transcription. Never raises:
-    the transcription already succeeded and this is an extra."""
-    if asr_backend not in QWEN_ONLY_BACKENDS:
+def after_run(drama_id: int, outcome: dict) -> bool:
+    """Starts the check for a finished Qwen-only transcription (`outcome` is the
+    run's result, whose raw_backend names the backend). Never raises: the
+    transcription already succeeded and this is an extra."""
+    if outcome.get("raw_backend") not in QWEN_ONLY_BACKENDS:
         return False
     try:
         with _state_lock:

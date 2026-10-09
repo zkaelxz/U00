@@ -1443,7 +1443,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
             **(gpu_app_settings or raw_transcript.current_gpu_app_settings()))
         if outcome.get("run_config") else None)
     db.update_drama(drama_id, status="aligned")
-    timing_check_service.start_after_transcription(drama_id, outcome["raw_backend"])
+    timing_check_service.after_run(drama_id, outcome)
 
     diarize_started = False
     if hf_token and diarize_audio_path:

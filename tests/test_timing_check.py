@@ -315,7 +315,7 @@ class TestAutoRun:
         ("whisper", False), ("qwen3_asr", False), (None, False)])
     def test_only_qwen_only_backends_start_it(self, isolated_db, drama, fake_speech, backend, expected):
         _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])
-        assert svc.start_after_transcription(drama, backend) is expected
+        assert svc.after_run(drama, {"raw_backend": backend}) is expected
         if expected:
             assert _wait(drama)["status"] == "done"
         else:
@@ -328,7 +328,7 @@ class TestAutoRun:
             background_jobs._jobs[f"transcribe_{drama}"] = {"status": "running", "progress": 0.9,
                                                             "message": "", "started_at": time.time()}
         try:
-            assert svc.start_after_transcription(drama, "qwen3_asr_long") is True
+            assert svc.after_run(drama, {"raw_backend": "qwen3_asr_long"}) is True
             _wait(drama)
         finally:
             with background_jobs._lock:
@@ -336,7 +336,7 @@ class TestAutoRun:
         assert _lines(isolated_db, drama)[0].flag == FLAG
 
     def test_never_raises(self, isolated_db):
-        assert svc.start_after_transcription(999, "qwen3_asr_vad") is False
+        assert svc.after_run(999, {"raw_backend": "qwen3_asr_vad"}) is False
 
 
 class TestApi:
