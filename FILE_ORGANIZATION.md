@@ -72,12 +72,14 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
+- `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
 - `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
 - `live_cue_translation.py` (the per-cue context and error note for Live)
 - `live_fetch.py`
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
+- `live_whisper.py` (a Live chunk's Whisper call on a guarded worker: per-chunk time limit, prompt Stop, warm start, backlog skip)
 - `translate_engines.py`
 - `translation_guide.py`
 - `translation_memory.py`

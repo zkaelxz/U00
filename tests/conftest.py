@@ -164,6 +164,24 @@ def _fake_engine_installed():
 
 
 @pytest.fixture(autouse=True)
+def _live_whisper_not_loaded():
+    """A Live job loads Whisper before it captures; no test may load a real
+    model. The real function stays on `warm_up.real` for its own tests.
+    Restores by hand, like the fixture below."""
+    import live_whisper
+    saved = live_whisper.warm_up
+
+    def stub(*args, **kwargs):
+        return None
+    stub.real = saved
+    live_whisper.warm_up = stub
+    try:
+        yield
+    finally:
+        live_whisper.warm_up = saved
+
+
+@pytest.fixture(autouse=True)
 def _private_separator_model_dir(tmp_path_factory):
     """The vocal-separator model folder defaults to ~/.cache; the startup
     sweep and the download guard list and delete files there, so no test

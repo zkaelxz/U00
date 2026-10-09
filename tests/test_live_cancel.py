@@ -1,8 +1,8 @@
 """
 tests/test_live_cancel.py -- a cancel reaches a Live job wherever it is
 blocked: an Ollama request that never answers, a capture subprocess that
-never produces a chunk, the stream lookup, and a Whisper call (which can't be
-interrupted, so the status must say so).
+never produces a chunk, the stream lookup, and a Whisper call (abandoned on a worker
+thread, since faster-whisper cannot be interrupted mid-step).
 
 The blocked Ollama server is a real local socket that accepts and never
 replies; the capture is a real `sh` that leaves a `sleep` grandchild.
@@ -208,33 +208,37 @@ class TestBlockedOllamaTranslation:
             background_jobs.remove_change_listener(events.append)
 
 
-class TestWhisperCannotBeInterrupted:
-    def test_cancel_text_says_what_is_awaited(self, jobs, tmp_path, monkeypatch):
+class TestWhisperIsAbandonedOnCancel:
+    def test_a_stuck_whisper_call_does_not_hold_up_a_cancel(self, jobs, tmp_path, monkeypatch):
         import core
         release = threading.Event()
         inside = threading.Event()
 
         def blocked_whisper(path, **kw):
             inside.set()
-            release.wait(10)
+            release.wait(10)   # never reaches a segment, so it can only be abandoned
             return []
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://stream")
         monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
         monkeypatch.setattr(lt, "stop_capture", lambda proc, **kw: None)
         monkeypatch.setattr(core, "transcribe_for_timing", blocked_whisper)
+        released = []
+        monkeypatch.setattr(core, "release_gpu_models", lambda: released.append(1))
         assert _start("live_cancel_whisper", _chunk_dir(tmp_path), object(), use_gpu=True)
         assert inside.wait(PROMPT)
-        assert "transcribing with Whisper small (GPU)" in \
+        assert "transcribing 0 s of audio with Whisper small (GPU)" in \
             _shown("live_cancel_whisper")
 
+        started = time.monotonic()
         background_jobs.request_cancel("live_cancel_whisper")
         message = _shown("live_cancel_whisper")
-        assert "Whisper" in message and "cannot be interrupted" in message
-        assert "finishes the current step first" not in message
-
-        release.set()
+        assert "stopping Whisper on chunk 0" in message and "cannot be interrupted" not in message
         assert _wait(lambda: background_jobs.get_status("live_cancel_whisper")["status"] != "running",
                      PROMPT)
+        assert time.monotonic() - started < PROMPT
+        # The model the stuck call holds is dropped so the next run loads its own.
+        assert released
+        release.set()
 
 
 class TestBlockedLookupAndCapture:

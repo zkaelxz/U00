@@ -49,13 +49,16 @@ from services.service_errors import (
 )
 
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
-SEGMENT_RANGE = (10, 60)
+SEGMENT_RANGE = (3, 60)
 OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
+# Kept per session, newest last: the skipped-chunk and catch-up events the status
+# line would otherwise overwrite a second later.
+MAX_NOTES = 6
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -152,6 +155,17 @@ def check_ollama(model: Optional[str] = None) -> dict:
     return {"ok": True, "model": model, "message": None}
 
 
+def add_note(session_id: str, text: str) -> None:
+    """Keeps a short event for the session's status. The text is fixed wording
+    the job composes from numbers, passed through clean_message anyway."""
+    with _lock:
+        entry = _sessions.get(session_id)
+        if entry is not None:
+            notes = entry.setdefault("notes", [])
+            notes.append(clean_message(text))
+            del notes[:-MAX_NOTES]
+
+
 def _remove_dir(session_id: str):
     with _lock:
         entry = _sessions.get(session_id)
@@ -203,7 +217,7 @@ def _make_target(session_id: str):
                 live_translate.run_live_job(
                     *args, proxy=proxy.url,
                     report_stage=functools.partial(job_stage_service.set_stage, session_id),
-                    **kwargs)
+                    report_note=functools.partial(add_note, session_id), **kwargs)
         finally:
             job_stage_service.clear_stage(session_id)
             _remove_dir(session_id)
@@ -382,6 +396,7 @@ def get_session(session_id, after=0, principal=None) -> dict:
     return {"session_id": session_id, "status": status, "message": message,
             "engine": entry.get("engine"), "model": entry.get("model"),
             "progress": float((job or {}).get("progress") or 0.0),
+            "notes": list(entry.get("notes") or ()),
             "cues": out, "next_index": max(after, len(cues))}
 
 

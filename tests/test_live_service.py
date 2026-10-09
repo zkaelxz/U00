@@ -217,7 +217,7 @@ def test_dir_removed_on_cancel_while_running(live):
     assert not os.path.exists(out_dir)
 
 
-def test_status_names_the_stage_and_what_a_stop_waits_on(live, monkeypatch):
+def test_status_names_the_stage_and_what_a_stop_does(live, monkeypatch):
     release = threading.Event()
     inside = threading.Event()
 
@@ -233,11 +233,13 @@ def test_status_names_the_stage_and_what_a_stop_waits_on(live, monkeypatch):
     for i in range(2):
         open(os.path.join(live["out_dir"], f"chunk_{i:05d}.wav"), "wb").close()
     assert inside.wait(8)
-    assert "Chunk 0: transcribing with Whisper small" in live_service.get_session(sid)["message"]
+    assert "Chunk 0: transcribing 0 s of audio with Whisper small" in \
+        live_service.get_session(sid)["message"]
 
     live_service.stop_session(sid)
     message = live_service.get_session(sid)["message"]
-    assert "cannot be interrupted" in message
+    assert "stopping Whisper on chunk 0" in message
+    assert "cannot be interrupted" not in message
     assert "finishes the current step first" not in message
     release.set()
     assert _terminal(sid)
