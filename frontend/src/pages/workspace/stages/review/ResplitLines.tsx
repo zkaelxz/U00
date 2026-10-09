@@ -15,21 +15,8 @@ import { useStage } from '../../StageContext'
 import { resplitJobId } from '../../stageJobIds'
 import { JobPanel } from '../JobPanel'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
-import {
-  JOB_RUNNING_MESSAGE,
-  RESPLIT_DURATION_CAPS,
-  RESPLIT_SENSITIVITIES,
-  resplitNeedsConfirm,
-  resplitPreviewSummary,
-  resplitSummary,
-  speakerTimeFooter,
-  speakerTimeLines,
-  structureErrorText,
-  undoDoneMessage,
-  undoHandleOf,
-  undoRefusal,
-  type UndoHandle,
-} from './reviewLogic'
+import { speakerTimeFooter, speakerTimeLines, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary } from './reviewResegment'
 import { UndoNotice } from './UndoNotice'
 import { retireUndoOffer, useUndoOffer } from './undoOffer'
 

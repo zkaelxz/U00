@@ -2,45 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { SourcesSettings, SourceSummary } from '../../types/sources'
-import {
-  SEARCH_REMOTE_ALLOWED,
-  ago,
-  cacheLabel,
-  describeSourceError,
-  paceHelp,
-  draftFrom,
-  groupChapters,
-  errorCategoryLabel,
-  healthLine,
-  healthTooltip,
-  healthText,
-  healthTone,
-  limitGroups,
-  looksLikeUrl,
-  pacingErrors,
-  pacingSummary,
-  pageSummary,
-  pausedFor,
-  percent,
-  profileLine,
-  resultsHeader,
-  safeHref,
-  seriesView,
-  type SeriesJobLike,
-  searchDisabledReason,
-  searchInSummary,
-  searchSourcesParam,
-  searchableSources,
-  selectedSources,
-  seriesLinks,
-  seriesMeta,
-  settingsChanges,
-  settingsSummary,
-  accessMethodLabel,
-  isoDay,
-  statusLabel,
-  tierLines,
-} from './sourcesFormat'
+import { SEARCH_REMOTE_ALLOWED, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, pageSummary, pausedFor, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, statusLabel, tierLines } from './sourcesFormat'
+import { groupChapters, limitGroups, safeHref, seriesView, type SeriesJobLike, seriesLinks, seriesMeta } from './sourcesSeries'
+import { cacheLabel, draftFrom, pacingErrors, pacingSummary, profileLine, settingsChanges, settingsSummary } from './sourcesSettings'
 
 const src = (name: string, over: Partial<SourceSummary> = {}): SourceSummary => ({
   name,

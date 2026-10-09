@@ -164,6 +164,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `export_service.py`
 - `extension_service.py`
 - `fixflag_transcribe.py`
+- `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
+- `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
 - `glossary_service.py`
 - `jellyfin_service.py`

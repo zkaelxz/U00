@@ -6,7 +6,7 @@ import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { SourcesSettings } from '../../types/sources'
-import { proxyProblem } from './sourcesFormat'
+import { proxyProblem } from './sourcesSettings'
 
 type Props = {
   settings: SourcesSettings

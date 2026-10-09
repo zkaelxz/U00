@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../../api/client'
-import { isSameJobConflict } from './sourcesFormat'
+import { isSameJobConflict } from './sourcesSeries'
 import { LOST_CONTACT, isStartedHere, pollSourcesJob } from './useSourcesJob'
 
 const running = { job_id: 'j', status: 'running', progress: 0.1, message: null, result: null }

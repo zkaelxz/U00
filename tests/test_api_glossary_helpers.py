@@ -21,7 +21,8 @@ import translation_guide as tguide
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, glossary_service as gs, settings_service, translate_service
+from services import (auth_service, glossary_extract_service, glossary_service as gs,
+                      settings_service, translate_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
 
@@ -69,7 +70,7 @@ class _Engine:
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(gs.translate_engines, "get_engine",
+    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 

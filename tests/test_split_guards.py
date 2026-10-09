@@ -72,7 +72,6 @@ class TestHttpTimeoutsByFolder:
 MAX_FRONTEND_BYTES = 40 * 1024
 # Exact byte sizes today. A listed file may shrink but never grow.
 OVERSIZED_FRONTEND_BYTES = {
-    "frontend/src/pages/workspace/stages/review/LinesPanel.tsx": 55746,
     "frontend/e2e/review-stage.spec.ts": 48405,
 }
 
