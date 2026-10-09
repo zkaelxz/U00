@@ -141,11 +141,10 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     try {
       plan = await planInstall(keys)
     } catch {
-      onBusy(null)
       return installNow()
     }
-    onBusy(null)
     if (!needsPlanPanel(plan)) return installNow()
+    onBusy(null)
     setPlanned({ label, keys, plan, installNow: () => { setPlanned(null); void installNow() } })
   }
 

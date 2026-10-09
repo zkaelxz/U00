@@ -120,7 +120,7 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
   await expect(page.getByTestId('install-running')).toHaveText(
     'Installing yt-dlp… this can take several minutes. Keep this tab open.')
-  expect(sent).toHaveLength(1)
+  await expect.poll(() => sent.length).toBe(1) // the install preview comes first
   expect(sent[0].postDataJSON()).toEqual({ confirm: true })
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
   await expect(page.getByTestId('diagnostics-summary')).toContainText('Installing yt-dlp')
