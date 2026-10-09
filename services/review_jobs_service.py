@@ -149,7 +149,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
     args, kwargs = make_args(drama, lines, engine, engine_name)
-    kwargs.setdefault("gpu_touching", engine_name == "ollama")
+    kwargs.setdefault("gpu_touching", translate_engines.ollama_touches_local_gpu(engine_name, model))
     started = background_jobs.start_job(
         job_id, runner, job_id, drama_id, *args,
         description=f"{label.capitalize()} (drama #{drama_id})", **kwargs)
@@ -235,7 +235,7 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
                       "style_note": settings_service.get_preference("default_style_note") or "",
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
-                      "gpu_touching": bool(audio_path) or name == "ollama"}
+                      "gpu_touching": bool(audio_path) or translate_engines.ollama_touches_local_gpu(name, model)}
     started = _start("fix-flagged", drama_id, engine_name, model, gemini_free_tier,
                      workspace_job_service.run_fix_flagged_lines_job, make_args,
                      allow_translation_only=True, precheck=precheck)

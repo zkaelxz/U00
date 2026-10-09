@@ -13,10 +13,16 @@ at from its parent or opened. Nothing here names a target path.
 import os
 import re
 import stat
+import time
 
 # Linked folders measured in one scan, and link paths remembered per folder.
 # A folder with more links than this reports its linked size as incomplete.
 MAX_LINK_TARGETS = 64
+
+# Seconds the scan may spend on linked folders in all. The walk's own budget
+# only checks the clock every few entries, which a slow network folder can
+# stall inside one call; this cap also stops starting further targets.
+MAX_LINK_SECONDS = 20
 
 # A chain of links longer than this is treated as a loop.
 MAX_LINK_HOPS = 8
@@ -95,6 +101,7 @@ class LinkedSizes:
         self._within = within
         self._measure = measure
         self._done = []
+        self._deadline = time.monotonic() + MAX_LINK_SECONDS
 
     def of(self, link_paths: list, budget, cut: bool = False):
         """(bytes, files, complete) for the folders `link_paths` lead to, or
@@ -107,6 +114,9 @@ class LinkedSizes:
         measured = skipped = False
         complete = not cut
         for path in link_paths:
+            if time.monotonic() > self._deadline or (budget is not None and budget.hit):
+                skipped = True
+                break
             real = _local_target(path)
             if real is None:
                 skipped = True

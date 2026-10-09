@@ -9,6 +9,7 @@ the confirmations behave the same). Kept out of cli.py, which has no room to gro
   python cli.py import-subtitle --find track.mp3 *.srt *.vtt     # rank sidecar names, import nothing
 """
 
+import db
 import subtitle_parse
 import subtitle_sidecar
 import translate_engines
@@ -23,7 +24,8 @@ def _problems(report: dict) -> None:
 
 def _find(args) -> None:
     names = [n.replace("\\", "/").rsplit("/", 1)[-1] for n in args.find[1:]]
-    ranked = subtitle_sidecar.rank_sidecars(args.find[0], names)
+    drama = db.get_drama(args.id) if args.id is not None else None
+    ranked = subtitle_sidecar.rank_sidecars(args.find[0], names, (drama or {}).get("source_language"))
     for c in ranked:
         print(f"{c.name}\t{c.format}\t{c.language or c.language_token or '-'}")
     if len(ranked) > 1:
@@ -79,5 +81,6 @@ def register(sub) -> None:
                    help="Confirm replacing existing lines or overwriting existing translations "
                         "(the old state is saved to history first).")
     p.add_argument("--find", nargs="+", metavar=("MEDIA", "NAME"), default=None,
-                   help="Rank file NAMEs as sidecars of MEDIA and print them; imports nothing.")
+                   help="Rank file NAMEs as sidecars of MEDIA and print them; imports nothing. "
+                        "With --id, the title's source language ranks first.")
     p.set_defaults(func=cmd_import_subtitle)

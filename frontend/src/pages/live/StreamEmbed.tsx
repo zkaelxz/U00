@@ -139,7 +139,8 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
           // The seeks were heard but the playhead is not where duration says: ask for the live edge itself and read the player's own clock there.
           probed = true
           probeFrom = info.currentTime
-          sinceProbe = 0
+          // -1 because this same tick's check below counts once already; the settle is a full PROBE_SETTLE_S.
+          sinceProbe = -1
           probeStep = Math.min(PROBE_BACK_S, probeFrom)
           if (probeStep < PROBE_MIN_STEP_S) {
             // A playhead this close to 0 cannot show a step back; judge the edge seek alone.

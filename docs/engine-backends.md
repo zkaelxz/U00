@@ -129,7 +129,7 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
     models, reached through the same local server after `ollama signin`: no API key is
     stored here, but the subtitle text is processed on Ollama's servers and free use is capped.
     They are never a default or fallback, are skipped by the GPU/headroom checks
-    (`ollama_touches_local_gpu`), and a 429 becomes `OllamaCloudLimitError`, which the normal
+    (`ollama_touches_local_gpu`, which also decides whether a job takes the GPU queue slot), and a 429 becomes `OllamaCloudLimitError`, which the normal
     backoff retries. The direct `ollama.com/api` path (Bearer key) is not built. Any tag
     ending `-cloud` or `:cloud` counts as hosted (`is_ollama_cloud_model`); the engine list
     flags those. They are kept out of `ENGINE_MODEL_DICTS["ollama"]`, refused as a Diagnostics

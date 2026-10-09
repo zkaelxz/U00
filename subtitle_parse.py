@@ -113,7 +113,8 @@ def decode_subtitle_bytes(data: bytes, encoding: Optional[str] = None,
     if encoding:
         try:
             canonical = codecs.lookup(encoding).name
-        except LookupError:
+        except (LookupError, ValueError):
+            # An encoding name with a NUL makes codecs.lookup raise ValueError, not LookupError.
             canonical = None
         if canonical not in ALLOWED_ENCODINGS:
             raise SubtitleParseError(

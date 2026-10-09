@@ -437,3 +437,15 @@ class TestMoveRefusesLinks:
             dus.move("/".join(("library", *auto_backup_service.DEFAULT_SUBDIR)),
                      str(tmp_path / "dest"), confirm=True)
         assert os.path.exists(os.path.join(auto, "copy.zip"))
+
+
+def test_linked_sizes_stop_starting_targets_past_their_time_budget(tmp_path, monkeypatch):
+    from services import disk_usage_links as links
+    measured = []
+    sizes = links.LinkedSizes(str(tmp_path), [], dus._within, lambda *a: measured.append(a))
+    target = tmp_path / "t"
+    target.mkdir()
+    monkeypatch.setattr(links, "_local_target", lambda p: str(target))
+    monkeypatch.setattr(links.time, "monotonic", lambda: sizes._deadline + 1)
+    assert sizes.of(["a", "b"], budget=None) == (0, 0, False)
+    assert measured == []

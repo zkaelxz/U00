@@ -270,6 +270,17 @@ def test_separation_none_follows_what_the_library_would_pick(monkeypatch, reserv
         mh.check_separation(True)
 
 
+def test_separation_on_cpu_checks_ram_not_vram(monkeypatch, reserve):
+    import sys, types
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(
+        cuda=types.SimpleNamespace(is_available=lambda: False)))
+    reserve(vram=4, vram_free=1 * GB, ram=4, ram_free=64 * GB)
+    mh.check_separation(None)  # plenty of RAM; the tight VRAM is irrelevant on CPU
+    reserve(vram=0, vram_free=64 * GB, ram=4, ram_free=1 * GB)
+    with pytest.raises(mh.HeadroomError):
+        mh.check_separation(None)
+
+
 class TestRefusalStopsTheRun:
     def test_headroom_error_is_not_a_fallback_error(self):
         from engine_backends.fallback import is_fallback_error

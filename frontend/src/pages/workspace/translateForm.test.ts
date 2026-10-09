@@ -458,6 +458,8 @@ describe('think harder on tricky text', () => {
   it('says plainly what it costs, and plainly when it does nothing', () => {
     expect(thinkingHelp('deepseek', false)).toMatch(/Off by default/)
     expect(thinkingHelp('deepseek', false)).toMatch(/lower bound/)
+    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).not.toMatch(/lower bound/)
+    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).toMatch(/does not include it/)
     expect(thinkingHelp('claude', false)).toBe(
       'claude has no thinking switch, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.',
     )

@@ -217,8 +217,7 @@ def check_separation(use_gpu) -> None:
             use_gpu = bool(torch is not None and torch.cuda.is_available())
         except Exception:
             return
-        if not use_gpu:
-            return
+    # A CPU run (torch sees no CUDA) is judged against system RAM and its reserve, not VRAM.
     check("separation", "separator", bool(use_gpu))
 
 
