@@ -11,6 +11,7 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
 import type { DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks } from '../types/diagnostics'
 import { DangerZone } from './diagnostics/DangerZone'
+import { BrowserInstall } from './diagnostics/BrowserInstall'
 import { DenoInstall } from './diagnostics/DenoInstall'
 import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
@@ -130,6 +131,8 @@ export default function DiagnosticsPage() {
           }}
         >
           <DenoInstall pc={pc} jobsActive={active} busy={adminBusy}
+            onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          <BrowserInstall pc={pc} jobsActive={active} busy={adminBusy}
             onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
         </SetupSection>
       ) : (
