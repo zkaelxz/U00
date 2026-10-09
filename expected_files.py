@@ -38,6 +38,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "gpu_wait_message.py",
     "glossary_io.py",
     "hardsub_ocr.py",
+    "job_process_kill.py",
     "known_sites.py",
     "language_packs.py",
     "line_tools.py",
