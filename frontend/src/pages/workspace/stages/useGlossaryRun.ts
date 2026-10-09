@@ -21,8 +21,8 @@ import { getSourceConfig } from '../../../api/source'
 import { getGlossaryCatalogues } from '../../../api/translateStage'
 import { getNovelStatus } from '../../../api/workspace'
 import type { GlossaryCatalogues } from '../../../types/translateStage'
-import { ENGINE_CHANGED_TEXT, isActiveStatus, novelGlossaryStartErrorText } from './autotuneGlossary'
-import { scopedValue, type GlossarySource, type RunScoped } from './glossaryExtract'
+import { ENGINE_CHANGED_TEXT, isActiveStatus, isResumableScan, novelGlossaryStartErrorText } from './autotuneGlossary'
+import { reviewSource, scopedValue, type GlossarySource, type RunScoped } from './glossaryExtract'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { useRunStatus } from './useRunStatus'
 
@@ -107,6 +107,31 @@ export function startExtraction(
       return text ? { problem: text, error: null, runId: null } : { problem: null, error: e, runId: null }
     },
   )
+}
+
+// Whether the server still holds a scan worth reviewing for this drama
+// (running, failed, or finished with proposals not yet applied or dismissed).
+// Read once per drama so a scan survives leaving the stage or a reload;
+// null while reading. enabled=false answers false without a request.
+export function useResumableScan(dramaId: number, enabled: boolean): boolean | null {
+  const hasNovel = useHasNovel(dramaId, null)
+  const [state, setState] = useState<{ id: number; value: boolean } | null>(null)
+  const source = hasNovel === null ? null : reviewSource(hasNovel)
+  useEffect(() => {
+    if (!enabled || !source) return
+    let cancelled = false
+    GLOSSARY_API[source].get(dramaId).then(
+      (s) => {
+        if (!cancelled) setState({ id: dramaId, value: isResumableScan(s) })
+      },
+      () => !cancelled && setState({ id: dramaId, value: false }),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, enabled, source])
+  if (!enabled) return false
+  return state && state.id === dramaId ? state.value : null
 }
 
 // State that belongs to one run's proposals (selection, edits, a pending

@@ -147,3 +147,8 @@ export function applySummary(r: NovelGlossaryApplyResult): string {
   if (r.unknown.length) parts.push(`${r.unknown.length} no longer proposed.`)
   return parts.join(' ')
 }
+
+// A held scan worth reopening on return: running, failed, or finished with
+// proposals not yet applied. Finished-empty and cancelled need no review.
+export const isResumableScan = (s: { status: string; proposals?: unknown[] | null }): boolean =>
+  isActiveStatus(s.status) || s.status === 'error' || (s.status === 'done' && (s.proposals?.length ?? 0) > 0)
