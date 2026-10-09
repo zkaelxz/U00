@@ -55,6 +55,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `diarize.py`
 - `forced_align.py`
 - `gpu_wait_message.py` (the waiting text when another program is using the GPU)
+- `long_line_split.py` (last-resort even split for lines no punctuation or pause can cut, and the plain-words reasons a re-split found nothing)
 - `memory_headroom.py` (the Settings keep-free VRAM/RAM check the model loaders call)
 - `mixed_language.py`
 - `ollama_unload.py`

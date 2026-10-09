@@ -146,6 +146,11 @@ describe('structure guards', () => {
     expect(jobRunsOnDrama([{ job_id: 'translate_3', status: 'done' }], 3)).toBe(false)
     expect(jobRunsOnDrama([{ job_id: 'bulk_translate_3', status: 'queued' }], 3)).toBe(true)
   })
+  it('trusts the server drama_id and ignores stale rows', () => {
+    expect(jobRunsOnDrama([{ job_id: 'sourceimport_25', status: 'running', drama_id: null }], 25)).toBe(false)
+    expect(jobRunsOnDrama([{ job_id: 'transcribe_25', status: 'running', drama_id: 25 }], 25)).toBe(true)
+    expect(jobRunsOnDrama([{ job_id: 'transcribe_25', status: 'running', drama_id: 25, stale: true }], 25)).toBe(false)
+  })
 })
 
 describe('labels', () => {

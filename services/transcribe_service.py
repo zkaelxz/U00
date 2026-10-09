@@ -62,6 +62,7 @@ import asr_backend
 import background_jobs
 import ollama_unload
 import core as core_module
+import long_line_split
 import db
 import diagnostics
 import raw_transcript
@@ -1328,7 +1329,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                           word_timings=core_module.encode_line_words(seg["text"],
                                                                      seg.get("words")))
                      for i, seg in enumerate(
-                         s for s in core_module.split_long_segments(
+                         s for s in long_line_split.split_long_segments(
                              segments, min_pause=min_pause_sec,
                              rules=asr_backend.SENTENCE_SPLIT_RULES if sentence_lines else None)
                          if s["text"].strip())]

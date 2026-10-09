@@ -161,7 +161,8 @@ class TestPayload:
             with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
                 c.execute("UPDATE lines SET word_timings = ? WHERE id = ?", (payload, ids[0]))
                 c.commit()
-            assert svc.resplit_long_lines(did, ids, dry_run=True)["split_lines"] == 0
+            # unusable words fall back to the estimate (an even cut, flagged), never a crash
+            assert svc.resplit_long_lines(did, ids, dry_run=True)["split_lines"] <= 1
             assert svc.preview_resegmentation(did) is not None
 
     def test_cap_on_word_count_and_bytes(self):
@@ -193,7 +194,7 @@ class TestPayload:
         assert _stored(did) == [None]
         t0 = time.monotonic()
         r = svc.resplit_long_lines(did, [r["id"] for r in db.load_lines(did)], dry_run=True)
-        assert r["split_lines"] == 0 and builds == [] and time.monotonic() - t0 < 20.0
+        assert r["split_lines"] <= 1 and builds == [] and time.monotonic() - t0 < 20.0
 
 
 # ---- storage -----------------------------------------------------------------
@@ -342,7 +343,12 @@ class TestResplit:
     def test_line_without_words_behaves_as_before(self):
         did, ids = _seed(words=False)
         r = svc.resplit_long_lines(did, ids)
-        assert r["split_lines"] == 0 and "none has a sentence or comma break" in r["note"]
+        assert r["split_lines"] == 1  # no words, no punctuation: the even cut
+        assert {x["flag"] for x in db.load_lines(did)} == {"timing_uncertain"}
+        fresh, _ = _seed(words=False)
+        sentence = svc.resplit_long_lines(
+            fresh, [x["id"] for x in db.load_lines(fresh)], sensitivity="sentence", dry_run=True)
+        assert "no sentence end" in sentence["note"]
 
     def test_stale_words_after_an_edit_are_not_used(self):
         did, ids = _seed()
@@ -353,8 +359,10 @@ class TestResplit:
             c.execute("UPDATE lines SET word_timings = ? WHERE id = ?",
                       (core.encode_line_words(TEXT, WORDS), ids[0]))
             c.commit()
-        assert svc.resplit_long_lines(did, ids)["split_lines"] == 0
-        assert db.load_lines(did)[0]["zh"] == edited
+        svc.resplit_long_lines(did, ids)
+        # the stale words were ignored: any cut is the estimated, flagged one
+        assert {x["flag"] for x in db.load_lines(did)} <= {"timing_uncertain", None, ""}
+        assert "".join(x["zh"] for x in db.load_lines(did)) == edited
 
     def test_cuts_stay_inside_a_retimed_line(self):
         did, ids = _seed()
@@ -408,7 +416,7 @@ class TestResegment:
         assert all(core.line_words(x) for x in new)
         bare, changed = resegment.resegment_lines(
             [Line(idx=0, start=START, end=END, zh=TEXT, id=7)], "zh", max_chars=30,
-            boundaries_fn=no_segmenter)
+            boundaries_fn=no_segmenter, even_split=False)
         assert len(bare) == 1 and not changed
 
     def test_preview_matches_apply(self):

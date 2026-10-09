@@ -489,8 +489,20 @@ def test_nothing_message_names_the_sensitivity_and_suggests_more():
 
 def test_nothing_message_when_over_limit_but_no_cut_point():
     did, ids = _one_line("我今天早上很早就起床了然后去公园跑步路上遇到了老朋友我们聊了很久后来一起吃了早饭", 60.0)
-    note = svc.resplit_long_lines(did, ids)["note"]
-    assert note.startswith("1 line over the limits") and "none has a sentence or comma break" in note
+    note = svc.resplit_long_lines(did, ids, sensitivity="sentence", max_seconds=10)["note"]
+    assert note.startswith("1 line with no sentence end")
+
+
+def test_line_with_no_punctuation_or_words_is_cut_evenly_and_flagged():
+    text = "".join(chr(0x4e00 + i) for i in range(100))
+    did, ids = _one_line(text, 97.0)
+    r = svc.resplit_long_lines(did, ids)
+    assert r["split_lines"] == 1 and r["line_count"] > 2
+    lines = db.load_line_objects(did)
+    assert "".join(l.zh for l in lines) == text
+    assert max(len(l.zh) for l in lines) <= 40
+    assert {l.flag for l in lines} == {"timing_uncertain"}
+    assert lines[0].start == 0.0 and lines[-1].end == 97.0
 
 
 def test_sensitivity_and_cap_validation():
@@ -515,7 +527,7 @@ def test_route_sensitivity_fields(isolated_db):
     r = c.post(url, json={"expected_line_ids": ids, "sensitivity": "more", "max_seconds": 15,
                           "dry_run": True})
     assert r.status_code == 200, r.text
-    assert r.json()["dry_run"] is True and r.json()["pieces"] == 3 and len(db.load_lines(did)) == 3
+    assert r.json()["dry_run"] is True and r.json()["pieces"] == 6 and len(db.load_lines(did)) == 3
 
 
 # --- bounded / incremental sentence-end checks ---------------------------------
@@ -624,3 +636,11 @@ def test_resegmentation_preview_uses_the_titles_pause(monkeypatch):
                         lambda lines, language, **kw: seen.append(kw["min_pause"]) or (lines, []))
     svc.preview_resegmentation(did)
     assert seen == [0.6]
+
+
+def test_resegment_preview_says_why_nothing_changes():
+    did, _ = _one_line("你好。", 60.0)  # short text that runs 60 s: not a character problem
+    p = svc.preview_resegmentation(did)
+    assert p["changed"] == [] and "Split long lines" in p["reason"]
+    clean, _ = _one_line("你好。", 2.0)
+    assert "Nothing to re-segment" in svc.preview_resegmentation(clean)["reason"]

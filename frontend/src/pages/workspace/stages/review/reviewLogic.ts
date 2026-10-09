@@ -304,10 +304,17 @@ export function structureErrorText(e: unknown): string | null {
   return /job/i.test(e.message) ? JOB_RUNNING_MESSAGE : LINES_CHANGED_MESSAGE
 }
 
-// Interim until JobRecord carries drama_id: job ids are "<kind>_<dramaId>".
-export function jobRunsOnDrama(jobs: Pick<JobRecord, 'job_id' | 'status'>[], dramaId: number): boolean {
+// Mirrors the server's own refusal: only a live queued/running job on THIS
+// title counts. A job left behind by a dead process (`stale`) is ignored, as is
+// one whose id merely ends in the same number (a source or series job).
+export function jobRunsOnDrama(
+  jobs: Pick<JobRecord, 'job_id' | 'status' | 'drama_id' | 'stale'>[],
+  dramaId: number,
+): boolean {
   return jobs.some((j) => {
     if (j.status !== 'running' && j.status !== 'queued') return false
+    if (j.stale) return false
+    if (j.drama_id !== undefined) return j.drama_id === dramaId
     const cut = j.job_id.lastIndexOf('_')
     return cut !== -1 && j.job_id.slice(cut + 1) === String(dramaId)
   })

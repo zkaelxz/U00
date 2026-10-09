@@ -723,7 +723,10 @@ export default function TranscribeStage({
             {toggle(
               'Split lines by sentences',
               'split_by_sentences',
-              'Whisper hears longer stretches of speech, then lines are cut at sentence ends and, for long ones, at pauses between words. Min silence is not used. Whisper and Qwen3 ASR only; the speech-detection backends already cut their own lines.',
+              'Whisper hears longer stretches of speech, then lines are cut at sentence ends and, for long ones, at pauses between words. Min silence is not used. Whisper and Qwen3 ASR only; the speech-detection backends already cut their own lines.'
+              + (cf && !['whisper', 'qwen3_asr'].includes(cf.asr_backend_choice)
+                ? ' Not used with the selected ASR backend: choose Whisper or Qwen3 ASR for this to apply. Long lines can still be cut afterwards in Review.'
+                : ''),
             )}
             {toggle(
               'Whisper repeat guard',

@@ -50,6 +50,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "live_tokens.py",
     "live_translate.py",
     "live_whisper.py",
+    "long_line_split.py",
     "media_inspect.py",
     "memory_headroom.py",
     "metadata_lookup.py",
