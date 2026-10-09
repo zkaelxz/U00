@@ -172,9 +172,9 @@
 
 /* "Test first" result and the Deno install block (Q06, Q02). */
 .pkg-list > li > .upgrade-test { flex: 1 1 100%; min-width: 0; }
-.upgrade-test > p, .deno-install p { margin: 0; }
-.upgrade-test progress, .deno-install progress { width: 100%; max-width: 24rem; }
-.deno-install { margin-top: var(--space-3); }
+.upgrade-test > p, .deno-install p, .browser-install p { margin: 0; }
+.upgrade-test progress, .deno-install progress, .browser-install progress { width: 100%; max-width: 24rem; }
+.deno-install, .browser-install { margin-top: var(--space-3); }
 
 /* Users and Audit log */
 .audit-filters { flex-wrap: wrap; }

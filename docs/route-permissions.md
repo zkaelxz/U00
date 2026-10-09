@@ -97,6 +97,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/data-usage/unused-voice-clips` | local_only() |
 | `POST /api/data-usage/unused-voice-clips/to-trash` | local_only() |
 | `GET /api/diagnostics` | admin.diagnostics |
+| `GET /api/diagnostics/browser` | admin.diagnostics |
+| `POST /api/diagnostics/browser/install` | local_only() |
 | `GET /api/diagnostics/bug-reports` | admin.diagnostics |
 | `POST /api/diagnostics/bug-reports` | library.read |
 | `GET /api/diagnostics/bug-reports/{report_id}` | admin.diagnostics |
