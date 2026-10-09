@@ -2,6 +2,7 @@
 // and the Diarize-stage config read (its device note).
 // Types mirror api/asr_options_schemas.py and api/schemas/transcribe.py's DiarizationConfig.
 import { getJson, postJson } from './client'
+import type { JobRecord } from '../types/jobs'
 import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
@@ -85,7 +86,7 @@ export function batchingNote(o: Pick<AsrOptions, 'qwen_asr_version' | 'qwen_asr_
 }
 
 export const VOICE_DETECTOR_LABELS: Record<VoiceDetector, string> = {
-  auto: 'Auto (ASMR for ASMR titles)',
+  auto: 'Auto (ASMR for Japanese ASMR titles)',
   asmr: 'ASMR',
   standard: 'Standard',
 }
@@ -93,6 +94,14 @@ export const VOICE_DETECTOR_LABELS: Record<VoiceDetector, string> = {
 // PC only: starts the opt-in model download (about 119 MB).
 export const startVoiceDetectorDownload = (f?: Fetch) =>
   postJson<{ job_id: string; started: boolean }>(`${BASE}/voice-detector/download`, {}, pcOnlyFetch(f))
+
+// A finished download job that did not leave the model behind, in words; null while it runs or when it worked.
+export function downloadProblem(job: Pick<JobRecord, 'status' | 'error' | 'outcome_message' | 'result'>): string | null {
+  if (job.status === 'cancelled') return 'The ASMR detector download was cancelled.'
+  if (job.status !== 'error') return null
+  const detail = job.result && typeof job.result.detail === 'string' ? job.result.detail : null
+  return detail ?? job.error ?? job.outcome_message ?? 'The ASMR detector download failed.'
+}
 
 // The muted line under the choice: what is missing for the ASMR detector, or null when nothing is.
 // Auto and ASMR both fall back to Standard on a run, so a missing piece is a heads-up, not an error.

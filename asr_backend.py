@@ -398,7 +398,8 @@ class Qwen3ASRVadBackend:
         on_gpu_fallback(task, exc) report where Qwen3-ASR and the aligner loaded.
 
         detector "asmr" uses the ASMR-trained detector (asmr_vad.py); when it
-        can't run, Silero is used and on_notice(text) says why. An explicit
+        can't run, Silero is used and on_notice(text) says why. "auto_asmr" is
+        the same but falls back without a notice. An explicit
         vad_fn wins."""
         import vad_segments
         from core import filter_hallucinated_segments, split_long_segments
@@ -415,9 +416,10 @@ class Qwen3ASRVadBackend:
             stage_cb("Loading audio (CPU)")
         audio = load_audio_16k(audio_path)
         sr = 16000
-        if vad_fn is None and detector == "asmr":
+        if vad_fn is None and detector in ("asmr", "auto_asmr"):
             import asmr_vad
-            vad_fn = asmr_vad.vad_fn_or_fallback(on_notice)
+            # Chosen by Auto, the user never asked for it: fall back quietly.
+            vad_fn = asmr_vad.vad_fn_or_fallback(on_notice if detector == "asmr" else None)
         if stage_cb:
             stage_cb("Finding speech (CPU)")
         # A short pause inside a sentence is not a place to cut: Qwen3-ASR does
@@ -434,7 +436,8 @@ class Qwen3ASRVadBackend:
             **({"max_s": LONG_WINDOW_S, "search_window_s": LONG_CUT_SEARCH_S}
                if long_windows else {}))
         windows = vad_segments.context_windows(spans, len(audio) / sr, CONTEXT_PAD_S)
-        del audio
+        # Frees the ONNX session before Qwen loads.
+        del audio, vad_fn
         if not spans:
             return []
         if cancel_check:

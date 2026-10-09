@@ -164,10 +164,9 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     out = svc.get_install_presets()
     t = next(t for t in out["tasks"] if t["id"] == "transcribe")
     assert t["installed_count"] == 2 and t["to_install"] == [
-        "faster_whisper", "ctranslate2", "onnxruntime"]
+        "faster_whisper", "ctranslate2"]
     assert t["approx_mb"] == (diagnostics.APPROX_DOWNLOAD_MB["faster-whisper"]
-                              + diagnostics.APPROX_DOWNLOAD_MB["ctranslate2"]
-                              + diagnostics.APPROX_DOWNLOAD_MB["onnxruntime"])
+                              + diagnostics.APPROX_DOWNLOAD_MB["ctranslate2"])
     scan = next(t for t in out["tasks"] if t["id"] == "scanlate")
     assert "pypdf" in scan["packages"]
     assert "pypdf" in scan["to_install"]

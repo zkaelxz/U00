@@ -12,11 +12,14 @@ to Silero. The model is downloaded only when the user asks for it.
 """
 import hashlib
 import os
+import tempfile
 import time
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlsplit
 
 import numpy as np
+
+from vad_segments import VadFnFailed
 
 SAMPLE_RATE = 16000
 WINDOW_S = 30
@@ -84,6 +87,8 @@ class AsmrVad:
         self._input = session.get_inputs()[0].name
         self.start, self.stop = start, stop
         self._extractor = None
+        # Set by vad_fn_or_fallback; called with the reason when scoring fails.
+        self.on_failure: Optional[Callable[[str], None]] = None
 
     def _features(self, window):
         if self._extractor is None:
@@ -110,7 +115,13 @@ class AsmrVad:
     def __call__(self, audio, sr: int) -> list:
         if sr != SAMPLE_RATE:
             raise ValueError("The ASMR voice detector takes 16 kHz audio.")
-        return hysteresis_spans(self.scores(audio), self.start, self.stop)
+        try:
+            scores = self.scores(audio)
+        except Exception as exc:   # noqa: BLE001 -- any runtime failure must not fail the job
+            if self.on_failure:
+                self.on_failure("The ASMR voice detector failed while running.")
+            raise VadFnFailed(str(exc)) from exc
+        return hysteresis_spans(scores, self.start, self.stop)
 
 
 def load_detector() -> AsmrVad:
@@ -126,19 +137,30 @@ def load_detector() -> AsmrVad:
         raise AsmrVadUnavailable("The ASMR voice detector model is not downloaded.")
     try:
         session = onnxruntime.InferenceSession(path, providers=["CPUExecutionProvider"])
-        return AsmrVad(session)
+        detector = AsmrVad(session)
+        # One silent window now, so a model or feature extractor that can't
+        # run (wrong input shape, a different mel frame count) is caught here
+        # and not in the middle of a transcription.
+        detector.scores(np.zeros(WINDOW_SAMPLES, dtype=np.float32))
+        return detector
     except Exception as exc:   # noqa: BLE001 -- a bad model file must not fail the job
         raise AsmrVadUnavailable("The ASMR voice detector model could not be loaded.") from exc
 
 
 def vad_fn_or_fallback(on_notice: Optional[Callable[[str], None]] = None):
-    """The ASMR detector, or None (meaning Silero) with a short notice why."""
-    try:
-        return load_detector()
-    except AsmrVadUnavailable as exc:
+    """The ASMR detector, or None (meaning Silero) with a short notice why.
+    A scoring failure later in the run falls back the same way, with the same
+    notice. on_notice=None falls back silently."""
+    def tell(reason: str) -> None:
         if on_notice:
-            on_notice(f"{exc} Used the Standard detector instead.")
+            on_notice(f"{reason} Used the Standard detector instead.")
+    try:
+        detector = load_detector()
+    except AsmrVadUnavailable as exc:
+        tell(str(exc))
         return None
+    detector.on_failure = tell
+    return detector
 
 
 def _check_hop(url: str) -> None:
@@ -157,7 +179,10 @@ def download_model(progress_cb: Optional[Callable[[float], None]] = None,
     import requests
     path = model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    part = path + ".part"
+    # Unique per call so the CLI and an app job downloading at once don't
+    # write into one file.
+    fd, part = tempfile.mkstemp(dir=os.path.dirname(path), prefix="model.", suffix=".part")
+    os.close(fd)
     digest, got = hashlib.sha256(), 0
     deadline = time.monotonic() + _DEADLINE_S
     url = MODEL_URL
@@ -217,10 +242,17 @@ def coverage(audio_path: str, load_asmr=load_detector) -> dict:
     out = {"total_s": round(total, 2)}
     detectors = {"standard": lambda: None, "asmr": load_asmr}
     for name, make in detectors.items():
+        failures = []
         try:
-            spans = vad_segments.speech_spans(audio, SAMPLE_RATE, vad_fn=make())
+            detector = make()
+            if detector is not None:
+                detector.on_failure = failures.append
+            spans = vad_segments.speech_spans(audio, SAMPLE_RATE, vad_fn=detector)
         except (AsmrVadUnavailable, vad_segments.VadNotInstalledError) as exc:
             out[name] = {"unavailable": str(exc)}
+            continue
+        if failures:
+            out[name] = {"unavailable": failures[0]}
             continue
         speech = sum(e - s for s, e in spans)
         out[name] = {"speech_s": round(speech, 2), "spans": len(spans),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { asrBackendOptions, batchingNote, deviceNote, getAsrOptions, getDiarizationConfig, parseBatchSize, startVoiceDetectorDownload, updateAsrOptions, voiceDetectorNote } from './asrOptions'
+import { asrBackendOptions, batchingNote, deviceNote, downloadProblem, getAsrOptions, getDiarizationConfig, parseBatchSize, startVoiceDetectorDownload, updateAsrOptions, voiceDetectorNote } from './asrOptions'
 
 function fakeFetch(status: number, body: unknown, calls: { url: string; init?: RequestInit }[] = []) {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -98,5 +98,22 @@ describe('voice detector', () => {
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ voice_detector: 'asmr' })
     expect(calls[1].url).toBe('/api/settings/asr-options/voice-detector/download')
     expect(calls[1].init?.method).toBe('POST')
+  })
+})
+
+describe('downloadProblem', () => {
+  const base = { error: null, outcome_message: null, result: null }
+  it('is null while the job runs or after it worked', () => {
+    expect(downloadProblem({ ...base, status: 'running' })).toBeNull()
+    expect(downloadProblem({ ...base, status: 'done' })).toBeNull()
+  })
+  it('names a cancelled download', () => {
+    expect(downloadProblem({ ...base, status: 'cancelled' })).toMatch(/cancelled/)
+  })
+  it('prefers the failure detail the job recorded', () => {
+    expect(downloadProblem({ ...base, status: 'error', error: 'x', result: { detail: 'Could not reach the model download.' } }))
+      .toBe('Could not reach the model download.')
+    expect(downloadProblem({ ...base, status: 'error', error: 'Disk full.' })).toBe('Disk full.')
+    expect(downloadProblem({ ...base, status: 'error' })).toMatch(/failed/)
   })
 })

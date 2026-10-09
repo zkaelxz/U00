@@ -86,12 +86,25 @@ def get_voice_detector() -> str:
     return value if value in VOICE_DETECTOR_CHOICES else "auto"
 
 
-def resolve_voice_detector(drama) -> str:
-    """"asmr" or "standard" for this title's run."""
+def resolve_voice_detector(drama, source_language=None) -> str:
+    """"asmr" (the user chose it), "auto_asmr" or "standard" for this run.
+
+    Auto uses the ASMR detector only for a Japanese ASMR title with
+    onnxruntime and the model both present: the model is trained on Japanese,
+    and a user who never opted in must see no notice or warning when it is
+    missing."""
     choice = get_voice_detector()
-    if choice == "auto":
-        return "asmr" if drama.get("media_type") == "asmr" else "standard"
-    return choice
+    if choice != "auto":
+        return choice
+    language = source_language or drama.get("source_language") or "zh"
+    if drama.get("media_type") != "asmr" or language != "ja":
+        return "standard"
+    try:
+        found = _asmr_vad_status()
+    except Exception:
+        return "standard"
+    ready = found["asmr_vad_onnxruntime_installed"] and found["asmr_vad_model_downloaded"]
+    return "auto_asmr" if ready else "standard"
 
 
 def _qwen_batching_status() -> tuple:

@@ -604,7 +604,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     asr_backend_choice = asr_options_service.stored_asr_backend(drama)
     alignment_method = drama.get("alignment_method") or "whisper_diff"
     _check_run_choices(transcript_mode, asr_backend_choice, alignment_method)
-    voice_detector = asr_options_service.resolve_voice_detector(drama)
+    voice_detector = asr_options_service.resolve_voice_detector(drama, source_language)
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None

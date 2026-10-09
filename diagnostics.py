@@ -10,7 +10,6 @@ back-and-forth messages to diagnose. This turns that into one glance.
 
 import getpass
 import json
-import importlib
 import importlib.metadata
 import importlib.util
 import os
@@ -113,10 +112,9 @@ OPTIONAL_DEPENDENCIES = {
                                       "only runs it and reads the EPUB it makes)", "feature"),
 }
 
-# Import-name slots in OPTIONAL_DEPENDENCIES that are really external
-# programs, mapped to the service whose is_installed() finds them: the program
-# is looked up where it will be run from (PATH or its Settings path) and its
-# Python code is never looked up or imported.
+# Import-name slots that are really external programs, mapped to the service
+# whose is_installed() finds them where they will run (PATH or Settings path);
+# their Python code is never looked up or imported.
 EXTERNAL_PROGRAMS = {"lncrawl": "services.lncrawl_service"}
 
 
@@ -238,7 +236,7 @@ def install_downgrade_warning(name: str):
 INSTALL_TASKS = [
     {"id": "transcribe", "group": "Audio", "label": "Transcribe speech (Whisper)",
      "help": "Turn a drama's audio into timed lines.",
-     "packages": ["faster_whisper", "ctranslate2", "soundfile", "numpy", "onnxruntime"]},
+     "packages": ["faster_whisper", "ctranslate2", "soundfile", "numpy"]},
     {"id": "music_removal", "group": "Audio", "label": "Remove background music",
      "help": "Clean the audio before transcribing so dialogue is easier to hear.",
      "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"],
@@ -248,8 +246,8 @@ INSTALL_TASKS = [
      "packages": ["pyannote.audio", "soundfile", "torch"]},
     {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
      "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
-     "packages": ["qwen-asr", "funasr", "torch"],
-     "recommended": ["qwen-asr", "funasr"]},
+     "packages": ["qwen-asr", "funasr", "torch", "onnxruntime"],
+     "recommended": ["qwen-asr", "funasr"], "optional": ["onnxruntime"]},
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},

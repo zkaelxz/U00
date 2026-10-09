@@ -265,17 +265,40 @@ class TestBackendDetector:
 
 
 class TestOptions:
-    def test_auto_picks_asmr_only_for_the_asmr_media_type(self, isolated_db):
+    @staticmethod
+    def _ready(monkeypatch, ready=True):
+        monkeypatch.setattr(asmr_vad, "status", lambda: {"onnxruntime_installed": ready,
+                                                         "model_downloaded": ready})
+
+    def test_auto_uses_asmr_only_for_a_japanese_asmr_title_with_everything_present(
+            self, isolated_db, monkeypatch):
+        self._ready(monkeypatch)
         assert asr_options_service.get_voice_detector() == "auto"
-        assert asr_options_service.resolve_voice_detector({"media_type": "asmr"}) == "asmr"
-        assert asr_options_service.resolve_voice_detector({"media_type": "audio_drama"}) == "standard"
-        assert asr_options_service.resolve_voice_detector({}) == "standard"
+        resolve = asr_options_service.resolve_voice_detector
+        assert resolve({"media_type": "asmr"}, "ja") == "auto_asmr"
+        assert resolve({"media_type": "asmr", "source_language": "ja"}) == "auto_asmr"
+        assert resolve({"media_type": "audio_drama"}, "ja") == "standard"
+        assert resolve({}, "ja") == "standard"
+
+    def test_auto_stays_standard_for_chinese_and_korean_asmr(self, isolated_db, monkeypatch):
+        self._ready(monkeypatch)
+        for language in ("zh", "ko"):
+            assert asr_options_service.resolve_voice_detector(
+                {"media_type": "asmr"}, language) == "standard"
+
+    def test_auto_stays_standard_when_the_model_or_onnxruntime_is_missing(
+            self, isolated_db, monkeypatch):
+        self._ready(monkeypatch, ready=False)
+        assert asr_options_service.resolve_voice_detector({"media_type": "asmr"}, "ja") == "standard"
+        monkeypatch.setattr(asmr_vad, "status", lambda: {"onnxruntime_installed": True,
+                                                         "model_downloaded": False})
+        assert asr_options_service.resolve_voice_detector({"media_type": "asmr"}, "ja") == "standard"
 
     def test_an_explicit_choice_wins_over_the_media_type(self, isolated_db):
         asr_options_service.set_asr_options(voice_detector="standard")
-        assert asr_options_service.resolve_voice_detector({"media_type": "asmr"}) == "standard"
+        assert asr_options_service.resolve_voice_detector({"media_type": "asmr"}, "ja") == "standard"
         asr_options_service.set_asr_options(voice_detector="asmr")
-        assert asr_options_service.resolve_voice_detector({"media_type": "audio_drama"}) == "asmr"
+        assert asr_options_service.resolve_voice_detector({"media_type": "audio_drama"}, "zh") == "asmr"
 
     def test_an_unknown_choice_is_refused_and_a_bad_stored_one_reads_as_auto(self, isolated_db):
         with pytest.raises(InvalidInputError):
@@ -308,3 +331,182 @@ class TestOptions:
                 break
             __import__("time").sleep(0.05)
         assert called
+
+
+class _Rep:
+    job_id = None
+
+    def progress(self, frac, message=""):
+        pass
+
+    def stage(self, message, frac=0.0):
+        class T:
+            def start(self):
+                return self
+
+            def stop(self):
+                pass
+        return T()
+
+    def cancelled(self):
+        return False
+
+    def raise_if_cancelled(self):
+        pass
+
+
+class TestRunOutcome:
+    """The whole run: the voice detector the options pick, the notice it may
+    raise, and what that does to the job's outcome."""
+
+    @pytest.fixture(autouse=True)
+    def _fakes(self, monkeypatch, tmp_path):
+        from services import transcribe_service
+        import vad_segments
+        monkeypatch.setattr(ab, "load_audio_16k", lambda path: np.zeros(16000 * 60, dtype="float32"))
+        monkeypatch.setattr(ab, "extract_audio_slice", lambda a, s, e, out: open(out, "wb").close())
+        monkeypatch.setattr(ab, "load_qwen3_asr", lambda use_gpu=False, model_size="1.7B", **_k:
+                            type("M", (), {"transcribe": lambda self, audio, language: [
+                                type("R", (), {"text": "x"})()
+                                for _ in (audio if isinstance(audio, list) else [audio])]})())
+        monkeypatch.setattr(vad_segments, "_silero_spans", lambda *a: [(1.0, 20.0)])
+        monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models", lambda: None)
+        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda p: 30.0)
+        self.tmp_path = tmp_path
+
+    def _run(self, isolated_db, drama, language, choice="auto"):
+        from services import jobs_service, transcribe_service
+        asr_options_service.set_asr_options(voice_detector=choice)
+        detector = asr_options_service.resolve_voice_detector(drama, language)
+        out = transcribe_service._transcribe_pipeline(
+            _Rep(), str(self.tmp_path / "a.wav"), "whisper", None, language, "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, "", False,
+            "qwen3_asr_vad", "whisper_diff", voice_detector=detector)
+        return out, jobs_service.derive_outcome("done", None, out)[0]
+
+    def test_auto_without_the_model_is_silent_and_the_outcome_is_ok(self, isolated_db, data_dir):
+        out, outcome = self._run(isolated_db, {"media_type": "asmr"}, "ja")
+        assert out["lines"] and not out["coverage_warning"]
+        assert outcome == "ok"
+
+    def test_auto_with_the_model_on_japanese_uses_the_asmr_detector(
+            self, isolated_db, monkeypatch):
+        monkeypatch.setattr(asmr_vad, "status", lambda: {"onnxruntime_installed": True,
+                                                         "model_downloaded": True})
+        monkeypatch.setattr(asmr_vad, "load_detector", lambda: (lambda a, sr: [(5.0, 28.0)]))
+        out, outcome = self._run(isolated_db, {"media_type": "asmr"}, "ja")
+        assert out["lines"][0].start == pytest.approx(4.9)
+        assert outcome == "ok"
+
+    def test_auto_on_chinese_uses_the_standard_detector(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(asmr_vad, "status", lambda: {"onnxruntime_installed": True,
+                                                         "model_downloaded": True})
+        monkeypatch.setattr(asmr_vad, "load_detector", lambda: pytest.fail("Japanese only"))
+        out, outcome = self._run(isolated_db, {"media_type": "asmr"}, "zh")
+        assert out["lines"][0].start == pytest.approx(0.9)
+        assert outcome == "ok"
+
+    def test_an_explicit_asmr_choice_without_the_model_warns(self, isolated_db, monkeypatch):
+        def missing():
+            raise asmr_vad.AsmrVadUnavailable("The ASMR voice detector model is not downloaded.")
+        monkeypatch.setattr(asmr_vad, "load_detector", missing)
+        out, outcome = self._run(isolated_db, {"media_type": "asmr"}, "ja", choice="asmr")
+        assert "not downloaded" in out["coverage_warning"] and "Standard" in out["coverage_warning"]
+        assert outcome == "partial"
+
+    def test_auto_picked_detector_that_breaks_while_scoring_falls_back_silently(
+            self, isolated_db, monkeypatch):
+        monkeypatch.setattr(asmr_vad, "status", lambda: {"onnxruntime_installed": True,
+                                                         "model_downloaded": True})
+        monkeypatch.setattr(asmr_vad, "load_detector", lambda: _broken_detector())
+        out, outcome = self._run(isolated_db, {"media_type": "asmr"}, "ja")
+        assert out["lines"][0].start == pytest.approx(1.0 - 0.1)
+        assert not out["coverage_warning"] and outcome == "ok"
+
+    def test_explicit_asmr_that_breaks_while_scoring_falls_back_with_a_notice(
+            self, isolated_db, monkeypatch):
+        monkeypatch.setattr(asmr_vad, "load_detector", lambda: _broken_detector())
+        out, outcome = self._run(isolated_db, {"media_type": "asmr"}, "ja", choice="asmr")
+        assert out["lines"]
+        assert "failed while running" in out["coverage_warning"]
+        assert "Standard" in out["coverage_warning"] and outcome == "partial"
+
+
+def _broken_detector():
+    class Session:
+        def get_inputs(self):
+            return [type("I", (), {"name": "input_features"})()]
+
+        def run(self, *_a):
+            raise RuntimeError("/secret/path shape mismatch")
+    det = asmr_vad.AsmrVad(Session())
+    det._extractor = lambda window, padding: np.zeros((80, 3000), dtype=np.float32)
+    return det
+
+
+def test_a_scoring_failure_never_leaks_paths_and_asks_for_silero(monkeypatch):
+    import vad_segments
+    notes = []
+    det = _broken_detector()
+    det.on_failure = notes.append
+    with pytest.raises(vad_segments.VadFnFailed):
+        det(np.zeros(16000, dtype=np.float32), 16000)
+    assert notes == ["The ASMR voice detector failed while running."]
+
+
+def test_load_runs_one_silent_window_so_a_bad_extractor_is_caught_at_load(
+        data_dir, monkeypatch):
+    class Session:
+        def get_inputs(self):
+            return [type("I", (), {"name": "input_features"})()]
+
+        def run(self, *_a):
+            return [np.zeros((1, 1500), dtype=np.float32)]
+
+    class Ort:
+        InferenceSession = staticmethod(lambda *a, **k: Session())
+    monkeypatch.setitem(__import__("sys").modules, "onnxruntime", Ort)
+    _stub_faster_whisper(monkeypatch)
+    path = asmr_vad.model_path()
+    __import__("os").makedirs(__import__("os").path.dirname(path))
+    open(path, "wb").write(b"x")
+
+    def bad_features(self, window):
+        raise ValueError("3001 mel frames")
+    monkeypatch.setattr(asmr_vad.AsmrVad, "_features", bad_features)
+    with pytest.raises(asmr_vad.AsmrVadUnavailable, match="could not be loaded"):
+        asmr_vad.load_detector()
+    monkeypatch.undo()
+
+
+def test_coverage_names_a_detector_that_breaks_while_scoring(monkeypatch):
+    monkeypatch.setattr(ab, "load_audio_16k", lambda path: np.zeros(16000, dtype=np.float32))
+    import vad_segments
+    monkeypatch.setattr(vad_segments, "_silero_spans", lambda *a: [])
+    out = asmr_vad.coverage("a.wav", load_asmr=_broken_detector)
+    assert out["asmr"] == {"unavailable": "The ASMR voice detector failed while running."}
+
+
+def test_two_downloads_never_share_a_temp_file(data_dir, monkeypatch):
+    import os
+    body = b"abc"
+    monkeypatch.setattr(asmr_vad, "MODEL_BYTES", len(body))
+    monkeypatch.setattr(asmr_vad, "MODEL_SHA256", hashlib.sha256(body).hexdigest())
+    parts = []
+
+    class Resp:
+        status_code = 200
+        headers = {}
+
+        def iter_content(self, _n):
+            parts.append([f for f in os.listdir(os.path.dirname(asmr_vad.model_path()))
+                          if f.endswith(".part")])
+            yield body
+
+        def close(self):
+            pass
+    import requests
+    monkeypatch.setattr(requests, "get", lambda *a, **k: Resp())
+    asmr_vad.download_model()
+    asmr_vad.download_model()
+    assert len(parts) == 2 and all(len(p) == 1 for p in parts)

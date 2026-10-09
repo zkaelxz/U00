@@ -1,13 +1,14 @@
 /*
  * "Voice detector" choice in Transcribe > Advanced. It is one app-wide setting
  * (GET/POST /api/settings/asr-options), not a per-title one, so changing it
- * changes it for every title; Auto uses the ASMR detector for ASMR titles.
+ * changes it for every title; Auto uses the ASMR detector for Japanese ASMR titles.
  * The ASMR model is a ~119 MB download that only starts from the button here.
  * Saving and downloading are PC only; another device sees the current choice.
  */
 import { useEffect, useState } from 'react'
 
 import {
+  downloadProblem,
   getAsrOptions,
   startVoiceDetectorDownload,
   updateAsrOptions,
@@ -16,6 +17,7 @@ import {
   type AsrOptions,
   type VoiceDetector,
 } from '../../../api/asrOptions'
+import { getJob } from '../../../api/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
@@ -31,6 +33,7 @@ export function VoiceDetectorField() {
   const [opts, setOpts] = useState<AsrOptions | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [downloading, setDownloading] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
@@ -39,7 +42,17 @@ export function VoiceDetectorField() {
         (o) => {
           if (!live) return
           setOpts(o)
-          if (o.asmr_vad_model_downloaded) setDownloading(false)
+          if (o.asmr_vad_model_downloaded) {
+            setDownloading(false)
+            return
+          }
+          // A failed or cancelled download never turns the model flag on, so the job decides.
+          return getJob(o.asmr_vad_download_job_id).then((job) => {
+            const problem = downloadProblem(job)
+            if (!live || !problem) return
+            setFailure(problem)
+            setDownloading(false)
+          })
         },
         () => undefined,
       )
@@ -63,6 +76,7 @@ export function VoiceDetectorField() {
   const download = () =>
     startVoiceDetectorDownload().then(() => {
       setError(null)
+      setFailure(null)
       setDownloading(true)
     }, setError)
   const note = voiceDetectorNote(opts)
@@ -87,6 +101,11 @@ export function VoiceDetectorField() {
       {note ? (
         <p className="muted" data-testid="voice-detector-note">
           {downloading ? 'Downloading the ASMR detector model… this can take a few minutes.' : note}
+        </p>
+      ) : null}
+      {failure && !downloading ? (
+        <p className="muted" role="alert" data-testid="voice-detector-download-problem">
+          {failure}
         </p>
       ) : null}
       {canDownload && opts.asmr_vad_onnxruntime_installed ? (
