@@ -70,11 +70,13 @@ import re
 import subprocess
 import threading
 import time
-import wave
 
 import background_jobs
+import live_audio
 import live_cue_feed
 import live_fetch
+import live_whisper
+from live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
 from live_cue_translation import CueTranslator
 from live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
 
@@ -304,7 +306,7 @@ def list_completed_chunks(out_dir: str, last_completed_index: int):
     return [(i, os.path.join(out_dir, f"chunk_{i:05d}.wav")) for i in completed]
 
 
-_STALE_RE = re.compile(r"(?:chunk|padded)_\d{5}\.wav$")
+_STALE_RE = re.compile(r"(?:chunk|padded)_\d{5}(?:_newest)?\.wav$")
 
 
 def clear_stale_chunks(out_dir: str):
@@ -319,58 +321,6 @@ def clear_stale_chunks(out_dir: str):
                 os.remove(os.path.join(out_dir, f))
             except OSError:
                 pass
-
-
-def read_wav_tail(path: str, seconds: float):
-    """
-    The last `seconds` of a chunk's own PCM audio, kept in memory so it
-    can be prepended to the NEXT chunk after this one's file is deleted.
-    Returns {"params": (nchannels, sampwidth, framerate), "frames": bytes,
-    "seconds": tail length actually read, "chunk_seconds": the whole
-    chunk's length}, or None if the file can't be read as a WAV -- the
-    caller then just skips the overlap for the next chunk rather than
-    failing the job.
-    """
-    try:
-        with wave.open(path, "rb") as w:
-            nchannels, sampwidth, framerate, nframes = (
-                w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes())
-            tail_frames = min(nframes, int(round(seconds * framerate)))
-            w.setpos(nframes - tail_frames)
-            frames = w.readframes(tail_frames)
-    except (OSError, EOFError, wave.Error):
-        return None
-    return {"params": (nchannels, sampwidth, framerate), "frames": frames,
-            "seconds": tail_frames / framerate if framerate else 0.0,
-            "chunk_seconds": nframes / framerate if framerate else 0.0}
-
-
-def write_padded_chunk(tail: dict, chunk_path: str, out_path: str) -> float:
-    """
-    Writes `tail`'s audio (read_wav_tail() of the previous chunk)
-    followed by `chunk_path`'s own audio into `out_path`, and returns how
-    many seconds of padding were prepended -- the offset process_chunk
-    needs to put this chunk's timestamps back on the stream's timeline.
-    Returns 0.0 (and writes nothing) if the chunk can't be read or its
-    format doesn't match the tail's, so the chunk is transcribed
-    unpadded instead.
-    """
-    if not tail or not tail["frames"]:
-        return 0.0
-    try:
-        with wave.open(chunk_path, "rb") as w:
-            params = (w.getnchannels(), w.getsampwidth(), w.getframerate())
-            frames = w.readframes(w.getnframes())
-    except (OSError, EOFError, wave.Error):
-        return 0.0
-    if params != tail["params"]:
-        return 0.0
-    with wave.open(out_path, "wb") as out:
-        out.setnchannels(params[0])
-        out.setsampwidth(params[1])
-        out.setframerate(params[2])
-        out.writeframes(tail["frames"] + frames)
-    return tail["seconds"]
 
 
 # How many tokens at the very start of the padded transcription may be
@@ -465,12 +415,18 @@ _CONTEXT_CARRY_CHARS = 200
 # chunk stays a small fraction of a 15-30s chunk.
 DEFAULT_OVERLAP_SECONDS = 3
 
+# Chunks left waiting when the loop looks (the one being cut plus one more is
+# the normal pipeline); beyond this the oldest are dropped, not queued, so
+# captions stay near the live edge when Whisper runs slower than the stream.
+MAX_BACKLOG_CHUNKS = 2
+
 
 def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
                    source_language: str, whisper_size: str, engine, use_gpu: bool = False,
                    context_prompt: str = "", overlap_seconds: float = 0.0,
                    overlap_tail_text: str = "", on_stage=None, is_cancelled=None,
-                   translator=None, first_id: int = 0, on_cues=None):
+                   translator=None, first_id: int = 0, on_cues=None, guard=None,
+                   audio_shift: float = 0.0, on_transcribed=None):
     """
     Transcribes one chunk and translates each resulting line, shifting
     timestamps by this chunk's position in the stream so cues from
@@ -499,12 +455,16 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     on_stage("transcribing" | "translating"): called as each step starts.
     is_cancelled: polled between steps; true raises
     background_jobs.JobCancelled. The caller passes only the Stop button's
-    generation check, not a plain cancel, which lets the chunk finish. The
-    Whisper call itself cannot be interrupted, so a stop during it is seen
-    as soon as it returns.
+    generation check, not a plain cancel, which lets the chunk finish; a
+    guard (below) is what interrupts the Whisper call itself.
     translator: kept across chunks so a cue sees the lines before it.
     first_id / on_cues(cues): cue ids start here; on_cues sees the chunk's cues
     right after Whisper (untranslated) and after each translation.
+    guard(call): runs the Whisper call, given as call(progress_cb), so the caller
+    can time-limit or abandon it (live_whisper.run_guarded); None calls it
+    directly. audio_shift: seconds the start of an over-long chunk was trimmed by,
+    added to the timestamps. on_transcribed(took_seconds): called when Whisper
+    returns.
     """
     import core
 
@@ -515,12 +475,15 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     if on_stage:
         on_stage("transcribing")
     translator = translator or CueTranslator(engine, source_language)
-    segments = core.transcribe_for_timing(
+    started = time.monotonic()
+    segments = (guard or (lambda call: call(None)))(lambda progress_cb: core.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
-        initial_prompt=context_prompt)
+        initial_prompt=context_prompt, progress_cb=progress_cb))
+    if on_transcribed:
+        on_transcribed(time.monotonic() - started)
     checkpoint()
     segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text)
-    offset = chunk_index * segment_seconds - overlap_seconds
+    offset = chunk_index * segment_seconds - overlap_seconds + audio_shift
     cues = live_cue_feed.pending_cues(segments, offset, first_id)
     live_cue_feed.translate_cues(cues, translator, checkpoint, on_stage, on_cues)
     return cues
@@ -594,7 +557,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   poll_interval: float = 2.0, cookies_browser: str = None, cookies_file: str = None,
                   overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None,
                   stream_url_check=None, proxy: str = None, report_stage=None,
-                  reply_without_thinking: bool = True):
+                  reply_without_thinking: bool = True, report_note=None, whisper_clock=None):
     """
     The background-thread target (see background_jobs.start_job). Runs
     until request_cancel(job_id) is set or the stream itself ends, then
@@ -632,6 +595,14 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     job names the step it is in (services/job_stage_service.set_stage bound
     to the job id); None just sets the job's message.
 
+    report_note(text, key=): a short fixed-text event worth keeping on screen
+    after the status moves on; a note replaces the earlier one with its key.
+    None drops them. whisper_clock: a test seam.
+
+    Whisper runs on one live_whisper.WhisperRunner thread at a time: Stop
+    interrupts it within a poll, and a chunk it cannot finish in max(30 s,
+    6 x chunk) is skipped, as are chunks that arrive while it is running.
+
     A fetch failure, or ffmpeg ending with an error, ends the job with
     a LiveCaptureError carrying a fixed message (no URL); a stream that
     simply ends finishes it normally.
@@ -652,6 +623,12 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
         else:
             background_jobs.update_progress(job_id, 0.0, message)
 
+    note = report_note or (lambda text, key=None: None)
+
+    runner = live_whisper.WhisperRunner(
+        should_stop, note, clock=whisper_clock, gpu=use_gpu,
+        unload=live_whisper.unload_scope_for(engine, use_gpu, whisper_size))
+
     report("Resolving the stream address...")
     try:
         source_url = _run_abortable(
@@ -664,6 +641,24 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     if stream_url_check is not None:
         stream_url_check(source_url)
 
+    device = "GPU" if use_gpu else "CPU"
+    # Before capture starts, so the load and first CUDA call don't put chunk 1
+    # behind the live edge.
+    report(f"Loading Whisper {whisper_size} ({device}) before capture...",
+           cancel_message="Cancelling... Whisper is loading; the load ends by itself when it finishes.",
+           slow_after=60, slow_note="Still loading after {secs} s: the model may be "
+                                    "downloading for the first time.")
+    try:
+        note(f"Whisper {whisper_size} ready in "
+             f"{live_whisper.warm_start(runner, whisper_size, use_gpu):.1f} s.")
+    except background_jobs.JobCancelled:
+        background_jobs.update_progress(job_id, 1.0, runner.finish())
+        return
+    except Exception:
+        # The first chunk repeats the load and shows the real error.
+        note("Whisper could not be warmed up; chunk 0 will try loading it.")
+    runner.flush_ollama_notice()
+
     from engine_backends.local import abort_check_var
     from translate_engines import _cancel_check_var
     report("Starting capture...")
@@ -673,38 +668,39 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     # be named in the status the owner reads.
     engine_label = (getattr(engine, "model", None) or getattr(engine, "name", "") or "the engine")
     engine_name = str(getattr(engine, "name", "") or "the translator").capitalize()
-    stage_clock = {"key": None, "since": 0.0, "transcribe_seconds": None}
+    stage_clock = {"key": None}
+    # audio/took: seconds of audio Whisper was handed for the current / last chunk.
+    chunk_info = {"audio": 0.0, "took": None, "last_audio": 0.0}
+    limit = live_whisper.chunk_timeout(segment_seconds)
 
     def enter_stage(stage, idx):
         """False when that stage (of that chunk) is already the current one."""
         key = (stage, idx)
         if stage_clock["key"] == key:
             return False
-        now = time.monotonic()
-        if stage_clock["key"] and stage_clock["key"][0] == "transcribing":
-            stage_clock["transcribe_seconds"] = now - stage_clock["since"]
-        stage_clock.update(key=key, since=now)
+        stage_clock["key"] = key
         return True
+
+    def speed_text():
+        return live_whisper.speed_text(chunk_info["took"], chunk_info["last_audio"])
 
     def set_chunk_stage(stage, idx):
         if not enter_stage(stage, idx):
             return
         if stage == "transcribing":
-            last = stage_clock["transcribe_seconds"]
-            wait = (f"the previous chunk took about {max(1, round(last))} s" if last is not None
-                    else "there is no time estimate yet")
             report(
-                f"Chunk {idx}: transcribing with Whisper {whisper_size}"
-                + (" (GPU)" if use_gpu else " (CPU)"),
-                cancel_message=(f"Cancelling... Whisper is still transcribing chunk {idx} and "
-                                f"cannot be interrupted mid-chunk; it stops when that finishes "
-                                f"({wait})."),
-                slow_after=90,
-                slow_note="Still transcribing after {secs} s: Whisper is slow on this "
-                          "hardware or the GPU is busy.")
+                f"Chunk {idx}: transcribing {chunk_info['audio']:.0f} s of audio with Whisper "
+                f"{whisper_size} ({device})",
+                cancel_message=(f"Cancelling... stopping Whisper on chunk {idx} (running for "
+                                "{secs} s); this takes a second or two."),
+                slow_after=min(90.0, limit / 2),
+                slow_note="Still transcribing after {secs} s: Whisper is slow on this hardware "
+                          f"or the GPU is busy. The chunk is skipped at {limit:.0f} s.")
         else:
+            speed = speed_text()
             report(
-                f"Chunk {idx}: translating with {engine_label} ({engine_name})",
+                f"Chunk {idx}: translating with {engine_label} ({engine_name})"
+                + (f" · transcribed {speed}" if speed else ""),
                 slow_after=60,
                 slow_note="Still waiting on " + engine_name + " after {secs} s: it may be "
                           "loading the model or busy with another job. Stop still works.")
@@ -712,16 +708,26 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     def set_waiting_stage():
         if not enter_stage("capturing", last_completed + 1):
             return
+        speed = speed_text()
         report(
             f"Capturing audio: waiting for chunk {last_completed + 1} "
-            f"({segment_seconds} s of stream each)",
+            f"({segment_seconds} s of stream each)" + (f" · last chunk: {speed}" if speed else ""),
             slow_after=segment_seconds * 2 + 30,
             slow_note="No new audio for {secs} s: the stream may have stalled.")
+
+    def transcribed(idx, took):
+        audio = chunk_info["audio"]
+        chunk_info.update(took=took, last_audio=audio)
+        if took > audio > 0 and not chunk_info.get("slow_noted"):
+            chunk_info["slow_noted"] = True
+            note(f"Chunk {idx}: Whisper took {took:.1f} s for {audio:.0f} s of audio, "
+                 "slower than the stream, so the oldest audio will be skipped.")
 
     # Backoff waits notice a cancel; a blocked Ollama request is abandoned.
     cancel_token = _cancel_check_var.set(should_stop)
     abort_token = abort_check_var.set(should_stop)
 
+    skips = live_whisper.SkipNotes(note, segment_seconds)
     translator = CueTranslator(engine, source_language, reply_without_thinking)
     all_cues = []
     last_completed = -1
@@ -747,42 +753,57 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                     job_id, 0.0, "Capture stopped (stream likely ended).")
                 break
 
-            for idx, path in list_completed_chunks(out_dir, last_completed):
+            waiting, dropped_through = live_whisper.drop_backlog(
+                list_completed_chunks(out_dir, last_completed), MAX_BACKLOG_CHUNKS, skips)
+            if dropped_through is not None:
+                last_completed = dropped_through
+                # What was said before the gap is not what comes next.
+                context_prompt = ""
+            # One chunk per pass, so the backlog is looked at again after each.
+            for idx, path in waiting[:1]:
                 if (should_stop()
                         or (max_seconds is not None and time.monotonic() - started >= max_seconds)):
-                    # Stopped mid-batch -- don't burn through the rest of
-                    # this batch's already-queued chunks either.
                     break
-                padded_path = None
+                scratch = []
                 try:
                     # Read before this chunk's file is deleted below --
                     # it's the audio the NEXT chunk gets padded with.
-                    tail = read_wav_tail(path, overlap_seconds) if overlap_seconds else None
-                    chunk_input, pad_seconds, tail_text = path, 0.0, ""
-                    if prev_tail and prev_tail["index"] == idx - 1:
-                        padded_path = os.path.join(out_dir, f"padded_{idx:05d}.wav")
-                        pad_seconds = write_padded_chunk(prev_tail, path, padded_path)
-                        if pad_seconds:
-                            chunk_input, tail_text = padded_path, prev_tail["text"]
+                    window = live_audio.window_for_chunk(
+                        path, idx, out_dir, segment_seconds, prev_tail, overlap_seconds)
+                    tail, scratch = window.tail, window.scratch
+                    if window.trimmed_seconds:
+                        note(f"Chunk {idx} held {window.audio_seconds + window.trimmed_seconds:.0f} s "
+                             f"of audio: skipped its first {window.trimmed_seconds:.0f} s to catch up.")
+                    chunk_info["audio"] = window.audio_seconds
+                    timing = runner.timing(path, window.audio_seconds)
+
+                    def whisper_done(took, idx=idx):
+                        timing.whisper_done(took)
+                        transcribed(idx, took)
                     new_cues = process_chunk(
-                        chunk_input, idx, segment_seconds, source_language, whisper_size,
+                        window.path, idx, segment_seconds, source_language, whisper_size,
                         engine, use_gpu=use_gpu, context_prompt=context_prompt,
                         translator=translator, first_id=len(all_cues),
                         on_cues=lambda chunk: background_jobs.set_result(
                             job_id, live_cue_feed.snapshot(all_cues, chunk)),
-                        overlap_seconds=pad_seconds, overlap_tail_text=tail_text,
+                        overlap_seconds=window.pad_seconds, overlap_tail_text=window.tail_text,
+                        audio_shift=window.trimmed_seconds,
+                        guard=lambda call, idx=idx: runner.run(call, limit, f"chunk {idx}"),
+                        on_transcribed=whisper_done,
                         on_stage=lambda stage, idx=idx: set_chunk_stage(stage, idx),
                         # Only the Stop button's generation bump discards a chunk
                         # between steps; a plain cancel lets the lines already
                         # transcribed finish (as it always did) and ends the
-                        # job at the next loop check. A blocked Ollama call is
-                        # aborted either way, through the cancel check above.
+                        # job at the next loop check. Whisper and a blocked
+                        # Ollama call are aborted either way (guard, cancel check).
                         is_cancelled=lambda: current_generation(job_id) != my_generation)
                     if current_generation(job_id) != my_generation:
                         # The session moved on while this one chunk's own
                         # transcribe/translate call was in flight -- its
                         # result is stale, so it's dropped, not applied.
                         continue
+                    runner.mark_model_ready()
+                    timing.report(idx, note)
                     all_cues.extend(new_cues)
                     if new_cues:
                         # Carries this chunk's own tail into the NEXT chunk's
@@ -802,18 +823,25 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                             c["text"] for c in new_cues if c["end"] > chunk_end - tail["seconds"])
                     prev_tail = tail
                     background_jobs.set_result(job_id, list(all_cues))
+                except live_whisper.ChunkTimeout as exc:
+                    skips.timed_out(idx, exc.seconds)
+                    prev_tail = None
+                except live_whisper.WhisperBusy as exc:
+                    skips.busy(idx, exc.label)
+                    prev_tail = None
                 except background_jobs.JobCancelled:
                     # The while loop's own check ends the job.
                     break
                 finally:
                     last_completed = idx
-                    for leftover in (path, padded_path):
-                        if not leftover:
-                            continue
+                    runner.flush_ollama_notice()
+                    for leftover in [path, *scratch]:
                         try:
                             os.remove(leftover)
                         except OSError:
                             pass
+            if waiting:
+                continue
             set_waiting_stage()
             _wait(poll_interval, should_stop)
     finally:
@@ -825,4 +853,4 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
             stop_capture(proc, kill=True)
         else:
             stop_capture(proc)
-        background_jobs.update_progress(job_id, 1.0, "Stopped.")
+        background_jobs.update_progress(job_id, 1.0, runner.finish())

@@ -152,6 +152,11 @@ async def _lifespan(app: FastAPI):
         jobs_service.sweep_stale_job_records()
     except Exception:
         logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
+    import live_whisper
+    try:
+        live_whisper.release_stale_claims()
+    except Exception:
+        logging.getLogger(__name__).warning("Live Whisper GPU claim release failed", exc_info=True)
     from services import auth_service
     try:
         auth_service.sweep_stale_sessions()

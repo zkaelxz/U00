@@ -28,7 +28,7 @@ import core as core_module
 import db
 import timing_drift
 import translation_guide
-from services import timing_check_service
+from services import timing_check_service, translate_service
 from services.review_lines_service import line_dict
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -165,8 +165,10 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
     else:
         db.save_lines(drama_id, [ln], fields=tuple(fields))
 
+    # Filling in a blank line's source text opens a new untranslated line too.
+    if en_changed or "zh" in passed:
+        translate_service.sync_translation_status(drama_id)
     if en_changed:
-        bulk_translate.mark_translated_if_complete(drama_id)
         if before_en and ln.en:
             db.record_edit_sample(drama_id, ln.zh, before_en, ln.en)
         if drama.get("series_id") and ln.en.strip():
@@ -265,6 +267,7 @@ def apply_find_replace(drama_id: int, matches) -> dict:
         pairs.append((old_text, new_text))
     if changed:
         db.save_lines(drama_id, changed, fields=("en",))
+        translate_service.sync_translation_status(drama_id)
         if drama.get("series_id"):
             for old_text, new_text in pairs:
                 db.update_translation_memory_after_replace(drama["series_id"], old_text, new_text)
@@ -291,7 +294,7 @@ def accept_tm_suggestion(drama_id: int, line_id: int, entry_id: int, expected_en
         raise ConflictError("This line changed since you loaded it.",
                             details={"fields": ["en"]})
     db.bump_translation_memory_use(entry["id"])
-    bulk_translate.mark_translated_if_complete(drama_id)
+    translate_service.sync_translation_status(drama_id)
     return _reload_dict(drama_id, line_id)
 
 
