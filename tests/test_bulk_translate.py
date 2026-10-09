@@ -1195,6 +1195,23 @@ class TestSpokenLanguage:
         bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude", {})
         assert "spoken in" not in _request_text(engine)
 
+    def test_offpeak_run_uses_the_thinking_value_stored_with_the_run(self, isolated_db):
+        did = _mixed_drama(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        jid = bt.schedule_offpeak_translation(did, lines, "deepseek", "m", {"thinking": True})
+        isolated_db.update_drama(did, translate_thinking=0)  # changed before the job runs
+        contexts = []
+
+        class Engine:
+            model = "m"
+
+            def translate_batch(self, zh_lines, context):
+                contexts.append(context.get("reply_with_thinking"))
+                return [f"EN:{z}" for z in zh_lines]
+
+        bt.run_scheduled_job(jid, Engine())
+        assert contexts and all(contexts)
+
     def test_offpeak_run_tags_and_skips_english(self, isolated_db):
         did = _mixed_drama(isolated_db)
         lines = isolated_db.load_line_objects(did)

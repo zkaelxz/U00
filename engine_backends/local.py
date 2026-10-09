@@ -14,7 +14,7 @@ from .shared import (
     redact_secrets,
     request_translations_with_retry,
 )
-from .thinking import ollama_chat_no_thinking, wants_no_thinking
+from .thinking import ollama_chat_with_think, thinking_choice
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -358,10 +358,11 @@ class OllamaEngine:
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
             }
-            if wants_no_thinking(context):
-                resp = ollama_chat_no_thinking(_ollama_chat, self.base_url, payload)
-            else:
+            choice = thinking_choice(context)
+            if choice is None:
                 resp = _ollama_chat(self.base_url, payload)
+            else:
+                resp = ollama_chat_with_think(_ollama_chat, self.base_url, payload, choice)
             return strip_ollama_thinking(resp["message"]["content"])
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,

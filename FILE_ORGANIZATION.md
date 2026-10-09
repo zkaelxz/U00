@@ -233,6 +233,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `transcribe_service.py`
 - `translate_run_service.py`
 - `translate_service.py`
+- `translate_thinking_service.py`
 - `translation_version_service.py`
 - `update_service.py`
 - `url_guard.py`

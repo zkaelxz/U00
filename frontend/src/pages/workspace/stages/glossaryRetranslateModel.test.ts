@@ -28,7 +28,7 @@ const preview: GlossaryAffectedPreview = {
 const form: RunForm = {
   engine: 'claude', model: '', style_preset: 'audio_drama', style_note: '', locale: 'en-GB',
   batch_size: '20', context_window: '6', context_window_ahead: '3', cost_cap: '1.5', fallbacks: [],
-  force: true, forceConfirmed: true, reflect: false, bulk: true, female_pronouns: false, genre_notes: true,
+  force: true, forceConfirmed: true, reflect: false, bulk: true, thinking: false, female_pronouns: false, genre_notes: true,
 }
 
 describe('glossary re-translate selection', () => {

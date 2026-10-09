@@ -174,6 +174,7 @@ def test_the_chosen_toggles_are_baked_into_the_persisted_bulk_args(isolated_db, 
                         lambda drama_id, lines, name, model, args, **kw: captured.update(args) or 1)
     submit = translate_run_service._bulk_submitter(
         did, drama, type("E", (), {"model": "m"})(), "deepseek", False, None, None, guidelines,
-        "", "en-US", "audio_drama", 6, 3, 20, False, None, None)
+        "", "en-US", "audio_drama", 6, 3, 20, False, None, None, True)
     submit()
     assert FEMALE in captured["style_guidelines"] and GENRE not in captured["style_guidelines"]
+    assert captured["thinking"] is True
