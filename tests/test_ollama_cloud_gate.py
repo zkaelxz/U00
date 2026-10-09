@@ -2,6 +2,7 @@
 client-chosen model, not only the translate run. Mocked: nothing is sent."""
 import ast
 import inspect
+import textwrap
 import typing
 
 import pytest
@@ -51,10 +52,11 @@ def _routes_with_model(app):
             yield route, path, sorted(methods), decls
 
 
-def _applies_cloud_rule(fn) -> bool:
+def _applies_cloud_rule(fn, _depth=0) -> bool:
     """True when `fn` calls the cloud check directly, passes `model=` to
-    require_engines_allowed, or hands a model to a local `_require_*` helper."""
-    for node in ast.walk(ast.parse(inspect.getsource(fn).lstrip())):
+    require_engines_allowed, or hands a model to a `_require_*` helper that
+    itself applies the rule (a helper that ignores the model doesn't count)."""
+    for node in ast.walk(ast.parse(textwrap.dedent(inspect.getsource(fn)))):
         if not isinstance(node, ast.Call):
             continue
         name = getattr(node.func, "id", getattr(node.func, "attr", ""))
@@ -62,8 +64,10 @@ def _applies_cloud_rule(fn) -> bool:
             return True
         if name == "require_engines_allowed" and any(k.arg == "model" for k in node.keywords):
             return True
-        if name.startswith("_require") and "model" in ast.unparse(node):
-            return True
+        if name.startswith("_require") and "model" in ast.unparse(node) and _depth < 3:
+            helper = getattr(fn, "__globals__", {}).get(name)
+            if helper is not None and _applies_cloud_rule(helper, _depth + 1):
+                return True
     return False
 
 
@@ -81,6 +85,12 @@ def test_every_model_taking_route_applies_the_cloud_rule():
         "Routes with a client-chosen model must call require_engines_allowed(request, "
         "engine, model=...) or require_cloud_model_allowed so an Ollama cloud tag needs "
         "engines.paid:\n  " + "\n  ".join(missing))
+
+
+def test_every_exemption_still_names_a_model_taking_route():
+    seen = {(m, path) for _r, path, methods, _d in _routes_with_model(create_app(ApiSettings(auth_mode="on")))
+            for m in methods}
+    assert NO_TEXT_SENT <= seen, sorted(NO_TEXT_SENT - seen)
 
 
 def test_the_sweep_sees_the_routes_it_should():

@@ -165,8 +165,9 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
                 history_id = db.save_line_history_snapshot(drama_id, current, SNAPSHOT_LABEL)
                 for ln in written:
                     ln.en = plan["updates"][ln.id]
-                # Field-limited so a flag or speaker edited since the load isn't touched.
-                db.save_lines(drama_id, written, fields=("en",))
+                # Field-limited and compare-and-set so a translation edited since the load is kept.
+                kept = set(db.save_lines(drama_id, written, fields=("en",), only_if_unchanged=True))
+                written = [ln for ln in written if ln.id not in kept]
         handle = restructure_service.undo_handle(drama_id, history_id) if history_id else None
     return {"mode": mode, "format": parsed.format, "encoding": parsed.encoding,
             "lines_written": len(written), "line_ids": [ln.id for ln in written],

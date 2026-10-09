@@ -301,3 +301,32 @@ class TestCli:
         cli_subtitle.cmd_import_subtitle(self._args("", find=["track.mp3", "track.ja.vtt", "track.en.srt", "z.srt"]))
         out = capsys.readouterr().out
         assert "track.ja.vtt" in out and "2 candidates" in out and "z.srt" not in out
+
+
+def test_nul_in_an_encoding_name_is_a_clean_input_error(isolated_db):
+    did = _drama()
+    with pytest.raises(InvalidInputError):
+        svc.preview_import(did, b"1\n00:00:01,000 --> 00:00:02,000\nx\n", "a.srt", encoding="utf\x008")
+
+
+def test_translation_import_keeps_a_translation_edited_after_the_load(isolated_db, monkeypatch):
+    did = _drama(_three_lines())
+    real_snapshot = db.save_line_history_snapshot
+
+    def edit_then_snapshot(*a, **k):
+        # Another writer saves line 0's translation after the import loaded the lines.
+        db.save_lines(did, [ln for ln in db.load_line_objects(did)[:1] if not setattr(ln, "en", "typed")],
+                      fields=("en",))
+        return real_snapshot(*a, **k)
+
+    monkeypatch.setattr(db, "save_line_history_snapshot", edit_then_snapshot)
+    data = b"1\n00:00:01,000 --> 00:00:02,000\nOne\n\n2\n00:00:03,000 --> 00:00:04,000\nTwo\n"
+    out = svc.import_subtitle(did, data, "a.srt", mode="translation", confirm_overwrite=True)
+    assert [r["en"] for r in db.load_lines(did)][:2] == ["typed", "Two"]
+    assert out["lines_written"] == 1
+
+
+def test_cli_find_ranks_by_the_titles_source_language(isolated_db, capsys):
+    did = _drama(source_language="ja")
+    cli_subtitle._find(argparse.Namespace(find=["ep1.mp4", "ep1.zh.srt", "ep1.ja.srt"], id=did))
+    assert capsys.readouterr().out.splitlines()[0].startswith("ep1.ja.srt")

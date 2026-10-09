@@ -201,7 +201,8 @@ export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupp
   const m = measuredDelay(info, offset)
   if (m === null) return WAITING_NOTE
   if (opts.moving) return `Moving to about ${reachableDelay(info, delay, offset)} s behind live…`
-  if (m > IMPLAUSIBLE_DELAY_S) return UNREACHABLE_NOTE
+  // A paused player falls behind the edge by itself, so a long pause is no sign of a wrong `duration`.
+  if (m > IMPLAUSIBLE_DELAY_S && info?.playerState !== 2) return UNREACHABLE_NOTE
   const limit = rewindLimit(info, offset)
   const clamped = limit !== null && Math.max(0, Math.min(DELAY_RANGE[1], delay)) > limit
   return clamped

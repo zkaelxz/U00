@@ -790,7 +790,6 @@ def cmd_translate(args):
                 d["id"], d, lines, style_preset,
                 include_genre_notes=include_genre_notes,
                 default_female_pronouns=default_female_pronouns)
-        translate_run_service.save_style_toggles(d["id"], include_genre_notes, default_female_pronouns, getattr(args, "thinking", None))
         target_ids = None
         if glossary_affected:
             # Same selection as the app's "Re-translate lines affected by the
@@ -836,6 +835,7 @@ def cmd_translate(args):
             if refusal:
                 raise RuntimeError(refusal)
             caps.append(cap)
+        translate_run_service.save_style_toggles(d["id"], include_genre_notes, default_female_pronouns, getattr(args, "thinking", None))
         if fallback_names:
             engine = translate_engines.FallbackEngine(
                 [engine] + [_engine_for(n) for n in fallback_names], chain_names, caps,

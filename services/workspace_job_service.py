@@ -1212,7 +1212,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             # like every other Ollama translation job in the app, and
             # needs the same GPU-job guard so it can't run
             # alongside another GPU-touching job.
-            gpu_touching=engine_choice == "ollama",
+            gpu_touching=translate_engines.ollama_touches_local_gpu(
+                engine_choice, getattr(engine, "model", None)),
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None)
         if not started:
             results["skipped_running"].append(did)

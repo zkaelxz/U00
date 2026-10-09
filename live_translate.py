@@ -497,9 +497,11 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     there's no previous chunk yet.
 
     on_stage("transcribing" | "translating"): called as each step starts.
-    is_cancelled: polled between steps; a cancel raises
-    background_jobs.JobCancelled. The Whisper call itself cannot be
-    interrupted, so a cancel during it is seen as soon as it returns.
+    is_cancelled: polled between steps; true raises
+    background_jobs.JobCancelled. The caller passes only the Stop button's
+    generation check, not a plain cancel, which lets the chunk finish. The
+    Whisper call itself cannot be interrupted, so a stop during it is seen
+    as soon as it returns.
     translator: kept across chunks so a cue sees the lines before it.
     first_id / on_cues(cues): cue ids start here; on_cues sees the chunk's cues
     right after Whisper (untranslated) and after each translation.
