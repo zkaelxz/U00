@@ -139,6 +139,28 @@ class TestLinesGlossaryService:
         assert status["status"] == "done" and len(status["result"]["proposals"]) == 3
         assert SECRET not in repr(status)
 
+    def test_cancel_ends_a_hung_engine_call(self, isolated_db, monkeypatch, fake_engine):
+        import threading
+        did, _ = _lines_drama(isolated_db)
+        release = threading.Event()
+
+        def hang(*a, **kw):
+            # Goes through call_llm_json like the real extraction does.
+            from engine_backends.llm_tasks import call_llm_json
+            return call_llm_json(a[1], "p")
+        engine = type("E", (), {"name": "deepseek", "model": "m", "client": type("C", (), {
+            "chat": type("Ch", (), {"completions": type("Co", (), {
+                "create": staticmethod(lambda **k: release.wait(10))})()})()})()})()
+        monkeypatch.setattr(tguide, "extract_terms_llm", hang)
+        monkeypatch.setattr(glossary_extract_service, "_glossary_engine",
+                            lambda d, n=None: ("deepseek", engine))
+        out = gs.start_lines_glossary_run(did)
+        time.sleep(0.5)
+        background_jobs.request_cancel(out["job_id"])
+        st = _wait(out["job_id"])
+        release.set()
+        assert st["status"] == "cancelled"
+
     def test_model_supplied_renderings_are_not_alternatives(self, isolated_db, monkeypatch,
                                                             fake_engine):
         did, _ = _lines_drama(isolated_db)

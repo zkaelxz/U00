@@ -1,11 +1,17 @@
 """Single-prompt LLM calls for features other than a translation batch:
 speaker tagging, pacing, consistency, summaries and flagging."""
 
+import contextlib
+import contextvars
 import re
+import threading
+import time
 from .gemini import GeminiEngine
 from .local import OllamaEngine, _ollama_chat, estimate_ollama_num_ctx, strip_ollama_thinking
 from .openai_compat import OpenAIEngine
 from .shared import (
+    _backoff_wait_var,
+    _cancel_check_var,
     _id_keyed_batch_request,
     build_numbered_lines,
     call_with_backoff,
@@ -14,7 +20,92 @@ from .shared import (
     read_json_capped,
     redact_secrets,
     request_translations_with_retry,
+    TranslationCancelled,
 )
+from .thinking import deepseek_extra_body
+
+# One request's own bound, passed to the SDK. It is only a per-read idle
+# timeout, so LLM_TASK_DEADLINE_SECONDS is what actually ends a call whose
+# server keeps the connection alive while it queues or reasons.
+LLM_TASK_REQUEST_TIMEOUT = 120
+LLM_TASK_DEADLINE_SECONDS = 180
+
+
+class LLMTaskTimeout(RuntimeError):
+    """A bounded single-prompt call passed its total deadline."""
+
+
+class _BoundedScope:
+    def __init__(self, job_id, cancel_check, deadline):
+        self.job_id = job_id
+        self.cancel_check = cancel_check
+        self.deadline = deadline
+
+
+_scope_var = contextvars.ContextVar("llm_task_scope", default=None)
+# job id -> worker thread of a call this job stopped waiting for. A python
+# thread can't be killed, so the rule is one such thread per job id: a new
+# call is refused while it lives, instead of piling more up.
+_abandoned = {}
+_abandoned_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
+                      deadline: float = LLM_TASK_DEADLINE_SECONDS):
+    """Inside this block every call_llm_json waits at most `deadline` seconds
+    in total (retries included) and gives up within a moment of cancel_check()
+    turning true. The blocking call runs in a worker thread so the job can
+    stop waiting; its late result is discarded. on_wait(delay, next_attempt,
+    max_retries) is told about each retry."""
+    tokens = (_scope_var.set(_BoundedScope(job_id, cancel_check, deadline)),
+              _cancel_check_var.set(cancel_check),
+              _backoff_wait_var.set(on_wait))
+    try:
+        yield
+    finally:
+        _backoff_wait_var.reset(tokens[2])
+        _cancel_check_var.reset(tokens[1])
+        _scope_var.reset(tokens[0])
+
+
+def _run_bounded(scope: _BoundedScope, fn):
+    with _abandoned_lock:
+        old = _abandoned.get(scope.job_id)
+        if old is not None and old.is_alive():
+            raise LLMTaskTimeout(
+                "The previous AI request for this job is still finishing. "
+                "Wait a minute and try again.")
+        _abandoned.pop(scope.job_id, None)
+    box = {}
+    # The worker needs the cancel check and retry-notice variables set above.
+    ctx = contextvars.copy_context()
+
+    def work():
+        try:
+            box["value"] = ctx.run(fn)
+        except BaseException as exc:
+            box["error"] = exc
+
+    worker = threading.Thread(target=work, daemon=True, name=f"llm-task-{scope.job_id}")
+    worker.start()
+    end = time.monotonic() + scope.deadline
+    while True:
+        worker.join(0.25)
+        if not worker.is_alive():
+            break
+        cancelled = scope.cancel_check()
+        if cancelled or time.monotonic() >= end:
+            with _abandoned_lock:
+                _abandoned[scope.job_id] = worker
+            if cancelled:
+                raise TranslationCancelled("cancelled")
+            raise LLMTaskTimeout(
+                f"The AI engine did not answer within {int(scope.deadline)} seconds. "
+                "Try again, or pick a different engine.")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "[]",
@@ -41,12 +132,28 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     after a successful call, the same shape already used by the main
     Translate job's own usage_cb -- so a caller can log real spend here
     too, instead of only translation ever reaching the cost dashboard.
+
+    Inside bounded_llm_calls the call has a total deadline and can be
+    cancelled; outside it, it blocks until the SDK returns.
     """
+    scope = _scope_var.get()
+    if scope is None:
+        return _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb)
+    return _run_bounded(scope, lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb))
+
+
+def _request_timeout() -> dict:
+    # Only a bounded call tightens the client's own default.
+    return {"timeout": LLM_TASK_REQUEST_TIMEOUT} if _scope_var.get() is not None else {}
+
+
+def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
     client = getattr(engine, "client", None)
     if client is not None and hasattr(client, "messages"):
         resp = call_with_backoff(lambda: client.messages.create(
             model=engine.model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
+            **_request_timeout(),
         ))
         if usage_cb and hasattr(resp, "usage"):
             usage_cb(getattr(resp.usage, "input_tokens", 0),
@@ -56,6 +163,12 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     if client is not None:
         resp = call_with_backoff(lambda: client.chat.completions.create(
             model=engine.model, messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens, **_request_timeout(),
+            # DeepSeek reasons by default, and its hidden chain counts against
+            # the wait but isn't wanted for a JSON extraction. Other
+            # OpenAI-compatible servers may reject the field.
+            **(deepseek_extra_body({"reply_without_thinking": True})
+               if getattr(engine, "name", "") == "deepseek" else {}),
         ))
         if usage_cb and getattr(resp, "usage", None):
             usage_cb(getattr(resp.usage, "prompt_tokens", 0),
