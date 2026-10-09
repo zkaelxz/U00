@@ -2,7 +2,7 @@
 
 The API contract: Pydantic request/response models, one module per domain
 (`characters`, `library`, `reader`, `review`, `sources`, `system`,
-`transcribe`, `translate`, `voice`). `common.py` holds shapes several domains
+`subtitle_import`, `transcribe`, `translate`, `voice`). `common.py` holds shapes several domains
 share; the other modules import only from `common`. `__init__.py` re-exports
 everything, so `from api.schemas import X` works.
 

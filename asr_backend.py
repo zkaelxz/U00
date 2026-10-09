@@ -40,7 +40,7 @@ import os
 import tempfile
 from typing import Optional
 
-import ollama_unload
+import memory_headroom
 from core import (
     SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, ModelDownloadError, SplitRules, is_gpu_error,
     is_network_error, diagnose_hostname, extract_audio_slice, transcribe_for_timing,
@@ -182,6 +182,10 @@ class WhisperBackend:
         )
 
 
+def qwen3_asr_repo_id(model_size: str) -> str:
+    return f"Qwen/Qwen3-ASR-{model_size}"
+
+
 def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=None,
                    on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ASR model. Same GPU-fallback/network-
@@ -196,7 +200,7 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
     the GPU and reports it again.
     """
     cache_key = f"{model_size}_{'gpu' if use_gpu else 'cpu'}"
-    ollama_unload.prepare_gpu_for_transcription(use_gpu)
+    memory_headroom.before_load("qwen_asr", model_size, use_gpu, cache_key in _asr_model_cache)
     if cache_key in _asr_model_cache:
         if on_device:
             on_device("GPU" if use_gpu else "CPU")
@@ -206,7 +210,7 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
     from qwen_asr import Qwen3ASRModel
 
     device = "cuda:0" if use_gpu else "cpu"
-    model_id = f"Qwen/Qwen3-ASR-{model_size}"
+    model_id = qwen3_asr_repo_id(model_size)
     try:
         model = Qwen3ASRModel.from_pretrained(
             model_id, dtype=torch.bfloat16, device_map=device, max_new_tokens=256,

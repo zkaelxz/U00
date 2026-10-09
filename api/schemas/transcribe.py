@@ -261,10 +261,12 @@ class LiveSessionStarted(BaseModel):
 
 
 class LiveCue(BaseModel):
+    id: int
     start: float
     end: float
     text: str
     translated: str
+    translation: str   # pending | done | failed | cancelled
 
 
 class LiveSessionStatus(BaseModel):

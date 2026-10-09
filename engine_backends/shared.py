@@ -8,6 +8,7 @@ import time
 
 from core import LANGUAGE_NAMES
 from services import capped_body
+from memory_headroom import HeadroomError
 
 
 def _empty_usage() -> dict:
@@ -128,7 +129,8 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             return fn()
         except Exception as e:
             last_exception = e
-            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached)):
+            # A refused local load repeats identically; retrying only delays the message.
+            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached, HeadroomError)):
                 raise
             if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
                 # FallbackEngine already retried and tried every engine.
@@ -205,6 +207,8 @@ _SECRET_PATTERNS = [
     re.compile(r'\bGOCSPX-[A-Za-z0-9_-]{10,}'),
     # GitHub tokens: ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained github_pat_.
     re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})'),
+    # Baihe's own browser-extension device tokens: baihe_dt_ + 43 characters.
+    re.compile(r'\bbaihe_dt_[A-Za-z0-9_-]{20,}'),
     # Discord webhook URLs: the id/token path is the secret.
     re.compile(r'(discord(?:app)?\.com/api/(?:v\d+/)?webhooks/)[^\s"\'<>]+', re.IGNORECASE),
 ]

@@ -73,8 +73,10 @@ import time
 import wave
 
 import background_jobs
+import live_cue_feed
 import live_fetch
 from live_cue_translation import CueTranslator
+from live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
 
 
 class LiveCaptureError(RuntimeError):
@@ -371,15 +373,6 @@ def write_padded_chunk(tail: dict, chunk_path: str, out_path: str) -> float:
     return tail["seconds"]
 
 
-# One token per CJK/kana character (no spaces to split on), one per run
-# of other letters/digits (space-separated languages, Korean included).
-# Punctuation and whitespace aren't tokens at all, so "北京。" and
-# "北京，" compare equal -- Whisper's punctuation of the same audio often
-# differs between two transcriptions, its words much less so.
-_CJK_CHARS = "぀-ヿ㐀-䶿一-鿿豈-﫿"
-_TOKEN_RE = re.compile(rf"[{_CJK_CHARS}]|[^\W_{_CJK_CHARS}]+")
-_LEADING_NON_WORD_RE = re.compile(r"^[\W_]+")
-
 # How many tokens at the very start of the padded transcription may be
 # skipped before the match begins -- the overlap audio starts at an
 # arbitrary point, often mid-word, and Whisper can render that partial
@@ -387,10 +380,6 @@ _LEADING_NON_WORD_RE = re.compile(r"^[\W_]+")
 # Skipped tokens are inside the overlap window, so dropping them loses
 # nothing the previous chunk didn't already emit.
 _MAX_LEADING_SKIP = 2
-
-
-def _tokens(text: str):
-    return [m.group(0).casefold() for m in _TOKEN_RE.finditer(text or "")]
 
 
 def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> list:
@@ -423,7 +412,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
     segments = list(segments)
     if overlap_seconds <= 0 or not segments:
         return segments
-    tail = _tokens(tail_text)
+    tail = tokens(tail_text)
     if not tail:
         return segments
 
@@ -431,7 +420,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
     for pos, seg in enumerate(segments):
         if seg["start"] >= overlap_seconds:
             break
-        for m in _TOKEN_RE.finditer(seg.get("text") or ""):
+        for m in TOKEN_RE.finditer(seg.get("text") or ""):
             head.append((m.group(0).casefold(), pos, m.end()))
     head_tokens = [t for t, _, _ in head]
 
@@ -455,7 +444,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
         if pos < cut_pos:
             continue
         if pos == cut_pos:
-            rest = _LEADING_NON_WORD_RE.sub("", (seg.get("text") or "")[cut_char:]).strip()
+            rest = LEADING_NON_WORD_RE.sub("", (seg.get("text") or "")[cut_char:]).strip()
             if not rest:
                 continue
             start = seg["start"] if seg["end"] <= overlap_seconds else max(seg["start"], overlap_seconds)
@@ -481,7 +470,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
                    source_language: str, whisper_size: str, engine, use_gpu: bool = False,
                    context_prompt: str = "", overlap_seconds: float = 0.0,
                    overlap_tail_text: str = "", on_stage=None, is_cancelled=None,
-                   translator=None):
+                   translator=None, first_id: int = 0, on_cues=None):
     """
     Transcribes one chunk and translates each resulting line, shifting
     timestamps by this chunk's position in the stream so cues from
@@ -508,10 +497,14 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     there's no previous chunk yet.
 
     on_stage("transcribing" | "translating"): called as each step starts.
-    is_cancelled: polled between steps; a cancel raises
-    background_jobs.JobCancelled. The Whisper call itself cannot be
-    interrupted, so a cancel during it is seen as soon as it returns.
+    is_cancelled: polled between steps; true raises
+    background_jobs.JobCancelled. The caller passes only the Stop button's
+    generation check, not a plain cancel, which lets the chunk finish. The
+    Whisper call itself cannot be interrupted, so a stop during it is seen
+    as soon as it returns.
     translator: kept across chunks so a cue sees the lines before it.
+    first_id / on_cues(cues): cue ids start here; on_cues sees the chunk's cues
+    right after Whisper (untranslated) and after each translation.
     """
     import core
 
@@ -528,19 +521,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     checkpoint()
     segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text)
     offset = chunk_index * segment_seconds - overlap_seconds
-    cues = []
-    for seg in segments:
-        text = (seg.get("text") or "").strip()
-        if not text:
-            continue
-        checkpoint()
-        if on_stage:
-            on_stage("translating")
-        translated = translator.translate(text)
-        cues.append({
-            "start": offset + seg["start"], "end": offset + seg["end"],
-            "text": text, "translated": translated,
-        })
+    cues = live_cue_feed.pending_cues(segments, offset, first_id)
+    live_cue_feed.translate_cues(cues, translator, checkpoint, on_stage, on_cues)
     return cues
 
 
@@ -623,12 +605,10 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     at a time, so a caller reading it mid-update never sees a partial
     write.
 
-    Stale-chunk guard: this call's own generation (bump_generation(),
-    captured once at the top) is re-checked before a chunk's result is
-    applied. If the Stop button bumped the generation while a chunk's
-    transcribe/translate call was still running, that chunk's result is
-    discarded -- it belongs to a session that already moved on -- instead
-    of landing after the fact.
+    Stale-chunk guard: this call's generation (bump_generation(), captured
+    at the top) is re-checked before a chunk is applied. If Stop bumped it
+    mid-chunk, its cues are not added; whatever on_cues last published
+    (pending, cancelled or done) remains the final result.
 
     overlap_seconds: how much of each chunk's own audio tail is prepended
     to the next chunk before transcribing it (see the module docstring
@@ -787,7 +767,9 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                     new_cues = process_chunk(
                         chunk_input, idx, segment_seconds, source_language, whisper_size,
                         engine, use_gpu=use_gpu, context_prompt=context_prompt,
-                        translator=translator,
+                        translator=translator, first_id=len(all_cues),
+                        on_cues=lambda chunk: background_jobs.set_result(
+                            job_id, live_cue_feed.snapshot(all_cues, chunk)),
                         overlap_seconds=pad_seconds, overlap_tail_text=tail_text,
                         on_stage=lambda stage, idx=idx: set_chunk_stage(stage, idx),
                         # Only the Stop button's generation bump discards a chunk

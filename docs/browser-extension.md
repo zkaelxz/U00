@@ -129,6 +129,8 @@ reach the extension.
   extensions gallery, the built-in PDF viewer, `chrome://` pages.
 - **Canvas-only viewers** give no `<img>` to anchor an overlay to, so
   positioning falls back to the canvas element's own box.
+  During a chapter capture, a canvas is re-hashed before bubbles are drawn, and skipped if
+  the reader repainted it with another page meanwhile.
 - **Two-page spreads and right-to-left order** affect which box belongs
   to which page; the app derives reading order per page, but a spread
   sent as one image is treated as one page.
@@ -228,6 +230,39 @@ tab can make requests to localhost**. So:
 
 `tests/test_extension_manifest.py` pins the browser-side half of that
 statically, because none of it can be checked by running the app.
+
+## Remote mode (planned; tokens built)
+
+Today the extension talks only to the bridge on this PC (127.0.0.1:8756,
+one shared token). Remote mode will let a household member's own computer
+(desktop Chrome or Edge) reach Baihe through the household address, and is
+being built in three parts:
+
+1. **Per-device tokens (built).** Settings > Browser extension devices: a
+   signed-in member with the `extension.send` permission names a device
+   and gets a token once (`baihe_dt_…`, 256 random bits; Baihe stores only
+   its SHA-256). They see when each was last used (time and a coarse
+   network prefix) and revoke one at once; at most 10 active per person,
+   5 new per hour, expiry (30 days, 90 when none is given, a year or
+   never, which must be chosen explicitly). The owner at the PC (or an admin there) sees and revokes
+   everyone's; an admin can still revoke their own from anywhere, but adds
+   one only at the PC. Losing `extension.send`, the account, or ending
+   their sessions (Sign out all other devices included) revokes a person's
+   tokens. `api.auth.require_device_token()` checks a token: only from
+   `Authorization: Bearer`, never a cookie or URL; one 401 for any bad
+   token, failures throttled per address; the person must still hold
+   `extension.send`; the token acts with member rights only, even for an
+   admin account. No route accepts a device token yet, and no existing
+   route ever does (`tests/test_device_tokens.py`).
+2. **Bridge routes in the API (next).** The `/page` and `/text` work moves
+   behind `require_device_token()` with the same size and count caps, the
+   caller's drama ownership, the spending cap and no fetching of URLs.
+3. **Extension (after).** A configurable Baihe address and token in the
+   options, https only for anything but loopback, host permission asked
+   for at run time, and the loopback mode kept working.
+
+The PC-only shared token above is unchanged and still what the extension
+on the PC itself uses. Port 8756 is never routed by the reverse proxy.
 
 ## What was actually verified
 

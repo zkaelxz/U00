@@ -500,8 +500,6 @@ def check_file_completeness(project_root: str):
                           if not os.path.exists(os.path.join(project_root, f))]
     return {
         "missing_top_level": missing_top_level,
-        # Kept (always empty) so the API/React response shape is unchanged.
-        "missing_tabs": [],
         "all_present": not missing_top_level,
     }
 
@@ -870,7 +868,7 @@ def format_diagnostics_report(results: dict, hf_cache: list = None,
     files = results.get("files") or {}
     if not files.get("all_present", True):
         lines.append("Missing files: " + ", ".join(
-            (files.get("missing_top_level") or []) + (files.get("missing_tabs") or [])))
+            (files.get("missing_top_level") or [])))
     if hf_cache is not None:
         total = sum(e["size_bytes"] for e in hf_cache)
         lines.append(f"Hugging Face cache: {len(hf_cache)} revision(s), "

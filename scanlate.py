@@ -31,6 +31,7 @@ from dataclasses import dataclass, asdict
 from typing import Optional
 
 import numpy as np
+from memory_headroom import HeadroomError
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -1885,13 +1886,13 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     bubbles = []
     for region in analyze_page_regions(image_path, boxes, source_language, page_id=page_id):
         b = region.to_bubble()
-        # ocr_box_region() insets the box before cropping -- OCRing a
-        # bubble's own border can make some backends return nothing -- and
-        # routes to the right backend for the language.
+        # ocr_box_region() insets the box (a border can blank OCR).
         try:
             b["source_text"] = ocr_box_region(
                 image_path, b, source_language, backend=ocr_backend,
                 tesseract_cmd=tesseract_cmd, prefer_paddle_vl_manga=prefer_paddle_vl_manga)
+        except HeadroomError:
+            raise  # blank text would hide the refusal
         except Exception:
             b["source_text"] = ""
         b["language"] = detect_script_language(b["source_text"], b["language"])

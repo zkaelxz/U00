@@ -10,9 +10,13 @@ Every route in `api/routers/*.py` (and the frontend catch-all in
     dependencies=[local_only()]                          # PC-only (loopback), see below
     dependencies=[authenticated()]                       # any signed-in user; only for
                                                          # routes on the caller's own
-                                                         # sessions (/api/auth/logout
-                                                         # and the three
-                                                         # /api/auth/sessions routes)
+                                                         # sessions and extension
+                                                         # device tokens (logout, the
+                                                         # /api/auth/sessions routes,
+                                                         # list/revoke device tokens)
+    dependencies=[require_device_token()]                # the extension bridge only:
+                                                         # a device token, never a
+                                                         # session (no route uses it yet)
 
 `tests/test_api_permissions.py` walks every route (`iter_route_declarations`)
 and fails if one lacks exactly one, so a new route can't ship undeclared.
@@ -63,7 +67,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, Request
 
-from services import auth_service, ownership_service
+from services import auth_service, device_token_service, ownership_service
 from services.service_errors import ForbiddenError, UnauthenticatedError
 
 COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
@@ -196,8 +200,10 @@ def authenticated():
     the CSRF token. Only for routes that act on the caller's own sessions
     (`POST /api/auth/logout`, `GET /api/auth/sessions`,
     `POST /api/auth/sessions/revoke-others` and
-    `POST /api/auth/sessions/{auth_session_id}/revoke`); the static test
-    keeps it under /api/auth/.
+    `POST /api/auth/sessions/{auth_session_id}/revoke`) and extension
+    device tokens (`GET /api/auth/device-tokens` and
+    `POST /api/auth/device-tokens/{device_token_id}/revoke`); the static
+    test pins it to those.
     With auth off, the caller is the local owner as usual."""
     def dependency(request: Request):
         if not is_auth_enabled(request.app):
@@ -207,6 +213,27 @@ def authenticated():
         return request.state.principal
 
     return _marked(dependency, "authenticated")
+
+
+def require_device_token():
+    """For the extension bridge routes only: the caller is the user of the
+    device token in `Authorization: Bearer <token>`, who must hold
+    `extension.send` (device_token_service.authenticate: 401 for any bad
+    token, 403 without the permission, 429 after repeated failures). Only
+    that header is read, never a cookie or query string, so a session is
+    never accepted here, and no other declaration accepts a device token.
+    The principal has member rights only; this listener's limits and the
+    path guard apply as in require_permission. The same in both auth
+    modes: a device token always names a user, never the local owner."""
+    def dependency(request: Request):
+        principal = listener_principal(request.app, device_token_service.authenticate(
+            request.headers.getlist("authorization"), ip=client_ip(request)))
+        request.state.principal = principal
+        ownership_service.note_acting_principal(principal)
+        require_path_visible(request, principal)
+        return principal
+
+    return _marked(dependency, "device_token", device_token_service.PERMISSION)
 
 
 def public_route():
@@ -309,15 +336,34 @@ def is_local_request(request: Request) -> bool:
     return _is_local_scope(request.client.host if request.client else None, request.headers)
 
 
-def require_engines_allowed(request: Request, *engine_names):
+def require_engines_allowed(request: Request, *engine_names, model=None):
     """Raises 403 unless the caller holds `engines.paid` or every named
     engine is in `translate_engines.FREE_ENGINES`. A missing name (None:
-    "use the configured default") counts as possibly paid."""
+    "use the configured default") counts as possibly paid. Pass the request's
+    `model` whenever it has one: an Ollama cloud tag is held to
+    `engines.paid` too (`require_cloud_model_allowed`); an omitted model
+    resolves to the local default, which is never a cloud tag."""
     if holds(request, "engines.paid"):
         return
     from translate_engines import FREE_ENGINES
     if any(not name or name not in FREE_ENGINES for name in engine_names):
         raise ForbiddenError(_GENERIC_403)
+    require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
+
+
+def require_cloud_model_allowed(request: Request, *engine_models):
+    """Raises 403 unless the caller holds `engines.paid` or none of the
+    (engine, model) pairs names an Ollama cloud tag. A hosted tag sends the
+    text off the PC and spends the owner's Ollama quota, so it is held to
+    the same permission as a paid engine even though Ollama is free."""
+    if holds(request, "engines.paid"):
+        return
+    from translate_engines import is_ollama_cloud_model
+    if any(engine in (None, "ollama") and is_ollama_cloud_model(model)
+           for engine, model in engine_models):
+        raise ForbiddenError("Ollama cloud models send your text off this PC and use the "
+                             "owner's Ollama quota, so they need paid-engine permission. "
+                             "Pick a local model instead.")
 
 
 def require_paid_engines(request: Request):

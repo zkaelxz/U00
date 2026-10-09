@@ -15,7 +15,7 @@ const checks = (o: Partial<DiagnosticsSetupChecks> = {}): DiagnosticsSetupChecks
   ffmpeg: { found: true, version: '6.1' },
   js_runtime: { found: true, name: 'deno' },
   cuda: { torch_installed: false, cuda_available: null },
-  files: { all_present: true, missing_top_level: [], missing_tabs: [] },
+  files: { all_present: true, missing_top_level: [] },
   library_writable: true,
   ...o,
 })
@@ -63,7 +63,7 @@ describe('setup rows', () => {
       ffmpeg: { found: false, version: null },
       js_runtime: { found: false, name: null },
       cuda: { torch_installed: true, cuda_available: false },
-      files: { all_present: false, missing_top_level: ['a.py', 'b.py'], missing_tabs: ['c.py'] },
+      files: { all_present: false, missing_top_level: ['a.py', 'b.py'] },
       library_writable: false,
     }), gpu)
     expect(rows.every((r) => r.problem)).toBe(true)
@@ -72,7 +72,7 @@ describe('setup rows', () => {
       'Problem: FFmpeg not found',
       'Problem: no JS runtime (some video sites lose formats)',
       "Problem: PyTorch can't see the GPU",
-      'Problem: 3 missing',
+      'Problem: 2 missing',
       "Problem: can't be written to",
     ])
     expect(rows[1]).toMatchObject({ label: 'FFmpeg', value: 'FFmpeg not found' })

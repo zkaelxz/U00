@@ -20,8 +20,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_SIZES,
-  advancedSummary, appendCues, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, isActive,
-  listLive, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
+  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, hasPending, isActive,
+  listLive, mergeCues, readFrom, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
@@ -31,6 +31,7 @@ import { Toggle } from '../components/Toggle'
 import { useEventStream } from '../hooks/useEventStream'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { LiveCaptions } from './live/LiveCaptions'
 import { StreamEmbed } from './live/StreamEmbed'
 import { DEFAULT_DELAY, DELAY_RANGE, canDelay, parseStreamUrl } from './live/embedLogic'
 import type { LiveCue, LiveSessionStatus } from '../types/live'
@@ -42,11 +43,23 @@ const numValue = (n: number) => (Number.isFinite(n) ? n : '')
 
 type Session = { id: string; status: LiveSessionStatus | null; cues: LiveCue[]; next: number }
 
+/** The translation, or why there is none yet: the transcript above it always stays. */
+function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
+  if (cue.translation === 'pending' && waiting) {
+    return <span className="live-en muted" data-testid="live-translating">translating…</span>
+  }
+  if (cue.translation === 'pending' || cue.translation === 'cancelled') {
+    return <span className="live-en muted" data-testid="live-untranslated">Not translated: the session stopped first.</span>
+  }
+  return <span className={cue.translation === 'failed' ? 'live-en warn' : 'live-en'}>{cue.translated}</span>
+}
+
 export default function LivePage() {
   const pc = usePcOnly()
   const [prefs, setPrefs] = usePersistedState<LiveOptions>('live.options', DEFAULT_OPTIONS)
   const [url, setUrl] = useState('')
   const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
+  const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
   const [theater, setTheater] = usePersistedState<boolean>('live.theater', false)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const form: LiveForm = { ...DEFAULT_FORM, ...prefs, url }
@@ -109,18 +122,17 @@ export default function LivePage() {
   const poll = useCallback(async (id: string) => {
     const cur = sessionRef.current
     if (!cur || cur.id !== id) return false
-    const after = cur.next
+    // From the oldest line still waiting for its translation, so it fills in.
+    const after = readFrom(cur.cues, cur.next)
     try {
       const s = await getLive(id, after)
-      // Two polls can overlap (Stop polls at once): only the one that asked
-      // from the current index appends, so no line is shown twice.
+      // Merged by id: a reply that overlaps another changes nothing twice.
       setSession((prev) => {
         if (!prev || prev.id !== id) return prev
-        if (prev.next !== after) return { ...prev, status: s }
-        return { id, status: s, cues: appendCues(prev.cues, s.cues), next: s.next_index }
+        return { id, status: s, cues: mergeCues(prev.cues, s.cues), next: Math.max(prev.next, s.next_index) }
       })
-      if (sessionRef.current?.id === id && sessionRef.current.next === after) {
-        sessionRef.current = { ...sessionRef.current, next: s.next_index }
+      if (sessionRef.current?.id === id) {
+        sessionRef.current = { ...sessionRef.current, next: Math.max(sessionRef.current.next, s.next_index) }
       }
       return isActive(s.status)
     } catch (err) {
@@ -140,7 +152,7 @@ export default function LivePage() {
     const cur = sessionRef.current
     if (type !== 'live' || !s || !cur || s.session_id !== cur.id) return
     setSession((prev) => (prev && prev.id === s.session_id ? { ...prev, status: { ...s, cues: [] } } : prev))
-    if (s.next_index > cur.next) void poll(cur.id)
+    if (s.next_index > cur.next || hasPending(cur.cues)) void poll(cur.id)
   })
   const polling = stream.mode === 'poll'
 
@@ -331,6 +343,9 @@ export default function LivePage() {
                   <Toggle checked={theater} onChange={setTheater} />
                 </Field>
               </div>
+              <Field label="Captions over video" help="Draws the current line over the picture, the translation once it is ready and the transcript until then.">
+                <Toggle checked={captionsOn} onChange={setCaptionsOn} />
+              </Field>
               <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
                 <Toggle checked={showVideo} onChange={setShowVideo} />
               </Field>
@@ -338,7 +353,8 @@ export default function LivePage() {
             {!streamRef && <p className="muted">This site can't be shown here; the lines still work.</p>}
             {streamRef && showVideo && (
               <>
-                <StreamEmbed stream={streamRef} delay={videoDelay} />
+                <StreamEmbed stream={streamRef} delay={videoDelay}
+                  captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
                 {canDelay(streamRef) && (
                   <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up.">
                     <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={videoDelay}
@@ -356,11 +372,11 @@ export default function LivePage() {
           {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
           {feed.length > 0 && (
             <ol className="live-cues" aria-label="Live lines, newest first">
-              {feed.map((c, i) => (
-                <li key={total - i}>
+              {feed.map((c) => (
+                <li key={c.id}>
                   <span className="live-ts">{fmtTs(c.start)}</span>
                   <span className="live-src" lang={form.source_language}>{c.text}</span>
-                  <span className={c.translated.startsWith('[translation failed') ? 'live-en warn' : 'live-en'}>{c.translated}</span>
+                  <TranslationText cue={c} waiting={active} />
                 </li>
               ))}
             </ol>

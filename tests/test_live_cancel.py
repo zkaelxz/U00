@@ -171,8 +171,10 @@ class TestBlockedOllamaTranslation:
         assert time.monotonic() - started < PROMPT
         assert _wait(lambda: silent_ollama.hung_up == 1)
         assert stopped == [{"kill": True}]
-        # No translation was recorded for the interrupted chunk.
-        assert not background_jobs.get_status("live_cancel_ollama")["result"]
+        # The transcript stays, marked as never translated.
+        result = background_jobs.get_status("live_cancel_ollama")["result"]
+        assert [(c["text"], c["translated"], c["translation"]) for c in result] == [
+            ("你好", "", "cancelled")]
 
     def test_a_long_wait_on_ollama_is_said_plainly(self, jobs, monkeypatch):
         background_jobs._jobs["j"] = {"status": "running", "message": "", "progress": 0.0,

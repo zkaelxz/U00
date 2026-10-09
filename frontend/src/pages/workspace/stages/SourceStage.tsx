@@ -14,7 +14,7 @@ import { writeSectionOpen } from '../../../components/sectionStorage'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
+import { PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
 import {
   checkUploadFile,
@@ -30,6 +30,8 @@ import { useStage } from '../StageContext'
 import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
+import { NovelChaptersPanel } from './NovelChaptersPanel'
+import { SubtitleImport } from './SubtitleImport'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
@@ -299,10 +301,21 @@ export default function SourceStage() {
   )
   const novel = (
     <div key="novel" className="source-group">
+      {kind === 'novel' && <NovelChaptersPanel />}
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
     </div>
   )
-  const groups = kind === 'audio' ? [transcribe, novel] : [novel, transcribe]
+  const subtitles = (
+    <Section
+      key="subtitles"
+      storageKey="source.group.subtitles"
+      title="Import subtitle file"
+      summary={pc === 'remote' ? PC_ONLY_SUMMARY : 'SRT, VTT, ASS or LRC'}
+    >
+      <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
+    </Section>
+  )
+  const groups = kind === 'audio' ? [transcribe, novel, subtitles] : [novel, transcribe, subtitles]
 
   return (
     <div className="stage-source">

@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import dub
 import dub_narration
+from memory_headroom import HeadroomError
 from core import Line
 
 
@@ -896,3 +897,59 @@ class TestDubWorkerArgumentBinding:
         assert call.arguments["narrate_original"] is True
         assert call.arguments["source_language"] == "ja"
 
+
+
+class TestHeadroomRefusalStopsTheRun:
+    """A refused model load fails every later unit the same way, so the run
+    stops once with the plain message instead of reporting success with N
+    identical errors, and the existing track is not overwritten."""
+    MESSAGE = "Not loading OmniVoice: Keep free graphics memory would be broken."
+
+    @staticmethod
+    def _refuse(text, out_path, **kw):
+        raise HeadroomError(TestHeadroomRefusalStopsTheRun.MESSAGE)
+
+    def _lines(self):
+        return [Line(idx=0, start=0, end=1, zh="x", en="One", speaker="A"),
+                Line(idx=1, start=1, end=2, zh="y", en="Two", speaker="A")]
+
+    def test_dub_track_raises_and_keeps_the_old_track(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", self._refuse)
+        track = tmp_path / "dub_track.wav"
+        track.write_text("old-track")
+        with pytest.raises(HeadroomError, match="Keep free graphics memory"):
+            dub.build_dub_track(self._lines(), str(tmp_path), ALL)
+        assert track.read_text() == "old-track"
+
+    def test_narration_track_raises_and_keeps_the_old_track(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", self._refuse)
+        track = tmp_path / "narration_track.wav"
+        track.write_text("old-track")
+        with pytest.raises(HeadroomError, match="Keep free graphics memory"):
+            dub_narration.build_narration_track(self._lines(), str(tmp_path), ALL)
+        assert track.read_text() == "old-track"
+
+    def test_the_worker_reports_the_message_as_a_failed_job(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", self._refuse)
+        q = queue.Queue()
+        dub.build_track_subprocess_worker(self._lines(), str(tmp_path), ALL, 1.3, 1.0, q)
+        kind, name, message = q.get_nowait()
+        assert (kind, name) == ("error", "HeadroomError")
+        assert "Keep free graphics memory" in message
+
+    def test_a_refused_background_separation_keeps_the_finished_dub(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice())
+
+        def refuse(*a, **kw):
+            raise HeadroomError(self.MESSAGE)
+        monkeypatch.setattr(dub, "mix_original_background", refuse)
+        q = queue.Queue()
+        dub.build_track_subprocess_worker(self._lines(), str(tmp_path), ALL, 1.3, 1.0, q,
+                                          background_source="src.wav")
+        kind, result = q.get_nowait()
+        assert kind == "ok"
+        assert result["background_mixed"] is False and result["background_error"]

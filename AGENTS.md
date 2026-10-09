@@ -50,7 +50,7 @@ Done means:
 3. A test patch on a moved name points at the module that now uses it; no assertion removed or loosened; same pass count.
 4. Inside the `db` package (once it exists) call other db functions as `db.<name>`.
 5. The new module is named in `FILE_ORGANIZATION.md`; a new top-level `.py` is also added to the
-   expected-files list (today `diagnostics.EXPECTED_TOP_LEVEL_FILES`; check the current location first).
+   expected-files list (`expected_files.EXPECTED_TOP_LEVEL_FILES`: one sorted line per name; check the current location first).
 6. Split PRs do not edit `OVERSIZED_MODULE_BYTES`: stale entries only warn, and one ratchet PR after each wave removes them.
 7. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
    `tests/test_diagnostics_and_export.py`, then the full suite, and report counts.
@@ -81,7 +81,7 @@ whole: `db`, `background_jobs`, `diagnostics`, `cli`, `core`, plus every file li
 | Diagnostics / installs | Diagnostics.tsx, diagnostics/ | diagnostics_routes.py, diagnostics_installs_routes.py, diagnostics_gaps_routes.py | diagnostics_service.py, diagnostics_installs_service.py, diagnostics_gaps_service.py | diagnostics.py, check_setup.py | n/a | test_diagnostics_service.py, test_api_diagnostics_installs.py, test_install_presets.py | diagnostics*.spec.ts | runbook.md |
 | Jobs | Jobs.tsx, jobs/, workspace/JobPill.tsx | jobs_routes.py, job_stage_routes.py, events_routes.py | jobs_service.py, job_checkpoint_service.py, job_timing_service.py | background_jobs.py | job_records, gpu_lock, job_checkpoints | test_background_jobs.py, test_jobs_service.py, test_api_job_cancel.py | jobs*.spec.ts, job-reattach.spec.ts | background-jobs.md |
 | Settings / backups | Settings.tsx, settings/, libraryAdmin/ | settings_routes.py, backup_routes.py, library_admin_routes.py | settings_service.py, auto_backup_service.py, backup_import_service.py | storage.py | app_settings | test_settings_service.py, test_auto_backup_service.py, test_api_backups.py, test_user_backup.py | settings*.spec.ts, backups.spec.ts | database.md, runbook.md |
-| Auth / permissions | Login.tsx, Admin.tsx | auth_routes.py, admin_users_routes.py, sharing_routes.py | auth_service.py, oidc_service.py, ownership_service.py | api/auth.py, action_tiers.py | users, user_permissions, auth_sessions, audit_log | test_api_permissions.py, test_auth_service.py, test_auth_login.py, test_api_admin_users.py | signin.spec.ts, admin-audit-users.spec.ts | route-permissions.md, remote-access-decision.md |
+| Auth / permissions | Login.tsx, Admin.tsx, settings/ExtensionDevicesCard.tsx | auth_routes.py, admin_users_routes.py, sharing_routes.py, device_token_routes.py | auth_service.py, oidc_service.py, ownership_service.py, device_token_service.py | api/auth.py, action_tiers.py, device_tokens.py | users, user_permissions, auth_sessions, audit_log, extension_device_tokens | test_api_permissions.py, test_auth_service.py, test_auth_login.py, test_api_admin_users.py, test_device_tokens.py | signin.spec.ts, admin-audit-users.spec.ts, extension-devices*.spec.ts | route-permissions.md, remote-access-decision.md |
 | Installer / updates | Settings.tsx, settings/AppUpdatesCard.tsx | update_routes.py | update_service.py | installer/ (service.py is big), portable.py | n/a | test_installer_service.py, test_installer_iss.py, test_update_service.py | app-updates.spec.ts | windows-installer-design.md, RELEASE.md |
 
 Layer rules for the folders above: `docs/api-and-services.md`. Frontend stages:

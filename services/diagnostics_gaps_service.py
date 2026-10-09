@@ -93,8 +93,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
         "cuda": {"torch_installed": bool(cuda.get("torch_installed")),
                  "cuda_available": cuda.get("cuda_available")},
         "files": {"all_present": bool(files["all_present"]),
-                  "missing_top_level": list(files["missing_top_level"]),
-                  "missing_tabs": list(files["missing_tabs"])},
+                  "missing_top_level": list(files["missing_top_level"])},
         "library_writable": bool(diagnostics.check_library_writable(library_dir)),
         "warnings": diagnostics.startup_warnings(),
     }

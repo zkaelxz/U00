@@ -76,7 +76,9 @@ import translation_guide as tguide
 import bulk_translate, raw_transcript
 import dub as dub_module
 import dub_narration as dn
+import real_model_check_cli
 import background_jobs
+import cli_subtitle
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
                       narration_service, review_extras_service, settings_service, transcribe_service,
@@ -789,8 +791,6 @@ def cmd_translate(args):
                 d["id"], d, lines, style_preset,
                 include_genre_notes=include_genre_notes,
                 default_female_pronouns=default_female_pronouns)
-        translate_run_service.save_style_toggles(
-            d["id"], include_genre_notes, default_female_pronouns)
         target_ids = None
         if glossary_affected:
             # Same selection as the app's "Re-translate lines affected by the
@@ -836,6 +836,7 @@ def cmd_translate(args):
             if refusal:
                 raise RuntimeError(refusal)
             caps.append(cap)
+        translate_run_service.save_style_toggles(d["id"], include_genre_notes, default_female_pronouns, getattr(args, "thinking", None))
         if fallback_names:
             engine = translate_engines.FallbackEngine(
                 [engine] + [_engine_for(n) for n in fallback_names], chain_names, caps,
@@ -1372,9 +1373,9 @@ def main():
                            help="Also replace speakers you corrected by hand")
     p_diarize.set_defaults(func=cmd_diarize)
 
-    p_translate = sub.add_parser("translate")
-    p_translate.add_argument("--id", type=int, default=None)
-    p_translate.add_argument("--status", default=None)
+    p_translate = translate_engines.think_flag(sub.add_parser("translate"))
+    p_translate.add_argument("--id", type=int)
+    p_translate.add_argument("--status")
     # No argparse choices: a removed engine name gets the same plain refusal
     # as the API instead of a generic "invalid choice" error.
     p_translate.add_argument("--engine", default=None,
@@ -1442,8 +1443,7 @@ def main():
     p_translate.add_argument("--cost-cap", type=float, default=None,
                            help="Stop a drama's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")
-    p_translate.add_argument("--monthly-cap", type=float,
-                           default=None,
+    p_translate.add_argument("--monthly-cap", type=float, default=None,
                            help="Refuse to start / stop once this calendar month's logged spend "
                                 "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     # Matches the Workspace tab's own three sliders. Unset means
@@ -1536,6 +1536,7 @@ def main():
     p_qc = sub.add_parser("qc", help="Run Auto QC (numbers, names, banned terms) and flag lines")
     p_qc.add_argument("--id", type=int, default=None, help="One title (default: the whole library).")
     p_qc.set_defaults(func=cmd_qc)
+    cli_subtitle.register(sub)
 
     p_gloss = sub.add_parser("glossary", help="List, add, remove, import or export a title's series glossary")
     gsub = p_gloss.add_subparsers(dest="glossary_action", required=True)
@@ -1603,12 +1604,11 @@ def main():
     p_run.add_argument("--context-window-ahead", type=int, default=None)
     p_run.add_argument("--batch-size", type=int, default=None)
     p_run.add_argument("--cost-cap", type=float, default=None,
-                           help="Stop a drama's translation once its estimated spend reaches this "
-                                "many USD (finished lines are kept).")
-    p_run.add_argument("--monthly-cap", type=float,
-                           default=None,
-                           help="Refuse to start / stop once this calendar month's logged spend "
-                                "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
+                       help="Stop a drama's translation once its estimated spend reaches this "
+                            "many USD (finished lines are kept).")
+    p_run.add_argument("--monthly-cap", type=float, default=None,
+                       help="Refuse to start / stop once this calendar month's logged spend "
+                            "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")
@@ -1635,6 +1635,7 @@ def main():
                           help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_doctor.set_defaults(func=cmd_doctor)
 
+    real_model_check_cli.register(sub)
     args = p.parse_args()
     args.func(args)
 
