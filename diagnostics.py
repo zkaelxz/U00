@@ -29,6 +29,7 @@ from expected_files import EXPECTED_TOP_LEVEL_FILES
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
     "faster_whisper": ("faster_whisper", "audio alignment/timing", "feature"),
+    "onnxruntime": ("onnxruntime", "ASMR VAD", "feature"),
     "ctranslate2": ("ctranslate2", "Whisper GPU detection (installed with faster-whisper)", "feature"),
     "cv2": ("cv2", "Scanlate bubble detection/inpainting", "feature"),
     "anthropic": ("anthropic", "Claude translation engine", "engine"),
@@ -44,8 +45,7 @@ OPTIONAL_DEPENDENCIES = {
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
     "PIL": ("PIL", "OCR, Scanlate rendering, cover art upload", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
-    # paddleocr 3.x doesn't depend on it, but PaddleOCR() needs it.
-    "paddlepaddle": ("paddle", "OCR (PaddleOCR inference engine)", "feature"),
+    "paddlepaddle": ("paddle", "PaddleOCR engine", "feature"),
     "manga_ocr": ("manga_ocr", "OCR (Japanese manga backend)", "feature"),
     "jieba": ("jieba", "Chinese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pypinyin": ("pypinyin", "Chinese pinyin (Reader)", "feature"),
@@ -113,16 +113,10 @@ OPTIONAL_DEPENDENCIES = {
                                       "only runs it and reads the EPUB it makes)", "feature"),
 }
 
-# Import-name slots in OPTIONAL_DEPENDENCIES that are really external
-# programs: check_dependency asks this function instead of importlib, so the
-# program is found where it will be run from (PATH or its Settings path) and
-# its Python code is never looked up or imported.
-def _lncrawl_installed() -> bool:
-    from services import lncrawl_service
-    return lncrawl_service.is_installed()
-
-
-EXTERNAL_PROGRAMS = {"lncrawl": _lncrawl_installed}
+# Import-name slots that are really external programs, mapped to the service
+# whose is_installed() finds them where they will run (PATH or Settings path);
+# their Python code is never looked up or imported.
+EXTERNAL_PROGRAMS = {"lncrawl": "services.lncrawl_service"}
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +163,7 @@ APPROX_DOWNLOAD_MB = {
     "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
-    "jiwer": 3, "sacrebleu": 2,
+    "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15,
 }
 PULLS_TORCH = {"pyannote-audio", "omnivoice", "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
 
@@ -253,8 +247,8 @@ INSTALL_TASKS = [
      "packages": ["pyannote.audio", "soundfile", "torch"]},
     {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
      "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
-     "packages": ["qwen-asr", "funasr", "torch"],
-     "recommended": ["qwen-asr", "funasr"]},
+     "packages": ["qwen-asr", "funasr", "torch", "onnxruntime"],
+     "recommended": ["qwen-asr", "funasr"], "optional": ["onnxruntime"]},
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
@@ -472,7 +466,7 @@ def check_dependency(module_name: str) -> bool:
     are looked up as programs instead."""
     if module_name in EXTERNAL_PROGRAMS:
         try:
-            return bool(EXTERNAL_PROGRAMS[module_name]())
+            return bool(importlib.import_module(EXTERNAL_PROGRAMS[module_name]).is_installed())
         except Exception:
             return False
     try:
@@ -1877,7 +1871,6 @@ NVIDIA_DRIVER_FOR_CU128 = {
     "Linux": {"recommended": "570.26", "minimum": "525.60.13"},
 }
 
-TORCH_SETUP_TIMEOUT_SECONDS = 3600    # ~2.5 GB of CUDA wheels on a slow link
 TORCH_VERIFY_TIMEOUT_SECONDS = 180    # a cold `import torch` can take a while
 
 _VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.+!_-]{0,63}$")
@@ -2062,7 +2055,7 @@ def _packaging():
     when these installs can run at all)."""
     try:
         from packaging import requirements, specifiers, version
-    except ImportError:          # pragma: no cover - depends on the environment
+    except ImportError:  # pragma: no cover - depends on the environment
         from pip._vendor.packaging import requirements, specifiers, version
     return version, specifiers, requirements
 
@@ -2220,9 +2213,6 @@ def classify_update(name: str, installed_version: str, releases, constraints: di
         return {"status": "update", "latest": str(latest), "target": str(allowed[-1]),
                 "reason": reason if allowed[-1] != latest else None}
     return {"status": "held_back", "latest": str(latest), "target": None, "reason": reason}
-
-
-TASK_ROLES = ("required", "recommended", "optional")
 
 
 def task_package_role(task: dict, name: str) -> str:

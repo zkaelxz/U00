@@ -7,6 +7,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "action_tiers.py",
     "adaptive_style.py",
     "applog.py",
+    "asmr_vad.py",
     "asr_backend.py",
     "asr_benchmark.py",
     "audio_preprocess.py",

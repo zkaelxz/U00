@@ -1623,7 +1623,7 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     transcribe_service._transcribe_worker(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         False, "auto", False, False, True, "", False, "whisper", "whisper_diff", None, 1,
-        False, False, 2.0, 0.35, False, False, "normal", str(tmp_path / "scratch"), result_queue)
+        False, False, 2.0, 0.35, False, False, "normal", "standard", str(tmp_path / "scratch"), result_queue)
     items = []
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
@@ -1719,7 +1719,7 @@ def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
     proc = ctx.Process(target=transcribe_service._transcribe_worker, daemon=True, args=(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         True, "no_such_backend", False, False, False, "", False, "whisper", "whisper_diff", None,
-        1, False, False, 2.0, 0.35, False, False, "normal", str(tmp_path / "scratch"), result_queue))
+        1, False, False, 2.0, 0.35, False, False, "normal", "standard", str(tmp_path / "scratch"), result_queue))
     proc.start()
     items = [result_queue.get(timeout=60)]
     while items[-1][0] == "progress":
@@ -1976,7 +1976,7 @@ class TestMissingPackageOutcome:
         transcribe_service._transcribe_worker(
             "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
             False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
-            False, False, "normal", str(tmp_path / "scratch"), q)
+            False, False, "normal", "standard", str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert kind == "ok"
         assert outcome == {"failed_reason": "dependency_missing",
