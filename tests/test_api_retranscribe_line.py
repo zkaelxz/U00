@@ -89,6 +89,9 @@ def inline_process_jobs(monkeypatch):
     def fake_start(job_id, target, args=(), gpu_touching=False, description=None,
                    on_done=None, on_finish=None, **_kw):
         def body():
+            # A real child takes seconds to spawn; the service sets line_id
+            # right after the start.
+            time.sleep(0.05)
             try:
                 kind, *payload = _run_worker_inline(target, args)
                 if kind == "ok":
