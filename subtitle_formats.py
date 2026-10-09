@@ -137,6 +137,25 @@ CPS_LIMITS = {"cjk": 6.5, "abugida_rtl": 7.0, "latin": 8.5}
 DEFAULT_CPS_LIMIT = 7.5
 READING_SPEED_FLAG = "reading_speed"
 
+# Per-title choice for people who work on fast talkers, where lengthening a
+# cue past the audio is not an option and the default limits flag most lines.
+# "relaxed" is the normal table raised by roughly 40%. These numbers are a
+# judgement call, not measured on real subtitles.
+READING_SPEED_MODES = ("normal", "relaxed", "off")
+DEFAULT_READING_SPEED_MODE = "normal"
+RELAXED_CPS_LIMITS = {"cjk": 9.0, "abugida_rtl": 10.0, "latin": 12.0}
+RELAXED_DEFAULT_CPS_LIMIT = 10.5
+
+# A cue shorter than this, or with less text than this, is never flagged: a
+# few words are read almost at a glance whatever the ratio says, and such a
+# cue often cannot be lengthened (it sits between two other lines).
+# Characters are not comparable across scripts (a CJK character carries
+# more than a Latin one), so the character floor follows the proportions of
+# the limit table: 15 Latin characters is about three words.
+MIN_DENSE_DURATION_S = 1.5
+MIN_DENSE_CHARS = {"cjk": 11, "abugida_rtl": 12, "latin": 15}
+DEFAULT_MIN_DENSE_CHARS = 13
+
 _SCRIPT_PATTERNS = {
     "cjk": _CJK,
     "abugida_rtl": re.compile(r"[\u0590-\u06ff\u0900-\u0dff\u0e00-\u0e7f]"),  # Hebrew/Arabic/Indic/Thai
@@ -154,30 +173,49 @@ def reading_speed(text: str, duration: float) -> float:
     return len((text or "").strip()) / max(duration, 0.01)
 
 
-def dense_lines(lines, field: str = "en") -> list:
+def reading_speed_mode_of(drama) -> str:
+    """The title's saved mode; a missing or unknown value is the default."""
+    mode = (drama or {}).get("reading_speed_mode")
+    return mode if mode in READING_SPEED_MODES else DEFAULT_READING_SPEED_MODE
+
+
+def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE) -> list:
     """[(line, chars_per_second, limit)] for every line whose `field` text
-    is too dense to read in the time it's on screen."""
+    is too dense to read in the time it's on screen. Cues under the
+    MIN_DENSE_* floor are skipped; mode "off" finds nothing."""
+    if mode == "off":
+        return []
+    limits, fallback = ((RELAXED_CPS_LIMITS, RELAXED_DEFAULT_CPS_LIMIT) if mode == "relaxed"
+                        else (CPS_LIMITS, DEFAULT_CPS_LIMIT))
     out = []
     for ln in lines:
         text = getattr(ln, field, "") or ""
-        if not text.strip():
+        stripped = text.strip()
+        if not stripped:
             continue
-        limit = CPS_LIMITS.get(script_of(text), DEFAULT_CPS_LIMIT)
-        cps = reading_speed(text, ln.end - ln.start)
+        duration = ln.end - ln.start
+        script = script_of(text)
+        if duration < MIN_DENSE_DURATION_S or len(stripped) < MIN_DENSE_CHARS.get(
+                script, DEFAULT_MIN_DENSE_CHARS):
+            continue
+        limit = limits.get(script, fallback)
+        cps = reading_speed(text, duration)
         if cps > limit:
             out.append((ln, cps, limit))
     return out
 
 
-def flag_dense_lines(lines, field: str = "en") -> int:
+def flag_dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE) -> int:
     """Flags (in place) lines too dense to read, without replacing a flag
     that's already there. Returns how many were newly flagged."""
     n = 0
-    for ln, cps, limit in dense_lines(lines, field):
+    for ln, cps, limit in dense_lines(lines, field, mode):
         if not ln.flag:
             ln.flag = READING_SPEED_FLAG
             ln.flag_note = (f"{cps:.1f} characters/second -- more than ~{limit:g}/s is hard to "
-                            "read in time. Shorten the line or lengthen its timing.")
+                            "read in time. For fast speech the line may be fine; otherwise shorten "
+                            "it or lengthen its timing. This title's \"Reading speed check\" "
+                            "setting (Normal, Relaxed or Off) changes what gets flagged.")
             n += 1
     return n
 
@@ -233,6 +271,41 @@ def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars
         text = "\n".join(part for part in re.split(r"\r\n|\r|\n", text) if part.strip())
         cues.append(f"{i}\n{_vtt_ts(ln.start)} --> {_vtt_ts(ln.end)}\n{text}\n")
     return "\n".join(cues)
+
+
+# ------------------------------------------------------------------- LRC
+
+def _lrc_ts(seconds: float) -> str:
+    # LRC stamps are centiseconds; rounding a whole minute up must carry.
+    cs = int(round(max(seconds, 0) * 100))
+    m, cs = divmod(cs, 6000)
+    return f"[{m:02d}:{cs // 100:02d}.{cs % 100:02d}]"
+
+
+def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None) -> str:
+    """Lyrics-style timed text: one stamp per cue, where a cue starts. A cue
+    that ends before the next one starts also gets an empty stamp at its end,
+    so a player doesn't keep showing it through the gap (LRC has no end
+    times). Multi-line cue text is joined on one line with a space, since a
+    line break would start a new, unstamped line. field: "en", "zh" or
+    "bilingual" (both texts under one stamp, each on its own stamped line)."""
+    out = []
+    for i, ln in enumerate(lines):
+        # Each language is flattened on its own, so a two-line translation
+        # still leaves exactly one source row under the stamp.
+        texts = ([_cue_text(ln, "en", notes_by_idx, wrap_chars, italic_tags=False),
+                  _cue_text(ln, "zh", None, wrap_chars, italic_tags=False)]
+                 if field == "bilingual" else [_cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=False)])
+        parts = [" ".join(t.split()) for t in texts]
+        parts = [p for p in parts if p]
+        if not parts:
+            continue
+        stamp = _lrc_ts(ln.start)
+        out.extend(f"{stamp}{p}" for p in parts)
+        nxt = lines[i + 1].start if i + 1 < len(lines) else None
+        if nxt is None or ln.end < nxt:
+            out.append(_lrc_ts(ln.end))
+    return "\n".join(out) + ("\n" if out else "")
 
 
 # ------------------------------------------------------------------- ASS

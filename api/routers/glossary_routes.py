@@ -6,18 +6,18 @@ Terms belong to the drama's series (see services/glossary_service.py).
 Deleting a term needs an explicit confirm=true, like the
 clear-history route.
 
-Route batch 2C adds glossary-from-novel: start (engines.paid-gated on the
+Glossary-from-novel: start (engines.paid-gated on the
 drama's engine), status with the proposals, and apply by term text.
 
-Parity X10 adds the same trio for the drama's source lines (from-lines);
+The same trio exists for the drama's source lines (from-lines);
 both applies take optional per-term edits (overrides). The pre-translate
-review (X28) reuses these routes plus the translate-run start.
+review reuses these routes plus the translate-run start.
 
 Each status carries the run's run_id; an apply sends it back and gets 409
 (nothing written) when the held run is another one. Required on from-lines,
 optional on from-novel for older callers.
 
-Parity T03/T04/X13: import a glossary file's text (JSON body, nothing
+Import a glossary file's text (JSON body, nothing
 stored as a file, so lines.edit like the other term writes; overwriting
 existing terms needs confirm=true and, until network zones exist, the PC),
 export as CSV, and bulk delete by id.
@@ -28,7 +28,8 @@ from typing import List
 from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import is_auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
-                         GlossaryCatalogues, GlossaryImportRequest,
+                         GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
+                         GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
@@ -119,7 +120,7 @@ def post_series_instructions(payload: GlossaryInstructionsUpdate, drama_id: int 
     return glossary_service.set_series_instructions(drama_id, payload.text)
 
 
-# --- Route batch 2C: glossary from the attached novel -------------------------
+# --- Glossary from the attached novel -------------------------
 # The run uses the drama's own translation_engine (default claude) on the
 # owner's key, so the start route gates that engine with engines.paid. The
 # job only proposes; the apply adds the named terms, matched by text.
@@ -179,7 +180,37 @@ def _apply(apply_fn, drama_id: int, payload: GlossaryProposalsApplyRequest) -> d
                     overrides=overrides, run_id=payload.run_id)
 
 
-# --- Parity X10: glossary from the drama's source lines -----------------------
+# --- Ignore list: proposals the user rejected, per series ---------------------
+# The same permission as the apply: ignoring a proposal edits what the
+# glossary workflow shows, like adding one does.
+
+@router.get("/dramas/{drama_id}/dismissals", dependencies=[require_permission("library.read")],
+            response_model=GlossaryDismissals,
+            summary="Glossary proposals ignored for this drama's series",
+            responses={404: {"model": ErrorResponse}})
+def get_glossary_dismissals(drama_id: int = Path(ge=1)):
+    return glossary_service.list_glossary_dismissals(drama_id)
+
+
+@router.post("/dramas/{drama_id}/dismissals", dependencies=[require_permission("lines.edit")],
+             response_model=GlossaryDismissResult,
+             summary="Ignore proposed terms so they are not proposed again",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_dismiss_glossary_proposals(payload: GlossaryDismissRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.dismiss_glossary_proposals(drama_id, payload.terms)
+
+
+@router.post("/dramas/{drama_id}/dismissals/restore", dependencies=[require_permission("lines.edit")],
+             response_model=GlossaryDismissResult,
+             summary="Take terms off the ignore list",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_restore_glossary_proposals(payload: GlossaryDismissRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.restore_glossary_proposals(drama_id, payload.terms)
+
+
+# --- Glossary from the drama's source lines -----------------------
 # Same gate and shape as from-novel: the drama's own engine, checked with
 # engines.paid, passed on so the service refuses (409) if it changed since.
 

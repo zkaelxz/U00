@@ -41,7 +41,8 @@ import { NovelUrlImport } from './NovelUrlImport'
 import { PastedSource } from './PastedSource'
 import { SiteCheck } from './SiteCheck'
 import { useDramaList } from './useDramaList'
-import { describeSourceError, percent, safeHref } from './sourcesFormat'
+import { describeSourceError, percent } from './sourcesFormat'
+import { safeHref } from './sourcesSeries'
 import {
   MAX_URL_LEN, PASTED_COMIC_NOTE, PREVIEW_NOTES, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts, videoDramas,
 } from './urlImportFormat'
@@ -304,6 +305,8 @@ function VideoImport({ url, html, identify }: { url: string; html: string | null
           dramaId={drama.id}
           contentMode={drama.content_mode}
           hasAudio={media.has_audio}
+          hasSourceVideo={media.has_source_video}
+          readsBurnedInSubtitles={media.reads_burned_in_subtitles}
           url={picked ?? url}
           busy={busy}
           onStarted={setJobId}

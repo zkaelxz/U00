@@ -10,7 +10,6 @@ import { buildAssRequest, emptyAssForm, loadAssForm, saveAssForm, type AssForm }
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
 import { ExportJellyfin } from './ExportJellyfin'
-import { ExportNotion } from './ExportNotion'
 import { ExportEpub, ExportMediaJobs, MarkExported } from './ExportMedia'
 import { ExportSubtitles, type ExportFormat } from './ExportSubtitles'
 import './export.css'
@@ -48,7 +47,7 @@ export default function ExportStage() {
     ...(loadAssForm(dramaId) ?? emptyAssForm('')),
     field: readChoice(FIELD_KEY, ['en', 'zh', 'bilingual'], 'en'),
   }))
-  const [fmt, setFmtState] = useState<ExportFormat>(() => readChoice(FMT_KEY, ['srt', 'vtt', 'ass'], 'srt'))
+  const [fmt, setFmtState] = useState<ExportFormat>(() => readChoice(FMT_KEY, ['srt', 'vtt', 'lrc', 'ass'], 'srt'))
 
   const setForm = (f: AssForm) => {
     setFormState(f)
@@ -146,7 +145,6 @@ export default function ExportStage() {
       )}
       {/* keyed by the text choice, so a video list found for one language is not reused for another */}
       <ExportJellyfin key={form.field} field={form.field} />
-      <ExportNotion field={form.field} />
     </div>
   )
 }

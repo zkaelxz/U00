@@ -583,6 +583,42 @@ def test_restore_keeps_current_auth_tables(isolated_db):
     assert len(auth_service.list_audit(500)) == audit_before + 1
 
 
+def test_restore_never_takes_extension_device_tokens_from_the_upload(isolated_db):
+    from services import device_token_service
+    _new("A")
+    uid = auth_service.add_user("a@example.com")["id"]
+    auth_service.grant_permission(uid, "extension.send")
+    me = {"user_id": uid, "is_admin": False, "permissions": ["extension.send"]}
+    old = device_token_service.create_token(me, "Old laptop")
+    data = _backup_bytes()
+    device_token_service.revoke_own(uid, old["device_token"]["id"])
+    new = device_token_service.create_token(me, "New laptop")
+    # Tamper: the zip's DB gains a token whose value the attacker chose.
+    path = _zip_db(data)
+    try:
+        conn = sqlite3.connect(path)
+        conn.execute("INSERT INTO extension_device_tokens (user_id, label, token_hash, created_at) "
+                     "VALUES (?, 'planted', ?, ?)",
+                     (uid, device_token_service._hash("baihe_dt_" + "c" * 43), time.time()))
+        conn.commit()
+        conn.close()
+        with open(path, "rb") as f:
+            raw = f.read()
+    finally:
+        os.remove(path)
+    _restore(_rewrite(data, replace={"library.db": raw}))
+
+    def works(token):
+        try:
+            return bool(device_token_service.authenticate([f"Bearer {token}"], ip="192.0.2.1"))
+        except Exception:
+            return False
+    assert not works(old["token"])               # stays revoked
+    assert works(new["token"])                   # made after the backup, still there
+    assert not works("baihe_dt_" + "c" * 43)     # never planted
+    assert [t["label"] for t in device_token_service.list_own(uid)] == ["New laptop", "Old laptop"]
+
+
 def test_restore_keeps_current_sources_settings(isolated_db):
     _new("A")
     src_store.set_setting("http_proxy_url", "http://evil.example:8080")
@@ -1170,3 +1206,26 @@ def test_sqlite_stat_tables_dropped(isolated_db):
     _restore(data)
     assert not _q("SELECT name FROM sqlite_master WHERE name LIKE 'sqlite_stat%'")
     assert db.list_dramas()
+
+
+def test_restore_of_a_backup_older_than_the_repeat_guard_resets_the_old_silence_default(
+        isolated_db, tmp_path):
+    import sqlite3
+    old, kept = _new("Old default"), _new("Own value")
+    data = _backup_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        members = {n: zf.read(n) for n in zf.namelist()}
+    path = str(tmp_path / "library.db")
+    with open(path, "wb") as f:
+        f.write(members["library.db"])
+    conn = sqlite3.connect(path)
+    conn.execute("ALTER TABLE dramas DROP COLUMN whisper_repeat_guard")
+    conn.execute("UPDATE dramas SET hallucination_silence_sec = 2.0 WHERE id = ?", (old,))
+    conn.execute("UPDATE dramas SET hallucination_silence_sec = 5.0 WHERE id = ?", (kept,))
+    conn.commit()
+    conn.close()
+    with open(path, "rb") as f:
+        members["library.db"] = f.read()
+    assert _restore(_zip(members))["restored"] is True
+    assert db.get_drama(old)["hallucination_silence_sec"] == 0
+    assert db.get_drama(kept)["hallucination_silence_sec"] == 5.0

@@ -50,8 +50,8 @@ import storage
 import subtitle_formats
 import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import (drama_service, ownership_service, settings_service,
-                      translate_service)
+from services import (auth_service, drama_service, ownership_service, settings_service,
+                      translate_run_service, translate_service)
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -320,8 +320,8 @@ def _check_expected_engines(expected) -> dict:
 
 def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                          expected_engines=None, allow_paid_summary: bool = True,
-                         principal=None, include_genre_notes: bool = True,
-                         default_female_pronouns: bool = False) -> dict:
+                         principal=None, include_genre_notes: bool = None,
+                         default_female_pronouns: bool = None) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
     dramas whose status is "aligned" and
@@ -369,6 +369,9 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         default_female_pronouns=default_female_pronouns)
     if not started:
         raise ConflictError("A bulk translation is already running.")
+    for did in queued:
+        translate_run_service.save_style_toggles(did, include_genre_notes,
+                                                 default_female_pronouns)
     return {"job_id": BULK_TRANSLATE_JOB_ID, "queued": queued, "skipped": skipped}
 
 
@@ -466,8 +469,8 @@ def start_export_zip(drama_ids=None) -> dict:
 
 
 def _sanitized_snapshot(dest: str):
-    """A consistent database snapshot with every auth session removed
-    (secure_delete, so the session hashes aren't left in free pages) and
+    """A consistent database snapshot with every session and device token
+    removed (secure_delete, so the hashes aren't left in free pages) and
     folded out of WAL mode, so dest is one self-contained file."""
     import sqlite3
     db.snapshot_database(dest)
@@ -475,9 +478,10 @@ def _sanitized_snapshot(dest: str):
         conn = sqlite3.connect(dest, isolation_level=None)
         try:
             conn.execute("PRAGMA secure_delete = ON")
-            if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                            "AND name = 'auth_sessions'").fetchone():
-                conn.execute("DELETE FROM auth_sessions")
+            have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+            for table in ("auth_sessions", "extension_device_tokens"):
+                if table in have:
+                    conn.execute(f"DELETE FROM {table}")
             conn.execute("PRAGMA journal_mode = DELETE")
         finally:
             conn.close()
@@ -645,14 +649,13 @@ USER_BACKUP_TABLES = {
     "voice_suggestion_dismissals": ("series_character", ""),
     "bubbles": ("page", ""),
     "glossary_terms": ("series", ""), "series_characters": ("series", ""),
-    "translation_memory": ("series", ""),
+    "translation_memory": ("series", ""), "glossary_dismissals": ("series", ""),
     "translate_history": ("user", "the owner's standalone translations"),
     "profiles": ("profiles", "reader data is per library, on the default profile"),
     "style_profile": ("style_scope", "the global profile is learned from everyone's edits"),
     "known_titles": ("keep", "the household's title catalogue"),
     "presets": ("keep", "household workspace presets"),
-    "users": ("empty", "auth"), "user_permissions": ("empty", "auth"),
-    "auth_sessions": ("empty", "auth"), "audit_log": ("empty", "auth"),
+    **{t: ("empty", "auth") for t in auth_service.RESTORE_KEPT_TABLES},
     "bulk_jobs": ("empty", "provider batch ids of this PC's API accounts; a restored "
                            "in-flight batch could be polled again"),
     "bulk_job_lines": ("empty", "belongs to bulk_jobs"),
@@ -947,6 +950,11 @@ def _library_size() -> int:
             except OSError:
                 continue
     return total
+
+
+# A restore holds the whole zip in memory (bytes, then BytesIO), so it is
+# capped below the general upload limit, which can be set to 1 TB.
+RESTORE_MAX_UPLOAD_BYTES = 2 * 1024 ** 3
 
 
 def _restore_total_cap(upload_size: int) -> int:

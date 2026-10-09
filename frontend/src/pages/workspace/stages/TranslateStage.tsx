@@ -1,8 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { getPresets } from '../../../api/library'
-import { modelOptionLabel } from '../../../api/translate'
+import { getPresets, updateDramaMetadata } from '../../../api/library'
 import {
   applyTranslatePreset,
   applyWorkflowTier,
@@ -16,6 +15,7 @@ import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
+import { ModelSelect } from '../../../components/ModelSelect'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
@@ -48,8 +48,11 @@ import {
   loadPresetStart,
   MAX_FALLBACKS,
   monthSpendText,
+  cloudModelNotice,
   ollamaWarning,
   reflectAvailable,
+  thinkingApplies,
+  thinkingHelp,
   PRESET_NAME_MAX,
   savePresetStart,
   styleGuidance,
@@ -62,6 +65,7 @@ import {
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
+import { engineNotesHelp, engineOptionLabel } from '../../../api/translate'
 import { GlossaryRetranslate } from './GlossaryRetranslate'
 import { GlossaryReview } from './GlossaryReview'
 import { JobPanel } from './JobPanel'
@@ -71,7 +75,9 @@ import './translate.css'
 import { AI_ENGINE_LABEL, NOTHING_STARTS_HELP, NO_KEY_ENGINES_HELP } from '../../../helpText'
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
-  const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown' : `about $${e.estimated_usd.toFixed(2)}`
+  const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown'
+    : e.estimate_is_lower_bound ? `at least $${e.estimated_usd.toFixed(2)} (thinking adds hidden output, so the real cost is higher)`
+      : `about $${e.estimated_usd.toFixed(2)}`
   const cap = e.effective_cap_usd !== null ? ` · cap $${e.effective_cap_usd.toFixed(2)}` : ''
   return (
     <span className="translate-estimate" data-testid="estimate">
@@ -102,6 +108,7 @@ function advancedSummary(f: RunForm, base: RunForm): string {
   if (f.fallbacks.length) parts.push(`${f.fallbacks.length} fallback${f.fallbacks.length === 1 ? '' : 's'}`)
   if (f.reflect) parts.push('reflect')
   if (f.bulk) parts.push('bulk')
+  if (f.thinking !== base.thinking) parts.push(f.thinking ? 'thinking on' : 'thinking off')
   if (f.force) parts.push('re-translate existing')
   return parts.length ? parts.join(' · ') : 'defaults'
 }
@@ -323,12 +330,30 @@ function RunPanel({
   const [estimate, setEstimate] = useState<TranslateRunEstimate | null>(null)
   const [estimateError, setEstimateError] = useState<unknown>(null)
   const set = <K extends keyof RunForm>(k: K, v: RunForm[K]) => setF((s) => ({ ...s, [k]: v }))
+  // The two prompt toggles are saved for the title as soon as they change, so
+  // every later run (retries, glossary re-translation, AI line actions, the
+  // CLI) uses what is shown here, not a default.
+  const [toggleSaved, setToggleSaved] = useState<boolean | null>(null)
+  const saveToggle = (key: 'female_pronouns' | 'genre_notes', v: boolean) => {
+    set(key, v)
+    setToggleSaved(null)
+    const body = key === 'female_pronouns' ? { default_female_pronouns: v } : { include_genre_notes: v }
+    updateDramaMetadata(dramaId, body).then(
+      () => setToggleSaved(true),
+      () => setToggleSaved(false),
+    )
+  }
+  const savedNote =
+    toggleSaved === true ? ' Saved for this title; every later run uses it.'
+    : toggleSaved === false ? ' Could not save this choice for the title; it applies to the next run only.'
+    : config.default_female_pronouns != null || config.include_genre_notes != null
+      ? ' Saved for this title; every run uses it.'
+      : ''
 
   const engine = config.engines.find((e) => e.name === (f.engine || config.translation_engine))
-  const models = engine?.models ?? []
   const engineLabel = (name: string) => {
     const e = config.engines.find((x) => x.name === name)
-    return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : name
+    return e ? engineOptionLabel(e) : name
   }
   const effEngine = f.engine || config.translation_engine
   const canReflect = reflectAvailable(effEngine) && !(f.bulk && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
@@ -379,22 +404,15 @@ function RunPanel({
     <section className="panel" aria-label="Translate run">
       <h3>Translate</h3>
       <div className="translate-basics">
-        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP}`}>
-          <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
+        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP} ${engineNotesHelp(config.engines)}`}>
+          <select className="engine-select" value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
             <option value="">Default ({engineLabel(config.translation_engine)})</option>
             {config.engines.map((e) => (
               <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>
             ))}
           </select>
         </Field>
-        {models.length > 0 && (
-          <Field label="Model">
-            <select value={f.model} onChange={(e) => set('model', e.target.value)}>
-              <option value="">Engine default</option>
-              {models.map((m) => <option key={m} value={m}>{modelOptionLabel(engine, m)}</option>)}
-            </select>
-          </Field>
-        )}
+        <ModelSelect engine={engine} value={f.model} onChange={(m) => set('model', m)} />
         <Field label="Style" help="Style preset: what the translator is asked to sound like.">
           <select value={f.style_preset} onChange={(e) => set('style_preset', e.target.value)}>
             {config.style_presets.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
@@ -411,6 +429,9 @@ function RunPanel({
           <summary>What this style asks the translator for</summary>
           <p className="muted" data-testid="style-guidance">{guidance}</p>
         </details>
+      )}
+      {cloudModelNotice(engine, f.model) && (
+        <p className="warn" role="note" data-testid="cloud-model-notice">{cloudModelNotice(engine, f.model)}</p>
       )}
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
       <div className="translate-go">
@@ -596,6 +617,9 @@ function RunPanel({
                 <Toggle checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(v) => set('reflect', v)} />
               </Field>
             )}
+            <Field label="Think harder on tricky text (slower, costs more)" help={thinkingHelp(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)}>
+              <Toggle checked={f.thinking && thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} disabled={!thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} onChange={(v) => set('thinking', v)} />
+            </Field>
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
                 label="Bulk"
@@ -604,15 +628,19 @@ function RunPanel({
                 <Toggle checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(v) => set('bulk', v)} />
               </Field>
             )}
-            <Field label="Include baihe/GL genre guidance" help="Pronoun clarity, kinship-term nuance, and not softening romantic content.">
-              <Toggle checked={f.genre_notes} onChange={(v) => set('genre_notes', v)} />
+            <Field
+              label="Include baihe/GL genre guidance"
+              help={`Adds the baihe notes to the prompt: both leads are women, keep 姐姐/妹妹-style address, do not soften romance. It does not by itself turn he into she; use the she/her default for that.${savedNote}`}
+            >
+              <Toggle checked={f.genre_notes} onChange={(v) => saveToggle('genre_notes', v)} />
             </Field>
             <Field
               label="Default ambiguous pronouns to she/her"
-              help="Spoken Mandarin does not distinguish he/she; for a mostly female cast, default an ambiguous pronoun to she/her. A character's own pronouns always win."
+              help={`Mandarin 他/她 sound the same, so the translator is told to write she/her where a pronoun is ambiguous, and lines that still come out he/him for a speaker with no he/him set are asked again once, then flagged in Review. It applies to lines translated after you save it: turn on Re-translate existing to redo lines that already have English. It does not override characters set to he/him, nor an honorific or context that says male.${savedNote}`}
             >
-              <Toggle checked={f.female_pronouns} onChange={(v) => set('female_pronouns', v)} />
+              <Toggle checked={f.female_pronouns} onChange={(v) => saveToggle('female_pronouns', v)} />
             </Field>
+            {savedNote && <span className="muted" aria-live="polite" data-testid="toggle-saved">{savedNote.trim()}</span>}
             <Field label="Re-translate existing" help="Also replace English that is already there. You confirm it under the Translate button; a snapshot is saved first.">
               <Toggle checked={f.force} onChange={(v) => setF((s) => ({ ...s, force: v, forceConfirmed: false }))} />
             </Field>

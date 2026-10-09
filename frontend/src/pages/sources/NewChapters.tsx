@@ -7,7 +7,8 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import type { CheckResult, OpenSeries, SourceNotification, SourceSummary, TrackedSeries } from '../../types/sources'
-import { ago, checkSummary, isoTime, percent, trackedDramaChoices } from './sourcesFormat'
+import { ago, isoTime, percent } from './sourcesFormat'
+import { checkSummary, trackedDramaChoices } from './sourcesSettings'
 import { dramaLabel } from './urlImportFormat'
 import { useDramaList } from './useDramaList'
 import { useSourcesJob } from './useSourcesJob'
@@ -195,7 +196,9 @@ export function NewChapters({
                 <li key={key}>
                   <span>
                     {t.title || t.series_id} · {display(t.source)}
-                    {t.last_check_error ? (
+                    {t.extension_only ? (
+                      <span className="muted"> · extension only: skipped</span>
+                    ) : t.last_check_error ? (
                       <span className="warn"> · last check failed: {t.last_check_error}</span>
                     ) : !t.last_checked ? (
                       ' · not checked yet'

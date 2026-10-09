@@ -4,8 +4,7 @@ asr_backend.py -- pluggable transcription backends for the
 services/transcribe_service.py (Whisper-text mode).
 
 Backends are registered in BACKENDS / get_backend() at the bottom (a
-seam that also holds the experimental MossTranscribeDiarizeBackend, whose
-segments also carry a "speaker"). Each backend's transcribe() returns the same
+seam). Each backend's transcribe() returns the same
 shape core.transcribe_for_timing() already produces: a list of {"start": float, "end": float, "text": str}
 segments -- a drop-in replacement at that one call site.
 
@@ -39,10 +38,12 @@ docstring.
 
 import os
 import tempfile
+from typing import Optional
 
+import memory_headroom
 from core import (
-    ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
-    extract_audio_slice, transcribe_for_timing,
+    SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, ModelDownloadError, SplitRules, is_gpu_error,
+    is_network_error, diagnose_hostname, extract_audio_slice, transcribe_for_timing,
 )
 from forced_align import LANGUAGE_NAMES
 
@@ -63,6 +64,64 @@ SEGMENT_DURATION_WARNING_SECONDS = 300.0
 CONTEXT_PAD_S = 2.0
 MERGE_GAP_S = 1.0
 MERGE_GAP_MIXED_S = 0.3
+
+# Long-window backend. Silero's 0.5 threshold, dropping spans under 250 ms and
+# 100 ms of padding lost quiet speech, short interjections and word edges; the
+# whole file in one call was the best Qwen3-ASR score in every language tried
+# (docs/asr-experiments.md), so spans are packed into windows as long as the
+# forced aligner keeps in sync (forced_align.MAX_CHUNK_SECONDS notes drift
+# past ~30 s). A pause up to LONG_MERGE_GAP_S stays inside a window; a longer
+# one is mostly music or silence, which is where Qwen3-ASR invents text.
+LONG_VAD_KWARGS = {"threshold": 0.35, "min_speech_ms": 0, "pad_ms": 300}
+LONG_MERGE_GAP_S = 3.0
+LONG_WINDOW_S = 30.0
+LONG_CUT_SEARCH_S = 8.0
+
+# The "Split lines by sentences" option and the long-window backend: a line
+# ends at every sentence end; one still too long is cut at commas, then at the
+# longest pauses between words.
+SENTENCE_SPLIT_RULES = SplitRules(max_seconds=SPLIT_MAX_SECONDS, max_chars=SPLIT_MAX_CJK_CHARS,
+                                  per_sentence=True, count_latin=False)
+# Whisper's speech-detection pause in that mode (faster-whisper's own default):
+# shorter pauses feed it sentence fragments; lines are cut afterwards instead.
+SENTENCE_SPLIT_MIN_SILENCE_MS = 2000
+
+# Below this much audio a low figure says little (a short clip can be one line).
+COVERAGE_MIN_AUDIO_SECONDS = 30.0
+COVERAGE_WARN_FRACTION = 0.15
+
+
+def audio_coverage_fraction(segments, audio_seconds) -> Optional[float]:
+    """Share (0-1) of the audio covered by segments that have text, overlaps
+    counted once; None when the audio length is unknown."""
+    if not audio_seconds or audio_seconds <= 0:
+        return None
+    spans = sorted((max(0.0, float(s["start"])), min(float(s["end"]), audio_seconds))
+                   for s in segments if (s.get("text") or "").strip())
+    covered, cur_end = 0.0, 0.0
+    for start, end in spans:
+        start = max(start, cur_end)
+        if end > start:
+            covered += end - start
+            cur_end = end
+    return min(covered / audio_seconds, 1.0)
+
+
+def coverage_warning(segments, audio_seconds, qwen3_asr: bool = False) -> Optional[str]:
+    """A sentence when transcribed lines cover very little of a long enough
+    audio file (speech missed, e.g. singing or music the speech detector
+    skipped), else None."""
+    fraction = audio_coverage_fraction(segments, audio_seconds)
+    if fraction is None or audio_seconds < COVERAGE_MIN_AUDIO_SECONDS \
+            or fraction >= COVERAGE_WARN_FRACTION:
+        return None
+    msg = (f"Only {fraction * 100:.0f}% of the audio has text: try another engine, "
+           "turn vocal separation on, or check the language.")
+    if qwen3_asr:
+        msg += (" Qwen3-ASR only re-transcribes the speech Whisper found, "
+                "so it cannot add lines Whisper missed.")
+    return msg
+
 
 # Loaded models stay cached across calls; core.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
@@ -123,6 +182,10 @@ class WhisperBackend:
         )
 
 
+def qwen3_asr_repo_id(model_size: str) -> str:
+    return f"Qwen/Qwen3-ASR-{model_size}"
+
+
 def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=None,
                    on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ASR model. Same GPU-fallback/network-
@@ -137,6 +200,7 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
     the GPU and reports it again.
     """
     cache_key = f"{model_size}_{'gpu' if use_gpu else 'cpu'}"
+    memory_headroom.before_load("qwen_asr", model_size, use_gpu, cache_key in _asr_model_cache)
     if cache_key in _asr_model_cache:
         if on_device:
             on_device("GPU" if use_gpu else "CPU")
@@ -146,7 +210,7 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
     from qwen_asr import Qwen3ASRModel
 
     device = "cuda:0" if use_gpu else "cpu"
-    model_id = f"Qwen/Qwen3-ASR-{model_size}"
+    model_id = qwen3_asr_repo_id(model_size)
     try:
         model = Qwen3ASRModel.from_pretrained(
             model_id, dtype=torch.bfloat16, device_map=device, max_new_tokens=256,
@@ -304,6 +368,7 @@ class Qwen3ASRVadBackend:
     with estimated times), or, with refine_timing, the forced aligner's times.
     Opt-in only (asr_backend_choice "qwen3_asr_vad")."""
     name = "qwen3_asr_vad"
+    long_windows = False
 
     def __init__(self, model_size: str = "1.7B"):
         self.model_size = model_size
@@ -311,7 +376,7 @@ class Qwen3ASRVadBackend:
     def transcribe(self, audio_path, language, use_gpu=False, batch_size=1, progress_cb=None,
                    cancel_check=None, refine_timing=False, vad_fn=None,
                    mixed_languages=False, stage_cb=None, on_device=None,
-                   on_gpu_fallback=None):
+                   on_gpu_fallback=None, detector="standard", on_notice=None):
         """Segments as {"start", "end", "text"} (plus "flag"/"flag_note" where
         refined timing is uncertain). cancel_check() is called between batches
         and between aligned spans and should raise to stop; nothing is written
@@ -330,7 +395,12 @@ class Qwen3ASRVadBackend:
         stage_cb(text) is called as each stage starts, naming the processor
         for the CPU-only ones (decoding, speech detection) so a busy CPU while
         the GPU waits is explained. on_device(task, "GPU"|"CPU") and
-        on_gpu_fallback(task, exc) report where Qwen3-ASR and the aligner loaded."""
+        on_gpu_fallback(task, exc) report where Qwen3-ASR and the aligner loaded.
+
+        detector "asmr" uses the ASMR-trained detector (asmr_vad.py); when it
+        can't run, Silero is used and on_notice(text) says why. "auto_asmr" is
+        the same but falls back without a notice. An explicit
+        vad_fn wins."""
         import vad_segments
         from core import filter_hallucinated_segments, split_long_segments
         if language is None:
@@ -340,24 +410,34 @@ class Qwen3ASRVadBackend:
                 f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
                 f"(supported: {sorted(LANGUAGE_NAMES)}) -- use WhisperBackend instead."
             )
-        # Uses vad_segments' defaults, not the drama's saved vad_threshold/min_silence_ms,
+        # Uses this class's VAD settings, not the drama's saved vad_threshold/min_silence_ms,
         # which are tuned for Whisper's own VAD.
         if stage_cb:
             stage_cb("Loading audio (CPU)")
         audio = load_audio_16k(audio_path)
         sr = 16000
+        if vad_fn is None and detector in ("asmr", "auto_asmr"):
+            import asmr_vad
+            # Chosen by Auto, the user never asked for it: fall back quietly.
+            vad_fn = asmr_vad.vad_fn_or_fallback(on_notice if detector == "asmr" else None)
         if stage_cb:
             stage_cb("Finding speech (CPU)")
         # A short pause inside a sentence is not a place to cut: Qwen3-ASR does
         # worse on the halves. Language detection keeps the finer spans so a
         # quick change of speaker and language is not merged into one.
+        long_windows = self.long_windows and not mixed_languages
         spans = vad_segments.cap_spans(
             vad_segments.merge_close(
-                vad_segments.speech_spans(audio, sr, vad_fn=vad_fn),
-                gap_s=MERGE_GAP_MIXED_S if mixed_languages else MERGE_GAP_S),
-            audio, sr)
+                vad_segments.speech_spans(audio, sr, vad_fn=vad_fn,
+                                          **(LONG_VAD_KWARGS if long_windows else {})),
+                gap_s=(LONG_MERGE_GAP_S if long_windows
+                       else MERGE_GAP_MIXED_S if mixed_languages else MERGE_GAP_S)),
+            audio, sr,
+            **({"max_s": LONG_WINDOW_S, "search_window_s": LONG_CUT_SEARCH_S}
+               if long_windows else {}))
         windows = vad_segments.context_windows(spans, len(audio) / sr, CONTEXT_PAD_S)
-        del audio
+        # Frees the ONNX session before Qwen loads.
+        del audio, vad_fn
         if not spans:
             return []
         if cancel_check:
@@ -365,7 +445,9 @@ class Qwen3ASRVadBackend:
         if stage_cb:
             stage_cb("Loading the Qwen3-ASR model")
         span_segments = [{"start": w.start_s, "end": w.end_s, "text": ""} for w in windows]
-        refine_timing = refine_timing and not mixed_languages
+        # A long window holds many lines whose split times are only estimates
+        # until the aligner places them.
+        refine_timing = (refine_timing or long_windows) and not mixed_languages
         scale = 0.9 if refine_timing else 1.0
 
         def _progress(frac):
@@ -392,7 +474,8 @@ class Qwen3ASRVadBackend:
             text = (seg["text"] or "").strip()
             if text:
                 pieces.extend({**p, "span": n} for p in split_long_segments(
-                    [{**seg, "text": text}]))
+                    [{**seg, "text": text}],
+                    **({"rules": SENTENCE_SPLIT_RULES} if long_windows else {})))
         pieces = filter_hallucinated_segments(pieces)
         groups = {}
         for p in pieces:
@@ -445,131 +528,27 @@ class Qwen3ASRVadBackend:
                 cancel_check=cancel_check, progress_cb=progress_cb)
 
 
-# ---------------------------------------------------------------------------
-# MOSS-Transcribe-Diarize (experimental, opt-in)
-# ---------------------------------------------------------------------------
-#
-# One model that transcribes AND labels speakers in a single pass
-# (https://github.com/OpenMOSS/MOSS-Transcribe-Diarize, Apache-2.0), unlike
-# Whisper (+ pyannote afterwards). Written against that repo's README and
-# moss_transcribe_diarize/inference_utils.py at commit 61bc29c (package
-# version 0.1.0; model revision MOSS_HF_REVISION). It is not on PyPI -- it
-# installs from its own repository into the app's own Python environment and
-# needs Transformers >= 5.6, which breaks qwen-asr (pinned to 4.57.6): with
-# MOSS installed, Qwen3-ASR and Qwen3 forced alignment stop working. Off unless Settings > Transcription experiments turns
-# it on (services/asr_options_service.get_moss_experimental), and only ever
-# picked explicitly per drama -- never switched to automatically.
-#
-# Unlike Qwen3ASRBackend it produces its own segment boundaries (that is the
-# point of trying it), so a comparison against Whisper+pyannote measures
-# both segmentation and text at once; see docs/asr-experiments.md.
-
-MOSS_MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
-# Package tested: pip install
-#   "git+https://github.com/OpenMOSS/MOSS-Transcribe-Diarize@61bc29cd4120be7b5d3b761b64cd5dff57263642"
-# The Hugging Face model revision loaded. The model needs trust_remote_code
-# (the package doesn't register its classes with transformers' Auto*), so the
-# Python files it downloads run inside this process: pin the revision so a
-# change on the Hub can't run new code here. Moving the pin needs a review
-# of the upstream diff.
-MOSS_HF_REVISION = "704aa4a9c304e8520be88901e0d1960158ef5b15"
-# Upper bound on generated tokens for one file. The upstream subtitle app
-# uses 2048 per request; an audio drama episode is longer, so allow more and
-# report when the limit was reached (the tail may be missing).
-MOSS_MAX_NEW_TOKENS = 16384
-
-
-class MossNotInstalledError(ImportError):
-    pass
-
-
-def load_moss_transcribe_diarize(use_gpu: bool = False):
-    """(model, processor, device, dtype), cached in _asr_model_cache so
-    core.release_gpu_models() frees it like the Qwen models. Falls back to
-    CPU when use_gpu is off or CUDA isn't available."""
-    try:
-        import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor
-        import moss_transcribe_diarize  # noqa: F401 -- only checks the package is installed
-    except ImportError as exc:
-        raise MossNotInstalledError(str(exc)) from exc
-
-    device = torch.device("cuda:0" if use_gpu and torch.cuda.is_available() else "cpu")
-    cache_key = f"moss_{device.type}"
-    if cache_key in _asr_model_cache:
-        return _asr_model_cache[cache_key]
-    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
-    try:
-        model = AutoModelForCausalLM.from_pretrained(
-            MOSS_MODEL_ID, revision=MOSS_HF_REVISION, trust_remote_code=True, dtype="auto",
-            attn_implementation="sdpa",
-        ).to(dtype=dtype).to(device).eval()
-        processor = AutoProcessor.from_pretrained(MOSS_MODEL_ID, revision=MOSS_HF_REVISION,
-                                                  trust_remote_code=True)
-    except Exception as exc:
-        if is_network_error(exc):
-            raise ModelDownloadError(
-                f"Couldn't download the {MOSS_MODEL_ID} model.\n\nThis is a network problem, "
-                "not a problem with your audio. The model is fetched from Hugging Face the "
-                "first time you use it.") from exc
-        raise
-    loaded = (model, processor, device, dtype)
-    _asr_model_cache[cache_key] = loaded
-    return loaded
-
-
-def moss_segments_from_transcript(parsed) -> list:
-    """Plain {"start", "end", "text", "speaker"} dicts from
-    moss_transcribe_diarize.parse_transcript()'s TranscriptSegment objects,
-    dropping empty text and turns with no positive length."""
-    out = []
-    for seg in parsed or []:
-        text = (getattr(seg, "text", "") or "").strip()
-        start, end = float(getattr(seg, "start", 0.0)), float(getattr(seg, "end", 0.0))
-        if not text or end <= start:
-            continue
-        speaker = getattr(seg, "speaker", None)
-        out.append({"start": start, "end": end, "text": text,
-                    "speaker": str(speaker) if speaker else None})
-    return out
-
-
-class MossTranscribeDiarizeBackend:
-    """Experimental: transcribes the whole file in one pass and returns
-    segments that also carry a "speaker" label (e.g. "S01")."""
-    name = "moss_td"
-
-    def transcribe(self, audio_path, language=None, use_gpu=False, run_info=None):
-        """Segments as {"start", "end", "text", "speaker"}. language is
-        accepted for interface parity; MOSS detects it itself. run_info, if
-        given, is filled with {"device": "cuda"|"cpu", "truncated": bool}."""
-        model, processor, device, dtype = load_moss_transcribe_diarize(use_gpu=use_gpu)
-        try:
-            from moss_transcribe_diarize import parse_transcript
-            from moss_transcribe_diarize.inference_utils import (
-                build_transcription_messages, generate_transcription)
-        except ImportError as exc:
-            raise MossNotInstalledError(str(exc)) from exc
-        messages = build_transcription_messages(audio_path)
-        result = generate_transcription(
-            model, processor, messages, max_new_tokens=MOSS_MAX_NEW_TOKENS, do_sample=False,
-            device=device, dtype=dtype)
-        if run_info is not None:
-            run_info["device"] = "cuda" if getattr(device, "type", "") == "cuda" else "cpu"
-            run_info["truncated"] = int(result.get("generated_tokens") or 0) >= MOSS_MAX_NEW_TOKENS
-        return moss_segments_from_transcript(parse_transcript(result.get("text") or ""))
+class Qwen3ASRLongBackend(Qwen3ASRVadBackend):
+    """Qwen3-ASR on long windows: gentle speech detection that keeps short and
+    quiet speech, neighbouring spans packed into windows of up to
+    LONG_WINDOW_S, every window cut into sentence lines and timed by the
+    forced aligner. Subtitle line length comes from the text and the aligned
+    timings, not from where the speech detector found a pause, so the model
+    always hears whole sentences with their context. With mixed_languages it
+    runs exactly as the "qwen3_asr_vad" backend (per-span language detection
+    needs the short spans)."""
+    name = "qwen3_asr_long"
+    long_windows = True
 
 
 # The seam: every selectable transcription backend by its stored
-# asr_backend_choice value. Experimental ones are listed separately so a
-# caller can refuse them unless their toggle is on.
+# asr_backend_choice value.
 BACKENDS = {
     WhisperBackend.name: WhisperBackend,
     Qwen3ASRBackend.name: Qwen3ASRBackend,
     Qwen3ASRVadBackend.name: Qwen3ASRVadBackend,
-    MossTranscribeDiarizeBackend.name: MossTranscribeDiarizeBackend,
+    Qwen3ASRLongBackend.name: Qwen3ASRLongBackend,
 }
-EXPERIMENTAL_BACKENDS = frozenset({MossTranscribeDiarizeBackend.name})
 
 
 def get_backend(name: str):

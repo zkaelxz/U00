@@ -1,6 +1,7 @@
 // Pure form logic for the Translate stage (no React), so it can be unit
 // tested. Ranges mirror api/schemas/translate.py TranslateRunStart.
 
+import { THINKING_SWITCH_ENGINES } from '../../api/live'
 import type {
   EstimateParams,
   FallbackEngine,
@@ -28,13 +29,15 @@ export interface RunForm {
   forceConfirmed: boolean
   reflect: boolean
   bulk: boolean
+  thinking: boolean // "Think harder on tricky text"; only DeepSeek and Ollama can follow it
   female_pronouns: boolean // she/her default for ambiguous pronouns
   genre_notes: boolean // baihe/GL genre guidance in the prompt
 }
 
 // Engines that only translate (no free-form prompting) cannot run Reflect.
 // Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
-const TRANSLATION_ONLY = ['nllb']
+// Mutable only so tests can register a stand-in; the app never changes it.
+export const TRANSLATION_ONLY: string[] = []
 
 export function isTranslationOnly(engine: string): boolean {
   return TRANSLATION_ONLY.includes(engine)
@@ -42,6 +45,35 @@ export function isTranslationOnly(engine: string): boolean {
 
 export function reflectAvailable(engine: string): boolean {
   return !isTranslationOnly(engine)
+}
+
+// Whether the "think harder" choice does anything for this run: some engine in
+// the chain needs a request switch (a fallback is sent the same context as the
+// main engine, so it thinks too), and Reflect's passes and a Claude/Gemini
+// batch have none (services/translate_thinking_service.py).
+export function thinkingEngines(engine: string, fallbacks: string[], reflect: boolean, switchEngines?: string[]): string[] {
+  if (reflect) return []
+  const withSwitch = switchEngines ?? THINKING_SWITCH_ENGINES
+  return [engine, ...fallbacks].filter((e) => e && withSwitch.includes(e))
+}
+
+export function thinkingApplies(engine: string, reflect: boolean, switchEngines?: string[], fallbacks: string[] = []): boolean {
+  return thinkingEngines(engine, fallbacks, reflect, switchEngines).length > 0
+}
+
+export function thinkingHelp(engine: string, reflect: boolean, switchEngines?: string[], fallbacks: string[] = []): string {
+  const thinkers = thinkingEngines(engine, fallbacks, reflect, switchEngines)
+  if (thinkers.length) {
+    const where = fallbacks.some((e) => e) ? ` It applies to ${thinkers.join(' and ')}, not to the other engines in the chain.` : ''
+    // The estimate prices the main engine, so it only undercounts when that engine is the one that thinks.
+    const estimate = thinkers.includes(engine)
+      ? 'so the cost estimate is a lower bound'
+      : 'and the cost estimate, which prices the main engine, does not include it'
+    return `Off by default. Turn it on for ambiguous or idiomatic text, such as novels and video subtitles: the model reasons before it answers. Slower and costs more; the hidden reasoning is billed as output, ${estimate}.${where}`
+  }
+  const chain = [engine, ...fallbacks.filter((e) => e)]
+  const why = reflect ? 'Reflect mode has no thinking switch' : chain.length > 1 ? `${chain.join(' and ')} have no thinking switch` : `${engine} has no thinking switch`
+  return `${why}, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.`
 }
 
 // A fallback chain can't mix AI (instruction-following) engines with
@@ -161,8 +193,11 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     forceConfirmed: false,
     reflect: false,
     bulk: false,
-    female_pronouns: preset.default_female_pronouns ?? false,
-    genre_notes: preset.include_genre_notes ?? true,
+    thinking: c.title_thinking ?? false,
+    // The title's saved choice first (what every run, retry and AI action
+    // uses), then a preset's value, then the API defaults.
+    female_pronouns: c.default_female_pronouns ?? preset.default_female_pronouns ?? false,
+    genre_notes: c.include_genre_notes ?? preset.include_genre_notes ?? true,
   }
 }
 
@@ -224,6 +259,7 @@ export function buildRunBody(f: RunForm): TranslateRunStartBody {
     ...(chain.length ? { fallback_chain: chain } : {}),
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
+    thinking: f.thinking,
     default_female_pronouns: f.female_pronouns,
     include_genre_notes: f.genre_notes,
   }
@@ -240,6 +276,7 @@ export function buildEstimateParams(f: RunForm): EstimateParams | null {
     job_cost_cap_usd: cap,
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
+    thinking: f.thinking,
   }
 }
 
@@ -321,6 +358,18 @@ export function withPresetEngine(c: TranslateRunConfig, p: TranslatePresetApplie
 // A warning only: Translate stays enabled, so the server's own error is the final word.
 export function ollamaWarning(effEngine: string, reachable: boolean | null | undefined): boolean {
   return effEngine === 'ollama' && reachable === false
+}
+
+// Plain-language privacy/limit notice for a hosted model; null for anything
+// that runs on this PC. The default model is never a cloud one, so an empty
+// model never triggers it.
+export function cloudModelNotice(
+  engine: { cloud_models?: string[] } | null | undefined,
+  model: string,
+): string | null {
+  if (!model || !engine?.cloud_models?.includes(model)) return null
+  return 'This is a cloud model: the subtitle text is sent off this PC to Ollama\'s servers. '
+    + 'Free use has limits; if you hit them, Ollama\'s message is shown and the run can be resumed later.'
 }
 
 // The guidance text for a style key ('' when the server sent none).

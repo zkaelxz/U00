@@ -298,7 +298,7 @@ class TestResegmentSubprocessWorker:
 
         result_queue = queue.Queue()
         rs.resegment_subprocess_worker(
-            [ln], "zh", ScriptedEngine([_marked("我" * 20, "你" * 20)]), None, "simplified",
+            [ln], "zh", ScriptedEngine([_marked("我" * 20, "你" * 20)]), None, "simplified", 0.35,
             result_queue)
         outcome = result_queue.get_nowait()
 
@@ -329,7 +329,7 @@ class TestResegmentSubprocessWorker:
         ln = Line(idx=0, start=0.0, end=8.0, zh=TestLlmPass.LONG)
         result_queue = queue.Queue()
         rs.resegment_subprocess_worker(
-            [ln], "zh", FakeClaudeLike(), None, "simplified", result_queue)
+            [ln], "zh", FakeClaudeLike(), None, "simplified", 0.35, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome[0] == "ok"
@@ -343,7 +343,7 @@ class TestResegmentSubprocessWorker:
         result_queue = queue.Queue()
         import unittest.mock
         with unittest.mock.patch.object(rs, "resegment_lines", _boom):
-            rs.resegment_subprocess_worker([ln], "zh", None, None, "simplified", result_queue)
+            rs.resegment_subprocess_worker([ln], "zh", None, None, "simplified", 0.35, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("error", "RuntimeError", "resegment exploded")

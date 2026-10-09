@@ -212,6 +212,39 @@ class TestTheEndpointRefusesWhatItShould:
                         path="/pages")
         assert handler.status == 413
 
+    def test_the_limit_reply_names_the_limit_the_extension_parses(self, token, fake_pipeline):
+        # extension/content.js re-splits its batches from this exact wording.
+        one = {"data": _b64(_png_bytes()), "content_type": "image/png"}
+        handler = _post(token, {"images": [one] * (page_server.MAX_IMAGES_PER_REQUEST + 1)},
+                        path="/pages")
+        assert handler.payload["error"] == (
+            f"at most {page_server.MAX_IMAGES_PER_REQUEST} images per request")
+
+    def test_a_full_batch_is_accepted(self, token, fake_pipeline):
+        images = [{"data": _b64(_png_bytes(colour=(240, 240 - i, 240))),
+                   "content_type": "image/png", "key": str(i)}
+                  for i in range(page_server.MAX_IMAGES_PER_REQUEST)]
+        handler = _post(token, {"images": images, "store": False, "filter_pages": False},
+                        path="/pages")
+        assert handler.status == 200
+        assert len(handler.payload["pages"]) == page_server.MAX_IMAGES_PER_REQUEST
+
+    def test_sequential_batches_are_stored_in_send_order(self, token, fake_pipeline,
+                                                         isolated_db):
+        # The extension sends a long chapter as sequential batches in DOM
+        # order; saved page order is then chapter order.
+        import db
+        drama_id = db.create_drama(title_en="Strip", media_type="manga", source_language="ja")
+        ids = []
+        for batch in range(2):
+            images = [{"data": _b64(_png_bytes(colour=(240, 240 - batch * 40 - i, 240))),
+                       "content_type": "image/png", "key": f"{batch}-{i}"} for i in range(3)]
+            handler = _post(token, {"images": images, "drama_id": drama_id, "store": True,
+                                    "filter_pages": False}, path="/pages")
+            assert handler.status == 200
+            ids += [p["page_id"] for p in handler.payload["pages"]]
+        assert [p["id"] for p in db.list_pages(drama_id)] == ids
+
     def test_page_takes_exactly_one_image(self, token, fake_pipeline):
         one = {"data": _b64(_png_bytes()), "content_type": "image/png"}
         assert _post(token, {"images": [one, one]}, path="/page").status == 400
@@ -547,13 +580,13 @@ class TestTranslatingCapturedText:
                             lambda *a: (False, "Not supported."))
 
         class _FakeEngine:
-            name = "nllb"
+            name = "fake_mt"
 
             def translate_batch(self, chunks, context):
                 return list(chunks)
 
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
-        page_server.set_translation_config(engine="nllb", api_key="local")
+        page_server.set_translation_config(engine="fake_mt", api_key="local")
         handler = self._post_text(token, text="hello there", source_language="en",
                                   target_language="zh")
         assert handler.status == 422

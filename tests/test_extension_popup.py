@@ -20,8 +20,9 @@ HARNESS = textwrap.dedent("""
                         options: [], value: "", checked: true, textContent: "" });
     const status = el();
     const sandbox = {
-      document: { getElementById: (id) => (id === "status" ? status : el()) },
-      chrome: { runtime: { sendMessage: async () => ({ ok: false, error: "x" }) },
+      document: { getElementById: (id) => (id === "status" ? status : el()), querySelectorAll: () => [] },
+      chrome: { runtime: { sendMessage: async () => ({ ok: false, error: "x" }),
+                           onMessage: { addListener() {} } },
                 tabs: { query: async () => [] } },
       console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
     };

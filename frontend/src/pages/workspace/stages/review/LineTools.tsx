@@ -1,18 +1,16 @@
 import { useEffect, useState } from 'react'
 
 import { ApiError, withSignal } from '../../../../api/client'
-import { lineAlternatives, lineGrammar, pronounceLine } from '../../../../api/review'
+import { lineAlternatives, lineGrammar } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { LineAlternatives, LineGrammar, ReviewLine } from '../../../../types/review'
 import { AI_STALE_MESSAGE, AI_UNAVAILABLE_MESSAGE, suggestionIsStale, type ToolMode } from './reviewLogic'
 
-// Review parity R17-R19: the per-line study tools. "Alternatives" and
+// Review parity R17-R18: the per-line study tools. "Alternatives" and
 // "Grammar" ask an AI engine (on the PC; no key in the browser) and write
 // nothing; "Use this" on an alternative goes through the editor's
-// compare-and-set patch. "Pronounce" plays an edge-tts clip of the source.
-
-const PRONOUNCE_UNAVAILABLE = 'Pronouncing needs edge-tts on the PC (see Diagnostics).'
+// compare-and-set patch.
 
 interface Props {
   dramaId: number
@@ -26,7 +24,6 @@ interface Props {
 type Result =
   | { kind: 'alternatives'; data: LineAlternatives }
   | { kind: 'grammar'; data: LineGrammar }
-  | { kind: 'pronounce'; url: string }
 
 // Asks once when opened (keyed by line and mode) and again on "Try again".
 // Closing aborts the request; a late answer is ignored.
@@ -41,31 +38,22 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   useEffect(() => {
     const ctl = new AbortController()
     const f = withSignal(ctl.signal)
-    let url: string | null = null
     const fail = (e: unknown) => {
       if (ctl.signal.aborted) return
       setBusy(false)
       if (e instanceof ApiError && e.status === 503) setUnavailable(true)
       else setError(e)
     }
-    const req: Promise<Result | Blob> =
+    const req: Promise<Result> =
       mode === 'alternatives'
         ? lineAlternatives(dramaId, line.id, f).then((data) => ({ kind: 'alternatives' as const, data }))
-        : mode === 'grammar'
-          ? lineGrammar(dramaId, line.id, f).then((data) => ({ kind: 'grammar' as const, data }))
-          : pronounceLine(dramaId, line.id, f)
+        : lineGrammar(dramaId, line.id, f).then((data) => ({ kind: 'grammar' as const, data }))
     req.then((r) => {
       if (ctl.signal.aborted) return
       setBusy(false)
-      if (r instanceof Blob) {
-        url = URL.createObjectURL(r)
-        setResult({ kind: 'pronounce', url })
-      } else setResult(r)
+      setResult(r)
     }, fail)
-    return () => {
-      ctl.abort()
-      if (url) URL.revokeObjectURL(url)
-    }
+    return () => ctl.abort()
   }, [dramaId, line.id, mode, attempt])
 
   const retry = () => {
@@ -79,37 +67,26 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
     setUsing(true)
     onUse(text).then((ok) => ok && onClose()).finally(() => setUsing(false))
   }
-  const title = mode === 'alternatives' ? 'Alternatives' : mode === 'grammar' ? 'Grammar' : 'Pronounce'
+  const title = mode === 'alternatives' ? 'Alternatives' : 'Grammar'
   const hide = `Hide ${title.toLowerCase()}`
 
   return (
     <div className="review-ai-panel" data-testid="line-tools-panel" aria-label={title} role="group">
-      {busy && <p className="muted">{mode === 'pronounce' ? 'Making the audio…' : 'Working…'}</p>}
+      {busy && <p className="muted">Working…</p>}
       {result?.kind === 'alternatives' && (
         <AlternativeList line={line} data={result.data} busy={using} onUse={use} />
       )}
       {result?.kind === 'grammar' && <GrammarList data={result.data} />}
-      {result?.kind === 'pronounce' && (
-        <audio controls autoPlay src={result.url} data-testid="pronounce-audio" className="review-pronounce">
-          <track kind="captions" />
-        </audio>
-      )}
       {unavailable && (
         <p className="error" role="alert" data-testid="line-tools-unavailable">
-          {mode === 'pronounce' ? (
-            PRONOUNCE_UNAVAILABLE
-          ) : (
-            <>
-              {AI_UNAVAILABLE_MESSAGE} <a href="#/settings">Open Settings</a>
-            </>
-          )}
+          {AI_UNAVAILABLE_MESSAGE} <a href="#/settings">Open Settings</a>
         </p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <div className="review-actions">
-        {(error !== null || unavailable || mode === 'pronounce') && !busy && (
+        {(error !== null || unavailable) && !busy && (
           <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-tools-retry" onClick={retry}>
-            {mode === 'pronounce' && result ? 'Make again' : 'Try again'}
+            Try again
           </button>
         )}
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>

@@ -1,8 +1,8 @@
 /*
  * "Save N chapters as CBZ" for the open comic series: the ticked chapters
  * are written as CBZ files into the save folder on the PC (the saved_comics
- * folder in the app's data folder, or one picked under Saved manga), without
- * a drama; they are read in the app under Saved manga. One save runs at a time (job
+ * folder in the app's data folder, or one picked in Settings), without
+ * a drama; they are read in the app under Library tools. One save runs at a time (job
  * sources_save); the server answers per chapter (saved / already saved /
  * failed / not found) and never returns a path. A finished result is shown
  * only for a run started here: the job id is shared by every series.

@@ -39,3 +39,9 @@ Thumbs.db
 
 # Local smoke pack (clip, baseline, run reports)
 /smoke_pack/
+
+# Session-local scratch (screenshots, temp output); never commit
+/tmp/
+
+# Chromium that Diagnostics > Install browser support downloads
+playwright_browsers/

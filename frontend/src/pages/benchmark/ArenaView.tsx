@@ -7,7 +7,7 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import {
-  arenaRunNames, deltaTone, formatCost, formatDelta, formatLatency, formatScore, metricName, metricNote, mixedScorerNote, plainError,
+  arenaRunNames, deltaTone, formatCost, formatDelta, formatLatency, formatScore, metricName, metricNote, mixedMetricNote, mixedScorerNote, plainError,
   runConfigLabel, runStatusLabel, runStatusTone, tierLabel, tierTone,
 } from './benchmarkForm'
 
@@ -75,9 +75,9 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
         {arena && (
           <>
             <p className="muted">{metricNote(stage)}</p>
-            {mixedScorerNote(arena.rows) && (
+            {(mixedScorerNote(arena.rows) || mixedMetricNote(arena.rows)) && (
               <p className="warn" role="note" data-testid="bench-mixed-scorers">
-                {mixedScorerNote(arena.rows)}
+                {mixedScorerNote(arena.rows) || mixedMetricNote(arena.rows)}
               </p>
             )}
             <ol className="bench-arena-runs" data-cols={phone ? 1 : arena.runs.length} aria-label="Runs compared">

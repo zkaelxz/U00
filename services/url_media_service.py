@@ -7,8 +7,9 @@ video). The route is
 Checks in the request, before any job or fetch: the pasted URL is public
 (sources_url_service.check_public_url: http(s), no userinfo, <=2000 chars,
 every resolved address global), the drama exists and works from audio
-(`content_mode` audio_drama or streamer_vod), replacing existing audio
-needs `confirm_replace_audio`, yt-dlp is installed (unless the link is a
+(`content_mode` audio_drama or streamer_vod), replacing existing audio or
+video needs `confirm_replace_audio` (media_upload_service.has_media, as an
+upload), yt-dlp is installed (unless the link is a
 direct media link), no job runs for the
 drama, and no other URL download runs in this process.
 
@@ -27,10 +28,13 @@ the same rule as safe_fetch), streamed under the same byte, wall-clock and
 cancel caps; its audio is converted with ffmpeg. Audio only: the extracted
 WAV becomes `source.wav`. Video: the
 audio is extracted with ffmpeg inside the temp folder first, then the
-video becomes `source<ext>` and the audio `audio.wav`. The one DB write is
-field-scoped: audio_filename, [source_video_filename], source_url and,
-only when both titles are empty (re-read just before writing), title_zh.
-Audio-only leaves an older source_video_filename as is.
+video becomes `source<ext>` and the audio `audio.wav`. Files go in place
+through media_upload_service.install_media, as an upload does: never over
+an existing file (`-2`... while the old one is there), one field-scoped DB
+write as the commit point (audio_filename, [source_video_filename],
+source_url and, only when both titles are empty (re-read just before
+writing), title_zh), then the replaced files move to kept_media/.
+Audio-only clears an older source_video_filename and moves that video there too.
 
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
 """
@@ -39,6 +43,7 @@ import importlib.util
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -48,6 +53,7 @@ from urllib.parse import urljoin, urlsplit
 import background_jobs
 import db
 import storage
+import video_export
 from services import drama_service, media_upload_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -62,7 +68,10 @@ _ONE_AT_A_TIME = "Another URL download is running. Wait for it to finish or canc
 _NO_YTDLP = "Downloading from a URL needs yt-dlp, which isn't installed on this PC."
 _FAILED = ("Couldn't download from that link. It may be private, region-locked or not "
            "supported, or yt-dlp may need an update.")
+_SAVE_FAILED = ("Downloaded, but couldn't make it this title's audio. The title's audio and "
+               "video are unchanged.")
 _REJECTED = "That link is a live stream, a playlist or longer than 6 hours, so it was not downloaded."
+_NO_ROOM = "There is not enough free disk space for this download."
 _TOO_LARGE = "The download is larger than the upload limit, so it was stopped."
 _DISK_NEARLY_FULL = "The drive is almost full, so the download was stopped."
 MIN_FREE_BYTES = 2 * 1024 ** 3
@@ -98,11 +107,6 @@ def _any_url_download_running() -> bool:
             if st.get("status") in ("running", "queued"):
                 return True
     return False
-
-
-def _has_audio(drama: dict, drama_id: int) -> bool:
-    audio = drama.get("audio_filename")
-    return bool(audio and os.path.exists(os.path.join(db.drama_dir(drama_id), audio)))
 
 
 class _Caps:
@@ -175,9 +179,7 @@ def ydl_options(tmp_dir: str, caps: _Caps) -> dict:
 
 
 def _extract_cmd(video_path: str, wav_path: str) -> list:
-    """-protocol_whitelist file: a downloaded "mp4" could really be an HLS
-    playlist naming network URLs; ffmpeg may only open local files."""
-    return ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path, "-vn",
+    return ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path, "-vn",
             "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wav_path]
 
 
@@ -225,6 +227,11 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
             length = str(resp.headers.get("Content-Length") or "").strip()
             if length.isdigit() and int(length) > limit:
                 raise RuntimeError(_TOO_LARGE)
+            if length.isdigit():
+                try:
+                    media_upload_service.check_room_for(tmp, int(length))
+                except InvalidInputError:
+                    raise RuntimeError(_NO_ROOM) from None
 
             def check():
                 if background_jobs.is_cancel_requested(job_id):
@@ -346,7 +353,6 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
 
 
 def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
-    ddir = db.drama_dir(drama_id)
     tmp = storage.new_workdir(job_id)
     try:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
@@ -357,28 +363,28 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
             path, title = _download(job_id, url, tmp, audio_only)
         ext = os.path.splitext(path)[1].lower()
         if audio_only and not direct_ext:
-            os.replace(path, os.path.join(ddir, "source.wav"))
-            fields = {"audio_filename": "source.wav"}
+            new_files = {"audio_filename": (path, "source", ".wav")}
         elif direct_ext and (audio_only or ext in media_upload_service.AUDIO_EXTENSIONS):
             background_jobs.update_progress(job_id, 0.88, "Converting the audio...")
             wav = os.path.join(tmp, "converted.wav")
             _extract_audio(job_id, path, wav, tmp)
-            os.replace(wav, os.path.join(ddir, "source.wav"))
-            fields = {"audio_filename": "source.wav"}
+            new_files = {"audio_filename": (wav, "source", ".wav")}
         else:
             if ext not in media_upload_service.VIDEO_EXTENSIONS:
                 raise RuntimeError(_FAILED)
             background_jobs.update_progress(job_id, 0.88, "Extracting audio from the video...")
             wav = os.path.join(tmp, "audio.wav")
             _extract_audio(job_id, path, wav, tmp)
-            os.replace(path, os.path.join(ddir, f"source{ext}"))
-            os.replace(wav, os.path.join(ddir, "audio.wav"))
-            fields = {"audio_filename": "audio.wav", "source_video_filename": f"source{ext}"}
-        fields["source_url"] = url
+            new_files = {"source_video_filename": (path, "source", ext),
+                         "audio_filename": (wav, "audio", ".wav")}
+        fields = {"source_url": url}
         drama = db.get_drama(drama_id) or {}  # re-read just before writing
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
-        db.update_drama(drama_id, **fields)
+        try:
+            media_upload_service.install_media(drama_id, new_files, **fields)
+        except (OSError, sqlite3.Error):
+            raise RuntimeError(_SAVE_FAILED) from None
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
                                             "title_filled": "title_zh" in fields})
         background_jobs.update_progress(job_id, 1.0, "Downloaded.")
@@ -388,7 +394,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
 
 def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -> dict:
     """Starts `urlmedia_<drama_id>`; poll GET /api/jobs/{job_id}. 422 bad or
-    private URL, wrong content_mode, or audio exists without
+    private URL, wrong content_mode, or audio or video exists without
     confirm_replace_audio (details.reason "confirm_replace_audio"); 503 the
     host doesn't resolve or yt-dlp is missing; 404 no drama; 409 while a
     job or upload runs for the drama, or another URL download runs."""
@@ -400,7 +406,7 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
         raise NotFoundError(f"No drama with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in media_upload_service.UPLOAD_CONTENT_MODES:
         raise InvalidInputError(media_upload_service.NO_UPLOAD_MODE)
-    if _has_audio(drama, drama_id) and not confirm_replace_audio:
+    if media_upload_service.has_media(drama, drama_id) and not confirm_replace_audio:
         raise InvalidInputError("This drama already has audio. Confirm replacing it first.",
                                 details={"reason": "confirm_replace_audio"})
     if direct_media_ext(url) is None and not _yt_dlp_installed():

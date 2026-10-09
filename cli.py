@@ -31,6 +31,19 @@ Examples:
   # --lang default puts them back to the title's language
   python cli.py set-language --id 12 --speaker SPEAKER_01 --lang en
 
+  # Transcribe a title's audio (options are saved on the title, as in the app)
+  python cli.py transcribe --id 12 --language zh --whisper-size large-v3 --diarize
+
+  # Run Auto QC (no engine, no cost) on one title or the whole library
+  python cli.py qc --id 12
+
+  # The series glossary of title 12
+  python cli.py glossary list --id 12
+  python cli.py glossary add --id 12 --original 沈清疑 --translation "Shen Qingyi"
+  python cli.py glossary import --id 12 terms.csv
+  python cli.py glossary export --id 12 --output terms.csv
+  python cli.py glossary remove --id 12 --term 沈清疑 --yes
+
   # List what's in the library and its status
   python cli.py list
 """
@@ -50,22 +63,26 @@ import traceback
 import audio_preprocess
 import core as core_module
 import db
+import ollama_unload
 import diagnostics
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
     DEFAULT_WHISPER_SIZE, ModelDownloadError, line_from_row,
 )
-import subtitle_formats
+import subtitle_formats, glossary_io as gio
 import translate_engines
 import translation_guide as tguide
-import bulk_translate
-import raw_transcript
+import bulk_translate, raw_transcript
 import dub as dub_module
+import dub_narration as dn
+import real_model_check_cli
 import background_jobs
-from services import (dub_service, engine_routing_service, glossary_retranslate_service,
-                      lines_service, line_provenance_service, narration_service, settings_service,
-                      transcribe_service, translate_service, workspace_job_service)
+import cli_subtitle
+from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
+                      glossary_service, jobs_service, lines_service, line_provenance_service,
+                      narration_service, review_extras_service, settings_service, transcribe_service,
+                      translate_run_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.service_errors import DependencyUnavailableError, ServiceError
 from services.translate_run_service import (engine_cap_applies, get_translate_config_defaults,
@@ -288,8 +305,8 @@ def cmd_export_video(args):
         out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
         print(f"#{d['id']} rendering {mode} video...")
         soft = not use_ass and mode != "hardsub"
-        if soft and out_ext.lower() not in (".mp4", ".mkv"):
-            out_path = os.path.splitext(out_path)[0] + ".mp4"
+        if soft:
+            out_path = os.path.splitext(out_path)[0] + video_export.softsub_output_extension(video_path)
         # Render beside the final file and replace it only on success, so a
         # failed or interrupted run never leaves a partial file under the real name.
         tmp_path = os.path.splitext(out_path)[0] + ".partial" + os.path.splitext(out_path)[1]
@@ -478,6 +495,7 @@ def cmd_align(args):
         # Same saved tuning the service's transcribe job uses
         # (transcribe_service.get_transcribe_config); --fast still wins.
         cfg = transcribe_service.get_transcribe_config(d["id"])
+        fast = getattr(args, "fast", False) or cfg["whisper_fast_mode"]
         use_gpu = settings_service.get_use_gpu()
         language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
@@ -493,6 +511,7 @@ def cmd_align(args):
             raise RuntimeError(
                 "use_groq is on but no Groq API key is configured. Set one in Settings first.")
         local_model_path = settings_service.get_whisper_model_path()
+        app_gpu_settings = raw_transcript.current_gpu_app_settings()
         gpu_fallback = []
         started = time.monotonic()
         if use_groq:
@@ -506,10 +525,15 @@ def cmd_align(args):
             segments = transcribe_for_timing(
                 audio_path, whisper_size, language=language, use_gpu=use_gpu,
                 local_model_path=local_model_path,
-                fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
+                fast_mode=fast,
                 initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
-                min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
+                min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
+                sensitivity_preset=cfg["sensitivity_preset"],
+                hallucination_silence_sec=cfg["hallucination_silence_sec"],
+                repeat_guard=cfg["whisper_repeat_guard"],
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
+        if "ollama_notice" in (notice := ollama_unload.take_notice_result()):
+            print(f"#{d['id']} WARNING: {notice['ollama_notice']}")
         if not segments:
             release_gpu_models()
             print(f"#{d['id']} skipped: no speech was found in the audio, so nothing was "
@@ -524,8 +548,7 @@ def cmd_align(args):
         if gpu_fallback:
             print(f"#{d['id']} WARNING: "
                   f"{core_module.gpu_fallback_notice('Transcription', gpu_fallback[0])}")
-        elif (segments and not use_groq and not cfg["whisper_fast_mode"]
-              and not getattr(args, "fast", False)):
+        elif segments and not use_groq and not fast:
             # Same history the app's estimate reads; fast mode runs at another speed.
             transcribe_service.record_transcribe_speed(
                 whisper_size, bool(use_gpu), transcribe_service._audio_duration_seconds(audio_path),
@@ -568,7 +591,21 @@ def cmd_align(args):
         # Same untouched-output record the Workspace transcription writes.
         raw_transcript.write_raw_transcript(
             ddir, segments, lines, backend="whisper", model=whisper_size,
-            language=language, mode="aligned_transcript")
+            language=language, mode="aligned_transcript",
+            settings=raw_transcript.build_run_settings(
+                asr_backend="whisper", whisper_size=whisper_size,
+                local_model_path=local_model_path, language=language,
+                transcript_mode="have_transcript", alignment_method=alignment_method,
+                min_silence_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
+                sensitivity_preset=cfg["sensitivity_preset"], beam_size=cfg["beam_size"],
+                hallucination_silence_sec=cfg["hallucination_silence_sec"],
+                whisper_fast_mode=fast,
+                whisper_repeat_guard=cfg["whisper_repeat_guard"], use_groq=use_groq,
+                separate_vocals_first=cfg["separate_vocals_first"],
+                separation_backend=cfg["separation_backend"],
+                realign_long_segments=cfg["realign_long_segments"],
+                use_gpu=use_gpu, gpu_fallback_msgs=gpu_fallback,
+                initial_prompt=initial_prompt, **app_gpu_settings))
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} aligned {len(lines)} lines.")
 
@@ -602,8 +639,9 @@ def _parse_fallback_arg(value, reflect=False) -> list:
     if reflect:
         raise SystemExit("translate: --fallback only applies to a normal translation run, "
                          "not --reflect.")
-    if any(n not in translate_engines.ENGINES for n in names):
-        raise SystemExit("translate: --fallback names an unknown translate engine.")
+    for n in names:
+        if n not in translate_engines.ENGINES:
+            raise SystemExit(f"translate: --fallback: {translate_engines.unknown_engine_message(n)}")
     return names
 
 
@@ -628,6 +666,8 @@ def _resolve_glossary_terms(drama: dict, refs) -> list:
 
 
 def cmd_translate(args):
+    if args.engine and args.engine not in translate_engines.ENGINES:
+        raise SystemExit(f"translate: {translate_engines.unknown_engine_message(args.engine)}")
     fallback_names = _parse_fallback_arg(getattr(args, "fallback", None),
                                          reflect=getattr(args, "reflect", False))
     glossary_affected = getattr(args, "glossary_affected", False)
@@ -704,8 +744,7 @@ def cmd_translate(args):
         if chain_error:
             print(f"#{d['id']} skipped: {chain_error}")
             return
-        missing = [n for n in fallback_names
-                   if n != "nllb" and not translate_service.resolve_api_key(n)]
+        missing = [n for n in fallback_names if not translate_service.resolve_api_key(n)]
         if missing:
             print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
             return
@@ -738,17 +777,20 @@ def cmd_translate(args):
         # series glossary, craft/style guidelines, and locale entirely --
         # a real, confirmed gap between what the Workspace Translate
         # button sends and what this command sent for the same drama.
-        # The pronoun-default/genre-notes toggles aren't stored on the drama,
-        # so they come from --female-pronouns / --no-genre-notes (defaults
-        # match the API: she/her off, genre notes on). Everything else --
+        # The pronoun-default/genre-notes toggles come from the flags when given
+        # (and are then saved for the title), else from the title's saved
+        # choice, as in the app. Everything else --
         # series glossary, learned style profile, emotion guidance, gender
         # hints, speaker names -- comes from the same builder the translate
         # run service uses.
+        no_genre = getattr(args, "no_genre_notes", None)
+        include_genre_notes = None if no_genre is None else not no_genre
+        default_female_pronouns = getattr(args, "female_pronouns", None)
         glossary_terms, style_guidelines, character_names = \
             workspace_job_service.build_run_style_context(
                 d["id"], d, lines, style_preset,
-                include_genre_notes=not getattr(args, "no_genre_notes", False),
-                default_female_pronouns=getattr(args, "female_pronouns", False))
+                include_genre_notes=include_genre_notes,
+                default_female_pronouns=default_female_pronouns)
         target_ids = None
         if glossary_affected:
             # Same selection as the app's "Re-translate lines affected by the
@@ -794,6 +836,7 @@ def cmd_translate(args):
             if refusal:
                 raise RuntimeError(refusal)
             caps.append(cap)
+        translate_run_service.save_style_toggles(d["id"], include_genre_notes, default_female_pronouns, getattr(args, "thinking", None))
         if fallback_names:
             engine = translate_engines.FallbackEngine(
                 [engine] + [_engine_for(n) for n in fallback_names], chain_names, caps,
@@ -818,6 +861,7 @@ def cmd_translate(args):
 
         style_note = (args.style_note if args.style_note is not None
                       else settings_service.get_preference("default_style_note"))
+        scene_aware = settings_service.get_preference("scene_aware_batches")
         # Same settings the Workspace job records with each line.
         provenance = line_provenance_service.translate_run_tracker(
             d["id"], lines, engine, engine_name, glossary_terms,
@@ -826,7 +870,8 @@ def cmd_translate(args):
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
-            style_note=style_note or "", style_guidelines=style_guidelines or "")
+            style_note=style_note or "", style_guidelines=style_guidelines or "",
+            scene_aware_batches=scene_aware)
         if force and any(ln.en for ln in lines):
             # Same data-loss guard as translate_run_service: keep the old
             # translation restorable from history before it's overwritten.
@@ -854,7 +899,7 @@ def cmd_translate(args):
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
-            reflect=getattr(args, "reflect", False),
+            reflect=getattr(args, "reflect", False), scene_aware_batches=scene_aware,
             notes_cb=notes_cb,
             progress_cb=_progress,
             save_cb=save_cb,
@@ -907,10 +952,11 @@ def cmd_translate(args):
 def cmd_dub(args):
     # Up front, as the API does: a bad pacing limit or missing TTS package
     # would otherwise fail the same way for every drama in the batch.
+    tts_engine = getattr(args, "tts_engine", None) or dub_module.DEFAULT_CLONE_ENGINE
     try:
         max_speedup, max_slowdown = dub_service.resolve_pacing_limits(
             getattr(args, "max_speedup", None), getattr(args, "max_slowdown", None))
-        dub_service.require_engine_dependency(getattr(args, "tts_engine", None) or "edge_tts")
+        dub_service.require_can_generate(tts_engine, [])
     except ServiceError as e:
         raise SystemExit(f"dub: {e.message}")
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
@@ -929,23 +975,14 @@ def cmd_dub(args):
         ddir = db.drama_dir(d["id"])
 
         source_lang = d.get("source_language") or "zh"
-        default_voice_pool = (dub_module.DEFAULT_VOICE_POOL_BY_LANGUAGE.get(
-            source_lang, dub_module.DEFAULT_VOICE_POOL) if narrate_original
-            else dub_module.DEFAULT_VOICE_POOL)
         chars = db.list_characters(d["id"])
-        voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
-        offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
-                             if c.get("offline_voice")}
+        # Raised, not skipped, so _run_batch counts the drama as failed.
+        dub_service.require_can_generate(tts_engine, chars, narrate_original, source_lang)
         clone_map = dub_module.clone_map_from_characters(
-            chars, ddir, gpt_sovits_url=(getattr(args, "gpt_sovits_url", None)
-                                          or settings_service.resolve_key("gpt_sovits_url") or None),
-            ref_language=source_lang)
-        speakers = {ln.speaker for ln in lines if ln.speaker}
-        voice_map = dub_module.fill_missing_voices(voice_map, speakers, default_voice_pool)
-        offline_voice_map = dub_module.fill_missing_voices(
-            offline_voice_map, speakers, dub_module.DEFAULT_OFFLINE_VOICE_POOL)
+            chars, ddir, default_engine=tts_engine,
+            speaker_labels={ln.speaker or None for ln in lines})
 
-        build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
+        build_fn = dub_service.track_builder(is_narration)
         stretch = {} if is_narration else dict(
             max_speedup=max_speedup, max_slowdown=max_slowdown)
         narration_kwargs = (dict(narrate_original=narrate_original, source_language=source_lang)
@@ -961,9 +998,8 @@ def cmd_dub(args):
 
         # Same clone_map_uses_local_model check the Workspace tab's
         # own Dub job uses to decide gpu_touching -- only some clone/TTS
-        # backends actually load a local model onto the GPU (GPT-SoVITS,
-        # OmniVoice, ...); edge-tts/cloud backends don't, and don't need to
-        # wait on the cross-process GPU lock at all.
+        # backends actually load a local model onto the GPU; only an empty map
+        # skips the cross-process GPU lock.
         _gpu_holder_box = [None]
 
         def _progress(frac, did=d["id"]):
@@ -976,10 +1012,7 @@ def cmd_dub(args):
                         else contextlib.nullcontext(None))
         with _dub_gpu_ctx as _gpu_holder_box[0]:
             out_path, dub_errors = build_fn(
-                lines, ddir, voice_map, default_voice=default_voice_pool[0],
-                character_clone_map=clone_map,
-                emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
-                tts_engine=getattr(args, "tts_engine", None) or "edge_tts",
+                lines, ddir, clone_map,
                 progress_cb=_progress,
                 **stretch, **narration_kwargs,
             )
@@ -997,7 +1030,7 @@ def cmd_dub(args):
                       fields=("dub_filename", "start", "end") if is_narration else ("dub_filename",))
         db.update_drama(d["id"], status="dubbed")
         if is_narration and getattr(args, "m4b", False):
-            m4b_path = dub_module.export_narration_m4b(
+            m4b_path = dn.export_narration_m4b(
                 lines, ddir, title=d.get("title_en") or d.get("title_zh"),
                 narrate_original=narrate_original)
             print(f"\n#{d['id']} audiobook: {m4b_path}")
@@ -1062,6 +1095,194 @@ def cmd_set_language(args):
     print(msg)
 
 
+def cmd_clean_en(args):
+    """The Review stage's "Fix common errors" pass (deterministic, no AI):
+    a preview by default, --apply saves it after a line-history snapshot."""
+    try:
+        preview = review_extras_service.preview_en_cleanup(args.id)
+        for rule in preview["rules"]:
+            print(f"  {rule['label']}: {rule['lines']} line(s)")
+        shown = args.show if args.show is not None else 5
+        for ch in preview["changes"][:shown]:
+            print(f"  #{ch['idx'] + 1}: {ch['before']!r} -> {ch['after']!r}")
+        print(f"#{args.id}: {preview['lines_changed']} of {preview['lines_scanned']} line(s) would change"
+              + (f"; {preview['lines_skipped']} over-long line(s) skipped" if preview["lines_skipped"] else ""))
+        if args.apply and preview["lines_changed"]:
+            result = review_extras_service.apply_en_cleanup(args.id, preview["plan_hash"])
+            print(f"#{args.id}: cleaned {result['applied']} line(s)"
+                  + (f"; {result['stale']} edited meanwhile and kept" if result["stale"] else "")
+                  + " (previous text is in Line history)")
+    except ServiceError as e:
+        print(f"Error: {e.message}")
+        sys.exit(1)
+
+
+_JOB_POLL_SECONDS = 1.0
+
+
+def _wait_for_job(job_id: str, label: str, poll_interval: float = _JOB_POLL_SECONDS):
+    """Blocks until a job this process started has ended, echoing its stage
+    text as it changes. Returns (outcome, message, result), the first two as
+    the app's job list derives them (jobs_service.derive_outcome)."""
+    last = None
+    while True:
+        job = background_jobs.get_status(job_id)
+        if job is None:
+            return "failed", "The job disappeared before it finished.", {}
+        status = job.get("status")
+        if status in ("done", "error", "cancelled"):
+            result = job.get("result")
+            outcome, message = jobs_service.derive_outcome(
+                status, job.get("error"), jobs_service.project_result(result))
+            return outcome, message, result if isinstance(result, dict) else {}
+        note = (job.get("message") or "").strip()
+        if note and note != last:
+            print(f"{label}: {translate_engines.redact_secrets(note)}", flush=True)
+            last = note
+        time.sleep(poll_interval)
+
+
+def cmd_transcribe(args):
+    """Transcribes (or aligns --transcript against) one title's stored audio
+    through the Workspace's Transcribe service. Tuning options are saved
+    on the title."""
+    tuning = dict(
+        whisper_size=args.whisper_size, asr_backend_choice=args.asr_backend,
+        beam_size=args.beam_size, min_silence_ms=args.min_silence_ms,
+        min_pause_sec=args.min_pause,
+        vad_threshold=args.vad_threshold, sensitivity_preset=args.sensitivity,
+        separation_backend=args.separation_backend,
+        separate_vocals_first=args.separate_vocals)
+    transcript_text = _read_transcript_option(args)
+    try:
+        if any(v is not None for v in tuning.values()):
+            transcribe_service.update_transcribe_config(args.id, **tuning)
+        job = transcribe_service.start_transcribe_run(
+            args.id, source_language=args.language, chinese_script=args.chinese_script,
+            transcript_text=transcript_text, run_diarize=args.diarize,
+            expected_speakers=args.num_speakers, min_speakers=args.min_speakers,
+            max_speakers=args.max_speakers, initial_prompt=args.initial_prompt or "",
+            extra_names=args.extra_names or "")
+    except ServiceError as e:
+        raise SystemExit(f"transcribe: {translate_engines.redact_secrets(e.message)}")
+    label = f"#{args.id}"
+    print(f"{label} transcribing (GPU setting: "
+          f"{'on' if settings_service.get_use_gpu() else 'off'})...", flush=True)
+    outcome, message, result = _wait_for_job(job["job_id"], label)
+    if result.get("device"):
+        print(f"{label} device: {result['device']}")
+    if result.get("device_notice"):
+        print(f"{label} NOTICE: {result['device_notice']}")
+    for key in ("coverage_warning", "ollama_notice", "word_align_error", "forced_align_error",
+                "asr_backend_notice"):
+        if result.get(key):
+            print(f"{label} WARNING: {translate_engines.redact_secrets(str(result[key]))}")
+    if outcome not in ("ok", "partial"):
+        print(f"{label} {outcome}: {translate_engines.redact_secrets(message or '')}",
+              file=sys.stderr)
+        sys.exit(1)
+    print(f"{label} transcribed: {result.get('line_count', 0)} line(s).")
+    if result.get("diarize_started"):
+        d_outcome, d_message, _ = _wait_for_job(f"diarize_{args.id}", f"{label} speakers")
+        if d_outcome not in ("ok", "partial"):
+            print(f"{label} speaker detection {d_outcome}: "
+                  f"{translate_engines.redact_secrets(d_message or '')}", file=sys.stderr)
+            sys.exit(1)
+        print(f"{label} speaker detection done.")
+
+
+def cmd_qc(args):
+    """Auto QC's factual-detail check (numbers, names, banned terms), the same
+    service as the Workspace's "Run Auto QC". It updates review flags in place
+    and uses no engine, so it never spends anything."""
+    dramas = [db.get_drama(args.id)] if args.id else db.list_dramas()
+    if args.id and dramas[0] is None:
+        raise SystemExit(f"qc: No drama with id {args.id}.")
+
+    def step(d):
+        r = export_service.run_auto_qc_flagging(d["id"])
+        print(f"#{d['id']} checked {r['checked']} line(s): {r['flagged']} newly flagged, "
+              f"{r['already_flagged']} already flagged, {r['cleared']} cleared.")
+
+    _, failed = _run_batch(dramas, step, "qc")
+    if failed:
+        sys.exit(1)
+
+
+def _term_line(t: dict) -> str:
+    extras = [x for x in (t["category"], t["policy"], "exact" if t["enforce_exact"] else None) if x]
+    return (f"{t['id']}\t{t['term_original']}\t{t['term_translation']}"
+            + (f"\t[{', '.join(extras)}]" if extras else ""))
+
+
+def cmd_glossary(args):
+    """List, add, remove, import or export a title's series glossary through
+    glossary_service (the app's own validation). A glossary belongs to the
+    series, so any title in the series reaches the same terms."""
+    try:
+        _glossary_action(args)
+    except ServiceError as e:
+        raise SystemExit(f"glossary: {translate_engines.redact_secrets(e.message)}")
+
+
+def _glossary_action(args):
+    action = args.glossary_action
+    if action == "list":
+        terms = glossary_service.list_glossary_terms(args.id)
+        for t in terms:
+            print(_term_line(t))
+        print(f"{len(terms)} term(s).")
+    elif action == "add":
+        fields = {"term_original": args.original, "term_translation": args.translation}
+        for key, value in (("notes", args.notes), ("category", args.category),
+                           ("policy", args.policy), ("aliases", args.alias),
+                           ("banned_translations", args.banned)):
+            if value:
+                fields[key] = value
+        if args.enforce_exact:
+            fields["enforce_exact"] = True
+        print("Saved: " + _term_line(glossary_service.upsert_glossary_term(args.id, fields)))
+    elif action == "remove":
+        by_text = {t["term_original"]: t["id"] for t in glossary_service.list_glossary_terms(args.id)}
+        ids = list(args.term_id or [])
+        missing = [text for text in args.term or [] if text not in by_text]
+        ids += [by_text[text] for text in args.term or [] if text in by_text]
+        if missing:
+            raise SystemExit("glossary: no term with original text: " + ", ".join(missing))
+        if not ids:
+            raise SystemExit("glossary: name a term with --term TEXT or --term-id N.")
+        if not args.yes:
+            raise SystemExit(f"glossary: this deletes {len(ids)} term(s); add --yes to confirm.")
+        result = glossary_service.bulk_delete_glossary_terms(args.id, ids, confirm=True)
+        print(f"Deleted {len(result['deleted'])} term(s)"
+              + (f"; not found: {result['not_found']}" if result["not_found"] else "") + ".")
+    elif action == "import":
+        try:
+            with open(args.file, encoding="utf-8-sig") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SystemExit(f"glossary: can't read the file: {getattr(exc, 'strerror', None) or exc}")
+        r = glossary_service.import_glossary_text(
+            args.id, text, filename=os.path.basename(args.file),
+            overwrite_existing=args.overwrite)
+        print(f"Imported: {len(r['added'])} added, {len(r['overwritten'])} overwritten, "
+              f"{len(r['skipped_existing'])} already there (use --overwrite to replace), "
+              f"{len(r['invalid'])} invalid.")
+        for w in r["warnings"]:
+            print(f"  warning: {w}")
+    elif action == "export":
+        csv_text = glossary_service.glossary_csv(args.id)
+        if args.output:
+            try:
+                with open(args.output, "w", encoding="utf-8-sig", newline="") as f:
+                    f.write(csv_text)
+            except OSError as exc:
+                raise SystemExit(f"glossary: can't write the file: {exc.strerror or exc}")
+            print(f"Wrote {args.output}")
+        else:
+            sys.stdout.write(csv_text)
+
+
 def cmd_run(args):
     """Align then translate a single drama in one shot."""
     cmd_align(args)
@@ -1122,6 +1343,12 @@ def main():
                         help="A language code, or 'default' / '' for the title's language")
     p_lang.set_defaults(func=cmd_set_language)
 
+    p_clean = sub.add_parser("clean-en", help="Fix common errors in the English (no AI); preview unless --apply")
+    p_clean.add_argument("--id", type=int, required=True)
+    p_clean.add_argument("--apply", action="store_true", help="Save the changes (a Line history snapshot is taken first)")
+    p_clean.add_argument("--show", type=int, help="How many before/after examples to print (default 5)")
+    p_clean.set_defaults(func=cmd_clean_en)
+
     p_align = sub.add_parser("align")
     p_align.add_argument("--id", type=int, default=None)
     p_align.add_argument("--whisper-size", default=None, choices=list(WHISPER_MODELS),
@@ -1146,10 +1373,13 @@ def main():
                            help="Also replace speakers you corrected by hand")
     p_diarize.set_defaults(func=cmd_diarize)
 
-    p_translate = sub.add_parser("translate")
-    p_translate.add_argument("--id", type=int, default=None)
-    p_translate.add_argument("--status", default=None)
-    p_translate.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
+    p_translate = translate_engines.think_flag(sub.add_parser("translate"))
+    p_translate.add_argument("--id", type=int)
+    p_translate.add_argument("--status")
+    # No argparse choices: a removed engine name gets the same plain refusal
+    # as the API instead of a generic "invalid choice" error.
+    p_translate.add_argument("--engine", default=None,
+                             help=f"Translate engine ({', '.join(translate_engines.ENGINES)}).")
     p_translate.add_argument("--api-key", default=None,
                              help="Key for --engine; omit to use the saved key.")
     p_translate.add_argument("--model", default=None)
@@ -1174,12 +1404,18 @@ def main():
                                    "otherwise) unless set explicitly.")
     p_translate.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                              help="Default: the Settings English variant (en-US until changed).")
-    p_translate.add_argument("--female-pronouns", action="store_true",
-                           help="Default ambiguous pronouns to she/her (the Workspace "
-                                "checkbox / a preset's pronoun default).")
-    p_translate.add_argument("--no-genre-notes", action="store_true",
-                           help="Leave out the baihe/GL genre guidance (on by default, "
-                                "as in the Workspace).")
+    p_translate.add_argument("--female-pronouns", action="store_true", default=None,
+                           help="Default ambiguous pronouns to she/her and save that choice "
+                                "for the title. Without --female-pronouns or "
+                                "--no-female-pronouns the title's saved choice applies (off "
+                                "until chosen).")
+    p_translate.add_argument("--no-female-pronouns", action="store_false", dest="female_pronouns",
+                           default=None, help="Turn the she/her default off and save that.")
+    p_translate.add_argument("--no-genre-notes", action="store_true", default=None,
+                           help="Leave out the baihe/GL genre guidance and save that choice "
+                                "for the title (on until chosen otherwise).")
+    p_translate.add_argument("--genre-notes", action="store_false", dest="no_genre_notes",
+                           default=None, help="Include the genre guidance and save that.")
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
     p_translate.add_argument("--glossary-affected", action="store_true",
@@ -1207,8 +1443,7 @@ def main():
     p_translate.add_argument("--cost-cap", type=float, default=None,
                            help="Stop a drama's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")
-    p_translate.add_argument("--monthly-cap", type=float,
-                           default=None,
+    p_translate.add_argument("--monthly-cap", type=float, default=None,
                            help="Refuse to start / stop once this calendar month's logged spend "
                                 "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     # Matches the Workspace tab's own three sliders. Unset means
@@ -1249,16 +1484,85 @@ def main():
                        help="Dub (not narration): mix the original's background music/ambience "
                             "(the source audio minus its vocals, via the drama's separation "
                             "backend) back under the dub track")
-    p_dub.add_argument("--tts-engine", default="edge_tts", choices=["edge_tts", "offline"],
-                       help="Fallback TTS engine used where a character has no cloned voice "
-                            "reference set (same choice as Workspace's own 8. AI dub / "
-                            "narration section). Defaults to edge-tts.")
-    p_dub.add_argument("--gpt-sovits-url", default=None,
-                       help="GPT-SoVITS server for characters using it "
-                            f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")
+    # No argparse choices: a removed engine name gets the same plain refusal
+    # as the API instead of a generic "invalid choice" error.
+    p_dub.add_argument("--tts-engine", default=dub_module.DEFAULT_CLONE_ENGINE,
+                       help="Voice engine for speakers whose character has none of its own "
+                            f"({', '.join(dub_module.CLONE_ENGINES)}; same choice as the Dub "
+                            f"stage). Defaults to {dub_module.DEFAULT_CLONE_ENGINE}.")
     p_dub.add_argument("--m4b", action="store_true",
                        help="For novel narration: also export an M4B audiobook with chapter markers")
     p_dub.set_defaults(func=cmd_dub)
+
+    p_transcribe = sub.add_parser("transcribe", help="Transcribe one title's audio (or align --transcript)")
+    p_transcribe.add_argument("--id", type=int, required=True)
+    p_transcribe.add_argument("--language", default=None,
+                              help="Spoken language code (default: the title's own).")
+    p_transcribe.add_argument("--chinese-script", default=None, choices=["simplified", "traditional"])
+    p_transcribe.add_argument("--whisper-size", default=None,
+                              help="Whisper model size, saved on the title.")
+    p_transcribe.add_argument("--asr-backend", default=None,
+                              choices=transcribe_service.ASR_BACKEND_CHOICES,
+                              help="Speech recognition backend, saved on the title.")
+    p_transcribe.add_argument("--beam-size", type=int, default=None, help="Whisper beam size (1-10).")
+    p_transcribe.add_argument("--min-silence-ms", type=int, default=None,
+                              help="VAD: silence that splits speech (300-3000).")
+    p_transcribe.add_argument("--min-pause", type=float, default=None,
+                              help="Pause (seconds) a long line may be cut at, "
+                                   f"{core_module.MIN_WORD_GAP_SECONDS_MIN:g}-"
+                                   f"{core_module.MIN_WORD_GAP_SECONDS_MAX:g}; saved on the title.")
+    p_transcribe.add_argument("--vad-threshold", type=float, default=None,
+                              help="VAD speech threshold (0.1-0.9).")
+    p_transcribe.add_argument("--sensitivity", choices=("normal", "sensitive"), default=None,
+                              help="'sensitive' catches quieter or fast speech (lower VAD threshold, no "
+                                   "repeat penalties) and may add false text on music or breathing; "
+                                   "saved on the title.")
+    p_transcribe.add_argument("--separate-vocals", action=argparse.BooleanOptionalAction, default=None,
+                              help="Separate vocals from music before recognising.")
+    p_transcribe.add_argument("--separation-backend", default=None,
+                              choices=["auto", "audio_separator", "demucs"])
+    p_transcribe.add_argument("--diarize", action="store_true",
+                              help="Detect speakers afterwards (needs a Hugging Face token in Settings).")
+    p_transcribe.add_argument("--num-speakers", type=int, default=None)
+    p_transcribe.add_argument("--min-speakers", type=int, default=None)
+    p_transcribe.add_argument("--max-speakers", type=int, default=None)
+    p_transcribe.add_argument("--transcript", default=None, metavar="FILE",
+                              help="Transcript to align (- for stdin); required when the title "
+                                   "is in have-a-transcript mode.")
+    p_transcribe.add_argument("--initial-prompt", default=None, help="Replace Whisper's automatic prompt.")
+    p_transcribe.add_argument("--extra-names", default=None, help="Extra names added to the automatic prompt.")
+    p_transcribe.set_defaults(func=cmd_transcribe)
+
+    p_qc = sub.add_parser("qc", help="Run Auto QC (numbers, names, banned terms) and flag lines")
+    p_qc.add_argument("--id", type=int, default=None, help="One title (default: the whole library).")
+    p_qc.set_defaults(func=cmd_qc)
+    cli_subtitle.register(sub)
+
+    p_gloss = sub.add_parser("glossary", help="List, add, remove, import or export a title's series glossary")
+    gsub = p_gloss.add_subparsers(dest="glossary_action", required=True)
+    g_list = gsub.add_parser("list")
+    g_add = gsub.add_parser("add", help="Add a term, or update the one with the same original text")
+    g_add.add_argument("--original", required=True)
+    g_add.add_argument("--translation", required=True)
+    g_add.add_argument("--notes", default=None)
+    g_add.add_argument("--category", default=None, choices=gio.TERM_CATEGORIES)
+    g_add.add_argument("--policy", default=None, choices=gio.TERM_POLICIES)
+    g_add.add_argument("--alias", action="append", default=None)
+    g_add.add_argument("--banned", action="append", default=None, help="A translation never to use.")
+    g_add.add_argument("--enforce-exact", action="store_true")
+    g_rm = gsub.add_parser("remove")
+    g_rm.add_argument("--term", action="append", help="Original text of a term (repeatable).")
+    g_rm.add_argument("--term-id", type=int, action="append", help="Term id from 'glossary list'.")
+    g_rm.add_argument("--yes", action="store_true", help="Confirm the deletion.")
+    g_imp = gsub.add_parser("import", help="Import a CSV, TSV or JSON glossary file")
+    g_imp.add_argument("file")
+    g_imp.add_argument("--overwrite", action="store_true", help="Replace terms already in the glossary.")
+    g_exp = gsub.add_parser("export", help="Export the glossary as CSV (stdout unless --output)")
+    g_exp.add_argument("--output", default=None, metavar="FILE")
+    for g in (g_list, g_add, g_rm, g_imp, g_exp):
+        g.add_argument("--id", type=int, required=True,
+                       help="A title in the series (the glossary is shared by the series).")
+    p_gloss.set_defaults(func=cmd_glossary)
 
     p_run = sub.add_parser("run")
     p_run.add_argument("--id", type=int, required=True)
@@ -1277,12 +1581,18 @@ def main():
     p_run.add_argument("--style-preset", default=None, choices=list(tguide.STYLE_PRESETS))
     p_run.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                         help="Default: the Settings English variant (en-US until changed).")
-    p_run.add_argument("--female-pronouns", action="store_true",
-                           help="Default ambiguous pronouns to she/her (the Workspace "
-                                "checkbox / a preset's pronoun default).")
-    p_run.add_argument("--no-genre-notes", action="store_true",
-                           help="Leave out the baihe/GL genre guidance (on by default, "
-                                "as in the Workspace).")
+    p_run.add_argument("--female-pronouns", action="store_true", default=None,
+                           help="Default ambiguous pronouns to she/her and save that choice "
+                                "for the title. Without --female-pronouns or "
+                                "--no-female-pronouns the title's saved choice applies (off "
+                                "until chosen).")
+    p_run.add_argument("--no-female-pronouns", action="store_false", dest="female_pronouns",
+                           default=None, help="Turn the she/her default off and save that.")
+    p_run.add_argument("--no-genre-notes", action="store_true", default=None,
+                           help="Leave out the baihe/GL genre guidance and save that choice "
+                                "for the title (on until chosen otherwise).")
+    p_run.add_argument("--genre-notes", action="store_false", dest="no_genre_notes",
+                           default=None, help="Include the genre guidance and save that.")
     p_run.add_argument("--transcript", default=None, metavar="FILE",
                        help="Chinese transcript to align (- for stdin); needs --id. "
                             "Default: <drama folder>/transcript.txt.")
@@ -1294,12 +1604,11 @@ def main():
     p_run.add_argument("--context-window-ahead", type=int, default=None)
     p_run.add_argument("--batch-size", type=int, default=None)
     p_run.add_argument("--cost-cap", type=float, default=None,
-                           help="Stop a drama's translation once its estimated spend reaches this "
-                                "many USD (finished lines are kept).")
-    p_run.add_argument("--monthly-cap", type=float,
-                           default=None,
-                           help="Refuse to start / stop once this calendar month's logged spend "
-                                "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
+                       help="Stop a drama's translation once its estimated spend reaches this "
+                            "many USD (finished lines are kept).")
+    p_run.add_argument("--monthly-cap", type=float, default=None,
+                       help="Refuse to start / stop once this calendar month's logged spend "
+                            "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")
@@ -1326,6 +1635,7 @@ def main():
                           help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_doctor.set_defaults(func=cmd_doctor)
 
+    real_model_check_cli.register(sub)
     args = p.parse_args()
     args.func(args)
 

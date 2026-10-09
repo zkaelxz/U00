@@ -28,7 +28,7 @@ describe('AI fallback choice', () => {
   })
 
   it('ignores a picked engine the server no longer offers', () => {
-    expect(effectiveEngine({ on: true, engine: 'nllb' }, engines)).toBe('claude')
+    expect(effectiveEngine({ on: true, engine: 'fake_mt' }, engines)).toBe('claude')
   })
 
   it('asks for an engine when there is no usable default', () => {

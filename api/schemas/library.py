@@ -19,6 +19,9 @@ __all__ = [
     "DramaListResponse",
     "ExportReadiness",
     "FlagActionResult",
+    "ReadingSpeedMode",
+    "ReadingSpeedModeUpdate",
+    "ClearReadingSpeedFlagsResult",
     "AutoQcFlagResult",
     "AssStyleOverrides",
     "AssExportRequest",
@@ -30,6 +33,7 @@ __all__ = [
     "DramaDeleteResult",
     "MediaUploadResult",
     "MediaStatus",
+    "MediaPeaks",
     "UploadAndTranscribeResult",
     "LibraryUsage",
     "LibraryDashboard",
@@ -137,7 +141,7 @@ class DramaDetail(DramaSummary):
     genre: Optional[str] = None
     publication_status: Optional[str] = None
     chapter_count: Optional[int] = None
-    # Parity P10: shown and edited in the Workspace's Edit details.
+    # Shown and edited in the Workspace's Edit details.
     source_url: Optional[str] = None
     episode_number: Optional[int] = None
     episode_summary: Optional[str] = None
@@ -158,8 +162,8 @@ class DramaListResponse(BaseModel):
 
 
 class ExportReadiness(BaseModel):
-    """Read-only export-readiness summary for one drama (Migration Slice
-    12) -- counts only, never flags a line or generates a file."""
+    """Read-only export-readiness summary for one drama
+    -- counts only, never flags a line or generates a file."""
     drama_id: int
     total_lines: int
     zh_filled: int
@@ -174,6 +178,22 @@ class FlagActionResult(BaseModel):
     """A flagging action's result: 0 is not an
     error, just nothing new to flag."""
     flagged_count: int
+
+
+class ReadingSpeedMode(BaseModel):
+    mode: Literal["normal", "relaxed", "off"]
+
+
+class ReadingSpeedModeUpdate(BaseModel):
+    mode: Literal["normal", "relaxed", "off"]
+
+
+class ClearReadingSpeedFlagsResult(BaseModel):
+    """flagged_count is the re-check's count (0 unless recheck was asked
+    for); history_id is None when no line carried the flag."""
+    cleared_count: int
+    flagged_count: int
+    history_id: Optional[int] = None
 
 
 class AutoQcFlagResult(BaseModel):
@@ -266,6 +286,8 @@ class DramaMetadataUpdate(BaseModel):
     project_instructions: Optional[str] = Field(default=None, max_length=5000)
     chapter_count: Optional[int] = Field(default=None, ge=0, le=2147483647)
     episode_number: Optional[int] = Field(default=None, ge=0, le=2147483647)
+    default_female_pronouns: Optional[StrictBool] = None
+    include_genre_notes: Optional[StrictBool] = None
     media_type: Optional[str] = None
     publication_status: Optional[str] = None
     series_id: Optional[int] = Field(default=None, ge=0, le=2147483647)
@@ -293,7 +315,8 @@ class DramaDeleteResult(BaseModel):
 
 
 class MediaUploadResult(BaseModel):
-    name: str
+    # None for a video: its name is picked when the extraction job puts it in place.
+    name: Optional[str] = None
     size: int
     kind: str
     # Set for a video -- the background audio-extraction job to poll.
@@ -304,7 +327,19 @@ class MediaStatus(BaseModel):
     drama_id: int
     has_audio: bool
     has_source_video: bool
+    # Transcript mode is hardsub_ocr: replacing the video with audio switches it.
+    reads_burned_in_subtitles: bool = False
     upload_max_mb: int
+    # Superseded originals and failed uploads kept in the title's folder.
+    kept_media_files: int = 0
+    kept_media_bytes: int = 0
+
+
+class MediaPeaks(BaseModel):
+    start: float
+    end: float
+    buckets: int
+    peaks: List[int] = Field(description="Peak loudness per bucket, 0-255.")
 
 
 class UploadAndTranscribeResult(BaseModel):
@@ -431,7 +466,7 @@ class MediaAnalysis(BaseModel):
     has_audio: bool
     audio_track_count: int
     sample_rate: Optional[int] = None
-    # Parity P05: from media_inspect.
+    # From media_inspect.
     width: Optional[int] = None
     height: Optional[int] = None
     fps: Optional[float] = None
@@ -481,33 +516,33 @@ class AutofillApply(BaseModel):
 
 
 class MediaExportStarted(BaseModel):
-    """Audiobook / burned-in video export job started (Migration Slices 29-30).
+    """Audiobook / burned-in video export job started.
     Poll GET /api/jobs/{job_id}; download via GET /api/artifacts/dramas/{id}/{kind}."""
     job_id: str
 
 
 class SoftsubVideoRequest(BaseModel):
-    """Parity E17: which subtitles go into the muxed track."""
+    """Which subtitles go into the muxed track."""
     model_config = ConfigDict(extra="forbid")
     field: str = Field(default="en", pattern="^(en|zh|bilingual)$")
     include_notes: StrictBool = False
 
 
 class DubbedVideoRequest(BaseModel):
-    """Parity E19: keep_original mixes the original audio in at -20 dB
+    """keep_original mixes the original audio in at -20 dB
     instead of replacing it."""
     model_config = ConfigDict(extra="forbid")
     keep_original: StrictBool = False
 
 
 class MarkExportedResult(BaseModel):
-    """Parity E22: the drama's status after "Mark as exported"."""
+    """The drama's status after "Mark as exported"."""
     drama_id: int
     status: str
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: workflow progress (GET /api/workflow/dramas/{id}/progress)
+# Workflow progress (GET /api/workflow/dramas/{id}/progress)
 # ---------------------------------------------------------------------------
 class WorkflowStageState(BaseModel):
     key: str     # source | translate | review | dub | export
@@ -526,12 +561,13 @@ class WorkflowProgress(BaseModel):
     flagged_count: int
     has_audio: bool
     has_dub_track: bool
+    has_narration_track: bool = False
     exported: bool
     stages: List[WorkflowStageState]
 
 
 # ---------------------------------------------------------------------------
-# PC-only delete routes (migration handoff "Next queue" item 2)
+# PC-only delete routes
 # ---------------------------------------------------------------------------
 class DeleteConfirm(BaseModel):
     """Body of every PC-only delete: `confirm: true` (strict) is the whole
@@ -566,7 +602,7 @@ class VoiceBankDeleteResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Route batch 2A: library admin (bulk status/tags/delete/translate, export,
+# Library admin (bulk status/tags/delete/translate, export,
 # backup, artifacts, restore, storage) over services/library_admin_service.py
 # ---------------------------------------------------------------------------
 LibraryDramaIds = Annotated[List[Annotated[StrictInt, Field(ge=1, le=2**31 - 1)]],
@@ -616,8 +652,9 @@ class LibraryBulkTranslateRequest(BaseModel):
     drama_ids: LibraryDramaIds
     # Omitted: the Settings default English variant.
     default_locale: Optional[str] = Field(None, max_length=5)
-    include_genre_notes: StrictBool = True
-    default_female_pronouns: StrictBool = False
+    # Omitted: each title's saved choice (else genre notes on, she/her off).
+    include_genre_notes: Optional[StrictBool] = None
+    default_female_pronouns: Optional[StrictBool] = None
 
 
 class LibraryExportRequest(BaseModel):
@@ -749,7 +786,7 @@ class MediaUrlDownloadStarted(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Library parity (react-misc-parity): Continue reading shelf, the data-driven
+# Library: Continue reading shelf, the data-driven
 # "All dramas" filter choices, and the PC-only reading-history clear.
 # ---------------------------------------------------------------------------
 class LibraryContinueEntry(BaseModel):
@@ -774,8 +811,8 @@ class LibraryFilterOptions(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Workspace preamble parity (react-misc-parity): romanize credits (P13) and
-# cover art (P14). No filename or path is returned.
+# Workspace preamble: romanize credits and
+# cover art. No filename or path is returned.
 # ---------------------------------------------------------------------------
 class RomanizeCreditsRequest(BaseModel):
     """`engine` defaults to the drama's translation engine."""

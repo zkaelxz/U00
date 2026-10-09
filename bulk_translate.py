@@ -22,6 +22,7 @@ an edit made meanwhile is kept.
 import datetime
 import hashlib
 import json
+import logging
 import threading
 import time
 import uuid
@@ -704,7 +705,8 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
 
     if counts["applied"]:
         import subtitle_formats
-        changed_flag = subtitle_formats.flag_dense_lines(current) > 0 or changed_flag
+        mode = subtitle_formats.reading_speed_mode_of(db.get_drama(job["drama_id"]))
+        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
     if counts["applied"] or changed_flag:
         db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
     if counts["applied"]:
@@ -719,6 +721,8 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
         db.update_drama(job["drama_id"], **_status)
+    # Nothing newly applied can still complete the title (lines typed meanwhile).
+    mark_translated_if_complete(job["drama_id"])
     return counts
 
 
@@ -1020,7 +1024,8 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
 
     if counts["applied"]:
         import subtitle_formats
-        changed_flag = subtitle_formats.flag_dense_lines(current) > 0 or changed_flag
+        mode = subtitle_formats.reading_speed_mode_of(db.get_drama(job["drama_id"]))
+        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
     if counts["applied"] or changed_flag:
         db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
     if counts["applied"]:
@@ -1032,6 +1037,7 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
         db.update_drama(job["drama_id"], **_status)
+    mark_translated_if_complete(job["drama_id"])
     if notes:
         db.save_translation_notes(job["drama_id"], notes)
     return counts
@@ -1346,14 +1352,15 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
     and whose English hasn't changed since scheduling, as a normal run."""
     job = db.get_bulk_job(bulk_job_id)
     args = job.get("translate_args") or {}
+    did = job["drama_id"]
     rows = {r["line_id"]: r for r in db.list_bulk_job_lines(bulk_job_id)}
-    lines = db.load_line_objects(job["drama_id"])
+    lines = db.load_line_objects(did)
     eligible = {ln.id for ln in lines
                 if ln.id in rows and (ln.en or "") == (rows[ln.id]["en_at_submit"] or "")}
-    drama = db.get_drama(job["drama_id"]) or {}
+    drama = db.get_drama(did) or {}
     series_id = drama.get("series_id")
     character_names = tguide.build_speaker_labels(
-        db.list_characters_with_series_names(job["drama_id"]),
+        db.list_characters_with_series_names(did),
         db.list_series_characters(series_id) if series_id else [])
     cap = {}
     _, errors = translate_engines.translate_lines_with_engine(
@@ -1362,20 +1369,20 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
         target_ids=eligible, locale=args.get("locale", "en-US"),
         glossary_terms=args.get("glossary_terms"), style_guidelines=args.get("style_guidelines", ""),
         context_window=args.get("context_window", 6), character_names=character_names,
-        save_cb=lambda ls: db.save_lines(job["drama_id"], ls, fields=("en",)),
+        save_cb=lambda ls: db.save_lines(did, ls, fields=("en",)),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-            job["drama_id"], job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
+            did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
+        thinking=args.get("thinking"),
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
     summary = {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
                "batch_errors": len(errors), "cap_reached": cap.get("spent")}
     # Same gate as apply_bulk_results above: a run with batch failures or
     # skipped (source-changed) lines must stay re-runnable, not "translated".
-    _status = dict(translation_engine=job["engine"])
-    if untranslated_line_count(job["drama_id"]) == 0:
-        _status["status"] = "translated"
-    db.update_drama(job["drama_id"], **_status)
+    done = untranslated_line_count(did) == 0
+    db.update_drama(did, translation_engine=job["engine"],
+                    **({"status": "translated"} if done else {}))
     return summary
 
 
@@ -1505,6 +1512,36 @@ def untranslated_line_count(drama_id: int) -> int:
     """Lines with source text but no translation yet, as saved right now."""
     return sum(1 for r in db.load_lines(drama_id)
                if (r.get("zh") or "").strip() and not (r.get("en") or "").strip())
+
+
+def mark_translated_if_complete(drama_id: int) -> bool:
+    """Moves a title from "aligned" to "translated" once every line with
+    source text has a translation. Called after any write that can fill the
+    last blank, so the status follows the lines whichever path wrote them.
+    Only an exact "aligned" is promoted: "dubbed" and "exported" are later
+    stages and must never go back, and a title with no source text has
+    nothing translated."""
+    drama = db.get_drama(drama_id)
+    if not drama or drama.get("status") != "aligned":
+        return False
+    rows = db.load_lines(drama_id)
+    if not any((r.get("zh") or "").strip() for r in rows):
+        return False
+    if untranslated_line_count(drama_id) != 0:
+        return False
+    return db.set_status_if(drama_id, "aligned", "translated")
+
+
+def repair_stale_aligned_statuses() -> int:
+    """One-time, idempotent startup repair for titles left at "aligned" with
+    every line already translated; touches no other status. Returns how
+    many were corrected."""
+    fixed = sum(1 for d in db.list_dramas(status="aligned")
+                if mark_translated_if_complete(d["id"]))
+    if fixed:
+        logging.getLogger(__name__).info(
+            "Corrected %d title(s) stuck at 'aligned' with every line translated.", fixed)
+    return fixed
 
 
 def _summary_engine_is_paid(summary_engine, summary_engine_choice) -> bool:
@@ -1640,7 +1677,8 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
     import subtitle_formats
-    subtitle_formats.flag_dense_lines(lines)
+    subtitle_formats.flag_dense_lines(
+        lines, mode=subtitle_formats.reading_speed_mode_of(db.get_drama(drama_id)))
     if landed is None:
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     else:
