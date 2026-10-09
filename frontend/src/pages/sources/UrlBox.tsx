@@ -41,7 +41,8 @@ import { NovelUrlImport } from './NovelUrlImport'
 import { PastedSource } from './PastedSource'
 import { SiteCheck } from './SiteCheck'
 import { useDramaList } from './useDramaList'
-import { describeSourceError, percent, safeHref } from './sourcesFormat'
+import { describeSourceError, percent } from './sourcesFormat'
+import { safeHref } from './sourcesSeries'
 import {
   MAX_URL_LEN, PASTED_COMIC_NOTE, PREVIEW_NOTES, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts, videoDramas,
 } from './urlImportFormat'

@@ -8,7 +8,7 @@ import pytest
 import background_jobs
 import core
 import translation_guide as tguide
-from services import glossary_service as gs
+from services import glossary_extract_service, glossary_service as gs
 from services import settings_service, transcribe_service as ts, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
@@ -184,7 +184,7 @@ def _wait(job_id):
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(gs.translate_engines, "get_engine",
+    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 
