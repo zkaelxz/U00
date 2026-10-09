@@ -27,8 +27,11 @@ import {
   thinkingApplies,
   thinkingEngines,
   thinkingHelp,
+  restoreRunOptions,
+  saveRunOptions,
   savePresetStart,
   splitLines,
+  translateButtonLabel,
   styleGuidance,
   validatePresetName,
   TRANSLATION_ONLY,
@@ -480,5 +483,93 @@ describe('cloud model notice', () => {
     expect(cloudModelNotice(engine, 'gemma4:12b')).toBeNull()
     expect(cloudModelNotice(engine, '')).toBeNull()
     expect(cloudModelNotice(undefined, 'gemma4:31b-cloud')).toBeNull()
+  })
+})
+
+describe('remembered run options', () => {
+  const memory = () => {
+    const m = new Map<string, string>()
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }
+  }
+  const cfg = {
+    ...config,
+    translation_engine: 'deepseek',
+    bulk_supported_engines: ['claude'],
+    engines: [{ name: 'deepseek', models: ['d1'] }, { name: 'claude', models: ['c1', 'c2'] }],
+  } as unknown as TranslateRunConfig
+  const save = (id: number, patch: object, extra: object = {}) =>
+    saveRunOptions(id, { form: { ...initialForm(cfg), ...patch }, baseEngine: 'deepseek', reviewFirst: false, tier: '', ...extra })
+  const restore = (id: number, c = cfg) => restoreRunOptions(id, initialForm(c), c)
+
+  beforeEach(() => void vi.stubGlobal('localStorage', memory()))
+
+  it('saves and restores the choices, including the glossary toggle and tier', () => {
+    save(1, {
+      engine: 'claude', model: 'c2', style_preset: 'wuxia', locale: 'en-GB', style_note: 'keep puns',
+      batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5', thinking: true,
+    }, { reviewFirst: true, tier: 'release' })
+    const r = restore(1)
+    expect(r.form).toMatchObject({
+      engine: 'claude', model: 'c2', style_preset: 'wuxia', locale: 'en-GB', style_note: 'keep puns',
+      batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5', thinking: true,
+    })
+    expect(r.reviewFirst).toBe(true)
+    expect(r.tier).toBe('release')
+  })
+
+  it('never restores a pending re-translate or stores anything but plain choices', () => {
+    save(1, { force: true, forceConfirmed: true })
+    expect(restore(1).form).toMatchObject({ force: false, forceConfirmed: false })
+    const raw = JSON.stringify(Object.entries(localStorage as unknown as object))
+    expect(raw).not.toMatch(/key|secret|force/i)
+  })
+
+  it('falls back to the defaults for values that are no longer valid', () => {
+    save(1, {
+      engine: 'gone', style_preset: 'gone', locale: 'fr-FR', batch_size: 'abc', cost_cap: '-3',
+    })
+    expect(restore(1).form).toEqual(initialForm(cfg))
+    save(2, { engine: 'claude', model: 'nope', fallbacks: ['claude', 'ghost'] })
+    expect(restore(2).form).toMatchObject({ engine: 'claude', model: '', fallbacks: [] })
+    save(3, { reflect: true, bulk: true, engine: 'claude' })
+    expect(restore(3).form).toMatchObject({ reflect: true, bulk: false })
+  })
+
+  it('clamps numbers to the field range', () => {
+    save(1, { batch_size: '500', context_window: '0', context_window_ahead: '101' })
+    expect(restore(1).form).toMatchObject({ batch_size: '60', context_window: '0', context_window_ahead: '100' })
+  })
+
+  it("lets the title's saved engine win when it changed since", () => {
+    save(1, { engine: 'claude', model: 'c1', style_preset: 'wuxia' })
+    const moved = { ...cfg, translation_engine: 'claude' } as TranslateRunConfig
+    expect(restore(1, moved).form).toMatchObject({ engine: '', model: '', style_preset: 'wuxia' })
+  })
+
+  it('keeps each drama separate', () => {
+    save(1, { style_preset: 'wuxia' })
+    save(2, { locale: 'en-GB' })
+    expect(restore(1).form).toMatchObject({ style_preset: 'wuxia', locale: 'en-US' })
+    expect(restore(2).form).toMatchObject({ style_preset: 'natural', locale: 'en-GB' })
+    expect(restore(3).form).toEqual(initialForm(cfg))
+  })
+
+  it('ignores corrupt data and survives throwing storage', () => {
+    localStorage.setItem('baihe.translateRun.v1.1', '{nope')
+    expect(restore(1).form).toEqual(initialForm(cfg))
+    const boom = () => {
+      throw new Error('blocked')
+    }
+    vi.stubGlobal('localStorage', { getItem: boom, setItem: boom, removeItem: boom })
+    expect(restore(1).form).toEqual(initialForm(cfg))
+    expect(() => save(1, {})).not.toThrow()
+  })
+})
+
+describe('translate button label', () => {
+  it('says what the button does', () => {
+    expect(translateButtonLabel(false, 1)).toBe('Translate 1 line')
+    expect(translateButtonLabel(false, 4)).toBe('Translate 4 lines')
+    expect(translateButtonLabel(true, 4)).toBe('Scan glossary, then translate')
   })
 })

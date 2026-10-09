@@ -10,6 +10,7 @@ import {
   applySummary,
   chosenTerms,
   defaultTermSelection,
+  formatElapsed,
   isActiveStatus,
   toggleTerm,
 } from './autotuneGlossary'
@@ -41,6 +42,8 @@ import {
 import './autotuneGlossary.css'
 
 interface Props {
+  // The engine the scan will really use: the title's saved one.
+  engine: string
   // Start the translate run; note summarizes what was added to the glossary.
   onStart: (note: string | null) => void
   onCancel: () => void
@@ -51,7 +54,7 @@ interface Props {
 // else from the source lines), shows the proposals, and then either adds
 // the checked terms and starts the run, or cancels. Mounted once per press
 // (keyed by the caller), so each press extracts afresh.
-export function GlossaryReview({ onStart, onCancel }: Props) {
+export function GlossaryReview({ onStart, onCancel, engine }: Props) {
   const { dramaId, drama } = useStage()
   const hasNovel = useHasNovel(dramaId, drama)
   return (
@@ -60,14 +63,14 @@ export function GlossaryReview({ onStart, onCancel }: Props) {
       {hasNovel === null ? (
         <p className="muted" role="status">Checking for a novel…</p>
       ) : (
-        <ReviewBody source={reviewSource(hasNovel)} onStart={onStart} onCancel={onCancel} />
+        <ReviewBody source={reviewSource(hasNovel)} engine={engine} onStart={onStart} onCancel={onCancel} />
       )}
     </section>
   )
 }
 
-function ReviewBody({ source, onStart, onCancel }: Props & { source: GlossarySource }) {
-  const { dramaId, drama } = useStage()
+function ReviewBody({ source, engine, onStart, onCancel }: Props & { source: GlossarySource }) {
+  const { dramaId } = useStage()
   const isPhone = useMediaQuery('(max-width: 640px)')
   const { status, error: loadError, clearError } = useGlossaryRun(dramaId, source)
   // The run this press started (or attached to): only its status is shown,
@@ -102,7 +105,15 @@ function ReviewBody({ source, onStart, onCancel }: Props & { source: GlossarySou
   const chosen = chosenTerms(proposals, sel)
   const missing = missingTranslations(proposals, chosen, edits)
   const catalogues = useGlossaryCatalogues(proposals.length > 0)
-  const engine = drama.translation_engine || 'claude'
+  // The scan is one call with no progress, so a ticking clock shows it is alive.
+  const [elapsed, setElapsed] = useState<number | null>(null)
+  useEffect(() => {
+    if (!active) return setElapsed(null)
+    const t0 = Date.now()
+    setElapsed(0)
+    const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000)
+    return () => window.clearInterval(id)
+  }, [active])
   const from = source === 'novel' ? 'the attached novel' : "this drama's source lines"
 
   const cancel = () => {
@@ -150,13 +161,14 @@ function ReviewBody({ source, onStart, onCancel }: Props & { source: GlossarySou
   return (
     <div className="novel-glossary" data-testid="glossary-review">
       <p className="muted">
-        Proposes terms from {from} using this drama's engine ({engine}). Uncheck anything wrong; the checked terms are
+        Proposes terms from {from} using this title's saved engine ({engine}), whatever the engine list above shows. Uncheck anything wrong; the checked terms are
         added to the series glossary before the run starts.
       </p>
       {!fresh && <p className="muted" role="status">Starting…</p>}
       {active && cur && (
         <p role="status" data-testid="glossary-review-running">
           {extractionProgressText(source, cur.status, cur.progress)}
+          {' '}This can take a few minutes{elapsed !== null ? ` (${formatElapsed(elapsed)} elapsed)` : ''}.
         </p>
       )}
       {startProblem && <p className="error" role="alert">{startProblem}</p>}
