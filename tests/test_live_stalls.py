@@ -460,6 +460,62 @@ class TestWhisperRunner:
         assert len(yielded) <= n + 2
 
 
+class TestAbandonedWorkerBlocksAdminActions:
+    def _abandon(self, release):
+        runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
+                                            clock=TickingClock(), poll=0.005, grace=0.05)
+        with pytest.raises(live_whisper.ChunkTimeout):
+            runner.run(lambda cb: release.wait(20), 3, "chunk 4")
+
+    def test_reset_and_model_delete_are_refused_while_it_lives(self, isolated_db):
+        from services import diagnostics_gaps_service as dgs
+        from services import library_admin_service as las
+        from services.service_errors import ServiceError
+        release = threading.Event()
+        self._abandon(release)
+        try:
+            assert not background_jobs.acquire_exclusive("x")
+            with pytest.raises(ServiceError):
+                dgs.reset_library(confirm=True, confirm_text="RESET")
+            with pytest.raises(ServiceError):
+                dgs._exclusive_delete(lambda: True, "failed")
+        finally:
+            release.set()
+        assert _wait(lambda: background_jobs.acquire_exclusive("x"))
+        background_jobs.release_exclusive()
+
+    def test_wait_for_job_threads_waits_for_it(self, isolated_db):
+        release = threading.Event()
+        self._abandon(release)
+        assert not background_jobs.wait_for_job_threads(0.05)
+        release.set()
+        assert background_jobs.wait_for_job_threads(5.0)
+
+    def test_startup_clears_only_live_whisper_claims(self, isolated_db):
+        import db
+        assert db.try_acquire_gpu_lock(live_whisper.CLAIM_HOLDER, "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
+        assert db.try_acquire_gpu_lock("cli:123", "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
+        assert live_whisper.release_stale_claims() == 1
+        import contextlib
+        with contextlib.closing(db.get_conn()) as conn:
+            holders = [r["holder"] for r in conn.execute("SELECT holder FROM gpu_lock")]
+        assert holders == ["cli:123"]
+
+    def test_queued_job_wait_text_names_the_live_call(self, isolated_db):
+        release = threading.Event()
+        self._abandon(release)
+        try:
+            job_id = "q1"
+            with background_jobs._lock:
+                background_jobs._jobs[job_id] = {"status": "queued"}
+                background_jobs._note_gpu_wait_reason_locked(job_id)
+                assert background_jobs._jobs[job_id]["gpu_wait_external"] == \
+                    live_whisper.WAIT_MESSAGE
+                del background_jobs._jobs[job_id]
+        finally:
+            release.set()
+
+
 class TestCatchUp:
     def test_a_backlog_is_dropped_to_the_newest_chunks(self, job, monkeypatch):
         stream, start, notes = job

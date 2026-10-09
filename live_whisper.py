@@ -74,7 +74,9 @@ _outstanding = None
 
 
 def outstanding_label():
-    """Label of the Whisper call still alive in this process, else None."""
+    """Label of the Whisper call still alive in this process, else None. It
+    outlives an abandoned call's job, so admin "nothing running" checks use it:
+    the thread may still write the model cache or release its gpu_lock row."""
     with _outstanding_lock:
         entry = _outstanding
         if entry is not None and entry["worker"].is_alive():
@@ -83,6 +85,41 @@ def outstanding_label():
 
 
 CLAIM_HOLDER = "live-whisper:abandoned"
+# Shown on a queued job when only the abandoned call holds the GPU.
+WAIT_MESSAGE = "Waiting for the GPU (a Live Whisper call is still finishing)"
+
+
+def _redacted(exc: BaseException) -> str:
+    try:
+        from translate_engines import redact_secrets
+        return redact_secrets(str(exc))
+    except Exception:
+        return type(exc).__name__
+
+
+def wait_for_outstanding(timeout: float) -> bool:
+    """Joins the Whisper thread still alive in this process; True once none is.
+    Admin actions that replace the database or the model cache call this: an
+    abandoned worker can still be writing the model or releasing its gpu_lock
+    row after its job has ended."""
+    with _outstanding_lock:
+        entry = _outstanding
+    if entry is not None:
+        entry["worker"].join(max(0.0, timeout))
+    return outstanding_label() is None
+
+
+def release_stale_claims() -> int:
+    """Deletes every `live-whisper:` gpu_lock row; run at server startup, when
+    no Whisper thread of this process exists yet. A claim whose process died
+    would otherwise keep GPU jobs queued until the row goes stale."""
+    import contextlib
+    import db
+    with contextlib.closing(db.get_conn()) as conn:
+        released = conn.execute(
+            "DELETE FROM gpu_lock WHERE holder LIKE ?", ("live-whisper:%",)).rowcount
+        conn.commit()
+    return released
 
 
 def _claim_gpu(entry: dict) -> None:
@@ -102,7 +139,7 @@ def _claim_gpu(entry: dict) -> None:
             entry["claimed"] = db.try_acquire_gpu_lock(
                 CLAIM_HOLDER, "an abandoned Live Whisper decode", max_holders=db.GPU_LOCK_MAX_SLOTS)
     except Exception as exc:
-        _log("warning", f"Live: could not claim the GPU for the abandoned call: {exc}")
+        _log("warning", f"Live: could not claim the GPU for the abandoned call: {_redacted(exc)}")
 
 
 def _worker_ended(entry: dict) -> None:
@@ -116,12 +153,12 @@ def _worker_ended(entry: dict) -> None:
                 import db
                 db.release_gpu_lock(CLAIM_HOLDER)
             except Exception as exc:
-                _log("warning", f"Live: could not release the GPU claim: {exc}")
+                _log("warning", f"Live: could not release the GPU claim: {_redacted(exc)}")
     if held:
         try:
             background_jobs._promote_next_queued_gpu_job()
         except Exception as exc:
-            _log("warning", f"Live: could not promote the next GPU job: {exc}")
+            _log("warning", f"Live: could not promote the next GPU job: {_redacted(exc)}")
 
 
 class WhisperRunner:
