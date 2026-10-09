@@ -26,7 +26,9 @@ import math
 import bulk_translate
 import core as core_module
 import db
+import timing_drift
 import translation_guide
+from services import timing_check_service
 from services.review_lines_service import line_dict
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -217,8 +219,12 @@ def dismiss_flag(drama_id: int, line_id: int) -> dict:
     """Clears a line's flag and flag note (only those two columns).
     Idempotent: an unflagged line is returned unchanged."""
     _, _, ln = load(drama_id, line_id)
+    was_timing_drift = ln.flag == timing_drift.TIMING_DRIFT_FLAG
     ln.flag, ln.flag_note = None, ""
     db.save_lines(drama_id, [ln], fields=("flag", "flag_note"))
+    if was_timing_drift:
+        # The flag is re-derived on every check, so only a remembered dismissal keeps it away.
+        timing_check_service.note_dismissed(drama_id, line_id)
     return _reload_dict(drama_id, line_id)
 
 

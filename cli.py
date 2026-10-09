@@ -79,6 +79,7 @@ import dub_narration as dn
 import real_model_check_cli
 import background_jobs
 import cli_subtitle
+import cli_timing
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
                       narration_service, review_extras_service, settings_service, transcribe_service,
@@ -1189,6 +1190,7 @@ def cmd_transcribe(args):
                   f"{translate_engines.redact_secrets(d_message or '')}", file=sys.stderr)
             sys.exit(1)
         print(f"{label} speaker detection done.")
+    cli_timing.wait_after_transcribe(args.id, label, _wait_for_job)
 
 
 def cmd_qc(args):
@@ -1535,6 +1537,7 @@ def main():
     p_qc.add_argument("--id", type=int, default=None, help="One title (default: the whole library).")
     p_qc.set_defaults(func=cmd_qc)
     cli_subtitle.register(sub)
+    cli_timing.register(sub, _wait_for_job)
 
     p_gloss = sub.add_parser("glossary", help="List, add, remove, import or export a title's series glossary")
     gsub = p_gloss.add_subparsers(dest="glossary_action", required=True)

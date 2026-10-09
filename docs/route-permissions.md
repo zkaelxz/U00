@@ -512,6 +512,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/system/update/download` | local_only() |
 | `POST /api/system/update/install` | local_only() |
 | `POST /api/system/update/settings` | local_only() |
+| `GET /api/timing-check/dramas/{drama_id}` | lines.read |
+| `POST /api/timing-check/dramas/{drama_id}/run` | jobs.start |
+| `POST /api/timing-check/dramas/{drama_id}/snap` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/autotune` | library.read |
 | `POST /api/transcribe/dramas/{drama_id}/autotune` | jobs.start |
 | `POST /api/transcribe/dramas/{drama_id}/autotune/apply` | lines.edit |

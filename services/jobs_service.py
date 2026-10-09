@@ -478,7 +478,7 @@ def _close_if_owner_gone(record: dict) -> bool:
 JOB_KIND_BY_PREFIX = {
     "translate_": "translate", "bulk_translate_": "translate",
     "novel_glossary_": "translate", "lines_glossary_": "translate",
-    "flag_": "review", "fixflag_": "review", "consistency_": "review",
+    "flag_": "review", "fixflag_": "review", "timingchk_": "review", "consistency_": "review",
     "emotion_": "review", "notes_": "review", "bulk_consistency_": "review",
     "bulk_emotion_": "review", "bulk_notes_": "review", "bulk_flag_": "review",
     "transcribe_": "transcribe", "retranscribe_": "transcribe",

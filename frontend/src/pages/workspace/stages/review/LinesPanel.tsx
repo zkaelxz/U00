@@ -33,6 +33,7 @@ import { DRAFT_NOT_SAVED, buildStructureEdits, type UndoOffer } from './structur
 import { useDraftGuard } from './useDraftGuard'
 import { useCanRetranscribeLine } from './useCanRetranscribeLine'
 import { useReviewShortcuts } from './useReviewShortcuts'
+import { useTimingSnap } from './useTimingSnap'
 import { useTmByLine } from './useTmByLine'
 import { lineNumber } from '../../../../lineNumber'
 
@@ -335,6 +336,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // Lines to offer the stronger engine for (no engine call).
   const strongerByLine = useStrongerOffers(dramaId, reloads)
   const tmByLine = useTmByLine(dramaId, shown, reloads)
+  const timingByLine = useTimingSnap(dramaId, shown, reloads)
 
   // ---- shortcuts ----
   const active = activeId !== null ? shown.find((l) => l.id === activeId) ?? null : null
@@ -503,6 +505,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               ai={ai?.lineId === l.id ? ai.mode : null}
               tm={tmByLine.get(l.id) ?? null}
               stronger={strongerByLine.get(l.id) ?? null}
+              timingSnap={timingByLine.get(l.id) ?? null}
               issue={issue?.lineId === l.id ? issue : null}
               actions={actions}
               searchHit={searching}
