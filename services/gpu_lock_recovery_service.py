@@ -3,7 +3,8 @@
 The gpu_lock table is shared with cli.py runs and, via library.db, possibly
 with another server process, so nothing here deletes a row on its name alone:
 a server job's row ("ui:<job id>") is released only when the job_records row
-of that job id names an owner process that is gone. A "cli:<pid>" row is never
+of that job id was written after the row was taken and names an owner process
+that is gone. A "cli:<pid>" row is never
 touched, even a dead one: it expires on its own after db.GPU_LOCK_STALE_SECONDS.
 """
 
@@ -27,13 +28,19 @@ def _owner_is_other_live_process(job_id: str) -> bool:
     return pid is not None and pid != os.getpid() and background_jobs.owner_process_alive(pid)
 
 
-def _owner_is_gone(job_id: str) -> bool:
+def _owner_is_gone(job_id: str, acquired_at: float) -> bool:
     """Stricter than _owner_is_other_live_process: a missing record or pid is
     not proof, so such a row is left to expire. This process's own pid counts
     as gone because the job is not live here (the same-pid rule of
-    jobs_service.sweep_stale_job_records: an earlier run had the pid)."""
-    pid = (db.get_job_record(job_id) or {}).get("owner_pid")
-    if pid is None:
+    jobs_service.sweep_stale_job_records: an earlier run had the pid).
+
+    A record older than the row belongs to a previous run of the same job id:
+    start_job takes the slot before it mirrors its own pid, so another live
+    server's brand-new row can briefly sit beside a dead owner's record. A real
+    ghost mirrored a state or heartbeat after taking its slot."""
+    record = db.get_job_record(job_id) or {}
+    pid = record.get("owner_pid")
+    if pid is None or record["updated_at"] < acquired_at:
         return False
     return pid == os.getpid() or not background_jobs.owner_process_alive(pid)
 
@@ -50,7 +57,7 @@ def release_orphaned_server_holders() -> int:
             (SERVER_HOLDER_PREFIX + "%",)).fetchall()
         for row in rows:
             job_id = row["holder"][len(SERVER_HOLDER_PREFIX):]
-            if background_jobs.get_status(job_id) is not None or not _owner_is_gone(job_id):
+            if background_jobs.get_status(job_id) is not None or not _owner_is_gone(job_id, row["acquired_at"]):
                 continue
             # Matching the timestamps read above makes this a compare-and-delete:
             # a job that took the slot since (even under the same holder name)

@@ -23,8 +23,10 @@ def _holders():
 
 
 def _ghost(job_id, pid=DEAD_PID, status="cancelled"):
-    db.save_job_record(job_id, status, owner_pid=pid, gpu_touching=True)
+    # A real ghost mirrored its state after taking the slot.
     assert db.try_acquire_gpu_lock(f"ui:{job_id}", "private description")
+    time.sleep(0.01)
+    db.save_job_record(job_id, status, owner_pid=pid, gpu_touching=True)
 
 
 def _age(holder, seconds):
@@ -53,6 +55,14 @@ class TestReleaseOrphanedServerHolders:
         _ghost("live_other", pid=os.getpid() + 1, status="running")
         assert recovery.release_orphaned_server_holders() == 0
         assert _holders() == {"ui:live_other"}
+
+    def test_new_row_beside_a_dead_owners_older_record_is_untouched(self, isolated_db):
+        # start_job takes the slot before it mirrors its own pid.
+        db.save_job_record("transcribe_5", "cancelled", owner_pid=DEAD_PID, gpu_touching=True)
+        time.sleep(0.01)
+        assert db.try_acquire_gpu_lock("ui:transcribe_5", "new run")
+        assert recovery.release_orphaned_server_holders() == 0
+        assert _holders() == {"ui:transcribe_5"}
 
     def test_row_without_a_record_is_left_to_expire(self, isolated_db):
         db.try_acquire_gpu_lock("ui:no_record")
@@ -88,8 +98,8 @@ class TestReleaseOrphanedServerHolders:
         _ghost("racer")
         real = recovery._owner_is_gone
 
-        def gone_then_job_starts(job_id):
-            gone = real(job_id)
+        def gone_then_job_starts(job_id, acquired_at):
+            gone = real(job_id, acquired_at)
             # The new run takes the same holder name between the check and the delete.
             time.sleep(0.01)
             assert db.try_acquire_gpu_lock(f"ui:{job_id}", "new run")
