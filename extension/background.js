@@ -144,15 +144,33 @@ function sniffImageType(bytes) {
 
 // The page chooses this URL, so it must not be able to aim the person's browser
 // at their own machine or network (including the app on 8600 and the bridge).
+// This is a literal-address check only: a public DNS name that resolves to a
+// private address (rebinding) cannot be excluded from inside an extension, and
+// the suffix list below is a cheap guard for the common wildcard-DNS services.
+const WILDCARD_DNS_SUFFIXES = [".nip.io", ".sslip.io", ".localtest.me"];
+
 function isPrivateHost(hostname) {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  // "localhost." is the same host as "localhost".
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "");
   if (/^(?:.*\.)?local(?:host)?$/.test(host)) return true;
-  if (host.includes(":")) return true;     // IPv6 literals: loopback, link-local, ULA
+  if (WILDCARD_DNS_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true;
+  if (host.includes(":")) return true;     // IPv6 literals: loopback, link-local, ULA, ::ffff: mapped
   const m = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
   if (!m) return false;
   const [a, b] = [Number(m[1]), Number(m[2])];
-  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+    || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19));
+}
+
+// The permission pattern is built only from a validated scheme, host and port:
+// URL parsing accepts "*" in a host, which would turn the request into a
+// wildcard grant. IP literals are refused so only named hosts can be granted.
+function permissionTarget(parsed) {
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+  if (!/^[a-z0-9.-]+$/.test(host) || /^\d+(\.\d+)*$/.test(host) || /(^|\.)\.|^\.|\.\./.test(host)) return null;
+  const origin = `${parsed.protocol}//${host}${parsed.port ? `:${parsed.port}` : ""}`;
+  return { origin, pattern: `${origin}/*` };
 }
 
 function base64Of(bytes) {
@@ -184,7 +202,16 @@ async function readCapped(response, controller) {
   return bytes;
 }
 
-async function fetchImage({ url }) {
+function senderOrigin(sender) {
+  try {
+    const page = new URL((sender && (sender.url || (sender.tab && sender.tab.url))) || "");
+    return page.protocol === "https:" || page.protocol === "http:" ? page.origin : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+async function fetchImage({ url }, sender) {
   let parsed;
   try {
     parsed = new URL(url);
@@ -194,26 +221,32 @@ async function fetchImage({ url }) {
   if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || isPrivateHost(parsed.hostname)) {
     return { ok: false, error: "that image is not on a public web address" };
   }
-  const origins = [`${parsed.origin}/*`];
+  const target = permissionTarget(parsed);
+  if (!target) return { ok: false, error: "that image is not on a public web address" };
+  const origins = [target.pattern];
   if (!(await chrome.permissions.contains({ origins }))) {
     // Only the popup can ask: the prompt needs the click that happens there.
     return {
-      ok: false, code: "NEEDS_PERMISSION", origin: parsed.origin,
-      error: `The page draws its image from ${parsed.origin}, which the browser won't let the page read. ` +
+      ok: false, code: "NEEDS_PERMISSION", origin: target.origin,
+      error: `The page draws its image from ${target.origin}, which the browser won't let the page read. ` +
              'Click "Allow this site" in the extension popup to let it download that image itself.',
     };
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_IMAGE_TIMEOUT_MS);
   try {
-    // credentials: "include" because some CDNs only serve images to a browser
-    // holding the site's cookies. A worker cannot send the page as Referer.
-    const response = await fetch(parsed.href, { credentials: "include", signal: controller.signal });
+    // Cookies are omitted: with a granted host permission the request counts as
+    // first-party, so a hostile page could otherwise read another site's private
+    // images through the person's login. The referrer is only the page's origin,
+    // what a browser sends natively, for CDNs that check it; browsers may ignore
+    // a cross-origin referrer set from a worker.
+    const options = { credentials: "omit", redirect: "error", signal: controller.signal };
+    const pageOrigin = senderOrigin(sender);
+    if (pageOrigin) Object.assign(options, { referrer: `${pageOrigin}/`, referrerPolicy: "origin" });
+    // redirect "error" because a redirect target would be requested before it
+    // could be checked, letting a granted origin bounce the fetch to a LAN address.
+    const response = await fetch(parsed.href, options);
     if (!response.ok) return { ok: false, error: `the image server answered HTTP ${response.status}` };
-    // A redirect can lead somewhere the first check would have refused.
-    if (response.url && isPrivateHost(new URL(response.url).hostname)) {
-      return { ok: false, error: "that image is not on a public web address" };
-    }
     const declared = Number(response.headers.get("content-length") || 0);
     if (declared > FETCH_IMAGE_MAX_BYTES) {
       controller.abort();
@@ -253,7 +286,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           respond({ ok: true });
           break;
         case "fetchImage":
-          respond(await fetchImage(message));
+          respond(await fetchImage(message, sender));
           break;
         case "sendText":
           respond(await sendText(message));

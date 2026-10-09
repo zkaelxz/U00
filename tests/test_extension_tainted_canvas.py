@@ -84,9 +84,37 @@ class TestWholeChapterCapture:
 
 
 class TestWorkerDownload:
-    def test_a_valid_image_is_fetched_with_cookies_and_a_timeout_signal(self):
+    def test_a_valid_image_is_fetched_without_cookies_or_redirects_and_with_a_timeout_signal(self):
         out = _run("background", "valid_jpeg")
-        assert out == {"ok": True, "content_type": "image/jpeg", "credentials": "include", "hasSignal": True}
+        assert out == {"ok": True, "content_type": "image/jpeg", "credentials": "omit",
+                       "redirect": "error", "hasSignal": True}
+
+    def test_the_referrer_is_only_the_origin_of_the_page(self):
+        out = _run("background", "referrer_is_only_the_page_origin")
+        assert out == {"referrer": "https://reader.example/", "referrerPolicy": "origin"}
+
+    def test_no_referrer_is_sent_when_the_page_is_unknown(self):
+        assert _run("background", "no_referrer_without_a_page")["keys"] == ["credentials", "redirect", "signal"]
+
+    def test_permission_patterns_come_only_from_a_validated_host(self):
+        out = _run("background", "permission_patterns")
+        refused = ["https://*/x.jpg", "https://*.victim.com/x.jpg", "https://8.8.8.8/x.jpg"]
+        for target in refused:
+            assert out[target].get("code") is None, target
+            assert out[target]["asked"] == [] and out[target]["fetchCalls"] == 0, target
+        expected = {
+            "https://a%2eb/x.jpg": "https://a.b/*",
+            "https://u:p@host.example/x.jpg": "https://host.example/*",
+            "https://HOST.Example/x.jpg": "https://host.example/*",
+            "https://bücher.example/x.jpg": "https://xn--bcher-kva.example/*",
+            "https://xn--bcher-kva.example/x.jpg": "https://xn--bcher-kva.example/*",
+            "https://cdn.example:8443/x.jpg": "https://cdn.example:8443/*",
+            "http://cdn.example:80/x.jpg": "http://cdn.example/*",
+            "https://cdn.example./x.jpg": "https://cdn.example/*",
+        }
+        for target, pattern in expected.items():
+            assert out[target]["asked"] == [pattern], target
+            assert out[target]["code"] == "NEEDS_PERMISSION" and out[target]["fetchCalls"] == 0, target
 
     def test_the_type_is_decided_by_the_bytes_not_the_header(self):
         assert _run("background", "type_comes_from_the_bytes_not_the_header")["content_type"] == "image/png"

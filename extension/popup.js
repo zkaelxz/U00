@@ -52,8 +52,26 @@ function showNotice(text, actionLabel, handler) {
 // Set while the "Allow this site" button is showing: the origins to ask for and the action to repeat.
 let pendingAccess = null;
 
+// The origin came from the page, so it is validated again here: a "*" in a host
+// would make the permission request a wildcard grant.
+function sitePattern(origin) {
+  try {
+    const u = new URL(origin);
+    const host = u.hostname.toLowerCase().replace(/\.$/, "");
+    if ((u.protocol !== "https:" && u.protocol !== "http:") || !/^[a-z0-9.-]+$/.test(host)
+        || /^\d+(\.\d+)*$/.test(host) || /^\.|\.\./.test(host)) return null;
+    return `${u.protocol}//${host}${u.port ? `:${u.port}` : ""}/*`;
+  } catch (e) {
+    return null;
+  }
+}
+
 function offerSiteAccess(result, retry) {
-  pendingAccess = { origins: (result.origins || []).map((o) => `${o}/*`), retry };
+  pendingAccess = { origins: (result.origins || []).map(sitePattern).filter(Boolean), retry };
+  if (!pendingAccess.origins.length) {
+    pendingAccess = null;
+    return;
+  }
   els.allowSite.hidden = false;
 }
 

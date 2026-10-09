@@ -89,7 +89,7 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(read("content.js"), sandbox);
-  const ask = (message) => new Promise((resolve) => { listener(message, {}, resolve); });
+  const ask = (message, sender = {}) => new Promise((resolve) => { listener(message, sender, resolve); });
   return { ask, sent, fetched, sandbox };
 }
 
@@ -176,7 +176,7 @@ function loadBackground({ granted, response, fetchImpl }) {
   };
   vm.createContext(sandbox);
   vm.runInContext(read("background.js"), sandbox);
-  const ask = (message) => new Promise((resolve) => { listener(message, {}, resolve); });
+  const ask = (message, sender = {}) => new Promise((resolve) => { listener(message, sender, resolve); });
   return { ask, fetchCalls };
 }
 
@@ -192,7 +192,8 @@ async function background(scenario) {
   switch (scenario) {
     case "valid_jpeg": {
       const r = await go({ response: image(JPEG) });
-      return { ok: r.ok, content_type: r.data && r.data.content_type, credentials: r.options.credentials, hasSignal: !!r.options.signal };
+      return { ok: r.ok, content_type: r.data && r.data.content_type, credentials: r.options.credentials,
+        redirect: r.options.redirect, hasSignal: !!r.options.signal };
     }
     case "type_comes_from_the_bytes_not_the_header": {
       const r = await go({ response: image(PNG, "application/octet-stream") });
@@ -230,10 +231,38 @@ async function background(scenario) {
       const r = await h.ask({ type: "fetchImage", url });
       return { ...r, fetchCalls: h.fetchCalls.length };
     }
+    case "referrer_is_only_the_page_origin": {
+      const h = loadBackground({ granted: () => true, response: image(JPEG) });
+      await h.ask({ type: "fetchImage", url }, { url: "https://reader.example/ch/1?token=secret" });
+      const o = h.fetchCalls[0].options;
+      return { referrer: o.referrer, referrerPolicy: o.referrerPolicy };
+    }
+    case "no_referrer_without_a_page": {
+      const h = loadBackground({ granted: () => true, response: image(JPEG) });
+      await h.ask({ type: "fetchImage", url });
+      return { keys: Object.keys(h.fetchCalls[0].options).sort() };
+    }
+    case "permission_patterns": {
+      const out = {};
+      for (const target of ["https://*/x.jpg", "https://*.victim.com/x.jpg", "https://a%2eb/x.jpg",
+        "https://u:p@host.example/x.jpg", "https://HOST.Example/x.jpg", "https://bücher.example/x.jpg",
+        "https://xn--bcher-kva.example/x.jpg", "https://cdn.example:8443/x.jpg", "http://cdn.example:80/x.jpg",
+        "https://cdn.example./x.jpg", "https://8.8.8.8/x.jpg"]) {
+        const asked = [];
+        const h = loadBackground({ granted: (origins) => { asked.push(...origins); return false; }, response: image(JPEG) });
+        const r = await h.ask({ type: "fetchImage", url: target });
+        out[target] = { code: r.code, asked, fetchCalls: h.fetchCalls.length };
+      }
+      return out;
+    }
     case "private_hosts_refused": {
       const out = {};
       for (const target of ["http://127.0.0.1:8600/api", "http://localhost/x.jpg", "http://192.168.1.5/x.jpg",
-        "http://169.254.169.254/x.jpg", "http://[::1]/x.jpg", "file:///etc/passwd", "blob:https://a/b"]) {
+        "http://169.254.169.254/x.jpg", "http://[::1]/x.jpg", "file:///etc/passwd", "blob:https://a/b",
+        "http://localhost./x.jpg", "http://127.0.0.1.nip.io/x.jpg", "http://a.sslip.io/x.jpg",
+        "http://a.localtest.me/x.jpg", "http://100.64.0.1/x.jpg", "http://198.18.0.1/x.jpg",
+        "http://224.0.0.1/x.jpg", "http://240.0.0.1/x.jpg", "http://[::ffff:127.0.0.1]/x.jpg",
+        "http://[fc00::1]/x.jpg", "http://[fe80::1]/x.jpg"]) {
         const r = await go({ response: image(JPEG) }, target);
         out[target] = { ok: r.ok, fetchCalls: r.fetchCalls };
       }
