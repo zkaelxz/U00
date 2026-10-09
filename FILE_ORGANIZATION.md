@@ -47,6 +47,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 **ASR, transcription & alignment**
 
+- `asmr_vad.py`
 - `asr_backend.py`
 - `asr_benchmark.py`
 - `audio_preprocess.py`
@@ -138,6 +139,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `backup_import_service.py`
 - `benchmark_lab_service.py`
 - `blocked_retry_service.py`
+- `browser_install_service.py`
 - `bug_report_service.py`
 - `capped_body.py`
 - `characters_service.py`
@@ -274,6 +276,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `comic_routes.py`
 - `delete_routes.py`
 - `device_token_routes.py`
+- `diagnostics_browser_routes.py`
 - `diagnostics_gaps_routes.py`
 - `diagnostics_installs_routes.py`
 - `diagnostics_routes.py`

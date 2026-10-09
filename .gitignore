@@ -42,3 +42,6 @@ Thumbs.db
 
 # Session-local scratch (screenshots, temp output); never commit
 /tmp/
+
+# Chromium that Diagnostics > Install browser support downloads
+playwright_browsers/

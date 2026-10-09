@@ -404,6 +404,8 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 /* A small button's hit area reaches 6px above it; 4px would put it under the label row's help button. */
 .field-item:has(> .field-control > .btn-sm) { gap: var(--space-2); }
 .field-control > :first-child { flex: 1 1 auto; min-width: 0; }
+/* Outranks the stretch rule above: the thumb only travels a fixed 20px, so a stretched switch track leaves the knob mid-bar. */
+.field-control > button.toggle:first-child { flex: 0 0 auto; }
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
 .field-help-btn { width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 999px; font-size: var(--text-xs); line-height: 1; font-style: italic; color: var(--muted); }
