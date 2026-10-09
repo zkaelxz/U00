@@ -164,6 +164,110 @@ export function loadPresetStart(dramaId: number): PresetStart {
   }
 }
 
+// With "Review glossary before translating" on, the button first scans.
+export function translateButtonLabel(scanFirst: boolean, lineCount: number): string {
+  return scanFirst ? 'Scan glossary, then translate' : `Translate ${lineCount} line${lineCount === 1 ? '' : 's'}`
+}
+
+// The run options the owner last chose for a title, so a discarded or
+// reloaded tab doesn't reset them. Only plain choices are stored (never keys),
+// and the transient ones (re-translate existing and its confirmation) are
+// left out so a reload can't arm a destructive run.
+const RUN_OPTIONS_VERSION = 1
+const runOptionsKey = (dramaId: number) => `baihe.translateRun.v${RUN_OPTIONS_VERSION}.${dramaId}`
+
+type SavedForm = Omit<RunForm, 'force' | 'forceConfirmed' | 'female_pronouns' | 'genre_notes'>
+
+export interface RunOptions {
+  form: SavedForm
+  // The title's saved engine when this was written: if the server's has
+  // changed since (tier or preset applied elsewhere), the engine choices are stale.
+  baseEngine: string
+  reviewFirst: boolean
+  tier: string
+}
+
+export function saveRunOptions(dramaId: number, o: { form: RunForm; baseEngine: string; reviewFirst: boolean; tier: string }): void {
+  const { force: _force, forceConfirmed: _confirmed, female_pronouns: _fp, genre_notes: _gn, ...form } = o.form
+  const out: RunOptions = { form, baseEngine: o.baseEngine, reviewFirst: o.reviewFirst, tier: o.tier }
+  try {
+    localStorage.setItem(runOptionsKey(dramaId), JSON.stringify(out))
+  } catch {
+    // storage unavailable: the options just aren't remembered
+  }
+}
+
+const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+const bool = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : undefined)
+
+// An integer string within [min, max]: a stored number out of range is
+// clamped, anything that isn't a whole number falls back.
+function clampInt(raw: unknown, min: number, max: number, fallback: string): string {
+  const t = typeof raw === 'string' || typeof raw === 'number' ? String(raw).trim() : ''
+  if (!/^\d+$/.test(t)) return fallback
+  return String(Math.min(max, Math.max(min, Number(t))))
+}
+
+// Overlay the saved options on `base` (the form initialForm built), keeping
+// only values this server still offers. The toggles the title saves on the
+// server (she/her, genre notes) always come from `base`.
+export function restoreRunOptions(
+  dramaId: number,
+  base: RunForm,
+  c: TranslateRunConfig,
+): { form: RunForm; reviewFirst: boolean; tier: string | null } {
+  const none = { form: base, reviewFirst: false, tier: null }
+  let o: Record<string, unknown>
+  try {
+    const raw = localStorage.getItem(runOptionsKey(dramaId))
+    const v: unknown = raw ? JSON.parse(raw) : null
+    if (!v || typeof v !== 'object' || !('form' in v)) return none
+    o = v as Record<string, unknown>
+  } catch {
+    return none
+  }
+  const s = (o.form && typeof o.form === 'object' ? o.form : {}) as Record<string, unknown>
+  const f: RunForm = { ...base }
+  const engines = c.engines ?? []
+  const supported = c.bulk_supported_engines ?? []
+
+  const engineFresh = o.baseEngine === c.translation_engine
+  const savedEngine = str(s.engine)
+  if (engineFresh && savedEngine !== undefined && (savedEngine === '' || engines.some((e) => e.name === savedEngine))) {
+    f.engine = savedEngine
+    const models = engines.find((e) => e.name === (savedEngine || c.translation_engine))?.models ?? []
+    const m = str(s.model)
+    f.model = m && models.includes(m) ? m : base.engine === savedEngine ? base.model : ''
+    const eff = savedEngine || c.translation_engine
+    const reflect = s.reflect === true && reflectAvailable(eff)
+    const bulk = !reflect && s.bulk === true && bulkAvailable(eff, supported)
+    f.reflect = reflect
+    f.bulk = bulk
+    if (!reflect && !bulk && Array.isArray(s.fallbacks)) {
+      const fb: string[] = []
+      for (const e of s.fallbacks) {
+        if (typeof e === 'string' && engines.some((x) => x.name === e) && e !== eff && !fb.includes(e) && sameEngineKind(e, eff)) fb.push(e)
+      }
+      f.fallbacks = fb.slice(0, MAX_FALLBACKS)
+    }
+    f.thinking = bool(s.thinking) ?? base.thinking
+  }
+
+  const style = str(s.style_preset)
+  if (style && c.style_presets.some((p) => p.key === style)) f.style_preset = style
+  const locale = str(s.locale)
+  if (locale && c.locales.includes(locale)) f.locale = locale
+  const note = str(s.style_note)
+  if (note !== undefined && note.length <= 4000) f.style_note = note
+  f.batch_size = clampInt(s.batch_size, 1, 60, base.batch_size)
+  f.context_window = clampInt(s.context_window, 0, 100, base.context_window)
+  f.context_window_ahead = clampInt(s.context_window_ahead, 0, 100, base.context_window_ahead)
+  const cap = str(s.cost_cap)
+  if (cap !== undefined && (cap.trim() === '' || parseCap(cap) !== null)) f.cost_cap = cap
+
+  return { form: f, reviewFirst: o.reviewFirst === true, tier: str(o.tier) ?? null }
+}
+
 // A preset value only applies when this server still offers it. Without a
 // preset the toggles start as the Workspace checkboxes did: she/her off,
 // genre notes on (also the API's default when they are omitted).
