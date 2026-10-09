@@ -49,7 +49,6 @@ writes the database. Hardsub OCR, which already stops between frames,
 stays a thread job (_run_transcribe_and_apply_job).
 """
 import contextlib
-import errno
 import functools
 import glob
 import importlib.util
@@ -605,6 +604,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     asr_backend_choice = asr_options_service.stored_asr_backend(drama)
     alignment_method = drama.get("alignment_method") or "whisper_diff"
     _check_run_choices(transcript_mode, asr_backend_choice, alignment_method)
+    voice_detector = asr_options_service.resolve_voice_detector(drama, source_language)
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
@@ -662,7 +662,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       asr_options_service.get_mixed_languages(),
                       hallucination_silence_sec, min_pause_sec,
                       bool(drama.get("whisper_repeat_guard")),
-                      bool(drama.get("split_by_sentences")), preset, scratch_dir),
+                      bool(drama.get("split_by_sentences")), preset, voice_detector,
+                      scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
@@ -907,7 +908,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        whisper_fast_mode, use_groq, initial_prompt, use_gpu, asr_backend_choice,
                        alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
                        mixed_languages, hallucination_silence_sec, min_pause_sec, repeat_guard,
-                       split_by_sentences, sensitivity_preset, scratch_dir, result_queue):
+                       split_by_sentences, sensitivity_preset, voice_detector, scratch_dir,
+                       result_queue):
     """Process-job target, started with spawn on every platform (top level
     and plain arguments only, so it pickles; nothing here may depend on
     state set up in the parent process after import): runs the pipeline for
@@ -938,7 +940,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             mixed_languages=mixed_languages, vocals_work_dir=scratch_dir,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             repeat_guard=repeat_guard, split_by_sentences=split_by_sentences,
-            sensitivity_preset=sensitivity_preset)
+            sensitivity_preset=sensitivity_preset, voice_detector=voice_detector)
         result_queue.put(("ok", outcome))
     except ImportError:
         result_queue.put(("ok", missing_package_outcome()))
@@ -946,29 +948,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
         result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
 
 
-def _move_into_place(src, dst):
-    """Moves src over dst so a reader never sees a partial dst: os.replace
-    on one volume (shutil.move would copy then delete when dst exists on
-    Windows). Across volumes, copies next to dst first and replaces from
-    there."""
-    try:
-        os.replace(src, dst)
-        return
-    except OSError as exc:
-        if exc.errno != errno.EXDEV:
-            raise
-    fd, tmp = tempfile.mkstemp(prefix=".part-", suffix=os.path.splitext(dst)[1],
-                               dir=os.path.dirname(dst) or None)
-    os.close(fd)
-    try:
-        shutil.copyfile(src, tmp)
-        os.replace(tmp, dst)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.remove(tmp)
-        raise
-    with contextlib.suppress(OSError):
-        os.remove(src)
+_move_into_place = storage.move_into_place
 
 
 def _remove_scratch_dir(path, _job_id=None, part_dir=None):
@@ -997,7 +977,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          vad_refine_timing=False, mixed_languages=False,
                          hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
                          min_pause_sec=core_module.MIN_WORD_GAP_SECONDS, repeat_guard=False,
-                         split_by_sentences=False, sensitivity_preset="normal") -> dict:
+                         split_by_sentences=False, sensitivity_preset="normal",
+                         voice_detector="standard") -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
@@ -1028,6 +1009,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     word_align_error = None
     forced_align_error = None
     coverage_msg = None
+    detector_notices = []
     device_msg = ""
     device_suffix = ""
     # The other backends, and a supplied transcript, bring their own lines.
@@ -1164,7 +1146,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     progress_cb=_vad_progress, cancel_check=rep.raise_if_cancelled,
                     refine_timing=vad_refine_timing, mixed_languages=mixed_languages,
                     stage_cb=_vad_set_stage, on_device=_on_vad_device,
-                    on_gpu_fallback=_qwen_on_fallback)
+                    on_gpu_fallback=_qwen_on_fallback, detector=voice_detector,
+                    on_notice=detector_notices.append)
             except vad_segments.VadNotInstalledError:
                 return {"failed_reason": "dependency_missing",
                         "detail": _MISSING_VAD_MESSAGE}
@@ -1349,9 +1332,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                              segments, min_pause=min_pause_sec,
                              rules=asr_backend.SENTENCE_SPLIT_RULES if sentence_lines else None)
                          if s["text"].strip())]
-            coverage_msg = coverage_warning(
+            coverage_msg = " ".join(detector_notices + [coverage_warning(
                 segments, _audio_duration_seconds(audio_path),
-                qwen3_asr=raw_backend == "qwen3_asr")
+                qwen3_asr=raw_backend == "qwen3_asr") or ""]).strip() or None
         else:
             rep.progress(RUNNING_MAX, "Aligning transcript to audio timing...")
             user_lines = split_user_transcript(transcript_text)

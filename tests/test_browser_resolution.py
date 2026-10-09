@@ -14,6 +14,8 @@ def clean(monkeypatch, tmp_path):
     monkeypatch.setattr(page_fetch, "_system_browser_candidates", lambda: [])
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path / "none"))
     monkeypatch.setenv("HOME", str(tmp_path))
+    # Else an app-folder browser from the Install button on this PC counts.
+    monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
 
 
