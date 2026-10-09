@@ -155,6 +155,26 @@ def test_stale_language_label_is_ignored(isolated_db):
     assert art["name"] == "new.mp4" and art["language"] == ""
 
 
+def test_label_write_refuses_a_planted_symlink(isolated_db, did, tmp_path):
+    _write(did, "video", "v.mp4")
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep")
+    base = os.path.dirname(artifact_service.output_path(did, "video", "v.mp4"))
+    os.symlink(victim, os.path.join(base, ".download.json"))
+    artifact_service.set_download_language(did, "video", "v.mp4", "en")
+    assert victim.read_text() == "keep"
+    assert artifact_service.get_artifact(did, "video")["language"] == ""
+
+
+def test_label_write_leaves_no_temp_file_and_survives_a_deleted_drama(isolated_db, did):
+    _write(did, "video", "v.mp4")
+    artifact_service.set_download_language(did, "video", "v.mp4", "en")
+    base = os.path.dirname(artifact_service.output_path(did, "video", "v.mp4"))
+    assert sorted(os.listdir(base)) == [".download.json", "v.mp4"]
+    isolated_db.delete_drama(did)
+    artifact_service.set_download_language(did, "video", "v.mp4", "en")  # must not raise
+
+
 def test_source_title_is_the_fallback_and_cjk_survives(client, isolated_db):
     did = isolated_db.create_drama(title_en="", title_zh="治愈魔法什么都能复制", episode_number=1)
     _write(did, "dubbed_video", f"dubbed_video_{did}.mp4")
@@ -171,6 +191,16 @@ def test_source_title_is_the_fallback_and_cjk_survives(client, isolated_db):
     ("NUL", "NUL"),
     ("   spaced    out   ", "spaced out"),
     ("emoji 🎬 time", "emoji 🎬 time"),
+    ("CON.x", "_CON.x"),
+    ("nul.txt", "_nul.txt"),
+    ("COM1.foo", "_COM1.foo"),
+    ("COM\u00b9.foo", "_COM\u00b9.foo"),
+    ("LPT\u00b3 .foo", "_LPT\u00b3 .foo"),
+    ("Mr. Smith", "Mr. Smith"),
+    ("evil\u202etxt.exe", "eviltxt.exe"),
+    ("zero\u200bwidth\u2066x\u2069", "zerowidthx"),
+    ("\ufeffBOM title", "BOM title"),
+    ("c1\x85ctl", "c1ctl"),
 ])
 def test_download_filename_sanitises(isolated_db, title, expected_stem):
     did = isolated_db.create_drama(title_en=title)
@@ -187,10 +217,18 @@ def test_download_filename_only_symbols_falls_back_to_drama_id(isolated_db):
 def test_download_filename_is_capped_without_cutting_extension_or_pairs(isolated_db):
     did = isolated_db.create_drama(title_en="🎬" * 400, episode_number=5)
     name = export_service.download_filename(did, "bilingual subtitles", "zh+en", "srt")
-    assert len(name) <= 120
+    assert len(name.encode("utf-8")) <= 255
     assert name.endswith(" - Ep 5 - bilingual subtitles (zh+en).srt")
     name.encode("utf-8")  # a split surrogate pair would raise here
     assert set(name.split(" - ")[0]) == {"🎬"}
+
+
+def test_download_filename_stem_fits_the_filesystem_limit_for_cjk(isolated_db):
+    did = isolated_db.create_drama(title_en="治" * 300, episode_number=2 ** 63 - 1)
+    name = export_service.download_filename(did, "bilingual subtitles", "愈" * 80, "srt")
+    assert len(name.encode("utf-8")) <= 255
+    assert name.endswith(".srt") and name.startswith("治" * 10)
+    name.encode("utf-8")
 
 
 def test_content_disposition_cannot_be_injected():

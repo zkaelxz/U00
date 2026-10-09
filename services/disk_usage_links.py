@@ -89,6 +89,23 @@ def _local_target(path: str, depth: int = 0):
     return None
 
 
+def _may_be_folder(path: str) -> bool:
+    """Whether a link could lead to a folder, decided without opening its
+    target where that can stall: a file link then stays "not measured" after
+    the deadline. Windows says so in the link's own entry (a directory
+    symlink or junction carries the directory attribute). Elsewhere the entry
+    is just "a symlink", and there are no mapped drives to wait on, so the
+    target is stat'ed."""
+    try:
+        st = os.lstat(path)
+        attrs = getattr(st, "st_file_attributes", None)
+        if attrs is not None:
+            return bool(attrs & stat.FILE_ATTRIBUTE_DIRECTORY)
+        return stat.S_ISDIR(os.stat(path).st_mode)
+    except OSError:
+        return False
+
+
 class LinkedSizes:
     """The size of the folders links lead to, for one scan.
 
@@ -118,6 +135,15 @@ class LinkedSizes:
         measured = skipped = False
         complete = not cut
         for path in link_paths:
+            # Before any readlink or stat: those touch the target, and on a
+            # disconnected mapped drive each one waits out a network timeout
+            # while the scan holds its lock.
+            late = time.monotonic() > self._deadline or (budget is not None and budget.hit)
+            if late:
+                if _may_be_folder(path):
+                    skipped = True
+                    break
+                continue
             real = _local_target(path)
             if real is None:
                 skipped = True
@@ -135,11 +161,6 @@ class LinkedSizes:
                 continue
             if len(self._done) >= MAX_LINK_TARGETS:
                 complete = False
-                break
-            # Checked only for a folder that would be measured: a file link or
-            # a target counted elsewhere stays "not measured" (None) either way.
-            if time.monotonic() > self._deadline or (budget is not None and budget.hit):
-                skipped = True
                 break
             self._done.append(real)
             found = self._measure(real, (), budget)

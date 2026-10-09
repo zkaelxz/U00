@@ -4,8 +4,9 @@ services/artifact_service.py -- job-output file convention and safe lookup.
 Convention: a job that produces a downloadable file writes it to
 `<drama folder>/exports/<kind>/<filename>` (get it from `output_path`,
 which validates the name and creates the folder). The download endpoint
-serves the newest regular file in that folder, so nothing needs to be
-persisted besides the file itself.
+serves the newest regular file in that folder. The only other thing kept is
+a `.download.json` label beside it (the content language, for the download
+name), which `get_artifact` reports.
 
 Security: callers never supply a path. `kind` is whitelisted, filenames
 must be a bare name, and every resolved path must stay inside the kind
@@ -14,10 +15,11 @@ folder (symlinks are rejected). Errors use fixed text with no path echo.
 
 import json
 import os
+import tempfile
 from typing import Dict
 
 import db
-from services.service_errors import InvalidInputError, NotFoundError
+from services.service_errors import InvalidInputError, NotFoundError, ServiceError
 
 ARTIFACT_KINDS = ("subtitle", "epub", "audio", "video", "softsub_video", "dubbed_video",
                   "archive", "scanlate_zip", "scanlate_pdf")
@@ -67,12 +69,28 @@ def set_download_language(drama_id: int, kind: str, filename: str, language: str
     """Remembers the content language of the file a job just wrote, because
     the stored name stays ID-only and the download name needs the language
     chosen at export time. Best-effort: a failure leaves the plain name."""
+    tmp = None
     try:
-        path = os.path.join(os.path.dirname(output_path(drama_id, kind, filename)), _LABEL_FILE)
-        with open(path, "w", encoding="utf-8") as f:
+        base = os.path.dirname(output_path(drama_id, kind, filename))
+        path = os.path.join(base, _LABEL_FILE)
+        # Opening a planted symlink for writing would follow it out of the folder.
+        if os.path.islink(path):
+            return
+        # mkstemp creates its file exclusively, and the replace swaps the
+        # label in whole so a reader never sees half of it.
+        fd, tmp = tempfile.mkstemp(prefix=".download-", suffix=".tmp", dir=base)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump({"file": filename, "language": language}, f)
-    except (OSError, InvalidInputError):
+        os.replace(tmp, path)
+        tmp = None
+    except (OSError, ServiceError):
         pass
+    finally:
+        if tmp is not None:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def _download_language(base: str, name: str) -> str:

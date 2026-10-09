@@ -17,6 +17,7 @@ out, so a CLI or another service could call them too.
 """
 import os
 import re
+import unicodedata
 from typing import Optional
 from urllib.parse import quote
 
@@ -34,15 +35,36 @@ _SUBTITLE_FORMATS = ("srt", "vtt", "lrc")
 _SUBTITLE_FIELDS = ("en", "zh", "bilingual")
 
 
-_MAX_DOWNLOAD_NAME = 120
+# The stem is capped in UTF-8 bytes, not characters: 120 CJK characters are
+# 360 bytes, over the 255-byte filename limit on Linux and macOS.
+_MAX_STEM_BYTES = 200
+_MAX_LANGUAGE_CHARS = 40
+_MAX_LANGUAGE_BYTES = 60
+_MIN_TITLE_BYTES = 30
 _NAME_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 # What the browser saves a download as, per artifact kind.
 ARTIFACT_WHAT = {"audio": "audiobook", "video": "burned-in", "softsub_video": "soft sub",
                  "dubbed_video": "dubbed", "scanlate_zip": "pages", "scanlate_pdf": "pages"}
 
 
+# Windows reads a name as the device when the part before its first dot is one
+# of these, whatever follows the dot; the superscript digits count too.
+_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"{base}{d}" for base in ("COM", "LPT") for d in "0123456789\u00b9\u00b2\u00b3"])
+
+
 def _name_part(text) -> str:
-    return " ".join(_NAME_ILLEGAL.sub(" ", str(text or "")).split())
+    # Control and format characters (bidi overrides, zero-width, BOM) would
+    # let a title disguise the real extension or vanish from the saved name.
+    kept = "".join(c for c in str(text or "") if not unicodedata.category(c).startswith("C"))
+    return " ".join(_NAME_ILLEGAL.sub(" ", kept).split())
+
+
+def _truncate_bytes(text: str, limit: int) -> str:
+    """The longest prefix of `text` that fits `limit` UTF-8 bytes without
+    cutting a character."""
+    return text.encode("utf-8")[:max(limit, 0)].decode("utf-8", errors="ignore")
 
 
 def field_language(drama: dict, field: str) -> str:
@@ -65,13 +87,16 @@ def download_filename(drama_id: int, what: str, language: str, ext: str) -> str:
     title = _name_part(drama.get("title_en")) or _name_part(drama.get("title_zh"))
     episode = drama.get("episode_number")
     tail = (f" - Ep {episode}" if isinstance(episode, int) else "") + f" - {_name_part(what)}"
-    language = _name_part(language)[:40]
+    language = _truncate_bytes(_name_part(language)[:_MAX_LANGUAGE_CHARS], _MAX_LANGUAGE_BYTES).strip()
     if language:
         tail += f" ({language})"
     ext = "." + re.sub(r"[^A-Za-z0-9]", "", ext.lstrip("."))[:10] if ext.strip(". ") else ""
-    # Slicing a str cuts between code points, so a surrogate pair is never split.
-    title = title[:max(10, _MAX_DOWNLOAD_NAME - len(tail) - len(ext))].rstrip(". ")
-    # The " - <what>" tail means the stem is never a bare device name (CON, NUL, ...).
+    room = max(_MIN_TITLE_BYTES, _MAX_STEM_BYTES - len(tail.encode("utf-8")))
+    title = _truncate_bytes(title, room).rstrip(". ")
+    # The " - <what>" tail means a plain title is never a bare device name,
+    # but a dot in the title ends the device-name part early.
+    if "." in title and title.split(".")[0].strip(" ").upper() in _DEVICE_NAMES:
+        title = "_" + title
     return (title or f"drama {drama_id}") + tail + ext
 
 
