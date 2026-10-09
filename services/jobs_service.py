@@ -22,7 +22,7 @@ import time
 from typing import Optional
 
 import db
-from services import job_stage_service, ownership_service
+from services import job_stage_service, ownership_service, run_settings_service
 import diagnostics
 import background_jobs
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -236,6 +236,9 @@ def project_result(result):
         out["bulk"] = _reproject_bulk(result["bulk"])  # stored row, on read
     if result.get("fallbacks"):
         out["fallbacks"] = _project_fallbacks(result["fallbacks"])
+    run_settings = run_settings_service.sanitise(result.get("run_settings"))
+    if run_settings:
+        out["run_settings"] = run_settings
     for key in RESULT_ALLOWED_KEYS:
         if key not in result or (key == "errors" and "bulk" in out):
             continue
@@ -265,8 +268,13 @@ def project_result(result):
     return out
 
 
-def project_result_json(result):
-    """project_result, JSON-encoded for db.job_records.result_json."""
+def project_result_json(result, run_settings=None):
+    """project_result, JSON-encoded for db.job_records.result_json. The
+    job's run settings ride along even when the result isn't a dict
+    (live-translate's cue list)."""
+    settings = run_settings_service.sanitise(run_settings)
+    if settings:
+        result = {**(result if isinstance(result, dict) else {}), "run_settings": settings}
     projected = project_result(result)
     return json.dumps(projected) if projected is not None else None
 
