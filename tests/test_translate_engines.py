@@ -1790,7 +1790,7 @@ class TestCallLlmJson:
                 self.chat = self
                 self.completions = self
 
-            def create(self, model, messages):
+            def create(self, model, messages, max_tokens):
                 return FakeResponse()
 
         result = te.call_llm_json(
