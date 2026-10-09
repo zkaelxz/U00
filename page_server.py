@@ -530,6 +530,23 @@ def _image_size(data: bytes):
         return 0, 0
 
 
+def _looks_blank(data: bytes) -> bool:
+    """True for a single-colour image. A reader that has not painted a
+    canvas yet hands back exactly this, and storing it would leave a silent
+    empty page in the chapter. Undecodable data is not called blank: the
+    pipeline reports that itself."""
+    try:
+        import io
+
+        from PIL import Image
+        with Image.open(io.BytesIO(data)) as img:
+            probe = img.convert("RGB")
+            probe.thumbnail((64, 64))
+            return all(lo == hi for lo, hi in probe.getextrema())
+    except Exception:
+        return False
+
+
 def select_page_images(images, page_url: str):
     """Which of the sent images are real pages, decided by
     `sources/generic_import.py`'s existing filter -- size floor, aspect
@@ -629,6 +646,9 @@ class _Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "app": "Baihe Subtitler",
                 "engine_configured": _build_engine(get_translation_config()) is not None,
+                # The extension batches a whole chapter to this, so the
+                # number is stated once, here, and cannot drift from its copy.
+                "max_images_per_request": MAX_IMAGES_PER_REQUEST,
                 # `title_en or title_zh` is the app's own display-title
                 # convention, not a new one.
                 "dramas": [{"id": d["id"],
@@ -747,15 +767,34 @@ class _Handler(BaseHTTPRequestHandler):
             if not decoded:
                 raise EndpointError(422, "none of those images look like comic pages")
 
+        # One bad page must not discard the rest of a chapter: each failure
+        # is named so the person sees a mismatch instead of a short count.
         results = []
+        failed = []
         for image in decoded:
-            result = translate_image(
-                image["content"], image["content_type"], drama_id=drama_id,
-                source_url=source_url, source_language=source_language, store=store)
+            try:
+                if _looks_blank(image["content"]):
+                    raise EndpointError(422, "the page was blank (the reader had not drawn it yet)")
+                result = translate_image(
+                    image["content"], image["content_type"], drama_id=drama_id,
+                    source_url=source_url, source_language=source_language, store=store)
+            except EndpointError as e:
+                if len(decoded) == 1 and e.status in (404, 413, 415):
+                    raise
+                failed.append({"key": image["key"], "url": image["url"], "error": e.message})
+                continue
+            except Exception as e:
+                import translate_engines
+                failed.append({"key": image["key"], "url": image["url"],
+                               "error": translate_engines.redact_secrets(str(e))[:300]
+                               or "the page could not be processed"})
+                continue
             result["key"] = image["key"]
             result["url"] = image["url"]
             results.append(result)
-        return {"pages": results, "skipped": skipped}
+        return {"pages": results, "skipped": skipped, "failed": failed,
+                "received": len(images),
+                "stored": sum(1 for r in results if r.get("stored"))}
 
     # -- logging -------------------------------------------------------
     def log_message(self, fmt, *args):

@@ -101,21 +101,77 @@ async function sendText({ text, sourceLanguage, targetLanguage, store }) {
   });
 }
 
+// An app that predates the advertised cap accepts at least this many.
+const FALLBACK_BATCH_IMAGES = 8;
+// Base64 of PNG pages is large; the bridge refuses a body over 64MB, so a
+// batch stays well under that however few images it holds.
+const MAX_BATCH_BYTES = 24 * 1024 * 1024;
+
+async function batchCap() {
+  const answer = await health();
+  const advertised = answer.ok && answer.data && Number(answer.data.max_images_per_request);
+  return advertised > 0 ? advertised : FALLBACK_BATCH_IMAGES;
+}
+
+function planBatches(images, cap) {
+  const batches = [];
+  let current = [];
+  let bytes = 0;
+  for (const image of images) {
+    const size = (image.data || "").length;
+    if (current.length && (current.length >= cap || bytes + size > MAX_BATCH_BYTES)) {
+      batches.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(image);
+    bytes += size;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
+// A whole chapter is many requests, never one: the bridge caps a request, and
+// one failing batch must not hide the pages that did arrive. The totals let
+// the popup show sent vs. received vs. stored instead of a bare page count.
 async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
   if (!images || !images.length) {
     return { ok: false, error: "No page images were found on this page." };
   }
-  const route = images.length === 1 ? "/page" : "/pages";
-  return call(route, {
-    method: "POST",
-    body: {
-      images,
-      drama_id: dramaId || null,
-      source_url: sourceUrl || "",
-      store: store !== false,
-      filter_pages: filterPages !== false,
-    },
-  });
+  const cap = await batchCap();
+  const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0 };
+  let firstError = null;
+  for (const batch of planBatches(images, cap)) {
+    const answer = await call(batch.length === 1 && images.length === 1 ? "/page" : "/pages", {
+      method: "POST",
+      body: {
+        images: batch,
+        drama_id: dramaId || null,
+        source_url: sourceUrl || "",
+        store: store !== false,
+        filter_pages: filterPages !== false,
+      },
+    });
+    if (!answer.ok) {
+      firstError = firstError || answer;
+      for (const image of batch) {
+        merged.failed.push({ key: image.key, url: image.url || "", error: answer.error });
+      }
+      continue;
+    }
+    const data = answer.data || {};
+    merged.pages.push(...(data.pages || []));
+    merged.skipped.push(...(data.skipped || []));
+    merged.failed.push(...(data.failed || []));
+    merged.received += Number.isFinite(data.received) ? data.received : batch.length;
+    merged.stored += Number.isFinite(data.stored) ? data.stored : 0;
+  }
+  // Nothing arrived at all: surface the app's own refusal (bad token, bridge
+  // off, no such drama) rather than a table of identical per-page failures.
+  if (firstError && !merged.pages.length && !merged.skipped.length && !merged.received) {
+    return firstError;
+  }
+  return { ok: true, data: merged };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {

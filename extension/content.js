@@ -168,6 +168,31 @@
     }
   }
 
+  // True when the element currently paints a single colour. A canvas the
+  // reader has sized but not drawn yet looks exactly like this, and sending
+  // it would store an empty page. An unreadable (tainted) element is not
+  // called blank: the real read below reports that itself.
+  function looksUnpainted(el) {
+    const signature = sampleSignature(el);
+    if (signature === null) return false;
+    const values = signature.split(",");
+    for (let i = 4; i < values.length; i += 4) {
+      if (values[i] !== values[0] || values[i + 1] !== values[1] || values[i + 2] !== values[2]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Gives a late-painting page time to appear before calling it blank.
+  async function waitUntilPainted(el, attempts = 6, delayMs = 400) {
+    for (let i = 0; i < attempts; i += 1) {
+      if (!looksUnpainted(el)) return true;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+    return !looksUnpainted(el);
+  }
+
   // Draws the element at its own full resolution and reads the pixels
   // back. This is the step that reaches content an adapter can't: a
   // `blob:` image, or a page the site's own reader has already
@@ -177,6 +202,9 @@
     const { width, height } = elementSize(el);
     if (!width || !height) throw new Error("that image hasn't finished loading");
     await waitForStableSignature(el);
+    if (!(await waitUntilPainted(el))) {
+      throw new Error("the page was still blank after waiting for it to draw");
+    }
     let source = el;
     if (el.tagName !== "CANVAS") {
       const canvas = document.createElement("canvas");
@@ -585,6 +613,34 @@
 
   // -- the main action -------------------------------------------------
 
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Readers lazy-load: only the pages near the viewport exist as real
+  // images, so "every page" read from the DOM as it stands is just the
+  // first screenful. Walk down the document a viewport at a time, letting
+  // each step load, then put the scroll position back. Bounded in steps and
+  // time so an endless-scroll site cannot hold the popup forever.
+  async function loadWholeChapter({ maxSteps = 400, maxMs = 90000 } = {}) {
+    const startY = window.scrollY;
+    const startedAt = performance.now();
+    let stalled = 0;
+    for (let step = 0; step < maxSteps && performance.now() - startedAt < maxMs; step += 1) {
+      const before = candidateElements().length;
+      const height = document.documentElement.scrollHeight;
+      const y = Math.min(window.scrollY + Math.max(200, window.innerHeight * 0.8), height);
+      window.scrollTo(0, y);
+      await sleep(250);
+      const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+      const grew = candidateElements().length > before ||
+                   document.documentElement.scrollHeight > height;
+      stalled = grew ? 0 : stalled + 1;
+      if (atBottom && stalled >= 3) break;
+    }
+    await Promise.all([...document.images].filter((i) => !i.complete).map(
+      (i) => Promise.race([i.decode().catch(() => {}), sleep(4000)])));
+    window.scrollTo(0, startY);
+  }
+
   async function translateVisible({ dramaId, store, all }) {
     if (looksLikeChallengePage()) {
       return {
@@ -593,6 +649,7 @@
                "then try again.",
       };
     }
+    if (all) await loadWholeChapter();
     const elements = candidateElements();
     if (!elements.length) {
       return { ok: false, error: "No page-sized images found here. If the page is still " +
@@ -608,7 +665,7 @@
     const pending = new Map();
     const unreadable = [];
     const fromCache = [];
-    for (const el of chosen) {
+    for (const [position, el] of chosen.entries()) {
       try {
         const extracted = await extractBytes(el);
         const cached = state.cache.get(extracted.hash);
@@ -621,10 +678,11 @@
         if (entry) {
           entry.elements.push(el);
         } else {
-          pending.set(extracted.hash, { extracted, elements: [el] });
+          pending.set(extracted.hash, { extracted, elements: [el], position: position + 1 });
         }
       } catch (e) {
-        unreadable.push(String(e && e.message ? e.message : e));
+        unreadable.push({ position: position + 1,
+                          error: String(e && e.message ? e.message : e) });
       }
     }
     const images = [...pending.values()];
@@ -632,12 +690,13 @@
     if (!images.length) {
       if (fromCache.length) {
         watchForPageChanges();
-        return { ok: true, data: { pages: [], cached: fromCache.length } };
+        return { ok: true, data: { pages: [], cached: fromCache.length,
+                                   captured: chosen.length, unreadable } };
       }
       return {
         ok: false,
         error: unreadable.length
-          ? `Your browser wouldn't let this page's image be read (${unreadable[0]}). ` +
+          ? `Your browser wouldn't let this page's image be read (${unreadable[0].error}). ` +
             "That happens when the site draws it from another domain without allowing it."
           : "Nothing on this page could be read as an image.",
       };
@@ -663,6 +722,13 @@
       return response || { ok: false, error: "No answer from the extension's background worker." };
     }
 
+    // Name a problem page by where it sits in the chapter, which is what a
+    // person can check, not by its content hash.
+    const positionByKey = new Map(images.map((i) => [i.extracted.hash, i.position]));
+    for (const list of [response.data.failed, response.data.skipped]) {
+      for (const item of list || []) item.position = positionByKey.get(item.key);
+    }
+
     const byHash = new Map();
     for (const page of response.data.pages || []) {
       byHash.set(page.key, page.regions || []);
@@ -678,7 +744,8 @@
       }
     }
     watchForPageChanges();
-    return { ok: true, data: { ...response.data, drawn, cached: fromCache.length } };
+    return { ok: true, data: { ...response.data, drawn, cached: fromCache.length,
+                               captured: chosen.length, unreadable } };
   }
 
   chrome.runtime.onMessage.addListener((message, sender, respond) => {

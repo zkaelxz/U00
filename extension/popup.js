@@ -41,6 +41,59 @@ async function ensureContentScript(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
 }
 
+// Names the exact place, because "Settings" alone sent people to the wrong
+// section; Ollama is the one engine that needs no account or key.
+const NO_ENGINE_NOTE =
+  "Connected, but no translation engine is chosen yet, so pages come back with their " +
+  "original text only. In Baihe, open Settings → Browser extension and pick one under " +
+  "“Translation engine”. For a free option that runs on your PC, install Ollama and pick " +
+  "Ollama there.";
+
+const MAX_NAMED_PROBLEMS = 3;
+
+// One line that accounts for every page, so a shortfall shows up as a
+// mismatch between the counts instead of a quietly smaller total.
+function summarizeCapture(data, { store, dramaId }) {
+  const pages = (data.pages || []).length;
+  const cached = data.cached || 0;
+  const skipped = data.skipped || [];
+  const failed = data.failed || [];
+  const unreadable = data.unreadable || [];
+  const saving = !!(store && dramaId);
+  const notes = (data.pages || []).flatMap((p) => p.notes || []);
+
+  const parts = [];
+  if (data.captured !== undefined) {
+    parts.push(`${data.captured} captured`);
+    if (data.sent !== undefined) parts.push(`${data.sent} sent`);
+    if (data.received !== undefined) parts.push(`${data.received} received`);
+  }
+  parts.push(`${pages} translated`);
+  if (saving && data.stored !== undefined) parts.push(`${data.stored} stored`);
+  if (cached) parts.push(`${cached} already done`);
+  if (skipped.length) parts.push(`${skipped.length} skipped as not a page`);
+
+  const problems = [
+    ...unreadable.map((u) => `page ${u.position}: ${u.error}`),
+    ...failed.map((f) => `page ${f.position || "?"}: ${f.error}`),
+  ];
+  if (problems.length) {
+    const shown = problems.slice(0, MAX_NAMED_PROBLEMS).join("; ");
+    const more = problems.length > MAX_NAMED_PROBLEMS
+      ? `; and ${problems.length - MAX_NAMED_PROBLEMS} more` : "";
+    parts.push(`${problems.length} not delivered (${shown}${more})`);
+  }
+
+  const short = (data.sent !== undefined && data.received !== undefined &&
+                 data.received < data.sent) ||
+                (saving && data.stored !== undefined && data.stored < pages);
+  const bad = problems.length > 0 || short || notes.some((n) => n[0] === "error");
+  return {
+    text: parts.join(" · ") + (notes.length ? ` — ${notes[0][1]}` : ""),
+    bad,
+  };
+}
+
 async function load() {
   const health = await chrome.runtime.sendMessage({ type: "health" });
   if (!health || !health.ok) {
@@ -71,10 +124,7 @@ async function load() {
     els.textDirection.value = directionValue;
   }
 
-  say(data.engine_configured
-    ? "Connected. Ready to translate."
-    : "Connected, but no translation engine is set in Baihe's Settings — pages will come " +
-      "back with their original text only.");
+  say(data.engine_configured ? "Connected. Ready to translate." : NO_ENGINE_NOTE);
 }
 
 async function run(all) {
@@ -84,7 +134,8 @@ async function run(all) {
   if (els.store.checked && !dramaId) {
     return say("Pick a drama to save into, or untick saving.", true);
   }
-  say(all ? "Reading every visible page…" : "Reading this page…");
+  say(all ? "Scrolling through the chapter and reading every page — this can take a minute…"
+          : "Reading this page…");
   try {
     await ensureContentScript(tab.id);
     // Prefer the host the page reports about itself: `tab.url` is only
@@ -108,16 +159,8 @@ async function run(all) {
     if (!result || !result.ok) {
       return say((result && result.error) || "That didn't work.", true);
     }
-    const pages = (result.data.pages || []).length;
-    const cached = result.data.cached || 0;
-    const skipped = (result.data.skipped || []).length;
-    const notes = (result.data.pages || []).flatMap((p) => p.notes || []);
-    const parts = [];
-    if (pages) parts.push(`${pages} page${pages === 1 ? "" : "s"} translated`);
-    if (cached) parts.push(`${cached} already done`);
-    if (skipped) parts.push(`${skipped} skipped as not a page`);
-    say(parts.join(", ") + (notes.length ? ` — ${notes[0][1]}` : ""),
-        notes.some((n) => n[0] === "error"));
+    const summary = summarizeCapture(result.data, { store: els.store.checked, dramaId });
+    say(summary.text, summary.bad);
   } catch (e) {
     // The usual cause is a page the browser won't let an extension into
     // (the Chrome Web Store, a PDF viewer, chrome:// pages).

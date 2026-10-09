@@ -31,7 +31,10 @@ It reaches pages the adapters can't (blob-protected chapters like manhuaku's, ti
 Click the extension on a page you're reading:
 
 - **Translate this page** — the largest page-sized image on screen.
-- **Translate everything visible** — a spread, or a whole visible strip.
+- **Translate the whole chapter** — scrolls the page to load every lazy page,
+  sends them in batches, and reports captured / sent / received / stored with
+  any failed page named by its position. A blank (unpainted) page is retried,
+  then reported rather than saved.
 - **Send pages to** — which drama they land in. Remembered per site, so
   reading a long series isn't a per-page decision.
 - **Also save the page into that drama** — untick to translate for
@@ -139,9 +142,9 @@ The endpoint's four routes:
 
 | Route | What it does |
 |---|---|
-| `GET /health` | Confirms the app is up, and lists the dramas to send to. |
+| `GET /health` | Confirms the app is up, lists the dramas to send to, and advertises `max_images_per_request` (the extension batches to it). |
 | `POST /page` | One image. |
-| `POST /pages` | Several — a spread, or everything visible. |
+| `POST /pages` | Several, up to the advertised cap per request. Answers `pages`, `skipped`, `failed`, `received` and `stored`. |
 | `POST /text` | A block of raw page text. |
 
 Everything funnels into the existing, tested pipeline

@@ -24,10 +24,15 @@ import pytest
 import page_server
 
 
-def _png_bytes(width=600, height=900, colour=(240, 240, 240)):
+def _png_bytes(width=600, height=900, colour=(240, 240, 240), blank=False):
+    """A page-like image. A mark is drawn unless `blank`, because the
+    endpoint refuses a single-colour image as an unpainted page."""
     Image = pytest.importorskip("PIL.Image", reason="Pillow builds the fixture image")
+    img = Image.new("RGB", (width, height), colour)
+    if not blank:
+        img.paste((10, 10, 10), (width // 4, height // 4, width // 2, height // 2))
     buf = io.BytesIO()
-    Image.new("RGB", (width, height), colour).save(buf, format="PNG")
+    img.save(buf, format="PNG")
     return buf.getvalue()
 
 
@@ -733,3 +738,80 @@ class TestTheConfigBridge:
         page_server.set_translation_config(engine="not_a_real_engine", api_key="k")
         assert page_server._build_engine(page_server.get_translation_config()) is None
         assert _get(page_server.load_or_create_token()).status == 200
+
+
+def _distinct_page(i):
+    return {"data": _b64(_png_bytes(800, 1200, (240 - i * 3, 200 + i, 120 + i * 2))),
+            "content_type": "image/png", "key": f"p{i}",
+            "url": f"https://site.invalid/p{i}.png"}
+
+
+class TestAWholeChapterIsAccountedFor:
+    def test_health_advertises_the_per_request_cap_so_the_extension_batches_to_it(self, token):
+        handler = _get(token)
+        assert handler.payload["max_images_per_request"] == page_server.MAX_IMAGES_PER_REQUEST
+
+    def test_every_page_of_a_full_request_is_stored_in_order(self, token, fake_pipeline,
+                                                            isolated_db):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        n = page_server.MAX_IMAGES_PER_REQUEST
+        handler = _post(token, {"images": [_distinct_page(i) for i in range(n)],
+                                "drama_id": drama_id, "store": True,
+                                "source_url": "https://site.invalid/c/1"}, path="/pages")
+        assert handler.status == 200
+        body = handler.payload
+        assert (body["received"], body["stored"], body["failed"]) == (n, n, [])
+        assert len(db.list_pages(drama_id)) == n
+
+    def test_one_page_failing_does_not_lose_the_others_and_is_named(self, token, fake_pipeline,
+                                                                   isolated_db, monkeypatch):
+        import scanlate
+        real = scanlate.detect_and_ocr_page
+        seen = {"n": 0}
+
+        def flaky(path, lang, **kw):
+            seen["n"] += 1
+            if seen["n"] == 2:
+                raise RuntimeError("model fell over with key sk-secret1234567890abcd")
+            return real(path, lang, **kw)
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", flaky)
+        handler = _post(token, {"images": [_distinct_page(i) for i in range(4)], "store": False,
+                                "source_url": "https://site.invalid/c/1"}, path="/pages")
+        assert handler.status == 200
+        body = handler.payload
+        assert [p["key"] for p in body["pages"]] == ["p0", "p2", "p3"]
+        assert [f["key"] for f in body["failed"]] == ["p1"]
+        assert "sk-secret1234567890abcd" not in json.dumps(body)
+        assert body["received"] == 4
+
+    def test_a_blank_page_is_reported_not_stored(self, token, fake_pipeline, isolated_db):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        blank = {"data": _b64(_png_bytes(800, 1200, (245, 240, 225), blank=True)),
+                 "content_type": "image/png", "key": "blank",
+                 "url": "https://site.invalid/blank.png"}
+        handler = _post(token, {"images": [_distinct_page(0), blank, _distinct_page(2)],
+                                "drama_id": drama_id, "store": True, "filter_pages": False},
+                        path="/pages")
+        body = handler.payload
+        assert [f["key"] for f in body["failed"]] == ["blank"]
+        assert "blank" in body["failed"][0]["error"]
+        assert body["stored"] == 2
+        assert len(db.list_pages(drama_id)) == 2
+
+    def test_a_single_blank_send_is_refused_not_stored(self, token, fake_pipeline, isolated_db):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        blank = {"data": _b64(_png_bytes(800, 1200, (245, 240, 225), blank=True)),
+                 "content_type": "image/png", "key": "blank"}
+        handler = _post(token, {"images": [blank], "drama_id": drama_id, "store": True})
+        assert handler.status == 200
+        assert handler.payload["failed"][0]["key"] == "blank"
+        assert db.list_pages(drama_id) == []
+
+    def test_stored_is_zero_when_not_saving(self, token, fake_pipeline, isolated_db):
+        handler = _post(token, {"images": [_distinct_page(0)], "store": False})
+        assert handler.payload["stored"] == 0
+        assert handler.payload["received"] == 1
