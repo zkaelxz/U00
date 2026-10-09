@@ -90,7 +90,7 @@ def _mirror_locked(job_id):
     result_json = None
     try:
         from services.jobs_service import project_result_json
-        result_json = project_result_json(job.get("result"))
+        result_json = project_result_json(job.get("result"), job.get("run_settings"))
     except Exception:
         import applog
         applog.get_logger().warning(f"job {job_id}: could not project result", exc_info=True)
@@ -413,27 +413,6 @@ def _queue_message(position: int) -> str:
     return GPU_WAIT_MESSAGE if position <= 1 else f"{GPU_WAIT_MESSAGE} - number {position} in line"
 
 
-def _external_gpu_wait_message(load: dict):
-    """The waiting message when a program Baihe did not start is using the
-    GPU, or None if the reading shows no such load. Numbers only: nvidia-smi
-    is queried for totals, never for process names, paths or command lines."""
-    import diagnostics
-    util = load.get("utilization_percent") or 0
-    free_mb = load.get("memory_free_mb")
-    total_mb = load.get("memory_total_mb") or 0
-    busy_util = util >= diagnostics.EXTERNAL_GPU_BUSY_UTIL_PERCENT
-    busy_mem = free_mb is not None and free_mb < diagnostics.EXTERNAL_GPU_BUSY_MIN_FREE_MB
-    if not (busy_util or busy_mem):
-        return None
-    used_gb = (total_mb - (free_mb or 0)) / 1024
-    usage = f"about {used_gb:.1f} GB of {total_mb / 1024:.1f} GB in use"
-    if busy_util and not busy_mem:
-        usage += f", GPU about {util:.0f}% busy"
-    return ("Waiting for the GPU: another program is using it (" + usage + "). "
-            "Close GPU-heavy apps such as games, video editors or other AI tools, "
-            "or turn off GPU use in Settings.")
-
-
 def _note_gpu_wait_reason_locked(job_id):
     """Caller holds _lock. Records on the waiting job whether the GPU is held
     by another program rather than by a Baihe job, so the queued message can
@@ -445,8 +424,9 @@ def _note_gpu_wait_reason_locked(job_id):
     if _running_gpu_job_count_locked(job_id) == 0:
         try:
             import diagnostics
+            from gpu_wait_message import external_gpu_wait_message
             load = diagnostics.external_gpu_load()
-            reason = _external_gpu_wait_message(load) if load else None
+            reason = external_gpu_wait_message(load) if load else None
         except Exception as exc:
             _warn("GPU wait-reason check failed", exc)
     job["gpu_wait_external"] = reason
@@ -845,7 +825,9 @@ def _promote_one_queued_gpu_job(dropped):
                     proc, result_queue = _register_process_job(
                         job_id, entry["target"], entry["args"],
                         run["gpu_touching"], entry["description"],
-                        run.get("owner_user_id"), start_method=entry.get("start_method"))
+                        run.get("owner_user_id"), start_method=entry.get("start_method"),
+                        run_settings=run.get("run_settings"),
+                        initial_result=run.get("result"))
                     run = _jobs[job_id]
                 except Exception as exc:
                     # mp.Queue()/Process() can fail (no fds, no /dev/shm)
@@ -964,7 +946,7 @@ def _refuse_if_stopping_locked():
 
 
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
-              description: str = None, **kwargs) -> bool:
+              description: str = None, run_settings: dict = None, **kwargs) -> bool:
     """
     Starts target(*args, **kwargs) in a background thread under job_id.
     Returns False without starting anything if a job with that ID is
@@ -980,6 +962,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     started -- see _promote_next_queued_gpu_job().
     description is a short human label for the job itself (never shown
     in another job's queued message; see GPU_WAIT_MESSAGE).
+    run_settings: this run's settings, kept on the job's own entry so no
+    other run under the same id can lend its own. Not passed to target.
 
     The job records who started it (auth B2): the user id of the API
     request this runs in (ownership_service.acting_user_id), or None for
@@ -1004,7 +988,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
                 "error": None, "started_at": time.time(), "finished_at": None,
                 "cancel_requested": False, "result": None,
                 "gpu_touching": True, "description": description, "kind": "thread",
-                "owner_user_id": owner_user_id,
+                "owner_user_id": owner_user_id, "run_settings": run_settings,
             }
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
@@ -1016,7 +1000,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             "error": None, "started_at": time.time(), "finished_at": None,
             "cancel_requested": False, "result": None,
             "gpu_touching": gpu_touching, "description": description, "kind": "thread",
-            "owner_user_id": owner_user_id,
+            "owner_user_id": owner_user_id, "run_settings": run_settings,
         }
         _mirror_locked(job_id)
         run = _jobs[job_id]
@@ -1031,7 +1015,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
 
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str = None, on_done=None, on_finish=None,
-                      kill_whole_tree: bool = False, start_method: str = None) -> bool:
+                      kill_whole_tree: bool = False, start_method: str = None,
+                      run_settings: dict = None, initial_result=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -1097,6 +1082,9 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     GPU check, an in-process GPU job) cannot use it. Under spawn, target and
     args must pickle and target's module is imported fresh in the child.
 
+    initial_result: the result shown while queued or running; on_done's
+    return or the subprocess's result replaces it.
+
     on_done/on_finish/kill_whole_tree/start_method are carried through the
     GPU queue like target/args. Records its starter and refuses during a clean stop like
     start_job().
@@ -1115,9 +1103,10 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                 "status": "queued", "progress": 0.0,
                 "message": GPU_WAIT_MESSAGE,
                 "error": None, "started_at": time.time(), "finished_at": None,
-                "cancel_requested": False, "result": None,
+                "cancel_requested": False, "result": initial_result,
                 "gpu_touching": True, "description": description, "kind": "process",
                 "process": None, "owner_user_id": owner_user_id,
+                "run_settings": run_settings,
             }
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
@@ -1127,7 +1116,9 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _note_gpu_wait_reason_locked(job_id)
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
-                                                   owner_user_id, start_method=start_method)
+                                                   owner_user_id, start_method=start_method,
+                                                   run_settings=run_settings,
+                                                   initial_result=initial_result)
         run = _jobs[job_id]
     try:
         proc.start()
@@ -1142,7 +1133,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
 
 
 def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,
-                          start_method=None):
+                          start_method=None, run_settings=None,
+                          initial_result=None):
     """Caller must already hold _lock. Builds the Process and its result
     queue and records the job dict entry, but doesn't call proc.start()
     itself -- constructing a Process is cheap, but actually starting one
@@ -1156,9 +1148,9 @@ def _register_process_job(job_id, target, args, gpu_touching, description, owner
     _jobs[job_id] = {
         "status": "running", "progress": 0.0, "message": "Starting...",
         "error": None, "started_at": time.time(), "finished_at": None,
-        "cancel_requested": False, "result": None,
+        "cancel_requested": False, "result": initial_result,
         "gpu_touching": gpu_touching, "description": description, "kind": "process",
-        "process": proc, "owner_user_id": owner_user_id,
+        "process": proc, "owner_user_id": owner_user_id, "run_settings": run_settings,
     }
     _mirror_locked(job_id)
     return proc, result_queue
@@ -1348,6 +1340,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 was_cleared = job is None
                 if kill_whole_tree:
                     kill_tree(proc)
+                    # SIGKILL is async; "cancelled" must mean the worker is gone.
+                    proc.join(timeout=5)
                 else:
                     _stop_process(proc)
                 with _lock:

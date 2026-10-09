@@ -46,6 +46,8 @@ import {
   initialForm,
   lineRanges,
   loadPresetStart,
+  restoreRunOptions,
+  saveRunOptions,
   MAX_FALLBACKS,
   monthSpendText,
   cloudModelNotice,
@@ -53,6 +55,7 @@ import {
   reflectAvailable,
   thinkingApplies,
   thinkingHelp,
+  translateButtonLabel,
   PRESET_NAME_MAX,
   savePresetStart,
   styleGuidance,
@@ -73,6 +76,9 @@ import { NovelFilePanel } from './NovelFilePanel'
 import { translateBlocker } from './stageBlockers'
 import './translate.css'
 import { AI_ENGINE_LABEL, NOTHING_STARTS_HELP, NO_KEY_ENGINES_HELP } from '../../../helpText'
+
+const REVIEW_GLOSSARY_NOTE = 'Translate will first scan the transcript for glossary terms and show them for your approval, then translate.'
+const REVIEW_GLOSSARY_HELP = `Changes what the Translate button does. ${REVIEW_GLOSSARY_NOTE} The scan uses the engine saved for this title.`
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
   const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown'
@@ -122,10 +128,17 @@ function appliedText(t: WorkflowTierApplied): string {
 
 // "Starting tier" + "Apply tier". Saves the tier's engine on the drama and
 // fills the form; never starts a run.
-function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onApplied: (t: WorkflowTierApplied) => void }) {
+function TierPicker({ config, initialTier, onTierChange, onApplied }: {
+  config: TranslateRunConfig
+  initialTier: string | null
+  onTierChange: (tier: string) => void
+  onApplied: (t: WorkflowTierApplied) => void
+}) {
   const { dramaId } = useStage()
   const tiers = config.workflow_tiers ?? []
-  const [tier, setTier] = useState(() => (tiers.some((t) => t.key === 'standard') ? 'standard' : (tiers[0]?.key ?? '')))
+  const [tier, setTier] = useState(() =>
+    initialTier && tiers.some((t) => t.key === initialTier) ? initialTier
+      : tiers.some((t) => t.key === 'standard') ? 'standard' : (tiers[0]?.key ?? ''))
   const [applied, setApplied] = useState<WorkflowTierApplied | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [pending, setPending] = useState(false)
@@ -144,7 +157,7 @@ function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onAppli
   return (
     <div className="check-row translate-tier">
       <Field label="Starting tier" help={`Sets engine, model and Reflect together (Draft: DeepSeek; Standard: Claude Sonnet; Release: Claude Opus with Reflect and Auto QC), and stays editable. ${NOTHING_STARTS_HELP}`}>
-        <select value={tier} onChange={(e) => setTier(e.target.value)}>
+        <select value={tier} onChange={(e) => { setTier(e.target.value); onTierChange(e.target.value) }}>
           {tiers.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
         </select>
       </Field>
@@ -318,18 +331,24 @@ function RunPanel({
 }) {
   const { dramaId, drama } = useStage()
   const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
+  // What the owner last chose for this title, restored after a reload.
+  const [restored] = useState(() => restoreRunOptions(dramaId, base, config))
+  const [tierChoice, setTierChoice] = useState<string | null>(restored.tier)
   // Parity X28: review proposed glossary terms before the run starts.
   // reviewing counts presses (0 = closed) so each press extracts afresh.
-  const [reviewFirst, setReviewFirst] = useState(false)
+  const [reviewFirst, setReviewFirst] = useState(restored.reviewFirst && !!drama.series_id)
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
-  const [f, setF] = useState<RunForm>(base)
+  const [f, setF] = useState<RunForm>(restored.form)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [estimate, setEstimate] = useState<TranslateRunEstimate | null>(null)
   const [estimateError, setEstimateError] = useState<unknown>(null)
   const set = <K extends keyof RunForm>(k: K, v: RunForm[K]) => setF((s) => ({ ...s, [k]: v }))
+  useEffect(() => {
+    saveRunOptions(dramaId, { form: f, baseEngine: config.translation_engine, reviewFirst, tier: tierChoice ?? '' })
+  }, [dramaId, f, config.translation_engine, reviewFirst, tierChoice])
   // The two prompt toggles are saved for the title as soon as they change, so
   // every later run (retries, glossary re-translation, AI line actions, the
   // CLI) uses what is shown here, not a default.
@@ -358,6 +377,7 @@ function RunPanel({
   const effEngine = f.engine || config.translation_engine
   const canReflect = reflectAvailable(effEngine) && !(f.bulk && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
+  const scanFirst = reviewFirst && canReview
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
   const guidance = styleGuidance(config, f.style_preset)
   const blocker = translateBlocker(config.line_count, config.untranslated_count, f.force, f.forceConfirmed)
@@ -442,7 +462,7 @@ function RunPanel({
           aria-describedby={blocker ? 'translate-blocker' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}
         >
-          Translate {lineCount} line{lineCount === 1 ? '' : 's'}
+          {translateButtonLabel(scanFirst, lineCount)}
         </button>
         {blocker && (
           <p className="stage-blocker" id="translate-blocker" data-testid="translate-blocker">
@@ -495,15 +515,17 @@ function RunPanel({
         <div className="setting-list">
           <Field
             label="Review glossary before translating"
-            help="Before the run starts, proposes glossary terms from the attached novel (or the source lines) with this drama's engine, so you can fix them first. A glossary mistake repeats on every line."
+            help={`${REVIEW_GLOSSARY_HELP} A glossary mistake repeats on every line.`}
           >
             <Toggle checked={reviewFirst} disabled={reviewing > 0} onChange={setReviewFirst} />
           </Field>
+          {reviewFirst && <p className="muted" data-testid="review-glossary-note">{REVIEW_GLOSSARY_NOTE}</p>}
         </div>
       )}
       {reviewing > 0 && (
         <GlossaryReview
           key={reviewing}
+          engine={config.translation_engine}
           onStart={(note) => {
             setReviewing(0)
             setReviewNote(note)
@@ -528,6 +550,8 @@ function RunPanel({
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <TierPicker
         config={config}
+        initialTier={restored.tier}
+        onTierChange={setTierChoice}
         onApplied={(t) => {
           setF((s) => applyTierToForm(s, t, config))
           onTierApplied(t)
@@ -636,7 +660,7 @@ function RunPanel({
             </Field>
             <Field
               label="Default ambiguous pronouns to she/her"
-              help={`A soft default, not a rule: Mandarin 他/她 sound the same, so where a pronoun is ambiguous the translator is told to write she/her. Context, an honorific, or a character's own pronouns (set under Characters) still win; a character set to he/him stays he/him.${savedNote}`}
+              help={`Mandarin 他/她 sound the same, so the translator is told to write she/her where a pronoun is ambiguous, and lines that still come out he/him for a speaker with no he/him set are asked again once, then flagged in Review. It applies to lines translated after you save it: turn on Re-translate existing to redo lines that already have English. It does not override characters set to he/him, nor an honorific or context that says male.${savedNote}`}
             >
               <Toggle checked={f.female_pronouns} onChange={(v) => saveToggle('female_pronouns', v)} />
             </Field>

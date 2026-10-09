@@ -5,19 +5,18 @@ POST /api/transcribe/dramas/{id}/lines/{line_id}/retranscribe. ffmpeg and
 Whisper are faked -- no audio model, no network.
 """
 
-import functools
 import inspect
 import os
 import queue
 import subprocess
 import tempfile
-import threading
 import time
 
 import pytest
 
 import background_jobs
 import core
+import db
 from core import Line
 from services import jobs_service, transcribe_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -87,11 +86,9 @@ def inline_process_jobs(monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
 
     def fake_start(job_id, target, args=(), gpu_touching=False, description=None,
-                   on_done=None, on_finish=None, **_kw):
+                   on_done=None, on_finish=None, initial_result=None, **_kw):
         def body():
-            # A real child takes seconds to spawn; the service sets line_id
-            # right after the start.
-            time.sleep(0.05)
+            background_jobs.set_result(job_id, initial_result, mirror=True)
             try:
                 kind, *payload = _run_worker_inline(target, args)
                 if kind == "ok":
@@ -403,13 +400,21 @@ class TestJobBody:
             assert time.time() < deadline, "the worker never started"
             time.sleep(0.05)
         proc = background_jobs.get_status(job_id)["process"]
+        assert background_jobs.get_status(job_id)["result"] == {"line_id": ids[0]}
+        with db.get_conn() as conn:
+            assert conn.execute("SELECT 1 FROM gpu_lock WHERE holder = ?",
+                                (f"ui:{job_id}",)).fetchone() is not None
         background_jobs.request_cancel(job_id)
         job = _wait_ended(job_id)
         assert job["status"] == "cancelled"
         assert not proc.is_alive()
         # The GPU slot is free again and the scratch folder is gone.
         assert not background_jobs.is_running(job_id)
+        # on_finish (the scratch removal) runs after the watcher released the slot.
         _wait_scratch_gone(isolated_db)
+        with db.get_conn() as conn:
+            assert conn.execute("SELECT 1 FROM gpu_lock WHERE holder = ?",
+                                (f"ui:{job_id}",)).fetchone() is None
 
     def test_model_download_error_redacted(self, isolated_db, captured, fake_asr, monkeypatch):
         def boom(*a, **k):
