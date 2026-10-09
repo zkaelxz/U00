@@ -10,11 +10,11 @@
 # listed here at all and stay uncapped; a plain `>=` in the requirements
 # file already covers them.
 #
-# yt-dlp and edge-tts are deliberately left OUT: both need to stay
-# current to keep working against sites/services that change often
-# (see the Step 1c JS-runtime and 403 fixes), so capping them would
-# trade a known, fixable problem (an occasional break, fixed by
-# upgrading) for a worse one (deliberately staying broken).
+# yt-dlp is deliberately left OUT: it needs to stay current to keep
+# working against sites that change often (see the Step 1c JS-runtime
+# fix), so capping it would trade a known, fixable problem (an
+# occasional break, fixed by upgrading) for a worse one (deliberately
+# staying broken).
 #
 # If make_lock.bat has been run, constraints.lock.txt (an exact
 # `pip freeze` snapshot of a setup that's known to work) takes priority
@@ -24,7 +24,7 @@ pyannote.audio<5     # 4.x changed pipeline(audio)'s return type (DiarizeOutput
                       # instead of Annotation) -- diarize.py's own diarize()
                       # already handles both shapes, but a future 5.x could
                       # change just as much again with no warning.
-transformers<6        # backs the local NLLB-200 engine and Qwen3-ASR/ForcedAligner.
+transformers<6        # backs Scanlate's ML models and Qwen3-ASR/ForcedAligner.
 torch<3               # the tested GPU set is torch 2.11.0 / torchvision 0.26.0 /
 torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics.TORCH_VARIANTS;
                       # Diagnostics > GPU PyTorch installs it). Every Diagnostics install

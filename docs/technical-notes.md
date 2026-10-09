@@ -7,6 +7,8 @@ Nothing here is required reading to use Baihe Studio; it exists for
 whoever is extending or debugging the codebase (including a future
 session picking this project back up).
 
+React + FastAPI replaced Streamlit; the Streamlit-era entries below are history, and the removed code is in `docs/archive/`.
+
 ## Why translation used to stop when switching tabs
 
 Every tab's content renders in the same script execution regardless of
@@ -48,7 +50,7 @@ app. Would need a real job queue for anything multi-user.
 ## GPU transcription failures ("cublas64_12.dll is not found")
 
 A real bug in the GPU fallback itself, not a driver problem to fix on
-your end -- though see the README's Troubleshooting section for what to
+your end -- though see the Troubleshooting section of `docs/user-guide.md` for what to
 check if it keeps happening.
 
 `faster-whisper` (via ctranslate2) defers ALL CUDA initialization until
@@ -221,7 +223,7 @@ This was verified directly, not assumed. It matters because the earlier
 implementation handed that empty shell to the extractor, which found
 nothing and reported "couldn't extract metadata" -- indistinguishable
 from a page that genuinely had no metadata. A silent failure. See the
-README's "Fetching from JS-heavy sites" section for the three-layer fix
+`docs/user-guide.md`'s "Fetching from JS-heavy sites" section for the three-layer fix
 that's in place now.
 
 ## Migrating off components.html
@@ -315,7 +317,7 @@ Contract:
   a `(spoken in Korean)` tag in the numbered prompt text and in all three Reflect
   passes (`context["line_languages"]`, `None` for a single-language batch, so
   those prompts are unchanged); `en` lines are copied to `en` without a model
-  call; NLLB groups a batch by language.
+  call.
 - The other paths read it through the same helpers in `engine_backends/shared.py`
   (`tagged_line_languages`, `tagged_source_texts`, `is_english_line`):
   bulk translate tags each request's numbered lines and copies `en` lines at

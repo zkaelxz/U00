@@ -125,7 +125,7 @@ def test_free_engines(isolated_db, cap):
     cap(0)
     did = _drama()
     _seed(did, [("你好" * 20, "")])
-    for name in ("fake", "ollama", "nllb"):
+    for name in ("fake", "ollama", "fake_mt"):
         r = svc.estimate_translate_cost(did, name)
         assert r["free"] is True and not r["estimated_usd"] and r["cap_applies"] is False
     g = svc.estimate_translate_cost(did, "gemini", gemini_free_tier=True)
@@ -146,7 +146,7 @@ def test_monthly_refusal_and_above_cap(isolated_db, cap):
     assert r["effective_cap_usd"] == 1000.0 and r["estimate_above_cap"] is False
 
 
-@pytest.mark.parametrize("engine", ["deepl", "google", "libretranslate"])
+@pytest.mark.parametrize("engine", ["deepl", "google", "libretranslate", "nllb"])
 def test_a_removed_engine_is_refused_with_a_clear_message(isolated_db, engine):
     did = _drama()
     _seed(did, [("你好", "")])
@@ -161,7 +161,7 @@ def test_validation(isolated_db):
     with pytest.raises(InvalidInputError):
         svc.estimate_translate_cost(did, "nope")
     with pytest.raises(UnsupportedOperationError):
-        svc.estimate_translate_cost(did, "nllb", reflect=True)
+        svc.estimate_translate_cost(did, "fake_mt", reflect=True)
     bad = next(iter(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS))
     with pytest.raises(UnsupportedOperationError):
         svc.estimate_translate_cost(did, "gemini", model=bad, gemini_free_tier=True)
@@ -288,7 +288,7 @@ def _started_run_sizes(monkeypatch, did, **sizes):
     monkeypatch.setattr(svc.background_jobs, "start_job", fake_start_job)
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
     monkeypatch.setattr(svc.settings_service, "get_ollama_num_ctx_override", lambda: 0)
-    svc.start_translate_run(did, engine_name="nllb", **sizes)
+    svc.start_translate_run(did, engine_name="ollama", **sizes)
     return seen["args"][13], seen["kwargs"]["context_window_ahead"], seen["kwargs"]["batch_size"]
 
 
@@ -298,3 +298,12 @@ def test_new_run_uses_the_defaults_and_explicit_sizes_are_kept(isolated_db, monk
     assert _started_run_sizes(monkeypatch, did) == (10, 6, 30)
     assert _started_run_sizes(monkeypatch, did, context_window=6, context_window_ahead=3,
                               batch_size=20) == (6, 3, 20)
+
+
+def test_config_reports_the_titles_saved_toggles_and_none_before_a_choice(isolated_db):
+    did = isolated_db.create_drama(title_zh="D")
+    cfg = svc.get_translate_config(did)
+    assert (cfg["default_female_pronouns"], cfg["include_genre_notes"]) == (None, None)
+    isolated_db.update_drama(did, default_female_pronouns=1, include_genre_notes=0)
+    cfg = svc.get_translate_config(did)
+    assert (cfg["default_female_pronouns"], cfg["include_genre_notes"]) == (True, False)

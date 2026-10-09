@@ -27,7 +27,7 @@ from services import auth_service
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "deploy" / "caddy" / "Caddyfile.template"
-DECISION_DOC = ROOT / "docs" / "remote-access-decision.md"
+DECISION_DOC = ROOT / "docs" / "route-permissions.md"
 
 UPSTREAM = "127.0.0.1:{$BAIHE_API_HOUSEHOLD_PORT}"
 SITE = "{$BAIHE_DOMAIN}"
@@ -187,10 +187,12 @@ def routes():
 
 
 def _doc_local_only():
+    found = []
     for line in DECISION_DOC.read_text(encoding="utf-8").splitlines():
-        if line.startswith("| local_only() |"):
-            return re.findall(r"`([A-Z]+) (/[^`]+)`", line)
-    raise AssertionError("no local_only() row in the route table")
+        if line.startswith("| `") and line.rstrip().endswith("| local_only() |"):
+            found.extend(re.findall(r"`([A-Z]+) (/[^`]+)`", line))
+    assert found, "no local_only() rows in the route table"
+    return found
 
 
 # --- tests ----------------------------------------------------------------

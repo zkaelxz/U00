@@ -211,7 +211,7 @@ class TestFlagDenseLines:
     def test_flags_a_dense_line(self, isolated_db):
         did = _drama(isolated_db)
         dense_text = "word " * 60  # far more than fits in 1 second on screen
-        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="", en=dense_text)])
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en=dense_text)])
         result = export_service.flag_dense_lines(did)
         assert result["flagged_count"] == 1
 
@@ -223,6 +223,100 @@ class TestFlagDenseLines:
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             export_service.flag_dense_lines(999999)
+
+
+    def test_the_titles_mode_is_honoured(self, isolated_db):
+        text = "word " * 12  # 11.8 cps over 5 s
+        for mode, count in (("normal", 1), ("relaxed", 0), ("off", 0)):
+            did = _drama(isolated_db)
+            export_service.set_reading_speed_mode(did, mode)
+            isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=5.0, zh="", en=text)])
+            assert export_service.flag_dense_lines(did) == {"flagged_count": count}, mode
+            assert export_service.get_export_readiness(did)["dense_line_count"] == (
+                1 if mode == "normal" else 0)
+
+
+class TestReadingSpeedMode:
+    def test_default_is_normal_and_set_is_saved(self, isolated_db):
+        did = _drama(isolated_db)
+        assert export_service.get_reading_speed_mode(did) == {"mode": "normal"}
+        assert export_service.set_reading_speed_mode(did, "relaxed") == {"mode": "relaxed"}
+        assert export_service.get_reading_speed_mode(did) == {"mode": "relaxed"}
+
+    def test_unknown_mode_and_unknown_drama_are_refused(self, isolated_db):
+        did = _drama(isolated_db)
+        with pytest.raises(InvalidInputError):
+            export_service.set_reading_speed_mode(did, "strict")
+        with pytest.raises(NotFoundError):
+            export_service.set_reading_speed_mode(999999, "off")
+        with pytest.raises(NotFoundError):
+            export_service.get_reading_speed_mode(999999)
+
+    def test_changing_the_mode_does_not_clear_existing_flags(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="", en="word " * 12)])
+        export_service.flag_dense_lines(did)
+        export_service.set_reading_speed_mode(did, "off")
+        assert isolated_db.load_lines(did)[0]["flag"] == "reading_speed"
+
+
+class TestClearReadingSpeedFlags:
+    def _lines(self):
+        return [
+            Line(idx=0, start=0, end=5, zh="a", en="one", flag="reading_speed", flag_note="fast"),
+            Line(idx=1, start=5, end=9, zh="b", en="two", flag="uncertain_translation",
+                 flag_note="check"),
+            Line(idx=2, start=9, end=12, zh="c", en="three"),
+            Line(idx=3, start=12, end=15, zh="d", en="four", flag="reading_speed_x", flag_note="n"),
+        ]
+
+    def test_clears_only_reading_speed_flags_and_snapshots_first(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, self._lines())
+        result = export_service.clear_reading_speed_flags(did)
+        assert result["cleared_count"] == 1 and result["flagged_count"] == 0
+        rows = isolated_db.load_lines(did)
+        assert [(r["flag"], r["flag_note"], r["en"]) for r in rows] == [
+            (None, "", "one"), ("uncertain_translation", "check", "two"),
+            (None, "", "three"), ("reading_speed_x", "n", "four")]
+        history = isolated_db.list_line_history(did)
+        assert [h["label"] for h in history] == ["before clearing reading-speed flags"]
+        assert history[0]["id"] == result["history_id"]
+
+    def test_the_snapshot_restores_the_flags(self, isolated_db):
+        from services import restructure_service
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, self._lines())
+        result = export_service.clear_reading_speed_flags(did)
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        restructure_service.restore_version(did, result["history_id"], ids)
+        assert isolated_db.load_lines(did)[0]["flag"] == "reading_speed"
+        assert isolated_db.load_lines(did)[0]["flag_note"] == "fast"
+
+    def test_nothing_to_clear_takes_no_snapshot(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="a", en="x")])
+        assert export_service.clear_reading_speed_flags(did) == {
+            "cleared_count": 0, "flagged_count": 0, "history_id": None}
+        assert isolated_db.list_line_history(did) == []
+
+    def test_recheck_flags_again_at_the_current_mode(self, isolated_db):
+        did = _drama(isolated_db)
+        text = "word " * 12  # 11.8 cps over 5 s
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="", en=text,
+                                          flag="reading_speed", flag_note="old")])
+        export_service.set_reading_speed_mode(did, "relaxed")
+        result = export_service.clear_reading_speed_flags(did, recheck=True)
+        assert (result["cleared_count"], result["flagged_count"]) == (1, 0)
+        assert isolated_db.load_lines(did)[0]["flag"] is None
+        export_service.set_reading_speed_mode(did, "normal")
+        result = export_service.clear_reading_speed_flags(did, recheck=True)
+        assert result["flagged_count"] == 1
+        assert isolated_db.load_lines(did)[0]["flag"] == "reading_speed"
+
+    def test_unknown_drama_raises_not_found(self, isolated_db):
+        with pytest.raises(NotFoundError):
+            export_service.clear_reading_speed_flags(999999)
 
 
 class TestRunAutoQcFlagging:

@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 import db
 import storage
+import video_export
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -152,8 +153,8 @@ def test_audio_only_download(client, env):
     assert st["status"] == "done", st
     ddir = db.drama_dir(did)
     assert os.path.exists(os.path.join(ddir, "source.wav"))
-    assert env.writes == [{"audio_filename": "source.wav", "source_url": URL,
-                           "title_zh": "Clip Title"}]
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+                           "source_url": URL, "title_zh": "Clip Title"}]
     assert env.ffmpeg == []
     _no_tmp(did)
     # the job view carries no URL, title or path
@@ -176,7 +177,7 @@ def test_video_download_extracts_audio_and_keeps_title(client, env):
     cmd = env.ffmpeg[0]
     assert cmd[0] == "ffmpeg" and os.path.dirname(os.path.dirname(cmd[-1])) == storage.temp_root()
     i = cmd.index("-i")
-    assert cmd[i - 2:i] == ["-protocol_whitelist", "file"]
+    assert cmd[i - 4:i] == video_export.local_input()
     _no_tmp(did)
 
 
@@ -306,6 +307,18 @@ def test_replace_audio_needs_confirm(client, env):
     assert db.get_drama(did)["audio_filename"] == "source.wav"
 
 
+def test_an_existing_source_video_also_needs_confirm(client, env):
+    # The same rule as an upload: a video without audio is still media to replace.
+    did = _drama()
+    with open(os.path.join(db.drama_dir(did), "source.mp4"), "wb") as f:
+        f.write(b"old video")
+    db.update_drama(did, source_video_filename="source.mp4")
+    r = _start(client, did)
+    assert r.status_code == 422
+    assert r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
+    assert FakeYDL.calls == []
+
+
 def test_ytdlp_missing_503(client, env, monkeypatch):
     monkeypatch.setattr(svc, "_yt_dlp_installed", lambda: False)
     assert _start(client, _drama()).status_code == 503
@@ -397,10 +410,22 @@ def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     assert st["status"] == "done", st
     assert FakeYDL.calls == [] and direct.hops == [(DIRECT, "93.184.216.34")]
     cmd = env.ffmpeg[0]
-    assert cmd[cmd.index("-protocol_whitelist") + 1] == "file"
+    i = cmd.index("-i")
+    assert cmd[i - 4:i] == video_export.local_input()
     assert os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
-    assert env.writes == [{"audio_filename": "source.wav", "source_url": DIRECT}]
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+                           "source_url": DIRECT}]
     _no_tmp(did)
+
+
+def test_direct_audio_link_with_audio_only_off_still_installs_audio_only(client, env, direct):
+    did = _drama()
+    r = client.post(f"/api/media/dramas/{did}/download-url",
+                    json={"url": DIRECT, "audio_only": False})
+    assert r.status_code == 200, r.text
+    assert _wait(f"urlmedia_{did}")["status"] == "done"
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+                           "source_url": DIRECT}]
 
 
 def test_direct_video_link_keeps_video(client, env, direct):
@@ -627,4 +652,64 @@ def test_a_recognised_failure_shows_the_sentence_before_the_generic_text(client,
     st = _run(client, did)
     assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
     assert "sign in" in st["error"].lower() and "abc" not in st["error"]
+    _no_tmp(did)
+
+
+def _kept(did):
+    kept = os.path.join(db.drama_dir(did), "kept_media")
+    out = {}
+    for name in sorted(os.listdir(kept)) if os.path.isdir(kept) else []:
+        with open(os.path.join(kept, name), "rb") as f:
+            out[name] = f.read()
+    return out
+
+
+def test_a_confirmed_video_download_keeps_the_old_originals(client, env):
+    did = _drama()
+    ddir = db.drama_dir(did)
+    for name, data in (("source.mp4", b"old video"), ("audio.wav", b"old wav")):
+        with open(os.path.join(ddir, name), "wb") as f:
+            f.write(data)
+    db.update_drama(did, audio_filename="audio.wav", source_video_filename="source.mp4")
+    st = _run(client, did, audio_only=False, confirm_replace_audio=True)
+    assert st["status"] == "done", st
+    drama = db.get_drama(did)
+    assert (drama["source_video_filename"], drama["audio_filename"]) == ("source-2.mp4", "audio-2.wav")
+    kept = _kept(did)
+    assert sorted(kept.values()) == [b"old video", b"old wav"]
+    assert all(n.startswith("replaced-") for n in kept)
+    _no_tmp(did)
+
+
+def test_a_download_that_cannot_be_saved_leaves_the_title_as_it_was(client, env, monkeypatch):
+    did = _drama()
+    ddir = db.drama_dir(did)
+    with open(os.path.join(ddir, "source.wav"), "wb") as f:
+        f.write(b"old")
+    db.update_drama(did, audio_filename="source.wav")
+    env.writes.clear()
+
+    def no_names(*a):
+        return iter([])
+    monkeypatch.setattr(media_upload_service, "_in_place_names", no_names)
+    st = _run(client, did, confirm_replace_audio=True)
+    assert st["status"] == "error" and st["error"].endswith(svc._SAVE_FAILED)
+    assert env.writes == [] and db.get_drama(did)["audio_filename"] == "source.wav"
+    assert sorted(os.listdir(ddir)) == ["source.wav"]
+    _no_tmp(did)
+
+
+def test_an_audio_only_download_sets_an_old_video_aside(client, env):
+    did = _drama()
+    ddir = db.drama_dir(did)
+    for name, data in (("source.mp4", b"old video"), ("audio.wav", b"old wav")):
+        with open(os.path.join(ddir, name), "wb") as f:
+            f.write(data)
+    db.update_drama(did, audio_filename="audio.wav", source_video_filename="source.mp4")
+    st = _run(client, did, confirm_replace_audio=True)
+    assert st["status"] == "done", st
+    drama = db.get_drama(did)
+    assert (drama["audio_filename"], drama["source_video_filename"]) == ("source.wav", None)
+    assert sorted(_kept(did).values()) == [b"old video", b"old wav"]
+    assert sorted(os.listdir(ddir)) == ["kept_media", "source.wav"]
     _no_tmp(did)

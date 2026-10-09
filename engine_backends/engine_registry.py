@@ -3,8 +3,8 @@
 import inspect
 import re
 from .claude import ClaudeEngine
-from .gemini import GEMINI_FREE_TIER_LIMITS, GEMINI_FREE_TIER_TPM, GeminiEngine
-from .local import NLLBEngine, OllamaEngine
+from .gemini import GeminiEngine
+from .local import OllamaEngine, is_ollama_cloud_model
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
 
@@ -23,9 +23,9 @@ WORKFLOW_TIERS = {
     "draft": {"label": "Draft -- fast and cheap", "translation_engine": "deepseek",
               "engine_model": None, "reflect": False, "auto_qc": False},
     "standard": {"label": "Standard -- balanced", "translation_engine": "claude",
-                 "engine_model": "claude-sonnet-5", "reflect": False, "auto_qc": False},
+                 "engine_model": "claude-sonnet-5-5", "reflect": False, "auto_qc": False},
     "release": {"label": "Release -- best quality, checked before export",
-                "translation_engine": "claude", "engine_model": "claude-opus-4-8",
+                "translation_engine": "claude", "engine_model": "claude-opus-5-5",
                 "reflect": True, "auto_qc": True},
 }
 
@@ -40,19 +40,19 @@ ENGINES = {
     "gemini": GeminiEngine,
     "openai": OpenAIEngine,
     "ollama": OllamaEngine,
-    "nllb": NLLBEngine,
 }
 
-# Pure machine-translation engines: no instruction-following ability at
-# all, so they can only ever translate. Any other feature must refuse them
-# rather than silently produce nothing (each feature's own
-# `supports_reference` guard declines; call_llm_json raises).
-TRANSLATION_ONLY_ENGINES = {"nllb"}
+# Pure machine-translation engines (no instruction-following, so every
+# non-translate feature refuses them). None are offered now; the guards that
+# read this set stay so adding one back needs no changes in the services.
+# A set, not a frozenset: tests/fake_engine.py registers a stand-in in place,
+# since fallback.py and the services hold references to this same object.
+TRANSLATION_ONLY_ENGINES = set()
 
 # Engines that used to be offered. Saved presets, routing rules, fallback
 # chains and history rows may still name them; they are no longer in ENGINES,
 # so running with one is refused with unknown_engine_message().
-REMOVED_ENGINES = frozenset({"deepl", "google", "libretranslate"})
+REMOVED_ENGINES = frozenset({"deepl", "google", "libretranslate", "nllb"})
 
 
 def unknown_engine_message(engine_name) -> str:
@@ -83,7 +83,6 @@ ENGINE_CAPABILITIES = {
                          CAP_GROUNDED_SEARCH}),
     "openai": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT}),
     "ollama": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LOCAL, CAP_CHEAP}),
-    "nllb": frozenset({CAP_TRANSLATE, CAP_LOCAL, CAP_CHEAP}),
 }
 
 
@@ -103,35 +102,37 @@ def engines_with_capability(tag: str) -> list:
 # "My Gemini key is free-tier" setting (services/settings_service.py
 # get_gemini_free_tier), not on which engine was picked. See
 # engine_picker_label / estimate_cost_for_engine.
-FREE_ENGINES = {"ollama", "nllb"}
+FREE_ENGINES = {"ollama"}
 
 # Engines that run without an API key: a local model or a local server.
-KEYLESS_ENGINES = {"ollama", "nllb"}
+KEYLESS_ENGINES = {"ollama"}
+
+# Ids a provider renamed but still serves: a preset or title that saved one
+# keeps running, so a translate run still accepts them after the built-in
+# default moves. The offered lists do not show them.
+_LEGACY_MODEL_ALIASES = {"deepseek": ("deepseek-v4-flash",)}
 
 
+def legacy_ids(engine_name: str) -> tuple:
+    return _LEGACY_MODEL_ALIASES.get(engine_name, ())
+
+
+# One short sentence each: the closed engine <select> shows it verbatim, and
+# the Translate page shows its first sentence. Longer detail (rate limits,
+# pricing caveats) lives in docs/engine-backends.md.
 ENGINE_NOTES = {
-    "claude": "Best for tone/character voice, supports novel reference + prompt caching.",
-    "deepseek": "Far and away the cheapest capable option -- roughly 5-10 cents per drama on V4 Flash, and its prompt caching makes the repeated glossary/style block nearly free. Strong on Chinese, supports novel reference. OpenAI-compatible API.",
-    "gemini": "Cheap and strong on Chinese/Japanese, close to DeepSeek pricing on Flash-Lite. Supports novel reference. Google model naming/pricing changes often -- double check GEMINI_MODELS if a run starts failing.",
-    "openai": "OpenAI GPT models over the Chat Completions API (key from platform.openai.com). Pay per token; supports novel reference. Model names and prices change -- check OPENAI_MODELS if a run starts failing.",
-    "ollama": "🧪 Free — for testing: local AI on your GPU. Private and unlimited, but lower quality than paid engines.",
-    "nllb": "🧪 Free — for testing: offline, translation only. Non-commercial licence.",
+    "claude": "Paid, cloud; best tone and character voice.",
+    "deepseek": "Paid, cloud, very cheap; strong on Chinese.",
+    "gemini": "Paid, cloud, cheap; strong on Chinese/Japanese.",
+    "openai": "Paid, cloud; GPT-5 models, billed per token.",
+    "ollama": "Free and private; local Gemma 4 on your GPU.",
 }
 
 # Shown instead of ENGINE_NOTES["gemini"] when the "My Gemini key is
 # free-tier" checkbox (Settings) is ticked -- Gemini itself isn't in
 # FREE_ENGINES since this only applies conditionally. See
 # engine_picker_label, the one place that decides which note to show.
-GEMINI_FREE_TIER_NOTE = (
-    "🧪 Free — for testing: Google free tier. Rate-limited -- Flash: "
-    f"{GEMINI_FREE_TIER_LIMITS['flash']['rpm']} requests/min, "
-    f"{GEMINI_FREE_TIER_LIMITS['flash']['rpd']}/day; Flash-Lite: "
-    f"{GEMINI_FREE_TIER_LIMITS['flash-lite']['rpm']}/min, "
-    f"{GEMINI_FREE_TIER_LIMITS['flash-lite']['rpd']}/day; shared "
-    f"{GEMINI_FREE_TIER_TPM:,} tokens/min across models. Pro isn't available "
-    "on the free tier. Google may use your text to improve its products, "
-    "and people may read it."
-)
+GEMINI_FREE_TIER_NOTE = "Free tier, rate-limited; Google may use your text."
 
 
 def engine_picker_label(engine_name: str, gemini_free_tier: bool = False) -> str:
@@ -170,11 +171,16 @@ def _read_overrides(setting_key: str, valid_keys) -> dict:
 def model_override_for_default(engine_name: str):
     """The user's chosen model for `engine_name`'s built-in default, or None.
     An override for an engine this build no longer has is ignored."""
-    return _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name)
+    model = _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name)
+    # Re-checked on read: a restored backup bypasses the write-time check, and
+    # a hosted tag as the default would send text off this PC unannounced.
+    return None if engine_name == "ollama" and is_ollama_cloud_model(model) else model
 
 
 def model_override_for_tier(tier_key: str):
-    return _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key)
+    model = _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key)
+    tier = WORKFLOW_TIERS.get(tier_key) or {}
+    return None if tier.get("translation_engine") == "ollama" and is_ollama_cloud_model(model) else model
 
 
 def builtin_default_model(engine_name: str):

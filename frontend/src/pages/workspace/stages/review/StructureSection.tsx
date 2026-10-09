@@ -25,17 +25,8 @@ import { useStage } from '../../StageContext'
 import { JobPanel } from '../JobPanel'
 import { EngineModelFields } from './EngineModelFields'
 import { ResegmentLlmPreview } from './ResegmentLlmPreview'
-import {
-  JOB_RUNNING_MESSAGE,
-  RESEGMENT_PREVIEW_AGAIN,
-  canResegmentWith,
-  llmApplyProblem,
-  llmApplyProblemText,
-  resegmentCostNote,
-  resegmentEngines,
-  resegmentSummary,
-  structureErrorText,
-} from './reviewLogic'
+import { structureErrorText } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE, RESEGMENT_PREVIEW_AGAIN, canResegmentWith, llmApplyProblem, llmApplyProblemText, resegmentCostNote, resegmentEngines, resegmentSummary } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import './resegment.css'
 import { NO_KEY_ENGINES_HELP } from '../../../../helpText'

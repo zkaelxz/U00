@@ -21,7 +21,8 @@ import translation_guide as tguide
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, glossary_service as gs, settings_service, translate_service
+from services import (auth_service, glossary_extract_service, glossary_service as gs,
+                      settings_service, translate_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
 
@@ -69,7 +70,7 @@ class _Engine:
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(gs.translate_engines, "get_engine",
+    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 
@@ -138,6 +139,16 @@ class TestLinesGlossaryService:
         assert status["status"] == "done" and len(status["result"]["proposals"]) == 3
         assert SECRET not in repr(status)
 
+    def test_model_supplied_renderings_are_not_alternatives(self, isolated_db, monkeypatch,
+                                                            fake_engine):
+        did, _ = _lines_drama(isolated_db)
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [
+            {"term": "青云宗", "suggested_translation": "Qingyun Sect",
+             "renderings": ["Azure Sect"]}])
+        st = _wait(gs.start_lines_glossary_run(did)["job_id"])
+        (p,) = st["result"]["proposals"]
+        assert p["alternatives"] == []
+
     def test_engine_error_redacted(self, isolated_db, monkeypatch, fake_engine):
         did, _ = _lines_drama(isolated_db)
 
@@ -169,9 +180,9 @@ class TestLinesGlossaryService:
         did, _ = _lines_drama(isolated_db)
         with pytest.raises(ConflictError):
             gs.start_lines_glossary_run(did, engine_name="ollama")
-        nllb, _ = _lines_drama(isolated_db, engine="nllb")
+        fake_mt, _ = _lines_drama(isolated_db, engine="fake_mt")
         with pytest.raises(UnsupportedOperationError):
-            gs.start_lines_glossary_run(nllb)
+            gs.start_lines_glossary_run(fake_mt)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a: None)
         with pytest.raises(DependencyUnavailableError):
             gs.start_lines_glossary_run(did)
@@ -361,7 +372,8 @@ class TestLinesGlossaryRoutes:
         body = r.json()
         assert body["status"] == "done" and body["run_id"]
         assert set(body["proposals"][0]) == {"term", "suggested_translation", "category",
-                                             "policy", "reason", "already_in_glossary"}
+                                             "policy", "reason", "already_in_glossary",
+                                             "occurrences", "alternatives", "confidence"}
         r = client.post(_gl(did, "/apply"), json={
             "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure Cloud Sect"}},
             "run_id": body["run_id"]})

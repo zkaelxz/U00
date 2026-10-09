@@ -28,7 +28,6 @@ export interface DiagnosticsOverview {
   dependencies: Record<string, DependencyStatus>
   file_completeness: {
     missing_top_level: string[]
-    missing_tabs: string[]
     all_present: boolean
   }
   library_writable: boolean
@@ -45,9 +44,9 @@ export interface DiagnosticsSetupChecks {
   // libass: built with libass (burned-in subtitles); null/absent = unknown.
   ffmpeg: { found: boolean; version: string | null; libass?: boolean | null }
   js_runtime: { found: boolean; name: string | null }
-  browser?: { found: boolean; name: string | null }
+  browser?: { found: boolean; name: string | null; package?: boolean }
   cuda: { torch_installed: boolean; cuda_available: boolean | null }
-  files: { all_present: boolean; missing_top_level: string[]; missing_tabs: string[] }
+  files: { all_present: boolean; missing_top_level: string[] }
   library_writable: boolean
   // Non-blocking heads-ups (old yt-dlp, package conflicts); fixed short text, no paths.
   warnings?: string[]
@@ -57,11 +56,6 @@ export interface DiagnosticsHfCacheEntry {
   repo_id: string
   repo_type: string
   revision: string
-  size_bytes: number
-}
-
-export interface DiagnosticsPiperVoice {
-  voice: string
   size_bytes: number
 }
 
@@ -78,8 +72,6 @@ export interface DiagnosticsModelFile {
 export interface DiagnosticsModelCache {
   hf_cache: DiagnosticsHfCacheEntry[]
   hf_total_bytes: number
-  piper_voices: DiagnosticsPiperVoice[]
-  piper_total_bytes: number
   model_files: DiagnosticsModelFile[]
   model_files_total_bytes: number
 }
@@ -226,7 +218,7 @@ export interface DiagnosticsResetResult {
   reset_at: number
 }
 
-// POST /api/diagnostics/model-cache/{hf|piper}/{name}/delete and
+// POST /api/diagnostics/model-cache/hf/{revision}/delete and
 // /model-cache/files/{folder}/{name}/delete (PC only).
 export interface DiagnosticsCacheDeleteResult {
   deleted: boolean

@@ -191,9 +191,8 @@ def test_refine_through_the_backend_is_off_unless_asked(fakes, monkeypatch):
     assert len(run(vad([(1.0, 3.0)]))) == 1
 
 
-def test_backend_is_registered_and_not_experimental():
+def test_backend_is_registered():
     assert isinstance(ab.get_backend("qwen3_asr_vad"), ab.Qwen3ASRVadBackend)
-    assert "qwen3_asr_vad" not in ab.EXPERIMENTAL_BACKENDS
 
 
 def test_refine_option_defaults_off_and_saves(isolated_db):
@@ -220,9 +219,9 @@ def test_run_start_and_validate_refuse_vad_backend_without_faster_whisper(isolat
     monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature: None)
     monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
                         lambda name, *a: None if name == "faster_whisper" else real_find_spec(name, *a))
-    with pytest.raises(DependencyUnavailableError, match="faster-whisper"):
+    with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
         transcribe_service.start_transcribe_run(did)
-    with pytest.raises(DependencyUnavailableError, match="faster-whisper"):
+    with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
         transcribe_service.validate_transcribe_options(did)
 
 
@@ -290,13 +289,15 @@ def test_pipeline_reports_backend_and_keeps_span_times_and_flags(tmp_path, monke
 
 
 def test_pipeline_missing_vad_is_a_dependency_error(tmp_path, monkeypatch):
+    from services import transcribe_service
     from vad_segments import VadNotInstalledError
 
     def fake(self, *a, **k):
         raise VadNotInstalledError("No module named 'faster_whisper'")
     out = _pipeline(_Rep(), tmp_path, monkeypatch, fake)
     assert out["failed_reason"] == "dependency_missing"
-    assert "pip install faster-whisper" in out["detail"]
+    assert out["detail"] == transcribe_service._MISSING_VAD_MESSAGE
+    assert "faster_whisper" not in out["detail"]
 
 
 def test_pipeline_cancel_before_start_returns_cancelled(tmp_path, monkeypatch):
@@ -375,3 +376,106 @@ def test_backend_names_the_cpu_stages_and_passes_device_callbacks_to_the_loaders
     assert stages[:3] == ["Loading audio (CPU)", "Finding speech (CPU)",
                           "Loading the Qwen3-ASR model"]
     assert loads == [["on_device", "on_gpu_fallback"]]
+
+
+def run_long(vad_fn, **kw):
+    return ab.Qwen3ASRLongBackend().transcribe("/a.wav", "zh", vad_fn=vad_fn, **kw)
+
+
+@pytest.fixture
+def aligned(monkeypatch):
+    """Records the groups sent to the aligner and returns them unchanged."""
+    seen = []
+
+    def fake(audio_path, groups, language, **kw):
+        seen.append(groups)
+        return [seg for group in groups for seg in group]
+    monkeypatch.setattr(forced_align, "refine_segment_timing", fake)
+    return seen
+
+
+def test_long_backend_keeps_a_short_interjection_and_pads_it_wider(fakes, aligned):
+    fakes(["嗯"])
+    out = run_long(vad([(5.0, 5.1)]))
+    assert [s["text"] for s in out] == ["嗯"]
+    assert out[0]["start"] == pytest.approx(4.7) and out[0]["end"] == pytest.approx(5.4)
+    # the old backend drops speech under 250 ms
+    fakes(["嗯"])
+    assert run(vad([(5.0, 5.1)])) == []
+
+
+def test_long_backend_packs_spans_with_pauses_into_one_window(fakes, aligned):
+    model = fakes(["今天天气很好。我们出去走走吧。"])
+    out = run_long(vad([(1.0, 3.0), (5.5, 8.0), (10.5, 13.0)]))
+    assert model.calls == [1]
+    assert [len(groups) for groups in aligned] == [1]
+    assert "".join(s["text"] for s in out) == "今天天气很好。我们出去走走吧。"
+    assert out[0]["start"] == pytest.approx(0.7) and out[-1]["end"] == pytest.approx(13.3)
+
+
+def test_long_backend_cuts_every_sentence_and_always_aligns(fakes, aligned):
+    fakes(["今天天气很好。我们出去走走吧。好啊好啊。"])
+    out = run_long(vad([(1.0, 9.0)]))
+    assert [s["text"] for s in out] == ["今天天气很好。", "我们出去走走吧。", "好啊好啊。"]
+    assert len(aligned) == 1
+    assert all(a["end"] <= b["start"] + 1e-9 for a, b in zip(out, out[1:]))
+
+
+def test_long_backend_windows_stay_within_the_aligner_limit(fakes, aligned):
+    model = fakes(["一", "二", "三"])
+    run_long(vad([(t, t + 2.0) for t in np.arange(0.0, 58.0, 2.5)]))
+    assert len(model.calls) >= 2
+    for group in aligned[0]:
+        assert group[-1]["end"] - group[0]["start"] <= ab.LONG_WINDOW_S + 1e-6
+
+
+def test_long_backend_with_language_detection_runs_as_the_short_span_backend(
+        fakes, aligned, monkeypatch):
+    import mixed_language
+    monkeypatch.setattr(mixed_language, "transcribe_spans",
+                        lambda spans, language, *a, **k: [
+                            {"start": s.start_s, "end": s.end_s, "text": "你好"} for s in spans])
+    fakes([])
+    out = run_long(vad([(1.0, 3.0), (5.5, 8.0)]), mixed_languages=True)
+    assert len(out) == 2 and aligned == []
+
+
+def test_long_backend_is_registered():
+    assert isinstance(ab.get_backend("qwen3_asr_long"), ab.Qwen3ASRLongBackend)
+
+
+def test_pipeline_runs_the_long_backend_and_reports_it(tmp_path, monkeypatch):
+    from services import transcribe_service
+    seen = {}
+
+    def fake(self, audio_path, language, **kw):
+        seen["backend"] = self.name
+        return [{"start": 1.0, "end": 2.0, "text": "你好"}]
+    monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake)
+    monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda p: 10.0)
+    out = transcribe_service._transcribe_pipeline(
+        _Rep(), str(tmp_path / "a.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300,
+        0.5, False, "auto", False, False, False, None, "", False, "qwen3_asr_long",
+        "whisper_diff", split_by_sentences=True)
+    assert seen["backend"] == "qwen3_asr_long" and out["raw_backend"] == "qwen3_asr_long"
+    assert [ln.zh for ln in out["lines"]] == ["你好"]
+
+
+def test_pipeline_passes_the_detector_and_surfaces_its_fallback_notice(tmp_path, monkeypatch):
+    from services import transcribe_service
+    seen = {}
+
+    def fake(self, audio_path, language, **kw):
+        seen.update(kw)
+        kw["on_notice"]("The ASMR voice detector model is not downloaded. Used the Standard detector instead.")
+        return [{"start": 1.0, "end": 2.0, "text": "你好"}]
+    monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake)
+    monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda p: 10.0)
+    out = transcribe_service._transcribe_pipeline(
+        _Rep(), str(tmp_path / "a.wav"), "whisper", None, "ja", "simplified", "medium", 5, 300, 0.5,
+        False, "auto", False, False, False, None, "", False, "qwen3_asr_vad", "whisper_diff",
+        voice_detector="asmr")
+    assert seen["detector"] == "asmr"
+    assert "not downloaded" in out["coverage_warning"]

@@ -75,8 +75,13 @@ import db
 import translate_engines
 from services import page_import_limits as limits
 from services import settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+)
 from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import JobFailed
 from sources import adaptive, ai_extract, pipeline, profiles
@@ -134,8 +139,7 @@ def build_ai_engine(name: Optional[str]):
     else:
         key, base_url = settings_service.resolve_key(name), None
         if not key:
-            raise DependencyUnavailableError(
-                f"No {name} key is configured. Set one in Settings first.")
+            raise MissingKeyError(name)
     try:
         return translate_engines.get_engine(
             name, key, base_url=base_url,
@@ -190,7 +194,7 @@ class _Review:
     pc_only: bool = False    # read through the signed-in browser: this PC only
     tmp_dir: str = ""        # comic: the images' bytes, one file per candidate id
     sizes: dict = field(default_factory=dict)        # candidate id -> bytes on disk
-    chain: list = field(default_factory=list)        # novel: adaptive.FollowedPage after the first
+    chain: list = field(default_factory=list)        # novel: novel_follow.FollowedPage after the first
     follow_stop: str = ""    # why following stopped ("" = not a followed import)
     recovery: dict = None    # {source, series_id, chapter_id, title}: an adapter chapter
 

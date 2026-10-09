@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TranslatePresetApplied, TranslateRunConfig, WorkflowTierApplied } from '../../types/translateStage'
 import {
@@ -19,14 +19,19 @@ import {
   loadPresetStart,
   MAX_FALLBACKS,
   monthSpendText,
+  cloudModelNotice,
   ollamaWarning,
   parseCap,
   reflectAvailable,
   sameEngineKind,
+  thinkingApplies,
+  thinkingEngines,
+  thinkingHelp,
   savePresetStart,
   splitLines,
   styleGuidance,
   validatePresetName,
+  TRANSLATION_ONLY,
   validateRun,
   withPresetEngine,
   withSavedEngine,
@@ -38,6 +43,14 @@ const config = {
   locales: ['en-GB', 'en-US'],
   defaults: { context_window: 5, context_window_ahead: 2, batch_size: 20 },
 } as TranslateRunConfig
+
+// No translation-only engine is offered now; the guards still apply to one.
+beforeEach(() => {
+  TRANSLATION_ONLY.push('fake_mt')
+})
+afterEach(() => {
+  TRANSLATION_ONLY.length = 0
+})
 
 describe('translate form', () => {
   it('starts from the config defaults', () => {
@@ -72,31 +85,31 @@ describe('translate form', () => {
   })
 
   it('offers only fallback engines of the main engine\'s kind, not already used', () => {
-    const all = ['claude', 'gemini', 'openai', 'nllb']
-    expect(isTranslationOnly('nllb')).toBe(true)
+    const all = ['claude', 'gemini', 'openai', 'fake_mt']
+    expect(isTranslationOnly('fake_mt')).toBe(true)
     expect(isTranslationOnly('claude')).toBe(false)
     expect(sameEngineKind('claude', 'openai')).toBe(true)
-    expect(sameEngineKind('claude', 'nllb')).toBe(false)
+    expect(sameEngineKind('claude', 'fake_mt')).toBe(false)
     // AI main engine: AI engines only, minus the main engine.
     expect(fallbackOptions(all, 'claude', [''], 0)).toEqual(['gemini', 'openai'])
     // A slot never offers an engine chosen in another slot, but keeps its own.
     expect(fallbackOptions(all, 'claude', ['gemini', 'openai'], 1)).toEqual(['openai'])
     expect(fallbackOptions(all, 'claude', ['gemini', 'openai'], 0)).toEqual(['gemini'])
     // Translation-only main engine: translation-only engines only.
-    expect(fallbackOptions(all, 'nllb', [], -1)).toEqual([])
+    expect(fallbackOptions(all, 'fake_mt', [], -1)).toEqual([])
   })
 
   it('flags a fallback of a different kind from the main engine', () => {
     const base = initialForm(config)
     expect(fallbackKindMismatch('claude', ['gemini', ''])).toBe(false)
-    expect(fallbackKindMismatch('claude', ['nllb'])).toBe(true)
+    expect(fallbackKindMismatch('claude', ['fake_mt'])).toBe(true)
     expect(validateRun({ ...base, engine: 'claude', fallbacks: ['gemini'] }, 'x')).toBeNull()
     // The main engine switched kind after the fallback was picked.
-    expect(validateRun({ ...base, engine: 'nllb', fallbacks: ['gemini'] }, 'x')).toBe(FALLBACK_KIND_MESSAGE)
+    expect(validateRun({ ...base, engine: 'fake_mt', fallbacks: ['gemini'] }, 'x')).toBe(FALLBACK_KIND_MESSAGE)
     // With no engine chosen, the drama's default engine decides the kind.
-    expect(validateRun({ ...base, fallbacks: ['nllb'] }, 'claude')).toBe(FALLBACK_KIND_MESSAGE)
+    expect(validateRun({ ...base, fallbacks: ['fake_mt'] }, 'claude')).toBe(FALLBACK_KIND_MESSAGE)
     // Reflect/Bulk are refused first, with their own reason.
-    expect(validateRun({ ...base, engine: 'claude', reflect: true, fallbacks: ['nllb'] }, 'x')).toMatch(/normal run/)
+    expect(validateRun({ ...base, engine: 'claude', reflect: true, fallbacks: ['fake_mt'] }, 'x')).toMatch(/normal run/)
   })
 
   it('builds the run body without line_ids and only sends force when confirmed', () => {
@@ -113,6 +126,7 @@ describe('translate form', () => {
       batch_size: 20,
       job_cost_cap_usd: 1.5,
       fallback_chain: [{ engine: 'gemini' }],
+      thinking: false,
       default_female_pronouns: false,
       include_genre_notes: true,
     })
@@ -142,10 +156,10 @@ describe('translate form', () => {
   it('gates Reflect and bulk by engine and sends the flags', () => {
     const base = initialForm(config)
     const sup = ['claude', 'gemini', 'deepseek']
-    expect(reflectAvailable('nllb')).toBe(false)
+    expect(reflectAvailable('fake_mt')).toBe(false)
     expect(bulkAvailable('ollama', sup)).toBe(false)
     expect(bulkReflectAvailable('deepseek', sup)).toBe(false)
-    expect(validateRun({ ...base, engine: 'nllb', reflect: true }, 'x', sup)).toMatch(/Reflect/)
+    expect(validateRun({ ...base, engine: 'fake_mt', reflect: true }, 'x', sup)).toMatch(/Reflect/)
     expect(validateRun({ ...base, engine: 'ollama', bulk: true }, 'x', sup)).toMatch(/Bulk/)
     expect(validateRun({ ...base, engine: 'deepseek', bulk: true, reflect: true }, 'x', sup)).toMatch(/Bulk Reflect/)
     expect(validateRun({ ...base, engine: 'claude', bulk: true, fallbacks: ['gemini'] }, 'x', sup)).toMatch(/Fallback/)
@@ -212,6 +226,20 @@ describe('preset start values', () => {
     expect(buildRunBody(f)).toMatchObject({ default_female_pronouns: true, include_genre_notes: false })
   })
 
+  it("starts the toggles from the title's saved choice before a preset or the defaults", () => {
+    const saved = { ...config, default_female_pronouns: true, include_genre_notes: false } as TranslateRunConfig
+    expect(initialForm(saved)).toMatchObject({ female_pronouns: true, genre_notes: false })
+    expect(initialForm(saved, { default_female_pronouns: false, include_genre_notes: true })).toMatchObject({
+      female_pronouns: true,
+      genre_notes: false,
+    })
+    const half = { ...config, default_female_pronouns: false, include_genre_notes: null } as TranslateRunConfig
+    expect(initialForm(half, { default_female_pronouns: true, include_genre_notes: false })).toMatchObject({
+      female_pronouns: false,
+      genre_notes: false,
+    })
+  })
+
   it('prefills the preset model only when the drama engine offers it', () => {
     const withEngines = {
       ...config,
@@ -242,17 +270,17 @@ describe('preset start values', () => {
 describe('workflow tiers (X02) and save as preset (X22)', () => {
   const withEngines = {
     ...config,
-    translation_engine: 'nllb',
+    translation_engine: 'fake_mt',
     engines: [
-      { name: 'claude', models: ['claude-sonnet-5', 'claude-opus-4-8'] },
+      { name: 'claude', models: ['claude-sonnet-5-5', 'claude-opus-5-5'] },
       { name: 'deepseek', models: null },
-      { name: 'nllb', models: null },
+      { name: 'fake_mt', models: null },
     ],
     bulk_supported_engines: ['claude', 'deepseek'],
   } as unknown as TranslateRunConfig
   const release: WorkflowTierApplied = {
     drama_id: 1, tier: 'release', label: 'Release', translation_engine: 'claude',
-    engine_model: 'claude-opus-4-8', reflect: true, auto_qc: true,
+    engine_model: 'claude-opus-5-5', reflect: true, auto_qc: true,
   }
   const draft: WorkflowTierApplied = {
     drama_id: 1, tier: 'draft', label: 'Draft', translation_engine: 'deepseek',
@@ -262,14 +290,14 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
   it('fills engine, model and Reflect and leaves the rest alone', () => {
     const base = { ...initialForm(withEngines), style_note: 'keep', locale: 'en-GB', genre_notes: false }
     const f = applyTierToForm(base, release, withEngines)
-    expect(f).toMatchObject({ engine: 'claude', model: 'claude-opus-4-8', reflect: true })
+    expect(f).toMatchObject({ engine: 'claude', model: 'claude-opus-5-5', reflect: true })
     expect(f).toMatchObject({ style_note: 'keep', locale: 'en-GB', genre_notes: false, force: false })
     const d = applyTierToForm(f, draft, withEngines)
     expect(d).toMatchObject({ engine: 'deepseek', model: '', reflect: false })
   })
 
   it('drops an unlisted model and a bulk choice that no longer fits', () => {
-    const noOpus = { ...withEngines, engines: [{ name: 'claude', models: ['claude-sonnet-5'] }] } as unknown as TranslateRunConfig
+    const noOpus = { ...withEngines, engines: [{ name: 'claude', models: ['claude-sonnet-5-5'] }] } as unknown as TranslateRunConfig
     expect(applyTierToForm(initialForm(noOpus), release, noOpus).model).toBe('')
     const bulky = { ...initialForm(withEngines), engine: 'claude', bulk: true }
     // Release: Reflect + bulk needs a batch API; claude has one.
@@ -281,7 +309,7 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
   })
 
   it('after a tier, Default means the new engine for validation and presets', () => {
-    // The drama was on nllb (translation-only: no Reflect); Release saves claude.
+    // The drama was on fake_mt (translation-only: no Reflect); Release saves claude.
     const c = withSavedEngine(withEngines, release)
     expect(c.translation_engine).toBe('claude')
     expect(withSavedEngine(c, release)).toBe(c)
@@ -300,12 +328,12 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
 
   it('builds the preset body from the form', () => {
     const f = { ...initialForm(withEngines), style_preset: 'wuxia', locale: 'en-GB', female_pronouns: true, genre_notes: false }
-    expect(buildPresetBody(f, 'nllb', ' Mine ')).toEqual({
-      name: 'Mine', translation_engine: 'nllb', engine_model: null, style_preset: 'wuxia',
+    expect(buildPresetBody(f, 'fake_mt', ' Mine ')).toEqual({
+      name: 'Mine', translation_engine: 'fake_mt', engine_model: null, style_preset: 'wuxia',
       locale: 'en-GB', default_female_pronouns: true, include_genre_notes: false,
     })
     const g = { ...f, engine: 'claude', model: 'claude-sonnet-5' }
-    expect(buildPresetBody(g, 'nllb', 'Mine', true)).toMatchObject({
+    expect(buildPresetBody(g, 'fake_mt', 'Mine', true)).toMatchObject({
       translation_engine: 'claude', engine_model: 'claude-sonnet-5', overwrite: true,
     })
   })
@@ -314,11 +342,11 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
 describe('apply a saved preset (parity X03/X04)', () => {
   const c = {
     ...config,
-    translation_engine: 'nllb',
+    translation_engine: 'fake_mt',
     style_presets: [{ key: 'natural', label: 'Natural', guidance: 'Sound natural.' }, { key: 'wuxia', label: 'Wuxia' }],
     engines: [
       { name: 'claude', models: ['claude-a', 'claude-b'] },
-      { name: 'nllb', models: [] },
+      { name: 'fake_mt', models: [] },
     ],
     bulk_supported_engines: ['claude'],
   } as unknown as TranslateRunConfig
@@ -345,8 +373,8 @@ describe('apply a saved preset (parity X03/X04)', () => {
 
   it('drops Reflect/Bulk that the new engine cannot run', () => {
     const base = { ...initialForm(c), engine: 'claude', reflect: true, bulk: true }
-    const f = applyPresetToForm(base, preset({ translation_engine: 'nllb', engine_model: null }), c)
-    expect(f).toMatchObject({ engine: 'nllb', reflect: false, bulk: false })
+    const f = applyPresetToForm(base, preset({ translation_engine: 'fake_mt', engine_model: null }), c)
+    expect(f).toMatchObject({ engine: 'fake_mt', reflect: false, bulk: false })
   })
 
   it('moves the config default engine only when the preset has one', () => {
@@ -393,5 +421,64 @@ describe('Ollama reachability warning (X24)', () => {
   it('stays quiet for other engines, even with a stale false', () => {
     expect(ollamaWarning('claude', false)).toBe(false)
     expect(ollamaWarning('', false)).toBe(false)
+  })
+})
+
+describe('think harder on tricky text', () => {
+  it('is off unless the title remembers it, and is sent explicitly either way', () => {
+    expect(initialForm(config).thinking).toBe(false)
+    const remembered = initialForm({ ...config, title_thinking: true })
+    expect(remembered.thinking).toBe(true)
+    expect(buildRunBody(remembered).thinking).toBe(true)
+    expect(buildRunBody({ ...remembered, thinking: false }).thinking).toBe(false)
+    expect(buildEstimateParams(remembered)).toMatchObject({ thinking: true })
+  })
+
+  it('applies only to engines with a request switch, and never to Reflect', () => {
+    expect(thinkingApplies('deepseek', false)).toBe(true)
+    expect(thinkingApplies('ollama', false)).toBe(true)
+    expect(thinkingApplies('claude', false)).toBe(false)
+    expect(thinkingApplies('deepseek', true)).toBe(false)
+    expect(thinkingApplies('claude', false, ['claude'])).toBe(true)
+  })
+
+  it('applies when any engine in the fallback chain has a switch', () => {
+    expect(thinkingApplies('claude', false, undefined, ['deepseek'])).toBe(true)
+    expect(thinkingApplies('claude', false, undefined, ['gemini', ''])).toBe(false)
+    expect(thinkingApplies('claude', true, undefined, ['deepseek'])).toBe(false)
+    expect(thinkingEngines('deepseek', ['claude', 'ollama'], false)).toEqual(['deepseek', 'ollama'])
+  })
+
+  it('names the engines it applies to, or the chain that has none', () => {
+    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).toMatch(/applies to deepseek, not to the other engines/)
+    expect(thinkingHelp('deepseek', false)).not.toMatch(/applies to/)
+    expect(thinkingHelp('claude', false, undefined, ['gemini'])).toMatch(/^claude and gemini have no thinking switch/)
+  })
+
+  it('says plainly what it costs, and plainly when it does nothing', () => {
+    expect(thinkingHelp('deepseek', false)).toMatch(/Off by default/)
+    expect(thinkingHelp('deepseek', false)).toMatch(/lower bound/)
+    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).not.toMatch(/lower bound/)
+    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).toMatch(/does not include it/)
+    expect(thinkingHelp('claude', false)).toBe(
+      'claude has no thinking switch, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.',
+    )
+    expect(thinkingHelp('deepseek', true)).toMatch(/^Reflect mode has no thinking switch/)
+  })
+})
+
+describe('cloud model notice', () => {
+  const engine = { cloud_models: ['gemma4:31b-cloud'] }
+  it('warns in plain words only for a cloud model', () => {
+    expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/off this PC/)
+    expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/limits/)
+  })
+  it('follows the server flag for a cloud tag that is not built in', () => {
+    expect(cloudModelNotice({ cloud_models: ['gpt-oss:120b-cloud'] }, 'gpt-oss:120b-cloud')).toMatch(/off this PC/)
+  })
+  it('stays quiet for local, empty and unknown engines', () => {
+    expect(cloudModelNotice(engine, 'gemma4:12b')).toBeNull()
+    expect(cloudModelNotice(engine, '')).toBeNull()
+    expect(cloudModelNotice(undefined, 'gemma4:31b-cloud')).toBeNull()
   })
 })

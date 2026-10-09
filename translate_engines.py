@@ -81,7 +81,15 @@ from engine_backends.prompts import (  # noqa: F401
     _MEDIUM_DESCRIPTIONS,
     _select_relevant_novel_passages,
     _wants_baihe_framing,
+    MALE_PRONOUN_WORD,
+    PRONOUN_DEFAULT_MARKER,
+    batch_context_for,
     build_batch_context,
+    is_male_speaker_label,
+    known_male_names,
+    pronoun_batch_note,
+    pronoun_default_active,
+    pronoun_neutral_texts,
     build_batch_user_message,
     build_claude_system_blocks,
     build_llm_instructions,
@@ -98,6 +106,7 @@ from engine_backends.openai_compat import (  # noqa: F401
     DeepSeekEngine,
     OpenAIEngine,
 )
+from engine_backends.thinking import think_flag  # noqa: F401
 from engine_backends.gemini import (  # noqa: F401
     GEMINI_FREE_TIER_DEFAULT_LIMITS,
     GEMINI_FREE_TIER_LIMITS,
@@ -111,21 +120,23 @@ from engine_backends.gemini import (  # noqa: F401
     progress_message_with_rate_status,
 )
 from engine_backends.local import (  # noqa: F401
-    NLLBEngine,
-    NLLB_MODELS,
+    OLLAMA_CLOUD_MODELS,
     OLLAMA_DEFAULT_MODEL,
     OLLAMA_MIN_NUM_CTX,
     OLLAMA_MODELS,
     OLLAMA_REACHABILITY_CACHE_SECONDS,
+    OllamaCloudLimitError,
     OllamaEngine,
     OllamaUnavailableError,
-    _NLLB_LANG_CODES,
     _OLLAMA_ID_KEYED_JSON_SCHEMA,
-    _nllb_pipeline_cache,
     _ollama_chat,
     _ollama_reachability_cache,
+    check_ollama_model_installed,
     check_ollama_reachable,
     estimate_ollama_num_ctx,
+    is_ollama_cloud_model,
+    chain_touches_local_gpu,
+    ollama_touches_local_gpu,
 )
 from engine_backends.llm_tasks import (  # noqa: F401
     FLAG_REASONS,
@@ -203,6 +214,7 @@ from engine_backends.translate_pipeline import (  # noqa: F401
     build_reflect_faithful_prompt,
     build_reflect_reflection_prompt,
     build_translation_context,
+    plan_batches,
     reflect_translate_batch,
     translate_lines_with_engine,
 )

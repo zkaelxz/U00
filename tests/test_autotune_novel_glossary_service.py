@@ -8,7 +8,7 @@ import pytest
 import background_jobs
 import core
 import translation_guide as tguide
-from services import glossary_service as gs
+from services import glossary_extract_service, glossary_service as gs
 from services import settings_service, transcribe_service as ts, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
@@ -80,17 +80,39 @@ class TestAutotune:
         assert [r["candidate_ms"] for r in final[1]["results"]] == [300, 1500]
         assert SECRET not in repr(final)
 
+    def test_worker_scores_with_the_titles_repeat_guard(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(core, "transcribe_for_timing",
+                            lambda *a, **kw: seen.update(kw) or [])
+        ts._autotune_all_worker("a", "small", "zh", False, None, "", 5, [300], 0.5, False,
+                                "normal", True, _Queue())
+        assert seen["repeat_guard"] is True
+
+    def test_start_passes_the_titles_repeat_guard(self, isolated_db, monkeypatch):
+        did = _audio_drama(isolated_db, whisper_repeat_guard=1)
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda job_id, target, args=(), **kw: captured.update(args=args) or True)
+        ts.start_autotune_run(did, candidates=[300])
+        assert captured["args"][-1] is True
+
+    def test_refused_while_lines_split_by_sentences(self, isolated_db, monkeypatch):
+        # That run uses a fixed silence, so a tuned min_silence would change nothing.
+        did = _audio_drama(isolated_db, split_by_sentences=1, asr_backend_choice="whisper")
+        with pytest.raises(UnsupportedOperationError, match="Split lines by sentences"):
+            ts.start_autotune_run(did, candidates=[300])
+
     def test_worker_error_is_redacted(self, monkeypatch):
         def boom(*a, **kw):
             raise RuntimeError(f"bad token {SECRET}")
         monkeypatch.setattr(core, "transcribe_for_timing", boom)
         q = _Queue()
-        ts._autotune_all_worker("a", "small", "zh", False, SECRET, "", 5, [300], 0.5, False, q)
+        ts._autotune_all_worker("a", "small", "zh", False, SECRET, "", 5, [300], 0.5, False, "normal", False, q)
         assert q.items[-1][0] == "error" and SECRET not in repr(q.items[-1])
 
     def test_bad_input(self, isolated_db):
         did = _audio_drama(isolated_db)
-        for bad in ([], [200], [300, 300], [True], list(range(300, 1000, 100))):
+        for bad in ([], [99], [300, 300], [True], list(range(300, 1000, 100))):
             with pytest.raises(InvalidInputError):
                 ts.start_autotune_run(did, candidates=bad)
         nod = isolated_db.create_drama(title_en="none")
@@ -162,7 +184,7 @@ def _wait(job_id):
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(gs.translate_engines, "get_engine",
+    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 
@@ -233,7 +255,7 @@ class TestNovelGlossary:
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a: None)
         with pytest.raises(DependencyUnavailableError):
             gs.start_novel_glossary_run(did)
-        did2, _ = _novel_drama(isolated_db, engine="nllb")
+        did2, _ = _novel_drama(isolated_db, engine="fake_mt")
         with pytest.raises(UnsupportedOperationError):
             gs.start_novel_glossary_run(did2)
 

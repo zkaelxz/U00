@@ -6,7 +6,8 @@ import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { lineNumber } from '../../../../lineNumber'
 import type { ShortenResult } from '../../../../types/review'
-import { AI_UNAVAILABLE_MESSAGE, JOB_RUNNING_MESSAGE } from './reviewLogic'
+import { AI_UNAVAILABLE_MESSAGE } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 
 export const TOO_LONG = 'too_long_for_slot'
 

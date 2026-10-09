@@ -1,11 +1,11 @@
 """
 api/routers/diagnostics_gaps_routes.py -- the Diagnostics features the
-read-only overview (diagnostics_routes.py) lacks (API batch 1). Thin: see services/diagnostics_gaps_service.py.
+read-only overview (diagnostics_routes.py) lacks. Thin: see services/diagnostics_gaps_service.py.
 
-Reads are `admin.diagnostics`: setup checks (Q01), model cache (Q14, list
-only), pyannote readiness (Q15; `check_access=true` asks Hugging Face with
-the server-side token and returns booleans only), finished-job history
-(Q09), log tail with keyword filter (Q18), the support report (Q17) and
+Reads are `admin.diagnostics`: setup checks, model cache (list
+only), pyannote readiness (`check_access=true` asks Hugging Face with
+the server-side token and returns booleans only), finished-job history,
+log tail with keyword filter, the support report and
 install presets (packages grouped by task, installed versions, approx.
 sizes, PyPI links) and GPU PyTorch status. `POST /gpu-torch/check` (the
 status plus a CUDA check in a fresh Python; 409 while a job or another
@@ -15,13 +15,13 @@ asks PyPI (a fixed https://pypi.org/pypi/<dist>/json per static dist name,
 with a timeout) only when called, and caches the answer for Upgrade.
 
 Writes are `local_only()` plus `confirm=true`: dependency install and
-upgrade (Q06, package names from the service's whitelist only; upgrade
+upgrade (package names from the service's whitelist only; upgrade
 takes the `target` the user confirmed and is 409 when the last update check
 no longer says so), the GPU
 PyTorch setup (a fixed variant; versions and index come from diagnostics.py's
 static table, never the request) and the
-library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
-background job runs (409). Deleting a cached model, Piper voice or model
+library reset (also `confirm_text` "RESET"). Each refuses while any
+background job runs (409). Deleting a cached model or model
 file (torch.hub checkpoints, audio-separator models) is also
 `local_only()` + `confirm=true`, refused while a job runs, and takes only a
 name the cache scan lists. The benchmark and the App Assistant are not
@@ -60,7 +60,7 @@ def get_setup_checks():
 
 @router.get("/model-cache", dependencies=[require_permission("admin.diagnostics")],
             response_model=DiagnosticsModelCache,
-            summary="Hugging Face cache revisions, Piper voices, torch.hub checkpoints and "
+            summary="Hugging Face cache revisions, torch.hub checkpoints and "
                     "audio-separator models (names and sizes)")
 def get_model_cache():
     return svc.get_model_cache()
@@ -162,16 +162,6 @@ def post_reset_library(body: DiagnosticsResetRequest):
 def post_delete_hf_revision(body: DiagnosticsAdminConfirm,
                             revision: str = Path(pattern=r"^[0-9a-f]{40}$")):
     return svc.delete_hf_revision(revision, confirm=body.confirm)
-
-
-@router.post("/model-cache/piper/{voice}/delete", dependencies=[local_only()],
-             response_model=DiagnosticsCacheDeleteResult,
-             summary="PC only: delete one downloaded Piper voice (confirm=true)",
-             responses=_ERRS)
-def post_delete_piper_voice(body: DiagnosticsAdminConfirm,
-                            voice: str = Path(min_length=1, max_length=120,
-                                              pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")):
-    return svc.delete_piper_voice(voice, confirm=body.confirm)
 
 
 @router.post("/model-cache/files/{kind}/{name}/delete", dependencies=[local_only()],

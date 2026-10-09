@@ -47,19 +47,21 @@ class TestConfig:
         body = resp.json()
         assert set(body) == {
             "drama_id", "content_mode", "is_narration", "narration_language",
-            "narration_language_options", "source_language", "tts_engines", "defaults",
-            "speakers", "gpu_required", "speakable_line_count", "track_available",
-            "gpt_sovits_configured", "can_keep_background"}
+            "narration_language_options", "source_language", "tts_engines", "default_engine",
+            "blocker", "defaults", "speakers", "gpu_required", "speakable_line_count", "track_available",
+            "can_keep_background"}
         assert body["drama_id"] == did
         assert body["speakable_line_count"] == 2
         assert set(body["defaults"]) == {"max_speedup", "max_slowdown", "speedup_range",
                                          "slowdown_range"}
         assert {s["speaker_label"] for s in body["speakers"]} == {"S1", "S2"}
         for s in body["speakers"]:
-            assert set(s) == {"speaker_label", "character_name", "edge_voice",
-                              "offline_voice", "engine", "has_clone_ref", "clone_warning"}
+            assert set(s) == {"speaker_label", "character_name", "engine", "has_clone_ref",
+                              "clone_warning"}
         for e in body["tts_engines"]:
-            assert set(e) == {"key", "label", "requires_internet"}
+            assert set(e) == {"key", "label", "unavailable_reason"}
+        assert body["default_engine"] == "omnivoice"
+        assert [e["key"] for e in body["tts_engines"]][0] == "omnivoice"
 
     def test_narration_defaults_null(self, client, isolated_db):
         did = _seed(isolated_db, content_mode="novel_narration")
@@ -136,3 +138,39 @@ def test_track_symlink_is_404(client, isolated_db, tmp_path):
     outside.write_bytes(b"x")
     os.symlink(outside, os.path.join(db.drama_dir(did), "dub_track.wav"))
     assert client.get(f"/api/dub/dramas/{did}/track").status_code == 404
+
+
+class TestEngineAvailability:
+    def test_a_missing_engine_package_is_named_on_that_engine(self, client, isolated_db, monkeypatch):
+        import importlib.util
+        did = _seed(isolated_db)
+        real = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a, **k: None if name == "omnivoice" else real(name, *a, **k))
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
+        engines = {e["key"]: e for e in client.get(f"/api/dub/dramas/{did}/config").json()["tts_engines"]}
+        assert engines["omnivoice"]["unavailable_reason"] == "OmniVoice is not installed. Install it in Diagnostics."
+
+    def test_no_engine_installed_is_a_plain_blocker_not_an_error(self, client, isolated_db, monkeypatch):
+        import importlib.util
+        did = _seed(isolated_db)
+        real = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a, **k: None if name == "omnivoice" else real(name, *a, **k))
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
+        resp = client.get(f"/api/dub/dramas/{did}/config")
+        assert resp.status_code == 200
+        assert resp.json()["blocker"] == "No voice engine is installed. Install one in Diagnostics."
+        run = client.post(f"/api/dub/dramas/{did}/run", json={})
+        assert run.status_code == 503
+        assert run.json()["error"]["message"] == "OmniVoice is not installed. Install it in Diagnostics."
+        assert "Traceback" not in run.text and "ImportError" not in run.text
+
+    def test_a_character_stored_with_a_removed_engine_loads_with_the_plain_message(
+            self, client, isolated_db):
+        did = _seed(isolated_db)
+        isolated_db.upsert_character(did, "S1", clone_engine="f5tts")
+        body = client.get(f"/api/dub/dramas/{did}/config").json()
+        speaker = next(s for s in body["speakers"] if s["speaker_label"] == "S1")
+        assert speaker["clone_warning"] == "The F5-TTS engine was removed. Pick another voice engine in Dub."
+        assert "F5-TTS engine was removed" in body["blocker"]

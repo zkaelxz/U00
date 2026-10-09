@@ -12,6 +12,7 @@ import time
 
 import pytest
 
+import benchmark
 import background_jobs
 import db
 import translate_engines
@@ -70,7 +71,8 @@ class TestScoring:
     def test_wer_counts_words(self):
         assert svc.error_rate("the cat sat", "the cat sat down", unit="word") == pytest.approx(0.25)
 
-    def test_metric_per_stage(self):
+    def test_metric_per_stage(self, monkeypatch):
+        _hide_sacrebleu(monkeypatch)
         assert svc.score_output("translation", "a", "a") == (1.0, "similarity", "builtin")
         assert svc.score_output("ocr", "你好", "你好")[:2] == (1.0, "cer")
         assert svc.score_output("transcription", "hi", "hi", "zh")[1] == "cer"
@@ -89,6 +91,16 @@ def _hide_jiwer(monkeypatch):
     def fake_import(name, *args, **kwargs):
         if name == "jiwer" or name.startswith("jiwer."):
             raise ImportError("no jiwer")
+        return real_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+
+def _hide_sacrebleu(monkeypatch):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "sacrebleu" or name.startswith("sacrebleu."):
+            raise ImportError("no sacrebleu")
         return real_import(name, *args, **kwargs)
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
@@ -243,7 +255,7 @@ class TestRunPersistence:
         assert run["avg_latency_seconds"] is not None
         by_label = {r["case_label"]: r for r in detail["results"]}
         assert by_label["g #1"]["score"] == 1.0 and by_label["g #1"]["passed"] is True
-        assert by_label["g #1"]["metric"] == "similarity"
+        assert by_label["g #1"]["metric"] in ("chrf", "similarity")
 
     def test_paid_run_spend_counts_toward_monthly_cap(self, isolated_db, paid_engine):
         paid_engine.answers = {"你好": "Hello"}
@@ -451,7 +463,7 @@ class TestReviewFixes:
     def test_cancel_marks_current_and_later_runs(self, isolated_db, monkeypatch):
         svc.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv")
         monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda job_id: True)
-        started = _run(configs=[{"engine": "fake"}, {"engine": "nllb"}])
+        started = _run(configs=[{"engine": "fake"}, {"engine": "fake_mt"}])
         statuses = [svc.get_run(s)["run"]["status"] for s in started["session_ids"]]
         assert statuses == ["cancelled", "cancelled"]
 
@@ -586,3 +598,36 @@ class TestJobCostCap:
         self._setup(monkeypatch, n=2)
         (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
         assert svc.get_run(sid)["run"]["status"] == "done"
+
+
+class TestTranslationMetric:
+    def test_without_sacrebleu_uses_difflib_and_old_threshold(self, monkeypatch):
+        _hide_sacrebleu(monkeypatch)
+        assert svc.score_output("translation", "abcd", "abce")[1:] == ("similarity", "builtin")
+        assert svc.pass_threshold("similarity") == svc.PASS_THRESHOLD
+
+    def test_chrf_pairs(self):
+        pytest.importorskip("sacrebleu")
+        score = lambda a, b: svc.score_output("translation", a, b)
+        assert score("I love you so much", "I love you so much") == (1.0, "chrf", "sacrebleu")
+        assert score("", "你好")[0] == 0.0
+        assert benchmark.translation_similarity("", "") == (1.0, "chrf")
+        assert score("I love you so much", "I love you very much")[0] > svc.CHRF_PASS_THRESHOLD
+        assert score("今天天气很好", "今天天气不错")[0] < svc.CHRF_PASS_THRESHOLD
+        assert score("今天天气很好", "明天去商店")[0] < 0.1
+        assert score("I love you", "xyz qrs")[0] < 0.1
+        assert score("a  b", "ab")[0] == 1.0  # whitespace is not scored
+        assert score("x", None)[0] is None
+
+    def test_threshold_follows_metric(self):
+        assert svc.pass_threshold("chrf") == svc.CHRF_PASS_THRESHOLD < svc.PASS_THRESHOLD
+        assert svc.pass_threshold("similarity") == svc.PASS_THRESHOLD
+
+    def test_run_passes_by_the_metric_used(self, isolated_db, paid_engine):
+        pytest.importorskip("sacrebleu")
+        paid_engine.answers = {"你好": "I love you so much"}
+        svc.create_case("c", "你好", "I love you very much")
+        (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
+        (res,) = svc.get_run(sid)["results"]
+        assert (res["metric"], res["scorer"], res["passed"]) == ("chrf", "sacrebleu", True)
+        assert 0.5 < res["score"] < 0.8

@@ -61,7 +61,7 @@ def test_estimate_validation(client):
     r = client.get(f"{BASE}/{did}/estimate", params={"engine": "nope"})
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "validation_error"
-    r = client.get(f"{BASE}/{did}/estimate", params={"engine": "nllb", "reflect": "true"})
+    r = client.get(f"{BASE}/{did}/estimate", params={"engine": "fake_mt", "reflect": "true"})
     assert r.status_code == 400
     assert "error" in r.json()
     r = client.get(f"{BASE}/{did}/estimate", params={"job_cost_cap_usd": -1})
@@ -172,7 +172,7 @@ def test_bulk_line_count_uses_count(isolated_db):
 
 
 @pytest.mark.parametrize("engine,model", [
-    ("nllb", "someone/evil-repo"), ("nllb", "../models/x"), ("claude", "not-a-claude-model"),
+    ("fake", "someone/evil-repo"), ("fake", "../models/x"), ("claude", "not-a-claude-model"),
     ("fake", "anything"), ("deepseek", 123)])
 def test_run_refuses_model_not_offered(client, monkeypatch, engine, model):
     import translate_engines
@@ -192,8 +192,8 @@ def test_offered_or_default_models_pass_the_check():
     import translate_engines
     from services import translate_run_service as svc
     from services.service_errors import InvalidInputError
-    svc._require_offered_model("nllb", None)
-    svc._require_offered_model("nllb", next(iter(translate_engines.NLLB_MODELS)))
+    svc._require_offered_model("fake", None)
+    svc._require_offered_model("ollama", next(iter(translate_engines.OLLAMA_MODELS)))
     svc._require_offered_model("claude", next(iter(translate_engines.CLAUDE_MODELS)))
     svc._require_offered_model("deepseek", svc._default_model("deepseek"))
     with pytest.raises(InvalidInputError):
@@ -201,7 +201,7 @@ def test_offered_or_default_models_pass_the_check():
 
 
 @pytest.mark.parametrize("model,ok", [
-    ("qwen3:14b", True), ("my-own/llama3.1:8b-instruct-q4_K_M", True),
+    ("gemma4:12b", True), ("qwen3:14b", True), ("my-own/llama3.1:8b-instruct-q4_K_M", True),
     ("../x", False), ("/abs/path", False), ("has space", False), ("a/../b", False),
     ("x" * 101, False), ("", False)])
 def test_ollama_takes_any_safe_model_name(model, ok):
@@ -216,6 +216,6 @@ def test_ollama_takes_any_safe_model_name(model, ok):
 
 def test_estimate_refuses_model_not_offered(client):
     r = client.get(f"{BASE}/{_seed()}/estimate",
-                   params={"engine": "nllb", "model": "someone/evil-repo"})
+                   params={"engine": "fake", "model": "someone/evil-repo"})
     assert r.status_code == 422
     assert "evil-repo" not in r.text

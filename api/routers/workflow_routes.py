@@ -1,6 +1,6 @@
 """
 api/routers/workflow_routes.py -- the drama's pipeline progress for the
-React stage bar (API batch 1). Thin: see services/workflow_service.py.
+React stage bar. Thin: see services/workflow_service.py.
 Read-only; no network.
 """
 

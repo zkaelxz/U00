@@ -364,6 +364,19 @@ def _run(client, did, **body):
     return client.post(f"/api/scanlate/dramas/{did}/run", json=body)
 
 
+def test_run_refused_when_paddle_vl_manga_needs_newer_transformers(client, fake_detect, monkeypatch):
+    import ocr
+    did = _drama()
+    _page(did, 0)
+    monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend",
+                        lambda lang: "paddle_vl_manga")
+    monkeypatch.setattr(ocr, "paddle_vl_manga_problem", lambda: "update transformers")
+    r = _run(client, did, engine="fake")
+    assert r.status_code == 503, r.text
+    assert "update transformers" in r.text
+    assert fake_detect == []
+
+
 def test_translate_all_skips_pages_with_regions(client, fake_detect):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
@@ -507,8 +520,8 @@ def test_answers_are_applied_by_key_not_position(monkeypatch):
 
 def test_source_language_and_usage_reach_machine_translation(isolated_db):
     class MT:
-        name = "nllb"
-        model = "nllb"
+        name = "fake_mt"
+        model = "fake_mt"
         supports_reference = False
         last_usage = {}
 
@@ -816,3 +829,52 @@ def test_stored_page_error_note_is_redacted(isolated_db, monkeypatch):
     run_svc._run_job("j", 1, "all", [7], "claude", object(), "auto")
     assert len(stored) == 1 and "This page failed" in stored[0]
     assert "sk-ant-abcdefghijklmnopqrstuvwxyz0123" not in stored[0]
+
+
+def test_a_headroom_refusal_in_detect_stops_the_job_with_its_message(client, monkeypatch):
+    from memory_headroom import HeadroomError
+    did = _drama()
+    p1, p2 = _page(did, 0), _page(did, 1)
+    seen = []
+
+    def detect(image_path, lang, page_id=None, **kw):
+        seen.append(page_id)
+        raise HeadroomError("Not loading the OCR model: Keep free graphics memory.")
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
+    _run(client, did, mode="all", confirm=True, engine="fake")
+    st = _wait(f"scanlate_{did}")
+    assert st["status"] == "error" and "Keep free graphics memory" in st["error"]
+    assert seen == [p1]
+    assert db.get_page(p2)["run_notes"] in (None, "", "[]")
+
+
+def test_a_headroom_refusal_in_translate_stops_the_job_once(client, fake_detect, monkeypatch):
+    from memory_headroom import HeadroomError
+    did = _drama()
+    _page(did, 0), _page(did, 1)
+    attempts = []
+
+    def refuse(*a, **kw):
+        attempts.append(1)
+        raise HeadroomError("Not loading the model: Keep free graphics memory.")
+    monkeypatch.setattr(scanlate, "translate_regions_by_id", refuse)
+    _run(client, did, mode="all", confirm=True, engine="fake")
+    st = _wait(f"scanlate_{did}")
+    assert st["status"] == "error" and "Keep free graphics memory" in st["error"]
+    assert len(attempts) == 1
+
+
+def test_a_headroom_refusal_in_ocr_is_not_turned_into_blank_text(monkeypatch):
+    from memory_headroom import HeadroomError
+
+    class Region:
+        def to_bubble(self):
+            return {"language": "zh"}
+    monkeypatch.setattr(scanlate, "detect_bubbles", lambda *a, **k: [(0, 0, 10, 10)])
+    monkeypatch.setattr(scanlate, "analyze_page_regions", lambda *a, **k: [Region()])
+
+    def refuse(*a, **k):
+        raise HeadroomError("Not loading the OCR model: Keep free graphics memory.")
+    monkeypatch.setattr(scanlate, "ocr_box_region", refuse)
+    with pytest.raises(HeadroomError):
+        scanlate.detect_and_ocr_page("page.png", "zh")

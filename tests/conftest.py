@@ -157,7 +157,9 @@ def _fake_engine_installed():
     not part of the app (see tests/fake_engine.py)."""
     from tests import fake_engine
     fake_engine.install()
+    fake_engine.install_mt()
     yield
+    fake_engine.uninstall_mt()
     fake_engine.uninstall()
 
 
@@ -326,6 +328,23 @@ def _testclient_defaults_to_loopback():
         yield
     finally:
         TestClient.__init__ = original
+
+
+@pytest.fixture(autouse=True)
+def _no_ollama_unload_requests(request):
+    """A GPU model load asks a local Ollama to free its memory; no test but
+    test_ollama_unload.py (which fakes the HTTP calls) may reach one.
+
+    Patched and restored by hand, not through `monkeypatch`, for the reason
+    given on _testclient_defaults_to_loopback."""
+    import ollama_unload
+    original = ollama_unload.prepare_gpu_for_transcription
+    if not request.module.__name__.endswith("test_ollama_unload"):
+        ollama_unload.prepare_gpu_for_transcription = lambda use_gpu: None
+    try:
+        yield
+    finally:
+        ollama_unload.prepare_gpu_for_transcription = original
 
 
 @pytest.fixture(autouse=True)

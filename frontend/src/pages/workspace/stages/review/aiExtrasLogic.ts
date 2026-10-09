@@ -2,6 +2,8 @@
 import { idxFromLineNumber, lineNumber } from '../../../../lineNumber'
 import type {
   BurnPreviewClip,
+  EnCleanupPreview,
+  EnCleanupResult,
   MergeShortOptions,
   MergeShortPreview,
   SenseVoiceTags,
@@ -52,6 +54,16 @@ export function mergeSummary(p: Pick<MergeShortPreview, 'line_count_before' | 'l
   if (p.groups.length === 0) return `No short lines to merge (${p.line_count_before} lines).`
   const n = p.groups.length
   return `${p.line_count_before} → ${p.line_count_after} lines: ${n} merge${n === 1 ? '' : 's'}.`
+}
+
+export function cleanupSummary(p: Pick<EnCleanupPreview, 'lines_scanned' | 'lines_changed'>): string {
+  if (p.lines_changed === 0) return `No common errors found (${p.lines_scanned} lines checked).`
+  return `${p.lines_changed} of ${p.lines_scanned} lines would change.`
+}
+
+export function cleanupDone(r: EnCleanupResult): string {
+  const kept = r.stale > 0 ? ` ${r.stale} edited meanwhile and kept as they are.` : ''
+  return `Fixed ${r.applied} line${r.applied === 1 ? '' : 's'}.${kept} The previous text is in Records → Line history.`
 }
 
 export function styleSummary(s: StyleState): string {

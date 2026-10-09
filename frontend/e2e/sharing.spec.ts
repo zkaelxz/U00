@@ -44,6 +44,8 @@ async function mockSharing(page: Page, me: MeBody) {
   // Settings also shows a signed-in person their devices (signed-in-devices.spec.ts covers it).
   await page.route('**/api/auth/sessions', (route) =>
     route.fulfill({ json: { sessions: [], idle_timeout_days: 14, absolute_timeout_days: 30 } }))
+  // ...and their browser-extension devices (extension-devices.spec.ts covers it).
+  await page.route('**/api/auth/device-tokens', (route) => route.fulfill({ json: { tokens: [], max_active: 10 } }))
   await page.route('**/api/sharing/**', (route) => {
     const r = route.request()
     const path = new URL(r.url()).pathname
@@ -109,7 +111,7 @@ test('admin: share-new-items switch, every item with its owner, flips and a plai
   await expect(series).toHaveAttribute('aria-checked', 'true')
 
   // Items made at the PC (no owner) are private until an admin shares them.
-  await expect(card.getByTestId('sharing-pc-note')).toHaveText(/sign-in is turned on, others .* will not see them/)
+  await expect(card.getByTestId('sharing-pc-note')).toHaveText(/sign-in is turned on, others will not see them/)
   await expect(card.getByTestId('sharing-drama:5')).toContainText('Created at the PC')
   await expect(hidden).not.toContainText('Created at the PC')
   await card.getByRole('switch', { name: 'Show only private items created at the PC' }).click()
@@ -140,7 +142,7 @@ test('household member: only their own share-new-items switch, no item list, fit
     'aria-checked',
     'false',
   )
-  await expect(card.getByTestId('share-default-help')).toContainText('an admin can change those one at a time')
+  await expect(card.getByTestId('share-default-help')).toContainText('An admin can change existing ones one at a time')
   await expect(card.getByRole('list', { name: 'Dramas and series' })).toHaveCount(0)
   await expect(card.getByTestId('sharing-pc-note')).toHaveCount(0)
   // Not an admin: the settings 403 hides the admin cards without an error banner.

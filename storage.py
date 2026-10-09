@@ -8,6 +8,7 @@ irreplaceable files (your source audio, the database).
 """
 
 import contextlib
+import errno
 import os
 import re
 import shutil
@@ -305,3 +306,28 @@ def sweep_stale_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None) -> 
         except OSError:
             continue
     return removed
+
+
+def move_into_place(src, dst):
+    """Moves src over dst so a reader never sees a partial dst: os.replace
+    on one volume (shutil.move would copy then delete when dst exists on
+    Windows). Across volumes, copies next to dst first and replaces from
+    there."""
+    try:
+        os.replace(src, dst)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+    fd, tmp = tempfile.mkstemp(prefix=".part-", suffix=os.path.splitext(dst)[1],
+                               dir=os.path.dirname(dst) or None)
+    os.close(fd)
+    try:
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, dst)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise
+    with contextlib.suppress(OSError):
+        os.remove(src)

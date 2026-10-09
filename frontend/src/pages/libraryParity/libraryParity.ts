@@ -1,6 +1,6 @@
 import { humanize } from '../../components/labels'
-import { workspaceHref } from '../../components/libraryView'
-import type { LibraryUsage } from '../../types/library'
+import { countDramas, workspaceHref } from '../../components/libraryView'
+import type { LibraryDashboard, LibraryUsage } from '../../types/library'
 
 // Parity L01/L04: the share of logged input tokens served from a provider's
 // prompt cache (services/library_service.cache_hit_share).
@@ -19,6 +19,21 @@ export function usageLine(u: LibraryUsage): string {
   const parts = [plural(u.call_count, 'API call')]
   if (u.input_tokens) parts.push(`${percent(cacheHitShare(u))} cache hits`)
   return parts.join(' · ')
+}
+
+// Library header: "5 dramas · 2,875 of 4,210 lines · 1,335 left". "Translated"
+// is implied by the count and the left-over shows only while some remain.
+export function libraryHeadline(s: Pick<LibraryDashboard, 'total_dramas' | 'total_lines' | 'translated_lines'>): string {
+  const parts = [countDramas(s.total_dramas), `${s.translated_lines.toLocaleString()} of ${s.total_lines.toLocaleString()} lines`]
+  if (s.total_lines > s.translated_lines) parts.push(`${(s.total_lines - s.translated_lines).toLocaleString()} left`)
+  return parts.join(' · ')
+}
+
+// Summary of the folded usage details, or null when nothing was spent or
+// called (an older payload may omit the usage object entirely).
+export function usageSpent(u: LibraryUsage | undefined): string | null {
+  if (!u || (!u.call_count && !u.estimated_cost_usd)) return null
+  return `$${(u.estimated_cost_usd ?? 0).toFixed(2)} spent`
 }
 
 // Parity L01: "Transcribed 2 · Translated 1", in the API's order.
