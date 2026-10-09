@@ -460,3 +460,22 @@ def test_pipeline_runs_the_long_backend_and_reports_it(tmp_path, monkeypatch):
         "whisper_diff", split_by_sentences=True)
     assert seen["backend"] == "qwen3_asr_long" and out["raw_backend"] == "qwen3_asr_long"
     assert [ln.zh for ln in out["lines"]] == ["你好"]
+
+
+def test_pipeline_passes_the_detector_and_surfaces_its_fallback_notice(tmp_path, monkeypatch):
+    from services import transcribe_service
+    seen = {}
+
+    def fake(self, audio_path, language, **kw):
+        seen.update(kw)
+        kw["on_notice"]("The ASMR voice detector model is not downloaded. Used the Standard detector instead.")
+        return [{"start": 1.0, "end": 2.0, "text": "你好"}]
+    monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake)
+    monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda p: 10.0)
+    out = transcribe_service._transcribe_pipeline(
+        _Rep(), str(tmp_path / "a.wav"), "whisper", None, "ja", "simplified", "medium", 5, 300, 0.5,
+        False, "auto", False, False, False, None, "", False, "qwen3_asr_vad", "whisper_diff",
+        voice_detector="asmr")
+    assert seen["detector"] == "asmr"
+    assert "not downloaded" in out["coverage_warning"]

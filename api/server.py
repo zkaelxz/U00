@@ -50,6 +50,7 @@ from api.routers import (
     comic_routes,
     delete_routes,
     device_token_routes,
+    diagnostics_browser_routes,
     diagnostics_gaps_routes,
     disk_usage_routes,
     diagnostics_installs_routes,
@@ -312,6 +313,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(model_reeval_routes.router)
 
     app.include_router(diagnostics_installs_routes.router)
+    app.include_router(diagnostics_browser_routes.router)
     app.include_router(real_model_check_routes.router)
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)

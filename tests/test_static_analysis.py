@@ -114,6 +114,10 @@ class TestHttpCallsHaveTimeouts:
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
 
+    def test_asmr_vad_model_download(self):
+        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "asmr_vad.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
     def test_memory_headroom(self):
         problems = _find_requests_calls_missing_timeout(
             os.path.join(PROJECT_ROOT, "memory_headroom.py"))
