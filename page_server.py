@@ -294,25 +294,6 @@ def _page_source_language(drama, requested):
             or (requested or "").strip() or "zh")
 
 
-def _regions_for_response(bubbles):
-    """Boxes exactly as the pipeline produced them: `x/y/w/h` in absolute
-    pixels of the image that was sent, top-left origin. The extension
-    maps them to screen coordinates itself by the element's own scale,
-    so nothing here is normalised or rounded to a different basis."""
-    regions = []
-    for b in bubbles:
-        regions.append({
-            "x": int(b.get("x", 0)), "y": int(b.get("y", 0)),
-            "w": int(b.get("w", 0)), "h": int(b.get("h", 0)),
-            "source_text": b.get("source_text") or "",
-            "translated_text": b.get("translated_text") or "",
-            "kind": b.get("kind") or "bubble",
-            "font_category": b.get("font_category") or "regular",
-            "reading_order": int(b.get("reading_order", 0)),
-        })
-    return regions
-
-
 def _store_page(drama_id: int, data: bytes, ext: str):
     """Lands the image in the drama through the same import path
     Scanlate's own upload uses, and returns its new page row."""
@@ -326,6 +307,38 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     if not added or not ids:
         raise EndpointError(500, "the image could not be saved as a page")
     return db.get_page(ids[0], drama_id)
+
+
+def _translate_missing(saved: list, drama: dict, drama_id, source_url: str, config: dict) -> list:
+    """Fills only the untranslated bubbles of a stored page, written by
+    bubble id so no existing translation is overwritten. Returns notes."""
+    import db
+    import scanlate
+    import translate_engines
+
+    missing = [b for b in saved if not (b.get("translated_text") or "").strip()]
+    if not missing:
+        return []
+    engine = _build_engine(config)
+    if engine is None:
+        return [["warning", "already in the library; translate it in Scanlate"]]
+    glossary = (db.list_glossary_terms(drama["series_id"])
+                if drama and drama.get("series_id") else None)
+    key = str(drama_id) if drama_id else f"url:{source_url}"
+    with _context_lock:
+        previous = _contexts.get(key, "")
+    try:
+        new_context = scanlate.translate_page_bubbles(
+            missing, engine, drama or {}, previous_context=previous,
+            glossary_terms=glossary, usage_cb=_usage_cb(drama, config, engine))
+    except Exception as e:
+        return [["warning", f"translation failed ({translate_engines.redact_secrets(str(e))})"]]
+    with _context_lock:
+        _contexts[key] = new_context
+    for b in missing:
+        if (b.get("translated_text") or "").strip():
+            db.update_bubble_text(b["id"], b["translated_text"])
+    return []
 
 
 def translate_image(data: bytes, content_type: str, drama_id=None,
@@ -364,19 +377,18 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         if store and drama is not None:
             page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
             if page is not None:
-                # Opening a saved chapter again must not redo its pages:
-                # OCR and translation would replace every bubble the person
-                # has corrected in Scanlate. A page without bubbles has
-                # nothing to lose and is read as usual. Capture never
-                # labels chapters, so an identical page shared with another
-                # chapter (credits) is reused as it is, not duplicated.
+                # Re-reading would replace bubbles the person corrected in
+                # Scanlate; a page without bubbles has nothing to lose.
+                # Capture sends no chapter labels, so an identical page
+                # shared by two chapters (credits) is reused, not added.
                 saved = db.load_bubbles(page["id"])
                 if saved:
-                    width, height = _image_size(data)
+                    reuse_notes = _translate_missing(saved, drama, drama_id, source_url, config)
+                    width, height = page_capture_checks.image_size(data)
                     return {
                         "width": width, "height": height,
-                        "regions": _regions_for_response(saved),
-                        "notes": [], "drama_id": int(drama_id),
+                        "regions": page_capture_checks.regions_for_response(saved),
+                        "notes": reuse_notes, "drama_id": int(drama_id),
                         "page_id": page["id"], "stored": True,
                         "already_stored": True,
                     }
@@ -453,10 +465,10 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 except OSError:
                     pass
 
-    width, height = _image_size(data)
+    width, height = page_capture_checks.image_size(data)
     return {
         "width": width, "height": height,
-        "regions": _regions_for_response(bubbles),
+        "regions": page_capture_checks.regions_for_response(bubbles),
         "notes": notes,
         "drama_id": int(drama_id) if drama_id else None,
         "page_id": (page or {}).get("id"),
@@ -541,30 +553,6 @@ def _usage_cb(drama, config, engine):
                      "extension_translate", inp, out,
                      translate_engines.estimate_cost_for_engine(engine, inp, out))
     return log
-
-
-_MAX_ECHOED_URL = 200
-
-
-def _short_url(url) -> str:
-    """A URL only ever echoed back for a person to recognise the image
-    by, so an inline `data:`/`blob:` one is truncated instead of copied
-    whole into the response."""
-    text = str(url or "")
-    if len(text) <= _MAX_ECHOED_URL:
-        return text
-    return text[:_MAX_ECHOED_URL] + "…"
-
-
-def _image_size(data: bytes):
-    try:
-        import io
-
-        from PIL import Image
-        with Image.open(io.BytesIO(data)) as img:
-            return int(img.width), int(img.height)
-    except Exception:
-        return 0, 0
 
 
 def select_page_images(images, page_url: str):
@@ -770,7 +758,7 @@ class _Handler(BaseHTTPRequestHandler):
                 # response (a real 12-image send measured megabytes of
                 # pure echo). It's only ever shown to a person, so it is
                 # capped here rather than carried in full.
-                "url": _short_url(image.get("url")),
+                "url": page_capture_checks.short_url(image.get("url")),
                 "content_type": str(image.get("content_type") or ""),
                 "content": content,
             })

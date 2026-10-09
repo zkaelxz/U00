@@ -149,3 +149,27 @@ def test_many_unreadable_pages_are_counted_and_only_some_named():
 def test_a_clean_capture_mentions_no_unreadable_pages():
     counts = {"translated": 3, "cached": 0, "skipped": 0, "failed": 0}
     assert "unreadable" not in tally(3, counts, "", [])
+
+
+def test_pages_already_in_the_library_are_not_called_translated():
+    out = summary({"captured": 47, "sent": 47, "received": 47, "stored": 47, "alreadyStored": 47,
+                   "pages": pages(47), "skipped": [], "failed": [], "unreadable": []})
+    assert "0 translated" in out["text"] and "47 already in library" in out["text"]
+    assert out["bad"] is False
+
+
+def test_a_recycled_canvas_is_counted_again_but_a_repeat_failure_is_not():
+    expression = """(() => {
+        const log = sandbox.window.__baihe.unreadableLog();
+        const canvas = {};
+        const out = [log.isNew(canvas, "canvas|800x1200"), log.isNew(canvas, "canvas|800x1200")];
+        log.read(canvas);
+        out.push(log.isNew(canvas, "canvas|800x1200"));
+        const img = {};
+        out.push(log.isNew(img, "a.png|10x10"), log.isNew(img, "b.png|10x10"));
+        return out;
+    })()"""
+    out = subprocess.run(["node", "-e", CONTENT_HARNESS, str(CONTENT), expression],
+                         capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == [True, False, True, True, True]

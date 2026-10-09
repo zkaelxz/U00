@@ -96,3 +96,29 @@ def test_batches_are_also_bounded_by_bytes():
 def test_older_app_without_the_advertised_cap_gets_small_batches():
     got = run(30, ECHO, cap=None)
     assert max(len(r["keys"]) for r in got["requests"]) <= 8
+
+
+def test_a_filtered_chapter_never_ends_in_a_lone_image():
+    got = run(25, ECHO, cap=12)
+    sizes = [len(r["keys"]) for r in got["requests"]]
+    assert sum(sizes) == 25 and min(sizes) >= 2 and max(sizes) <= 12
+
+
+def test_a_batch_the_page_filter_rejects_is_skipped_not_failed():
+    reply = """(n, body) => n === 2
+        ? { status: 422, body: { error: "none of those images look like comic pages" } }
+        : { status: 200, body: { pages: body.images.map((i) => ({ key: i.key, regions: [] })),
+              skipped: [], failed: [], received: body.images.length, stored: body.images.length } }"""
+    data = run(30, reply, cap=10)["result"]["data"]
+    assert data["failed"] == []
+    assert [s["key"] for s in data["skipped"]] == [f"k{i}" for i in range(10, 20)]
+    assert data["received"] == 30
+
+
+def test_already_stored_pages_are_totalled():
+    reply = """(n, body) => ({ status: 200, body: {
+        pages: body.images.map((i) => ({ key: i.key, regions: [], already_stored: true })),
+        skipped: [], failed: [], received: body.images.length, stored: body.images.length,
+        already_stored: body.images.length } })"""
+    data = run(20, reply, cap=10)["result"]["data"]
+    assert data["alreadyStored"] == 20

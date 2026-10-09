@@ -923,7 +923,7 @@ class TestAPageFailureNeverLeaksOrLeavesDebris:
         assert body["stored"] == 0
         assert db.list_pages(drama_id) == []
 
-    def test_recapturing_the_same_page_replaces_it_instead_of_duplicating(
+    def test_recapturing_the_same_page_reuses_it_instead_of_duplicating(
             self, token, fake_pipeline, isolated_db):
         import db
         drama_id = db.create_drama(title_en="Chapter", media_type="comic")
@@ -982,6 +982,49 @@ class TestRecapturingKeepsSavedWork:
         assert second["failed"] == [] and second["stored"] == 1
         assert second["already_stored"] == 1
         assert second["pages"][0]["regions"][0]["translated_text"] == "my correction"
+
+    def _page_with_one_gap(self, token, isolated_db, monkeypatch):
+        import db
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        bubbles = db.load_bubbles(page["id"])
+        gap = {k: v for k, v in bubbles[0].items() if k != "id"}
+        gap.update(translated_text="", source_text="空")
+        db.save_bubbles(page["id"], bubbles + [gap])
+        return page, body
+
+    def test_a_recapture_translates_only_the_bubbles_still_empty(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        reads = len(fake_pipeline["detect"])
+        second = _post(token, body).payload
+        assert len(fake_pipeline["detect"]) == reads
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == [
+            "my correction", "the translation"]
+        assert second["pages"][0]["notes"] == []
+
+    def test_a_recapture_without_an_engine_points_to_scanlate(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: None)
+        second = _post(token, body).payload
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction", ""]
+        assert second["pages"][0]["notes"] == [
+            ["warning", "already in the library; translate it in Scanlate"]]
+
+    def test_a_failing_engine_on_a_recapture_leaves_every_bubble_as_it_was(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        import scanlate
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+
+        def boom(*a, **kw):
+            raise RuntimeError("engine down")
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", boom)
+        second = _post(token, body).payload
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction", ""]
+        assert second["pages"][0]["notes"][0][0] == "warning"
 
     def test_a_shared_page_keeps_its_bubbles_and_other_chapters_context(
             self, token, fake_pipeline, isolated_db, monkeypatch):

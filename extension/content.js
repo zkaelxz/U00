@@ -746,7 +746,7 @@
     const pages = [];
     const skipped = [];
     const failedPages = [];
-    const totals = { sent: 0, received: 0, stored: 0 };
+    const totals = { sent: 0, received: 0, stored: 0, alreadyStored: 0 };
     // Name a problem page by where it sits in the chapter, which is what a
     // person can check, not by its content hash.
     const positionByKey = new Map(images.map((i) => [i.extracted.hash, i.position]));
@@ -794,6 +794,7 @@
       totals.sent += Number.isFinite(data.sent) ? data.sent : batch.length;
       totals.received += Number.isFinite(data.received) ? data.received : batch.length;
       totals.stored += Number.isFinite(data.stored) ? data.stored : 0;
+      totals.alreadyStored += Number.isFinite(data.alreadyStored) ? data.alreadyStored : 0;
       if (data.stopped) serverStop = String(data.stopped);
       return !!data.stopped;
     });
@@ -978,6 +979,21 @@
     }
   }
 
+  // Unreadable pages are counted once per element and what it held: a
+  // virtualised reader recycles elements, so the element alone would drop a
+  // later miss, while re-reading the same failure every step would repeat it.
+  function unreadableLog() {
+    const last = new WeakMap();
+    return {
+      isNew(el, signature) {
+        if (last.get(el) === signature) return false;
+        last.set(el, signature);
+        return true;
+      },
+      read(el) { last.delete(el); },
+    };
+  }
+
   function elementKey(el) {
     if (el.tagName === "CANVAS") return null;
     const { width, height } = elementSize(el);
@@ -1039,6 +1055,7 @@
     const tally = [`${found} page${found === 1 ? "" : "s"} found`];
     if (counts.translated) tally.push(`${counts.translated} translated`);
     if (counts.cached) tally.push(`${counts.cached} already done`);
+    if (counts.alreadyStored) tally.push(`${counts.alreadyStored} already in library`);
     if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
     if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
     if (unreadablePages.length) {
@@ -1056,7 +1073,7 @@
     const seen = new Set();
     const handled = new WeakMap();
     const queue = [];
-    const counts = { translated: 0, stored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0 };
+    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0 };
     let firstFailure = "";
     let serverStop = "";
     let seq = 0;
@@ -1066,7 +1083,7 @@
     // Pages that could not be read, numbered in the order they were met, so
     // the closing summary can name them like Translate-visible does.
     const unreadablePages = [];
-    const countedUnreadable = new WeakSet();
+    const unreadableAs = unreadableLog();
     let failure = "";
 
     const report = (suffix = "") => {
@@ -1093,14 +1110,16 @@
           extracted = await extractBytes(el);
         } catch (e) {
           unreadable = String(e && e.message ? e.message : e);
-          if (!countedUnreadable.has(el)) {
-            countedUnreadable.add(el);
+          // elementKey is null for a canvas, so its size stands in.
+          const signature = key !== null ? key : `canvas|${elementSize(el).width}x${elementSize(el).height}`;
+          if (unreadableAs.isNew(el, signature)) {
             unreadablePages.push({ position: seen.size + unreadablePages.length + 1,
                                    error: unreadable });
           }
           if (key !== null) handled.set(el, key);
           continue;
         }
+        unreadableAs.read(el);
         if (key !== null) handled.set(el, key);
         const cached = state.cache.get(extracted.hash);
         if (seen.has(extracted.hash)) {
@@ -1156,7 +1175,9 @@
               }
             }
           }
-          counts.translated += (data.pages || []).length;
+          const reused = (data.pages || []).filter((p) => p.already_stored).length;
+          counts.translated += (data.pages || []).length - reused;
+          counts.alreadyStored += reused;
           counts.stored += (data.pages || []).filter((p) => p.stored).length;
           counts.skipped += (data.skipped || []).length;
           counts.failed += (data.failed || []).length;
@@ -1295,5 +1316,5 @@
   window.__baihe = { translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture, captureTally };
+                     captureChapter, cancelCapture, captureTally, unreadableLog };
 })();

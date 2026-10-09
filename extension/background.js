@@ -113,7 +113,9 @@ async function batchCap() {
   return advertised > 0 ? advertised : FALLBACK_BATCH_IMAGES;
 }
 
-function planBatches(images, cap) {
+// minSize 2 when the app's page filter runs: it only filters a request of two
+// or more images, so a lone leftover would skip it and store an ad strip.
+function planBatches(images, cap, minSize = 1) {
   const batches = [];
   let current = [];
   let bytes = 0;
@@ -128,6 +130,11 @@ function planBatches(images, cap) {
     bytes += size;
   }
   if (current.length) batches.push(current);
+  const last = batches[batches.length - 1];
+  const prev = batches[batches.length - 2];
+  if (last && prev && last.length < minSize) {
+    while (last.length < minSize && prev.length > minSize) last.unshift(prev.pop());
+  }
   return batches;
 }
 
@@ -139,9 +146,9 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
     return { ok: false, error: "No page images were found on this page." };
   }
   const cap = await batchCap();
-  const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0 };
+  const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
   let firstError = null;
-  for (const batch of planBatches(images, cap)) {
+  for (const batch of planBatches(images, cap, filterPages !== false ? 2 : 1)) {
     const answer = await call(batch.length === 1 && images.length === 1 ? "/page" : "/pages", {
       method: "POST",
       body: {
@@ -152,6 +159,15 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
         filter_pages: filterPages !== false,
       },
     });
+    // The app refuses a whole filtered batch with 422 when none of it looks
+    // like comic pages: that is a verdict on the images, not a failed delivery.
+    if (!answer.ok && answer.status === 422 && filterPages !== false && batch.length > 1) {
+      for (const image of batch) {
+        merged.skipped.push({ key: image.key, url: image.url || "", reason: answer.error });
+      }
+      merged.received += batch.length;
+      continue;
+    }
     if (!answer.ok) {
       firstError = firstError || answer;
       for (const image of batch) {
@@ -165,6 +181,7 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
     merged.failed.push(...(data.failed || []));
     merged.received += Number.isFinite(data.received) ? data.received : batch.length;
     merged.stored += Number.isFinite(data.stored) ? data.stored : 0;
+    merged.alreadyStored += Number.isFinite(data.already_stored) ? data.already_stored : 0;
     if (data.stopped) {
       merged.stopped = data.stopped;
       break;

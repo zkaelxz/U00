@@ -171,8 +171,14 @@ The endpoint's four routes:
 |---|---|
 | `GET /health` | Confirms the app is up, lists the dramas to send to, and advertises `max_images_per_request` (the extension batches to it). |
 | `POST /page` | One image. |
-| `POST /pages` | Several, up to the advertised cap per request. Answers `pages`, `skipped`, `failed`, `received` and `stored`. |
+| `POST /pages` | Several, up to the advertised cap per request. Answers `pages`, `skipped`, `failed`, `received`, `stored`, `already_stored` and, when a run stops early, `stopped`. |
 | `POST /text` | A block of raw page text. |
+
+A page whose bytes already match one in the drama is reused, not added again,
+and counts in `already_stored`. Its saved bubbles are never re-read or
+overwritten; only bubbles still untranslated are translated, or a note points
+to Scanlate when no engine is set. Capture sends no chapter labels, so an
+identical page shared by two chapters (credits) is reused too, not duplicated.
 
 Everything funnels into the existing, tested pipeline
 (`scanlate.detect_and_ocr_page` → `scanlate.translate_page_bubbles`) and

@@ -133,11 +133,13 @@ function summarizeCapture(data, { store, dramaId }) {
     if (data.sent !== undefined) parts.push(`${data.sent} sent`);
     if (data.received !== undefined) parts.push(`${data.received} received`);
   }
-  parts.push(`${pages} translated`);
+  const reused = data.alreadyStored || 0;
+  parts.push(`${pages - reused} translated`);
   if (saving && data.stored !== undefined) {
     parts.push(`${data.stored} stored in ${dramaTitles.get(String(dramaId)) || "the drama"}`);
   }
   if (cached) parts.push(`${cached} already done`);
+  if (reused) parts.push(`${reused} already in library`);
   if (skipped.length) parts.push(`${skipped.length} skipped as not a page`);
 
   const problems = [

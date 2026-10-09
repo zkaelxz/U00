@@ -5,10 +5,53 @@ page lookup for re-captures, and the fixed failure messages."""
 import os
 
 
+def regions_for_response(bubbles):
+    """Boxes exactly as the pipeline produced them: `x/y/w/h` in absolute
+    pixels of the image that was sent, top-left origin. The extension
+    maps them to screen coordinates itself by the element's own scale,
+    so nothing here is normalised or rounded to a different basis."""
+    regions = []
+    for b in bubbles:
+        regions.append({
+            "x": int(b.get("x", 0)), "y": int(b.get("y", 0)),
+            "w": int(b.get("w", 0)), "h": int(b.get("h", 0)),
+            "source_text": b.get("source_text") or "",
+            "translated_text": b.get("translated_text") or "",
+            "kind": b.get("kind") or "bubble",
+            "font_category": b.get("font_category") or "regular",
+            "reading_order": int(b.get("reading_order", 0)),
+        })
+    return regions
+
+
+MAX_ECHOED_URL = 200
+
+
+def short_url(url) -> str:
+    """A URL only ever echoed back for a person to recognise the image
+    by, so an inline `data:`/`blob:` one is truncated instead of copied
+    whole into the response."""
+    text = str(url or "")
+    if len(text) <= MAX_ECHOED_URL:
+        return text
+    return text[:MAX_ECHOED_URL] + "…"
+
+
+def image_size(data: bytes):
+    try:
+        import io
+
+        from PIL import Image
+        with Image.open(io.BytesIO(data)) as img:
+            return int(img.width), int(img.height)
+    except Exception:
+        return 0, 0
+
+
 def page_with_same_bytes(drama_id: int, data: bytes):
     """A page already in the drama whose file is byte-identical, so a
-    re-capture of a chapter reuses it instead of doubling the pages. Pages the importer re-encoded (WebP) never match and are added
-    again."""
+    re-capture of a chapter reuses it instead of doubling the pages. Pages
+    the importer re-encoded (WebP) never match and are added again."""
     import db
     for page in db.list_pages(drama_id):
         path = os.path.join(db.drama_dir(drama_id), page["filename"])
