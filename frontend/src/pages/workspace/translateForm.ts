@@ -65,7 +65,11 @@ export function thinkingHelp(engine: string, reflect: boolean, switchEngines?: s
   const thinkers = thinkingEngines(engine, fallbacks, reflect, switchEngines)
   if (thinkers.length) {
     const where = fallbacks.some((e) => e) ? ` It applies to ${thinkers.join(' and ')}, not to the other engines in the chain.` : ''
-    return `Off by default. Turn it on for ambiguous or idiomatic text, such as novels and video subtitles: the model reasons before it answers. Slower and costs more; the hidden reasoning is billed as output, so the cost estimate is a lower bound.${where}`
+    // The estimate prices the main engine, so it only undercounts when that engine is the one that thinks.
+    const estimate = thinkers.includes(engine)
+      ? 'so the cost estimate is a lower bound'
+      : 'and the cost estimate, which prices the main engine, does not include it'
+    return `Off by default. Turn it on for ambiguous or idiomatic text, such as novels and video subtitles: the model reasons before it answers. Slower and costs more; the hidden reasoning is billed as output, ${estimate}.${where}`
   }
   const chain = [engine, ...fallbacks.filter((e) => e)]
   const why = reflect ? 'Reflect mode has no thinking switch' : chain.length > 1 ? `${chain.join(' and ')} have no thinking switch` : `${engine} has no thinking switch`

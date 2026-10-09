@@ -151,6 +151,10 @@ describe('delayNote', () => {
     expect(delayNote(report({ duration: 300, currentTime: 285 }), 30, { unsupported: false, moving: true })).toBe('Moving to about 30 s behind live…')
     expect(delayNote(report({ duration: 45, currentTime: 45 }), 90, { unsupported: false, moving: true })).toBe('Moving to about 45 s behind live…')
   })
+  it('does not call a long pause a stream that cannot be delayed', () => {
+    expect(delayNote(report({ duration: 900, currentTime: 100, playerState: 1 }), 15, flags)).toBe(UNREACHABLE_NOTE)
+    expect(delayNote(report({ duration: 900, currentTime: 100, playerState: 2 }), 15, flags)).toBe('Playing about 800 s behind live.')
+  })
   it('says a stream with no rewind buffer cannot be delayed', () => {
     expect(delayNote(report({ duration: 0 }), 15, { unsupported: true, moving: false })).toBe(NO_DELAY_NOTE)
   })

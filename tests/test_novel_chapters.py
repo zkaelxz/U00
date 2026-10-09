@@ -485,3 +485,21 @@ def test_a_manifest_that_cannot_be_dropped_blocks_the_removal(isolated_db, monke
         delete_service.remove_raw_novel(did, confirm=True)
     assert str(db.DRAMAS_DIR) not in str(err.value)
     assert os.path.exists(_raw(did))
+
+
+def test_crlf_files_read_back_whole_with_the_right_next_offset(isolated_db, monkeypatch):
+    # On Windows the file is written with os.linesep, so each newline is two bytes on disk.
+    monkeypatch.setattr(os, "linesep", "\r\n")
+    did = _drama()
+    body = "第一行。\n第二行。\n\n第三行。"
+    _import(did, 1, body=body, title="T")
+    _import(did, 2, body="Second.\nchapter.", title="U")
+    with open(_raw(did), "rb") as f:
+        assert b"\r\n" in f.read()
+    full = svc.read_chapter(did, 1, offset=0, limit=500)
+    assert full["text"] == "T\n\n" + body and full["next_offset"] is None
+    assert full["chars"] == len(full["text"])
+    part = svc.read_chapter(did, 1, offset=0, limit=10)
+    assert part["next_offset"] == 10
+    assert svc.read_chapter(did, 1, offset=10, limit=500)["text"] == full["text"][10:]
+    assert svc.read_chapter(did, 2, offset=0, limit=500)["text"] == "U\n\nSecond.\nchapter."

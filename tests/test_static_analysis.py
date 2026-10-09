@@ -714,7 +714,6 @@ OVERSIZED_MODULE_BYTES = {
     "services/auto_backup_service.py": 83022,
     "services/disk_usage_service.py": 73715,
     "services/workspace_job_service.py": 65747,
-    "dub.py": 42278,
     "services/maintenance_assistant_service.py": 61272,
     "services/library_admin_service.py": 55556,
     "sources/http.py": 49816,
@@ -724,8 +723,6 @@ OVERSIZED_MODULE_BYTES = {
     "services/diagnostics_gaps_service.py": 44615,
     "services/glossary_service.py": 44595,
     "page_fetch.py": 44114,
-    "sources/adaptive.py": 42520,
-    "translation_guide.py": 41109,
 }
 
 
