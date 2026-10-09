@@ -160,6 +160,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `disk_usage_clips_service.py`
 - `disk_usage_links.py`
 - `disk_usage_service.py`
+- `temp_cleanup_service.py`
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
@@ -210,6 +211,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `real_model_check_service.py`
 - `remote_health_service.py`
 - `restructure_service.py`
+- `retranscribe_worker.py` (the spawned worker and result hook of the one-line re-transcription; start, read and apply stay in transcribe_service)
 - `retime_service.py`
 - `review_extras_service.py`
 - `review_jobs_service.py`

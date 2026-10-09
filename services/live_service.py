@@ -3,7 +3,8 @@ services/live_service.py -- Live capture sessions (spec
 docs/specs/discover-sources-live-api-spec.md section 4, L-1, polling only).
 
 A session is one background job (`live_<uuid>`) running
-live_translate.run_live_job in its own tempfile.mkdtemp directory, which is
+live_translate.run_live_job in its own folder under the library temp
+folder (storage.new_workdir, owned by the session id), which is
 removed when the job ends (done, error, cancel -- including a cancel while
 still queued). Every start gets its own id and directory, use_gpu reaches the
 pipeline, and max_minutes is a hard stop.
@@ -27,7 +28,6 @@ capability; stop is gated like jobs.cancel.
 import functools
 import re
 import shutil
-import tempfile
 import threading
 import uuid
 from typing import Optional
@@ -35,6 +35,7 @@ from typing import Optional
 import background_jobs
 import live_cue_feed
 import live_translate
+import storage
 import translate_engines
 from core import SOURCE_LANGUAGES
 from services import (egress_proxy, job_stage_service, jobs_service, ownership_service,
@@ -263,7 +264,18 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     engine_name, eng = _build_engine(engine, model)
 
     session_id = f"live_{uuid.uuid4().hex}"
-    out_dir = tempfile.mkdtemp(prefix="baihe_live_")
+    out_dir = storage.new_workdir(session_id)
+    # Held until the job is registered: before that nothing owns the folder, so
+    # a "clean temp now" in the gap would delete it.
+    with storage.holding(out_dir):
+        return _start_registered(session_id, out_dir, url, source_language, whisper_size,
+                                 segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
+                                 use_gpu, use_saved_cookies, reply_without_thinking)
+
+
+def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
+                      overlap_seconds, max_minutes, eng, engine_name, use_gpu,
+                      use_saved_cookies, reply_without_thinking):
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The

@@ -140,7 +140,8 @@ ROUTES = [("GET", BASE, None),
           ("POST", f"{BASE}/to-trash", {"path": "library/source_cache", "confirm": True,
                                        "expected_size_bytes": 400, "expected_file_count": 1}),
           ("POST", f"{BASE}/move", {"path": "library/backups/auto", "destination": "/tmp",
-                                    "confirm": True})]
+                                    "confirm": True}),
+          ("POST", f"{BASE}/clean-temp", {"confirm": True})]
 
 
 @pytest.mark.parametrize("method,path,body", ROUTES)
@@ -272,3 +273,35 @@ def test_the_trash_folder_cannot_be_cleared_through_the_normal_route(tree):
                                              "expected_size_bytes": 0, "expected_file_count": 0})
         assert r.status_code == 422, (rel, r.text)
     assert os.path.exists(os.path.join(tree, dus.TRASH_DIRNAME, tid, "payload", "x.html"))
+
+
+@pytest.mark.parametrize("body", [{}, {"confirm": False}, {"confirm": "true"}, {"confirm": True, "x": 1}])
+def test_clean_temp_refused_without_confirm_true(tree, body):
+    import storage
+    leftover = os.path.join(storage.temp_root(), "gone~1")
+    _write(os.path.join(leftover, "f.bin"), 10)
+    r = _local(_app()).post(f"{BASE}/clean-temp", json=body)
+    assert r.status_code == 422
+    assert os.path.isdir(leftover)
+
+
+def test_clean_temp_returns_counts_only_and_409_while_a_job_runs(tree):
+    import background_jobs
+    import storage
+    leftover = os.path.join(storage.temp_root(), "gone~1")
+    _write(os.path.join(leftover, "f.bin"), 1024)
+    c = _local(_app())
+    with background_jobs._lock:
+        background_jobs._jobs["busy_1"] = {"status": "running"}
+    try:
+        r = c.post(f"{BASE}/clean-temp", json={"confirm": True})
+        assert r.status_code == 409 and r.json()["error"]["message"]
+        assert os.path.isdir(leftover)
+    finally:
+        with background_jobs._lock:
+            background_jobs._jobs.pop("busy_1", None)
+    r = c.post(f"{BASE}/clean-temp", json={"confirm": True})
+    assert r.status_code == 200
+    assert r.json() == {"removed": 1, "freed_mb": 0.0}
+    assert not os.path.exists(leftover)
+    assert tree not in r.text and db.LIBRARY_DIR not in r.text
