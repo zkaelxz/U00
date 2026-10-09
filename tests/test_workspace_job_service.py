@@ -118,7 +118,7 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
 def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, engine, "audio_drama")
     assert seen["kwargs"]["cost_cap_usd"] == pytest.approx(5.0)
-    assert seen["args"][13] == 6 and seen["kwargs"]["batch_size"] == 20
+    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == 30
 
 
 def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
