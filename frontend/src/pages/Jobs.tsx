@@ -23,6 +23,7 @@ import { routeHref } from '../router'
 import { offersCancel, jobOutcomeText, type JobRecord } from '../types/jobs'
 import { formatDuration, isActive, isFinished, jobDetail, statusLabel } from './diagnosticsFormat'
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
+import { RunSettings } from './jobs/RunSettings'
 import {
   KIND_OPTIONS, NO_FILTERS, RANGE_OPTIONS, STATUS_CHIPS, effectiveStatus, filterJobs, hasActiveFilters, jobLinks,
   normalizeFilters, progressPercent, relativeTime, sortJobs, statusCounts,
@@ -304,6 +305,7 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
         </dl>
       )}
       <JobStagesPanel jobId={job.job_id} />
+      <RunSettings result={job.result} />
     </div>
   )
 }

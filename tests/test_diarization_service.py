@@ -123,7 +123,7 @@ class TestStartDiarizationRun:
         calls = []
 
         def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
-                                   on_done=None):
+                                   on_done=None, run_settings=None):
             calls.append({"job_id": job_id, "target": target, "args": args,
                           "gpu_touching": gpu_touching, "description": description})
             return True
@@ -146,7 +146,7 @@ class TestStartDiarizationRun:
         calls = []
 
         def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
-                                   on_done=None):
+                                   on_done=None, run_settings=None):
             calls.append(args)
             return True
         monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
@@ -368,3 +368,15 @@ def test_on_done_reports_cpu_fallback_loudly(isolated_db, monkeypatch):
         "device_notice"] == diarize.PLACEMENT_FALLBACK_DONE_MESSAGE
     assert on_done("j", {"segments": [], "fell_back_to_cpu": False}) is None
     assert messages[-1] == "Matching speakers to lines..."
+
+
+class TestRunSettings:
+    def test_the_settings_travel_with_the_start_not_after_it(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
+        did, _ = _drama_with_audio(isolated_db)
+        seen = []
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda job_id, target, **k: seen.append(k["run_settings"]) or False)
+        with pytest.raises(ConflictError):
+            diarization_service.start_diarization_run(did, expected_speakers=3)
+        assert seen[0]["expected_speakers"] == 3

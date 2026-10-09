@@ -219,3 +219,40 @@ def test_empty_engine_reply_finishes_with_errors(isolated_db, monkeypatch):
     assert len(job["result"]["errors"]) == 1
     assert [r["en"] or "" for r in db.load_lines(did)] == ["", ""]
     assert db.get_drama(did)["last_translate_errors"]
+
+
+def _settings(job_id):
+    import json
+    return json.loads(db.get_job_record(job_id)["result_json"])["run_settings"]
+
+
+def test_run_settings_name_the_engine_and_show_the_resolved_toggle_defaults(isolated_db):
+    did = _seed([("你好", "")])
+    out = svc.start_translate_run(did, engine_name="fake")
+    _wait(out["job_id"])
+    settings = _settings(out["job_id"])
+    assert settings["engine"] == "fake"
+    assert settings["pronoun_hint"] is False and settings["genre_notes"] is True
+    assert settings["bulk"] is False and settings["reflect"] is False
+
+
+def test_a_refused_second_start_does_not_change_the_live_jobs_settings(isolated_db):
+    did = _seed([("你好", ""), ("再见", "")])
+    job_id = f"translate_{did}"
+    background_jobs._jobs[job_id] = {
+        "status": "running", "progress": 0.0, "message": "", "error": None,
+        "cancel_requested": False, "result": None, "run_settings": {"batch_size": 3}}
+    with pytest.raises(ConflictError):
+        svc.start_translate_run(did, engine_name="fake", batch_size=7)
+    assert background_jobs._jobs[job_id]["run_settings"] == {"batch_size": 3}
+
+
+def test_a_new_run_shows_its_own_settings_not_the_previous_runs(isolated_db):
+    did = _seed([("你好", ""), ("再见", "")])
+    first = svc.start_translate_run(did, engine_name="fake", batch_size=7)
+    _wait(first["job_id"])
+    assert _settings(first["job_id"])["batch_size"] == 7
+    second = svc.start_translate_run(did, engine_name="fake", force_retranslate=True,
+                                     batch_size=9)
+    _wait(second["job_id"])
+    assert _settings(second["job_id"])["batch_size"] == 9

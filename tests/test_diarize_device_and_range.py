@@ -217,7 +217,7 @@ class TestServiceAndApi:
         calls = []
 
         def fake_start(job_id, target, args=(), gpu_touching=False, description=None,
-                       on_done=None):
+                       on_done=None, run_settings=None):
             calls.append({"args": args, "on_done": on_done})
             return True
         monkeypatch.setattr(background_jobs, "start_process_job", fake_start)

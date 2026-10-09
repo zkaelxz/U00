@@ -35,6 +35,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "epub_io.py",
     "expected_files.py",
     "forced_align.py",
+    "gpu_wait_message.py",
     "glossary_io.py",
     "hardsub_ocr.py",
     "known_sites.py",

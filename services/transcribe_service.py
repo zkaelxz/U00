@@ -71,7 +71,7 @@ import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
-from services import asr_options_service, diarization_service, settings_service, source_service
+from services import asr_options_service, diarization_service, run_settings_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -450,19 +450,6 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     return get_transcribe_config(drama_id)
 
 
-def _speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None):
-    """(min_speakers, max_speakers) for the chained speaker
-    detection, each None when unset. Raises InvalidInputError for a bad
-    range, or a range combined with an exact count (diarize.validate_speaker_hints)."""
-    import diarize as diarize_module
-    try:
-        _num, lo, hi = diarize_module.validate_speaker_hints(
-            expected_speakers, min_speakers, max_speakers)
-    except ValueError as exc:
-        raise InvalidInputError(str(exc)) from exc
-    return lo, hi
-
-
 def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) -> None:
     """Refusals shared by start_transcribe_run and validate_transcribe_options."""
     if transcript_mode == "whisper":
@@ -563,7 +550,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
-    min_speakers, max_speakers = _speaker_range(expected_speakers, min_speakers, max_speakers)
+    min_speakers, max_speakers = diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
 
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
@@ -626,6 +613,11 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     use_gpu = settings_service.get_use_gpu()
     # Read here, in the parent, and frozen with the other settings for the saved run settings.
     gpu_app_settings = raw_transcript.current_gpu_app_settings()
+    run_settings = run_settings_service.for_transcribe(
+        drama, source_language, chinese_script, whisper_size, beam_size, min_silence_ms,
+        vad_threshold, preset, hallucination_silence_sec, min_pause_sec, separation_backend,
+        use_gpu, asr_backend_choice, alignment_method, transcript_mode, bool(hf_token),
+        min_speakers, max_speakers)
     if transcript_mode == "hardsub_ocr":
         started = background_jobs.start_job(
             job_id, _run_transcribe_and_apply_job, job_id, drama_id, audio_path, transcript_mode,
@@ -642,7 +634,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             min_speakers=min_speakers, max_speakers=max_speakers,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             gpu_app_settings=gpu_app_settings,
-            gpu_touching=True, description=description)
+            gpu_touching=True, description=description, run_settings=run_settings)
     else:
         # The worker's temp files go here; removed by on_finish however the
         # run ends, since a killed worker cannot clean up after itself.
@@ -665,6 +657,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       bool(drama.get("split_by_sentences")), preset, voice_detector,
                       scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
+                run_settings=run_settings,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
                 start_method="spawn",
@@ -701,7 +694,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
-    _speaker_range(expected_speakers, min_speakers, max_speakers)
+    diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
             f"Drama {drama_id} has no audio pipeline (content mode "
@@ -1456,7 +1449,9 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
             gpu_touching=True, description=f"Diarization (drama #{drama_id})",
             on_done=diarization_service.make_apply_on_done(
                 drama_id, expected_speakers, min_speakers=min_speakers,
-                max_speakers=max_speakers))
+                max_speakers=max_speakers),
+            run_settings=run_settings_service.for_diarize(
+                expected_speakers, min_speakers, max_speakers, settings_service.get_use_gpu()))
 
     if "work" in whisper_clock and whisper_clock["p"] < 0.5:
         # Only the Whisper pass counts, and only the part after its first

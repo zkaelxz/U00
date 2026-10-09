@@ -2002,3 +2002,50 @@ class TestMissingPackageOutcome:
         assert status["error"] == transcribe_service.MISSING_TRANSCRIPTION_MESSAGE
         assert "cv2" not in status["error"]
         background_jobs.clear_job(job_id)
+
+
+class TestRunSettings:
+    def test_resolved_values_and_boolean_toggles(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(
+            isolated_db, transcript_mode="whisper", source_language="ja", whisper_fast_mode=1,
+            separate_vocals_first=1, realign_long_segments=0, use_groq=0, whisper_repeat_guard=1,
+            split_by_sentences=1, sensitivity_preset="sensitive")
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did, source_language="ko")
+        settings = captured["start_kwargs"]["run_settings"]
+        assert settings["source_language"] == "ko"
+        assert settings["chinese_script"] == "simplified"
+        assert settings["sensitivity_preset"] == "sensitive"
+        assert isinstance(settings["vad_threshold"], float)
+        assert {k: settings[k] for k in (
+            "whisper_fast_mode", "separate_vocals_first", "realign_long_segments", "use_groq",
+            "whisper_repeat_guard", "split_by_sentences")} == {
+            "whisper_fast_mode": True, "separate_vocals_first": True,
+            "realign_long_segments": False, "use_groq": False,
+            "whisper_repeat_guard": True, "split_by_sentences": True}
+
+    def test_a_refused_start_leaves_no_settings_to_borrow(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        _capture_worker_start(monkeypatch, started=False)
+        with pytest.raises(ConflictError):
+            transcribe_service.start_transcribe_run(did)
+        assert background_jobs.get_status(f"transcribe_{did}") is None
+
+    def test_the_auto_diarize_after_transcription_carries_its_own_settings(self, isolated_db,
+                                                                         monkeypatch):
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db, with_audio=True)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+        seen = []
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda job_id, target, args=(), **k: seen.append(k) or True)
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, None, "hardsub_ocr", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, "hf-token", 2,
+            video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="tesseract",
+            hardsub_interval=1.0, diarize_audio_path=os.path.join(ddir, "audio.wav"))
+        assert seen[0]["run_settings"]["expected_speakers"] == 2
+        _clear(job_id)
