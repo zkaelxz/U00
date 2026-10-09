@@ -182,6 +182,10 @@ class WhisperBackend:
         )
 
 
+def qwen3_asr_repo_id(model_size: str) -> str:
+    return f"Qwen/Qwen3-ASR-{model_size}"
+
+
 def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=None,
                    on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ASR model. Same GPU-fallback/network-
@@ -206,7 +210,7 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
     from qwen_asr import Qwen3ASRModel
 
     device = "cuda:0" if use_gpu else "cpu"
-    model_id = f"Qwen/Qwen3-ASR-{model_size}"
+    model_id = qwen3_asr_repo_id(model_size)
     try:
         model = Qwen3ASRModel.from_pretrained(
             model_id, dtype=torch.bfloat16, device_map=device, max_new_tokens=256,

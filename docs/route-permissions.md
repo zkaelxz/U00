@@ -117,6 +117,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/package-updates/check` | admin.diagnostics |
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
+| `GET /api/diagnostics/real-model-check` | admin.diagnostics |
+| `POST /api/diagnostics/real-model-check` | local_only() |
 | `GET /api/diagnostics/remote-health` | admin.diagnostics |
 | `GET /api/diagnostics/remote-health/ip-check` | local_only() |
 | `POST /api/diagnostics/remote-health/ip-check` | local_only() |

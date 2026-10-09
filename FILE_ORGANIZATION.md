@@ -41,6 +41,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `expected_files.py`
 - `portable.py`
 - `process_guard.py`
+- `real_model_check_cli.py`
 - `run_tests.py`
 - `storage.py`
 
@@ -198,6 +199,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `ownership_service.py`
 - `page_import_limits.py`
 - `reader_service.py`
+- `real_model_check_service.py`
 - `remote_health_service.py`
 - `restructure_service.py`
 - `retime_service.py`
@@ -305,6 +307,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `novel_files_routes.py`
 - `novel_routes.py`
 - `reader_routes.py`
+- `real_model_check_routes.py`
 - `restructure_routes.py`
 - `review_extras_routes.py`
 - `review_jobs_routes.py`

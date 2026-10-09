@@ -72,6 +72,8 @@ _WORD_UNIT_LANGUAGES = {"English"}
 
 # Loaded models stay cached across calls; core.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
+# The one repo the aligner loads; the real-model check looks for exactly this id.
+ALIGNER_REPO_ID = "Qwen/Qwen3-ForcedAligner-0.6B"
 _aligner_model_cache = {}
 
 
@@ -105,12 +107,12 @@ def load_qwen3_aligner(use_gpu: bool = False, on_device=None, on_gpu_fallback=No
     device = "cuda:0" if use_gpu else "cpu"
     try:
         model = Qwen3ForcedAligner.from_pretrained(
-            "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map=device,
+            ALIGNER_REPO_ID, dtype=torch.bfloat16, device_map=device,
         )
     except Exception as exc:
         if use_gpu and is_gpu_error(exc):
             model = Qwen3ForcedAligner.from_pretrained(
-                "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map="cpu",
+                ALIGNER_REPO_ID, dtype=torch.bfloat16, device_map="cpu",
             )
             cache_key = "cpu"
             use_gpu = False

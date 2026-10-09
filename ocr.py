@@ -93,6 +93,16 @@ def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6,
 
 _PADDLE_LANG_BY_SOURCE = {"zh": "ch", "ko": "korean"}
 
+# Pinned for lang="ch" so the real-model check can tell, without loading
+# anything, whether the exact models this call needs are already on disk;
+# left to PaddleX the choice shifts with its version and a leftover folder
+# from another version would look like the right one.
+_PADDLE_CH_MODELS = {
+    "text_detection_model_name": "PP-OCRv5_server_det",
+    "text_recognition_model_name": "PP-OCRv5_server_rec",
+    "textline_orientation_model_name": "PP-LCNet_x1_0_textline_ori",
+}
+
 
 def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
     """Higher-accuracy alternative to Tesseract for Chinese (lang="ch",
@@ -122,7 +132,8 @@ def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
     if lang not in instances:
         instances[lang] = PaddleOCR(
             use_doc_orientation_classify=False, use_doc_unwarping=False,
-            use_textline_orientation=True, lang=lang, enable_mkldnn=False)
+            use_textline_orientation=True, lang=lang, enable_mkldnn=False,
+            **(_PADDLE_CH_MODELS if lang == "ch" else {}))
     result = instances[lang].predict(image_path)
     lines = []
     for page in result:
