@@ -173,7 +173,8 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
                 summary["errors"][row["title"]] = LINK_UNAVAILABLE
                 store.mark_checked(row["source"], row["series_id"], error=LINK_UNAVAILABLE)
                 continue
-            if start_import(row["source"], row["series_id"], new, row["drama_id"]):
+            if start_import(row["source"], row["series_id"], new, row["drama_id"],
+                            series_url=row.get("url") or ""):
                 summary["queued"].append(row["title"])
     store.set_setting("last_check_cycle", time.time())
     if job_id:

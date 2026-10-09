@@ -4,6 +4,7 @@ import { getWorkflowProgress } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { SourceLink } from '../discover/ExternalLink'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { Breadcrumbs } from '../../nav/BreadcrumbNav'
 import { routeCrumbs } from '../../nav/breadcrumbs'
@@ -109,6 +110,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
             </span>
           )}
         </div>
+        <SourceLink href={drama?.source_url} />
         <JobPill dramaId={id} onFinished={refetch} />
         {drama && (
           <ButtonLink

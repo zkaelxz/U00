@@ -260,6 +260,25 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     return library_service.get_library_drama(drama_id)
 
 
+def set_source_url_once(drama_id, url) -> bool:
+    """Records where an import came from, only while the title has no link,
+    so what the owner typed is never overwritten. Stores the display-safe
+    form (no query, userinfo or token-like path); a link that leaves
+    nothing usable is ignored. Never raises: a link is a convenience and
+    must not fail the import that called it."""
+    safe = library_service.display_source_url(url)
+    if not safe or len(safe) > MAX_URL_LEN:
+        return False
+    try:
+        drama = db.get_drama(drama_id)
+        if drama is None or (drama.get("source_url") or "").strip():
+            return False
+        db.update_drama(drama_id, source_url=safe)
+    except Exception:
+        return False
+    return True
+
+
 # A job_records row still saying running/queued but not heartbeated this
 # long is treated as left behind by a crashed process (records have no
 # resume, see db.save_job_record), so it must not block a delete forever.

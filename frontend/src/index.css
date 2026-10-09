@@ -849,3 +849,5 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   /* Panels without a table don't clip: the 4px focus glow of a button at the panel edge stays whole. */
   .panel:not(:has(.table-scroll, table)) { overflow-x: visible; }
 }
+
+.source-link { font-size: 0.9em; white-space: nowrap; }

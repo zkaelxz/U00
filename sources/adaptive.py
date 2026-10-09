@@ -411,6 +411,23 @@ def page_heading(data: dict, html: str, url: str) -> str:
     return title[:MAX_TITLE_CHARS]
 
 
+def title_from_url(url: str) -> str:
+    """A readable label from the last path segment of `url` (extension and
+    separators removed), or "" when nothing readable is left. Used only when
+    the page gives no heading."""
+    from urllib.parse import unquote
+    from translate_engines import display_url
+    path = display_url(url).split("://", 1)[-1].partition("/")[2]
+    segment = unquote(path.rstrip("/").rsplit("/", 1)[-1])
+    segment = re.sub(r"\.(?:html?|php|aspx?)$", "", segment, flags=re.I)
+    return re.sub(r"[-_+\s]+", " ", segment).strip()[:MAX_TITLE_CHARS]
+
+
+def page_label(data: dict, html: str, url: str) -> str:
+    """page_heading, else the URL's last path segment."""
+    return page_heading(data, html, url) or title_from_url(url)
+
+
 # ---------------------------------------------------------------------------
 # Comic chapters
 # ---------------------------------------------------------------------------

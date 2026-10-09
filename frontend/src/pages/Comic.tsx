@@ -17,6 +17,7 @@ import { api } from '../api/client'
 import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Sheet } from '../components/Sheet'
+import { SourceLink } from './discover/ExternalLink'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useShortcut } from '../hooks/useShortcut'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
@@ -94,6 +95,7 @@ function usePreload(urls: string[]) {
 export default function ComicPage({ id, page: routePage }: { id: number; page: number | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const [title, setTitle] = useState<string | null>(null)
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [data, setData] = useState<ComicPagesResponse | null>(null)
   const [error, setError] = useState<unknown>(null)
   // Saved page from the server (1 when unknown or not allowed).
@@ -129,7 +131,13 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const requested = useRef(new Set<number>())
 
   useEffect(() => {
-    api.getDrama(id).then((d) => setTitle(d.title_en || d.title_zh || `Drama #${d.id}`), () => setTitle(null))
+    api.getDrama(id).then(
+      (d) => {
+        setTitle(d.title_en || d.title_zh || `Drama #${d.id}`)
+        setSourceUrl(d.source_url ?? null)
+      },
+      () => setTitle(null),
+    )
     comicApi.pages(id).then(setData, setError)
     comicApi.progress(id).then(
       (p) => {
@@ -509,6 +517,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         <header className="reader-phone-head comic-head">
           <a href={libraryHref} className="reader-back" aria-label="Back to Library">‹</a>
           <span className="reader-title">{title ?? 'Loading…'}</span>
+          <SourceLink href={sourceUrl} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
           {view}
@@ -517,6 +526,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       ) : (
         <div className="comic-top comic-head">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'comic', id, page: null }, { title })} />
+          <SourceLink href={sourceUrl} />
           {current !== null && count > 0 ? (
             <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} />
           ) : (

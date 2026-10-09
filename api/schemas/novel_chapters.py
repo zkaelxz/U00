@@ -1,6 +1,7 @@
 """api/schemas/novel_chapters.py -- the chapters saved in a drama's raw
 novel: a bounded list page and a bounded slice of one chapter's text.
-Counts, titles and text only: never a filename, path or source URL."""
+Counts, titles and text, plus each chapter's display-safe source page link
+(scheme, host and path only); never a filename or path."""
 
 from typing import List, Optional
 
@@ -17,6 +18,7 @@ class NovelChapterRow(BaseModel):
     imported_at: str
     unsplit: bool
     in_translation: bool
+    url: str = ""
 
 
 class NovelChapterList(BaseModel):
@@ -46,6 +48,7 @@ class NovelChapterText(BaseModel):
     unsplit: bool
     chars: int
     in_translation: bool
+    url: str = ""
     offset: int
     text: str
     # Character offset to ask for next; null at the end of the chapter.

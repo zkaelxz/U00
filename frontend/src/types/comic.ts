@@ -32,6 +32,8 @@ export interface ComicChapter {
   first_page: number
   page_count: number
   hidden_count: number
+  // The chapter's page on its source (scheme, host and path only); '' or absent when not known.
+  url?: string
 }
 
 // C1: GET /pages

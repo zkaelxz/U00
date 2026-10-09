@@ -1052,12 +1052,12 @@ def test_direct_import_writes_one_page_at_a_time(client, env, comic, monkeypatch
         box["images"] = list(res.images)
         return res, report
 
-    def counting_add(drama_id, pages):
+    def counting_add(drama_id, pages, **kw):
         pages = list(pages)
         # One image's pages per call; each written download is dropped at once,
         # so only the ones not yet written are still held.
         held.append((len(pages), sum(1 for c in box["images"] if c.content)))
-        return real_add(drama_id, pages)
+        return real_add(drama_id, pages, **kw)
     monkeypatch.setattr(imp.adaptive, "import_comic", spy_import)
     monkeypatch.setattr(pipeline, "add_page_images", counting_add)
     did = _comic_drama()
@@ -1076,8 +1076,8 @@ def test_review_import_reads_one_image_at_a_time(client, env, comic, monkeypatch
     real_read, real_add = svc._read, pipeline.add_page_images
     monkeypatch.setattr(svc, "_read", lambda r, i: reads.append(i) or real_read(r, i))
     monkeypatch.setattr(pipeline, "add_page_images",
-                        lambda d, pages: calls.append((len(reads), len(list(pages)))) or
-                        real_add(d, pages))
+                        lambda d, pages, **kw: calls.append((len(reads), len(list(pages)))) or
+                        real_add(d, pages, **kw))
     assert client.post(f"/api/sources/dramas/{did}/extraction/import",
                        json={"revision": rv["revision"]}).status_code == 200
     _wait(f"sourceimport_{did}")

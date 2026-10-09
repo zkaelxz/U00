@@ -48,3 +48,14 @@ export function loadedLabel(loaded: number, total: number): string {
     ? `${total.toLocaleString()} characters`
     : `${loaded.toLocaleString()} of ${total.toLocaleString()} characters`
 }
+
+/** The chapter number one step before/after `number`, or null at either end of `total`. */
+export function neighbour(number: number, total: number, step: -1 | 1): number | null {
+  const next = number + step
+  return next >= 1 && next <= total ? next : null
+}
+
+/** A selector entry: "3. Chapter title". */
+export function optionLabel(row: NovelChapterRow): string {
+  return `${row.number}. ${rowTitle(row)}`
+}
