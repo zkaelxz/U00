@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { SCREENS, cue, mockLive, openLive } from './liveMocks'
+import { SCREENS, cue, expectSwitchKeepsItsSize, mockLive, openLive } from './liveMocks'
 
 // Phone project (390x844, touch): the Live page fits the screen and its
 // controls are 44px targets, idle and while lines arrive.
@@ -56,4 +56,11 @@ test('live page on a phone: the model picker fits and is a 44px target', async (
   expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'gemma4:12b' })
   await page.screenshot({ path: `${SCREENS}/phone-model.png`, fullPage: true })
   expect(m.unmocked).toEqual([])
+})
+
+test('a switch inside a field keeps its own size on a phone', async ({ page }) => {
+  await mockLive(page)
+  const live = await openLive(page)
+  await live.getByText('Advanced').tap()
+  await expectSwitchKeepsItsSize(live)
 })

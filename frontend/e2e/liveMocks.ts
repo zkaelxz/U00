@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test'
+import { expect, type Locator, type Page, type Route } from '@playwright/test'
 import { REMOTE_HEALTH_OFF } from './authMocks'
 
 // Shared page.route mocks for the Live specs. A real session would run
@@ -115,4 +115,16 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
 export async function openLive(page: Page) {
   await page.goto('/#/live')
   return page.getByRole('region', { name: 'Live' })
+}
+
+// A switch inside a Field must keep its own 44x24 track with the knob at the right end when on.
+export async function expectSwitchKeepsItsSize(live: Locator) {
+  const toggle = live.getByRole('switch', { name: 'Reply without thinking' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  const track = await toggle.boundingBox()
+  const thumb = await toggle.locator('.toggle-thumb').boundingBox()
+  expect(track!.width).toBeCloseTo(44, 0)
+  expect(track!.height).toBeCloseTo(24, 0)
+  expect(thumb!.x + thumb!.width).toBeLessThanOrEqual(track!.x + track!.width)
+  expect(track!.x + track!.width - (thumb!.x + thumb!.width)).toBeLessThanOrEqual(4)
 }

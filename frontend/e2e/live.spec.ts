@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { SCREENS, SID, cue, mockLive, openLive, pendingCue } from './liveMocks'
+import { SCREENS, SID, cue, expectSwitchKeepsItsSize, mockLive, openLive, pendingCue } from './liveMocks'
 
 // Live page (#/live): start a session from a pasted link, watch lines
 // arrive by polling, stop it. Every /api call is mocked (liveMocks.ts).
@@ -252,4 +252,11 @@ test('a stopped session leaves the transcript with a plain note', async ({ page 
   m.state.cues = [{ ...pendingCue(0), translation: 'cancelled' }]
   await expect(live.getByTestId('live-untranslated')).toContainText('Not translated')
   await expect(live.getByText('第0句台词')).toBeVisible()
+})
+
+test('a switch inside a field keeps its own size', async ({ page }) => {
+  await mockLive(page)
+  const live = await openLive(page)
+  await live.getByText('Advanced').click()
+  await expectSwitchKeepsItsSize(live)
 })
