@@ -236,8 +236,9 @@ class TestWhisperIsAbandonedOnCancel:
         assert _wait(lambda: background_jobs.get_status("live_cancel_whisper")["status"] != "running",
                      PROMPT)
         assert time.monotonic() - started < PROMPT
-        # The model the stuck call holds is dropped so the next run loads its own.
-        assert released
+        # Dropping the cached model frees nothing while the stuck call holds it, and
+        # the next run would load a second copy beside it; the call is named instead.
+        assert released == []
         release.set()
 
 

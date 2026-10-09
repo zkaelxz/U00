@@ -74,7 +74,7 @@ export const DEFAULT_FORM: LiveForm = {
 // The options remembered per browser (everything but the link).
 export type LiveOptions = Omit<LiveForm, 'url'>
 
-/** Sooner lines at some accuracy: the defaults above are left as they are. */
+/** Sooner lines at some accuracy. Pressing it overwrites the remembered options for these keys; DEFAULT_FORM itself is unchanged. */
 export const FAST_CAPTIONS: Partial<LiveOptions> = {
   segment_seconds: 4,
   overlap_seconds: 1,

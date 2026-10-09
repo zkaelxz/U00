@@ -21,6 +21,7 @@ import core
 import live_audio
 import live_translate as lt
 import live_whisper
+import ollama_unload
 from services import live_service
 
 RATE = 8000
@@ -71,32 +72,67 @@ class Stream:
             self.count += 1
 
 
+class FakeClock:
+    """Whisper's time limit, moved by the test instead of by waiting."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+class TickingClock:
+    """Moves a fixed step on every read, for a runner called directly."""
+
+    def __init__(self, step=1.0):
+        self.now, self.step = 0.0, step
+
+    def __call__(self):
+        self.now += self.step
+        return self.now
+
+
 @pytest.fixture
 def job(isolated_db, monkeypatch, tmp_path):
     background_jobs.clear_all_jobs()
     monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://stream")
     monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
     monkeypatch.setattr(lt, "stop_capture", lambda *a, **k: None)
-    # Small limits so a "stuck" chunk is given up on within a test.
-    monkeypatch.setattr(live_whisper, "MIN_CHUNK_TIMEOUT", 0.4)
-    monkeypatch.setattr(live_whisper, "CHUNK_TIMEOUT_FACTOR", 0.0)
+    monkeypatch.setattr(live_whisper, "POLL_SECONDS", 0.005)
     monkeypatch.setattr(live_whisper, "ABANDON_GRACE_SECONDS", 0.05)
-    monkeypatch.setattr(core, "release_gpu_models", lambda: None)
+    # Dropping the cached model must never be how a stuck call is handled.
+    released = []
+    monkeypatch.setattr(core, "release_gpu_models", lambda: released.append(1))
     notes = []
+    session = {"dir": None, "engine": "x"}
     out_dir = str(tmp_path / "chunks")
+    clock = FakeClock()
+
+    def record(text, key=None):
+        live_service._sessions["live_notes"] = session
+        live_service.add_note("live_notes", text, key=key)
+        notes[:] = session.get("notes", [])
 
     def start(job_id, engine, **kw):
         kw.setdefault("overlap_seconds", 0)
         return background_jobs.start_job(
             job_id, lt.run_live_job, job_id, "http://example.com/live", out_dir, 10, "zh",
-            "small", engine, poll_interval=0.02, report_note=notes.append, **kw)
+            "small", engine, poll_interval=0.02, report_note=record,
+            whisper_clock=clock, **kw)
 
+    start.clock = clock
+    start.released = released
     yield Stream(out_dir), start, notes
     for jid in list(background_jobs._jobs):
         background_jobs.request_cancel(jid)
     # Wiping the records first would hide the cancel from a job still looping.
     _wait(lambda: not background_jobs.list_running_jobs(), 3)
     background_jobs.clear_all_jobs()
+    live_service._sessions.pop("live_notes", None)
 
 
 class Engine:
@@ -112,6 +148,28 @@ class Engine:
 
 def _texts(job_id):
     return [c["text"] for c in background_jobs.get_status(job_id).get("result") or []]
+
+
+def _prepare(use_gpu):
+    """The GPU loaders' hook as it really is (conftest stubs it for every test)."""
+    ollama_unload.prepare_gpu_for_transcription.real(use_gpu)
+
+
+def _live_whisper_threads():
+    return sum(1 for t in threading.enumerate() if t.name == "live-whisper" and t.is_alive())
+
+
+def _fake_model_cache(monkeypatch):
+    """core's model cache with a load counter: a load only happens on a miss."""
+    cache, loads = {}, []
+
+    def load(size, use_gpu=False, **kw):
+        if size not in cache:
+            loads.append(size)
+            cache[size] = object()
+        return cache[size]
+    monkeypatch.setattr(core, "load_whisper_model", load)
+    return load, loads
 
 
 class TestWhisperThatNeverReturns:
@@ -131,12 +189,92 @@ class TestWhisperThatNeverReturns:
         assert start("live_hang", Engine())
         assert _wait(lambda: _texts("live_hang") == ["t1"])
         stream.add(1)   # chunk 1 is complete now: this is the call that hangs
-        assert _wait(lambda: any(n.startswith("Skipped chunk 1 (Whisper did not finish in")
-                                 for n in notes)), notes
-        stream.add(1)   # the run goes on with the next chunk
+        assert _wait(lambda: len(calls) == 2)
+        start.clock.advance(1000)
+        assert _wait(lambda: "Skipped chunk 1 (Whisper did not finish in 60 s)." in notes), notes
+        stream.add(1)   # the hung call is still alive: this chunk must not start a second one
+        assert _wait(lambda: any("Whisper is still busy with chunk 1" in n for n in notes)), notes
+        assert len(calls) == 2
+        release.set()
+        assert _wait(lambda: _live_whisper_threads() == 0)
+        stream.add(1)
         assert _wait(lambda: _texts("live_hang") == ["t1", "t3"])
         assert background_jobs.get_status("live_hang")["status"] == "running"
+        assert start.released == []
+
+    def test_a_stuck_call_followed_by_more_chunks_has_one_thread_and_one_model_load(
+            self, job, monkeypatch):
+        stream, start, notes = job
+        _, loads = _fake_model_cache(monkeypatch)
+        release = threading.Event()
+        live_counts, calls = [], []
+
+        def whisper(path, **kw):
+            core.load_whisper_model("small")
+            calls.append(path)
+            live_counts.append(_live_whisper_threads())
+            if len(calls) == 1:
+                release.wait(20)   # a CUDA call that does not come back
+                return []
+            return [{"start": 0.5, "end": 1.0, "text": f"t{len(calls)}"}]
+        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(live_whisper, "warm_up",
+                            lambda size, gpu, cb=None: core.load_whisper_model(size))
+        stream.add(2)
+        assert start("live_one", Engine())
+        assert _wait(lambda: len(calls) == 1)
+        start.clock.advance(1000)
+        assert _wait(lambda: any(n.startswith("Skipped chunk 1 (Whisper did not finish") or
+                                 n.startswith("Skipped chunk 0 (Whisper did not finish")
+                                 for n in notes)), notes
+        stream.add(2)   # two more chunks while the first call is still stuck
+        assert _wait(lambda: any("still busy with chunk" in n for n in notes)), notes
+        assert len(calls) == 1 and _live_whisper_threads() == 1 and loads == ["small"]
         release.set()
+        assert _wait(lambda: _live_whisper_threads() == 0)
+        stream.add(1)
+        assert _wait(lambda: len(calls) >= 2)
+        assert max(live_counts) == 1 and loads == ["small"]
+        assert start.released == []
+
+    def test_the_original_shape_a_slow_chunk_after_a_local_translation_is_skipped(
+            self, job, monkeypatch):
+        """Ollama's translation model is resident, the next Whisper call crawls,
+        and the loader hook runs on every call. Ollama is freed once, the slow
+        chunk is given up on, and the run goes on."""
+        stream, start, notes = job
+        freed = []
+        monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory",
+                            lambda: freed.append(1))
+        slow, release = threading.Event(), threading.Event()
+        calls = []
+
+        class LocalOllama(Engine):
+            name, model = "ollama", "qwen3:8b"
+
+        def whisper(path, **kw):
+            _prepare(True)   # what the loader does
+            calls.append(path)
+            if len(calls) == 2:
+                slow.set()
+                release.wait(20)
+                return []
+            return [{"start": 0.5, "end": 1.0, "text": f"t{len(calls)}"}]
+        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(live_whisper, "warm_up",
+                            lambda size, gpu, cb=None: _prepare(True))
+        stream.add(2)
+        assert start("live_shape", LocalOllama(), use_gpu=True)
+        assert _wait(lambda: _texts("live_shape") == ["t1"])
+        stream.add(1)
+        assert slow.wait(PROMPT)
+        start.clock.advance(1000)
+        assert _wait(lambda: any("did not finish" in n for n in notes)), notes
+        release.set()
+        assert _wait(lambda: _live_whisper_threads() == 0)
+        stream.add(1)
+        assert _wait(lambda: _texts("live_shape") == ["t1", "t3"])
+        assert len(freed) == 1
 
     def test_a_failing_or_slow_translator_never_blocks_the_next_chunks_whisper(
             self, job, monkeypatch):
@@ -158,9 +296,8 @@ class TestWhisperThatNeverReturns:
 
 class TestStopIsPrompt:
     def test_stop_returns_within_a_poll_while_whisper_is_stuck(self, job, monkeypatch):
-        stream, start, _ = job
+        stream, start, notes = job
         inside, release = threading.Event(), threading.Event()
-        monkeypatch.setattr(live_whisper, "MIN_CHUNK_TIMEOUT", 60.0)
 
         def whisper(path, **kw):
             inside.set()
@@ -174,18 +311,23 @@ class TestStopIsPrompt:
         background_jobs.request_cancel("live_stop")
         assert _wait(lambda: background_jobs.get_status("live_stop")["status"] != "running", PROMPT)
         assert time.monotonic() - started < PROMPT
+        # The final status names the call still running, and nothing was dropped.
+        assert _wait(lambda: any("still finishing chunk 0" in n for n in notes))
+        assert start.released == []
         release.set()
 
 
-class TestRunGuarded:
-    def test_returns_the_value_and_passes_errors_on(self):
-        assert live_whisper.run_guarded(lambda cb: 7, lambda: False, 5) == 7
-        with pytest.raises(ValueError):
-            live_whisper.run_guarded(lambda cb: (_ for _ in ()).throw(ValueError("x")),
-                                     lambda: False, 5)
+class TestWhisperRunner:
+    def _runner(self, should_stop=lambda: False, clock=None):
+        return live_whisper.WhisperRunner(should_stop, lambda t, key=None: None, clock=clock or FakeClock(),
+                                          poll=0.005, grace=0.05)
 
-    def test_the_worker_ends_at_its_next_segment_once_abandoned(self, monkeypatch):
-        monkeypatch.setattr(live_whisper, "ABANDON_GRACE_SECONDS", 2.0)
+    def test_returns_the_value_and_passes_errors_on(self):
+        assert self._runner().run(lambda cb: 7, 5, "chunk 0") == 7
+        with pytest.raises(ValueError):
+            self._runner().run(lambda cb: (_ for _ in ()).throw(ValueError("x")), 5, "chunk 0")
+
+    def test_the_worker_ends_at_its_next_segment_once_abandoned(self):
         reached = []
 
         def decode(progress_cb):
@@ -194,17 +336,36 @@ class TestRunGuarded:
                 reached.append(i)
                 progress_cb(i / 100)   # core.transcribe_for_timing does this per segment
             return "finished"
+        runner = self._runner(clock=TickingClock())
         with pytest.raises(live_whisper.ChunkTimeout):
-            live_whisper.run_guarded(decode, lambda: False, 0.2)
+            runner.run(decode, 3, "chunk 0")
         n = len(reached)
-        time.sleep(0.3)
-        assert len(reached) <= n + 1 and len(reached) < 20
+        assert _wait(lambda: runner.busy_with() is None)
+        assert len(reached) <= n + 2 and len(reached) < 20
 
     def test_stop_raises_job_cancelled(self):
         flag = threading.Event()
-        threading.Timer(0.2, flag.set).start()
+        release = threading.Event()
+        threading.Timer(0.05, flag.set).start()
+        runner = self._runner(should_stop=flag.is_set)
         with pytest.raises(background_jobs.JobCancelled):
-            live_whisper.run_guarded(lambda cb: time.sleep(5), flag.is_set, 10)
+            runner.run(lambda cb: release.wait(20), 10, "chunk 0")
+        release.set()
+
+    def test_no_second_call_starts_while_an_abandoned_one_is_alive(self):
+        release = threading.Event()
+        runner = self._runner(clock=TickingClock())
+        with pytest.raises(live_whisper.ChunkTimeout):
+            runner.run(lambda cb: release.wait(20), 3, "chunk 4")
+        started = []
+        with pytest.raises(live_whisper.WhisperBusy) as busy:
+            runner.run(lambda cb: started.append(1), 3, "chunk 5")
+        assert busy.value.label == "chunk 4" and started == []
+        assert runner.close() == "chunk 4"
+        release.set()
+        assert _wait(lambda: runner.busy_with() is None)
+        assert runner.run(lambda cb: "ok", 3, "chunk 6") == "ok"
+        assert runner.close() is None
 
     def test_per_segment_abort_reaches_the_real_decode_loop(self, monkeypatch, tmp_path):
         """core.transcribe_for_timing calls progress_cb as each lazily yielded
@@ -226,14 +387,12 @@ class TestRunGuarded:
         monkeypatch.setattr(core, "load_whisper_model", lambda *a, **k: Model())
         wav = tmp_path / "a.wav"
         _wav(wav, 1)
-        monkeypatch.setattr(live_whisper, "ABANDON_GRACE_SECONDS", 1.0)
+        runner = self._runner(clock=TickingClock())
         with pytest.raises(live_whisper.ChunkTimeout):
-            live_whisper.run_guarded(
-                lambda cb: core.transcribe_for_timing(str(wav), progress_cb=cb),
-                lambda: False, 0.2)
+            runner.run(lambda cb: core.transcribe_for_timing(str(wav), progress_cb=cb), 3, "chunk 0")
         n = len(yielded)
-        time.sleep(0.2)
-        assert len(yielded) <= n + 1
+        assert _wait(lambda: runner.busy_with() is None)
+        assert len(yielded) <= n + 2
 
 
 class TestCatchUp:
@@ -253,7 +412,7 @@ class TestCatchUp:
         gate.set()
         assert _wait(lambda: any("to catch up" in n for n in notes))
         assert seen[0] == "chunk_00004.wav"   # the newest two of 0-5 are 4 and 5
-        assert "Skipped 40 s to catch up." in notes
+        assert "Skipped 4 chunks (~40 s) to catch up." in notes
         # Skipped audio is deleted, not kept on disk.
         assert not [f for f in os.listdir(stream.out_dir) if f in ("chunk_00000.wav", "chunk_00001.wav")]
 
@@ -304,7 +463,8 @@ class TestWarmStart:
     def test_whisper_is_loaded_before_capture_starts(self, job, monkeypatch):
         stream, start, notes = job
         order = []
-        monkeypatch.setattr(live_whisper, "warm_up", lambda size, gpu: order.append(("warm", size, gpu)))
+        monkeypatch.setattr(live_whisper, "warm_up",
+                            lambda size, gpu, cb=None: order.append(("warm", size, gpu)))
         monkeypatch.setattr(lt, "start_segment_capture",
                             lambda *a, **k: order.append("capture") or FakeProc())
         monkeypatch.setattr(core, "transcribe_for_timing", lambda p, **kw: [])
@@ -316,7 +476,7 @@ class TestWarmStart:
     def test_a_failed_warm_up_does_not_stop_the_job(self, job, monkeypatch):
         stream, start, notes = job
 
-        def boom(size, gpu):
+        def boom(size, gpu, cb=None):
             raise RuntimeError("no cuda")
         monkeypatch.setattr(live_whisper, "warm_up", boom)
         monkeypatch.setattr(core, "transcribe_for_timing", lambda p, **kw: [])
@@ -325,34 +485,65 @@ class TestWarmStart:
         assert _wait(lambda: any("could not be warmed up" in n for n in notes))
         assert background_jobs.get_status("live_warmfail")["status"] == "running"
 
+    def test_a_warm_up_that_never_ends_is_not_loaded_a_second_time_by_chunk_0(
+            self, job, monkeypatch):
+        stream, start, notes = job
+        _, loads = _fake_model_cache(monkeypatch)
+        release = threading.Event()
+        entered = []
+
+        def stuck_load(size, gpu, cb=None):
+            core.load_whisper_model(size)
+            entered.append(1)
+            release.wait(20)
+        monkeypatch.setattr(live_whisper, "warm_up", stuck_load)
+        calls = []
+        monkeypatch.setattr(core, "transcribe_for_timing", lambda p, **kw: calls.append(p) or [])
+        stream.add(3)
+        assert start("live_warmhang", Engine())
+        assert _wait(lambda: entered)
+        start.clock.advance(live_whisper.WARM_UP_TIMEOUT + 1)
+        assert _wait(lambda: any("could not be warmed up" in n for n in notes)), notes
+        assert _wait(lambda: any("still busy with the model load" in n for n in notes)), notes
+        assert calls == [] and loads == ["small"] and _live_whisper_threads() == 1
+        release.set()
+
     def test_stop_while_loading_returns_without_starting_capture(self, job, monkeypatch):
-        stream, start, _ = job
+        stream, start, notes = job
         release = threading.Event()
         started = []
-        monkeypatch.setattr(live_whisper, "warm_up", lambda size, gpu: release.wait(20))
+        monkeypatch.setattr(live_whisper, "warm_up", lambda size, gpu, cb=None: release.wait(20))
         monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: started.append(1))
         assert start("live_warmstop", Engine())
         assert _wait(lambda: "Loading Whisper small" in background_jobs.get_status("live_warmstop")["message"])
         background_jobs.request_cancel("live_warmstop")
         assert _wait(lambda: background_jobs.get_status("live_warmstop")["status"] != "running", PROMPT)
         assert started == []
+        assert any("still finishing the model load" in n for n in notes)
         release.set()
 
-    def test_the_real_warm_up_runs_one_second_of_silence(self, monkeypatch):
-        seen = {}
+    def test_the_real_warm_up_decodes_noise_with_the_vad_filter_off(self, monkeypatch):
+        numpy = pytest.importorskip("numpy")
+        seen = {"consumed": False}
 
-        def fake(path, **kw):
-            seen["seconds"] = _seconds_16k(path)
-            seen.update(kw)
-            return []
-        monkeypatch.setattr(core, "transcribe_for_timing", fake)
-        live_whisper.warm_up.real("small", True)
-        assert seen["seconds"] == pytest.approx(1.0) and seen["model_size"] == "small"
-        assert seen["use_gpu"] is True
+        class Model:
+            def transcribe(self, audio, **kw):
+                seen.update(kw, audio=audio)
 
-
-def _seconds_16k(path):
-    return _seconds(path)
+                def gen():
+                    seen["consumed"] = True
+                    yield "segment"
+                return gen(), None
+        monkeypatch.setattr(core, "load_whisper_model", lambda size, use_gpu=False, **k: Model())
+        # transcribe_for_timing always enables the VAD filter, so it must not be the path.
+        monkeypatch.setattr(core, "transcribe_for_timing",
+                            lambda *a, **k: pytest.fail("the warm-up must call the model directly"))
+        ticks = []
+        live_whisper.warm_up.real("small", True, ticks.append)
+        audio = seen["audio"]
+        assert seen["vad_filter"] is False and seen["consumed"] and ticks == [0.0]
+        assert audio.dtype == numpy.float32 and len(audio) >= 16000
+        assert 0 < float(numpy.abs(audio).max()) < 0.2   # not silence, and not loud
 
 
 class TestTimingsAndNotes:
@@ -384,3 +575,170 @@ class TestTimingsAndNotes:
             assert notes[-1].startswith("note 8") and "/home" not in " ".join(notes)
         finally:
             live_service._sessions.pop("live_n", None)
+
+    def test_a_keyed_note_replaces_its_earlier_one_and_becomes_the_newest(self, isolated_db):
+        live_service._sessions["live_k"] = {"dir": None, "engine": "x"}
+        try:
+            live_service.add_note("live_k", "skipped 1", key="skip")
+            for i in range(3):
+                live_service.add_note("live_k", f"other {i}")
+            live_service.add_note("live_k", "skipped 2", key="skip")
+            notes = live_service._sessions["live_k"]["notes"]
+            assert notes == ["other 0", "other 1", "other 2", "skipped 2"]
+        finally:
+            live_service._sessions.pop("live_k", None)
+
+    def test_skips_are_counted_into_one_note_per_reason_and_survive_other_notes(self, isolated_db):
+        live_service._sessions["live_s"] = {"dir": None, "engine": "x"}
+        try:
+            record = lambda text, key=None: live_service.add_note("live_s", text, key=key)  # noqa: E731
+            skips = live_whisper.SkipNotes(record, 5)
+            for _ in range(5):
+                skips.catch_up(1)
+                record("something else happened")
+            skips.timed_out(7, 60)
+            skips.timed_out(9, 60)
+            skips.busy(10, "chunk 9")
+            skips.busy(11, "chunk 9")
+            notes = live_service._sessions["live_s"]["notes"]
+            assert "Skipped 5 chunks (~25 s) to catch up." in notes
+            assert "Skipped 2 chunks (Whisper did not finish in 60 s; latest: chunk 9)." in notes
+            assert "Skipped 2 chunks (~10 s): Whisper is still busy with chunk 9." in notes
+            assert len([n for n in notes if "catch up" in n]) == 1
+        finally:
+            live_service._sessions.pop("live_s", None)
+
+    def test_slower_than_real_time_is_noted_once(self, job, monkeypatch):
+        stream, start, notes = job
+
+        def whisper(path, **kw):
+            time.sleep(0.03)   # more than the 5 ms of audio below
+            return [{"start": 0.0, "end": 0.001, "text": "x"}]
+        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        stream.add(3, seconds=0.005)
+        assert start("live_slowonce", Engine())
+        assert _wait(lambda: len(_texts("live_slowonce")) >= 2)
+        assert len([n for n in notes if "slower than the stream" in n]) == 1
+
+
+class TestChunkDiagnostics:
+    def test_a_chunk_over_three_times_its_audio_gets_a_status_line_and_a_log_line(
+            self, monkeypatch):
+        import diagnostics
+        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: {
+            "memory_free_mb": 1200.0, "memory_total_mb": 8192.0})
+        logged, notes = [], []
+        monkeypatch.setattr(live_whisper, "_log", lambda level, text: logged.append(text))
+        live_whisper.log_chunk(1, 10.0, 2.0, 200.0, 5.0, False, lambda t, k=None: notes.append(t))
+        assert logged and "GPU free 1200 of 8192 MB" in logged[0] and "Whisper 200.0 s" in logged[0]
+        assert len(notes) == 1 and "took 207 s for 10 s of audio" in notes[0]
+        live_whisper.log_chunk(2, 10.0, 0.5, 4.0, 1.0, False, lambda t, k=None: notes.append(t))
+        assert len(notes) == 1   # 5.5 s for 10 s of audio is healthy
+
+    def test_a_missing_nvidia_smi_is_not_an_error(self, monkeypatch):
+        import diagnostics
+        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None)
+        logged = []
+        monkeypatch.setattr(live_whisper, "_log", lambda level, text: logged.append(text))
+        live_whisper.log_chunk(0, 10.0, 0.1, 2.0, 1.0, True, lambda t, k=None: None)
+        assert "GPU" not in logged[0] and "not loaded yet" in logged[0]
+
+
+class TestOllamaCadence:
+    """Freeing a local Ollama is decided per Live job, not per chunk's thread."""
+
+    freed = None
+
+    def _loader_calls(self, scope, n, monkeypatch):
+        if self.freed is None:
+            self.freed = []
+        freed = self.freed
+        monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory",
+                            lambda: freed.append(1) or "Ollama still has a model loaded.")
+        for _ in range(n):
+            # A new thread per call, as each chunk's Whisper call gets.
+            t = threading.Thread(target=lambda: _in_scope(scope))
+            t.start()
+            t.join()
+        return freed
+
+    def test_a_local_ollama_is_freed_once_per_job_across_threads(self, monkeypatch):
+        scope = ollama_unload.JobScope(True, min_free_mb=2000)
+        assert len(self._loader_calls(scope, 5, monkeypatch)) == 1
+
+    def test_a_cloud_engine_never_touches_ollama(self, monkeypatch):
+        scope = ollama_unload.JobScope(False)
+        assert self._loader_calls(scope, 5, monkeypatch) == []
+        assert scope.take_notice() is None
+
+    def test_the_notice_comes_back_to_the_job_thread_once(self, monkeypatch):
+        scope = ollama_unload.JobScope(True)
+        self._loader_calls(scope, 2, monkeypatch)
+        assert scope.take_notice() == "Ollama still has a model loaded."
+        assert scope.take_notice() is None
+
+    def test_a_cpu_run_does_nothing(self, monkeypatch):
+        freed = []
+        monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory", lambda: freed.append(1))
+        with ollama_unload.job_scope(ollama_unload.JobScope(True)):
+            _prepare(False)
+        assert freed == []
+
+    def test_it_runs_again_only_while_no_whisper_call_has_worked_and_vram_is_short(
+            self, monkeypatch):
+        now = [0.0]
+        scope = ollama_unload.JobScope(True, min_free_mb=2000, clock=lambda: now[0])
+        free = [500.0]
+        monkeypatch.setattr(ollama_unload, "_free_vram_mb", lambda: free[0])
+        assert len(self._loader_calls(scope, 1, monkeypatch)) == 1
+        now[0] = 10.0   # inside the recheck window
+        assert len(self._loader_calls(scope, 1, monkeypatch)) == 1
+        now[0] = 100.0
+        free[0] = 9000.0   # plenty of room now
+        assert len(self._loader_calls(scope, 1, monkeypatch)) == 1
+        free[0] = 500.0
+        assert len(self._loader_calls(scope, 1, monkeypatch)) == 2
+        scope.model_ready = True   # a Whisper call has worked: nothing left to free for
+        now[0] = 500.0
+        assert len(self._loader_calls(scope, 1, monkeypatch)) == 2
+
+    def _run_job(self, job, monkeypatch, engine, job_id, use_gpu):
+        stream, start, notes = job
+        freed = []
+        monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory",
+                            lambda: freed.append(1) or "Ollama still has a model loaded (qwen3:8b).")
+
+        def whisper(path, **kw):
+            _prepare(True)   # the loader's hook, per call
+            return [{"start": 0.5, "end": 1.0, "text": "x"}]
+        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(live_whisper, "warm_up",
+                            lambda size, gpu, cb=None: _prepare(gpu))
+        stream.add(3)
+        assert start(job_id, engine, use_gpu=use_gpu)
+        assert _wait(lambda: len(_texts(job_id)) >= 2)
+        return freed, notes
+
+    def test_a_job_with_a_local_ollama_frees_it_once_and_shows_the_notice(self, job, monkeypatch):
+        class LocalOllama(Engine):
+            name, model = "ollama", "qwen3:8b"
+        freed, notes = self._run_job(job, monkeypatch, LocalOllama(), "live_ol", True)
+        assert len(freed) == 1
+        assert "Ollama still has a model loaded (qwen3:8b)." in notes
+
+    def test_a_job_with_a_cloud_translator_never_touches_ollama(self, job, monkeypatch):
+        class Hosted(Engine):
+            name, model = "deepseek", "deepseek-chat"
+        freed, notes = self._run_job(job, monkeypatch, Hosted(), "live_cloud", True)
+        assert freed == [] and not any("Ollama" in n for n in notes)
+
+    def test_ollama_cloud_models_are_hosted_too(self, job, monkeypatch):
+        class OllamaCloud(Engine):
+            name, model = "ollama", "gpt-oss:120b-cloud"
+        freed, _ = self._run_job(job, monkeypatch, OllamaCloud(), "live_oc", True)
+        assert freed == []
+
+
+def _in_scope(scope):
+    with ollama_unload.job_scope(scope):
+        _prepare(True)

@@ -39,7 +39,7 @@ describe('buildStartBody', () => {
     expect(b).toMatchObject({ segment_seconds: 3, overlap_seconds: 1.5, max_minutes: 240, source_language: 'zh', whisper_size: 'small', engine: null, use_gpu: true })
   })
 
-  it('Fast captions is a short chunk that still goes out as chosen, and leaves the defaults alone', () => {
+  it('Fast captions is a short chunk that still goes out as chosen, and DEFAULT_FORM itself is unchanged', () => {
     expect(DEFAULT_FORM).toMatchObject({ segment_seconds: 20, overlap_seconds: 3, whisper_size: 'small', reply_without_thinking: true })
     const b = buildStartBody({ ...DEFAULT_FORM, ...FAST_CAPTIONS, url: 'https://a.test' })
     expect(b).toMatchObject({ segment_seconds: 4, overlap_seconds: 1, whisper_size: 'small', reply_without_thinking: true })

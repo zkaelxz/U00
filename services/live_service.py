@@ -155,13 +155,20 @@ def check_ollama(model: Optional[str] = None) -> dict:
     return {"ok": True, "model": model, "message": None}
 
 
-def add_note(session_id: str, text: str) -> None:
+def add_note(session_id: str, text: str, key: Optional[str] = None) -> None:
     """Keeps a short event for the session's status. The text is fixed wording
-    the job composes from numbers, passed through clean_message anyway."""
+    the job composes from numbers, passed through clean_message anyway. A note
+    with a key replaces the earlier one with that key and becomes the newest,
+    so a running count of skips is never the first note to scroll out."""
     with _lock:
         entry = _sessions.get(session_id)
         if entry is not None:
             notes = entry.setdefault("notes", [])
+            if key is not None:
+                keyed = entry.setdefault("note_keys", {})
+                if keyed.get(key) in notes:
+                    notes.remove(keyed[key])
+                keyed[key] = clean_message(text)
             notes.append(clean_message(text))
             del notes[:-MAX_NOTES]
 

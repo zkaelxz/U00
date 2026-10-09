@@ -79,7 +79,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `live_fetch.py`
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
-- `live_whisper.py` (a Live chunk's Whisper call on a guarded worker: per-chunk time limit, prompt Stop, warm start, backlog skip)
+- `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
 - `translate_engines.py`
 - `translation_guide.py`
 - `translation_memory.py`

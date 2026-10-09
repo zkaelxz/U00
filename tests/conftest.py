@@ -358,7 +358,10 @@ def _no_ollama_unload_requests(request):
     import ollama_unload
     original = ollama_unload.prepare_gpu_for_transcription
     if not request.module.__name__.endswith("test_ollama_unload"):
-        ollama_unload.prepare_gpu_for_transcription = lambda use_gpu: None
+        def stub(use_gpu):
+            return None
+        stub.real = original   # for tests of a caller's own unload policy
+        ollama_unload.prepare_gpu_for_transcription = stub
     try:
         yield
     finally:

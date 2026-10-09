@@ -276,7 +276,7 @@ export default function LivePage() {
               onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
               Fast captions
             </button>
-            <p className="muted">Chunk 4 s, overlap 1 s, Whisper small, no thinking: lines show sooner, but Whisper hears less context, so wording is rougher.</p>
+            <p className="muted">Chunk 4 s, overlap 1 s, Whisper small, no thinking: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).</p>
           </div>
           <div className="field-row">
             <Field label="Whisper model" help="Smaller is faster per chunk, closer to real time; medium is usually too slow for short chunks.">
