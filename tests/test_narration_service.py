@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
-import dub
+import dub_narration
 from api.server import ApiSettings, create_app
 from services import narration_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -22,7 +22,7 @@ def _drama(db, novel=NOVEL, **fields):
     fields.setdefault("content_mode", "novel_narration")
     did = db.create_drama(**fields)
     if novel is not None:
-        with open(os.path.join(db.drama_dir(did), dub.NOVEL_SOURCE_FILENAME), "w",
+        with open(os.path.join(db.drama_dir(did), dub_narration.NOVEL_SOURCE_FILENAME), "w",
                   encoding="utf-8") as f:
             f.write(novel)
     return did

@@ -26,6 +26,8 @@ import threading
 from contextlib import contextmanager
 
 import browser_support
+from browser_support import BROWSER_MISSING, PACKAGE_MISSING
+from page_scroll import scroll_through_and_settle
 
 # Root containers common to SPA frameworks. Their presence alongside
 # very little text is a strong signal the content hasn't rendered.
@@ -423,9 +425,7 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
     """
     Fetches with a real browser engine so JavaScript actually runs.
 
-    Requires: pip install playwright && playwright install chromium
-    (the second command downloads the browser itself -- easy to forget,
-    so the error message below says so explicitly).
+    Requires the playwright package and Chrome, Edge or Playwright's Chromium.
 
     Returns (html, text). Raises ImportError with install instructions
     if Playwright isn't set up.
@@ -594,23 +594,6 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
             yield page, captured
 
 
-# Readers that load each page image as it scrolls into view fill in
-# nothing for a single jump to the bottom: step down about a screen at a
-# time (bounded to ~10 s), then land at the bottom as before.
-_SCROLL_THROUGH_JS = """
-async () => {
-    let y = 0;
-    for (let i = 0; i < 40; i++) {
-        y += Math.max(window.innerHeight * 0.9, 400);
-        window.scrollTo(0, y);
-        await new Promise(r => setTimeout(r, 250));
-        if (y >= document.documentElement.scrollHeight) break;
-    }
-    window.scrollTo(0, document.body.scrollHeight);
-}
-"""
-
-
 @contextmanager
 def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --
@@ -631,11 +614,7 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="networkidle")
-            try:
-                page.evaluate(_SCROLL_THROUGH_JS)
-                page.wait_for_load_state("networkidle", timeout=timeout * 1000)
-            except Exception:
-                pass  # a scroll-triggered navigation or a slow settle isn't fatal
+            scroll_through_and_settle(page, timeout * 1000)
             if wait_selector:
                 try:
                     page.wait_for_selector(wait_selector, timeout=timeout * 1000)
@@ -664,12 +643,7 @@ def _require_playwright():
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        raise ImportError(
-            "Rendering JavaScript pages needs Playwright:\n"
-            "    pip install playwright\n"
-            "    playwright install chromium\n"
-            "The second command downloads the browser and is easy to miss."
-        )
+        raise ImportError(PACKAGE_MISSING) from None
     browser_support.use_app_browsers()
     return sync_playwright
 
@@ -685,12 +659,6 @@ def _require_playwright():
 # Edge. Nothing is downloaded here.
 
 BROWSER_ENV = "BAIHE_BROWSER_PATH"
-
-BROWSER_MISSING = ("No browser is available for JavaScript-only sites. Install Google Chrome "
-                   "or Microsoft Edge, or run the installer's repair (or "
-                   "`python -m playwright install chromium`), or set BAIHE_BROWSER_PATH to "
-                   "a Chrome or Edge program file. Then try again.")
-
 
 class BrowserNotFound(RuntimeError):
     """No usable browser program was found. The message is fixed text with
@@ -738,7 +706,7 @@ def _bundled_browser_present() -> bool:
     wanted = browser_support.wanted_browser_folders()
     if not wanted:
         return False
-    dirs = [browser_support.app_browsers_folder()]
+    dirs = []
     env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
     if env and env != "0":
         dirs.append(env)
@@ -747,7 +715,10 @@ def _bundled_browser_present() -> bool:
     home = os.path.expanduser("~")
     dirs += [os.path.join(home, "Library", "Caches", "ms-playwright"),
              os.path.join(home, ".cache", "ms-playwright")]
-    return any(all(browser_support.has_browser_program(os.path.join(d, n)) for n in wanted) for d in dirs)
+    # The app folder goes through the completeness marker so an interrupted
+    # install doesn't read as a usable browser.
+    return browser_support.app_chromium_present() or any(
+        all(browser_support.has_browser_program(os.path.join(d, n)) for n in wanted) for d in dirs)
 
 
 def browser_status() -> dict:
@@ -875,6 +846,7 @@ def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selec
             page = context.new_page()
             _goto(page, url, _PROXIES.get(id(context)), allow_unguarded=launcher is not None,
                   timeout=timeout * 1000, wait_until="networkidle")
+            scroll_through_and_settle(page, timeout * 1000)
             if wait_selector:
                 try:
                     page.wait_for_selector(wait_selector, timeout=timeout * 1000)

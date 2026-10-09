@@ -24,31 +24,7 @@ import threading
 import diarize
 import storage
 
-# Every top-level .py file expected to exist for the
-# app to run. Kept as an explicit list (not auto-discovered) so a
-# missing file shows up as "missing" rather than just not being checked.
-EXPECTED_TOP_LEVEL_FILES = [
-    "core.py", "db.py", "translate_engines.py",
-    "diarize.py", "dub.py", "video_export.py", "ocr.py", "segment.py",
-    "dictionary.py", "reader.py", "scanlate.py", "metadata_lookup.py",
-    "known_sites.py", "title_library.py", "vocab_export.py",
-    "qa.py", "bulk_import.py", "epub_io.py", "cli.py", "diagnostics.py",
-    "run_tests.py", "translation_guide.py",
-    "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
-    "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "en_cleanup.py", "page_fetch.py",
-    "page_server.py", "browser_support.py",
-    "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
-    # This list had drifted -- these were all real,
-    # hard-imported modules missing from it, which meant the missing-file
-    # health check below could no longer actually catch one of them going
-    # missing.
-    "applog.py", "audio_preprocess.py", "auto_qc.py", "benchmark.py",
-    "bulk_translate.py", "check_setup.py", "hardsub_ocr.py", "live_translate.py", "live_fetch.py",
-    "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
-    "sensevoice_tags.py", "sensitivity_preset.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
-    "translation_memory.py", "action_tiers.py", "media_inspect.py",
-    "vad_segments.py", "mixed_language.py", "ollama_unload.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
-]
+from expected_files import EXPECTED_TOP_LEVEL_FILES
 
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
@@ -458,10 +434,11 @@ def startup_warnings() -> list:
 
 
 def check_browser() -> dict:
-    """{found, name}: the browser used for JavaScript-only sites (see
-    page_fetch.browser_status). No path is returned."""
+    """{found, name, package}: the browser for JavaScript-only sites and
+    whether the Playwright package is installed. No path is returned."""
+    import browser_support
     import page_fetch
-    return page_fetch.browser_status()
+    return {**page_fetch.browser_status(), "package": browser_support.package_installed()}
 
 
 def check_cuda() -> dict:
@@ -526,8 +503,6 @@ def check_file_completeness(project_root: str):
                           if not os.path.exists(os.path.join(project_root, f))]
     return {
         "missing_top_level": missing_top_level,
-        # Kept (always empty) so the API/React response shape is unchanged.
-        "missing_tabs": [],
         "all_present": not missing_top_level,
     }
 
@@ -896,7 +871,7 @@ def format_diagnostics_report(results: dict, hf_cache: list = None,
     files = results.get("files") or {}
     if not files.get("all_present", True):
         lines.append("Missing files: " + ", ".join(
-            (files.get("missing_top_level") or []) + (files.get("missing_tabs") or [])))
+            (files.get("missing_top_level") or [])))
     if hf_cache is not None:
         total = sum(e["size_bytes"] for e in hf_cache)
         lines.append(f"Hugging Face cache: {len(hf_cache)} revision(s), "

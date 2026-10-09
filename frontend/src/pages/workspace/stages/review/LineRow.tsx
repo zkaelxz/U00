@@ -16,18 +16,9 @@ import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
-import {
-  buildPatch,
-  CONFLICT_MESSAGE,
-  formatTime,
-  isToolMode,
-  JOB_RUNNING_MESSAGE,
-  LINE_LANGUAGES,
-  lineLangChip,
-  titleDefaultLabel,
-  type LineDraft,
-  type PanelMode,
-} from './reviewLogic'
+import { buildPatch, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, type LineDraft } from './reviewDraft'
+import { CONFLICT_MESSAGE, formatTime, isToolMode, type PanelMode } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface NoteDraft {

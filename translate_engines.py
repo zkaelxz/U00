@@ -98,6 +98,7 @@ from engine_backends.openai_compat import (  # noqa: F401
     DeepSeekEngine,
     OpenAIEngine,
 )
+from engine_backends.thinking import think_flag  # noqa: F401
 from engine_backends.gemini import (  # noqa: F401
     GEMINI_FREE_TIER_DEFAULT_LIMITS,
     GEMINI_FREE_TIER_LIMITS,
@@ -111,10 +112,12 @@ from engine_backends.gemini import (  # noqa: F401
     progress_message_with_rate_status,
 )
 from engine_backends.local import (  # noqa: F401
+    OLLAMA_CLOUD_MODELS,
     OLLAMA_DEFAULT_MODEL,
     OLLAMA_MIN_NUM_CTX,
     OLLAMA_MODELS,
     OLLAMA_REACHABILITY_CACHE_SECONDS,
+    OllamaCloudLimitError,
     OllamaEngine,
     OllamaUnavailableError,
     _OLLAMA_ID_KEYED_JSON_SCHEMA,
@@ -123,6 +126,9 @@ from engine_backends.local import (  # noqa: F401
     check_ollama_model_installed,
     check_ollama_reachable,
     estimate_ollama_num_ctx,
+    is_ollama_cloud_model,
+    chain_touches_local_gpu,
+    ollama_touches_local_gpu,
 )
 from engine_backends.llm_tasks import (  # noqa: F401
     FLAG_REASONS,

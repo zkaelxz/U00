@@ -13,11 +13,25 @@ export interface ComicPageInfo {
   has_regions: boolean
   // Changes when the file is rewritten (e.g. re-typeset); used as a cache-buster.
   image_version: number | string | null
+  // The chapter group this page is in ('unknown' for pages with no chapter data).
+  // Absent from older servers.
+  chapter_id?: string | null
+  // 1-based position within the chapter group.
+  chapter_page?: number
+  // Marked "not part of the story" (credits, promos). Still listed here.
+  hidden?: boolean
 }
 
 export interface ComicChapter {
-  label: string
-  start_ordinal: number
+  id: string
+  // As given by the source; '' when it gave none.
+  title: string
+  // False for the one group of pages with no chapter data (older imports).
+  known: boolean
+  // 1-based ordinal of the chapter's first page.
+  first_page: number
+  page_count: number
+  hidden_count: number
 }
 
 // C1: GET /pages
@@ -28,7 +42,8 @@ export interface ComicPagesResponse {
   reading_mode_default: 'paged' | 'vertical'
   page_count: number
   pages: ComicPageInfo[]
-  // Always empty until chapter markers exist; the viewer uses a page scrubber.
+  hidden_count?: number
+  // Reading-order chapter groups; empty from older servers.
   chapters: ComicChapter[]
 }
 
@@ -55,4 +70,18 @@ export interface ComicRegionsResponse {
 export interface ComicProgress {
   last_page: number
   percent_complete: number | null
+}
+
+// POST /pages/visibility: page ids, or the first/last `count` pages of a chapter.
+export interface ComicVisibilityRequest {
+  hidden: boolean
+  page_ids?: number[]
+  chapter_id?: string
+  edge?: 'first' | 'last' | 'all'
+  count?: number
+}
+
+export interface ComicVisibilityResult {
+  changed: number
+  hidden_count: number
 }

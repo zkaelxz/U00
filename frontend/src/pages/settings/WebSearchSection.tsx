@@ -97,8 +97,8 @@ function WebSearchControls() {
       actions={cfg && <Toggle checked={cfg.enabled} disabled={!!busy} onChange={toggle} aria-label="Use web search" />}
     >
       <p className="settings-note">
-        Optional. When a title search finds nothing on any source, Sources offers “Search the web” through your own
-        SearXNG server. Results are links only: Baihe never opens them by itself. Off by default.
+        Optional. When no source has a title, Sources offers “Search the web” through your own SearXNG
+        server. Results are links only; Baihe never opens them. Off by default.
       </p>
       {!cfg ? (
         !error && <p className="muted">Loading…</p>
@@ -106,7 +106,7 @@ function WebSearchControls() {
         <div className="settings-form">
           <Field
             label="SearXNG address"
-            help="For example http://localhost:8888 or http://192.168.1.20:8888. Its settings.yml must list json under search.formats. Changing it works only on the Baihe PC with key writes on."
+            help="For example http://localhost:8888. Its settings.yml must list json under search.formats. Change it only on the Baihe PC with key writes on."
           >
             <input type="url" value={url} placeholder="http://localhost:8888" onChange={(e) => setUrl(e.target.value)} />
           </Field>

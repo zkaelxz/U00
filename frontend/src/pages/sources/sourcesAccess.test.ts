@@ -2,15 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
 import type { SourceSummary } from '../../types/sources'
-import {
-  TIER_TESTS,
-  checkSummary,
-  pageUrlProblem,
-  proxyProblem,
-  tierLabel,
-  tierTestLine,
-  trackedDramaChoices,
-} from './sourcesFormat'
+import { TIER_TESTS, tierLabel, tierTestLine } from './sourcesFormat'
+import { checkSummary, pageUrlProblem, proxyProblem, trackedDramaChoices } from './sourcesSettings'
 
 const drama = (id: number, media_type: string | null) => ({ id, title_en: `D${id}`, media_type }) as unknown as DramaSummary
 const source = (comic: boolean) =>
@@ -52,8 +45,8 @@ describe('tier tests', () => {
   it('reads one result', () => {
     const base = { kind: 'tier_test' as const, source: 'x', detail: null, reason: null }
     expect(tierTestLine({ ...base, tier: 'static', ok: true })).toBe('Static: works.')
-    expect(tierTestLine({ ...base, tier: 'browser', ok: false, reason: 'NOT_INSTALLED', detail: 'no Playwright' })).toBe(
-      'Browser: not installed (no Playwright).',
+    expect(tierTestLine({ ...base, tier: 'browser', ok: false, reason: 'NOT_INSTALLED', detail: 'The Playwright package is missing.' })).toBe(
+      'Browser: The Playwright package is missing.',
     )
     expect(tierTestLine({ ...base, tier: 'signed_in', ok: false })).toBe('Signed-in: failed.')
   })

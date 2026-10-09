@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, WAITING_NOTE, canDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, ytCommand,
+  DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, UNREACHABLE_NOTE, WAITING_NOTE, canDelay, captionDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, probeOffset, ytCommand,
 } from './embedLogic'
 
 const ID = 'dQw4w9WgXcQ'
@@ -151,6 +151,10 @@ describe('delayNote', () => {
     expect(delayNote(report({ duration: 300, currentTime: 285 }), 30, { unsupported: false, moving: true })).toBe('Moving to about 30 s behind live…')
     expect(delayNote(report({ duration: 45, currentTime: 45 }), 90, { unsupported: false, moving: true })).toBe('Moving to about 45 s behind live…')
   })
+  it('does not call a long pause a stream that cannot be delayed', () => {
+    expect(delayNote(report({ duration: 900, currentTime: 100, playerState: 1 }), 15, flags)).toBe(UNREACHABLE_NOTE)
+    expect(delayNote(report({ duration: 900, currentTime: 100, playerState: 2 }), 15, flags)).toBe('Playing about 800 s behind live.')
+  })
   it('says a stream with no rewind buffer cannot be delayed', () => {
     expect(delayNote(report({ duration: 0 }), 15, { unsupported: true, moving: false })).toBe(NO_DELAY_NOTE)
   })
@@ -177,5 +181,62 @@ describe('autoplay and a player that has not started', () => {
   })
   it('builds player commands', () => {
     expect(JSON.parse(ytCommand('mute'))).toEqual({ event: 'command', func: 'mute', args: [] })
+  })
+})
+
+// YouTube documents getDuration() on a live event as the time since the
+// stream began, while getCurrentTime() counts from where playback started, so
+// duration - currentTime is not the distance from the live edge.
+describe('a live stream whose duration is the time since it began', () => {
+  const stuck = report({ duration: 43826, currentTime: 20, isLive: true, playerState: 1 })
+  const videoData = { isLive: true }
+  it('reproduces the 12-hour reading the owner saw', () => {
+    expect(measuredDelay(stuck)).toBe(43806)
+  })
+  it('never shows an implausible figure as a delay', () => {
+    const note = delayNote(stuck, 20, { unsupported: false, moving: false })
+    expect(note).not.toContain('43806')
+    expect(note).toBe(UNREACHABLE_NOTE)
+    expect(parseYouTubeInfo({ event: 'infoDelivery', info: { duration: 43826, videoData } })).toEqual({ duration: 43826, isLive: true })
+  })
+  it('measures against the offset found at the live edge', () => {
+    const offset = 43800
+    const info = report({ duration: 43830, currentTime: 10, playerState: 1 })
+    expect(measuredDelay(info, offset)).toBe(20)
+    expect(delayReached(info, 20, offset)).toBe(true)
+    expect(planDelay({ duration: 43830, isLive: true }, 20, 0, offset)).toEqual({ kind: 'seek', to: 10 })
+    expect(delayNote(info, 20, { unsupported: false, moving: false, offset })).toBe('Playing about 20 s behind live.')
+  })
+  it('finds that offset only when the probe seek really moved the playhead', () => {
+    expect(probeOffset(20, report({ duration: 43830, currentTime: 14400 }))).toBe(29430)
+    expect(probeOffset(20, report({ duration: 300, currentTime: 299 }))).toBe(1)
+    expect(probeOffset(20, report({ duration: 43830, currentTime: 22 }))).toBeNull()
+    expect(probeOffset(undefined, report({ duration: 43830, currentTime: 22 }))).toBeNull()
+    expect(probeOffset(20, null)).toBeNull()
+  })
+})
+
+describe('captionDelay', () => {
+  const flags = { unsupported: false, moving: false, unreachable: false }
+  it('is the delay the picture has once it got there', () => {
+    expect(captionDelay(report({ duration: 300, currentTime: 285 }), 15, flags)).toBe(15)
+  })
+  it('is the clamped window when the slider asks for more than the stream keeps', () => {
+    expect(captionDelay(report({ duration: 10, currentTime: 0 }), 30, flags)).toBe(10)
+  })
+  it('follows the measured delay when the viewer scrubs away from the target', () => {
+    expect(captionDelay(report({ duration: 300, currentTime: 300 }), 15, flags)).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 290 }), 30, flags)).toBe(10)
+  })
+  it('is 0 while the picture is not yet behind live', () => {
+    expect(captionDelay(null, 15, flags)).toBe(0)
+    expect(captionDelay(report({ duration: 300 }), 15, flags)).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 285 }), 30, { ...flags, moving: true })).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 300, playerState: -1 }), 15, flags)).toBe(0)
+  })
+  it('is 0 for a stream that cannot be delayed or ignores seeks', () => {
+    expect(captionDelay(report({ duration: 0 }), 15, { ...flags, unsupported: true })).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 300 }), 20, { ...flags, unreachable: true })).toBe(0)
+    expect(captionDelay(report({ duration: 43826, currentTime: 100 }), 20, flags)).toBe(0)
   })
 })

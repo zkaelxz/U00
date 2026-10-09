@@ -86,6 +86,8 @@
     // element -> { layer, regions, naturalWidth }
     active: new Map(),
     observer: null,
+    // The running chapter capture ({cancelled, text}), or null.
+    capture: null,
   };
 
   // -- collecting ------------------------------------------------------
@@ -265,6 +267,9 @@
       .baihe-box.baihe-showing-original { background: rgba(255,244,214,0.96);
                                           font-style: italic; }
       .baihe-hidden { display: none !important; }
+      .baihe-capture-chip { display: flex; align-items: center; gap: 10px; }
+      .baihe-capture-chip button { font: inherit; cursor: pointer; background: rgba(255,255,255,0.18);
+                                   color: #fff; border: none; border-radius: 5px; padding: 3px 9px; }
       .baihe-toast { position: fixed; bottom: 18px; right: 18px; z-index: 2147483600;
                      background: #1b1b1f; color: #fff; padding: 10px 14px;
                      border-radius: 8px; font: 13px/1.4 "Segoe UI", sans-serif;
@@ -585,7 +590,68 @@
 
   // -- the main action -------------------------------------------------
 
+  // The app refuses more than this many images in one request (413).
+  // Kept equal to page_server.MAX_IMAGES_PER_REQUEST by a test; if the
+  // two drift apart anyway, sendInBatches learns the real limit from the
+  // 413 reply.
+  const MAX_IMAGES_PER_REQUEST = 12;
+
+  // Sends `items` in order, one batch at a time: the app runs OCR and
+  // translation per image on a single user machine, and sequential
+  // batches also keep saved pages (store=true) in chapter order, since
+  // the app appends pages in request order. `send(batch, range)` returns
+  // the background's {ok, data|error, status}; `onBatch(batch, data)`
+  // handles each successful reply. Stops at the first hard error.
+  async function sendInBatches(items, send, onBatch, limit = MAX_IMAGES_PER_REQUEST) {
+    let done = 0;
+    let sentAny = false;
+    let retriedLimit = false;
+    let size = limit;
+    while (done < items.length) {
+      const batch = items.slice(done, done + size);
+      const range = { from: done + 1, to: done + batch.length, total: items.length };
+      const response = await send(batch, range) ||
+        { ok: false, error: "No answer from the extension's background worker." };
+      if (response.ok) {
+        sentAny = true;
+        await onBatch(batch, response.data || {});
+        done += batch.length;
+        continue;
+      }
+      const match = response.status === 413 && /at most (\d+) images/.exec(response.error || "");
+      if (match && !retriedLimit && Number(match[1]) > 0 && Number(match[1]) < batch.length) {
+        retriedLimit = true;
+        size = Number(match[1]);
+        continue;
+      }
+      // Every image in this batch was judged not to be a page: nothing
+      // is wrong, so carry on with the next batch.
+      if (response.status === 422) {
+        await onBatch(batch, { pages: [], skipped: batch.map(({ extracted }) => ({
+          key: extracted.hash, url: extracted.url, reason: response.error || "" })) });
+        done += batch.length;
+        continue;
+      }
+      return { sentAny, limit: size, failure: { done, reason: response.error || "That didn't work.",
+                                                status: response.status } };
+    }
+    return { sentAny, failure: null, limit: size };
+  }
+
+  // The popup shows this while a long chapter is in flight. It is only
+  // ever a hint, so a popup that has closed (or no listener) is ignored.
+  function reportProgress(text) {
+    try {
+      chrome.runtime.sendMessage({ type: "progress", text }).catch(() => {});
+    } catch (e) { /* nobody is listening */ }
+  }
+
+
   async function translateVisible({ dramaId, store, all }) {
+    // A capture sends the same pages itself; running both would save a page twice.
+    if (state.capture) {
+      return { ok: false, error: "A chapter capture is running on this page; wait for it or cancel it first." };
+    }
     if (looksLikeChallengePage()) {
       return {
         ok: false, code: "CHALLENGE_DETECTED",
@@ -643,42 +709,454 @@
       };
     }
 
-    const response = await chrome.runtime.sendMessage({
-      type: "send",
-      images: images.map(({ extracted }) => ({
-        data: extracted.data,
-        content_type: extracted.content_type,
-        url: extracted.url,
-        key: extracted.hash,
-      })),
-      dramaId,
-      store,
-      sourceUrl: location.href,
-      // A deliberate single send is the image the person pointed at, so
-      // the server's page filter shouldn't second-guess it.
-      filterPages: images.length > 1,
+    const pages = [];
+    const skipped = [];
+    let drawn = 0;
+    const outcome = await sendInBatches(images, async (batch, range) => {
+      reportProgress(`Translating ${range.from}-${range.to} of ${range.total}...`);
+      return chrome.runtime.sendMessage({
+        type: "send",
+        images: batch.map(({ extracted }) => ({
+          data: extracted.data,
+          content_type: extracted.content_type,
+          url: extracted.url,
+          key: extracted.hash,
+        })),
+        dramaId,
+        store,
+        sourceUrl: location.href,
+        // A deliberate single send is the image the person pointed at, so
+        // the server's page filter shouldn't second-guess it. The server
+        // applies the filter to each request on its own, so a batch is
+        // clustered against its own neighbours only.
+        filterPages: images.length > 1,
+      });
+    }, (batch, data) => {
+      // Drawn per batch so a long chapter shows results as they arrive
+      // and keeps them if a later batch fails.
+      const byHash = new Map();
+      for (const page of data.pages || []) byHash.set(page.key, page.regions || []);
+      for (const { extracted, elements } of batch) {
+        const regions = byHash.get(extracted.hash);
+        if (!regions) continue;
+        state.cache.set(extracted.hash, regions);
+        for (const el of elements) {
+          drawOverlay(el, regions);
+          drawn += 1;
+        }
+      }
+      pages.push(...(data.pages || []));
+      skipped.push(...(data.skipped || []));
     });
 
-    if (!response || !response.ok) {
-      return response || { ok: false, error: "No answer from the extension's background worker." };
+    if (outcome.sentAny) watchForPageChanges();
+    const data = { pages, skipped, drawn, cached: fromCache.length };
+    if (outcome.failure) {
+      const f = outcome.failure;
+      if (!pages.length && !skipped.length) {
+        return { ok: false, error: f.reason, ...(f.status ? { status: f.status } : {}) };
+      }
+      data.failed = {
+        done: f.done, total: images.length, at: f.done + 1, reason: f.reason,
+        message: `Translated ${f.done} of ${images.length} pages; stopped at page ` +
+                 `${f.done + 1}: ${f.reason}`,
+      };
     }
+    return { ok: true, data };
+  }
 
-    const byHash = new Map();
-    for (const page of response.data.pages || []) {
-      byHash.set(page.key, page.regions || []);
-    }
-    let drawn = 0;
-    for (const { extracted, elements } of images) {
-      const regions = byHash.get(extracted.hash);
-      if (!regions) continue;
-      state.cache.set(extracted.hash, regions);
-      for (const el of elements) {
-        drawOverlay(el, regions);
-        drawn += 1;
+
+  // -- capturing a whole chapter -----------------------------------------
+  //
+  // A virtualised reader keeps only the pages near the viewport in the
+  // DOM, so "everything visible" sees a handful of a 70-page chapter. This
+  // scrolls the reader the way a person would and reads each page as the
+  // reader's own JavaScript mounts it. Nothing is requested from the site:
+  // no network calls, no tokens, no reader APIs -- only pixels the page has
+  // already rendered for this signed-in reader. The pace mirrors
+  // page_scroll.SCROLL_THROUGH_JS (about a screen per step).
+
+  // Hard stop on distinct pages per run, so a reader that never ends
+  // (endless feed, auto-next-chapter) cannot grow the library unbounded.
+  const CAPTURE_MAX_PAGES = 300;
+  const CAPTURE_STEP_FRACTION = 0.9;
+  const CAPTURE_STEP_MIN_MS = 250;
+  const CAPTURE_STEP_MAX_MS = 600;
+  // Steps in a row that turn up nothing new before giving up mid-chapter.
+  const CAPTURE_STALL_STEPS = 6;
+  // Backstop independent of the page cap: duplicates and unreadable pages
+  // add no page, so a reader looping the same images must still stop.
+  const CAPTURE_MAX_STEPS = 700;
+  const CAPTURE_MUTATION_WAIT_MS = 800;
+  const CAPTURE_LOAD_WAIT_MS = 1500;
+  // Attributes a list renderer uses to number its rows. Used only to order
+  // pages, and only when every page in the comparison has one.
+  const READER_INDEX_KEYS = ["pageIndex", "pageNum", "pageNumber", "page", "index", "idx"];
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const stepDelay = () => CAPTURE_STEP_MIN_MS +
+    Math.random() * (CAPTURE_STEP_MAX_MS - CAPTURE_STEP_MIN_MS);
+
+  const CAPTURE_STOP_MESSAGES = {
+    end: "Reached the end of the chapter.",
+    stalled: `No new pages after ${CAPTURE_STALL_STEPS} scroll steps.`,
+    cap: `Stopped at the ${CAPTURE_MAX_PAGES}-page limit.`,
+    cancelled: "Cancelled.",
+  };
+
+  function scrollableAncestor(el) {
+    for (let node = el && el.parentElement;
+         node && node !== document.body && node !== document.documentElement;
+         node = node.parentElement) {
+      const overflow = getComputedStyle(node).overflowY;
+      if ((overflow === "auto" || overflow === "scroll") &&
+          node.scrollHeight > node.clientHeight + 50) {
+        return node;
       }
     }
-    watchForPageChanges();
-    return { ok: true, data: { ...response.data, drawn, cached: fromCache.length } };
+    return null;
+  }
+
+  // The reader may scroll the window or its own container; both look the
+  // same to the loop. positionOf is an offset from the top of the scrolled
+  // content, so it stays comparable between steps.
+  function makeScroller() {
+    const inner = scrollableAncestor(candidateElements()[0]);
+    if (inner) {
+      return {
+        view: () => inner.clientHeight,
+        top: () => inner.scrollTop,
+        max: () => inner.scrollHeight - inner.clientHeight,
+        to: (y) => { inner.scrollTop = y; },
+        positionOf: (el) => el.getBoundingClientRect().top -
+          inner.getBoundingClientRect().top + inner.scrollTop,
+      };
+    }
+    return {
+      view: () => window.innerHeight,
+      top: () => window.scrollY,
+      max: () => document.documentElement.scrollHeight - window.innerHeight,
+      to: (y) => window.scrollTo(0, y),
+      positionOf: (el) => el.getBoundingClientRect().top + window.scrollY,
+    };
+  }
+
+  function readerIndexOf(el) {
+    let node = el;
+    for (let depth = 0; node && depth < 4; depth += 1, node = node.parentElement) {
+      for (const key of READER_INDEX_KEYS) {
+        const value = node.dataset && node.dataset[key];
+        if (value !== undefined && /^\d+$/.test(value)) return Number(value);
+      }
+      const posinset = node.getAttribute && node.getAttribute("aria-posinset");
+      if (posinset && /^\d+$/.test(posinset)) return Number(posinset);
+    }
+    return null;
+  }
+
+  // Reading order: the reader's own index when both pages carry one, else
+  // where they sit in the scrolled content.
+  function byReadingOrder(a, b) {
+    if (a.order.index !== null && b.order.index !== null && a.order.index !== b.order.index) {
+      return a.order.index - b.order.index;
+    }
+    return (a.order.pos - b.order.pos) || (a.seq - b.seq);
+  }
+
+  // The reader's own "5 / 70" counter, when it shows one. Display only: a
+  // wrong guess here costs a misleading label, never a skipped page.
+  function readerCounter() {
+    for (const el of document.querySelectorAll("div, span, p, li")) {
+      if (el.childElementCount) continue;
+      const text = el.textContent || "";
+      if (text.length > 14) continue;
+      const match = /^\s*(\d{1,4})\s*\/\s*(\d{1,4})\s*$/.exec(text);
+      if (!match) continue;
+      const current = Number(match[1]);
+      const total = Number(match[2]);
+      if (total >= 2 && current >= 1 && current <= total && isVisible(el)) {
+        return { current, total };
+      }
+    }
+    return null;
+  }
+
+  // After a scroll, give the reader a moment to mount and load its next
+  // pages: wait for the DOM to go quiet, then for images still loading.
+  async function settleForImages() {
+    await new Promise((resolve) => {
+      let quiet = null;
+      const finish = () => { observer.disconnect(); clearTimeout(quiet); clearTimeout(limit); resolve(); };
+      const observer = new MutationObserver(() => {
+        clearTimeout(quiet);
+        quiet = setTimeout(finish, 150);
+      });
+      const limit = setTimeout(finish, CAPTURE_MUTATION_WAIT_MS);
+      observer.observe(document.body, { subtree: true, childList: true, attributes: true,
+                                        attributeFilter: ["src", "style", "class"] });
+    });
+    const loading = [...document.images].filter((img) => !img.complete);
+    if (!loading.length) return;
+    const loaded = Promise.all(loading.map((img) => new Promise((resolve) => {
+      img.addEventListener("load", resolve, { once: true });
+      img.addEventListener("error", resolve, { once: true });
+    })));
+    await Promise.race([loaded, sleep(CAPTURE_LOAD_WAIT_MS)]);
+  }
+
+  // A canvas has no src, so its draw target is identified by the hash of its pixels: a reader that
+  // repaints the canvas with another page while a batch is in flight changes the hash, and the
+  // bubbles are not drawn on the wrong page.
+  function drawTargetKey(el, hash) {
+    return el.tagName === "CANVAS" ? hash : elementKey(el);
+  }
+
+  async function currentDrawTargetKey(el) {
+    if (el.tagName !== "CANVAS") return elementKey(el);
+    try {
+      const blob = await new Promise((resolve, reject) => {
+        el.toBlob((b) => (b ? resolve(b) : reject(new Error("unreadable"))), "image/png");
+      });
+      return await sha256Hex(await blob.arrayBuffer());
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function elementKey(el) {
+    if (el.tagName === "CANVAS") return null;
+    const { width, height } = elementSize(el);
+    return `${el.currentSrc || el.src}|${width}x${height}`;
+  }
+
+  function showCaptureChip(run) {
+    ensureStyles();
+    const chip = document.createElement("div");
+    chip.className = "baihe-toast baihe-capture-chip";
+    const label = document.createElement("span");
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => {
+      run.cancelled = true;
+      label.textContent = "Stopping…";
+    });
+    chip.append(label, cancel);
+    document.documentElement.appendChild(chip);
+    return { chip, set: (text) => { if (!run.cancelled) label.textContent = text; } };
+  }
+
+  async function captureChapter({ dramaId, store, fromHere }) {
+    if (state.capture) {
+      return { ok: false, error: "A capture is already running on this page." };
+    }
+    if (looksLikeChallengePage()) {
+      return {
+        ok: false, code: "CHALLENGE_DETECTED",
+        error: "This looks like a verification/CAPTCHA page, not the reader -- solve it, " +
+               "then try again.",
+      };
+    }
+    const run = { cancelled: false, text: "Starting…" };
+    state.capture = run;
+    const ui = showCaptureChip(run);
+    const scroller = makeScroller();
+    const startTop = scroller.top();
+    // A popup reopened mid-run waits for this, so every exit path sends it.
+    let done = { failed: true, text: "The capture stopped unexpectedly." };
+    try {
+      const result = await runCapture(run, ui, scroller, { dramaId, store, fromHere });
+      done = result.ok
+        ? { failed: result.data.reason === "error", text: result.data.message }
+        : { failed: true, text: result.error };
+      return result;
+    } finally {
+      scroller.to(startTop);
+      ui.chip.remove();
+      state.capture = null;
+      try { chrome.runtime.sendMessage({ type: "captureDone", ...done }).catch(() => {}); } catch (e) { /* popup closed */ }
+    }
+  }
+
+  async function runCapture(run, ui, scroller, { dramaId, store, fromHere }) {
+    // Hashes already handled this run (sent, cached, skipped or duplicate).
+    // Distinct pages seen is also what the cap counts.
+    const seen = new Set();
+    const handled = new WeakMap();
+    const queue = [];
+    const counts = { translated: 0, stored: 0, cached: 0, skipped: 0, drawn: 0 };
+    let seq = 0;
+    let limit = MAX_IMAGES_PER_REQUEST;
+    let capHit = false;
+    let unreadable = "";
+    let failure = "";
+
+    const report = (suffix = "") => {
+      const counter = readerCounter();
+      const base = counter ? `Page ${counter.current} of ${counter.total}`
+                           : `${seen.size} page${seen.size === 1 ? "" : "s"} found`;
+      run.text = base + suffix;
+      ui.set(run.text);
+      reportProgress(run.text);
+    };
+
+    // New pages among the currently mounted elements, in DOM order. Reads
+    // pixels the reader already drew; a page that was unmounted by the
+    // time we look is simply not there, which is why this runs every step.
+    async function collectNew() {
+      let found = 0;
+      for (const el of candidateElements()) {
+        if (run.cancelled) break;
+        if (seen.size >= CAPTURE_MAX_PAGES) { capHit = true; break; }
+        const key = elementKey(el);
+        if (key !== null && handled.get(el) === key) continue;
+        let extracted;
+        try {
+          extracted = await extractBytes(el);
+        } catch (e) {
+          unreadable = String(e && e.message ? e.message : e);
+          if (key !== null) handled.set(el, key);
+          continue;
+        }
+        if (key !== null) handled.set(el, key);
+        const cached = state.cache.get(extracted.hash);
+        if (seen.has(extracted.hash)) {
+          if (cached && el.isConnected) drawOverlay(el, cached);
+          continue;
+        }
+        seen.add(extracted.hash);
+        found += 1;
+        if (cached) {
+          drawOverlay(el, cached);
+          counts.cached += 1;
+          continue;
+        }
+        seq += 1;
+        queue.push({ extracted, elements: [el], srcKey: drawTargetKey(el, extracted.hash), seq,
+                     order: { index: readerIndexOf(el), pos: scroller.positionOf(el) } });
+      }
+      return found;
+    }
+
+    // Sends queued pages in reading order, a batch at a time, through the
+    // same sendInBatches the visible-pages path uses. Returns a failure
+    // reason, or "".
+    async function flush(force) {
+      while (!run.cancelled && (queue.length >= limit || (force && queue.length))) {
+        queue.sort(byReadingOrder);
+        const batch = queue.splice(0, limit);
+        const outcome = await sendInBatches(batch, async (items, range) => {
+          report(` — translating ${range.from}-${range.to} of ${range.total}`);
+          return chrome.runtime.sendMessage({
+            type: "send",
+            images: items.map(({ extracted }) => ({
+              data: extracted.data, content_type: extracted.content_type,
+              url: extracted.url, key: extracted.hash,
+            })),
+            dramaId, store, sourceUrl: location.href,
+            filterPages: items.length > 1,
+          });
+        }, async (items, data) => {
+          const byHash = new Map();
+          for (const page of data.pages || []) byHash.set(page.key, page.regions || []);
+          for (const { extracted, elements, srcKey } of items) {
+            const regions = byHash.get(extracted.hash);
+            if (!regions) continue;
+            state.cache.set(extracted.hash, regions);
+            // A virtualised reader may have recycled the element for a
+            // later page while this batch was in flight; drawing then
+            // would put these bubbles on the wrong page.
+            for (const el of elements) {
+              if (el.isConnected && await currentDrawTargetKey(el) === srcKey) {
+                drawOverlay(el, regions);
+                counts.drawn += 1;
+              }
+            }
+          }
+          counts.translated += (data.pages || []).length;
+          counts.stored += (data.pages || []).filter((p) => p.stored).length;
+          counts.skipped += (data.skipped || []).length;
+        }, limit);
+        limit = outcome.limit || limit;
+        if (outcome.sentAny) watchForPageChanges();
+        if (outcome.failure) return outcome.failure.reason;
+      }
+      return "";
+    }
+
+    if (!fromHere) {
+      scroller.to(0);
+      await sleep(stepDelay());
+    }
+
+    let reason = "";
+    let stalls = 0;
+    let steps = 0;
+    let lastMoved = true;
+    while (!reason) {
+      if (run.cancelled) { reason = "cancelled"; break; }
+      if (looksLikeChallengePage()) {
+        reason = "error";
+        failure = "A verification page appeared; solve it, then capture again.";
+        break;
+      }
+      let found = await collectNew();
+      if (!found && !capHit && !run.cancelled) {
+        await settleForImages();
+        found = await collectNew();
+      }
+      if (run.cancelled) { reason = "cancelled"; break; }
+      stalls = found ? 0 : stalls + 1;
+      report();
+      if (queue.length >= limit) {
+        failure = await flush(false);
+        if (failure) { reason = "error"; break; }
+        if (run.cancelled) { reason = "cancelled"; break; }
+      }
+      const atBottom = scroller.top() >= scroller.max() - 4;
+      if (capHit) reason = "cap";
+      else if (!found && (atBottom || !lastMoved)) reason = "end";
+      else if (stalls >= CAPTURE_STALL_STEPS || steps >= CAPTURE_MAX_STEPS) reason = "stalled";
+      if (reason) break;
+      const before = scroller.top();
+      scroller.to(before + Math.max(scroller.view() * CAPTURE_STEP_FRACTION, 200));
+      steps += 1;
+      await sleep(stepDelay());
+      lastMoved = scroller.top() !== before;
+    }
+
+    // Cancelled means stop sending as well as scrolling; any other stop
+    // still delivers the pages already read.
+    if (reason !== "cancelled" && reason !== "error") {
+      failure = await flush(true);
+      if (failure) reason = "error";
+      else if (run.cancelled) reason = "cancelled";
+    }
+
+    if (!seen.size) {
+      return {
+        ok: false,
+        error: reason === "error" ? failure
+          : unreadable
+            ? `Your browser wouldn't let this page's image be read (${unreadable}). ` +
+              "That happens when the site draws it from another domain without allowing it."
+            : "No page-sized images found here. If the page is still loading, try again.",
+      };
+    }
+    const tally = [`${seen.size} page${seen.size === 1 ? "" : "s"} found`];
+    if (counts.translated) tally.push(`${counts.translated} translated`);
+    if (counts.cached) tally.push(`${counts.cached} already done`);
+    if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
+    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally.join(", ")}.`;
+    reportProgress(message);
+    toast(message, 8000);
+    return { ok: true, data: { reason, message, found: seen.size, ...counts, pages: [] } };
+  }
+
+  function cancelCapture() {
+    if (!state.capture) return false;
+    state.capture.cancelled = true;
+    return true;
   }
 
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -691,6 +1169,12 @@
           case "translatePageText":
             respond(await translatePageText(message));
             break;
+          case "captureChapter":
+            respond(await captureChapter(message));
+            break;
+          case "cancelCapture":
+            respond({ ok: true, data: { cancelled: cancelCapture() } });
+            break;
           case "toggleOverlays":
             respond({ ok: true, data: { visible: setOverlaysVisible(!state.overlaysVisible) } });
             break;
@@ -702,6 +1186,7 @@
               images: candidateElements().length,
               translated: state.active.size,
               overlaysVisible: state.overlaysVisible,
+              capture: state.capture ? { running: true, text: state.capture.text } : null,
               // The page's own host. The popup uses this to key "which
               // drama does this site go to", rather than reading
               // `tab.url` -- that needs the `tabs` permission or an
@@ -721,7 +1206,8 @@
   });
 
   // Exposed for the popup's injected checks and for tests.
-  window.__baihe = { translateVisible, setOverlaysVisible, candidateElements, state, toast,
+  window.__baihe = { translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
-                     looksLikeChallengePage, sampleSignature, waitForStableSignature };
+                     looksLikeChallengePage, sampleSignature, waitForStableSignature,
+                     captureChapter, cancelCapture };
 })();

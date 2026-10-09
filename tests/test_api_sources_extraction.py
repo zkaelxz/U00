@@ -22,7 +22,7 @@ from api.server import create_app
 from services import auth_service, settings_service, url_guard
 from sources import generic_import, registry
 from sources.ladder import LadderResult
-from sources.models import AccessTier
+from sources.models import AccessTier, AttemptRecord
 
 from .test_adaptive_extraction import (FakeEngine, _HTML_BY_URL, chapter_html, chapter_url,
                                        fake_llm, novel_answer)  # noqa: F401 (fixture)
@@ -391,15 +391,35 @@ def test_comic_no_pages_and_handoff(client, env, comic, monkeypatch):
     assert SECRET not in r.text and db.list_pages(did) == []
 
 
-def test_comic_no_pages_on_bilibili_manga_says_why_and_what_to_do(client, env, comic):
+def _bilibili_no_pages(client, env, monkeypatch, attempt):
     url = "https://manga.bilibili.com/mc40738/2129714?from=manga_detail"
     env["fetch"].pages[url] = "<html><body><div id='app-vm'></div></body></html>"
+    inner = env["fetch"]
+
+    def fetch(*a, **kw):
+        lr = inner(*a, **kw)
+        lr.attempts.append(attempt)
+        return lr
+    monkeypatch.setattr(generic_import, "fetch_page", fetch)
     did = _comic_drama()
     r = _run(client, "/api/sources/url/import-comic", {"url": url, "drama_id": did}, did)
     assert r.status_code == 422
-    msg = r.json()["error"]["message"]
-    assert "Why:" in msg and "Sign in to Bilibili Manga" in msg
     assert "from=manga_detail" not in r.text and SECRET not in r.text
+    return r.json()["error"]["message"]
+
+
+def test_comic_no_pages_on_bilibili_manga_says_why_and_what_to_do(client, env, comic, monkeypatch):
+    msg = _bilibili_no_pages(client, env, monkeypatch, AttemptRecord(
+        tier=AccessTier.RENDERED_BROWSER.value, ok=True))
+    assert "Why:" in msg and "Sign in to Bilibili Manga" in msg
+
+
+def test_comic_no_pages_on_bilibili_manga_without_playwright_names_it(client, env, comic,
+                                                                     monkeypatch):
+    msg = _bilibili_no_pages(client, env, monkeypatch, AttemptRecord(
+        tier=AccessTier.RENDERED_BROWSER.value, ok=False, reason="NOT_INSTALLED",
+        missing="playwright"))
+    assert "Playwright package is not installed" in msg and "Sign in" not in msg
 
 
 def test_comic_auth_on_remote_is_static_only(env, comic):
@@ -1263,13 +1283,13 @@ def test_follow_address_check_refuses_a_private_address(env, monkeypatch):
 
 def test_follow_first_page_heading_falls_back_to_the_page_title(client, env):
     from services import sources_extraction_service as svc
-    from sources import adaptive, ai_extract
+    from sources import ai_extract, novel_follow
     url = _novel_page(env)
     did = db.create_drama(title_en="N", media_type="novel")
     html = env["fetch"].pages[url]
     data = ai_extract.deterministic_novel(ai_extract.PageModel(html, url))
     data["chapter_title"] = None
-    later = adaptive.FollowedPage(chapter_url(13), "第13章 重逢", "第13章第0段。" * 40)
+    later = novel_follow.FollowedPage(chapter_url(13), "第13章 重逢", "第13章第0段。" * 40)
     assert svc.open_review(did, "novel", url, html, data, None, svc.WHY_FOLLOWED,
                            chain=[later], follow_stop="cap")
     rv = _review(client, did)

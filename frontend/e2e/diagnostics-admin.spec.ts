@@ -19,7 +19,7 @@ const overview = {
     'yt-dlp': { installed: false, powers: 'downloading video', tier: 'feature' },
     torch: { installed: false, powers: 'ML backends', tier: 'feature' },
   },
-  file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+  file_completeness: { missing_top_level: [], all_present: true },
   library_writable: true,
   gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
   model_engine_versions: [],
@@ -31,7 +31,7 @@ const setup = (o: Record<string, unknown> = {}) => ({
   ffmpeg: { found: true, version: '6.1' },
   js_runtime: { found: true, name: 'deno' },
   cuda: { torch_installed: false, cuda_available: null },
-  files: { all_present: true, missing_top_level: [], missing_tabs: [] },
+  files: { all_present: true, missing_top_level: [] },
   library_writable: true,
   ...o,
 })
@@ -182,7 +182,7 @@ test('a running job blocks install and reset with a reason, and a banner links t
   await expect(page.getByTestId('job-list')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Cancel Translate/ })).toHaveCount(0)
   await openSection(page, /^Packages/)
-  await expect(page.getByTestId('dependency-panel')).toContainText('Wait for running jobs to finish before installing.')
+  await expect(page.getByTestId('dependency-panel')).toContainText('Wait for running jobs to finish.')
   await openSection(page, /^Danger zone/)
   await expect(page.locator('.danger-zone')).toContainText('Stop running jobs first (see Jobs above).')
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')

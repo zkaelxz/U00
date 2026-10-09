@@ -23,6 +23,7 @@ __all__ = [
     "LiveSessionStatus",
     "LiveSessionSummary",
     "LiveSessionStopped",
+    "LiveOllamaCheck",
     "AutotuneCandidateMs",
     "AutotuneRunRequest",
     "AutotuneRunResult",
@@ -78,7 +79,7 @@ class SpeakerTimeSummary(BaseModel):
 
 class DiarizationConfig(BaseModel):
     """Read-only Diarize-stage summary for one drama -- hf_token_configured is a boolean only, never the token value
-    itself (D2)."""
+    itself."""
     drama_id: int
     hf_token_configured: bool
     expected_speakers: Optional[int] = None
@@ -88,7 +89,7 @@ class DiarizationConfig(BaseModel):
     # "cuda" or "cpu" -- where the last run's pipeline ran.
     last_device: Optional[str] = None
     audio_available: bool
-    manual_speaker_count: int = 0   # parity D06: hand-corrected speakers
+    manual_speaker_count: int = 0   # hand-corrected speakers
     speaker_summary: Optional[SpeakerTimeSummary] = None   # None: no saved detection
 
 
@@ -228,7 +229,7 @@ class TranscribeRunResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: Live capture (spec L-1, polling) -- /api/live/sessions
+# Live capture (polling) -- /api/live/sessions
 # ---------------------------------------------------------------------------
 class LiveSessionStart(BaseModel):
     """Keys are resolved server-side; no browser cookies over the API.
@@ -241,10 +242,18 @@ class LiveSessionStart(BaseModel):
     segment_seconds: float = 20
     overlap_seconds: float = 3
     engine: Optional[str] = Field(None, max_length=40,
-                                  description="None = the Settings default engine (checked as paid).")
+                                  description="None = Ollama on this PC, never the Settings default engine.")
     model: Optional[str] = Field(None, max_length=100)
     max_minutes: float = 60
     use_gpu: StrictBool = False
+    reply_without_thinking: StrictBool = Field(
+        True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
+
+
+class LiveOllamaCheck(BaseModel):
+    ok: bool
+    model: str
+    message: Optional[str] = None
 
 
 class LiveSessionStarted(BaseModel):
@@ -252,10 +261,12 @@ class LiveSessionStarted(BaseModel):
 
 
 class LiveCue(BaseModel):
+    id: int
     start: float
     end: float
     text: str
     translated: str
+    translation: str   # pending | done | failed | cancelled
 
 
 class LiveSessionStatus(BaseModel):
@@ -283,7 +294,7 @@ class LiveSessionStopped(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Route batch 2C: auto-tune speech splitting + glossary from novel
+# Auto-tune speech splitting + glossary from novel
 # ---------------------------------------------------------------------------
 AutotuneCandidateMs = Annotated[StrictInt, Field(ge=300, le=3000)]
 
@@ -324,7 +335,7 @@ class AutotuneApplyRequest(BaseModel):
     candidate_ms: AutotuneCandidateMs
 
 
-# --- Re-transcribe one line (parity audit B1, inventory R23) ---------------
+# --- Re-transcribe one line ---------------
 class RetranscribeLineRequest(BaseModel):
     """Optional body. Same prompt rules as TranscribeRunRequest: a non-empty
     initial_prompt replaces the automatic prompt; otherwise the server uses

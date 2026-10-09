@@ -34,6 +34,8 @@ No FastAPI import.
 import background_jobs
 import db
 import translate_engines
+from memory_headroom import HeadroomError
+from services import comic_chapters_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import settings_service, translate_service
@@ -79,10 +81,11 @@ def _require_ocr_backend(drama_id: int) -> None:
 
 
 def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm: bool = False,
-              engine: str = None, detect_backend: str = "auto") -> dict:
+              engine: str = None, detect_backend: str = "auto",
+              chapter_id: str = None) -> dict:
     """Starts the drama's Scanlate run. 409: a job or import is running,
     or mode "all" without confirm. 503: no key for the engine. 400: no
-    pages. Returns {job_id, engine, mode}."""
+    pages. `chapter_id` limits "missing"/"all" to one chapter. Returns {job_id, engine, mode}."""
     pages_svc.require_drama(drama_id)
     if mode not in MODES:
         raise InvalidInputError("mode must be 'missing', 'page' or 'all'.")
@@ -97,12 +100,18 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
         pages_svc.require_page(drama_id, page_id)
     elif page_id is not None:
         raise InvalidInputError("page_id is only used to redo one page.")
+    if chapter_id is not None and mode == "page":
+        raise InvalidInputError("chapter_id can't be combined with a single page.")
     if mode == "all" and not confirm:
         raise ConflictError(_CONFIRM_ALL)
+    # Pages marked "not part of the story" are skipped, and a chapter limits the run.
+    targets = ([page_id] if mode == "page"
+               else comic_chapters_service.run_page_ids(drama_id, chapter_id))
+    if not targets:
+        raise UnsupportedOperationError("No pages to run: they are all hidden.")
     _require_ocr_backend(drama_id)
     engine_name = engine or settings_service.get_default_engine()
     built = _build_engine(engine_name)
-    targets = [page_id] if mode == "page" else [p["id"] for p in pages]
     started = pages_svc.start_drama_job(
         drama_id, _run_job, pages_svc.job_id(drama_id), drama_id, mode, targets,
         engine_name, built, detect_backend,
@@ -154,6 +163,8 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
         result, new_context = scanlate.translate_regions_by_id(
             keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
             glossary_terms=glossary)
+    except HeadroomError:
+        raise  # the Ollama check refuses on every page; stop the job once
     except Exception as exc:
         notes.append(("warning", f"Translation failed ({type(exc).__name__}: {exc}). The OCR "
                                  "text was saved; use Redo this page to try again."))
@@ -255,7 +266,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
         try:
             counts[_process_page(drama_id, drama, pid, mode, engine, engine_name,
                                  detect_kwargs, glossary)] += 1
-        except background_jobs.JobCancelled:
+        except (background_jobs.JobCancelled, HeadroomError):
             raise
         except Exception as exc:
             counts["failed"] += 1

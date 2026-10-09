@@ -1509,6 +1509,9 @@ class TestImportTimeSafety:
         shutil.copy(os.path.join(project_root, "core.py"), os.path.join(temp_dir, "core.py"))
         # db.py takes its library location from portable.data_dir() (Step 80b).
         shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
+        # init_db creates the extension device-token table from its own module.
+        shutil.copy(os.path.join(project_root, "device_tokens.py"),
+                    os.path.join(temp_dir, "device_tokens.py"))
 
     def test_bare_import_does_not_touch_any_library_dir(self):
         temp_dir = tempfile.mkdtemp(prefix="baihe_import_check_")
@@ -1969,7 +1972,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
         "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
-        "split_by_sentences"),
+        "split_by_sentences", "translate_thinking"),
     "series": ("instructions", "owner_user_id", "is_private"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
@@ -2070,8 +2073,17 @@ def _alter_columns_in_db_py():
     "TYPE ...") tuples anywhere in db.py, as (None, column)."""
     import ast
     import re
-    src = open(os.path.join(os.path.dirname(db.__file__), "db.py"), encoding="utf-8").read()
+    # db may be split into a db/ package; read every module so the scan
+    # can't pass on an empty file list.
+    root = os.path.dirname(db.__file__)
+    if os.path.isdir(os.path.join(root, "db")):
+        paths = [os.path.join(d, f) for d, _, fs in os.walk(os.path.join(root, "db"))
+                 for f in fs if f.endswith(".py")]
+    else:
+        paths = [os.path.join(root, "db.py")]
+    src = "\n".join(open(p, encoding="utf-8").read() for p in sorted(paths))
     found = {(t, c) for t, c in re.findall(r"ALTER TABLE (\w+) ADD COLUMN (\w+)\b", src)}
+    assert len(found) >= 50, f"found only {len(found)} ALTER TABLE ... ADD COLUMN literals"
     sql_type = re.compile(r"^(TEXT|INTEGER|REAL|BLOB|NUMERIC)\b")
     for node in ast.walk(ast.parse(src)):
         if not (isinstance(node, ast.Tuple) and node.elts
@@ -2106,7 +2118,8 @@ class TestInitDbSchema:
         assert not missing, (
             f"db.py adds these columns to existing tables but _INIT_DB_MIGRATED_COLUMNS in "
             f"tests/test_db.py doesn't list them, so no test upgrades an old database "
-            f"through them: {missing}")
+            f"through them: {missing}. Add each (table, column) to _INIT_DB_MIGRATED_COLUMNS: "
+            f"{{table: [columns]}}.")
 
     def test_old_database_upgrades_to_the_fresh_schema(self, isolated_db):
         fresh = _schema_shape(isolated_db.DB_PATH)

@@ -17,6 +17,8 @@ import portable
 
 BROWSERS_ENV = "PLAYWRIGHT_BROWSERS_PATH"
 FOLDER_NAME = "playwright_browsers"
+# Playwright writes this only after the download is fully unpacked.
+COMPLETE_MARKER = "INSTALLATION_COMPLETE"
 
 _BROWSER_PROGRAMS = {"chrome", "chrome.exe", "chromium", "google chrome for testing",
                      "chrome-headless-shell", "chrome-headless-shell.exe", "headless_shell"}
@@ -59,12 +61,16 @@ def wanted_browser_folders():
 
 def app_chromium_present() -> bool:
     """Whether the build the installed Playwright wants (not an older
-    leftover) is in the app folder with its program file."""
+    leftover) is in the app folder, fully unpacked. The marker matters
+    because an interrupted install (sleep, closed console, antivirus
+    holding files so cleanup leaves some behind) can leave a program file
+    that Playwright then fails to launch."""
     wanted = wanted_browser_folders()
     if not wanted:
         return False
     folder = app_browsers_folder()
-    return all(has_browser_program(os.path.join(folder, n)) for n in wanted)
+    return all(os.path.isfile(os.path.join(folder, n, COMPLETE_MARKER))
+               and has_browser_program(os.path.join(folder, n)) for n in wanted)
 
 
 def use_app_browsers() -> None:
@@ -75,3 +81,18 @@ def use_app_browsers() -> None:
     before sync_playwright().start()."""
     if app_chromium_present():
         os.environ[BROWSERS_ENV] = app_browsers_folder()
+
+
+PACKAGE_MISSING = ("The Playwright package isn't installed: install it from Diagnostics > "
+                   "Packages (the playwright row) or run `pip install playwright`, and no "
+                   "browser download is needed if Google Chrome or Microsoft Edge is installed.")
+
+BROWSER_MISSING = ("No browser found for JavaScript-only sites: install Google Chrome or "
+                   "Microsoft Edge, or use Install browser support (Diagnostics > Setup).")
+
+
+def package_installed() -> bool:
+    try:
+        return importlib.util.find_spec("playwright") is not None
+    except (ImportError, ValueError):
+        return False

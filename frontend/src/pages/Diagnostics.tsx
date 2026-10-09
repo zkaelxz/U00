@@ -17,6 +17,7 @@ import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
+import { RealModelCheck } from './diagnostics/RealModelCheck'
 import { SetupSection } from './diagnostics/SetupSection'
 import { headerBadges, installableEngines, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
@@ -155,6 +156,7 @@ export default function DiagnosticsPage() {
             onShowEngines={showEngines}
           />
         )}
+        <RealModelCheck pc={pc} jobsActive={active} />
         <PortsSection pc={pc} />
         <LogSection />
       </div>

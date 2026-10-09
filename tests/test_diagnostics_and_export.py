@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import db
 import diagnostics
+import expected_files
 from core import Line, lines_to_srt, lines_to_bilingual_srt
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -144,7 +145,7 @@ class TestDiagnostics:
     def test_file_completeness_detects_all_present_in_real_project(self):
         result = diagnostics.check_file_completeness(PROJECT_ROOT)
         assert result["all_present"] is True, \
-            f"missing: {result['missing_top_level']} {result['missing_tabs']}"
+            f"missing: {result['missing_top_level']}"
 
     def test_expected_top_level_files_list_is_not_stale(self):
         """Step 25d item 9: this list is hand-maintained on purpose (so a
@@ -155,9 +156,10 @@ class TestDiagnostics:
         real_files = {f for f in os.listdir(PROJECT_ROOT)
                      if f.endswith(".py") and os.path.isfile(os.path.join(PROJECT_ROOT, f))
                      and f not in ("__init__.py", "conftest.py")}
-        missing_from_list = real_files - set(diagnostics.EXPECTED_TOP_LEVEL_FILES)
+        missing_from_list = real_files - set(expected_files.EXPECTED_TOP_LEVEL_FILES)
         assert missing_from_list == set(), \
-            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES: {missing_from_list}"
+            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES in expected_files.py: " \
+            f"{missing_from_list}. Add each name to that list."
 
     def test_file_completeness_reports_missing_in_empty_dir(self, tmp_path_str):
         result = diagnostics.check_file_completeness(tmp_path_str)
@@ -903,7 +905,7 @@ class TestFormatDiagnosticsReport:
             "api_keys": {"claude": True, "gemini": False},
             "dependencies": {"anthropic": {"installed": True, "tier": "engine"},
                              "torch": {"installed": False, "tier": "feature"}},
-            "files": {"all_present": True, "missing_top_level": [], "missing_tabs": []},
+            "files": {"all_present": True, "missing_top_level": []},
         }
         base.update(overrides)
         return base

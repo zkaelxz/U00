@@ -1352,14 +1352,15 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
     and whose English hasn't changed since scheduling, as a normal run."""
     job = db.get_bulk_job(bulk_job_id)
     args = job.get("translate_args") or {}
+    did = job["drama_id"]
     rows = {r["line_id"]: r for r in db.list_bulk_job_lines(bulk_job_id)}
-    lines = db.load_line_objects(job["drama_id"])
+    lines = db.load_line_objects(did)
     eligible = {ln.id for ln in lines
                 if ln.id in rows and (ln.en or "") == (rows[ln.id]["en_at_submit"] or "")}
-    drama = db.get_drama(job["drama_id"]) or {}
+    drama = db.get_drama(did) or {}
     series_id = drama.get("series_id")
     character_names = tguide.build_speaker_labels(
-        db.list_characters_with_series_names(job["drama_id"]),
+        db.list_characters_with_series_names(did),
         db.list_series_characters(series_id) if series_id else [])
     cap = {}
     _, errors = translate_engines.translate_lines_with_engine(
@@ -1368,20 +1369,20 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
         target_ids=eligible, locale=args.get("locale", "en-US"),
         glossary_terms=args.get("glossary_terms"), style_guidelines=args.get("style_guidelines", ""),
         context_window=args.get("context_window", 6), character_names=character_names,
-        save_cb=lambda ls: db.save_lines(job["drama_id"], ls, fields=("en",)),
+        save_cb=lambda ls: db.save_lines(did, ls, fields=("en",)),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-            job["drama_id"], job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
+            did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
+        thinking=args.get("thinking"),
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
     summary = {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
                "batch_errors": len(errors), "cap_reached": cap.get("spent")}
     # Same gate as apply_bulk_results above: a run with batch failures or
     # skipped (source-changed) lines must stay re-runnable, not "translated".
-    _status = dict(translation_engine=job["engine"])
-    if untranslated_line_count(job["drama_id"]) == 0:
-        _status["status"] = "translated"
-    db.update_drama(job["drama_id"], **_status)
+    done = untranslated_line_count(did) == 0
+    db.update_drama(did, translation_engine=job["engine"],
+                    **({"status": "translated"} if done else {}))
     return summary
 
 

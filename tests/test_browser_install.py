@@ -51,6 +51,8 @@ INSTALLER = textwrap.dedent("""
         exe = os.path.join(d, "chrome")
         open(exe, "w").write("x")
         os.chmod(exe, 0o755)
+        if mode != "nomarker":
+            open(os.path.join(d, "INSTALLATION_COMPLETE"), "w").close()
     if mode == "nofiles":
         import shutil
         shutil.rmtree(root)
@@ -68,6 +70,17 @@ def _wait(timeout=15):
 
 
 def _alive(pid):
+    # os.kill(pid, 0) terminates the process on Windows, so ask the OS for
+    # its exit status there instead.
+    if os.name == "nt":
+        import ctypes
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return code.value == 259
     try:
         os.kill(pid, 0)
     except OSError:
@@ -78,7 +91,7 @@ def _alive(pid):
 @pytest.fixture
 def env(isolated_db, monkeypatch, tmp_path):
     from services import library_admin_service
-    state = {"mode": "ok", "playwright": True, "system": False, "free": 5000}
+    state = {"mode": "ok", "playwright": True, "system": False, "free": 5000, "global": False}
     folder = tmp_path / "data" / "playwright_browsers"
     script = tmp_path / "installer.py"
     script.write_text(INSTALLER, encoding="utf-8")
@@ -87,6 +100,7 @@ def env(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(browser_support, "wanted_browser_folders", lambda: list(WANTED))
     monkeypatch.setattr(svc, "_playwright_importable", lambda: state["playwright"])
     monkeypatch.setattr(svc, "_system_browser_found", lambda: state["system"])
+    monkeypatch.setattr(svc, "_global_chromium_present", lambda: state["global"])
     monkeypatch.setattr(svc, "_free_mb", lambda: state["free"])
     monkeypatch.setattr(svc, "_command", lambda: [sys.executable, str(script), state["mode"]])
     monkeypatch.setenv("FAKE_SECRET", SECRET)
@@ -161,6 +175,7 @@ def test_the_subprocess_is_not_a_shell_and_decodes_utf8(client, env, monkeypatch
     ({"playwright": False}, 422, "Packages"),
     ({"system": True}, 409, "Chrome or Edge"),
     ({"free": 100}, 422, "disk space"),
+    ({"global": True}, 409, "already installed"),
 ])
 def test_refusals_start_nothing(client, env, setup, status, text):
     env.update(setup)
@@ -246,6 +261,7 @@ def _put_browser(folder):
         exe = d / "chrome"
         exe.write_text("x")
         exe.chmod(0o755)
+        (d / browser_support.COMPLETE_MARKER).write_text("")
 
 
 def test_page_fetch_launches_from_the_app_folder_when_present(env, monkeypatch, tmp_path):
@@ -268,6 +284,29 @@ def test_page_fetch_leaves_the_environment_alone_without_an_app_browser(env, mon
 def test_a_half_unpacked_build_is_not_present(env):
     (env["folder"] / "chromium-1").mkdir(parents=True)
     assert browser_support.app_chromium_present() is False
+
+
+def test_a_program_file_without_the_completion_marker_is_not_installed(client, env):
+    _put_browser(env["folder"])
+    for name in WANTED:
+        (env["folder"] / name / browser_support.COMPLETE_MARKER).unlink()
+    assert browser_support.app_chromium_present() is False
+    b = client.get("/api/diagnostics/browser").json()
+    assert b["app_browser_installed"] is False and b["refusal"] is None
+    # An interrupted install must not override a working browser path either.
+    before = os.environ.get(browser_support.BROWSERS_ENV)
+    browser_support.use_app_browsers()
+    assert os.environ.get(browser_support.BROWSERS_ENV) == before
+    assert _install(client).status_code == 200
+    assert _wait()["status"] == "done"
+    assert browser_support.app_chromium_present() is True
+
+
+def test_an_install_that_leaves_no_marker_is_a_failure(client, env):
+    env["mode"] = "nomarker"
+    _install(client)
+    assert _wait()["status"] == "error"
+    assert not env["folder"].exists()
 
 
 def _h(s):

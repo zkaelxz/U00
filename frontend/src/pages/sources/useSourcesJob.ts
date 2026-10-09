@@ -20,7 +20,7 @@ import { ApiError } from '../../api/client'
 import { cancelJob } from '../../api/jobs'
 import { getSourcesJobResult } from '../../api/sources'
 import type { SourcesJobResult, SourcesJobStarted } from '../../types/sources'
-import { isSameJobConflict } from './sourcesFormat'
+import { isSameJobConflict } from './sourcesSeries'
 
 type SourcesJobStatus = 'idle' | 'running' | 'done' | 'error'
 

@@ -155,7 +155,7 @@ def start_affected_retranslate(drama_id: int, line_ids, preview_hash: str,
                                fallback_chain: list = None, reflect: bool = False,
                                default_female_pronouns: bool = None,
                                include_genre_notes: bool = None,
-                               allow_paid_summary: bool = True) -> dict:
+                               allow_paid_summary: bool = True, thinking: bool = None) -> dict:
     """Starts the re-translation of the chosen affected lines. The affected
     set is recomputed here; the client's list is only a selection from it.
     InvalidInputError for ids not in this drama or not affected,
@@ -193,6 +193,7 @@ def start_affected_retranslate(drama_id: int, line_ids, preview_hash: str,
         job_cost_cap_usd=job_cost_cap_usd, fallback_chain=fallback_chain, reflect=reflect,
         default_female_pronouns=default_female_pronouns,
         include_genre_notes=include_genre_notes, allow_paid_summary=allow_paid_summary,
+        thinking=thinking,
         own_lines_only=True, expected_en={i: affected[i]["en"] for i in keep})
     # A line edited after the recompute above is dropped by the run and is
     # hand-edited now, so it counts as skipped.

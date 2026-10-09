@@ -2,64 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Baihe Subtitler</title>
+  <link rel="stylesheet" href="ui.css">
   <style>
-    :root { color-scheme: light dark; }
-    body { width: 300px; margin: 0; padding: 12px;
-           font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
-    h1 { font-size: 14px; margin: 0 0 8px; }
-    label { display: block; margin: 10px 0 4px; font-weight: 600; }
-    select, button { width: 100%; padding: 7px; font: inherit; box-sizing: border-box; }
-    button { margin-top: 8px; cursor: pointer; }
-    button.primary { font-weight: 600; }
-    .row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-    .row input { margin: 0; }
-    .row label { margin: 0; font-weight: 400; }
-    #status { margin-top: 10px; padding: 8px; border-radius: 6px;
-              background: rgba(127,127,127,0.14); min-height: 18px; }
-    #status.bad { background: rgba(200,60,60,0.18); }
-    .muted { opacity: 0.75; font-size: 12px; }
-    a { color: inherit; }
+    body { width: 340px; padding: 14px; }
+    main { display: flex; flex-direction: column; gap: 14px; }
+    header { display: flex; align-items: center; justify-content: space-between; }
+    section { display: flex; flex-direction: column; gap: 10px; }
+    .quiet { padding-top: 14px; border-top: 1px solid var(--border); }
+    .switches { display: flex; flex-direction: column; gap: 2px; }
+    .switch { display: flex; align-items: center; gap: 10px; min-height: 36px; margin: 0; font-weight: 400; cursor: pointer; }
+    .switch input { appearance: none; flex: none; width: 36px; height: 20px; margin: 0; cursor: pointer;
+                    border-radius: 999px; background: var(--surface-2); border: 1px solid var(--field-edge);
+                    position: relative; }
+    .switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+                           border-radius: 50%; background: var(--muted); }
+    .switch input:checked { background: var(--accent); border-color: var(--accent); }
+    .switch input:checked::after { left: 18px; background: var(--on-accent); }
+    .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #translate { width: 100%; min-height: 44px; }
+    #translateText { width: 100%; }
+    #dramaTitle { overflow-wrap: anywhere; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
-  <h1>Baihe Subtitler</h1>
-  <div id="status">Checking the app…</div>
+  <main>
+    <header><h1>Baihe Subtitler</h1></header>
 
-  <label for="drama">Send pages to</label>
-  <select id="drama"><option value="">— pick a drama —</option></select>
+    <div id="notice" class="notice" role="alert" hidden>
+      <p id="noticeText"></p>
+      <button id="noticeAction" class="primary" type="button"></button>
+    </div>
 
-  <div class="row">
-    <input type="checkbox" id="store" checked>
-    <label for="store">Also save the page into that drama</label>
-  </div>
-  <div class="row">
-    <input type="checkbox" id="overlay" checked>
-    <label for="overlay">Draw translations over the page</label>
-  </div>
+    <section id="pageSection" aria-label="Translate this page">
+      <div>
+        <label for="drama">Send pages to</label>
+        <select id="drama"><option value="">— pick a drama —</option></select>
+        <p id="dramaTitle" class="hint" hidden></p>
+      </div>
+      <div class="switches">
+        <label class="switch"><input type="checkbox" role="switch" id="store" checked><span>Also save the page into that drama</span></label>
+        <label class="switch"><input type="checkbox" role="switch" id="overlay" checked><span>Draw over page</span></label>
+      </div>
+      <button id="translate" class="primary" type="button">Translate this page</button>
+      <div class="segmented">
+        <button id="translateAll" type="button">Everything visible</button>
+        <button id="toggle" type="button">Show / hide</button>
+      </div>
+      <div class="segmented">
+        <button id="captureChapter" type="button">Capture whole chapter</button>
+        <button id="captureFromHere" type="button">Capture from here</button>
+      </div>
+      <button id="cancelCapture" type="button" hidden>Cancel capture</button>
+    </section>
 
-  <button id="translate" class="primary">Translate this page</button>
-  <button id="translateAll">Translate everything visible</button>
-  <button id="toggle">Show / hide translations</button>
+    <section id="textSection" class="quiet" aria-label="Translate selected text">
+      <h2>Translate selected text</h2>
+      <div>
+        <label for="textDirection">Languages</label>
+        <select id="textDirection">
+          <option value="zh:en">Chinese → English</option>
+          <option value="ja:en">Japanese → English</option>
+          <option value="ko:en">Korean → English</option>
+          <option value="en:zh">English → Chinese</option>
+          <option value="en:ja">English → Japanese</option>
+          <option value="en:ko">English → Korean</option>
+        </select>
+      </div>
+      <button id="translateText" type="button">Translate text</button>
+      <p class="hint">Uses your selection, or the page's main text. Saved to Standalone translate history.</p>
+    </section>
 
-  <hr>
-
-  <label for="textDirection">Translate page text</label>
-  <select id="textDirection">
-    <option value="zh:en">Chinese → English</option>
-    <option value="ja:en">Japanese → English</option>
-    <option value="ko:en">Korean → English</option>
-    <option value="en:zh">English → Chinese</option>
-    <option value="en:ja">English → Japanese</option>
-    <option value="en:ko">English → Korean</option>
-  </select>
-  <button id="translateText">Translate this page's text</button>
-  <p class="muted">Uses the text you've selected, or the page's main text block if nothing
-    is selected. Shown in a panel on the page, and saved to Standalone translate's history.</p>
-
-  <p class="muted">No token yet? Open <a href="#" id="options">options</a> and paste the
-    one from Baihe's Settings → Browser extension.</p>
-
+    <p id="status" class="status" role="status" aria-live="polite">Checking the app…</p>
+    <a id="openInBaihe" href="#" hidden>Open in Baihe</a>
+  </main>
   <script src="popup.js"></script>
 </body>
 </html>

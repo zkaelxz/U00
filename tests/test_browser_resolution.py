@@ -14,6 +14,8 @@ def clean(monkeypatch, tmp_path):
     monkeypatch.setattr(page_fetch, "_system_browser_candidates", lambda: [])
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path / "none"))
     monkeypatch.setenv("HOME", str(tmp_path))
+    # Else an app-folder browser from the Install button on this PC counts.
+    monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
 
 
@@ -67,7 +69,7 @@ def test_no_browser_raises_one_clear_error_without_paths():
     with pytest.raises(page_fetch.BrowserNotFound) as e:
         page_fetch._launch_chromium(launch)
     msg = str(e.value)
-    assert "BAIHE_BROWSER_PATH" in msg and "playwright install chromium" in msg
+    assert msg == page_fetch.BROWSER_MISSING and "Install browser support" in msg
     assert "/x/" not in msg and e.value.__cause__ is None
     assert page_fetch.browser_status() == {"found": False, "name": None}
 
@@ -93,7 +95,7 @@ def test_ladder_reports_not_installed():
     def fetch(url):
         raise page_fetch.BrowserNotFound(page_fetch.BROWSER_MISSING)
     out = ladder._browser_outcome("https://x.example/", None, fetch, "Browser")
-    assert out.reasons == [FailureReason.NOT_INSTALLED] and "BAIHE_BROWSER_PATH" in out.detail
+    assert out.reasons == [FailureReason.NOT_INSTALLED] and "No browser found" in out.detail
 
 
 def _fake_playwright(monkeypatch, tmp_path, revision="1243", manifest=True):
@@ -177,3 +179,44 @@ def test_explicit_path_still_wins_over_the_playwright_check(monkeypatch, tmp_pat
     monkeypatch.setenv(page_fetch.BROWSER_ENV, str(exe))
     _fake_playwright(monkeypatch, tmp_path, "1243")
     assert page_fetch.browser_status() == {"found": True, "name": "custom"}
+
+
+def _no_playwright(monkeypatch, present):
+    import sys
+    import types
+    import browser_support
+    for name in ("playwright", "playwright.sync_api"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    if present:
+        pkg, api = types.ModuleType("playwright"), types.ModuleType("playwright.sync_api")
+        api.sync_playwright = object()
+        monkeypatch.setitem(sys.modules, "playwright", pkg)
+        monkeypatch.setitem(sys.modules, "playwright.sync_api", api)
+    else:
+        monkeypatch.setitem(sys.modules, "playwright", None)  # makes the import raise ImportError
+    monkeypatch.setattr(browser_support, "package_installed", lambda: present)
+
+
+@pytest.mark.parametrize("package", [True, False])
+@pytest.mark.parametrize("chrome", [True, False])
+def test_package_and_browser_are_reported_separately(monkeypatch, tmp_path, package, chrome):
+    import diagnostics
+    exe = tmp_path / "chrome"
+    exe.write_text("x")
+    monkeypatch.setattr(page_fetch, "_system_browser_candidates",
+                        lambda: [("Chrome", str(exe))] if chrome else [])
+    monkeypatch.setattr(page_fetch, "_bundled_browser_present", lambda: False)
+    monkeypatch.delenv(page_fetch.BROWSER_ENV, raising=False)
+    _no_playwright(monkeypatch, package)
+    status = diagnostics.check_browser()
+    assert status == {"found": chrome, "name": "Chrome" if chrome else None, "package": package}
+    assert "tmp" not in str(status)
+    if package:
+        assert page_fetch._require_playwright() is not None
+    else:
+        with pytest.raises(ImportError) as e:
+            page_fetch._require_playwright()
+        msg = str(e.value)
+        assert "\n" not in msg and "playwright install" not in msg
+        assert "Diagnostics > Packages" in msg and "pip install playwright" in msg
+        assert "no browser download is needed" in msg

@@ -51,6 +51,11 @@ class ExampleSource(SourceAdapter):
     languages = ["zh"]
     url_patterns = [r"example\.com/comic/"]      # for the "Paste any URL" box
     host_min_interval = {"www.example.com": 10.0}  # e.g. robots.txt Crawl-delay
+    # Optional: lets the person pick Fast for this site. Only with a checked
+    # robots.txt / terms note; without it Fast stays unavailable. See sources/pacing.py.
+    # pacing_profile = PacingProfile(fast=PaceLevel(min_delay=1, max_delay=2),
+    #                                evidence="robots.txt, no Crawl-delay (checked 2026-10-08)",
+    #                                fast_allowed=True)
     default_headers = {"Referer": "https://www.example.com/"}
     MIRRORS = ["https://www.example.com", "https://m.example.com"]
 

@@ -76,6 +76,11 @@ def _system_browser_found() -> bool:
     return bool(page_fetch.find_system_browser() or page_fetch._explicit_browser())
 
 
+def _global_chromium_present() -> bool:
+    import page_fetch
+    return page_fetch._bundled_browser_present()
+
+
 def _free_mb() -> int:
     folder = browser_support.app_browsers_folder()
     while folder and not os.path.exists(folder):
@@ -94,6 +99,8 @@ def _refusal():
         return "Chrome or Edge is already installed, so this is not needed."
     if browser_support.app_chromium_present():
         return "Browser support is already installed."
+    if _global_chromium_present():
+        return "A Playwright browser is already installed, so this is not needed."
     if _free_mb() < MIN_FREE_MB:
         return f"Not enough free disk space (about {MIN_FREE_MB} MB needed)."
     return None
@@ -117,7 +124,7 @@ def start_install(confirm: bool = False) -> dict:
     gaps.guard(confirm)
     reason = _refusal()
     if reason:
-        if reason.startswith(("Chrome", "Browser support")):
+        if reason.startswith(("Chrome", "Browser support", "A Playwright")):
             raise AlreadyAvailable(reason)
         raise gaps.AdminActionNotPossible(reason)
     if not background_jobs.start_job(BROWSER_JOB_ID, _install_job,

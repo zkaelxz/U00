@@ -1,6 +1,6 @@
 """
 api/routers/review_extras_routes.py -- the Review stage's optional extras
-(inventory R46, R37, R35, R03): merge short adjacent lines (read-only preview,
+(merge short adjacent lines (read-only preview,
 then apply with a stale-id/stale-plan guard and a history snapshot), learn my
 style (one synchronous LLM call; paid-engine gate and the shared LLM slot;
 reset is PC-only),
@@ -32,7 +32,7 @@ _R = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
       503: {"model": ErrorResponse}}
 
 
-# --- R46: merge short adjacent lines ---------------------------------------
+# --- Merge short adjacent lines ---------------------------------------
 
 @router.get("/dramas/{drama_id}/merge-short/preview", dependencies=[require_permission("lines.read")],
             response_model=MergeShortPreview,
@@ -68,7 +68,7 @@ def post_en_cleanup_apply(body: EnCleanupApply, drama_id: int = Path(ge=1)):
     return svc.apply_en_cleanup(drama_id, body.expected_plan_hash)
 
 
-# --- R37: learn my style -----------------------------------------------------
+# --- Learn my style -----------------------------------------------------
 
 def _global_style_pc_only(request: Request, drama_id: int) -> None:
     """A drama with no series uses the library-wide learned profile, which
@@ -93,7 +93,7 @@ def get_style(drama_id: int = Path(ge=1)):
              responses={**_R, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})
 def post_style_learn(body: StyleLearnRequest, request: Request, drama_id: int = Path(ge=1)):
     _global_style_pc_only(request, drama_id)
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with llm_slot(request):
         return svc.learn_style(drama_id, body.engine, body.model, body.gemini_free_tier)
 
@@ -128,7 +128,7 @@ def post_style_restore(body: StyleRestoreRequest, drama_id: int = Path(ge=1)):
     return svc.restore_style(drama_id, body.index)
 
 
-# --- R35: SenseVoice audio tags ---------------------------------------------
+# --- SenseVoice audio tags ---------------------------------------------
 
 @router.post("/dramas/{drama_id}/sensevoice", dependencies=[require_permission("jobs.start")],
              response_model=SenseVoiceStarted,
@@ -146,7 +146,7 @@ def get_sensevoice(drama_id: int = Path(ge=1)):
     return svc.get_sensevoice(drama_id)
 
 
-# --- R03: burned-subtitle preview clip --------------------------------------
+# --- Burned-subtitle preview clip --------------------------------------
 
 @router.post("/dramas/{drama_id}/burn-preview", dependencies=[require_permission("jobs.start")],
              response_model=BurnPreviewStarted,
