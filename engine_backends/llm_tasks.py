@@ -6,6 +6,7 @@ import contextvars
 import re
 import threading
 import time
+from .fallback import FallbackEngine
 from .gemini import GeminiEngine
 from .local import (OllamaEngine, _ollama_chat, abort_check_var, estimate_ollama_num_ctx,
                     ollama_chat_timeout, strip_ollama_thinking)
@@ -14,6 +15,7 @@ from .shared import (
     _backoff_wait_var,
     _cancel_check_var,
     _id_keyed_batch_request,
+    LLMTaskTimeout,
     build_numbered_lines,
     call_with_backoff,
     extract_first_json_value,
@@ -41,19 +43,25 @@ _DEADLINE_MARGIN_SECONDS = 30
 DEEPSEEK_MAX_OUTPUT_TOKENS = 8192
 
 
-class LLMTaskTimeout(RuntimeError):
-    """A bounded single-prompt call passed its total deadline."""
-
-
 class _BoundedScope:
-    def __init__(self, job_id, cancel_check, deadline, no_thinking):
+    def __init__(self, job_id, cancel_check, deadline, no_thinking, lenient_empty=False):
         self.job_id = job_id
         self.cancel_check = cancel_check
         self.deadline = deadline
         self.no_thinking = no_thinking
+        # Callers written before calls were bounded (Reflect, line tools...)
+        # parse an empty reply into their own default instead of failing.
+        self.lenient_empty = lenient_empty
 
 
 _scope_var = contextvars.ContextVar("llm_task_scope", default=None)
+# True inside the worker thread of a bounded call, so a nested call runs
+# directly instead of stacking a second worker and deadline.
+_in_worker_var = contextvars.ContextVar("llm_task_in_worker", default=False)
+# Calls with no job id (request threads, CLI) can't be limited per job, so the
+# limit is on how many such abandoned workers may be alive at once.
+_MAX_ABANDONED_JOBLESS = 4
+_abandoned_jobless = []
 # job id -> worker thread of a call this job stopped waiting for. A python
 # thread can't be killed, so the rule is one such thread per job id: a new
 # call is refused while it lives, instead of piling more up.
@@ -63,7 +71,8 @@ _abandoned_lock = threading.Lock()
 
 @contextlib.contextmanager
 def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
-                      deadline: float = None, no_thinking: bool = False):
+                      deadline: float = None, no_thinking: bool = False,
+                      lenient_empty: bool = False):
     """Inside this block every call_llm_json waits at most `deadline` seconds
     in total (retries included) and gives up within a moment of cancel_check()
     turning true. The blocking call runs in a worker thread so the job can
@@ -74,7 +83,7 @@ def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
     DeepSeek's reasoning off for short JSON tasks; it is opt-in because a
     title's Reflect translation passes also call call_llm_json and must keep
     the title's own thinking choice."""
-    tokens = (_scope_var.set(_BoundedScope(job_id, cancel_check, deadline, no_thinking)),
+    tokens = (_scope_var.set(_BoundedScope(job_id, cancel_check, deadline, no_thinking, lenient_empty)),
               _cancel_check_var.set(cancel_check),
               _backoff_wait_var.set(on_wait))
     try:
@@ -83,6 +92,26 @@ def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
         _backoff_wait_var.reset(tokens[2])
         _cancel_check_var.reset(tokens[1])
         _scope_var.reset(tokens[0])
+
+
+# A translation batch may legitimately make a second request (missing ids are
+# asked for once more), so its deadline is two client timeouts plus the margin.
+_BATCH_REQUESTS = 2
+
+
+def batch_deadline_for(engine) -> float:
+    """Total seconds one engine.translate_batch call may take, retries inside
+    it included. A fallback chain gets one window per engine so a hung first
+    engine still leaves time for the next."""
+    if isinstance(engine, FallbackEngine):
+        return sum(batch_deadline_for(e) for e in engine.engines)
+    if isinstance(engine, OllamaEngine):
+        return _BATCH_REQUESTS * ollama_chat_timeout(engine.model) + _DEADLINE_MARGIN_SECONDS
+    return _BATCH_REQUESTS * SDK_REQUEST_TIMEOUT + _DEADLINE_MARGIN_SECONDS
+
+
+def llm_tasks_scope_active() -> bool:
+    return _scope_var.get() is not None
 
 
 def _deadline_for(scope: _BoundedScope, engine) -> float:
@@ -98,14 +127,19 @@ def _deadline_for(scope: _BoundedScope, engine) -> float:
     return max(LLM_TASK_DEADLINE_SECONDS, SDK_REQUEST_TIMEOUT + _DEADLINE_MARGIN_SECONDS)
 
 
-def _run_bounded(scope: _BoundedScope, fn, engine=None):
+def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None):
     with _abandoned_lock:
-        old = _abandoned.get(scope.job_id)
-        if old is not None and old.is_alive():
+        if scope.job_id is None:
+            _abandoned_jobless[:] = [w for w in _abandoned_jobless if w.is_alive()]
+            busy = len(_abandoned_jobless) >= _MAX_ABANDONED_JOBLESS
+        else:
+            old = _abandoned.get(scope.job_id)
+            busy = old is not None and old.is_alive()
+            if not busy:
+                _abandoned.pop(scope.job_id, None)
+        if busy:
             raise LLMTaskTimeout(
-                "The previous AI request for this job is still finishing. "
-                "Wait a minute and try again.")
-        _abandoned.pop(scope.job_id, None)
+                "The previous AI request is still finishing. Wait a minute and try again.")
     box = {}
     scope_on_wait = _backoff_wait_var.get()
     ctx = contextvars.copy_context()
@@ -119,10 +153,12 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None):
             if not abandon.is_set():
                 scope_on_wait(*args)
         ctx.run(_backoff_wait_var.set, on_wait)
-    if isinstance(engine, OllamaEngine):
-        # Lets cancel and the deadline close the Ollama request, which makes it
-        # stop generating; otherwise it holds the GPU after the job has let go.
-        ctx.run(abort_check_var.set, lambda: abandon.is_set() or bool(scope.cancel_check()))
+    ctx.run(_scope_var.set, scope)
+    ctx.run(_in_worker_var.set, True)
+    # Lets cancel and the deadline close an Ollama request (also one inside a
+    # fallback chain), which makes it stop generating; otherwise it holds the
+    # GPU after the job has let go. Other engines never read it.
+    ctx.run(abort_check_var.set, lambda: abandon.is_set() or bool(scope.cancel_check()))
 
     def work():
         try:
@@ -132,7 +168,8 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None):
 
     worker = threading.Thread(target=work, daemon=True, name=f"llm-task-{scope.job_id}")
     worker.start()
-    deadline = _deadline_for(scope, engine)
+    if deadline is None:
+        deadline = _deadline_for(scope, engine)
     end = time.monotonic() + deadline
     while True:
         worker.join(0.25)
@@ -146,7 +183,10 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None):
             worker.join(2.0)
             if worker.is_alive():
                 with _abandoned_lock:
-                    _abandoned[scope.job_id] = worker
+                    if scope.job_id is None:
+                        _abandoned_jobless.append(worker)
+                    else:
+                        _abandoned[scope.job_id] = worker
             if cancelled:
                 raise TranslationCancelled("cancelled")
             raise LLMTaskTimeout(
@@ -182,14 +222,39 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     Translate job's own usage_cb -- so a caller can log real spend here
     too, instead of only translation ever reaching the cost dashboard.
 
-    Inside bounded_llm_calls the call has a total deadline and can be
-    cancelled; outside it, it blocks until the SDK returns.
+    Always has a total deadline; inside bounded_llm_calls it can also be
+    cancelled and reports retries.
     """
+    return _bounded(lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb), engine)
+
+
+def _bounded(fn, engine, deadline: float = None):
+    if _in_worker_var.get():
+        return fn()
     scope = _scope_var.get()
     if scope is None:
-        return _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb)
-    return _run_bounded(
-        scope, lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb), engine)
+        # Whoever called has no job to cancel; a cancel check set for the
+        # backoff waits still applies.
+        scope = _BoundedScope(None, _cancel_check_var.get() or (lambda: False), None, False,
+                              lenient_empty=True)
+    return _run_bounded(scope, fn, engine, deadline)
+
+
+def bound_batches(engine):
+    """Makes every engine.translate_batch call on this engine instance run
+    under call_batch_bounded, for code that calls it directly. Instance-level
+    on purpose: the engine keeps its class, its client and its last_usage."""
+    original = engine.translate_batch
+    engine.translate_batch = lambda *a, **kw: call_batch_bounded(
+        engine, lambda: original(*a, **kw))
+    return engine
+
+
+def call_batch_bounded(engine, fn):
+    """Runs one engine.translate_batch-style call (fn, no arguments) under the
+    batch deadline, so a hung engine ends the call and Cancel is noticed within
+    a moment instead of after the SDK's own timeouts."""
+    return _bounded(fn, engine, batch_deadline_for(engine))
 
 
 def _is_deepseek(engine) -> bool:
@@ -198,35 +263,23 @@ def _is_deepseek(engine) -> bool:
 
 def _deepseek_kwargs(engine, max_tokens) -> dict:
     """Request arguments only DeepSeek gets: its keep-alive connection needs
-    the tighter read timeout inside a bounded call, and thinking is off only
-    when the bounded call asked for it.
+    the tighter read timeout, and thinking is off only when the bounded call
+    asked for it.
 
     max_tokens is sent only with thinking off: with thinking on (the default)
     hidden reasoning counts toward it, so a cap sized for the visible JSON cuts
     the reply off and returns empty content."""
     scope = _scope_var.get()
-    kwargs = {}
+    kwargs = {"timeout": LLM_TASK_REQUEST_TIMEOUT}
     if scope is not None:
-        kwargs["timeout"] = LLM_TASK_REQUEST_TIMEOUT
         if scope.no_thinking:
             kwargs["max_tokens"] = min(max_tokens, DEEPSEEK_MAX_OUTPUT_TOKENS)
             kwargs.update(deepseek_extra_body({"reply_without_thinking": True}))
     return kwargs
 
 
-def _single_attempt_client(client):
-    """Inside a bounded scope the SDK's own retries are switched off, so the
-    cancellable call_with_backoff is the only retry loop and an abandoned call
-    can't keep retrying in its thread. Outside a scope the client is unchanged."""
-    if _scope_var.get() is None or not hasattr(client, "with_options"):
-        return client
-    return client.with_options(max_retries=0, timeout=SDK_REQUEST_TIMEOUT)
-
-
 def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
     client = getattr(engine, "client", None)
-    if client is not None:
-        client = _single_attempt_client(client)
     if client is not None and hasattr(client, "messages"):
         resp = call_with_backoff(lambda: client.messages.create(
             model=engine.model, max_tokens=max_tokens,
@@ -249,7 +302,8 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
         content = resp.choices[0].message.content
         # Only a bounded caller treats "" as a failure; the others have always
         # parsed an empty reply into their own default.
-        if not content and _scope_var.get() is not None:
+        scope = _scope_var.get()
+        if not content and scope is not None and not scope.lenient_empty:
             raise RuntimeError(
                 "The AI engine returned an empty reply (it may have run out of output tokens).")
         return (content or "").strip()

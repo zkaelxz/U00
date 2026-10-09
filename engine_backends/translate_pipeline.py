@@ -2,7 +2,8 @@
 
 import inspect
 from .fallback import FallbackEngine
-from .llm_tasks import call_llm_json
+from .llm_tasks import (bounded_llm_calls, call_batch_bounded, call_llm_json,
+                        llm_tasks_scope_active)
 from .pricing import estimate_cost_for_engine
 from .prompts import (MALE_PRONOUN_WORD, batch_context_for, build_stable_prompt, is_male_speaker_label,
                       known_male_names, pronoun_batch_note, pronoun_default_active,
@@ -11,6 +12,7 @@ from .thinking import title_thinking
 from .shared import (
     ContentModerationBlocked,
     FreeTierDailyLimitReached,
+    LLMTaskTimeout,
     _backoff_wait_var,
     _cancel_check_var,
     _id_keyed_batch_request,
@@ -20,6 +22,7 @@ from .shared import (
     spoken_language_tag,
     tagged_line_languages,
     redact_secrets,
+    TranslationCancelled,
 )
 from memory_headroom import HeadroomError
 
@@ -328,7 +331,9 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
         chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
         sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
         try:
-            redone = call_with_backoff(lambda: engine.translate_batch(sources, chunk_context))
+            redone = call_with_backoff(
+                lambda: call_batch_bounded(
+                    engine, lambda: engine.translate_batch(sources, chunk_context)))
             if hasattr(engine, "last_usage"):
                 u = engine.last_usage
                 record_usage(u.get("input_tokens", 0), u.get("output_tokens", 0),
@@ -569,7 +574,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                     lambda: reflect_translate_batch(engine, sources, chunk_context,
                                                     usage_cb=record_usage, pass_cb=_on_pass))
             translations = call_with_backoff(
-                lambda: engine.translate_batch(sources, chunk_context))
+                lambda: call_batch_bounded(
+                    engine, lambda: engine.translate_batch(sources, chunk_context)))
             if hasattr(engine, "last_usage"):
                 u = engine.last_usage
                 record_usage(u.get("input_tokens", 0), u.get("output_tokens", 0),
@@ -599,11 +605,16 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                    "error": f"blocked by {blocked.engine}'s content filter: "
                                             f"{blocked.reason}"})
                 return
+            except TranslationCancelled:
+                # Not a failure of the batch; the loop's cancel check ends the run.
+                return
             except Exception as e:
                 redacted = redact_secrets(str(e))
                 errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
                                "error": redacted})
-                if isinstance(e, (FreeTierDailyLimitReached, HeadroomError)):
+                # After a timeout the abandoned request may still be running, so
+                # the next batch would be refused or double-billed.
+                if isinstance(e, (FreeTierDailyLimitReached, HeadroomError, LLMTaskTimeout)):
                     stop_run.append(True)
                 import applog
                 applog.get_logger().error(f"translate batch {bi} failed: {redacted}")
@@ -675,8 +686,16 @@ def translate_lines_with_engine(*args, **kwargs):
     # the caller passed it positionally or by keyword; the context var lets
     # sleeps deep in shared.py see it without threading it through every call.
     bound = inspect.signature(_translate_lines_with_engine).bind(*args, **kwargs)
-    token = _cancel_check_var.set(bound.arguments.get("cancel_check_cb"))
+    cancel_check = bound.arguments.get("cancel_check_cb")
+    token = _cancel_check_var.set(cancel_check)
     try:
-        return _translate_lines_with_engine(*args, **kwargs)
+        if llm_tasks_scope_active():
+            return _translate_lines_with_engine(*args, **kwargs)
+        # One run per drama at a time, so the drama keys the rule that an
+        # abandoned request blocks a new one; without an id the global cap applies.
+        drama_id = (bound.arguments.get("drama_meta") or {}).get("id")
+        with bounded_llm_calls(f"translate:{drama_id}" if drama_id else None,
+                               cancel_check or (lambda: False), lenient_empty=True):
+            return _translate_lines_with_engine(*args, **kwargs)
     finally:
         _cancel_check_var.reset(token)

@@ -68,6 +68,10 @@ class TranslationCancelled(Exception):
     """A wait was cut short because the running job was cancelled."""
 
 
+class LLMTaskTimeout(RuntimeError):
+    """A bounded AI call passed its total deadline."""
+
+
 class FreeTierDailyLimitReached(RuntimeError):
     """The free-tier daily request limit is used up; waiting it out would
     take hours, so the run stops instead."""
@@ -130,7 +134,10 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
         except Exception as e:
             last_exception = e
             # A refused local load repeats identically; retrying only delays the message.
-            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached, HeadroomError)):
+            # A deadline has already waited as long as the call may; a retry would
+            # bill a second request while the abandoned one may still be running.
+            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached, HeadroomError,
+                              LLMTaskTimeout)):
                 raise
             if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
                 # FallbackEngine already retried and tried every engine.
@@ -532,3 +539,24 @@ def _detect_soft_refusal_text(text: str):
 # bound the Ollama REST call uses (300 s) rather than retrying (and
 # re-billing) a reply that was still coming.
 SDK_REQUEST_TIMEOUT = 300
+
+
+def _sdk_http_timeout():
+    import httpx
+    # read is a per-read idle bound (a non-streamed reply sends nothing until
+    # it is done); the short connect/pool bounds stop a dead host or an
+    # exhausted pool from eating it.
+    return httpx.Timeout(connect=10.0, read=SDK_REQUEST_TIMEOUT, write=30.0, pool=10.0)
+
+
+# max_retries=0: call_with_backoff and FallbackEngine are the retry layers the
+# user can cancel and see; the SDK's own two hidden retries would triple every
+# wait and keep re-billing in a thread nobody can stop.
+def make_anthropic_client(api_key: str):
+    import anthropic
+    return anthropic.Anthropic(api_key=api_key, timeout=_sdk_http_timeout(), max_retries=0)
+
+
+def make_openai_client(api_key: str, base_url: str = None):
+    from openai import OpenAI
+    return OpenAI(api_key=api_key, base_url=base_url, timeout=_sdk_http_timeout(), max_retries=0)

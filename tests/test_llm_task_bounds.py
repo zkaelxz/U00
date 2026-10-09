@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from engine_backends import llm_tasks
-from engine_backends.shared import TranslationCancelled
+from engine_backends.shared import SDK_REQUEST_TIMEOUT, TranslationCancelled
 
 
 def _reply(text="[]"):
@@ -36,8 +36,10 @@ def _engine(name, behaviour=lambda n: _reply()):
 @pytest.fixture
 def no_abandoned():
     llm_tasks._abandoned.clear()
+    llm_tasks._abandoned_jobless.clear()
     yield
     llm_tasks._abandoned.clear()
+    llm_tasks._abandoned_jobless.clear()
 
 
 def test_deepseek_gets_timeout_but_no_max_tokens_while_thinking():
@@ -62,11 +64,12 @@ def test_thinking_is_off_only_when_the_bounded_call_asks():
     assert "extra_body" not in ocomp.calls[0]
 
 
-def test_unbounded_deepseek_call_keeps_default_timeout_and_thinking():
+def test_call_with_no_scope_gets_the_request_timeout_but_keeps_thinking():
     engine, comp = _engine("deepseek")
     llm_tasks.call_llm_json(engine, "p", max_tokens=500)
     (kw,) = comp.calls
-    assert "timeout" not in kw and "extra_body" not in kw and "max_tokens" not in kw
+    assert kw["timeout"] == llm_tasks.LLM_TASK_REQUEST_TIMEOUT
+    assert "extra_body" not in kw and "max_tokens" not in kw
 
 
 def test_deepseek_max_tokens_is_clamped_when_thinking_is_off():
@@ -201,23 +204,13 @@ def test_empty_reply_outside_a_scope_stays_an_empty_string(text):
     assert llm_tasks.call_llm_json(engine, "p") == ""
 
 
-def test_sdk_retries_are_off_only_inside_a_scope():
-    seen = []
-
-    class Client:
-        chat = SimpleNamespace(completions=SimpleNamespace(
-            create=lambda **kw: _reply("[]")))
-
-        def with_options(self, **kw):
-            seen.append(kw)
-            return self
-
-    engine = SimpleNamespace(name="someother", model="m", client=Client())
-    llm_tasks.call_llm_json(engine, "p")
-    assert seen == []
-    with llm_tasks.bounded_llm_calls("j0", lambda: False):
-        llm_tasks.call_llm_json(engine, "p")
-    assert seen[0]["max_retries"] == 0 and seen[0]["timeout"]
+def test_sdk_clients_never_retry_on_their_own():
+    pytest.importorskip("openai")
+    pytest.importorskip("anthropic")
+    from engine_backends.shared import make_anthropic_client, make_openai_client
+    for client in (make_anthropic_client("k"), make_openai_client("k", "https://example.invalid")):
+        assert client.max_retries == 0
+        assert client.timeout.connect == 10 and client.timeout.read == SDK_REQUEST_TIMEOUT
 
 
 def test_abandoned_worker_stops_retrying_and_reports_nothing(no_abandoned):
