@@ -722,7 +722,6 @@ OVERSIZED_MODULE_BYTES = {
     "sources/ai_extract.py": 50796,
     "services/translate_run_service.py": 45837,
     "services/diagnostics_gaps_service.py": 44615,
-    "services/glossary_service.py": 44595,
     "page_fetch.py": 44114,
     "sources/adaptive.py": 42520,
     "translation_guide.py": 41109,
