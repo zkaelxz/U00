@@ -47,6 +47,8 @@ interface Props {
   // Start the translate run; note summarizes what was added to the glossary.
   onStart: (note: string | null) => void
   onCancel: () => void
+  // Attach to the scan the server already holds instead of starting one.
+  resume?: boolean
 }
 
 // Parity X28, "Review glossary before translating": the Translate button
@@ -54,7 +56,7 @@ interface Props {
 // else from the source lines), shows the proposals, and then either adds
 // the checked terms and starts the run, or cancels. Mounted once per press
 // (keyed by the caller), so each press extracts afresh.
-export function GlossaryReview({ onStart, onCancel, engine }: Props) {
+export function GlossaryReview({ onStart, onCancel, engine, resume }: Props) {
   const { dramaId, drama } = useStage()
   const hasNovel = useHasNovel(dramaId, drama)
   return (
@@ -63,13 +65,13 @@ export function GlossaryReview({ onStart, onCancel, engine }: Props) {
       {hasNovel === null ? (
         <p className="muted" role="status">Checking for a novel…</p>
       ) : (
-        <ReviewBody source={reviewSource(hasNovel)} engine={engine} onStart={onStart} onCancel={onCancel} />
+        <ReviewBody source={reviewSource(hasNovel)} engine={engine} onStart={onStart} onCancel={onCancel} resume={resume} />
       )}
     </section>
   )
 }
 
-function ReviewBody({ source, engine, onStart, onCancel }: Props & { source: GlossarySource }) {
+function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { source: GlossarySource }) {
   const { dramaId } = useStage()
   const isPhone = useMediaQuery('(max-width: 640px)')
   const { status, error: loadError, clearError } = useGlossaryRun(dramaId, source)
@@ -85,12 +87,23 @@ function ReviewBody({ source, engine, onStart, onCancel }: Props & { source: Glo
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
+    if (resume) {
+      // A scan outlives this panel; a missing run reads as a failed start.
+      GLOSSARY_API[source].get(dramaId).then(
+        (s) => setStarted({ runId: s.run_id, failed: !s.run_id }),
+        (e: unknown) => {
+          setError(e)
+          setStarted({ runId: null, failed: true })
+        },
+      )
+      return
+    }
     startExtraction(dramaId, source).then((r) => {
       setStartProblem(r.problem)
       setError(r.error)
       setStarted({ runId: r.runId, failed: r.problem !== null || r.error !== null || !r.runId })
     })
-  }, [dramaId, source])
+  }, [dramaId, source, resume])
 
   const failed = started !== 'pending' && started.failed
   const run = started !== 'pending' && !started.failed ? started.runId : null
@@ -169,6 +182,11 @@ function ReviewBody({ source, engine, onStart, onCancel }: Props & { source: Glo
         <p role="status" data-testid="glossary-review-running">
           {extractionProgressText(source, cur.status, cur.progress)}
           {' '}This can take a few minutes{elapsed !== null ? ` (${formatElapsed(elapsed)} elapsed)` : ''}.
+        </p>
+      )}
+      {resume && cur?.status === 'done' && proposals.length > 0 && (
+        <p role="status" data-testid="glossary-review-resumed">
+          Found {proposals.length} {proposals.length === 1 ? 'term' : 'terms'} from your last scan. They stay here until you add or dismiss them, or the app restarts.
         </p>
       )}
       {startProblem && <p className="error" role="alert">{startProblem}</p>}
