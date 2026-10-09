@@ -66,6 +66,13 @@ import db
 import translation_guide as tguide
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, parse_glossary_file
 from translate_engines import WORKFLOW_TIERS, effective_tier
+from services.glossary_common import (
+    MAX_NOTES_LEN,
+    MAX_TERM_LEN,
+    _drama,
+    _series_id,
+    _text,
+)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -77,26 +84,9 @@ from services.service_errors import (
 # any engine outside translate_engines.FREE_ENGINES).
 PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run")
 
-MAX_TERM_LEN = 200
-MAX_NOTES_LEN = 1000
 MAX_LIST_ITEMS = 50
 MAX_ITEM_LEN = 200
 MAX_INSTRUCTIONS_LEN = 5000
-
-
-def _drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError("Drama not found.")
-    return drama
-
-
-def _series_id(drama: dict, *, required: bool) -> Optional[int]:
-    sid = drama.get("series_id")
-    if not sid and required:
-        raise UnsupportedOperationError(
-            "This drama isn't part of a series; add it to a series first.")
-    return sid or None
 
 
 def _split(value) -> list:
@@ -115,19 +105,6 @@ def _serialize(row: dict) -> dict:
         "aliases": _split(row.get("aliases")),
         "banned_translations": _split(row.get("banned_translations")),
     }
-
-
-def _text(value, field: str, max_len: int, *, required: bool = False) -> str:
-    if value is None:
-        value = ""
-    if not isinstance(value, str):
-        raise InvalidInputError(f"{field} must be text.")
-    value = value.strip()
-    if required and not value:
-        raise InvalidInputError(f"{field} is required.")
-    if len(value) > max_len:
-        raise InvalidInputError(f"{field} is too long (max {max_len} characters).")
-    return value
 
 
 def _str_list(value, field: str) -> str:
@@ -392,47 +369,30 @@ def get_catalogues() -> dict:
     }
 
 
-# Extraction jobs live in glossary_extract_service; re-exported so routers,
-# the CLI and tests keep importing them from here.
+# Extraction jobs live in glossary_extract_service; this front door keeps
+# the names routers, the CLI and tests import from here. It sits at the
+# bottom because glossary_extract_service and this module share helpers
+# only through glossary_common, so neither import order can hit a half-built
+# module.
 from services.glossary_extract_service import (  # noqa: E402,F401
     RAW_NOVEL_FILENAME,
-    _EXTRACT_FAILED,
     novel_glossary_job_id,
-    _read_drama_file,
-    _default_engine,
     novel_glossary_engine,
-    HIGH_CONFIDENCE_MIN_OCCURRENCES,
-    MAX_ALTERNATIVES,
-    _confidence,
     _normalize_proposals,
     _novel_glossary_cache,
-    _run_novel_glossary_job,
-    _run_ids_lock,
     _start_extraction_job,
-    _cancel_extraction,
     cancel_novel_glossary_run,
     cancel_lines_glossary_run,
-    _current_run_id_locked,
     _current_run_id,
-    _glossary_engine,
     start_novel_glossary_run,
-    _PROPOSAL_FIELDS,
-    MAX_DISMISSALS_PER_SERIES,
-    _dismissals,
-    _extraction_status,
     get_novel_glossary_status,
-    _OVERRIDE_KEYS,
-    _clean_overrides,
     PROPOSALS_CHANGED,
-    _apply_extraction,
     list_glossary_dismissals,
-    _clean_dismiss_terms,
     dismiss_glossary_proposals,
     restore_glossary_proposals,
     apply_novel_glossary,
     lines_glossary_job_id,
     lines_glossary_engine,
-    _run_lines_glossary_job,
     start_lines_glossary_run,
     get_lines_glossary_status,
     apply_lines_glossary,

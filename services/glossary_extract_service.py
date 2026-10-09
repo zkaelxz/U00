@@ -17,9 +17,7 @@ import translate_engines
 import translation_guide as tguide
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service
-# glossary_service re-exports this module from its bottom, so it must be
-# imported first (importing this module directly would hit a half-built one).
-from services.glossary_service import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text
+from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
