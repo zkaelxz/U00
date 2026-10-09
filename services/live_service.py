@@ -285,11 +285,6 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "owner_user_id": ownership_service.acting_user_id()}
     try:
-        run_settings_service.record(
-            session_id, engine=engine_name, model=getattr(eng, "model", None),
-            whisper_size=whisper_size, source_language=source_language,
-            segment_seconds=segment_seconds, overlap_seconds=overlap_seconds, use_gpu=bool(use_gpu),
-            reply_without_thinking=bool(reply_without_thinking), max_minutes=max_minutes)
         started = background_jobs.start_job(
             session_id, _make_target(session_id),
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
@@ -298,6 +293,12 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
+            run_settings=run_settings_service.build(
+                engine=engine_name, model=getattr(eng, "model", None),
+                whisper_size=whisper_size, source_language=source_language,
+                segment_seconds=segment_seconds, overlap_seconds=overlap_seconds,
+                use_gpu=bool(use_gpu), reply_without_thinking=bool(reply_without_thinking),
+                max_minutes=max_minutes),
             gpu_touching=bool(use_gpu), description=f"Live capture (local Whisper, {engine_name}"
             f"{' ' + eng.model if getattr(eng, 'model', None) else ''})")
     except Exception:

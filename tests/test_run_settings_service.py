@@ -40,19 +40,82 @@ class TestSanitise:
         assert run_settings_service.sanitise(["engine"]) == {}
 
 
-class TestRecord:
+class TestBuild:
     def test_later_sources_and_keywords_override(self):
-        run_settings_service.record("rs_a", {"beam_size": 5, "use_gpu": False}, use_gpu=True)
-        assert run_settings_service.get("rs_a") == {"beam_size": 5, "use_gpu": True}
+        assert run_settings_service.build(
+            {"beam_size": 5, "use_gpu": False}, use_gpu=True) == {"beam_size": 5, "use_gpu": True}
 
-    def test_a_run_with_nothing_allowed_clears_the_previous_run(self):
-        run_settings_service.record("rs_b", beam_size=5)
-        run_settings_service.record("rs_b", audio_path="/x")
-        assert run_settings_service.get("rs_b") == {}
+    def test_a_run_with_nothing_allowed_is_empty(self):
+        assert run_settings_service.build(audio_path="/x") == {}
 
-    def test_unknown_job_has_none(self):
-        assert run_settings_service.get("never_ran") == {}
-        assert run_settings_service.get(None) == {}
+    def test_ollama_registry_host_is_dropped_from_the_model(self):
+        assert run_settings_service.sanitise({"model": "nas.lan:5000/me/qwen:7b"}) == {
+            "model": "qwen:7b"}
+        assert run_settings_service.sanitise({"model": "qwen2.5:7b"}) == {"model": "qwen2.5:7b"}
+        for path in ("/home/me/m.bin", "C:/models/m.bin", "C:\\models\\m.bin", "a/../b/m.bin"):
+            assert run_settings_service.sanitise({"model": path}) == {}, path
+
+
+class TestSettingsLiveOnTheJobEntry:
+    def _wait(self, job_id):
+        import time
+        deadline = time.time() + 3
+        while (background_jobs.get_status(job_id) or {}).get("status") in (None, "running", "queued"):
+            assert time.time() < deadline
+            time.sleep(0.01)
+
+    def _stored(self, isolated_db, job_id):
+        return json.loads(isolated_db.get_job_record(job_id)["result_json"] or "null")
+
+    def test_a_later_run_without_settings_never_inherits_the_earlier_ones(self, isolated_db):
+        background_jobs.clear_all_jobs()
+        background_jobs.start_job("rs_reuse", lambda: None, run_settings={"beam_size": 5})
+        self._wait("rs_reuse")
+        background_jobs.start_job("rs_reuse", lambda: None)
+        self._wait("rs_reuse")
+        assert self._stored(isolated_db, "rs_reuse") is None
+
+    def test_a_refused_start_leaves_the_live_jobs_settings_alone(self, isolated_db):
+        import threading
+        background_jobs.clear_all_jobs()
+        gate = threading.Event()
+        assert background_jobs.start_job("rs_live", gate.wait, run_settings={"beam_size": 5})
+        assert not background_jobs.start_job("rs_live", lambda: None, run_settings={"beam_size": 9})
+        gate.set()
+        self._wait("rs_live")
+        assert self._stored(isolated_db, "rs_live") == {"run_settings": {"beam_size": 5}}
+
+    def test_the_first_mirror_already_carries_this_runs_settings(self, isolated_db):
+        import threading
+        background_jobs.clear_all_jobs()
+        gate = threading.Event()
+        background_jobs.start_job("rs_first", gate.wait, run_settings={"beam_size": 5})
+        gate.set()
+        self._wait("rs_first")
+        background_jobs.start_job("rs_first", gate.wait, run_settings={"beam_size": 7})
+        assert self._stored(isolated_db, "rs_first") == {"run_settings": {"beam_size": 7}}
+
+    def test_unsanitised_settings_are_cleaned_on_the_way_in(self, isolated_db):
+        background_jobs.clear_all_jobs()
+        background_jobs.start_job("rs_dirty", lambda: None,
+                                  run_settings={"beam_size": 5, "audio_path": "/home/me/a.wav"})
+        self._wait("rs_dirty")
+        assert self._stored(isolated_db, "rs_dirty") == {"run_settings": {"beam_size": 5}}
+
+    def test_a_queued_process_job_keeps_its_settings_when_promoted(self, isolated_db, monkeypatch):
+        background_jobs.clear_all_jobs()
+        monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
+        monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a, **k: False)
+        monkeypatch.setattr(background_jobs, "_gpu_queue_waiting_locked", lambda: False)
+        assert background_jobs.start_process_job(
+            "rs_queued", print, gpu_touching=True, run_settings={"beam_size": 5})
+        assert self._stored(isolated_db, "rs_queued") == {"run_settings": {"beam_size": 5}}
+        entry = background_jobs._jobs["rs_queued"]
+        assert entry["status"] == "queued" and entry["run_settings"] == {"beam_size": 5}
+        proc, _q = background_jobs._register_process_job(
+            "rs_queued", print, (), True, None, None, run_settings=entry["run_settings"])
+        assert background_jobs._jobs["rs_queued"]["run_settings"] == {"beam_size": 5}
+        background_jobs.clear_all_jobs()
 
 
 class TestProjection:
@@ -67,23 +130,24 @@ class TestProjection:
         assert "run_settings" not in jobs_service.project_result(
             {"line_count": 3, "run_settings": {"audio_path": "/a"}})
 
-    def test_project_result_json_merges_the_recorded_settings(self):
-        run_settings_service.record("rs_c", engine="claude", glossary=True)
-        stored = json.loads(jobs_service.project_result_json({"line_count": 2}, "rs_c"))
+    def test_project_result_json_merges_the_settings(self):
+        stored = json.loads(jobs_service.project_result_json(
+            {"line_count": 2}, {"engine": "claude", "glossary": True}))
         assert stored == {"line_count": 2, "run_settings": {"engine": "claude", "glossary": True}}
 
     def test_a_cue_list_result_still_carries_the_settings(self):
-        run_settings_service.record("rs_d", whisper_size="small")
-        assert json.loads(jobs_service.project_result_json([{"text": "hi"}], "rs_d")) == {
+        assert json.loads(jobs_service.project_result_json(
+            [{"text": "hi"}], {"whisper_size": "small"})) == {
             "run_settings": {"whisper_size": "small"}}
-        assert jobs_service.project_result_json([{"text": "hi"}], "rs_unrecorded") is None
+        assert jobs_service.project_result_json([{"text": "hi"}]) is None
 
     def test_job_details_expose_only_the_allow_listed_settings(self, isolated_db):
         import time
-        run_settings_service.record(
-            "rs_job", {"audio_path": "/home/me/a.wav", "beam_size": 5}, asr_backend="whisper",
-            model="/home/me/m.bin")
-        background_jobs.start_job("rs_job", lambda: background_jobs.set_result("rs_job", {"line_count": 1}))
+        background_jobs.start_job(
+            "rs_job", lambda: background_jobs.set_result("rs_job", {"line_count": 1}),
+            run_settings=run_settings_service.build(
+                {"audio_path": "/home/me/a.wav", "beam_size": 5}, asr_backend="whisper",
+                model="/home/me/m.bin"))
         deadline = time.time() + 3
         while (background_jobs.get_status("rs_job") or {}).get("status") != "done":
             assert time.time() < deadline

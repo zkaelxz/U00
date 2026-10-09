@@ -1,8 +1,9 @@
 """The settings a job run used, shown in the Jobs page Details panel.
 
 Job args are never exposed (they hold paths, keys and URLs). A job instead
-records an allow-listed view of its settings here when it starts;
-jobs_service.project_result_json merges it into the stored result as
+passes an allow-listed view of its settings to background_jobs.start_job,
+which keeps it on the job's own entry (so it can never attach to another
+run); jobs_service.project_result_json merges it into the stored result as
 "run_settings" when the job's record is written, and project_result
 re-sanitises it on every read, so an older or hand-edited row can't leak a
 key this module doesn't allow.
@@ -14,7 +15,6 @@ anything that looks like a path, a URL or a credential is dropped, never
 masked. Prompts and other free text have no key here.
 """
 import re
-import threading
 
 _NAME = "name"
 _INT = "int"
@@ -45,10 +45,6 @@ ALLOWED_KEYS = {
 # Letters, digits and . _ : + - / @ only, starting alphanumeric: "large-v3",
 # "qwen2.5:7b", "Org/Model-1.7B". No backslash, drive colon, space or "://".
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:+@/-]{0,63}$")
-_MAX_ENTRIES = 256
-
-_lock = threading.Lock()
-_recorded: dict = {}
 
 
 def _clean_name(value):
@@ -59,6 +55,17 @@ def _clean_name(value):
     # Imported lazily: jobs_service imports this module.
     from services.jobs_service import scrub_text
     return value if scrub_text(value) == value else None
+
+
+def _without_registry_host(value):
+    """An Ollama tag may carry a registry host ("nas.lan:5000/me/qwen:7b"),
+    which names a machine on the user's network: keep what follows the last
+    "/". Anything shaped like a path is left whole so _clean_name drops it
+    instead of reducing it to a file name."""
+    if (not isinstance(value, str) or value.startswith(("/", "~")) or ".." in value
+            or "\\" in value or "//" in value or ":/" in value):
+        return value
+    return value.rsplit("/", 1)[-1]
 
 
 def _clean(kind, value):
@@ -80,34 +87,61 @@ def sanitise(raw) -> dict:
     out = {}
     for key, kind in ALLOWED_KEYS.items():
         if key in raw:
-            value = _clean(kind, raw[key])
+            value = raw[key]
+            if key == "model":
+                value = _without_registry_host(value)
+            value = _clean(kind, value)
             if value is not None:
                 out[key] = value
     return out
 
 
-def record(job_id: str, *sources: dict, **settings) -> None:
-    """Remembers the sanitised settings of the run just started under
-    job_id. Later sources and keyword settings override earlier ones, so a
-    caller can pass a drama row and override the derived keys. Never raises:
-    a job must not fail because its settings couldn't be recorded."""
+def build(*sources: dict, **settings) -> dict:
+    """The sanitised settings of a run about to start, for start_job's
+    run_settings. Later sources and keyword settings override earlier ones.
+    Never raises: a job must not fail because its settings couldn't be
+    built."""
     try:
         merged = {}
         for source in sources:
             if isinstance(source, dict):
                 merged.update(source)
         merged.update(settings)
-        clean = sanitise(merged)
+        return sanitise(merged)
     except Exception:
-        return
-    with _lock:
-        _recorded.pop(job_id, None)
-        if clean:
-            _recorded[job_id] = clean
-        while len(_recorded) > _MAX_ENTRIES:
-            del _recorded[next(iter(_recorded))]
+        return {}
 
 
-def get(job_id) -> dict:
-    with _lock:
-        return dict(_recorded.get(job_id) or {})
+def for_translate(drama, include_genre_notes, default_female_pronouns, glossary_terms,
+                  style_guidelines, style_note, *sources, **settings) -> dict:
+    """build() for a translation run: shows the toggles as the run resolved
+    them (the title's saved choice, else the defaults) and whether a glossary,
+    style guide and style note were sent, never their text."""
+    from services.workspace_job_service import resolve_style_toggles
+    genre, pronouns = resolve_style_toggles(drama, include_genre_notes, default_female_pronouns)
+    return build(*sources, genre_notes=genre, pronoun_hint=pronouns,
+                 glossary=bool(glossary_terms), style_guide=bool(style_guidelines),
+                 style_note=bool((style_note or "").strip()), **settings)
+
+
+def for_transcribe(drama, source_language, chinese_script, whisper_size, beam_size,
+                   min_silence_ms, vad_threshold, preset, hallucination_silence_sec,
+                   min_pause_sec, separation_backend, use_gpu, asr_backend, alignment_method,
+                   transcript_mode, diarize, min_speakers, max_speakers) -> dict:
+    """build() for a transcription run: the values the run resolved, plus the
+    drama's 0/1 toggle columns as booleans (an int would be dropped)."""
+    toggles = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
+               "use_groq", "whisper_repeat_guard", "split_by_sentences")
+    return build(
+        {k: bool(drama.get(k)) for k in toggles}, source_language=source_language,
+        chinese_script=chinese_script, whisper_size=whisper_size, beam_size=beam_size,
+        min_silence_ms=min_silence_ms, vad_threshold=vad_threshold, sensitivity_preset=preset,
+        hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
+        separation_backend=separation_backend, use_gpu=use_gpu, asr_backend=asr_backend,
+        alignment_method=alignment_method, transcript_mode=transcript_mode, diarize=diarize,
+        min_speakers=min_speakers, max_speakers=max_speakers)
+
+
+def for_diarize(expected_speakers, min_speakers, max_speakers, use_gpu, **settings) -> dict:
+    return build(expected_speakers=expected_speakers, min_speakers=min_speakers,
+                 max_speakers=max_speakers, use_gpu=use_gpu, **settings)

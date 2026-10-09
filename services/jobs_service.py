@@ -268,11 +268,11 @@ def project_result(result):
     return out
 
 
-def project_result_json(result, job_id=None):
+def project_result_json(result, run_settings=None):
     """project_result, JSON-encoded for db.job_records.result_json. The
-    run settings recorded for job_id ride along even when the result isn't a
-    dict (live-translate's cue list)."""
-    settings = run_settings_service.get(job_id)
+    job's run settings ride along even when the result isn't a dict
+    (live-translate's cue list)."""
+    settings = run_settings_service.sanitise(run_settings)
     if settings:
         result = {**(result if isinstance(result, dict) else {}), "run_settings": settings}
     projected = project_result(result)

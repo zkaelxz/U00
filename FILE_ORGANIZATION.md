@@ -53,6 +53,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `audio_preprocess.py`
 - `diarize.py`
 - `forced_align.py`
+- `gpu_wait_message.py` (the waiting text when another program is using the GPU)
 - `memory_headroom.py` (the Settings keep-free VRAM/RAM check the model loaders call)
 - `mixed_language.py`
 - `ollama_unload.py`
@@ -166,6 +167,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `export_service.py`
 - `extension_service.py`
 - `fixflag_transcribe.py`
+- `bulk_job_view.py` (public view of a bulk_jobs row)
 - `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
@@ -177,6 +179,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `jobs_service.py`
 - `language_pack_service.py`
 - `library_admin_service.py`
+- `library_restore_sql.py` (SQL helpers for the library restore)
 - `library_service.py`
 - `line_ai_service.py`
 - `line_provenance_service.py`
