@@ -24,6 +24,50 @@ def regions_for_response(bubbles):
     return regions
 
 
+def snapshot_texts(bubbles) -> dict:
+    """The texts a later write compares against, taken before
+    translate_page_bubbles mutates the dicts in place."""
+    return {b["id"]: {"translated_text": b.get("translated_text") or "",
+                      "source_text": b.get("source_text") or ""} for b in bubbles}
+
+
+def save_filled_translations(page_id: int, bubbles, originals: dict) -> list:
+    """Writes translations the bridge filled in. The LLM call ran without any
+    page lock, so another writer (a Scanlate job, a manual edit) may have
+    touched a bubble since; the compare-and-set leaves their data alone and
+    bumps the page rev for the writes made. Returns notes."""
+    import db
+    changed = 0
+    for b in bubbles:
+        text = (b.get("translated_text") or "").strip()
+        if not text:
+            continue
+        if not db.update_bubble_fields(b["id"], {"translated_text": text},
+                                       expected=originals[b["id"]], page_id=page_id):
+            changed += 1
+    if changed:
+        return [["warning", f"{changed} bubble(s) changed meanwhile and were left as they are"]]
+    return []
+
+
+def save_read_bubbles(page_id: int, bubbles, newly_stored: bool, reused_rev: int) -> list:
+    """Stores a fresh read. A reused page was empty when checked, but the read
+    ran unlocked, so it is only replaced if nobody wrote since. Returns notes."""
+    import db
+    if newly_stored:
+        db.save_bubbles(page_id, bubbles)
+    elif db.replace_bubbles_if_unchanged(page_id, [], bubbles, expected_rev=reused_rev) is None:
+        return [["warning", "the page changed meanwhile, so this read was not saved"]]
+    return []
+
+
+def reused_page_response(data: bytes, saved, notes, drama_id: int, page_id: int) -> dict:
+    width, height = image_size(data)
+    return {"width": width, "height": height, "regions": regions_for_response(saved),
+            "notes": notes, "drama_id": drama_id, "page_id": page_id,
+            "stored": True, "already_stored": True}
+
+
 MAX_ECHOED_URL = 200
 
 
