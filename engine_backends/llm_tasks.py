@@ -383,6 +383,8 @@ SYSTEM_FLAG_REASONS = {
     "reading_speed": "Too fast to read -- too many characters for the time it's shown",
     "factual_detail": ("Auto QC: a number, date, name, amount or unit differs between the "
                        "source and the translation"),
+    "gap_untranscribed": ("Added for a stretch with no subtitle line -- check the text "
+                          "heard there"),
     "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
                             "result wasn't applied; translate this line again"),
     "pronoun_check": ("Pronoun check -- the translation says he/him but no he/him character "

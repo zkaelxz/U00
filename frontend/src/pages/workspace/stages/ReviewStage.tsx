@@ -12,6 +12,7 @@ import { AiExtrasSenseVoice } from './review/AiExtrasSenseVoice'
 import { AiExtrasStyle } from './review/AiExtrasStyle'
 import { CompareTranscription } from './review/CompareTranscription'
 import { RetimeLines } from './review/RetimeLines'
+import { RetranscribeLines, type RetranscribeRequest } from './review/RetranscribeLines'
 import { LinesPanel } from './review/LinesPanel'
 import { LineSelectionProvider } from './review/LineSelectionContext'
 import { RecordsPanel } from './review/RecordsPanel'
@@ -78,6 +79,13 @@ export default function ReviewStage() {
   // Same for "Re-time with Qwen3 aligner…".
   const [retimeSignal, setRetimeSignal] = useState(0)
   const openRetime = useCallback(() => setRetimeSignal((n) => n + 1), [])
+  // Same for "Re-transcribe selected", the waveform's "Transcribe this gap" and
+  // "Add and transcribe": ids start a run on exactly those lines.
+  const [retranscribeRequest, setRetranscribeRequest] = useState<RetranscribeRequest | null>(null)
+  const openRetranscribe = useCallback(
+    (lineIds: number[] | null) => setRetranscribeRequest((r) => ({ seq: (r?.seq ?? 0) + 1, lineIds })),
+    [],
+  )
   const [lineCount, setLineCount] = useState<number | null>(null)
   // A finding's line link: the editor opens that line (by id where known).
   const [goTo, setGoTo] = useState<{ target: LineTarget; seq: number; resolve: (m: string | null) => void } | null>(null)
@@ -116,6 +124,7 @@ export default function ReviewStage() {
         onFlaggedCount={setFlaggedCount}
         onCompareSelected={openCompare}
         onRetimeSelected={openRetime}
+        onRetranscribeLines={openRetranscribe}
         goTo={goTo}
       />
       <ReviewChecks
@@ -144,13 +153,14 @@ export default function ReviewStage() {
                 )}
               </Fold>
             )}
-            <Fold storageKey="review.fold.history" title="Versions and history" openSignal={compareSignal + retimeSignal || undefined} summary="Notes · versions · history · compare · compare transcription · re-time · edit tendencies">
+            <Fold storageKey="review.fold.history" title="Versions and history" openSignal={compareSignal + retimeSignal + (retranscribeRequest?.seq ?? 0) || undefined} summary="Notes · versions · history · compare · compare transcription · re-time · re-transcribe · edit tendencies">
               {(opened) => (
                 <>
                   <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
                   {parts.history}
                   {!!lineCount && opened && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />}
                   {!!lineCount && opened && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />}
+                  {!!lineCount && opened && <RetranscribeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} request={retranscribeRequest} />}
                   {!!lineCount && opened && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
                 </>
               )}
