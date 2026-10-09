@@ -2,7 +2,7 @@ import { useEffect, type MutableRefObject } from 'react'
 
 import type { EditState } from './LineRow'
 import type { createLinesController, LinesState } from './linesController'
-import { isDirty } from './reviewLogic'
+import { isDirty } from './reviewDraft'
 
 // A dirty draft is never lost silently: leaving the page asks first, and
 // leaving the stage (unmount) saves it.

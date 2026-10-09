@@ -351,6 +351,3 @@ export function keptNote(n: number): string {
   return n === 1 ? ' 1 line was edited meanwhile and kept.' : ` ${n} lines were edited meanwhile and kept.`
 }
 
-// ---- AI re-segmentation preview (parity R47) ----
-export * from './reviewDraft'
-export * from './reviewResegment'

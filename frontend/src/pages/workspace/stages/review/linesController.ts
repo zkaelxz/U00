@@ -7,23 +7,8 @@ import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/
 import type { SheetState, SheetView } from './LineActionsSheet'
 import type { EditState, NoteDraft, RowActions, RowIssue } from './LineRow'
 import type { PlayerHandle } from './Player'
-import {
-  buildPatch,
-  charCount,
-  codePointOffset,
-  draftFromLine,
-  flaggedStep,
-  formatTime,
-  isDirty,
-  nextFlaggedId,
-  PAGE_SIZE,
-  stepFrom,
-  suggestionPatch,
-  timingPatch,
-  type LineDraft,
-  type PanelMode,
-  type TimingField,
-} from './reviewLogic'
+import { buildPatch, draftFromLine, isDirty, timingPatch, type LineDraft, type TimingField } from './reviewDraft'
+import { charCount, codePointOffset, flaggedStep, formatTime, nextFlaggedId, PAGE_SIZE, stepFrom, suggestionPatch, type PanelMode } from './reviewLogic'
 import { dismissTmEverywhere } from './tmDismiss'
 import { retireUndoOffer } from './undoOffer'
 import type { Edge } from './Waveform'

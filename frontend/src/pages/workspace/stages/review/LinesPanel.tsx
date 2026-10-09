@@ -21,15 +21,8 @@ import { createLinesController, type Pending, type Target } from './linesControl
 import { PhoneEditBar } from './PhoneEditBar'
 import { Player, type PlayerHandle } from './Player'
 import { ReviewWaveform } from './ReviewWaveform'
-import {
-  draftFromLine,
-  initialActiveId,
-  PAGE_SIZE,
-  pageCount,
-  pageForPosition,
-  structureErrorText,
-  type PanelMode,
-} from './reviewLogic'
+import { draftFromLine } from './reviewDraft'
+import { initialActiveId, PAGE_SIZE, pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
 import { UndoNotice } from './UndoNotice'
 import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'

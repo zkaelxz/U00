@@ -11,20 +11,8 @@ import type { SheetState } from './LineActionsSheet'
 import type { EditState } from './LineRow'
 import type { Pending } from './linesController'
 import type { LineSelection } from './useLineSelection'
-import {
-  adjacentRun,
-  languageSetText,
-  lineRange,
-  pageForPosition,
-  pageStillMatches,
-  type PanelMode,
-  undoDoneMessage,
-  undoHandleOf,
-  undoRefusal,
-  type LanguageScope,
-  type UndoHandle,
-  type UndoKind,
-} from './reviewLogic'
+import { languageSetText, type LanguageScope } from './reviewDraft'
+import { adjacentRun, lineRange, pageForPosition, pageStillMatches, type PanelMode, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle, type UndoKind } from './reviewLogic'
 import type { SplitChoice } from './SplitDialog'
 import { retireUndoOffer } from './undoOffer'
 
