@@ -155,6 +155,8 @@ speaker count equal when speaker detection is on; the same device per stage (a
 GPU stage that fell back to CPU is a hard FAIL); each stage no more than 40%
 slower (WARN, timings are noisy).
 
+The real-model check in Diagnostics ships two samples in `assets/smoke/`: `clip.wav` (5 s, mono, 16 kHz, a plain tone) and `bubble.png` (260x100, the three characters 你好吗 in a system font). No generation script was recorded; by inspection both are synthetic and carry no third-party content. Because the clip is a tone, the Qwen3-ASR check reports "Tone only ... model was not loaded" (skipped) rather than a pass.
+
 ## GitHub Actions minutes
 
 - Iterate locally; push once per PR for the merge-required checks, and batch related commits into one push.
