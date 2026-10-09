@@ -1,106 +1,11 @@
 import { ApiError } from '../../../../api/client'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import type { JobRecord } from '../../../../types/jobs'
-import type { ResegmentPreview, ResplitResult } from '../../../../types/restructure'
-import type { TranslateEngine } from '../../../../types/translate'
-import type { TranslateRunConfig } from '../../../../types/translateStage'
-import { humanize } from '../../../../components/labels'
-import { reflectAvailable } from '../../translateForm'
-import { spendText } from './reviewResults'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import type { LineFilter, LinePatch, ReviewLine, ReviewMatch } from '../../../../types/review'
 import { lineNumber } from '../../../../lineNumber'
-import { languageLabel } from '../../../../labels'
-
-export interface LineDraft {
-  zh: string
-  en: string
-  speaker: string
-  start: string
-  end: string
-  sfx: boolean
-  // '' = the drama's source language.
-  lang: string
-}
-
-// What one line's spoken language may be (core.LINE_LANGUAGES).
-export const LINE_LANGUAGES = ['zh', 'ja', 'ko', 'en'] as const
-
-// The row chip ("KO"): only for a line spoken in another language than the
-// drama's, so a single-language drama shows nothing new.
-export function lineLangChip(lang: string | null | undefined, sourceLanguage: string | null | undefined): string | null {
-  if (!lang || lang === (sourceLanguage || 'zh')) return null
-  return lang.toUpperCase()
-}
-
-// "Set language" in the line sheet: just this line, or every line of its speaker.
-export type LanguageScope = 'line' | 'speaker'
-
-export function languageSetText(updated: number, lang: string, sourceLanguage: string | null | undefined): string {
-  const label = lang ? languageLabel(lang) : `the title default (${languageLabel(sourceLanguage || 'zh')})`
-  if (updated === 0) return `Nothing changed: already ${label}.`
-  return `Set ${updated} line${updated === 1 ? '' : 's'} to ${label}.`
-}
-
-export function titleDefaultLabel(sourceLanguage: string | null | undefined): string {
-  return `Title default (${languageLabel(sourceLanguage || 'zh')})`
-}
 
 export const PAGE_SIZE = 40
-
-export function draftFromLine(line: ReviewLine): LineDraft {
-  return {
-    zh: line.zh,
-    en: line.en,
-    speaker: line.speaker ?? '',
-    start: String(line.start),
-    end: String(line.end),
-    sfx: line.sfx,
-    lang: line.lang ?? '',
-  }
-}
-
-// Only fields that differ are sent, each with the old value it was loaded with
-// so the server can refuse (409) if someone else changed that field meanwhile.
-// Returns a message when the draft is invalid, null when nothing changed.
-export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | string | null {
-  const patch: LinePatch = {}
-  const expected: Record<string, unknown> = {}
-  for (const key of ['zh', 'en'] as const) {
-    if (draft[key] !== line[key]) {
-      patch[key] = draft[key]
-      expected[key] = line[key]
-    }
-  }
-  if (draft.speaker.trim() !== (line.speaker ?? '')) {
-    patch.speaker = draft.speaker.trim()
-    expected.speaker = line.speaker
-  }
-  if (draft.sfx !== line.sfx) {
-    patch.sfx = draft.sfx
-    expected.sfx = line.sfx
-  }
-  if (draft.lang !== (line.lang ?? '')) {
-    patch.lang = draft.lang
-    expected.lang = line.lang ?? ''
-  }
-  for (const key of ['start', 'end'] as const) {
-    if (draft[key].trim() === '' || Number.isNaN(Number(draft[key]))) return `Enter a number for ${key}.`
-    const n = Number(draft[key])
-    if (n !== line[key]) {
-      patch[key] = n
-      expected[key] = line[key]
-    }
-  }
-  if (Object.keys(patch).length === 0) return null
-  if ((patch.end ?? line.end) <= (patch.start ?? line.start)) return 'End must be after start.'
-  patch.expected = expected
-  return patch
-}
-
-// A draft that would send something (or is invalid) is dirty: navigation saves it first.
-export function isDirty(line: ReviewLine, draft: LineDraft): boolean {
-  return buildPatch(line, draft) !== null
-}
 
 export function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -147,12 +52,12 @@ export function suggestionPatch(line: ReviewLine, suggestion: string): LinePatch
   return { en: suggestion, expected: { en: line.en } }
 }
 
-// The line's panel slot: the AI panel (LineAi) or a study tool (LineTools, R17-R19).
-export type ToolMode = 'alternatives' | 'grammar' | 'pronounce'
+// The line's panel slot: the AI panel (LineAi) or a study tool (LineTools, R17-R18).
+export type ToolMode = 'alternatives' | 'grammar'
 export type PanelMode = 'improve' | 'explain' | ToolMode
 
 export const isToolMode = (m: PanelMode): m is ToolMode =>
-  m === 'alternatives' || m === 'grammar' || m === 'pronounce'
+  m === 'alternatives' || m === 'grammar'
 
 // The suggestion was made for current_en; if the row shows something else now
 // it is stale and must not be applied.
@@ -227,8 +132,63 @@ export function splitPieces(text: string, at: number): [string, string] {
   return [chars.slice(0, at).join(''), chars.slice(at).join('')]
 }
 
+/** The translation pieces the server stores for a cut at `at`: it trims the
+ *  first piece's end and the second piece's both ends (services/restructure_service.split_line). */
+export function splitTranslationPieces(text: string, at: number): [string, string] {
+  const [first, second] = splitPieces(text, at)
+  return [first.trimEnd(), second.trim()]
+}
+
 export function charCount(text: string): number {
   return Array.from(text).length
+}
+
+const BREAK_PUNCT = new Set(Array.from(',.!?;:，。！？；：、…'))
+
+/**
+ * Code-point offsets where a cut reads naturally: right after a space run or
+ * punctuation, before the next word. A cut that would leave either piece empty
+ * is never offered.
+ */
+export function cutBoundaries(text: string): number[] {
+  const chars = Array.from(text)
+  const out: number[] = []
+  for (let k = 1; k < chars.length; k++) {
+    const prev = chars[k - 1]
+    if ((/\s/.test(prev) || BREAK_PUNCT.has(prev)) && !/\s/.test(chars[k])) out.push(k)
+  }
+  return out
+}
+
+/** The boundary nearest `target` (ties go earlier); `target` itself when the text has none. */
+export function snapCut(text: string, target: number): number {
+  const len = charCount(text)
+  const clamped = Math.min(Math.max(1, target), Math.max(1, len - 1))
+  let best = clamped
+  let bestDist = Infinity
+  for (const k of cutBoundaries(text)) {
+    const d = Math.abs(k - clamped)
+    if (d < bestDist) {
+      best = k
+      bestDist = d
+    }
+  }
+  return best
+}
+
+/** Where to cut the translation so it breaks at the same fraction of the text as the source did. */
+export function proportionalCut(zhLen: number, zhAt: number, en: string): number {
+  const enLen = charCount(en)
+  const frac = zhLen > 0 ? zhAt / zhLen : 0.5
+  return snapCut(en, Math.round(enLen * frac))
+}
+
+/** The previous (-1) or next (1) boundary from `at`, or the line's edge when there is none. */
+export function stepToBoundary(text: string, at: number, dir: -1 | 1): number {
+  const bounds = cutBoundaries(text)
+  const hit = dir === 1 ? bounds.find((k) => k > at) : [...bounds].reverse().find((k) => k < at)
+  const len = charCount(text)
+  return hit ?? (dir === 1 ? Math.max(1, len - 1) : 1)
 }
 
 /** A cut time in proportion to the text before the split (the server's default is similar). */
@@ -290,7 +250,53 @@ export function mergedText(lines: Pick<ReviewLine, 'zh' | 'en'>[]): { zh: string
 export const MAX_MERGE_LINES = 50
 
 export const LINES_CHANGED_MESSAGE = 'Lines changed since this page loaded. Reload and try again.'
-export const JOB_RUNNING_MESSAGE = 'A job is running on this drama. Structure edits wait until it finishes.'
+/** What the server gave back to undo one structural change (the snapshot taken before it, and
+ *  a fingerprint of the lines it left, so an undo refuses if they were edited since). */
+export interface UndoHandle {
+  historyId: number
+  fingerprint: string
+}
+
+export function undoHandleOf(r: { history_id?: number | null; lines_fingerprint?: string | null }): UndoHandle | null {
+  return r.history_id && r.lines_fingerprint ? { historyId: r.history_id, fingerprint: r.lines_fingerprint } : null
+}
+
+export const UNDO_CHANGED_MESSAGE = 'The lines changed since. Restore from Records → Line history instead.'
+export const UNDO_GONE_MESSAGE = 'This change can no longer be undone here. Records → Line history has the saved versions.'
+// Not "use Records instead": a Records restore would delete that note or tag without asking.
+export const UNDO_NOTES_MESSAGE =
+  'A note or emotion tag was added to a line this undo would remove, so nothing was changed. Restoring from Records would delete it: move or copy the note first.'
+
+/** The Records restore warning: it removes those lines and deletes their notes and tags. */
+export function restoreLossText(lines: number): string {
+  return lines === 1
+    ? '1 line this would remove has a note or emotion tag. Restoring deletes them. Move or copy the note first to keep it.'
+    : `${lines} lines this would remove have notes or emotion tags. Restoring deletes them. Move or copy the notes first to keep them.`
+}
+
+export type UndoKind = 'split' | 'merge' | 'delete' | 'resplit'
+
+/** What an undo really brings back: notes and emotion tags live outside the snapshot, so a
+ *  deleted line's are gone and a merge's stay on the line they were merged into (except where
+ *  that line had its own tag, or a note on the same term, which won). */
+export function undoDoneMessage(kind: UndoKind): string {
+  if (kind === 'delete')
+    return 'Undone. The line is back with its text, translation, timing, speaker and flag, but not its notes or emotion tag.'
+  if (kind === 'merge')
+    return 'Undone. The merged lines are back. Their notes and emotion tags stay on the line they were merged into, unless that line already had its own tag or a note on the same word.'
+  return 'Undone. The lines are back as they were before.'
+}
+
+/** A refused undo in plain text, and whether the offer is still worth keeping (a running job
+ *  only delays it), or null to show the generic banner. */
+export function undoRefusal(e: unknown): { text: string; keepOffer: boolean } | null {
+  if (!(e instanceof ApiError)) return null
+  if (e.status === 404) return { text: UNDO_GONE_MESSAGE, keepOffer: false }
+  if (e.status !== 409) return null
+  if ((e.details as { reason?: unknown } | undefined)?.reason === 'notes_on_removed_lines')
+    return { text: UNDO_NOTES_MESSAGE, keepOffer: false }
+  return /job/i.test(e.message) ? { text: JOB_RUNNING_MESSAGE, keepOffer: true } : { text: UNDO_CHANGED_MESSAGE, keepOffer: false }
+}
 
 /** Plain text for a structure-edit failure, or null to show the generic banner. */
 export function structureErrorText(e: unknown): string | null {
@@ -328,23 +334,6 @@ export function emptyMessage(filter: LineFilter, term: string): string {
   return 'No lines yet. Transcribe on Source first.'
 }
 
-export function resegmentSummary(p: ResegmentPreview): string {
-  const notes = `${p.notes} note${p.notes === 1 ? '' : 's'}`
-  return `${p.line_count_before} → ${p.line_count_after} lines; ${p.changed.length} change; ${p.translated} translated, ${p.flagged} flagged, ${notes} would be split`
-}
-
-/** "Split 31 lines into 118; speakers re-assigned" from a re-split summary. */
-export function resplitSummary(r: ResplitResult): string {
-  const n = r.split_lines ?? 0
-  if (n === 0) return r.note || 'No line is over the length limits. Nothing changed.'
-  const pieces = (r.line_count ?? 0) - (r.lines_before ?? 0) + n
-  const parts = [`Split ${n} line${n === 1 ? '' : 's'} into ${pieces}`]
-  if (r.timing === 'aligned') parts.push(`${r.aligned_lines ?? 0} timed from the audio`)
-  if (r.speakers_reassigned) parts.push('speakers re-assigned')
-  if (r.cleared_translations) parts.push(`${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} cleared`)
-  return parts.join('; ') + '.' + (r.note ? ` ${r.note}` : '')
-}
-
 /** One line per speaker, e.g. "Anna  3:40 · 62% · 41 turns", biggest first. */
 export function speakerTimeLines(s: SpeakerTimeSummary): string[] {
   return s.speakers.map((x) => `${x.label}  ${formatDuration(x.seconds)} · ${x.percent}% · ${x.turns} turn${x.turns === 1 ? '' : 's'}`)
@@ -356,93 +345,9 @@ export function speakerTimeFooter(s: SpeakerTimeSummary): string {
   return `${formatDuration(s.total_speech_seconds)} of speech in the saved detection${gap}.`
 }
 
-/** The server asks for confirm=true when a long line already has English. */
-export function resplitNeedsConfirm(e: unknown): boolean {
-  return e instanceof ApiError && e.status === 422 && /confirm/i.test(e.message)
-}
-
 // Lines someone edited while the version switch ran keep their own English.
 export function keptNote(n: number): string {
   if (n <= 0) return ''
   return n === 1 ? ' 1 line was edited meanwhile and kept.' : ` ${n} lines were edited meanwhile and kept.`
 }
 
-// ---- AI re-segmentation preview (parity R47) ----
-
-// Translation-only engines cannot suggest split points (the server refuses
-// them). The engine list carries no flag for this, so the Translate stage's
-// own list of such engines is reused.
-export function canResegmentWith(engine: string): boolean {
-  return reflectAvailable(engine)
-}
-
-export function resegmentEngines(engines: TranslateEngine[]): TranslateEngine[] {
-  return engines.filter((e) => canResegmentWith(e.name))
-}
-
-/** Before starting: what running the preview costs, with this month's spend when known. */
-export function resegmentCostNote(
-  config: Pick<TranslateRunConfig, 'engines' | 'month_spend' | 'monthly_cap_usd' | 'cap_applies_by_engine'> | null,
-  engine: string,
-): string {
-  const info = config?.engines.find((e) => e.name === engine)
-  if (info?.free) return `${info.label} is free to run.`
-  if (!config) return 'A paid AI call, counted toward the monthly spending cap.'
-  const spent = spendText(config.month_spend, config.monthly_cap_usd)
-  return config.cap_applies_by_engine[engine] === false
-    ? `An AI call; this engine is not counted toward the monthly cap. ${spent}`
-    : `A paid AI call, counted toward the monthly spending cap. ${spent}`
-}
-
-// The preview carries no cost figure; the call is logged with the drama's usage.
-export const RESEGMENT_COST_RECORDED = 'The AI cost is logged with this drama’s usage (Library → Cost by drama).'
-
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
-
-/** What applying drops on the lines being split. */
-export function droppedText(p: Pick<ResegmentPreview, 'translated' | 'flagged' | 'notes'>): string {
-  const parts = [
-    p.translated ? plural(p.translated, 'translation') : '',
-    p.flagged ? plural(p.flagged, 'flag') : '',
-    p.notes ? plural(p.notes, 'note') : '',
-  ].filter(Boolean)
-  if (parts.length === 0) return 'Lines long enough to split carry translations, flags or notes; any line that is split loses them.'
-  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
-  return `${list} on the lines being split will be dropped.`
-}
-
-export function llmPreviewSummary(p: ResegmentPreview & { engine: string }): string {
-  const n = p.changed.length
-  return `${p.line_count_before} → ${p.line_count_after} lines · ${n} line${n === 1 ? '' : 's'} split · by ${humanize('engine', p.engine)}`
-}
-
-const RESEGMENT_CONFIRM_MESSAGE =
-  'Lines being split now carry translations, flags or notes, which would be dropped. Type the word to apply anyway.'
-export const RESEGMENT_PREVIEW_AGAIN = 'The lines changed since this preview. Preview again.'
-const RESEGMENT_PREVIEW_GONE = 'This preview is no longer on the server. Preview again.'
-
-type LlmApplyProblem = 'confirm' | 'changed' | 'gone' | 'job'
-
-/**
- * Why applying the AI preview was refused, from the start request's error or
- * the apply job's error text; null = show the error as it is.
- */
-export function llmApplyProblem(e: unknown): LlmApplyProblem | null {
-  if (typeof e === 'string') {
-    if (/confirm/i.test(e)) return 'confirm'
-    if (/changed since the preview/i.test(e)) return 'changed'
-    return null
-  }
-  if (!(e instanceof ApiError)) return null
-  if (e.status === 422 && /confirm/i.test(e.message)) return 'confirm'
-  if (e.status === 404) return 'gone'
-  if (e.status === 409) return /job|already running/i.test(e.message) ? 'job' : 'changed'
-  return null
-}
-
-export function llmApplyProblemText(p: LlmApplyProblem): string {
-  if (p === 'confirm') return RESEGMENT_CONFIRM_MESSAGE
-  if (p === 'gone') return RESEGMENT_PREVIEW_GONE
-  if (p === 'job') return JOB_RUNNING_MESSAGE
-  return RESEGMENT_PREVIEW_AGAIN
-}

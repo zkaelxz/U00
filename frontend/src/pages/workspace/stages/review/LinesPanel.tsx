@@ -1,69 +1,40 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { ApiError } from '../../../../api/client'
 import type { MediaKind } from '../../../../api/media'
-import { getTranscribeConfig } from '../../../../api/workspace'
-import { addLine, deleteLine, listAllLines, mergeLines, splitLine } from '../../../../api/restructure'
-import {
-  acceptTm as acceptTmSuggestion,
-  addNote,
-  dismissFlag,
-  flaggedAdjacent,
-  listLines,
-  listTmSuggestions,
-  patchLine,
-  searchLines,
-  setLinesLanguage,
-} from '../../../../api/review'
-import { ButtonLink } from '../../../../components/Button'
+import { listAllLines } from '../../../../api/restructure'
+import { listLines, searchLines } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { readSectionOpen, writeSectionOpen } from '../../../../components/sectionStorage'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
-import { useShortcut } from '../../../../hooks/useShortcut'
-import { routeHref } from '../../../../router'
-import type { RestructureResult } from '../../../../types/restructure'
-import type { LineFilter, ReviewLine, ReviewLinesPage, TmSuggestion } from '../../../../types/review'
-import type { NewLine } from './AddLineForm'
+import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { FindReplacePanel } from './FindReplacePanel'
-import { LineActionsSheet, type SheetState, type SheetView } from './LineActionsSheet'
+import { HiddenEditBanner } from './HiddenEditBanner'
+import { LineActionsSheet, type SheetState } from './LineActionsSheet'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { SelectionBar } from './SelectionBar'
-import { LineRow, type EditState, type NoteDraft, type RowActions, type RowIssue } from './LineRow'
+import { LineRow, type EditState, type RowIssue } from './LineRow'
+import { LinesEmpty } from './LinesEmpty'
+import { buildLinesNavigation } from './linesNavigation'
+import { createLinesController, type Pending, type Target } from './linesController'
+import { PhoneEditBar } from './PhoneEditBar'
 import { Player, type PlayerHandle } from './Player'
-import { canRetranscribe } from './retranscribeLogic'
-import {
-  adjacentRun,
-  buildPatch,
-  charCount,
-  codePointOffset,
-  draftFromLine,
-  emptyMessage,
-  initialActiveId,
-  isDirty,
-  languageSetText,
-  lineRange,
-  flaggedStep,
-  nextFlaggedId,
-  PAGE_SIZE,
-  pageCount,
-  pageForPosition,
-  pageStillMatches,
-  stepFrom,
-  structureErrorText,
-  suggestionPatch,
-  type LanguageScope,
-  type LineDraft,
-  type PanelMode,
-} from './reviewLogic'
+import { ReviewWaveform } from './ReviewWaveform'
+import { draftFromLine } from './reviewDraft'
+import { initialActiveId, PAGE_SIZE, pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
+import { UndoNotice } from './UndoNotice'
+import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { ShortcutSheet } from './ShortcutSheet'
 import { useStrongerOffers } from './useStrongerOffers'
-import type { SplitChoice } from './SplitDialog'
-import { dismissTmEverywhere, useTmDismissed, visibleTm } from './tmDismiss'
-import { idxFromLineNumber, lineNumber } from '../../../../lineNumber'
+import { DRAFT_NOT_SAVED, buildStructureEdits, type UndoOffer } from './structureEdits'
+import { useDraftGuard } from './useDraftGuard'
+import { useCanRetranscribeLine } from './useCanRetranscribeLine'
+import { useReviewShortcuts } from './useReviewShortcuts'
+import { useTmByLine } from './useTmByLine'
+import { lineNumber } from '../../../../lineNumber'
 
 interface Props {
   dramaId: number
@@ -81,18 +52,14 @@ interface Props {
   // click on the same line count again.
   // resolve gets null once the line is open, else a plain message.
   onCompareSelected?: () => void
+  onRetimeSelected?: () => void
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
 }
-
-type Target = 'first' | 'last' | number
-type Pending = { target: Target; edit?: boolean }
 
 const PHONE = '(max-width: 640px)'
 const WIDE = '(min-width: 641px)'
 // How long a line opened from a search result stays highlighted.
 const JUMP_HIGHLIGHT_MS = 4000
-const ALL_LINES_ONLY = 'Merge and add work in the All lines view (no filter or search).'
-const DRAFT_NOT_SAVED = 'Your edit to this line could not be saved, so nothing else was changed. Close this and check the line.'
 const SEARCH_DEBOUNCE_MS = 300
 const STATUS_MS = 8000
 
@@ -104,8 +71,6 @@ function browserStorage() {
   }
 }
 
-const mismatch = () => new ApiError(409, { code: 'conflict', message: 'lines changed' })
-
 function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
   if (t === 'first') return lines[0]
   if (t === 'last') return lines[lines.length - 1]
@@ -116,7 +81,8 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // edit mode, the "⋯" line sheet with structure edits, a sticky toolbar with the
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, goTo }: Props) {
+
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
@@ -133,34 +99,26 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [edit, setEdit] = useState<EditState | null>(null)
   const [issue, setIssue] = useState<RowIssue | null>(null)
   const [ai, setAi] = useState<{ lineId: number; mode: PanelMode } | null>(null)
-  // Translation-memory suggestions for the lines shown (R11), by line id.
-  const [tmList, setTmList] = useState<TmSuggestion[]>([])
-  const tmDismissed = useTmDismissed(dramaId)
   const [sheet, setSheet] = useState<SheetState | null>(null)
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const [structError, setStructError] = useState<unknown>(null)
   const [sheetNote, setSheetNote] = useState<string | null>(null)
-  const [canRetranscribeLine, setCanRetranscribeLine] = useState(false)
+  const canRetranscribeLine = useCanRetranscribeLine(dramaId)
   const [retranscribeFocusId, setRetranscribeFocusId] = useState<number | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    setCanRetranscribeLine(false)
-    getTranscribeConfig(dramaId).then(
-      (cfg) => !cancelled && setCanRetranscribeLine(canRetranscribe(cfg)),
-      () => {},
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId])
   const [status, setStatus] = useState<string | null>(null)
+  // The last structural edit, while it can still be undone.
+  // `at` is the edited line's position before the edit, where focus goes after an undo.
+  const [undo, setUndo] = useUndoOffer<UndoOffer>('lines', dramaId)
+  useEffect(() => setUndo(null), [dramaId, setUndo])
   const [keysOpen, setKeysOpen] = useState(false)
   // Row density is a per-viewer choice, remembered in localStorage.
   const [compact, setCompact] = usePersistedState('review.compact', false)
   const [replaceOpen, setReplaceOpen] = useState(() => readSectionOpen(browserStorage(), 'review.findreplace', false))
 
   const player = useRef<PlayerHandle>(null)
+  // Phones start with the waveform folded away; elsewhere it is open.
+  const [waveOpen, setWaveOpen] = usePersistedState('review.waveform', !isPhone)
   // Phones: the player's video and tools sit here, under the sticky toolbar.
   const [playerDock, setPlayerDock] = useState<HTMLDivElement | null>(null)
   // Tablets and wider, with a video: the video, seek bar and subtitles sit in the side card.
@@ -290,316 +248,15 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     st.current = { shown, edit, page, pages, filter, searching, onChanged, jobRunning, activeId }
   })
 
-  const ctl = useMemo(() => {
-    const find = (id: number | null) => st.current.shown.find((l) => l.id === id) ?? null
-    const replaceLine = (saved: ReviewLine) => {
-      setData((d) => (d ? { ...d, lines: d.lines.map((l) => (l.id === saved.id ? saved : l)) } : d))
-      setFound((f) => (f ? f.map((l) => (l.id === saved.id ? saved : l)) : f))
-      st.current.shown = st.current.shown.map((l) => (l.id === saved.id ? saved : l))
-    }
-    const failLine = (lineId: number, e: unknown) => {
-      if (e instanceof ApiError && e.status === 409) setIssue({ lineId, conflict: true })
-      else setIssue({ lineId, error: e })
-    }
-    const setEditNow = (e: EditState | null) => {
-      st.current.edit = e
-      setEdit(e)
-    }
-
-    // Save the open draft; true when nothing is left unsaved. One save at a
-    // time: a second request (a double Ctrl+S) waits, then re-checks the draft
-    // against the saved line instead of sending a stale compare-and-set.
-    const saving: { current: Promise<boolean> | null } = { current: null }
-    const saveEdit = (): Promise<boolean> => {
-      if (saving.current) return saving.current.then(() => saveEdit())
-      const run = saveDraft().finally(() => {
-        saving.current = null
-      })
-      saving.current = run
-      return run
-    }
-    const saveDraft = async (): Promise<boolean> => {
-      const cur = st.current.edit
-      if (!cur) return true
-      // The base, not the listed row: the row may have left the view (a
-      // filter, a dismissed flag) and the draft must still be saved.
-      const line = cur.base
-      const patch = buildPatch(line, cur.draft)
-      if (typeof patch === 'string') {
-        setIssue({ lineId: cur.lineId, problem: patch })
-        setEditNow({ ...cur, details: true })
-        return false
-      }
-      if (patch === null) return true
-      try {
-        const saved = await patchLine(dramaId, line.id, patch)
-        replaceLine(saved)
-        // Keep typing that happened during the save: only the base moves on.
-        const now = st.current.edit
-        if (now && now.lineId === saved.id) setEditNow({ ...now, base: saved })
-        setIssue(null)
-        st.current.onChanged()
-        return true
-      } catch (e) {
-        failLine(cur.lineId, e)
-        return false
-      }
-    }
-    const stillDirty = (lineId: number) => {
-      const now = st.current.edit
-      return !!now && now.lineId === lineId && isDirty(now.base, now.draft)
-    }
-
-    // Close the editor, saving a dirty draft first; false keeps it open.
-    const leaveEdit = async (): Promise<boolean> => {
-      const cur = st.current.edit
-      if (!cur) return true
-      // Save until nothing is left (text typed during a slow save saves too).
-      let ok = true
-      for (let i = 0; i < 3 && stillDirty(cur.lineId); i += 1) if (!(await saveEdit())) { ok = false; break }
-      if (!ok || stillDirty(cur.lineId)) {
-        // The row may be out of view (filter, search, reload): say where the draft is.
-        if (!find(cur.lineId)) setStatus(`Save or discard your edit to #${lineNumber(cur.base.idx)} first (see above the list).`)
-        return false
-      }
-      setEditNow(null)
-      return true
-    }
-
-    const focusTo = (id: number) => {
-      focusActive.current = id
-      setActiveId(id)
-    }
-
-    const activate = async (id: number, focus = false) => {
-      const cur = st.current.edit
-      if (cur && cur.lineId !== id && !(await leaveEdit())) return
-      if (focus) focusTo(id)
-      else setActiveId(id)
-    }
-
-    const openEdit = async (id: number, details = false): Promise<boolean> => {
-      const cur = st.current.edit
-      if (cur && cur.lineId === id) {
-        if (details && !cur.details) setEditNow({ ...cur, details: true })
-        setActiveId(id)
-        return true
-      }
-      if (!(await leaveEdit())) return false
-      const line = find(id)
-      if (!line) return false
-      setActiveId(id)
-      setIssue(null)
-      setEditNow({ lineId: id, base: line, draft: draftFromLine(line), details, note: null })
-      return true
-    }
-
-    const goPage = async (p: number, target: Target) => {
-      if (!(await leaveEdit())) return
-      pending.current = { target }
-      setPage(p)
-    }
-
-    const move = (delta: 1 | -1) => {
-      const { shown: lines, activeId: cur, page: pg, pages: n, searching: s } = st.current
-      const step = stepFrom(lines, cur, delta, { next: !s && pg < n, prev: !s && pg > 1 })
-      if (!step) return
-      if ('id' in step) void activate(step.id, true)
-      else void goPage(pg + delta, delta > 0 ? 'first' : 'last')
-    }
-
-    // Previous/next flagged line (Alt+Up/Down and the buttons): on this page
-    // first, then the server finds the nearest one on any page (R08). In a
-    // filtered view the server is asked from the focused row (flaggedStep).
-    const moveFlagged = async (delta: 1 | -1) => {
-      const { shown: lines, page: pg, searching: s, filter: f, activeId: cur } = st.current
-      const row = (document.activeElement as HTMLElement | null)?.closest?.('[data-line-id]')
-      const from = row
-        ? lines.findIndex((l) => String(l.id) === row.getAttribute('data-line-id'))
-        : lines.findIndex((l) => l.id === cur)
-      if (s) {
-        const id = nextFlaggedId(lines, from, delta)
-        if (id !== null) void activate(id, true)
-        else setStatus('No more flagged lines in these results.')
-        return
-      }
-      const step = flaggedStep(lines, f, from, delta)
-      if ('id' in step) {
-        void activate(step.id, true)
-        return
-      }
-      try {
-        const r = await flaggedAdjacent(dramaId, delta > 0 ? 'next' : 'prev', step.fromId, PAGE_SIZE, f)
-        if (r.line_id === null || r.page_all === null) setStatus('No more flagged lines.')
-        else if (r.page === pg) void activate(r.line_id, true)
-        else if (r.page !== null) void goPage(r.page, r.line_id)
-        else {
-          // The filter hides it: show every line to open it.
-          if (!(await leaveEdit())) return
-          pending.current = { target: r.line_id }
-          setStatus('Showing all lines to open the flagged line.')
-          setFilter('all')
-          setPage(r.page_all)
-        }
-      } catch (e) {
-        setError(e)
-      }
-    }
-
-    const saveAndNext = async () => {
-      const cur = st.current.edit
-      if (!cur || !(await saveEdit())) return
-      // Typed during the save: save that too before moving on (or stay).
-      if (stillDirty(cur.lineId) && !(await saveEdit())) return
-      if (stillDirty(cur.lineId)) return
-      const { shown: lines, page: pg, pages: n, searching: s } = st.current
-      const i = lines.findIndex((l) => l.id === cur.lineId)
-      const next = lines[i + 1]
-      if (next) {
-        setActiveId(next.id)
-        setIssue(null)
-        setEditNow({ lineId: next.id, base: next, draft: draftFromLine(next), details: false, note: null })
-      } else if (!s && pg < n) {
-        setEditNow(null)
-        pending.current = { target: 'first', edit: true }
-        setPage(pg + 1)
-      } else {
-        setEditNow(null)
-        focusTo(cur.lineId)
-        setStatus('Saved. That was the last line.')
-      }
-    }
-
-    const openSheet = async (id: number | null, view: SheetView = 'menu', extra: Partial<SheetState> = {}) => {
-      if (id !== null) {
-        const cur = st.current.edit
-        // Structure edits work on saved text: save (or keep) the draft first.
-        if (cur && view !== 'menu' && !(await leaveEdit())) return
-        if (cur && cur.lineId !== id && !(await leaveEdit())) return
-        setActiveId(id)
-      }
-      setStructError(null)
-      setSheet({ lineId: id, view, ...extra })
-    }
-
-    const actions: RowActions = {
-      activate: (id) => void activate(id),
-      retranscribeFocused: () => setRetranscribeFocusId(null),
-      openEdit: (id, details) => void openEdit(id, details),
-      setDraft: (patch: Partial<LineDraft>) => {
-        const cur = st.current.edit
-        if (cur) setEditNow({ ...cur, draft: { ...cur.draft, ...patch } })
-      },
-      cancelEdit: () => {
-        const cur = st.current.edit
-        setEditNow(null)
-        setIssue((i) => (i?.problem ? null : i))
-        if (cur) focusTo(cur.lineId)
-      },
-      save: () => void saveEdit(),
-      saveAndNext: () => void saveAndNext(),
-      toggleDetails: (id) => {
-        const cur = st.current.edit
-        if (cur && cur.lineId === id && cur.details) {
-          if (isDirty(cur.base, cur.draft)) setEditNow({ ...cur, details: false, note: null })
-          else setEditNow(null)
-        } else void openEdit(id, true)
-      },
-      setNote: (note: NoteDraft | null) => {
-        const cur = st.current.edit
-        if (cur) setEditNow({ ...cur, note })
-      },
-      saveNote: () => {
-        const cur = st.current.edit
-        if (!cur?.note) return
-        const { term: t, type, text } = cur.note
-        addNote(dramaId, { line_id: cur.lineId, term: t, note_type: type, note: text }).then(() => {
-          const now = st.current.edit
-          if (now) setEditNow({ ...now, note: null })
-          setIssue(null)
-          setStatus('Note saved.')
-          st.current.onChanged()
-        }, (e) => failLine(cur.lineId, e))
-      },
-      openSheet: (id) => void openSheet(id),
-      openStructure: (id, view) => void openSheet(id, view),
-      splitAtCursor: (id, field, offset) => {
-        const cur = st.current.edit
-        const line = find(id)
-        if (!line) return
-        const zh = cur?.lineId === id ? cur.draft.zh : line.zh
-        const en = cur?.lineId === id ? cur.draft.en : line.en
-        let at: number
-        let enAt: number | null = null
-        if (field === 'zh') at = codePointOffset(zh, offset)
-        else {
-          enAt = codePointOffset(en, offset)
-          const enLen = charCount(en)
-          at = enLen > 0 ? Math.round((charCount(zh) * enAt) / enLen) : Math.round(charCount(zh) / 2)
-          if (enAt <= 0 || enAt >= enLen) enAt = null
-        }
-        void openSheet(id, 'split', { splitAt: at, splitEnAt: enAt })
-      },
-      setAi: (id, mode) => {
-        setActiveId(id)
-        setAi(mode ? { lineId: id, mode } : null)
-      },
-      useSuggestion: async (id, text) => {
-        const line = find(id)
-        if (!line) return false
-        const patch = suggestionPatch(line, text)
-        if (!patch) return true
-        try {
-          const saved = await patchLine(dramaId, id, patch)
-          replaceLine(saved)
-          setIssue(null)
-          st.current.onChanged()
-          return true
-        } catch (e) {
-          failLine(id, e)
-          return false
-        }
-      },
-      dismissFlag: async (id) => {
-        // Save any draft first: under the Flagged filter the line leaves the view.
-        if (!(await leaveEdit())) return
-        dismissFlag(dramaId, id).then((saved) => {
-          replaceLine(saved)
-          setIssue(null)
-          st.current.onChanged()
-        }, (e) => failLine(id, e))
-      },
-      // A line the server already saved (blocked-line retry): show it without
-      // a reload. closeEdit ends a clean edit of that line, whose base is now stale.
-      applyLine: (saved, closeEdit) => {
-        if (closeEdit && st.current.edit?.lineId === saved.id) setEditNow(null)
-        replaceLine(saved)
-        setIssue(null)
-        st.current.onChanged()
-      },
-      playLine: (line) => player.current?.playLine(line),
-      select: (id, range) => selectRef.current(id, range),
-      acceptTm: (id, entryId, expectedEn) => {
-        acceptTmSuggestion(dramaId, id, entryId, expectedEn).then((saved) => {
-          // A clean edit of this line now has a stale base: close it.
-          if (st.current.edit?.lineId === id && !stillDirty(id)) setEditNow(null)
-          replaceLine(saved)
-          setIssue(null)
-          st.current.onChanged()
-        }, (e) => failLine(id, e))
-      },
-      dismissTm: (s) => dismissTmEverywhere(dramaId, s),
-      clearIssue: () => setIssue(null),
-      showOnPage: (id) => void showOnPageRef.current(id),
-      reload: () => {
-        setEditNow(null)
-        setIssue(null)
-        st.current.onChanged()
-      },
-    }
-
-    return { actions, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty, setEditNow }
-  }, [dramaId])
+  const ctl = useMemo(
+    () =>
+      createLinesController({
+        dramaId, st, pending, focusActive, player, selectRef, showOnPageRef,
+        setData, setFound, setIssue, setEdit, setStatus, setActiveId, setPage, setFilter,
+        setError, setSheet, setStructError, setAi, setRetranscribeFocusId,
+      }),
+    [dramaId],
+  )
 
   const { actions } = ctl
 
@@ -631,198 +288,27 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     }
   }
 
-  // A dirty draft is never lost silently: leaving the page asks first, and
-  // leaving the stage (unmount) saves it.
-  const dirtyNow = edit !== null && isDirty(edit.base, edit.draft)
-  useEffect(() => {
-    if (!dirtyNow) return
-    const warn = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [dirtyNow])
-  useEffect(
-    () => () => {
-      const cur = st.current.edit
-      if (cur && ctl.stillDirty(cur.lineId)) void ctl.saveEdit()
-    },
-    [ctl],
-  )
+  useDraftGuard(edit, st, ctl)
 
   // ---- structure edits (sheet) ----
-  const runStructure = async (
-    call: (ids: number[]) => Promise<RestructureResult>,
-    after: (r: RestructureResult, ids: number[]) => { id: number | null; message: string },
-  ) => {
-    // Claimed synchronously, before any await, so a double click sends one edit.
-    if (busyRef.current) return
-    busyRef.current = true
-    setBusy(true)
-    setStructError(null)
-    setSheetNote(null)
-    // Never drop a draft: save it (or stop) before the lines change shape.
-    if (!(await ctl.leaveEdit())) {
-      setSheetNote(DRAFT_NOT_SAVED)
-      busyRef.current = false
-      busyRef.current = false
-      setBusy(false)
-      return
-    }
-    try {
-      const ids = (await listAllLines(dramaId)).map((l) => l.id)
-      if (!pageStillMatches(ids, shown.map((l) => l.id), searching ? 'search' : filter, page)) throw mismatch()
-      const r = await call(ids)
-      const { id, message } = after(r, ids)
-      setSheet(null)
-      setEdit(null)
-      setAi(null)
-      // Line numbers shift and ids may vanish, so the ticks no longer mean what they did.
-      selection.clear()
-      if (id !== null) {
-        pending.current = { target: id }
-        if (!searching && filter === 'all') {
-          const pos = r.line_ids.indexOf(id)
-          if (pos !== -1) setPage(pageForPosition(pos))
-        }
-      }
-      setStatus(message)
-      onChanged()
-    } catch (e) {
-      setStructError(e)
-    } finally {
-      busyRef.current = false
-      setBusy(false)
-    }
-  }
-
-  const UNDO = ' Undo in Records → Line history.'
   const sheetLine = sheet ? (shown.find((l) => l.id === sheet.lineId) ?? null) : null
   const sheetRun = sheetLine ? shown.slice(shown.findIndex((l) => l.id === sheetLine.id)) : []
 
-  const doSplit = (c: SplitChoice) => {
-    const line = sheetLine
-    if (!line) return
-    void runStructure(
-      (ids) => splitLine(dramaId, line.id, { expected_line_ids: ids, at_char: c.at_char, expected_zh: line.zh, at_time: c.at_time, en_at_char: c.en_at_char }),
-      (r) => {
-        const [a, b] = r.lines
-        return { id: b?.id ?? a?.id ?? null, message: a && b ? `Split #${lineNumber(a.idx)} into #${lineNumber(a.idx)}–#${lineNumber(b.idx)}.${UNDO}` : `Line split.${UNDO}` }
-      },
-    )
-  }
-  const doMerge = (lineIds: number[]) => {
-    const chosen = shown.filter((l) => lineIds.includes(l.id))
-    void runStructure(
-      (ids) => {
-        const run = adjacentRun(ids, lineIds[0], lineIds.length)
-        if (!run || run.some((id, i) => id !== lineIds[i])) throw mismatch()
-        return mergeLines(dramaId, lineIds, ids)
-      },
-      (r) => {
-        const head = r.lines[0]
-        return { id: head?.id ?? lineIds[0], message: `Merged ${lineRange(chosen)}${head ? ` into #${lineNumber(head.idx)}` : ''}.${UNDO}` }
-      },
-    )
-  }
-  const doAdd = (nl: NewLine) => {
-    const after = sheetLine
-    void runStructure(
-      (ids) => addLine(dramaId, { expected_line_ids: ids, after_line_id: after?.id ?? null, ...nl }),
-      (r) => ({ id: r.lines[0]?.id ?? null, message: r.lines[0] ? `Added line #${lineNumber(r.lines[0].idx)}.` : 'Line added.' }),
-    )
-  }
-  const doDelete = () => {
-    const line = sheetLine
-    if (!line) return
-    void runStructure(
-      (ids) => deleteLine(dramaId, line.id, ids),
-      (r, before) => {
-        const pos = before.indexOf(line.id)
-        const id = r.line_ids[pos] ?? r.line_ids[pos - 1] ?? null
-        return { id, message: `Deleted #${lineNumber(line.idx)}.${UNDO}` }
-      },
-    )
-  }
-  // Writes only `lang`, so unlike the structure edits it needs no line-list check.
-  const doSetLanguage = async (lang: string, scope: LanguageScope) => {
-    const line = sheetLine
-    if (!line || busyRef.current) return
-    busyRef.current = true
-    setBusy(true)
-    setStructError(null)
-    setSheetNote(null)
-    try {
-      const target = scope === 'speaker' && line.speaker ? { speaker: line.speaker } : { line_ids: [line.id] }
-      const r = await setLinesLanguage(dramaId, { lang: lang || null, ...target })
-      setSheet(null)
-      pending.current = { target: line.id }
-      setStatus(languageSetText(r.updated, lang, sourceLanguage))
-      onChanged()
-    } catch (e) {
-      setStructError(e)
-    } finally {
-      busyRef.current = false
-      setBusy(false)
-    }
-  }
+  const edits = buildStructureEdits({
+    dramaId, shown, sheetLine, searching, filter, page, activeId, sourceLanguage, undo, selection,
+    pending, busyRef, leaveEdit: ctl.leaveEdit, focusTo: ctl.focusTo,
+    setBusy, setStructError, setSheetNote, setSheet, setEdit, setAi, setPage, setStatus, setUndo, onChanged,
+  })
+
   const closeSheetThen = (fn: () => void) => {
     setSheet(null)
     fn()
   }
 
-  // ---- toolbar ----
-  const changeFilter = async (f: LineFilter) => {
-    if (!(await ctl.leaveEdit())) return
-    setFilter(f)
-    setPage(1)
-    setInput('')
-    setTerm('')
-  }
-  const changeSearch = async (v: string) => {
-    if (st.current.edit && !(await ctl.leaveEdit())) return
-    setInput(v)
-    if (v === '') setTerm('')
-  }
-  // By permanent id where the caller has one; typed numbers go by position.
-  // Returns null once the line is open, else a plain message saying why not.
-  const goToLine = async (t: LineTarget): Promise<string | null> => {
-    const label = 'lineId' in t ? 'that line' : `#${t.lineNumber}`
-    try {
-      const all = await listAllLines(dramaId)
-      const pos =
-        'lineId' in t
-          ? all.findIndex((l) => l.id === t.lineId)
-          : all.findIndex((l) => l.idx === idxFromLineNumber(t.lineNumber))
-      if (pos === -1) return 'lineId' in t ? 'That line no longer exists.' : `No line #${t.lineNumber}.`
-      const draft = st.current.edit
-      if (!(await ctl.leaveEdit())) {
-        // The draft could not be saved: bring it into view so it can be fixed.
-        if (draft) listRef.current?.querySelector<HTMLElement>(`[data-line-id="${draft.lineId}"]`)?.scrollIntoView?.({ block: 'center' })
-        return `Could not open ${label}: your edit to #${draft ? lineNumber(draft.base.idx) : '?'} is not saved yet.`
-      }
-      const id = all[pos].id
-      const pg = pageForPosition(pos)
-      if (!searching && filter === 'all' && page === pg) ctl.focusTo(id)
-      else {
-        if (searching || filter !== 'all') setStatus(`Showing all lines to open #${lineNumber(all[pos].idx)}.`)
-        pending.current = { target: id }
-        setFilter('all')
-        setInput('')
-        setTerm('')
-        setPage(pg)
-      }
-      return null
-    } catch (e) {
-      setError(e)
-      return `Could not open ${label}.`
-    }
-  }
-  const goToNumber = async (n: number) => {
-    const message = await goToLine({ lineNumber: n })
-    if (message) setStatus(message)
-  }
+  const { changeFilter, changeSearch, goToLine, goToNumber } = buildLinesNavigation({
+    dramaId, ctl, st, pending, listRef, searching, filter, page,
+    setFilter, setPage, setInput, setTerm, setStatus, setError,
+  })
   const goToRef = useRef(goToLine)
   useEffect(() => {
     goToRef.current = goToLine
@@ -846,139 +332,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     writeSectionOpen(browserStorage(), 'review.findreplace', next)
   }
 
-  // Translation-memory suggestions for the lines shown (R11). Optional: a
-  // failure (or no permission) just shows none.
-  const shownIds = shown.map((l) => l.id).join(',')
-  useEffect(() => {
-    let cancelled = false
-    const ids = shownIds ? shownIds.split(',').map(Number).slice(0, 200) : []
-    // Nothing shown: the old list matches no row, so it can stay.
-    if (ids.length === 0) return
-    listTmSuggestions(dramaId, undefined, ids).then(
-      (list) => !cancelled && setTmList(list),
-      () => !cancelled && setTmList([]),
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId, shownIds, reloads])
   // Lines to offer the stronger engine for (no engine call).
   const strongerByLine = useStrongerOffers(dramaId, reloads)
-  const tmByLine = useMemo(() => {
-    const m = new Map<number, TmSuggestion>()
-    for (const s of visibleTm(tmList, tmDismissed)) if (s.line_id !== null) m.set(s.line_id, s)
-    return m
-  }, [tmList, tmDismissed])
+  const tmByLine = useTmByLine(dramaId, shown, reloads)
 
   // ---- shortcuts ----
   const active = activeId !== null ? shown.find((l) => l.id === activeId) ?? null : null
-  const toggleFocusedRow = (target: HTMLElement) => {
-    const id = target.matches?.('.review-line') ? Number(target.getAttribute('data-line-id')) : NaN
-    if (Number.isNaN(id)) return false
-    selection.toggle(id)
-    return true
-  }
-  useShortcut((combo, { inText, event }) => {
-    if (sheet || keysOpen) return false
-    if (combo === 'alt+ ') {
-      if (!mediaKind) return false
-      player.current?.togglePlay()
-      return true
-    }
-    if (inText) return false
-    const target = event.target as HTMLElement
-    const inList = target === document.body || !!listRef.current?.contains(target)
-    const onRow = target === document.body || target.matches?.('.review-line')
-    const isControl = !!target.closest?.('input, select')
-    // Single-key shortcuts only while focus is in the list (or nowhere).
-    if ((combo.length === 1 && combo !== '?' && combo !== '/') || combo === 'shift+delete') {
-      if (!inList) return false
-    }
-    switch (combo) {
-      case 'arrowdown':
-      case 'arrowup':
-        if (!inList || isControl) return false
-        ctl.move(combo === 'arrowdown' ? 1 : -1)
-        return true
-      case 'j':
-      case 'k':
-        ctl.move(combo === 'j' ? 1 : -1)
-        return true
-      case 'alt+arrowdown':
-      case 'alt+arrowup':
-        void ctl.moveFlagged(combo === 'alt+arrowdown' ? 1 : -1)
-        return true
-      case ']':
-      case '[': {
-        const p = page + (combo === ']' ? 1 : -1)
-        if (searching || p < 1 || p > pages) return false
-        void ctl.goPage(p, 'first')
-        return true
-      }
-      case '/':
-        if (isPhone && !searchRef.current) return false
-        searchRef.current?.focus()
-        return true
-      case '?':
-        setKeysOpen(true)
-        return true
-    }
-    if (!active) return false
-    switch (combo) {
-      case 'enter':
-        if (!onRow) return false
-        void ctl.openEdit(active.id)
-        return true
-      case 'e':
-        void ctl.openEdit(active.id)
-        return true
-      case 'd':
-        actions.toggleDetails(active.id)
-        return true
-      case ' ': {
-        if (!onRow) return false
-        // With media, Space on a row keeps playing the line (Shift+Space ticks it).
-        if (mediaKind) {
-          player.current?.toggleLine(active)
-          return true
-        }
-        return toggleFocusedRow(target)
-      }
-      case 'shift+ ':
-        return toggleFocusedRow(target)
-      case 'l':
-        if (!mediaKind) return false
-        player.current?.toggleLoop()
-        return true
-      case 'm':
-      case 'a':
-        if (limited) setStatus(ALL_LINES_ONLY)
-        else void ctl.openSheet(active.id, combo === 'm' ? 'merge' : 'add')
-        return true
-      case 'shift+delete':
-        void ctl.openSheet(active.id, 'menu', { armDelete: true })
-        return true
-      case 'f':
-        if (!active.flag) return false
-        actions.dismissFlag(active.id)
-        return true
-      case 'i':
-        if (!active.en) return false
-        actions.setAi(active.id, 'improve')
-        return true
-      case 'w':
-        actions.setAi(active.id, 'explain')
-        return true
-      case 'escape':
-        if (ai) {
-          setAi(null)
-          return true
-        }
-        if (edit || selection.count === 0) return false
-        selection.clear()
-        return true
-    }
-    return false
+  useReviewShortcuts({
+    ctl, actions, selection, player, listRef, searchRef, mediaKind, isPhone,
+    sheetOpen: sheet !== null, keysOpen, page, pages, searching, limited, active, edit, ai,
+    setAi, setKeysOpen, setStatus,
   })
 
   const counts = data
@@ -991,6 +354,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     clear: selection.clear,
     notify: setStatus,
     openCompare: onCompareSelected ?? (() => {}),
+    openRetime: onRetimeSelected ?? (() => {}),
   }
   const allShownSelected = shown.length > 0 && shown.every((l) => selection.selectedSet.has(l.id))
   const loading = !searching && data === null && !error
@@ -999,6 +363,22 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
   const pagerInPlayer = isPhone && mediaKind !== null && showPager
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
+
+  // Wider screens keep it in the sticky toolbar so it stays in view while the
+  // list scrolls; phones put it under the player dock, where it scrolls away.
+  const waveform =
+    mediaKind && !emptyDrama ? (
+      <ReviewWaveform
+        dramaId={dramaId}
+        lines={shown}
+        active={active}
+        player={player}
+        open={waveOpen}
+        onToggle={() => setWaveOpen(!waveOpen)}
+        onRetime={ctl.retime}
+        editingActive={!!active && edit !== null && edit.lineId === active.id}
+      />
+    ) : null
 
   return (
     <section className={sideVideo ? 'review-editor has-side' : 'review-editor'} aria-label="Lines" ref={sectionRef}>
@@ -1025,21 +405,25 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onCompact={setCompact}
           player={
             mediaKind ? (
-              <Player
-                ref={player}
-                dramaId={dramaId}
-                kind={mediaKind}
-                lines={shown}
-                selected={active}
-                captionVersion={reloads}
-                panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
-                trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
-              />
+              <>
+                <Player
+                  ref={player}
+                  dramaId={dramaId}
+                  kind={mediaKind}
+                  lines={shown}
+                  selected={active}
+                  captionVersion={reloads}
+                  panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
+                  trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
+                />
+                {!isPhone && waveform}
+              </>
             ) : null
           }
         />
         )}
         {isPhone && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
+        {isPhone && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
             {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
@@ -1059,19 +443,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         <p className="review-status" role="status">
           {status}
         </p>
+        {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void edits.doUndo()} onDismiss={() => setUndo(null)} />}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {hiddenEdit && (
-          <div className="banner review-hidden-edit" role="alert" data-testid="hidden-edit">
-            <span>
-              Your edit to #{lineNumber(hiddenEdit.base.idx)} is outside this view.
-              {issue?.lineId === hiddenEdit.lineId && issue.conflict && ' It changed elsewhere, so it could not be saved.'}
-            </span>
-            <span className="actions">
-              <button type="button" className={buttonClass('primary', 'sm')} onClick={() => void ctl.saveEdit().then((ok) => ok && ctl.setEditNow(null))}>Save</button>
-              <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => void showHidden()}>Show</button>
-              <button type="button" className={buttonClass('ghost', 'sm')} onClick={discardHidden}>Discard</button>
-            </span>
-          </div>
+          <HiddenEditBanner
+            edit={hiddenEdit}
+            issue={issue}
+            onSave={() => void ctl.saveEdit().then((ok) => ok && ctl.setEditNow(null))}
+            onShow={() => void showHidden()}
+            onDiscard={discardHidden}
+          />
         )}
 
         {loading && (
@@ -1082,23 +463,15 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           </ul>
         )}
         {!loading && shown.length === 0 && !error && (
-          <div className="review-empty">
-            <p className="muted">{emptyMessage(filter, term)}</p>
-            {filter === 'all' && !searching ? (
-              <div className="actions">
-                <ButtonLink variant="primary" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                  Go to Source
-                </ButtonLink>
-                <button type="button" className={buttonClass('secondary')} disabled={jobRunning} onClick={() => void ctl.openSheet(null, 'add')}>
-                  Add first line
-                </button>
-              </div>
-            ) : (
-              <button type="button" className={buttonClass('ghost')} onClick={() => void changeFilter('all')}>
-                All lines
-              </button>
-            )}
-          </div>
+          <LinesEmpty
+            dramaId={dramaId}
+            filter={filter}
+            term={term}
+            searching={searching}
+            jobRunning={jobRunning}
+            onAddFirst={() => void ctl.openSheet(null, 'add')}
+            onAllLines={() => void changeFilter('all')}
+          />
         )}
         {shown.length > 0 && (
           <div className="review-selectall" role="group" aria-label="Select lines">
@@ -1146,41 +519,23 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
 
         {isPhone && active && (
-          <div className="review-editbar" role="toolbar" aria-label="Line actions">
-            {editingActive ? (
-              <>
-                <button type="button" className={buttonClass('ghost')} onClick={actions.cancelEdit}>Cancel</button>
-                <button type="button" className={buttonClass('secondary')} onClick={actions.save}>Save</button>
-                <button type="button" className={buttonClass('primary')} onClick={actions.saveAndNext}>Save &amp; next</button>
-              </>
-            ) : (
-              <>
-                {mediaKind && (
-                  <button
-                    type="button"
-                    aria-label={`Play line ${lineNumber(active.idx)}`}
-                    onClick={() => {
-                      showActive()
-                      player.current?.toggleLine(active)
-                    }}
-                  >
-                    ▶ #{lineNumber(active.idx)}
-                  </button>
-                )}
-                <button type="button" aria-label="Previous line" onClick={() => ctl.move(-1)}>‹ Prev</button>
-                <button type="button" aria-label="Next line" onClick={() => ctl.move(1)}>Next ›</button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    showActive()
-                    void ctl.openEdit(active.id)
-                  }}
-                >
-                  Edit #{lineNumber(active.idx)}
-                </button>
-              </>
-            )}
-          </div>
+          <PhoneEditBar
+            active={active}
+            editing={editingActive}
+            hasMedia={mediaKind !== null}
+            onCancel={actions.cancelEdit}
+            onSave={actions.save}
+            onSaveAndNext={actions.saveAndNext}
+            onPlay={() => {
+              showActive()
+              player.current?.toggleLine(active)
+            }}
+            onMove={ctl.move}
+            onEdit={() => {
+              showActive()
+              void ctl.openEdit(active.id)
+            }}
+          />
         )}
 
         <LineActionsSheet
@@ -1204,6 +559,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             })
           }}
           onClose={() => setSheet(null)}
+          onPlayRange={(start, end) => sheetLine && player.current?.playLine({ id: sheetLine.id, idx: sheetLine.idx, start, end })}
           onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}
           onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
           canRetranscribe={canRetranscribeLine}
@@ -1225,12 +581,12 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               void ctl.openEdit(id, true).then((ok) => ok && actions.setNote({ term: '', type: 'translation', text: '' }))
             })
           }
-          onSplit={doSplit}
-          onMerge={doMerge}
-          onAdd={doAdd}
-          onDelete={doDelete}
+          onSplit={edits.doSplit}
+          onMerge={edits.doMerge}
+          onAdd={edits.doAdd}
+          onDelete={edits.doDelete}
           sourceLanguage={sourceLanguage}
-          onSetLanguage={(lang, scope) => void doSetLanguage(lang, scope)}
+          onSetLanguage={(lang, scope) => void edits.doSetLanguage(lang, scope)}
         />
         <ShortcutSheet open={keysOpen} onClose={() => setKeysOpen(false)} />
       </div>

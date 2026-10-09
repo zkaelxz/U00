@@ -4,7 +4,7 @@
 export interface DubTtsEngine {
   key: string
   label: string
-  requires_internet: boolean
+  unavailable_reason?: string | null
 }
 
 export interface DubDefaults {
@@ -16,12 +16,11 @@ export interface DubDefaults {
 
 // One speaker as the Generate button resolves it. clone_warning: why the
 // speaker won't be cloned as set up (e.g. a clone engine with no clip or
-// voice design falls back to plain TTS).
+// voice design falls back to the engine picked in Dub, or its stored engine
+// was removed).
 export interface DubSpeaker {
   speaker_label: string
   character_name: string | null
-  edge_voice: string | null
-  offline_voice: string | null
   engine: string
   has_clone_ref: boolean
   clone_warning?: string | null
@@ -35,12 +34,15 @@ export interface DubConfig {
   narration_language_options: string[]
   source_language: string
   tts_engines: DubTtsEngine[]
+  default_engine: string
+  // Why nothing can be generated whatever engine is picked (no engine
+  // installed, or a character stored with a removed engine); null otherwise.
+  blocker?: string | null
   defaults: DubDefaults | null
   speakers?: DubSpeaker[]
   gpu_required: boolean
   speakable_line_count: number
   track_available: boolean
-  gpt_sovits_configured: boolean
   can_keep_background: boolean
 }
 

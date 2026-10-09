@@ -21,7 +21,8 @@ import translation_guide as tguide
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, glossary_service, transcribe_service, translate_service
+from services import (auth_service, glossary_extract_service, glossary_service, transcribe_service,
+                      translate_service)
 from services.service_errors import ConflictError
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
@@ -92,7 +93,7 @@ class _Engine:
 @pytest.fixture
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
-    monkeypatch.setattr(glossary_service.translate_engines, "get_engine",
+    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
                         lambda name, key, **kw: _Engine())
 
 
@@ -135,7 +136,7 @@ class TestAutotuneStart:
         assert isolated_db.drama_dir(did) not in r.text
 
     @pytest.mark.parametrize("body", [
-        {"candidates": []}, {"candidates": [200]}, {"candidates": [3001]},
+        {"candidates": []}, {"candidates": [99]}, {"candidates": [3001]},
         {"candidates": [300, 400, 500, 600, 700, 800, 900]}, {"candidates": [True]},
         {"candidates": ["300"]}, {"candidates": [300, 300]}, {"initial_prompt": "x" * 1001},
         {"bogus": 1}])
@@ -254,7 +255,8 @@ class TestNovelGlossaryStart:
         assert body["status"] == "done"
         assert [p["term"] for p in body["proposals"]] == ["青云宗"]
         assert set(body["proposals"][0]) == {"term", "suggested_translation", "category",
-                                             "policy", "reason", "already_in_glossary"}
+                                             "policy", "reason", "already_in_glossary",
+                                             "occurrences", "alternatives", "confidence"}
         assert isolated_db.drama_dir(did) not in r.text
 
     def test_status_never_contains_key(self, client, isolated_db, monkeypatch, fake_engine):

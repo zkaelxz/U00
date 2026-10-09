@@ -1,0 +1,106 @@
+{
+ "id": "ja-common",
+ "version": 1,
+ "language": "ja",
+ "title": "Japanese kinship, roles, set phrases and streamer terms",
+ "description": "Starter pack, review it. Family and workplace words, daily set phrases, interjections and a few streaming terms.",
+ "entries": [
+  {
+   "source": "お母さん",
+   "en": "Mom",
+   "category": "kinship",
+   "note": "Use 'mother' when talking about her, not to her."
+  },
+  {
+   "source": "お父さん",
+   "en": "Dad",
+   "category": "kinship",
+   "note": "Use 'father' when talking about him, not to him."
+  },
+  {
+   "source": "おばあちゃん",
+   "en": "Grandma",
+   "category": "kinship"
+  },
+  {
+   "source": "おじいちゃん",
+   "en": "Grandpa",
+   "category": "kinship"
+  },
+  {
+   "source": "幼なじみ",
+   "en": "childhood friend",
+   "category": "kinship"
+  },
+  {
+   "source": "社長",
+   "en": "boss",
+   "category": "role",
+   "note": "'President' in a formal company setting."
+  },
+  {
+   "source": "部長",
+   "en": "department head",
+   "category": "role"
+  },
+  {
+   "source": "生徒会長",
+   "en": "student council president",
+   "category": "role"
+  },
+  {
+   "source": "ただいま",
+   "en": "I'm home",
+   "category": "phrase"
+  },
+  {
+   "source": "おかえり",
+   "en": "Welcome back",
+   "category": "phrase"
+  },
+  {
+   "source": "いただきます",
+   "en": "Thanks for the meal",
+   "category": "phrase",
+   "note": "Said before eating."
+  },
+  {
+   "source": "お疲れ様",
+   "en": "Good work today",
+   "category": "phrase",
+   "note": "Thanks for your hard work; also a greeting between colleagues."
+  },
+  {
+   "source": "よろしくお願いします",
+   "en": "Nice to meet you",
+   "category": "phrase",
+   "note": "Also 'please take care of this' depending on context."
+  },
+  {
+   "source": "えっ",
+   "en": "Huh?",
+   "category": "interjection"
+  },
+  {
+   "source": "配信",
+   "en": "stream",
+   "category": "streamer"
+  },
+  {
+   "source": "視聴者",
+   "en": "viewers",
+   "category": "streamer"
+  },
+  {
+   "source": "推し",
+   "en": "oshi",
+   "category": "streamer",
+   "note": "The person or character someone is a fan of; keep romanised or say 'favorite'."
+  },
+  {
+   "source": "切り抜き",
+   "en": "clip",
+   "category": "streamer"
+  }
+ ]
+}

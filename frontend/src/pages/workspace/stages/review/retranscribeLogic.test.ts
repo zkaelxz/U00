@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { JOB_RUNNING_MESSAGE } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { NO_AUDIO_MESSAGE, canRetranscribe, jobIsForLine, retranscribeMenuState, retranscribeOutcome } from './retranscribeLogic'
 
 const done = (result: Record<string, unknown> | null, outcome: 'ok' | 'failed' | 'cancelled' | 'partial' = 'ok') => ({

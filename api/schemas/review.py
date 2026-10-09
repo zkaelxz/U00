@@ -83,6 +83,11 @@ __all__ = [
     "MergeShortPreview",
     "MergeShortApply",
     "MergeShortResult",
+    "EnCleanupRule",
+    "EnCleanupChange",
+    "EnCleanupPreview",
+    "EnCleanupApply",
+    "EnCleanupResult",
     "StyleProfileView",
     "StyleHistoryEntry",
     "StyleState",
@@ -247,6 +252,9 @@ class ReviewRecordsSnapshot(BaseModel):
     label: Optional[str] = None
     created_at: Optional[str] = None
     lines: List[ReviewRecordsSnapshotLine]
+    # How many current lines with a note or emotion tag restoring this would remove
+    # (the restore deletes those notes and tags); absent from an older server.
+    lines_with_notes_removed: int = 0
 
 
 class ReviewRecordsVersionItem(BaseModel):
@@ -433,7 +441,7 @@ class ReviewJobStart(BaseModel):
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
     gemini_free_tier: Optional[bool] = None  # None: the saved setting
-    # Parity R49: half price through Claude's/Gemini's batch API; results
+    # Half price through Claude's/Gemini's batch API; results
     # arrive later and are applied by line id. Not for fix-flagged.
     bulk: StrictBool = False
 
@@ -444,8 +452,9 @@ class EmotionJobStart(ReviewJobStart):
 
 class FixFlaggedJobStart(ReviewJobStart):
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
-    include_genre_notes: StrictBool = True
-    default_female_pronouns: StrictBool = False
+    # Omitted: the title's saved choice (else genre notes on, she/her off).
+    include_genre_notes: Optional[StrictBool] = None
+    default_female_pronouns: Optional[StrictBool] = None
     bulk: Literal[False] = False   # there is no batch variant of fix-flagged
 
 
@@ -496,6 +505,10 @@ class RestructureSplit(_RestructureBase):
 class RestructureResult(BaseModel):
     line_ids: List[int]
     lines: List[ReviewLinesLine]
+    # The snapshot taken just before this write, and a fingerprint of the lines it
+    # left: together they let a client undo it (restore with expected_fingerprint).
+    history_id: Optional[int] = None
+    lines_fingerprint: Optional[str] = None
 
 
 class ResegmentChange(BaseModel):
@@ -520,7 +533,7 @@ class ResegmentPreview(BaseModel):
 class ResegmentStart(_RestructureBase):
     confirm: StrictBool = False
     use_llm: StrictBool = False
-    # Parity R47: commit the stored LLM preview as shown (no LLM call).
+    # Commit the stored LLM preview as shown (no LLM call).
     use_preview: StrictBool = False
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
@@ -529,6 +542,11 @@ class ResegmentStart(_RestructureBase):
 class ResplitStart(_RestructureBase):
     align_to_audio: StrictBool = False
     confirm: StrictBool = False
+    sensitivity: Literal["normal", "more", "sentence"] = "normal"
+    # Replaces the preset's duration limit; None keeps the preset's own.
+    max_seconds: Optional[float] = Field(None, ge=2, le=120)
+    # Count what would be split without writing anything.
+    dry_run: StrictBool = False
 
 
 class ResplitResult(BaseModel):
@@ -544,6 +562,10 @@ class ResplitResult(BaseModel):
     cleared_translations: Optional[int] = None
     speakers_reassigned: Optional[bool] = None
     note: Optional[str] = None
+    dry_run: Optional[bool] = None
+    pieces: Optional[int] = None
+    history_id: Optional[int] = None
+    lines_fingerprint: Optional[str] = None
 
 
 class ResegmentStarted(BaseModel):
@@ -552,7 +574,7 @@ class ResegmentStarted(BaseModel):
 
 
 class ResegmentLlmPreviewStart(BaseModel):
-    """Parity R47: start an LLM re-segmentation preview (writes no lines)."""
+    """Start an LLM re-segmentation preview (writes no lines)."""
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
@@ -563,7 +585,8 @@ class ResegmentLlmPreview(ResegmentPreview):
 
 
 class RestoreVersionRequest(_RestructureBase):
-    pass
+    # From the write being undone; 409 if any restorable field changed since.
+    expected_fingerprint: Optional[str] = Field(None, min_length=1, max_length=128)
 
 
 class RestoreVersionResult(BaseModel):
@@ -599,7 +622,7 @@ class LineExplanation(BaseModel):
     model: Optional[str] = None
 
 
-# --- Review per-line tools (review parity R17/R18/R28, R08/R43) ----------
+# --- Review per-line tools ----------
 class LineAlternative(BaseModel):
     translation: str
     approach: str
@@ -670,7 +693,7 @@ class TranslationVersionDeleteResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Review parity R39/R10: activate a saved translation version
+# Activate a saved translation version
 # (services/translation_version_service.py) and retry a content-blocked line
 # (services/blocked_retry_service.py)
 # ---------------------------------------------------------------------------
@@ -708,7 +731,7 @@ class BlockedRetryResult(BaseModel):
     line: ReviewLinesLine
 
 
-# Review AI extras (inventory R46, R37, R35, R03): auto-merge short lines,
+# Review AI extras: auto-merge short lines,
 # learn my style, SenseVoice audio tags, burned-subtitle preview clip.
 # services/review_extras_service.py; no key, URL or path is accepted or returned.
 # ---------------------------------------------------------------------------
@@ -749,6 +772,45 @@ class MergeShortApply(_RestructureBase):
 
 class MergeShortResult(RestructureResult):
     merged_groups: int
+
+
+class EnCleanupRule(BaseModel):
+    rule: str
+    label: str
+    lines: int
+
+
+class EnCleanupChange(BaseModel):
+    line_id: int
+    idx: int
+    before: str
+    after: str
+    rules: List[str]
+
+
+class EnCleanupPreview(BaseModel):
+    drama_id: int
+    lines_scanned: int
+    lines_changed: int
+    lines_skipped: int = Field(
+        default=0, description="Lines over the length guard, left untouched.")
+    rules: List[EnCleanupRule]
+    changes: List[EnCleanupChange] = Field(description="Capped; `truncated` says more exist.")
+    truncated: bool
+    plan_hash: str
+
+
+class EnCleanupApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_plan_hash: str = Field(
+        min_length=1, max_length=128,
+        description="The preview's `plan_hash`; 409 if a fresh cleanup would differ.")
+
+
+class EnCleanupResult(BaseModel):
+    applied: int
+    stale: int
+    history_id: int
 
 
 class StyleProfileView(BaseModel):

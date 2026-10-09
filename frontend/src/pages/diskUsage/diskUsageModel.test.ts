@@ -4,12 +4,13 @@ import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
   CLIP_BATCH_SIZE, clipBatches, clipsDoneBeforeError, describeClipsStopped, sumClipResults,
-  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
+  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
   name: 'tmp', path: 'library/tmp', kind: 'folder', size_bytes: 1_500_000, file_count: 12,
-  percent_of_parent: 40, modified_at: null, is_link: false, contains_link: false, complete: true, protected: false,
+  percent_of_parent: 40, modified_at: null, is_link: false, contains_link: false, linked_bytes: null, linked_files: null, linked_complete: null,
+  complete: true, protected: false,
   protected_reason: null, regenerable: null, irreplaceable: false, irreplaceable_note: null,
   movable: { supported: false, reason: 'Fixed place.', what: null }, ...over,
 })
@@ -40,6 +41,33 @@ describe('size formatting', () => {
     expect(diskLine({ disk_free_bytes: 2_800_000_000, disk_total_bytes: 252_000_000_000 })).toBe(
       '2.8 GB free of 252.0 GB on this drive')
     expect(diskLine({ disk_free_bytes: null, disk_total_bytes: null })).toBe('')
+  })
+})
+
+describe('linked folders', () => {
+  const linked = { linked_bytes: 7_200_000_000, linked_files: 2, linked_complete: true }
+  it('labels a link with its target size and never calls it counted', () => {
+    expect(linkedText(item({ is_link: true, ...linked }))).toBe(
+      'Linked folder, stored elsewhere: 7.2 GB · 2 files')
+    expect(linkedText(item({ is_link: true, ...linked, linked_complete: false }))).toBe(
+      'Linked folder, stored elsewhere: at least 7.2 GB · 2 files')
+  })
+  it('tells a folder holding a link that the linked size is extra', () => {
+    expect(linkedText(item({ contains_link: true, ...linked }))).toBe(
+      'Plus 7.2 GB · 2 files in linked folders stored elsewhere, not counted in the size above.')
+  })
+  it('says nothing when no linked folder was measured, and never names a place', () => {
+    expect(linkedText(item({ is_link: true }))).toBeNull()
+    expect(linkedText(item({ is_link: true, ...linked }))).not.toMatch(/[\\/]/)
+  })
+  it('adds the folder total line', () => {
+    expect(scanLinkedText({ linked_bytes: 7_200_000_000, linked_complete: true })).toBe('plus 7.2 GB in linked folders')
+    expect(scanLinkedText({ linked_bytes: 7_200_000_000, linked_complete: false })).toBe('plus at least 7.2 GB in linked folders')
+    expect(scanLinkedText({ linked_bytes: 0, linked_complete: true })).toBe('')
+  })
+  it('keeps a link or a folder holding one blocked from Trash', () => {
+    expect(clearBlock(item({ is_link: true, protected: true, protected_reason: 'A link.', ...linked }), scan)).toBe('A link.')
+    expect(clearBlock(item({ contains_link: true, ...linked }), scan)).toMatch(/link or junction/)
   })
 })
 

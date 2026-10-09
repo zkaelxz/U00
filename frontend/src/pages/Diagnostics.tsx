@@ -11,11 +11,13 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
 import type { DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks } from '../types/diagnostics'
 import { DangerZone } from './diagnostics/DangerZone'
+import { BrowserInstall } from './diagnostics/BrowserInstall'
 import { DenoInstall } from './diagnostics/DenoInstall'
 import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
+import { RealModelCheck } from './diagnostics/RealModelCheck'
 import { SetupSection } from './diagnostics/SetupSection'
 import { headerBadges, installableEngines, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
@@ -130,6 +132,8 @@ export default function DiagnosticsPage() {
         >
           <DenoInstall pc={pc} jobsActive={active} busy={adminBusy}
             onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          <BrowserInstall pc={pc} jobsActive={active} busy={adminBusy}
+            onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
         </SetupSection>
       ) : (
         !error && <p className="muted">Loading…</p>
@@ -152,6 +156,7 @@ export default function DiagnosticsPage() {
             onShowEngines={showEngines}
           />
         )}
+        <RealModelCheck pc={pc} jobsActive={active} />
         <PortsSection pc={pc} />
         <LogSection />
       </div>

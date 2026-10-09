@@ -328,3 +328,15 @@ def test_detail_source_url_drops_path_tokens_and_non_http(client, stored, shown)
     did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
     db.update_drama(did, source_url=stored)
     assert client.get(f"/api/library/dramas/{did}").json()["source_url"] == shown
+
+
+def test_translate_toggles_are_saved_through_the_metadata_update(client):
+    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    assert db.get_drama(did)["default_female_pronouns"] is None
+    r = client.post(f"/api/dramas/{did}/metadata",
+                    json={"default_female_pronouns": True, "include_genre_notes": False})
+    assert r.status_code == 200, r.text
+    row = db.get_drama(did)
+    assert (row["default_female_pronouns"], row["include_genre_notes"]) == (1, 0)
+    assert client.post(f"/api/dramas/{did}/metadata",
+                       json={"default_female_pronouns": "yes"}).status_code == 422

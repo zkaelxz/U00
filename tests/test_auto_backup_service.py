@@ -160,6 +160,7 @@ def _seed_series(c, name="Saga"):
     _insert(c, "glossary_terms", series_id=sid, term_original="剑", term_translation="sword")
     _insert(c, "translation_memory", series_id=sid, source_text="你好", translation="Hello",
             use_count=3, updated_at="2026-01-03")
+    _insert(c, "glossary_dismissals", series_id=sid, term_original="路人", created_at="2026-01-04")
     return sid, sc
 
 
@@ -247,7 +248,8 @@ SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results", "speaker_merge
 LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
-SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
+SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
+                   "glossary_dismissals")
 
 
 def _fk_child_tables():
@@ -759,6 +761,20 @@ class TestSnapshotWrite:
             zf.extract("library.db", tmp_path)
         with contextlib.closing(sqlite3.connect(tmp_path / "library.db")) as c:
             assert c.execute("SELECT COUNT(*) FROM auth_sessions").fetchone()[0] == 0
+
+    def test_snapshot_db_has_no_device_tokens(self, isolated_db, tmp_path):
+        import time
+        import device_tokens
+        from services import auth_service
+        u = auth_service.add_user("kid@example.com")
+        assert device_tokens.insert_under_cap(u["id"], "laptop", "a" * 64, time.time(),
+                                              time.time() + 3600, 10)
+        path = _snap()
+        with zipfile.ZipFile(path) as zf:
+            zf.extract("library.db", tmp_path)
+        with contextlib.closing(sqlite3.connect(tmp_path / "library.db")) as c:
+            assert c.execute("SELECT COUNT(*) FROM extension_device_tokens").fetchone()[0] == 0
+        assert len(device_tokens.list_for_user(u["id"])) == 1
 
     def test_snapshot_excluded_from_full_backup_and_next_snapshot_no_env(self, isolated_db,
                                                                           tmp_path):
@@ -1426,6 +1442,32 @@ class TestRotation:
         assert not os.path.exists(legacy)               # now the third week back
         assert sorted(os.listdir(_default_dir())) == [
             _name(_at(2)), _name(_at(9)), _name(_at(10)), _name(_at(16))]
+
+    def test_restore_from_a_copy_older_than_the_repeat_guard_resets_the_old_silence_default(
+            self, isolated_db):
+        import sqlite3
+        a = db.create_drama(title_en="Old default")
+        path = _snap()
+        with zipfile.ZipFile(path) as zf:
+            members = {n: zf.read(n) for n in zf.namelist()}
+        inner = os.path.join(os.path.dirname(path), "_edit.db")
+        with open(inner, "wb") as fh:
+            fh.write(members["library.db"])
+        conn = sqlite3.connect(inner)
+        conn.execute("ALTER TABLE dramas DROP COLUMN whisper_repeat_guard")
+        conn.execute("UPDATE dramas SET hallucination_silence_sec = 2.0")
+        conn.commit()
+        conn.close()
+        with open(inner, "rb") as fh:
+            members["library.db"] = fh.read()
+        os.remove(inner)
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, data in members.items():
+                zf.writestr(name, data)
+        _delete_drama(a)
+        res = abs_.restore_drama(a, confirm=True, confirm_text="RESTORE",
+                                 snapshot=os.path.basename(path))
+        assert db.get_drama(res["drama_id"])["hallucination_silence_sec"] == 0
 
     def test_restore_from_the_legacy_snapshot_by_name(self, isolated_db, monkeypatch):
         a = db.create_drama(title_en="Legacy drama")

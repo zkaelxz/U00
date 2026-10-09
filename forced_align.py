@@ -47,6 +47,7 @@ import os
 import re
 import tempfile
 
+import memory_headroom
 from core import (
     ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
     Line, lines_from_char_times, align_transcript_to_timing,
@@ -71,6 +72,8 @@ _WORD_UNIT_LANGUAGES = {"English"}
 
 # Loaded models stay cached across calls; core.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
+# The one repo the aligner loads; the real-model check looks for exactly this id.
+ALIGNER_REPO_ID = "Qwen/Qwen3-ForcedAligner-0.6B"
 _aligner_model_cache = {}
 
 
@@ -92,6 +95,7 @@ def load_qwen3_aligner(use_gpu: bool = False, on_device=None, on_gpu_fallback=No
     back to the CPU.
     """
     cache_key = "gpu" if use_gpu else "cpu"
+    memory_headroom.before_load("aligner", "qwen3", use_gpu, cache_key in _aligner_model_cache)
     if cache_key in _aligner_model_cache:
         if on_device:
             on_device("GPU" if use_gpu else "CPU")
@@ -103,12 +107,12 @@ def load_qwen3_aligner(use_gpu: bool = False, on_device=None, on_gpu_fallback=No
     device = "cuda:0" if use_gpu else "cpu"
     try:
         model = Qwen3ForcedAligner.from_pretrained(
-            "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map=device,
+            ALIGNER_REPO_ID, dtype=torch.bfloat16, device_map=device,
         )
     except Exception as exc:
         if use_gpu and is_gpu_error(exc):
             model = Qwen3ForcedAligner.from_pretrained(
-                "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map="cpu",
+                ALIGNER_REPO_ID, dtype=torch.bfloat16, device_map="cpu",
             )
             cache_key = "cpu"
             use_gpu = False
@@ -303,12 +307,17 @@ def _bad_line_timings(per_line_times) -> set:
 
 
 def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: str,
-                      use_gpu: bool = False, on_device=None, on_gpu_fallback=None):
+                      use_gpu: bool = False, on_device=None, on_gpu_fallback=None,
+                      cancel_check=None):
     """Drop-in alternative to core.align_transcript_to_timing() -- same
     inputs, same Line-list output -- that refines timing with true forced
     alignment instead of a character-diff heuristic. See the module
     docstring for why this still needs whisper_segments (as a coarse
     first pass, not as the source of the final timestamps).
+
+    cancel_check() runs before the model load, after it and before each
+    chunk, and should raise to stop; a load or one chunk already running
+    can't be interrupted, so a cancel lands at the next of those points.
     """
     if language not in ALIGNER_LANGUAGE_NAMES:
         raise ValueError(
@@ -325,12 +334,18 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
 
     coarse_lines = align_transcript_to_timing(user_lines, whisper_segments)
     chunks = _bucket_into_chunks(coarse_lines)
+    if cancel_check:
+        cancel_check()
     model = load_qwen3_aligner(use_gpu=use_gpu, **_device_callbacks(on_device, on_gpu_fallback))
+    if cancel_check:
+        cancel_check()
     language_name = ALIGNER_LANGUAGE_NAMES[language]
 
     per_line_times, repaired = {}, set()
     with tempfile.TemporaryDirectory(prefix="baihe_forced_align_") as tmp_dir:
         for chunk in chunks:
+            if cancel_check:
+                cancel_check()
             per_line_times.update(_align_chunk(model, audio_path, chunk, language_name, tmp_dir,
                                               repaired_lines=repaired))
 

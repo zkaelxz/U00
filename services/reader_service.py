@@ -61,9 +61,14 @@ import universe_wiki
 import vocab_export
 from services import drama_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                      NotFoundError, ServiceError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    ServiceError,
+    UnsupportedOperationError,
+)
 
 DEFAULT_CHAPTER_SIZE = 40
 
@@ -237,9 +242,8 @@ def llm_engine(engine_name=None, model=None):
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't do this.")
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+    if api_key is None:
+        raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get_gemini_free_tier(),

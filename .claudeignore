@@ -1,0 +1,4 @@
+docs/archive/
+assets/
+frontend/package-lock.json
+installer/wheels.lock.txt

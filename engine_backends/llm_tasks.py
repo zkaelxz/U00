@@ -3,7 +3,7 @@ speaker tagging, pacing, consistency, summaries and flagging."""
 
 import re
 from .gemini import GeminiEngine
-from .local import OllamaEngine, _ollama_chat, estimate_ollama_num_ctx
+from .local import OllamaEngine, _ollama_chat, estimate_ollama_num_ctx, strip_ollama_thinking
 from .openai_compat import OpenAIEngine
 from .shared import (
     _id_keyed_batch_request,
@@ -93,7 +93,7 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
         })
         if usage_cb:
             usage_cb(data.get("prompt_eval_count", 0), data.get("eval_count", 0))
-        return data["message"]["content"].strip()
+        return strip_ollama_thinking(data["message"]["content"])
 
     if getattr(engine, "client", True) is None:
         # An engine with an empty LLM client slot declines cleanly: fallback
@@ -385,6 +385,8 @@ SYSTEM_FLAG_REASONS = {
                        "source and the translation"),
     "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
                             "result wasn't applied; translate this line again"),
+    "pronoun_check": ("Pronoun check -- the translation says he/him but no he/him character "
+                      "is set for this speaker"),
     "content_blocked": ("Blocked by the translation engine's own content-moderation system -- "
                         "see the note for which engine and its stated reason"),
 }

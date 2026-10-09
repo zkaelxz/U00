@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { MediaKind } from '../../../api/media'
 import { getMediaStatus } from '../../../api/workspace'
@@ -6,10 +6,12 @@ import { useStage } from '../StageContext'
 import { Section } from '../../../components/Section'
 import { readSectionOpen } from '../../../components/sectionStorage'
 import { AiExtrasBurnPreview } from './review/AiExtrasBurnPreview'
+import { AiExtrasCleanup } from './review/AiExtrasCleanup'
 import { AiExtrasMerge } from './review/AiExtrasMerge'
 import { AiExtrasSenseVoice } from './review/AiExtrasSenseVoice'
 import { AiExtrasStyle } from './review/AiExtrasStyle'
 import { CompareTranscription } from './review/CompareTranscription'
+import { RetimeLines } from './review/RetimeLines'
 import { LinesPanel } from './review/LinesPanel'
 import { LineSelectionProvider } from './review/LineSelectionContext'
 import { RecordsPanel } from './review/RecordsPanel'
@@ -52,15 +54,30 @@ function Fold({ storageKey, title, summary, openSignal, children }: {
 }
 
 export default function ReviewStage() {
-  const { dramaId, drama } = useStage()
+  const { dramaId, drama, refetchDrama } = useStage()
   // Bumped after any write or finished job; every panel refetches on it.
   const [reloads, setReloads] = useState(0)
-  const changed = useCallback(() => setReloads((n) => n + 1), [])
+  // The header and tab counts come from the shell's workflow progress, which only
+  // reloads with the drama; the filter chips come from the lines list. Refreshing
+  // both here keeps the three in step after every write.
+  const changed = useCallback(() => {
+    setReloads((n) => n + 1)
+    refetchDrama()
+  }, [refetchDrama])
   const jobRunning = useDramaJobRunning(dramaId, reloads)
+  // A job that finished (translation, re-transcribe) rewrote lines the list has not seen yet.
+  const wasRunning = useRef(false)
+  useEffect(() => {
+    if (wasRunning.current && !jobRunning) changed()
+    wasRunning.current = jobRunning
+  }, [jobRunning, changed])
   // Bumped by the selection bar's "Compare transcription…": opens the fold and
   // the section and shows the ticked lines there.
   const [compareSignal, setCompareSignal] = useState(0)
   const openCompare = useCallback(() => setCompareSignal((n) => n + 1), [])
+  // Same for "Re-time with Qwen3 aligner…".
+  const [retimeSignal, setRetimeSignal] = useState(0)
+  const openRetime = useCallback(() => setRetimeSignal((n) => n + 1), [])
   const [lineCount, setLineCount] = useState<number | null>(null)
   // A finding's line link: the editor opens that line (by id where known).
   const [goTo, setGoTo] = useState<{ target: LineTarget; seq: number; resolve: (m: string | null) => void } | null>(null)
@@ -98,6 +115,7 @@ export default function ReviewStage() {
         onLineCount={setLineCount}
         onFlaggedCount={setFlaggedCount}
         onCompareSelected={openCompare}
+        onRetimeSelected={openRetime}
         goTo={goTo}
       />
       <ReviewChecks
@@ -114,23 +132,25 @@ export default function ReviewStage() {
               {parts.coverage}
             </ReviewJobsPanel>
             {!!lineCount && (
-              <Fold storageKey="review.fold.restructure" title="Restructure lines" summary="Structure · re-split · merge short · shorten overlong">
+              <Fold storageKey="review.fold.restructure" title="Restructure lines" summary="Structure · re-split · merge short · fix common errors · shorten overlong">
                 {() => (
                   <>
                     <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
                     <ResplitLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
                     <AiExtrasMerge dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
+                    <AiExtrasCleanup dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
                     {parts.shorten}
                   </>
                 )}
               </Fold>
             )}
-            <Fold storageKey="review.fold.history" title="Versions and history" openSignal={compareSignal || undefined} summary="Notes · versions · history · compare · compare transcription · edit tendencies">
+            <Fold storageKey="review.fold.history" title="Versions and history" openSignal={compareSignal + retimeSignal || undefined} summary="Notes · versions · history · compare · compare transcription · re-time · edit tendencies">
               {(opened) => (
                 <>
                   <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
                   {parts.history}
                   {!!lineCount && opened && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />}
+                  {!!lineCount && opened && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />}
                   {!!lineCount && opened && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
                 </>
               )}

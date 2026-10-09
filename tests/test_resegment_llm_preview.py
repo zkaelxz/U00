@@ -108,7 +108,7 @@ def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
 
     def fake_process_job(job_id, target, args=(), on_done=None, **kw):
         captured.update(job_id=job_id, target=target, kw=kw)
-        lines, language, eng, segments, script = args
+        lines, language, eng, segments, script, min_pause = args
         new_lines, changed = resegment.resegment_lines(lines, language)
         on_done(job_id, {"lines": new_lines, "usage_calls": [(10, 2)],
                          "changed": [(ln.id, ln.idx, ln.zh, p) for ln, p in changed]})
@@ -124,7 +124,7 @@ def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
 def test_refusals(monkeypatch):
     did = _seed()
     with pytest.raises(UnsupportedOperationError):
-        svc.start_llm_resegment_preview(did, engine="nllb")   # translation-only
+        svc.start_llm_resegment_preview(did, engine="fake_mt")   # translation-only
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.0)
     with pytest.raises(UnsupportedOperationError):

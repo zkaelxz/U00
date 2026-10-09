@@ -23,7 +23,7 @@ import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnl
 import type { DiskUsageItem, DiskUsageScan, DiskUsageTrashList, UnusedVoiceClipList } from '../../types/diskUsage'
 import {
   PARTIAL_TEXT, barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeMoved,
-  diskLine, itemTone, moveBlock, moveConfirmLabel, percentText, sizeLine,
+  diskLine, itemTone, linkedText, moveBlock, moveConfirmLabel, percentText, scanLinkedText, sizeLine,
 } from './diskUsageModel'
 import { TempCleanup } from './TempCleanup'
 import { TrashPanel } from './TrashPanel'
@@ -163,7 +163,7 @@ function DiskUsageLive() {
           {loading && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={cancel}>Cancel</button>
           )}
-          {scan && <span className="muted du-total">{`${sizeLine({ size_bytes: scan.total_bytes, file_count: scan.file_count, complete: !scan.partial })} here`}</span>}
+          {scan && <span className="muted du-total">{[`${sizeLine({ size_bytes: scan.total_bytes, file_count: scan.file_count, complete: !scan.partial })} here`, scanLinkedText(scan)].filter(Boolean).join(', ')}</span>}
         </div>
         {scan && diskLine(scan) && <p className="muted du-disk">{diskLine(scan)}</p>}
         {loading && <p className="muted" role="status">Scanning…</p>}
@@ -303,6 +303,7 @@ function ItemRow({ item, scan, onOpen, onChanged, onStale }: {
         <span className="du-size num">{sizeLine(item)}</span>
         <span className="du-pct muted num">{percentText(item.percent_of_parent)}</span>
       </div>
+      {linkedText(item) && <p className="muted du-why du-linked">{linkedText(item)}</p>}
       <div className="du-bar" aria-hidden="true">
         <span style={{ width: `${barPercent(item)}%` }} />
       </div>

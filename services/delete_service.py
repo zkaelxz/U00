@@ -31,6 +31,7 @@ import os
 import db
 from services import drama_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from sources import chapter_manifest
 
 log = logging.getLogger(__name__)
 
@@ -129,6 +130,10 @@ def remove_raw_novel(drama_id, confirm=False) -> dict:
         raise NotFoundError("This drama has no raw novel text saved.")
     _require_confirm(confirm, "the raw novel text")
     _require_idle(drama_id)
+    # Dropped first so a manifest that can't be removed never outlives the file.
+    if not chapter_manifest.drop(drama_id):
+        raise ConflictError("The saved chapter list is in use and could not be removed. "
+                            "Close anything using it and try again.")
     try:
         os.remove(path)
     except OSError as e:

@@ -361,6 +361,15 @@ class TestRestartCancelAuth:
         assert all(r["en"] == f"EN[{r['zh']}]" for r in isolated_db.load_lines(did))
         background_jobs.clear_job(bt.poll_job_id(bulk_id))
 
+    def test_resume_rebuilds_the_engine_with_the_model_id_stored_on_the_job(self, isolated_db):
+        did = _drama(isolated_db, n=2)
+        bulk_id = isolated_db.create_bulk_job(did, "claude", "claude-opus-4-8", "submitted", [])
+        background_jobs.clear_all_jobs()
+        seen = []
+        bt.resume_pending(did, lambda e, m: seen.append((e, m)))
+        assert seen == [("claude", "claude-opus-4-8")]
+        assert bulk_id
+
     def test_resume_without_a_key_reports_it_instead_of_polling(self, isolated_db):
         engine = _claude_engine()
         did = _drama(isolated_db, n=2)
@@ -1185,6 +1194,23 @@ class TestSpokenLanguage:
         did = _drama(isolated_db, n=2)
         bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude", {})
         assert "spoken in" not in _request_text(engine)
+
+    def test_offpeak_run_uses_the_thinking_value_stored_with_the_run(self, isolated_db):
+        did = _mixed_drama(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        jid = bt.schedule_offpeak_translation(did, lines, "deepseek", "m", {"thinking": True})
+        isolated_db.update_drama(did, translate_thinking=0)  # changed before the job runs
+        contexts = []
+
+        class Engine:
+            model = "m"
+
+            def translate_batch(self, zh_lines, context):
+                contexts.append(context.get("reply_with_thinking"))
+                return [f"EN:{z}" for z in zh_lines]
+
+        bt.run_scheduled_job(jid, Engine())
+        assert contexts and all(contexts)
 
     def test_offpeak_run_tags_and_skips_english(self, isolated_db):
         did = _mixed_drama(isolated_db)

@@ -32,6 +32,20 @@ describe('review extras api', () => {
     expect(sent(calls[0])).toEqual(body)
   })
 
+  it('previews and applies the English cleanup with the preview plan hash', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch({}, calls)
+    await rx.previewEnCleanup(4, f)
+    await rx.applyEnCleanup(4, 'abc123', f)
+    expect(calls.map((c) => c.url)).toEqual([
+      '/api/review-extras/dramas/4/en-cleanup/preview',
+      '/api/review-extras/dramas/4/en-cleanup/apply',
+    ])
+    expect(calls[0].init?.method ?? 'GET').toBe('GET')
+    expect(calls[1].init?.method).toBe('POST')
+    expect(sent(calls[1])).toEqual({ expected_plan_hash: 'abc123' })
+  })
+
   it('style: read, learn (blank engine left out), toggle, reset', async () => {
     const calls: Call[] = []
     const f = fakeFetch({}, calls)

@@ -15,7 +15,7 @@ SRC = Path(__file__).resolve().parent.parent / "frontend" / "src"
 
 def _ts_number(path, name):
     text = (SRC / path).read_text(encoding="utf-8")
-    m = re.search(rf"export const {name} = ([0-9_ *]+)\n", text)
+    m = re.search(rf"export const {name} = ([0-9_. *]+)\n", text)
     assert m, f"{name} not found in {path}"
     return eval(m.group(1).replace("_", ""), {"__builtins__": {}})
 
@@ -26,6 +26,34 @@ def test_translate_text_cap_matches_the_schema():
     assert _ts_number("api/translate.ts", "MAX_TRANSLATE_TEXT_CHARS") == max_length
 
 
+def test_min_silence_bounds_match_core():
+    import core
+    assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MIN") == core.MIN_SILENCE_MS_MIN
+    assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MAX") == core.MIN_SILENCE_MS_MAX
+
+
+def test_min_pause_bounds_and_default_match_core():
+    import core
+    ts = "pages/workspace/sourceForm.ts"
+    assert _ts_number(ts, "MIN_PAUSE_SEC_MIN") == core.MIN_WORD_GAP_SECONDS_MIN
+    assert _ts_number(ts, "MIN_PAUSE_SEC_MAX") == core.MIN_WORD_GAP_SECONDS_MAX
+    assert _ts_number(ts, "MIN_PAUSE_SEC_DEFAULT") == core.MIN_WORD_GAP_SECONDS
+
+
 def test_novel_epub_cap_matches_the_attach_service():
     assert (_ts_number("pages/workspace/stages/novelFile.ts", "MAX_NOVEL_EPUB_BYTES")
             == novel_attach_service.MAX_EPUB_BYTES)
+
+
+def _ts_extensions(path, name):
+    text = (SRC / path).read_text(encoding="utf-8")
+    m = re.search(rf"const {name} = \[([^\]]*)\]", text)
+    assert m, f"{name} not found in {path}"
+    return re.findall(r"'(\.[a-z0-9]+)'", m.group(1))
+
+
+def test_media_extension_lists_match_the_upload_service():
+    from services import media_upload_service as mus
+    path = "pages/workspace/sourceForm.ts"
+    assert tuple(_ts_extensions(path, "AUDIO_EXTENSIONS")) == mus.AUDIO_EXTENSIONS
+    assert tuple(_ts_extensions(path, "VIDEO_EXTENSIONS")) == mus.VIDEO_EXTENSIONS

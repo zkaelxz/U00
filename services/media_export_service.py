@@ -28,7 +28,7 @@ import threading
 
 import background_jobs
 import db
-import dub
+import dub_narration
 import storage
 import video_export
 from services import artifact_service, export_service
@@ -112,7 +112,7 @@ def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original):
     with _fixed_write_errors(), storage.job_workdir(job_id) as tmp:
         tmp_out = os.path.join(tmp, "audiobook.m4b")
         try:
-            dub.export_narration_m4b(lines, ddir, title=title, out_path=tmp_out,
+            dub_narration.export_narration_m4b(lines, ddir, title=title, out_path=tmp_out,
                                      narrate_original=narrate_original,
                                      cancel_job_id=job_id)
         except (subprocess.CalledProcessError, OSError):
@@ -135,7 +135,7 @@ def start_audiobook_export(drama_id: int) -> dict:
         raise InvalidInputError("This drama has no lines to export.")
     ddir = db.drama_dir(drama_id)
     if not os.path.isfile(os.path.join(ddir, "narration_track.wav")):
-        raise InvalidInputError("No narration audio yet -- generate the narration first.")
+        raise InvalidInputError("There is no narration yet. Create it in Dub first.")
     _require_ffmpeg()
     job_id = f"audiobook_{drama_id}"
     _refuse_duplicate(job_id, "audiobook", drama_id)
@@ -157,9 +157,7 @@ def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
         with open(os.path.join(tmp, "subs.ass"), "w", encoding="utf-8") as f:
             f.write(ass_text)
         out_name = f"out{ext}"
-        # -protocol_whitelist file: a source named .mp4 could really be an HLS
-        # playlist naming network URLs; ffmpeg may only open local files.
-        cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path,
+        cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path,
                "-vf", "subtitles=subs.ass",
                "-c:a", "copy", out_name]
         _run_video_ffmpeg(job_id, cmd, tmp)
@@ -215,7 +213,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
     thread job `softsub_video_<drama_id>`: the SRT for `field` (en, zh or
     bilingual) is added as a selectable subtitle track, video and audio
     are stream-copied. .mp4/.mkv sources keep their container, anything
-    else becomes .mp4 (mov_text). Output kind "softsub_video".
+    else (.webm, .mov, ...) becomes .mkv (srt). Output kind "softsub_video".
     Raises NotFoundError, InvalidInputError (no lines, no source video,
     bad field), DependencyUnavailableError (ffmpeg missing), ConflictError
     (a video export already running). Returns {"job_id": ...}."""
@@ -227,9 +225,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
                                                      include_notes=include_notes)
     _require_ffmpeg()
     job_id = f"softsub_video_{drama_id}"
-    ext = os.path.splitext(video_path)[1].lower()
-    if ext not in (".mp4", ".mkv"):
-        ext = ".mp4"
+    ext = video_export.softsub_output_extension(video_path)
     language = "eng" if field == "en" else "und"
     return _start_video_job(drama_id, job_id, _softsub_video_job, job_id, drama_id, video_path,
                             srt_text, ext, language,
@@ -266,7 +262,7 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
     video_path = _source_video(drama, drama_id)
     dub_path = os.path.join(db.drama_dir(drama_id), "dub_track.wav")
     if not os.path.isfile(dub_path):
-        raise InvalidInputError("No dub track yet -- generate the dub first.")
+        raise InvalidInputError("There is no dub yet. Create it in Dub first.")
     if not isinstance(keep_original, bool):
         raise InvalidInputError("keep_original must be true or false.")
     _require_ffmpeg()

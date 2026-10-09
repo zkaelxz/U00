@@ -1,7 +1,9 @@
 """Tests for services/live_service.py (Live capture L-1). Fully mocked:
 no ffmpeg, yt-dlp, Whisper or network."""
 import os
+import re
 import socket
+import threading
 import time
 
 import pytest
@@ -17,6 +19,8 @@ PUBLIC = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
 
 
 class FakeProc:
+    error = None
+
     def __init__(self):
         self.stopped = False
 
@@ -34,15 +38,15 @@ def live(monkeypatch, isolated_db):
     monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: "http://media")
     calls = {"process": [], "procs": []}
 
-    def fake_capture(source_url, out_dir, segment_seconds, protocol_whitelist=None):
+    def fake_capture(source_url, out_dir, segment_seconds, proxy=None):
         calls["out_dir"] = out_dir
-        calls["protocol_whitelist"] = protocol_whitelist
+        calls["proxy"] = proxy
         p = FakeProc()
         calls["procs"].append(p)
         return p
 
     monkeypatch.setattr(live_translate, "start_segment_capture", fake_capture)
-    monkeypatch.setattr(live_translate, "stop_capture", lambda proc: setattr(proc, "stopped", True))
+    monkeypatch.setattr(live_translate, "stop_capture", lambda proc, **kw: setattr(proc, "stopped", True))
     yield calls
     for sid in list(live_service._sessions):
         live_translate.bump_generation(sid)
@@ -144,7 +148,21 @@ def test_second_start_while_one_runs_is_conflict(live):
     with pytest.raises(ConflictError):
         _start()
     assert list(live_service._sessions) == [a]
-    assert live["protocol_whitelist"] == live_service.FFMPEG_PROTOCOL_WHITELIST
+
+
+def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live):
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    port = int(live["proxy"].rsplit(":", 1)[1])
+    # A per-session secret in the userinfo, the proxy's only credential.
+    assert re.fullmatch(rf"http://baihe:[A-Za-z0-9_-]{{20,}}@127\.0\.0\.1:{port}", live["proxy"])
+    # socket.socket, not create_connection: the fixture fakes getaddrinfo.
+    with socket.socket() as s:
+        s.connect(("127.0.0.1", port))  # serving
+    live_service.stop_session(sid)
+    assert _terminal(sid)
+    with pytest.raises(OSError), socket.socket() as s:
+        s.connect(("127.0.0.1", port))
 
 
 def test_refused_second_start_builds_no_engine(live, monkeypatch):
@@ -176,6 +194,18 @@ def test_dir_removed_on_error_and_message_clean(live, monkeypatch):
     assert "/tmp" not in blob and "chunk_00001" not in blob
 
 
+def test_clean_message_keeps_words_containing_the_os_username(monkeypatch):
+    import getpass
+    monkeypatch.setattr(getpass, "getuser", lambda: "li")
+    shown = live_service.clean_message(
+        "Likely a timeout: https://cdn.example/live.m3u8?token=abc failed, "
+        "key sk-ant-abcdefghijklmnopqrstu, file /home/li/chunks/chunk_00001.wav")
+    assert shown.startswith("Likely a timeout: [URL] failed")
+    assert "[USER]" not in shown
+    assert "cdn.example" not in shown and "token" not in shown
+    assert "sk-ant" not in shown and "/home" not in shown and "chunk_00001" not in shown
+
+
 def test_dir_removed_on_cancel_while_running(live):
     sid = _start()
     assert _wait(lambda: "out_dir" in live)
@@ -185,6 +215,32 @@ def test_dir_removed_on_cancel_while_running(live):
     assert _terminal(sid)
     assert live_service.get_session(sid)["status"] == "cancelled"
     assert not os.path.exists(out_dir)
+
+
+def test_status_names_the_stage_and_what_a_stop_waits_on(live, monkeypatch):
+    release = threading.Event()
+    inside = threading.Event()
+
+    def blocked_chunk(path, idx, seg, lang, size, engine, on_stage=None, **k):
+        on_stage("transcribing")
+        inside.set()
+        release.wait(10)
+        return []
+
+    monkeypatch.setattr(live_translate, "process_chunk", blocked_chunk)
+    sid = _start(overlap_seconds=0)
+    assert _wait(lambda: "out_dir" in live)
+    for i in range(2):
+        open(os.path.join(live["out_dir"], f"chunk_{i:05d}.wav"), "wb").close()
+    assert inside.wait(8)
+    assert "Chunk 0: transcribing with Whisper small" in live_service.get_session(sid)["message"]
+
+    live_service.stop_session(sid)
+    message = live_service.get_session(sid)["message"]
+    assert "cannot be interrupted" in message
+    assert "finishes the current step first" not in message
+    release.set()
+    assert _terminal(sid)
 
 
 def test_dir_removed_on_cancel_while_queued(live, monkeypatch):
@@ -233,8 +289,10 @@ def test_stale_chunks_never_processed(live, monkeypatch, tmp_path):
     seen = []
     monkeypatch.setattr(live_translate, "process_chunk",
                         lambda path, idx, *a, **k: seen.append(idx) or [])
-    # The real capture starter (it does the clearing), with ffmpeg mocked.
+    # The real capture starter (it does the clearing), with ffmpeg and the
+    # stream fetcher mocked.
     monkeypatch.setattr(live_translate.subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(live_translate.live_fetch.StreamPump, "start", lambda self: self)
     monkeypatch.setattr(live_translate, "start_segment_capture", _REAL_CAPTURE)
     background_jobs.start_job("live_stale", live_translate.run_live_job, "live_stale", "u",
                               str(tmp_path), 10, "zh", "tiny", object(), poll_interval=0.01,
@@ -289,6 +347,18 @@ def test_cue_slicing(live, monkeypatch):
         live_service.get_session(sid, after="x")
 
 
+def test_cues_carry_id_and_translation_state(live, monkeypatch):
+    cues = [{"id": 0, "start": 0, "end": 1, "text": "a", "translated": "A", "translation": "done"},
+            {"id": 1, "start": 1, "end": 2, "text": "b", "translated": "", "translation": "pending"},
+            {"start": 2, "end": 3, "text": "c", "translated": "[translation failed: x]"}]
+    monkeypatch.setattr(live_translate, "run_live_job",
+                        lambda job_id, *a, **k: background_jobs.set_result(job_id, cues))
+    sid = _start()
+    assert _terminal(sid)
+    got = live_service.get_session(sid, after=1)["cues"]
+    assert [(c["id"], c["translation"]) for c in got] == [(1, "pending"), (2, "failed")]
+
+
 def test_translation_failure_cue_is_cleaned(live, monkeypatch):
     cues = [{"start": 0, "end": 1, "text": "and/or 你好",
              "translated": "[translation failed: /home/k/.env sk-ant-abcdefghijklmnopqrstu]"}]
@@ -316,7 +386,7 @@ def test_list_sessions(live, monkeypatch):
     assert _terminal(sid)
     listed = live_service.list_sessions()
     assert [s["session_id"] for s in listed] == [sid]
-    assert set(listed[0]) == {"session_id", "status", "engine", "cue_count"}
+    assert set(listed[0]) == {"session_id", "status", "engine", "model", "cue_count"}
 
 
 def test_url_guard_is_the_one_policy(live, monkeypatch):
@@ -369,3 +439,81 @@ def test_running_session_dir_survives_the_sweep(live):
     assert os.path.isdir(out_dir)
     live_service.stop_session(sid)
     assert _terminal(sid)
+
+
+def _capture_engine(live, monkeypatch):
+    seen = {}
+
+    def fake_run(job_id, url, out_dir, seg, lang, size, engine, **k):
+        seen["engine"] = engine
+
+    monkeypatch.setattr(live_translate, "run_live_job", fake_run)
+    return seen
+
+
+def test_chosen_model_reaches_the_engine_and_shows_in_status(live, monkeypatch):
+    seen = _capture_engine(live, monkeypatch)
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "sk-test")
+    sid = _start(engine="claude", model=next(iter(translate_service.ENGINE_MODEL_DICTS["claude"])))
+    assert _terminal(sid)
+    model = next(iter(translate_service.ENGINE_MODEL_DICTS["claude"]))
+    assert seen["engine"].model == model
+    assert live_service.get_session(sid)["model"] == model
+    assert live_service.list_sessions()[0]["model"] == model
+    assert model in background_jobs.get_status(sid)["description"]
+
+
+def test_model_not_offered_for_the_engine_is_refused(live, monkeypatch):
+    seen = _capture_engine(live, monkeypatch)
+    with pytest.raises(InvalidInputError):
+        _start(engine="claude", model="qwen3:8b")
+    with pytest.raises(InvalidInputError):
+        _start(engine="ollama", model="not-a-real-model:1b")
+    assert seen == {} and live_service._sessions == {}
+
+
+def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
+    import translate_engines
+    seen = _capture_engine(live, monkeypatch)
+    monkeypatch.setattr(translate_engines, "check_ollama_model_installed",
+                        lambda base, model: (_ for _ in ()).throw(translate_engines.OllamaUnavailableError(
+                            "ollama_model_missing", f'Ollama doesn\'t have the model {model}. Run "ollama pull {model}" first.')))
+    with pytest.raises(DependencyUnavailableError) as exc:
+        _start(engine="ollama", model="gemma4:12b")
+    assert 'ollama pull gemma4:12b' in str(exc.value)
+    assert seen == {} and live_service._sessions == {}
+
+
+def test_ollama_default_model_is_checked_and_used(live, monkeypatch):
+    import translate_engines
+    seen = _capture_engine(live, monkeypatch)
+    checked = []
+    monkeypatch.setattr(translate_engines, "check_ollama_model_installed",
+                        lambda base, model: checked.append(model))
+    sid = _start(engine="ollama")
+    assert _terminal(sid)
+    assert checked == [translate_engines.OLLAMA_DEFAULT_MODEL]
+    assert seen["engine"].model == translate_engines.OLLAMA_DEFAULT_MODEL
+
+
+def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
+    import json, requests
+    from engine_backends import local
+
+    def fake_get(url, **k):
+        return _TagsResp(json.dumps({"models": [{"name": "qwen3:8b"}, {"name": "tiny:latest"}]}).encode())
+
+    class _TagsResp:
+        ok = True
+        status_code = 200
+        def __init__(self, body): self._body = body
+        def iter_content(self, chunk_size=1, decode_unicode=False): yield self._body
+        def close(self): pass
+        headers = {}
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    local.check_ollama_model_installed("http://x", "qwen3:8b")
+    local.check_ollama_model_installed("http://x", "tiny")
+    with pytest.raises(local.OllamaUnavailableError) as exc:
+        local.check_ollama_model_installed("http://x", "gemma4:12b")
+    assert exc.value.reason == "ollama_model_missing" and 'ollama pull gemma4:12b' in exc.value.message

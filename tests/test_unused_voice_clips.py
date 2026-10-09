@@ -19,6 +19,7 @@ import background_jobs
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
+from services import disk_usage_clips_service as clips
 from services import disk_usage_service as dus
 
 BASE = "/api/data-usage/unused-voice-clips"
@@ -238,7 +239,7 @@ def test_ids_change_with_a_new_process_key(c, monkeypatch):
     did = _drama()
     _clip(did, f"clone_ref_{HEX}.wav")
     old = _ids(c)[1][0]["id"]
-    monkeypatch.setattr(dus, "_CLIP_KEY", b"k" * 32)
+    monkeypatch.setattr(clips, "_CLIP_KEY", b"k" * 32)
     r = c.post(f"{BASE}/to-trash", json={"clips": [{"id": old, "expected_size_bytes": 100}],
                                          "confirm": True})
     assert r.json()["skipped"][0]["reason"] == "no_longer_unused"
@@ -339,9 +340,9 @@ def test_clip_held_by_an_undo_record_is_not_offered_or_moved(c, monkeypatch):
     did = _drama()
     path = _clip(did, f"clone_ref_{HEX}.wav")
     cid = _ids(c)[1][0]["id"]
-    monkeypatch.setattr(dus, "_clips_held_by_undo", lambda d: {f"clone_ref_{HEX}.wav"})
+    monkeypatch.setattr(clips, "_clips_held_by_undo", lambda d: {f"clone_ref_{HEX}.wav"})
     assert _ids(c)[1] == []
-    assert dus._clip_still_unused(did, f"clone_ref_{HEX}.wav") is False
+    assert clips._clip_still_unused(did, f"clone_ref_{HEX}.wav") is False
     r = c.post(f"{BASE}/to-trash", json=_body([{"id": cid, "size_bytes": 100}]))
     assert r.json()["moved_count"] == 0 and os.path.exists(path)
 
@@ -363,11 +364,11 @@ def test_a_live_undo_record_protects_its_clip_and_an_expired_one_does_not(c):
         conn.commit()
     finally:
         conn.close()
-    assert dus._clips_held_by_undo(did) == {live.casefold()}
+    assert clips._clips_held_by_undo(did) == {live.casefold()}
     names = [x["id"] for x in _ids(c)[1]]
     assert len(names) == 1  # only the expired record's clip is offered
-    assert dus._clip_still_unused(did, live) is False
-    assert dus._clip_still_unused(did, dead) is True
+    assert clips._clip_still_unused(did, live) is False
+    assert clips._clip_still_unused(did, dead) is True
 
 
 def test_drive_root_data_folder_says_why_instead_of_skipping(c, monkeypatch):

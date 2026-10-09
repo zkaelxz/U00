@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test'
+import { expect, type Locator, type Page, type Route } from '@playwright/test'
 import { REMOTE_HEALTH_OFF } from './authMocks'
 
 // Shared page.route mocks for the Live specs. A real session would run
@@ -15,12 +15,21 @@ const ENGINES = [
   { name: 'fake', label: 'Fake', free: true, models: null, key_configured: true },
 ]
 
+const OLLAMA = {
+  name: 'ollama', label: 'Ollama', free: true, key_configured: true,
+  models: ['qwen3:8b', 'gemma4:12b'], model_labels: {},
+}
+
 export const cue = (n: number) => ({
-  start: n * 20, end: n * 20 + 4, text: `第${n}句台词，内容比较长一些以便测试换行效果。`,
+  id: n, translation: 'done' as 'done' | 'pending' | 'failed' | 'cancelled', start: n * 20, end: n * 20 + 4, text: `第${n}句台词，内容比较长一些以便测试换行效果。`,
   translated: `Line ${n}: a longer English translation so the phone layout has to wrap it.`,
 })
 
+/** A line whose transcript is shown and whose translation has not arrived. */
+export const pendingCue = (n: number) => ({ ...cue(n), translated: '', translation: 'pending' as const })
+
 interface LiveMocks {
+  ollamaChecks: string[]
   posts: { url: string; body: unknown; headers: Record<string, string> }[]
   polls: string[]
   unmocked: string[]
@@ -30,15 +39,16 @@ interface LiveMocks {
     message: string
     cues: ReturnType<typeof cue>[]
     startStatus: number
+    model: string | null
   }
 }
 
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
 
-export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Promise<LiveMocks> {
+export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
-    posts: [], polls: [], unmocked: [],
-    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200 },
+    posts: [], polls: [], unmocked: [], ollamaChecks: [],
+    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null },
   }
   // Registered first, so it only answers what nothing below handles.
   await page.route('**/api/**', (route) => {
@@ -62,7 +72,16 @@ export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Pro
   // (event-stream.spec.ts covers the pushed Live status).
   await page.route('**/api/events?*', (route) =>
     json(route, { error: { code: 'rate_limited', message: 'No stream in this test.' } }, 429))
-  await page.route('**/api/translate/engines', (route) => json(route, { items: ENGINES }))
+  await page.route('**/api/translate/engines', (route) => opts.enginesFail
+    ? json(route, { error: { code: 'internal', message: 'Boom.' } }, 500)
+    : json(route, { items: opts.ollama ? [OLLAMA, ...ENGINES] : ENGINES }))
+  await page.route('**/api/live/ollama-check*', (route) => {
+    const model = new URL(route.request().url()).searchParams.get('model') ?? ''
+    m.ollamaChecks.push(model)
+    return json(route, opts.ollamaMissing
+      ? { ok: false, model, message: `Ollama doesn't have the model ${model}. Run "ollama pull ${model}" first, or pick another model in Settings.` }
+      : { ok: true, model, message: null })
+  })
   // The header asks whether to show the Assistant link (Developer Mode off).
   await page.route('**/api/assistant/settings', (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))
   await page.route('**/api/live/sessions', (route) => {
@@ -80,7 +99,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Pro
     m.polls.push(`after=${after}`)
     const { status, message, cues } = m.state
     return json(route, {
-      session_id: SID, status, message, progress: 0, cues: cues.slice(after), next_index: Math.max(after, cues.length),
+      session_id: SID, status, message, model: m.state.model, progress: 0, cues: cues.slice(after), next_index: Math.max(after, cues.length),
     })
   })
   await page.route(`**/api/live/sessions/${SID}/stop`, (route) => {
@@ -96,4 +115,16 @@ export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Pro
 export async function openLive(page: Page) {
   await page.goto('/#/live')
   return page.getByRole('region', { name: 'Live' })
+}
+
+// A switch inside a Field must keep its own 44x24 track with the knob at the right end when on.
+export async function expectSwitchKeepsItsSize(live: Locator) {
+  const toggle = live.getByRole('switch', { name: 'Reply without thinking' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  const track = await toggle.boundingBox()
+  const thumb = await toggle.locator('.toggle-thumb').boundingBox()
+  expect(track!.width).toBeCloseTo(44, 0)
+  expect(track!.height).toBeCloseTo(24, 0)
+  expect(thumb!.x + thumb!.width).toBeLessThanOrEqual(track!.x + track!.width)
+  expect(track!.x + track!.width - (thumb!.x + thumb!.width)).toBeLessThanOrEqual(4)
 }

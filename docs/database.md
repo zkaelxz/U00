@@ -114,6 +114,7 @@ or `series` go when the parent goes.
 | `series_characters` | Characters shared across a series: `aliases`, `gender`, `voice_fingerprint(_samples)` | `characters_service`, `series_people_service` | `upsert_series_character`, `accept_voice_link`, fingerprint blend |
 | `glossary_terms` | Per-series glossary: `term_original`, `term_translation`, `policy`, `enforce_exact`, `aliases`, `banned_translations` | `glossary_service` | `upsert_glossary_term`, `insert_glossary_term_if_absent`, `update_glossary_term` |
 | `translation_memory` | Per-series source -> translation pairs with `use_count` | `lines_service` | `record_translation_memory` |
+| `glossary_dismissals` | Per-series proposals the user ignored (`term_original`); no extraction lists them again until restored | `glossary_service` | `add_glossary_dismissals`, `remove_glossary_dismissals` |
 | `voice_suggestion_dismissals` | Suggested voice links a user rejected (drama, label, series character) | `characters_service` | `dismiss_voice_suggestion` |
 | `speaker_merge_undos` | Single-use snapshot (`snapshot`, `stale`, `expires_at`) to undo a speaker merge | `characters_service` | written inside `merge_speakers_atomic`; consumed by `undo_merge_speakers_atomic`; `drop_speaker_merge_undos` expires old ones |
 | `pages`, `bubbles` | Comic pages and their text bubbles; `pages.rev` is bumped on bubble edits | `scanlate_*_service`, `scanlate.py` | `create_page`, `update_bubble_fields` (compare-and-set), `replace_bubbles_if_unchanged`, `save_bubbles` |
@@ -137,6 +138,7 @@ or `series` go when the parent goes.
 | `metadata_research_cache`, `metadata_research_results`, `metadata_field_provenance` | Metadata lookups (results age out after `RESEARCH_RESULT_TTL_DAYS`) and where each applied value came from | `metadata_research_service` | `put_research_cache`, `put_research_result`, `add_field_provenance` |
 | `benchmark_cases`, `benchmark_runs`, `benchmark_sessions`, `benchmark_results`, `model_candidates`, `model_decisions` | Benchmark lab and model re-evaluation | `benchmark_lab_service`, `model_reeval_service` | `create_benchmark_*`, `save_benchmark_result`, `record_model_decision` |
 | `users`, `user_permissions`, `auth_sessions`, `audit_log` | Accounts, per-user permissions, server-side sessions, audit trail | `services/auth_service.py` | `auth_*` functions; see section 4 |
+| `extension_device_tokens` | Browser-extension device tokens (SHA-256 only, revoked/expiry times, last use as an IP prefix) | `services/device_token_service.py` | `device_tokens.py` (created from `init_db`); a restore keeps the live rows |
 
 ### `sources.db` (separate file)
 
@@ -297,7 +299,7 @@ checkout, the repo root).
     benchmark_cases/             uploaded benchmark case files
     backups/                     manual and auto/ backups, exports/
     tmp/                         job work folders, partial files (swept at startup)
-    source_cache/, source_review_tmp/, updates/, logs/, piper_voices/
+    source_cache/, source_review_tmp/, updates/, logs/, piper_voices/ (old, unused)
     profiles/, source_profiles/  saved site sign-ins and approved profiles
     cedict.txt                   downloaded dictionary
   model_cache/                   downloaded models (installed or portable copy)

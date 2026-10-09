@@ -10,7 +10,9 @@ import { RegressionTestButton } from './RegressionTestButton'
 import { Field } from '../../../../components/Field'
 import { buttonClass } from '../../../../components/uiClasses'
 import { languageLabel } from '../../../../labels'
-import { JOB_RUNNING_MESSAGE, LINE_LANGUAGES, titleDefaultLabel, type LanguageScope, type ToolMode } from './reviewLogic'
+import { LINE_LANGUAGES, titleDefaultLabel, type LanguageScope } from './reviewDraft'
+import { type ToolMode } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { SplitDialog, type SplitChoice } from './SplitDialog'
 import { lineNumber } from '../../../../lineNumber'
 import { retranscribeMenuState } from './retranscribeLogic'
@@ -42,6 +44,7 @@ interface Props {
   onView: (view: SheetView) => void
   onClose: () => void
   onPlay: () => void
+  onPlayRange?: (start: number, end: number) => void
   onEditDetails: () => void
   canRetranscribe: boolean
   onRetranscribe: () => void
@@ -191,6 +194,7 @@ export function LineActionsSheet(p: Props) {
               busy={p.busy}
               blocked={blocked}
               onSplit={p.onSplit}
+              onPlayRange={p.hasMedia ? p.onPlayRange : undefined}
               onCancel={back}
             />
           )}
@@ -241,11 +245,6 @@ export function LineActionsSheet(p: Props) {
               <li>
                 <button type="button" disabled={!line.zh} onClick={() => p.onTool('grammar')}>
                   Grammar breakdown (AI)
-                </button>
-              </li>
-              <li>
-                <button type="button" disabled={!line.zh} onClick={() => p.onTool('pronounce')}>
-                  Pronounce the source
                 </button>
               </li>
               <li>
