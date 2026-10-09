@@ -161,6 +161,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `disk_usage_clips_service.py`
 - `disk_usage_links.py`
 - `disk_usage_service.py`
+- `temp_cleanup_service.py`
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
