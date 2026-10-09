@@ -5,6 +5,7 @@ ffmpeg are faked with fixed speech spans -- no audio, no model.
 """
 import json
 import os
+import subprocess
 import time
 
 import pytest
@@ -388,3 +389,135 @@ class TestCli:
     def test_waits_only_for_a_check_that_is_running(self, isolated_db, drama):
         import cli_timing
         cli_timing.wait_after_transcribe(drama, "#1", lambda *a: pytest.fail("no job to wait for"))
+
+
+WIN_PATH = r"C:\Users\someone\AppData\baihe\dramas\7\audio.wav"
+
+
+def _write_sidecar(did, payload, raw=None):
+    path = svc._state_path(did)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(raw if raw is not None else json.dumps(payload))
+
+
+class TestNoPathsInResponses:
+    def test_decode_failure_detail_is_fixed_text(self, isolated_db, drama, fake_speech, monkeypatch):
+        _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])
+
+        def boom(job_id, path, total):
+            raise subprocess.CalledProcessError(1, ["ffmpeg", "-i", WIN_PATH])
+        monkeypatch.setattr(speech_coverage_service, "_scan_speech", boom)
+        svc.start_timing_check(drama)
+        status = _wait(drama)
+        assert status["result"]["failed_reason"] == "decode"
+        assert "Users" not in json.dumps(status) and "audio.wav" not in json.dumps(status)
+
+    def test_write_failure_message_is_scrubbed(self, isolated_db, drama, fake_speech, monkeypatch):
+        _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])
+
+        def denied(did, state):
+            raise PermissionError(5, "Access is denied", WIN_PATH + ".tmp")
+        monkeypatch.setattr(svc, "_write_state", denied)
+        svc.start_timing_check(drama)
+        status = _wait(drama)
+        assert status["status"] == "error"
+        assert "someone" not in status["message"] and "AppData" not in status["message"]
+
+
+class TestHostileSidecar:
+    @pytest.mark.parametrize("payload", [
+        {"dismissed": 5}, {"dismissed": [True, "1", 2.5]}, {"suggestions": []},
+        {"suggestions": {"1": {"start": 1, "end": 2}}},
+        {"suggestions": {"\u00b2": {"start": 1, "end": 3, "new_start": 1.5, "new_end": 2.5}}},
+        {"suggestions": {"1": {"start": 1, "end": 3, "new_start": 2.5, "new_end": 1.5}}},
+        {"suggestions": {"1": {"start": 1, "end": 3, "new_start": 0.0, "new_end": 2}}},
+        {"suggestions": {"1": {"start": 1, "end": 90, "new_start": 50, "new_end": 60}}},
+        {"suggestions": {"1": {"start": 1, "end": 3, "new_start": "1.5", "new_end": 2}}},
+        {"last_check": {"checked_at": 5, "flagged": "x"}}, {"last_check": []}, [1, 2], "x"])
+    def test_invalid_content_is_dropped(self, isolated_db, drama, payload):
+        _write_sidecar(drama, payload)
+        state = svc._read_state(drama)
+        assert state["suggestions"] == {} and state["last_check"] is None
+        status = svc.get_timing_check(drama)
+        assert status["suggestions"] == [] and status["last_check"] is None
+        assert svc.snap_to_speech(drama)["snapped"] == 0
+
+    def test_non_finite_and_oversize_files_read_as_empty(self, isolated_db, drama, monkeypatch):
+        _write_sidecar(drama, None, '{"dismissed": [1], "suggestions": {"1": '
+                                    '{"start": 1, "end": 3, "new_start": NaN, "new_end": 2}}}')
+        assert svc._read_state(drama)["dismissed"] == []
+        _write_sidecar(drama, {"dismissed": [1]})
+        monkeypatch.setattr(svc, "_MAX_STATE_BYTES", 5)
+        assert svc._read_state(drama)["dismissed"] == []
+
+    def test_valid_entries_survive_beside_bad_ones(self, isolated_db, drama):
+        good = {"start": 8.0, "end": 14.0, "new_start": 9.9, "new_end": 14.0}
+        _write_sidecar(drama, {"dismissed": [3, True], "suggestions": {"1": good, "2": {"start": 1}}})
+        state = svc._read_state(drama)
+        assert state["dismissed"] == [3] and list(state["suggestions"]) == ["1"]
+
+    def test_dismiss_survives_a_sidecar_write_failure(self, isolated_db, drama, monkeypatch):
+        from services import lines_service
+        ids = _seed(isolated_db, drama, [Line(idx=0, start=1, end=2, zh="a", flag=FLAG)])
+        monkeypatch.setattr(svc, "_write_state", lambda *a: (_ for _ in ()).throw(OSError("disk")))
+        out = lines_service.dismiss_flag(drama, ids[0])
+        assert not out.get("flag")
+
+
+class TestWriteState:
+    def test_failed_write_leaves_no_temp_file(self, isolated_db, drama, monkeypatch):
+        monkeypatch.setattr(svc.json, "dump", lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
+        with pytest.raises(ValueError):
+            svc._write_state(drama, {})
+        assert not any(n.endswith(".tmp") for n in os.listdir(os.path.dirname(svc._state_path(drama))))
+
+
+class TestBlockingAndGeneration:
+    @pytest.mark.parametrize("prefix", ["transcribe_", "fixflag_", "resegment_", "narration_",
+                                        "comparetx_", "retranscribe_", "retime_"])
+    def test_refused_while_a_line_changing_job_runs(self, isolated_db, drama, prefix):
+        _seed(isolated_db, drama, [Line(idx=0, start=1, end=2, zh="a")])
+        key = f"{prefix}{drama}"
+        with background_jobs._lock:
+            background_jobs._jobs[key] = {"status": "queued", "progress": 0.0, "message": "",
+                                          "started_at": time.time()}
+        try:
+            with pytest.raises(ConflictError):
+                svc.start_timing_check(drama)
+        finally:
+            with background_jobs._lock:
+                background_jobs._jobs.pop(key, None)
+
+    def test_old_run_cannot_write_after_a_new_transcription(self, isolated_db, drama, fake_speech):
+        _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])
+        gen = svc._generation.get(drama, 0)
+        svc.after_run(drama, {"raw_backend": "whisper"})
+        svc.apply_spans(drama, fake_speech["spans"], 100.0, False, gen)
+        state = svc._read_state(drama)
+        assert state["suggestions"] == {} and state["last_check"] is None
+
+    def test_any_transcription_forgets_dismissals(self, isolated_db, drama):
+        svc.note_dismissed(drama, 1)
+        assert svc.after_run(drama, {"raw_backend": "whisper"}) is False
+        assert svc._read_state(drama)["dismissed"] == []
+
+
+class TestSnapSnapshots:
+    def test_all_stale_takes_no_snapshot(self, isolated_db, drama, fake_speech, monkeypatch):
+        ids = _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])
+        svc.start_timing_check(drama)
+        _wait(drama)
+        isolated_db.update_line_fields_if(drama, ids[0], {"start": 8.5}, {"start": 8.0})
+        monkeypatch.setattr(isolated_db, "save_line_history_snapshot",
+                            lambda *a, **k: pytest.fail("snapshot taken"))
+        out = svc.snap_to_speech(drama)
+        assert out["snapped"] == 0 and out["stale_ids"] == [ids[0]] and out["history_id"] is None
+
+
+class TestSchema:
+    def test_line_ids_are_capped(self):
+        from api.schemas.timing_check import TimingSnapRequest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            TimingSnapRequest(line_ids=list(range(5001)))

@@ -226,7 +226,13 @@ def dismiss_flag(drama_id: int, line_id: int) -> dict:
     db.save_lines(drama_id, [ln], fields=("flag", "flag_note"))
     if was_timing_drift:
         # The flag is re-derived on every check, so only a remembered dismissal keeps it away.
-        timing_check_service.note_dismissed(drama_id, line_id)
+        try:
+            timing_check_service.note_dismissed(drama_id, line_id)
+        except Exception as exc:
+            # The flag is already cleared; a sidecar that can't be written must not turn this into a 500.
+            import applog
+            applog.get_logger().warning(f"timing dismissal not remembered for drama {drama_id}: "
+                                        f"{type(exc).__name__}")
     return _reload_dict(drama_id, line_id)
 
 

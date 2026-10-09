@@ -46,6 +46,8 @@ RESULT_ALLOWED_KEYS = (
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
+    # Review timing check: counts and the no-speech notice.
+    "checked", "flagged", "cleared", "skipped_flagged", "notice",
     # Sources chapter import (S-4): int counts only, never text.
     "imported_count", "skipped_count", "failed_count",
     # lightnovel-crawler import: the EPUB's reading-order count.

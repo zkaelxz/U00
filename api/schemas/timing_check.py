@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from pydantic import BaseModel, StrictInt
+from pydantic import BaseModel, Field, StrictInt
 
 __all__ = [
     "TimingCheckStarted",
@@ -46,7 +46,7 @@ class TimingCheckStatus(BaseModel):
 
 class TimingSnapRequest(BaseModel):
     """line_ids omitted = every flagged line with a suggestion."""
-    line_ids: Optional[List[StrictInt]] = None
+    line_ids: Optional[List[StrictInt]] = Field(None, max_length=5000)
 
 
 class TimingSnapResult(BaseModel):
