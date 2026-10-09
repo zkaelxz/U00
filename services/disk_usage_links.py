@@ -19,9 +19,11 @@ import time
 # A folder with more links than this reports its linked size as incomplete.
 MAX_LINK_TARGETS = 64
 
-# Seconds the scan may spend on linked folders in all. The walk's own budget
-# only checks the clock every few entries, which a slow network folder can
-# stall inside one call; this cap also stops starting further targets.
+# Seconds the scan may spend on linked folders in all, counted from the first
+# link looked at: a large library walk before that must not use it up. The
+# walk's own budget only checks the clock every few entries, which a slow
+# network folder can stall inside one call; this cap also stops starting
+# further targets.
 MAX_LINK_SECONDS = 20
 
 # A chain of links longer than this is treated as a loop.
@@ -101,7 +103,7 @@ class LinkedSizes:
         self._within = within
         self._measure = measure
         self._done = []
-        self._deadline = time.monotonic() + MAX_LINK_SECONDS
+        self._deadline = None
 
     def of(self, link_paths: list, budget, cut: bool = False):
         """(bytes, files, complete) for the folders `link_paths` lead to, or
@@ -110,13 +112,12 @@ class LinkedSizes:
         not local, or a chain of links that loops, is too long or reaches one,
         is never touched and makes the result incomplete; so does a target
         that overlaps one already measured in this scan."""
+        if self._deadline is None:
+            self._deadline = time.monotonic() + MAX_LINK_SECONDS
         total = files = 0
         measured = skipped = False
         complete = not cut
         for path in link_paths:
-            if time.monotonic() > self._deadline or (budget is not None and budget.hit):
-                skipped = True
-                break
             real = _local_target(path)
             if real is None:
                 skipped = True
@@ -134,6 +135,11 @@ class LinkedSizes:
                 continue
             if len(self._done) >= MAX_LINK_TARGETS:
                 complete = False
+                break
+            # Checked only for a folder that would be measured: a file link or
+            # a target counted elsewhere stays "not measured" (None) either way.
+            if time.monotonic() > self._deadline or (budget is not None and budget.hit):
+                skipped = True
                 break
             self._done.append(real)
             found = self._measure(real, (), budget)

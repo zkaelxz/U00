@@ -107,7 +107,7 @@ def _run_video_ffmpeg(job_id, cmd, cwd):
         raise RuntimeError("ffmpeg failed to produce the export.") from None
 
 
-def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original):
+def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original, language):
     background_jobs.update_progress(job_id, 0.1, "Encoding audiobook...")
     with _fixed_write_errors(), tempfile.TemporaryDirectory() as tmp:
         tmp_out = os.path.join(tmp, "audiobook.m4b")
@@ -119,6 +119,7 @@ def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original):
             raise RuntimeError("ffmpeg failed to produce the export.") from None
         final = artifact_service.output_path(drama_id, "audio", f"audiobook_{drama_id}.m4b")
         shutil.move(tmp_out, final)
+        artifact_service.set_download_language(drama_id, "audio", os.path.basename(final), language)
     background_jobs.update_progress(job_id, 1.0, "Audiobook ready.")
 
 
@@ -143,13 +144,14 @@ def start_audiobook_export(drama_id: int) -> dict:
     title = drama.get("title_en") or drama.get("title_zh") or None
     started = background_jobs.start_job(
         job_id, _audiobook_job, job_id, drama_id, lines, ddir, title, narrate_original,
+        export_service.narration_language(drama),
         description=f"Audiobook export (drama #{drama_id})")
     if not started:
         raise ConflictError(f"The audiobook export is already running for drama {drama_id}.")
     return {"job_id": job_id}
 
 
-def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
+def _burned_video_job(job_id, drama_id, video_path, ass_text, ext, language):
     background_jobs.update_progress(job_id, 0.1, "Rendering video...")
     with _fixed_write_errors(), tempfile.TemporaryDirectory() as tmp:
         # A fixed, plain subtitle filename in the working folder means the
@@ -163,6 +165,7 @@ def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
         _run_video_ffmpeg(job_id, cmd, tmp)
         final = artifact_service.output_path(drama_id, "video", f"burned_video_{drama_id}{ext}")
         shutil.move(os.path.join(tmp, out_name), final)
+        artifact_service.set_download_language(drama_id, "video", os.path.basename(final), language)
     background_jobs.update_progress(job_id, 1.0, "Video ready.")
 
 
@@ -186,6 +189,7 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
         ext = ".mp4"
     return _start_video_job(drama_id, job_id, _burned_video_job, job_id, drama_id, video_path,
                             ass_text, ext,
+                            export_service.field_language(drama, ass_options.get("field", "en")),
                             description=f"Burned-in video export (drama #{drama_id})")
 
 
@@ -193,7 +197,7 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
 # Parity E17: soft subtitle track muxed into the video
 # ---------------------------------------------------------------------------
 
-def _softsub_video_job(job_id, drama_id, video_path, srt_text, ext, language):
+def _softsub_video_job(job_id, drama_id, video_path, srt_text, ext, language, label):
     background_jobs.update_progress(job_id, 0.1, "Adding the subtitle track...")
     with _fixed_write_errors(), tempfile.TemporaryDirectory() as tmp:
         with open(os.path.join(tmp, "subs.srt"), "w", encoding="utf-8") as f:
@@ -204,6 +208,7 @@ def _softsub_video_job(job_id, drama_id, video_path, srt_text, ext, language):
         final = artifact_service.output_path(drama_id, "softsub_video",
                                              f"softsub_video_{drama_id}{ext}")
         shutil.move(os.path.join(tmp, out_name), final)
+        artifact_service.set_download_language(drama_id, "softsub_video", os.path.basename(final), label)
     background_jobs.update_progress(job_id, 1.0, "Video ready.")
 
 
@@ -228,7 +233,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
     ext = video_export.softsub_output_extension(video_path)
     language = "eng" if field == "en" else "und"
     return _start_video_job(drama_id, job_id, _softsub_video_job, job_id, drama_id, video_path,
-                            srt_text, ext, language,
+                            srt_text, ext, language, export_service.field_language(drama, field),
                             description=f"Soft-subtitle video export (drama #{drama_id})")
 
 
@@ -236,7 +241,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
 # Parity E19: the video with the dub audio
 # ---------------------------------------------------------------------------
 
-def _dubbed_video_job(job_id, drama_id, video_path, dub_path, ext, keep_original_at_db):
+def _dubbed_video_job(job_id, drama_id, video_path, dub_path, ext, keep_original_at_db, label):
     background_jobs.update_progress(job_id, 0.1, "Rendering dubbed video...")
     with _fixed_write_errors(), tempfile.TemporaryDirectory() as tmp:
         out_name = f"out{ext}"
@@ -246,6 +251,7 @@ def _dubbed_video_job(job_id, drama_id, video_path, dub_path, ext, keep_original
         final = artifact_service.output_path(drama_id, "dubbed_video",
                                              f"dubbed_video_{drama_id}{ext}")
         shutil.move(os.path.join(tmp, out_name), final)
+        artifact_service.set_download_language(drama_id, "dubbed_video", os.path.basename(final), label)
     background_jobs.update_progress(job_id, 1.0, "Video ready.")
 
 
@@ -276,4 +282,5 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
         ext = ".mp4"
     return _start_video_job(drama_id, job_id, _dubbed_video_job, job_id, drama_id, video_path,
                             dub_path, ext, _DUB_ORIGINAL_DB if keep_original else None,
+                            export_service.narration_language(drama),
                             description=f"Dubbed video export (drama #{drama_id})")

@@ -185,7 +185,7 @@ export function AdvancedCard(props: Props) {
   const p = settings.preferences
   const c = settings.choices
   return (
-    <Card title="Advanced" meta="OCR, offline models, downloads, uploads, server addresses" aria-label="Advanced">
+    <Card title="Advanced" meta="OCR, offline models, memory to keep free, downloads, uploads, server addresses" aria-label="Advanced">
       <PrefsSection
         {...common}
         title="OCR"

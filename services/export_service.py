@@ -18,6 +18,7 @@ out, so a CLI or another service could call them too.
 import os
 import re
 from typing import Optional
+from urllib.parse import quote
 
 import auto_qc
 import core as core_module
@@ -31,6 +32,62 @@ _EPUB_FIELDS = ("en", "zh")
 
 _SUBTITLE_FORMATS = ("srt", "vtt", "lrc")
 _SUBTITLE_FIELDS = ("en", "zh", "bilingual")
+
+
+_MAX_DOWNLOAD_NAME = 120
+_NAME_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
+# What the browser saves a download as, per artifact kind.
+ARTIFACT_WHAT = {"audio": "audiobook", "video": "burned-in", "softsub_video": "soft sub",
+                 "dubbed_video": "dubbed", "scanlate_zip": "pages", "scanlate_pdf": "pages"}
+
+
+def _name_part(text) -> str:
+    return " ".join(_NAME_ILLEGAL.sub(" ", str(text or "")).split())
+
+
+def field_language(drama: dict, field: str) -> str:
+    """Readable code for the language a subtitle field holds."""
+    source = drama.get("source_language") or "zh"
+    return {"en": "en", "zh": source, "bilingual": f"{source}+en"}.get(field, "")
+
+
+def narration_language(drama: dict) -> str:
+    original = (drama.get("content_mode") == "novel_narration"
+                and drama.get("narration_language") == "original")
+    return (drama.get("source_language") or "zh") if original else "en"
+
+
+def download_filename(drama_id: int, what: str, language: str, ext: str) -> str:
+    """`<Title> - Ep <n> - <what> (<language>).<ext>` for the Content-Disposition
+    name. Only the name the browser saves: stored artifact names stay ID-only
+    because job ids and lookups depend on them."""
+    drama = db.get_drama(drama_id) or {}
+    title = _name_part(drama.get("title_en")) or _name_part(drama.get("title_zh"))
+    episode = drama.get("episode_number")
+    tail = (f" - Ep {episode}" if isinstance(episode, int) else "") + f" - {_name_part(what)}"
+    language = _name_part(language)[:40]
+    if language:
+        tail += f" ({language})"
+    ext = "." + re.sub(r"[^A-Za-z0-9]", "", ext.lstrip("."))[:10] if ext.strip(". ") else ""
+    # Slicing a str cuts between code points, so a surrogate pair is never split.
+    title = title[:max(10, _MAX_DOWNLOAD_NAME - len(tail) - len(ext))].rstrip(". ")
+    # The " - <what>" tail means the stem is never a bare device name (CON, NUL, ...).
+    return (title or f"drama {drama_id}") + tail + ext
+
+
+def content_disposition(filename: str) -> str:
+    """Attachment header with an ASCII fallback and the RFC 5987 UTF-8 name.
+    Control characters and quotes never reach the header."""
+    clean = _NAME_ILLEGAL.sub("_", filename) or "download"
+    fallback = "".join(c if " " <= c <= "~" and c not in '%\\' else "_" for c in clean)
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(clean, safe='')}"
+
+
+def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subtitles") -> str:
+    drama = db.get_drama(drama_id) or {}
+    what = f"bilingual {noun}" if field == "bilingual" else noun
+    return content_disposition(download_filename(
+        drama_id, what, field_language(drama, field), ext))
 
 
 def _load_drama_and_lines(drama_id: int):

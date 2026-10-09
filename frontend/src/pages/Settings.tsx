@@ -38,7 +38,7 @@ import './settings/settings.css'
 
 const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   gpu_limit_enabled:
-    'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory.',
+    'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory. To keep graphics memory or RAM free for other programs, see Advanced > Offline and performance.',
   notify_on_completion: 'Shows a notification when a job finishes.',
   use_gpu: 'Transcribe on the GPU when there is one (faster).',
   unload_ollama_before_transcribe:
@@ -284,7 +284,7 @@ export default function SettingsPage() {
             <WebSearchSection />
             <ExtensionSection />
           </Fold>
-          <Fold id="advanced" signals={signals} summary="OCR, offline models, downloads, uploads, server addresses" single>
+          <Fold id="advanced" signals={signals} summary="OCR, offline models, memory to keep free, downloads, uploads, server addresses" single>
             <AdvancedCard {...prefProps} />
           </Fold>
           <Fold id="experimental" signals={signals} summary="Transcription experiments, Developer Mode">

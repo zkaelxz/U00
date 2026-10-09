@@ -416,11 +416,12 @@ class TestCmdTranslateSpendingCaps:
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: self._Engine())
         did = self._drama(isolated_db, n=2)
         isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 50.0)
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            try:
-                cli.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0, thinking=True))
-            except (SystemExit, RuntimeError):
-                pass
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0, thinking=True))
+        # The run is refused (reported as that drama's failure), so the choice was never saved.
+        assert "spending cap" in err.getvalue() and "already used up" in err.getvalue()
+        assert "0 succeeded, 1 failed" in out.getvalue()
         assert isolated_db.get_drama(did)["translate_thinking"] is None
 
 

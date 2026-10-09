@@ -12,6 +12,7 @@ must be a bare name, and every resolved path must stay inside the kind
 folder (symlinks are rejected). Errors use fixed text with no path echo.
 """
 
+import json
 import os
 from typing import Dict
 
@@ -58,8 +59,37 @@ def output_path(drama_id: int, kind: str, filename: str) -> str:
     return path
 
 
+# Hidden, so get_artifact's "newest file" scan never mistakes it for an output.
+_LABEL_FILE = ".download.json"
+
+
+def set_download_language(drama_id: int, kind: str, filename: str, language: str) -> None:
+    """Remembers the content language of the file a job just wrote, because
+    the stored name stays ID-only and the download name needs the language
+    chosen at export time. Best-effort: a failure leaves the plain name."""
+    try:
+        path = os.path.join(os.path.dirname(output_path(drama_id, kind, filename)), _LABEL_FILE)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"file": filename, "language": language}, f)
+    except (OSError, InvalidInputError):
+        pass
+
+
+def _download_language(base: str, name: str) -> str:
+    try:
+        with open(os.path.join(base, _LABEL_FILE), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    # Matching on the name keeps a stale label from describing a newer file.
+    if isinstance(data, dict) and data.get("file") == name and isinstance(data.get("language"), str):
+        return data["language"]
+    return ""
+
+
 def get_artifact(drama_id: int, kind: str) -> Dict:
-    """Newest artifact of `kind`: {path (server-side only), name, size, kind}."""
+    """Newest artifact of `kind`: {path (server-side only), name, size, kind,
+    language (the label recorded by the job, "" if none)}."""
     base = _kind_dir(drama_id, kind, create=False)
     try:
         names = os.listdir(base)
@@ -77,4 +107,5 @@ def get_artifact(drama_id: int, kind: str) -> Dict:
             best = (mtime, name, path)
     if best is None:
         raise NotFoundError(_MISSING)
-    return {"path": best[2], "name": best[1], "size": os.path.getsize(best[2]), "kind": kind}
+    return {"path": best[2], "name": best[1], "size": os.path.getsize(best[2]), "kind": kind,
+            "language": _download_language(base, best[1])}
