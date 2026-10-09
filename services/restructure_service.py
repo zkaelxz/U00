@@ -41,7 +41,6 @@ import threading
 from typing import Optional
 
 import background_jobs
-import bulk_translate
 import core as core_module
 import db
 import diarize
@@ -136,18 +135,17 @@ def lines_fingerprint(lines) -> str:
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _commit(drama_id: int, current, new_lines, label: str) -> int:
-    """Snapshot `current` (fresh from the DB), then full-sync `new_lines`.
+def _commit(drama_id: int, current, new, label: str) -> int:
+    """Snapshot `current` (fresh from the DB), then full-sync `new`.
     Caller holds the drama lock and has already checked expected ids.
     Returns the snapshot's `history_id`, so the caller can offer an undo."""
     history_id = db.save_line_history_snapshot(drama_id, current, label)
     if db.load_line_ids(drama_id) != {ln.id for ln in current}:
         raise ConflictError("This drama's lines changed while saving -- nothing was changed; "
                             "reload and try again.")
-    for i, ln in enumerate(new_lines):
+    for i, ln in enumerate(new):
         ln.idx = i
-    db.save_lines(drama_id, new_lines)
-    bulk_translate.sync_translation_status(drama_id)
+    translate_service.save_synced(drama_id, new)
     return history_id
 
 

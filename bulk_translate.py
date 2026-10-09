@@ -1532,27 +1532,6 @@ def mark_translated_if_complete(drama_id: int) -> bool:
     return db.set_status_if(drama_id, "aligned", "translated")
 
 
-def reopen_if_untranslated(drama_id: int) -> bool:
-    """The reverse of mark_translated_if_complete: a "translated" title that
-    now has a line with source text and no English (a line added, a split, an
-    English blanked) goes back to "aligned", so the library and the Translate
-    stage stop calling it finished. Only an exact "translated" is demoted --
-    "dubbed" and "exported" were built from the lines as they were."""
-    drama = db.get_drama(drama_id)
-    if not drama or drama.get("status") != "translated":
-        return False
-    if untranslated_line_count(drama_id) == 0:
-        return False
-    return db.set_status_if(drama_id, "translated", "aligned")
-
-
-def sync_translation_status(drama_id: int) -> None:
-    """Brings "aligned"/"translated" in line with the saved lines, for a write
-    that can either fill the last blank or open a new one."""
-    mark_translated_if_complete(drama_id)
-    reopen_if_untranslated(drama_id)
-
-
 def repair_stale_aligned_statuses() -> int:
     """One-time, idempotent startup repair for titles left at "aligned" with
     every line already translated; touches no other status. Returns how
