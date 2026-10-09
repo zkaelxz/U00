@@ -92,9 +92,12 @@ def _parse_errors(raw) -> Optional[list]:
 
 
 def get_translate_config_defaults(is_novel: bool) -> dict:
-    return {"context_window": 10 if is_novel else 6,
-            "context_window_ahead": 6 if is_novel else 3,
-            "batch_size": 30 if is_novel else 20}
+    # Transcription now cuts a line per sentence or pause, so a sentence's
+    # subject, particles and ending often sit in the neighbouring lines and
+    # the same line count covers less meaning. Batch 30 keeps
+    # (before+ahead)/batch near the old 9/20 so the re-sent context doesn't
+    # make a run noticeably dearer. Novels already used these values.
+    return {"context_window": 10, "context_window_ahead": 6, "batch_size": 30}
 
 
 def get_translate_config(drama_id: int) -> dict:
