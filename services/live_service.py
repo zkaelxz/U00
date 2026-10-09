@@ -50,13 +50,16 @@ from services.service_errors import (
 )
 
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
-SEGMENT_RANGE = (10, 60)
+SEGMENT_RANGE = (3, 60)
 OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
+# Kept per session, newest last: the skipped-chunk and catch-up events the status
+# line would otherwise overwrite a second later.
+MAX_NOTES = 6
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -153,12 +156,37 @@ def check_ollama(model: Optional[str] = None) -> dict:
     return {"ok": True, "model": model, "message": None}
 
 
+def add_note(session_id: str, text: str, key: Optional[str] = None) -> None:
+    """Keeps a short event for the session's status. The text is fixed wording
+    the job composes from numbers, passed through clean_message anyway. A note
+    with a key replaces the earlier one with that key and becomes the newest,
+    so a running count of skips is never the first note to scroll out."""
+    with _lock:
+        entry = _sessions.get(session_id)
+        if entry is not None:
+            notes = entry.setdefault("notes", [])
+            if key is not None:
+                keyed = entry.setdefault("note_keys", {})
+                if keyed.get(key) in notes:
+                    notes.remove(keyed[key])
+                keyed[key] = clean_message(text)
+            notes.append(clean_message(text))
+            del notes[:-MAX_NOTES]
+
+
 def _remove_dir(session_id: str):
     with _lock:
         entry = _sessions.get(session_id)
         path = entry.pop("dir", None) if entry else None
     if path:
         shutil.rmtree(path, ignore_errors=True)
+
+
+def _previous_whisper_call():
+    """Label of an abandoned Whisper call of an earlier session that is still
+    decoding: starting beside it would load a second model copy."""
+    import live_whisper
+    return live_whisper.outstanding_label()
 
 
 def _active_session_locked():
@@ -204,7 +232,7 @@ def _make_target(session_id: str):
                 live_translate.run_live_job(
                     *args, proxy=proxy.url,
                     report_stage=functools.partial(job_stage_service.set_stage, session_id),
-                    **kwargs)
+                    report_note=functools.partial(add_note, session_id), **kwargs)
         finally:
             job_stage_service.clear_stage(session_id)
             _remove_dir(session_id)
@@ -261,6 +289,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     with _lock:
         if _active_session_locked() is not None:
             raise ConflictError("A live session is already running. Stop it first.")
+        if _previous_whisper_call() is not None:
+            raise ConflictError("The previous session's Whisper call is still finishing. "
+                                "Try again in a moment.")
     engine_name, eng = _build_engine(engine, model)
 
     session_id = f"live_{uuid.uuid4().hex}"
@@ -284,6 +315,10 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
         if _active_session_locked() is not None:
             shutil.rmtree(out_dir, ignore_errors=True)
             raise ConflictError("A live session is already running. Stop it first.")
+        if _previous_whisper_call() is not None:
+            shutil.rmtree(out_dir, ignore_errors=True)
+            raise ConflictError("The previous session's Whisper call is still finishing. "
+                                "Try again in a moment.")
         if len(_sessions) >= MAX_SESSIONS:
             # Forget the oldest finished sessions (dicts keep insertion order).
             for sid in list(_sessions):
@@ -400,6 +435,7 @@ def get_session(session_id, after=0, principal=None) -> dict:
     return {"session_id": session_id, "status": status, "message": message,
             "engine": entry.get("engine"), "model": entry.get("model"),
             "progress": float((job or {}).get("progress") or 0.0),
+            "notes": list(entry.get("notes") or ()),
             "cues": out, "next_index": max(after, len(cues))}
 
 
