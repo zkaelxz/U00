@@ -44,6 +44,7 @@ import background_jobs
 import core as core_module
 import db
 import diarize
+import long_line_split
 import raw_transcript
 import resegment
 import subtitle_formats
@@ -372,7 +373,8 @@ def preview_resegmentation(drama_id: int) -> dict:
             "changed": [{"line_id": ln.id, "idx": ln.idx, "zh": ln.zh, "pieces": list(p)}
                         for ln, p in changed],
             **_affected_counts(drama_id, lines, changed_ids),
-            "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"])}
+            "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"]),
+            "reason": long_line_split.resegment_reason(lines, language, changed)}
 
 
 def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
@@ -741,11 +743,10 @@ class _Resplit:
         if self.too_long(ln):
             return [seg]
         words = core_module.line_words(ln)
+        kw = {"rules": self.rules(ln), "min_pause": self.min_pause}
         if not words:
-            return core_module.split_long_segments([seg], rules=self.rules(ln),
-                                                   min_pause=self.min_pause)
-        pieces = core_module.split_long_segments([{**seg, "words": words}], rules=self.rules(ln),
-                                                 min_pause=self.min_pause)
+            return long_line_split.split_long_segments([seg], **kw)
+        pieces = long_line_split.split_long_segments([{**seg, "words": words}], **kw)
         # Word times tighten a piece to its speech, but the line's outer edges
         # may have been re-timed on purpose (by hand or a re-time run); the
         # Review split and the AI re-split keep them, so this does too.
@@ -771,20 +772,8 @@ def _resplit_plan(lines, cfg: _Resplit) -> dict:
 
 
 def _nothing_to_split(lines, cfg: _Resplit) -> str:
-    """Why a run cut nothing: lines over the limits with nowhere to cut are
-    not the same problem as no line being over them."""
-    stuck = 0
-    for ln in _resplit_candidates(lines):
-        if cfg.too_long(ln):
-            stuck += 1
-            continue
-        rules = cfg.rules(ln) or core_module.SplitRules(max_chars=core_module.SPLIT_MAX_CJK_CHARS,
-                                                         count_latin=False)
-        stuck += core_module.exceeds_limits({"start": ln.start, "end": ln.end, "text": ln.zh}, rules)
-    if stuck:
-        return (f"{stuck} line{'s' if stuck != 1 else ''} over the limits at {cfg.label} "
-                "sensitivity, but none has a sentence or comma break to cut at.")
-    return f"No line is over the limits at {cfg.label} sensitivity. {_RESPLIT_NEXT[cfg.sensitivity]}"
+    return long_line_split.nothing_to_split(_resplit_candidates(lines), cfg,
+                                            _RESPLIT_NEXT[cfg.sensitivity])
 
 
 def _resplit_snapshot(lines, plan) -> dict:

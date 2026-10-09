@@ -53,6 +53,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `audio_preprocess.py`
 - `diarize.py`
 - `forced_align.py`
+- `long_line_split.py` (last-resort even split for lines no punctuation or pause can cut, and the plain-words reasons a re-split found nothing)
 - `memory_headroom.py` (the Settings keep-free VRAM/RAM check the model loaders call)
 - `mixed_language.py`
 - `ollama_unload.py`
