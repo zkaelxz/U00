@@ -137,6 +137,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `auth_service.py`
 - `auto_backup_service.py`
 - `backup_import_service.py`
+- `bounded_whisper.py` (one Whisper call a job can cancel or time out of; abandons the helper thread)
 - `benchmark_lab_service.py`
 - `blocked_retry_service.py`
 - `browser_install_service.py`

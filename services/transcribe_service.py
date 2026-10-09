@@ -71,7 +71,8 @@ import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
-from services import asr_options_service, diarization_service, settings_service, source_service
+from services import (asr_options_service, bounded_whisper, diarization_service, settings_service,
+                      source_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -1734,8 +1735,9 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
     gpu_fallback (jobs_service's allowlist); the text is read in-process by
     get_retranscribe_result and apply_retranscribe_line. A failed_reason
     instead when the audio couldn't be cut ("audio_slice", including an
-    ffmpeg timeout), nothing was heard ("empty"), the job was cancelled, or
-    the line no longer exists ("line_gone")."""
+    ffmpeg timeout), "timeout" (Whisper outran bounded_whisper.timeout_s),
+    nothing was heard ("empty"), the job was cancelled, or the line no longer
+    exists ("line_gone")."""
     # Which line this run is for, visible to pollers before it finishes.
     background_jobs.set_result(job_id, {"line_id": line_id}, mirror=True)
     slice_path = os.path.join(os.path.dirname(audio_path), f"_retranscribe_slice_{line_id}.wav")
@@ -1759,8 +1761,9 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
         background_jobs.update_progress(job_id, 0.1, _model_loading_message(
             whisper_size, core_module.is_whisper_model_cached(whisper_size)))
         try:
-            segments = core_module.transcribe_for_timing(
-                slice_path, whisper_size, language=source_language, use_gpu=use_gpu,
+            segments, ollama_notice = bounded_whisper.transcribe_bounded(
+                job_id, slice_path, whisper_size, end - start, f"retranscribe-{line_id}",
+                language=source_language, use_gpu=use_gpu,
                 initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
@@ -1770,8 +1773,11 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
             background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "model_download",
                                                 "detail": redact_secrets(str(exc))})
             return
+        except TimeoutError:
+            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "timeout"})
+            return
     finally:
-        if os.path.exists(slice_path):
+        with contextlib.suppress(OSError):
             os.remove(slice_path)
         core_module.release_gpu_models()
 
@@ -1789,7 +1795,7 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
         return
     result = {"line_id": line_id, "proposed_zh": new_zh[:_RETRANSCRIBE_MAX_CHARS],
               "base_zh": zh_before or "", "base_start": start, "base_end": end,
-              **ollama_unload.take_notice_result()}
+              **ollama_notice}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
         result["device_notice"] = core_module.gpu_fallback_notice(

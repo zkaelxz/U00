@@ -15,7 +15,7 @@ import pytest
 import background_jobs
 import core
 from core import Line
-from services import jobs_service, transcribe_service
+from services import bounded_whisper, jobs_service, transcribe_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
@@ -267,6 +267,61 @@ class TestJobBody:
         transcribe_service.start_retranscribe_line(did, ids[0])
         monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: True)
         assert _run_with_result(captured) == {"line_id": ids[0], "failed_reason": "cancelled"}
+
+    def test_cancel_ends_a_transcribe_call_that_never_returns(self, isolated_db, fake_asr,
+                                                              monkeypatch):
+        import threading
+        entered, release = threading.Event(), threading.Event()
+
+        def hung(path, model_size="medium", **kw):
+            entered.set()
+            release.wait(30)
+            return []
+        monkeypatch.setattr(core, "transcribe_for_timing", hung)
+        did, ids = _drama(isolated_db)
+        out = transcribe_service.start_retranscribe_line(did, ids[0])
+        try:
+            assert entered.wait(5)
+            background_jobs.request_cancel(out["job_id"])
+            deadline = time.time() + 3
+            while background_jobs.get_status(out["job_id"])["status"] == "running":
+                assert time.time() < deadline, "Cancel did not end the job"
+                time.sleep(0.02)
+            status = background_jobs.get_status(out["job_id"])
+            assert status["status"] == "cancelled"
+            # The slot is free: the next re-transcription can start.
+            assert transcribe_service.start_retranscribe_line(did, ids[1])["job_id"] == out["job_id"]
+        finally:
+            release.set()
+            background_jobs.wait_for_job_threads(5)
+
+    def test_hung_transcribe_times_out_with_a_reason(self, isolated_db, fake_asr, monkeypatch):
+        import threading
+        release = threading.Event()
+
+        def hung(path, model_size="medium", **kw):
+            release.wait(30)
+            return []
+        monkeypatch.setattr(core, "transcribe_for_timing", hung)
+        monkeypatch.setattr(bounded_whisper, "timeout_s", lambda window, cached: 0.3)
+        did, ids = _drama(isolated_db)
+        out = transcribe_service.start_retranscribe_line(did, ids[0])
+        try:
+            deadline = time.time() + 5
+            while background_jobs.get_status(out["job_id"])["status"] == "running":
+                assert time.time() < deadline, "the call was never bounded"
+                time.sleep(0.02)
+            result = background_jobs.get_status(out["job_id"])["result"]
+            assert result["failed_reason"] == "timeout"
+            assert result["line_id"] == ids[0]
+        finally:
+            release.set()
+            background_jobs.wait_for_job_threads(5)
+
+    def test_timeout_scales_with_the_window_and_a_cold_model(self):
+        fn = bounded_whisper.timeout_s
+        assert fn(60.0, True) > fn(3.0, True)
+        assert fn(3.0, False) > fn(3.0, True)
 
     def test_model_download_error_redacted(self, isolated_db, captured, fake_asr, monkeypatch):
         def boom(*a, **k):

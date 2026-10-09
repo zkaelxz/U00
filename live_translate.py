@@ -553,11 +553,14 @@ def current_generation(job_id: str) -> int:
     return _generations.get(job_id, 0)
 
 
-def _run_abortable(fn, should_stop, poll: float = 0.25):
+def run_abortable(fn, should_stop, poll: float = 0.25, timeout: float = None,
+                  name: str = "live-resolve"):
     """Runs fn() on a helper thread and returns its result, or raises
-    background_jobs.JobCancelled as soon as should_stop() is true. The
-    thread is abandoned (daemon), not killed: for a call like yt-dlp's
-    in-process lookup, which has no cancel point of its own."""
+    background_jobs.JobCancelled as soon as should_stop() is true, or
+    TimeoutError once `timeout` seconds pass. The thread is abandoned
+    (daemon), not killed: for a call like yt-dlp's in-process lookup or a
+    Whisper inference, which has no cancel point of its own. An abandoned
+    call may keep running (and holding its GPU memory) until it returns."""
     box = {}
 
     def work():
@@ -566,14 +569,17 @@ def _run_abortable(fn, should_stop, poll: float = 0.25):
         except BaseException as exc:
             box["error"] = exc
 
-    worker = threading.Thread(target=work, daemon=True, name="live-resolve")
+    worker = threading.Thread(target=work, daemon=True, name=name)
     worker.start()
+    deadline = None if timeout is None else time.monotonic() + timeout
     while True:
         worker.join(poll)
         if not worker.is_alive():
             break
         if should_stop():
-            raise background_jobs.JobCancelled("live")
+            raise background_jobs.JobCancelled(name)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError(f"{name} did not finish within {timeout:g}s")
     if "error" in box:
         raise box["error"]
     return box["value"]
@@ -654,7 +660,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
 
     report("Resolving the stream address...")
     try:
-        source_url = _run_abortable(
+        source_url = run_abortable(
             lambda: resolve_stream_url(url, cookies_browser=cookies_browser,
                                        cookies_file=cookies_file, proxy=proxy),
             should_stop)
