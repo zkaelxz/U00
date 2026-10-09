@@ -1622,17 +1622,19 @@ class stage_ticker:
         return False
 
 
-def set_result(job_id: str, result, mirror: bool = False):
+def set_result(job_id: str, result, mirror: bool = False, if_unset: bool = False):
     """Stores an arbitrary result payload on a job (e.g. the list of
     per-batch errors from a translation run), for the caller to read
     once via get_status(job_id)["result"] after the job finishes.
     mirror=True also writes it to job_records at once, for a result that
-    other pollers (GET /api/jobs/{id}) must see while the job still runs."""
+    other pollers (GET /api/jobs/{id}) must see while the job still runs.
+    if_unset=True leaves a result already stored alone, for a caller that
+    sets this right after starting a process job, which could have finished."""
     # mirror defaults off: the status-transition mirrors (finish included)
     # already carry the result, so an extra SQLite write from the job thread
     # is only worth it for a result other processes need mid-run.
     with _lock:
-        if job_id in _jobs:
+        if job_id in _jobs and not (if_unset and _jobs[job_id].get("result") is not None):
             _jobs[job_id]["result"] = result
             if mirror:
                 _mirror_locked(job_id)

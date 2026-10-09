@@ -56,6 +56,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from typing import Optional
 
@@ -71,8 +72,7 @@ import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
-from services import (asr_options_service, bounded_whisper, diarization_service, settings_service,
-                      source_service)
+from services import asr_options_service, diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -1657,6 +1657,11 @@ _RETRANSCRIBE_MAX_CHARS = 2000
 # ffmpeg cutting one line's window; a hung ffmpeg ends the job instead of
 # holding the GPU slot.
 _RETRANSCRIBE_SLICE_TIMEOUT_S = 120
+# Worker timeout: the base covers loading a cached model or downloading one
+# on first use; transcribing runs well faster than real time, so the per-second
+# part is generous.
+_RETRANSCRIBE_BASE_TIMEOUT_S = 1800
+_RETRANSCRIBE_PER_AUDIO_S = 10
 
 # Running/queued jobs that replace this drama's lines or also write `zh`, so a
 # one-line re-transcription alongside them would be pointless or race them.
@@ -1706,101 +1711,150 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
             raise ConflictError("Another job is changing this drama's lines. "
                                 "Try again when it finishes.")
     job_id = retranscribe_line_job_id(drama_id)
-    started = background_jobs.start_job(
-        job_id, _run_retranscribe_line_job, job_id, drama_id, line_id, audio_path,
-        float(line.start), float(line.end), line.zh,
-        line.lang or drama.get("source_language") or "zh",
-        stored_whisper_size(drama),
-        drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
-        drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-        presets.stored_vad_threshold(drama),
-        bool(drama.get("whisper_fast_mode")), settings_service.get_use_gpu(), prompt,
-        stored_hallucination_silence_sec(drama), bool(drama.get("whisper_repeat_guard")),
-        presets.normalize(drama.get("sensitivity_preset")),
-        gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})")
+    # The worker's slice and temp files go here; removed by on_finish however
+    # the run ends, since a killed worker cannot clean up after itself.
+    scratch_dir = storage.new_workdir(job_id)
+    window = float(line.end) - float(line.start)
+    try:
+        started = background_jobs.start_process_job(
+            job_id, _retranscribe_worker,
+            args=(audio_path, float(line.start), float(line.end),
+                  line.lang or drama.get("source_language") or "zh",
+                  stored_whisper_size(drama),
+                  drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
+                  drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
+                  presets.stored_vad_threshold(drama), settings_service.get_use_gpu(), prompt,
+                  stored_hallucination_silence_sec(drama),
+                  bool(drama.get("whisper_repeat_guard")),
+                  presets.normalize(drama.get("sensitivity_preset")),
+                  _retranscribe_timeout_s(window), scratch_dir),
+            gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})",
+            kill_whole_tree=True,
+            # Spawn, not Linux's default fork: a forked child of a process
+            # that has already initialised CUDA cannot use the GPU.
+            start_method="spawn",
+            on_done=functools.partial(_apply_retranscribe_outcome, drama_id=drama_id,
+                                      line_id=line_id, zh_before=line.zh,
+                                      start=float(line.start), end=float(line.end)),
+            on_finish=functools.partial(_remove_scratch_dir, scratch_dir))
+    except BaseException:
+        _remove_scratch_dir(scratch_dir)
+        raise
     if not started:
+        _remove_scratch_dir(scratch_dir)
         raise ConflictError("A line is already being re-transcribed for this drama.")
+    # Which line this run is for, visible to pollers before it finishes.
+    background_jobs.set_result(job_id, {"line_id": line_id}, mirror=True, if_unset=True)
     return {"job_id": job_id, "drama_id": drama_id, "line_id": line_id}
 
 
-def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end, zh_before,
-                               source_language, whisper_size, beam_size, min_silence_ms,
-                               vad_threshold, fast_mode, use_gpu, initial_prompt,
-                               hallucination_silence_sec, repeat_guard=False, preset="normal"):
-    """Job body: cut [start, end) from the drama's audio and transcribe it.
-    Writes nothing to the line. Result on success: {"line_id", "proposed_zh",
-    "base_zh", "base_start", "base_end"} (proposed_zh capped at
-    _RETRANSCRIBE_MAX_CHARS; base_zh raw, for the apply compare), plus
-    "gpu_fallback" when it ran on CPU. GET /api/jobs shows only line_id and
-    gpu_fallback (jobs_service's allowlist); the text is read in-process by
-    get_retranscribe_result and apply_retranscribe_line. A failed_reason
-    instead when the audio couldn't be cut ("audio_slice", including an
-    ffmpeg timeout), "timeout" (Whisper outran bounded_whisper.timeout_s),
-    nothing was heard ("empty"), the job was cancelled, or the line no longer
-    exists ("line_gone")."""
-    # Which line this run is for, visible to pollers before it finishes.
-    background_jobs.set_result(job_id, {"line_id": line_id}, mirror=True)
-    slice_path = os.path.join(os.path.dirname(audio_path), f"_retranscribe_slice_{line_id}.wav")
-    gpu_fallback = []
+def _retranscribe_timeout_s(window_seconds: float) -> float:
+    """How long the worker may run before it gives up. The base also covers a
+    first-use model download, so it never depends on whether a half-fetched
+    model folder looks cached; Cancel is always available for a download the
+    user no longer wants."""
+    return _RETRANSCRIBE_BASE_TIMEOUT_S + _RETRANSCRIBE_PER_AUDIO_S * max(0.0, window_seconds)
+
+
+def _retranscribe_worker(audio_path, start, end, source_language, whisper_size, beam_size,
+                         min_silence_ms, vad_threshold, use_gpu, initial_prompt,
+                         hallucination_silence_sec, repeat_guard, preset, timeout_s, scratch_dir,
+                         result_queue):
+    """Process-job target (spawn; top level and plain arguments so it
+    pickles): cuts [start, end) from the drama's audio, transcribes it and puts
+    ("ok", outcome) with outcome {"segments", optional "gpu_fallback", plus the
+    Ollama notice} or {"failed_reason", ...} for a slice or model-download
+    failure or its own timeout; or ("error", type name, redacted message).
+    Writes nothing to the database. Cancel kills the whole process, which is
+    what really frees the VRAM of a wedged CUDA call.
+
+    The timeout watchdog is a thread in this process: the stuck call (a
+    ctranslate2 future wait) releases the GIL, so the watchdog can still
+    report and end the process."""
+    background_jobs.start_own_process_group()
+
+    def give_up():
+        result_queue.put(("ok", {"failed_reason": "timeout"}))
+        result_queue.close()
+        result_queue.join_thread()
+        os._exit(0)
+
+    watchdog = threading.Timer(timeout_s, give_up)
+    watchdog.daemon = True
+    watchdog.start()
     try:
+        os.makedirs(scratch_dir, exist_ok=True)
+        tempfile.tempdir = scratch_dir
+        slice_path = os.path.join(scratch_dir, "line.wav")
         try:
             core_module.extract_audio_slice(audio_path, start, end, slice_path,
                                             timeout=_RETRANSCRIBE_SLICE_TIMEOUT_S)
         except subprocess.TimeoutExpired:
-            background_jobs.set_result(job_id, {
-                "line_id": line_id, "failed_reason": "audio_slice",
-                "detail": "Cutting this line's audio took too long and was stopped."})
+            result_queue.put(("ok", {
+                "failed_reason": "audio_slice",
+                "detail": "Cutting this line's audio took too long and was stopped."}))
             return
         except Exception:
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "audio_slice",
-                                                "detail": "Couldn't cut this line's audio."})
+            result_queue.put(("ok", {"failed_reason": "audio_slice",
+                                     "detail": "Couldn't cut this line's audio."}))
             return
-        if background_jobs.is_cancel_requested(job_id):
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "cancelled"})
-            return
-        background_jobs.update_progress(job_id, 0.1, _model_loading_message(
+        background_jobs.report_progress(result_queue, 0.1, _model_loading_message(
             whisper_size, core_module.is_whisper_model_cached(whisper_size)))
+        gpu_fallback = []
         try:
-            segments, ollama_notice = bounded_whisper.transcribe_bounded(
-                job_id, slice_path, whisper_size, end - start, f"retranscribe-{line_id}",
-                language=source_language, use_gpu=use_gpu,
+            # Not the batched pipeline: it is for long audio and has hung on
+            # repeated short windows.
+            segments = core_module.transcribe_for_timing(
+                slice_path, whisper_size, language=source_language, use_gpu=use_gpu,
                 initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
-                fast_mode=fast_mode, hallucination_silence_sec=hallucination_silence_sec,
+                fast_mode=False, hallucination_silence_sec=hallucination_silence_sec,
                 repeat_guard=repeat_guard, sensitivity_preset=preset)
         except core_module.ModelDownloadError as exc:
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "model_download",
-                                                "detail": redact_secrets(str(exc))})
+            result_queue.put(("ok", {"failed_reason": "model_download",
+                                     "detail": redact_secrets(str(exc))}))
             return
-        except TimeoutError:
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "timeout"})
-            return
+        outcome = {"segments": [{"text": (seg.get("text") or "")} for seg in segments or []],
+                   **ollama_unload.take_notice_result()}
+        if gpu_fallback:
+            outcome["gpu_fallback"] = gpu_fallback[0]
+        result_queue.put(("ok", outcome))
+    except Exception as exc:
+        result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
     finally:
-        with contextlib.suppress(OSError):
-            os.remove(slice_path)
-        core_module.release_gpu_models()
+        watchdog.cancel()
 
-    new_zh = " ".join((s.get("text") or "").strip() for s in segments or []).strip()
+
+def _apply_retranscribe_outcome(job_id, outcome, drama_id, line_id, zh_before, start, end):
+    """on_done for the re-transcribe process job: its return value is the
+    job's result. Runs in the parent, where the database is; writes nothing
+    to the line. Result on success: {"line_id", "proposed_zh", "base_zh",
+    "base_start", "base_end"} (proposed_zh capped at _RETRANSCRIBE_MAX_CHARS;
+    base_zh raw, for the apply compare), plus "gpu_fallback" when it ran on
+    CPU. GET /api/jobs shows only line_id and gpu_fallback (jobs_service's
+    allowlist); the text is read in-process by get_retranscribe_result and
+    apply_retranscribe_line. A failed_reason instead when the audio couldn't
+    be cut ("audio_slice", including an ffmpeg timeout), "timeout" (the worker
+    outran _retranscribe_timeout_s), "model_download", nothing was heard
+    ("empty"), or the line no longer exists ("line_gone"). A cancel kills the
+    worker and ends the job as cancelled before this runs."""
+    if outcome.get("failed_reason"):
+        return {"line_id": line_id, **outcome}
+    new_zh = " ".join((s.get("text") or "").strip() for s in outcome.get("segments") or []).strip()
     if not new_zh:
-        background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "empty"})
-        return
-    if background_jobs.is_cancel_requested(job_id):
-        background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "cancelled"})
-        return
+        return {"line_id": line_id, "failed_reason": "empty"}
     if _find_line(drama_id, line_id) is None:
-        background_jobs.set_result(job_id, {
-            "line_id": line_id, "failed_reason": "line_gone",
-            "detail": "The line was merged, split or deleted meanwhile; nothing was changed."})
-        return
+        return {"line_id": line_id, "failed_reason": "line_gone",
+                "detail": "The line was merged, split or deleted meanwhile; nothing was changed."}
     result = {"line_id": line_id, "proposed_zh": new_zh[:_RETRANSCRIBE_MAX_CHARS],
               "base_zh": zh_before or "", "base_start": start, "base_end": end,
-              **ollama_notice}
-    if gpu_fallback:
-        result["gpu_fallback"] = gpu_fallback[0]
+              **{k: v for k, v in outcome.items() if k not in ("segments", "gpu_fallback")}}
+    if outcome.get("gpu_fallback"):
+        result["gpu_fallback"] = outcome["gpu_fallback"]
         result["device_notice"] = core_module.gpu_fallback_notice(
-            "Re-transcribing this line", gpu_fallback[0])
-    background_jobs.set_result(job_id, result)
+            "Re-transcribing this line", outcome["gpu_fallback"])
+    return result
 
 
 def _finished_proposal(drama_id: int, line_id: int) -> dict:
