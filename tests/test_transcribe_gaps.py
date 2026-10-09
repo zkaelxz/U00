@@ -117,13 +117,34 @@ class TestListGaps:
         out = svc.list_gaps(did)
         assert out["speech_checked"] is False
         assert out["gaps"] == [{"start": 6.0, "end": 20.0, "seconds": 14.0, "pieces": 1,
-                                "after_line_id": ids[1], "before_line_id": ids[2],
+                                "part": 1, "parts": 1, "after_line_id": ids[1], "before_line_id": ids[2],
                                 "speech": None}]
 
     def test_long_gap_reports_its_pieces(self, isolated_db):
         did, _ = _drama(isolated_db, spans=((0, 3), (100, 103)))
         gaps = svc.list_gaps(did)["gaps"]
         assert [(g["start"], g["end"], g["pieces"]) for g in gaps] == [(3.0, 100.0, 4)]
+
+    @pytest.mark.parametrize("seconds,parts", [(600, 1), (600.5, 2), (900, 2), (1800, 3)])
+    def test_long_gap_comes_as_windows_of_at_most_600_seconds(self, isolated_db, seconds, parts):
+        did, ids = _drama(isolated_db, spans=((0, 3), (3 + seconds, 5 + seconds)))
+        gaps = svc.list_gaps(did)["gaps"]
+        assert len(gaps) == parts and {g["parts"] for g in gaps} == {parts}
+        assert [g["part"] for g in gaps] == list(range(1, parts + 1))
+        assert gaps[0]["start"] == 3.0 and gaps[-1]["end"] == 3.0 + seconds
+        assert all(a["end"] == b["start"] for a, b in zip(gaps, gaps[1:]))
+        assert all(svc.MIN_ADD_SECONDS <= g["seconds"] <= svc.MAX_ADD_SECONDS for g in gaps)
+        assert {g["after_line_id"] for g in gaps} == {ids[0]}
+
+    def test_every_window_of_a_long_gap_can_be_added(self, isolated_db):
+        did, ids = _drama(isolated_db, spans=((0, 3), (1803, 1805)))
+        for _ in range(3):
+            gap = svc.list_gaps(did)["gaps"][0]
+            current = [ln.id for ln in isolated_db.load_line_objects(did)]
+            svc.add_gap_lines(did, current, start=gap["start"], end=gap["end"],
+                              after_line_id=gap["after_line_id"])
+            assert gap["seconds"] <= 600
+        assert svc.list_gaps(did)["gaps"] == []
 
     def test_coverage_marks_speech_and_adds_a_stretch_after_the_last_line(
             self, isolated_db, monkeypatch):
@@ -264,6 +285,52 @@ class TestAddGapLines:
         with pytest.raises(ConflictError):
             svc.add_gap_lines(did, ids, start=7.0, end=19.0, after_line_id=ids[1])
 
+    def test_a_stale_request_never_touches_the_audio(self, isolated_db, monkeypatch):
+        did, ids = _drama(isolated_db, spans=((0, 3), (100, 103)))
+
+        def boom(*a):
+            raise AssertionError("audio work before the cheap refusals")
+        monkeypatch.setattr(svc, "_pauses", boom)
+        monkeypatch.setattr(svc.transcribe_service, "_audio_duration_seconds", boom)
+        for kwargs, exc in (({"expected_line_ids": []}, ConflictError),
+                            ({"expected_line_ids": ids, "start": 2.0}, ConflictError)):
+            args = {"expected_line_ids": ids, "start": 3.0, "end": 100.0, **kwargs}
+            with pytest.raises(exc):
+                svc.add_gap_lines(did, args.pop("expected_line_ids"), after_line_id=ids[0],
+                                  **args)
+        with background_jobs._lock:
+            background_jobs._jobs[f"retranscribe_{did}"] = {
+                "status": "running", "progress": 0.0, "message": "", "result": None,
+                "error": None, "started_at": 0, "finished_at": None, "cancel_requested": False}
+        with pytest.raises(ConflictError):
+            svc.add_gap_lines(did, ids, start=3.0, end=100.0, after_line_id=ids[0])
+
+    def test_a_second_scan_for_the_same_title_is_refused(self, isolated_db, monkeypatch):
+        did, ids = _drama(isolated_db, spans=((0, 3), (100, 103)))
+        seen = []
+
+        def reentrant(*a):
+            with pytest.raises(ConflictError):
+                svc.add_gap_lines(did, ids, start=3.0, end=100.0, after_line_id=ids[0])
+            seen.append(1)
+            return None
+        monkeypatch.setattr(svc, "_pauses", reentrant)
+        svc.add_gap_lines(did, ids, start=3.0, end=100.0, after_line_id=ids[0])
+        assert seen and did not in svc._scanning
+
+    def test_a_stretch_past_the_end_of_the_audio_is_refused(self, isolated_db, monkeypatch):
+        did, ids = _drama(isolated_db)
+        monkeypatch.setattr(svc.transcribe_service, "_audio_duration_seconds", lambda p: 30.0)
+        with pytest.raises(InvalidInputError):
+            svc.add_gap_lines(did, ids, start=30.0, end=40.0, after_line_id=ids[3])
+        assert len(isolated_db.load_line_objects(did)) == 4
+        svc.add_gap_lines(did, ids, start=30.0, end=30.5, after_line_id=ids[3])
+
+    def test_unknown_audio_length_skips_the_check(self, isolated_db, monkeypatch):
+        did, ids = _drama(isolated_db)
+        monkeypatch.setattr(svc.transcribe_service, "_audio_duration_seconds", lambda p: None)
+        svc.add_gap_lines(did, ids, start=30.0, end=40.0, after_line_id=ids[3])
+
     def test_needs_stored_audio(self, isolated_db):
         did, ids = _drama(isolated_db, audio=False)
         with pytest.raises(UnsupportedOperationError):
@@ -315,6 +382,8 @@ class TestRoutes:
                     {k: v for k, v in base.items() if k != "end"},
                     {**base, "expected_line_ids": ["a"]}):
             assert client.post(url, json=bad).status_code == 422, bad
+        assert client.post(url, json={**base, "expected_line_ids": [1] * 100_001}
+                           ).status_code == 422
         assert client.post(url, json={**base, "end": 7.1}).status_code == 422
         assert client.post(url, json={**base, "start": 5.0}).status_code == 409
 

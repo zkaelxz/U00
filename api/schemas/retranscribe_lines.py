@@ -86,11 +86,14 @@ class RetranscribeManyApplyResult(BaseModel):
 class TranscribeGap(BaseModel):
     """A stretch with no subtitle line. speech: true when the speech coverage
     check found speech here, None when it hasn't run (never false). pieces:
-    how many lines "Transcribe this gap" would add."""
+    how many lines "Transcribe this gap" would add. part/parts: a stretch
+    over 10 minutes comes as several windows, each added on its own."""
     start: float
     end: float
     seconds: float
     pieces: int
+    part: int = 1
+    parts: int = 1
     after_line_id: Optional[int] = None
     before_line_id: Optional[int] = None
     speech: Optional[bool] = None
@@ -105,7 +108,7 @@ class GapAddLinesRequest(BaseModel):
     """expected_line_ids: the title's line ids in order, as the client last
     saw them (a different list is a 409, like the other structural edits)."""
     model_config = ConfigDict(extra="forbid")
-    expected_line_ids: List[StrictInt]
+    expected_line_ids: List[StrictInt] = Field(max_length=100_000)
     start: float = Field(..., ge=0)
     end: float = Field(..., ge=0)
     after_line_id: Optional[int] = Field(None, ge=1, description="None = at the start.")

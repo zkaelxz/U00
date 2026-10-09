@@ -78,10 +78,11 @@ export function gapsInView(gaps: TranscribeGap[], view: View): TranscribeGap[] {
   return gaps.filter((g) => g.end > view.start && g.start < view.start + view.span)
 }
 
-export function gapLabel(g: Pick<TranscribeGap, 'start' | 'end' | 'seconds' | 'pieces' | 'speech'>): string {
+export function gapLabel(g: Pick<TranscribeGap, 'start' | 'end' | 'seconds' | 'pieces' | 'speech'> & Partial<Pick<TranscribeGap, 'part' | 'parts'>>): string {
   const length = `${Math.round(g.seconds)} s`
   const lines = g.pieces > 1 ? `, ${g.pieces} lines` : ''
-  return `${formatTime(g.start)} – ${formatTime(g.end)} (${length}${lines}${g.speech ? ', speech heard' : ''})`
+  const part = g.parts && g.parts > 1 ? `part ${g.part} of ${g.parts}, ` : ''
+  return `${formatTime(g.start)} – ${formatTime(g.end)} (${part}${length}${lines}${g.speech ? ', speech heard' : ''})`
 }
 
 // Why a gap's button is off, or null.

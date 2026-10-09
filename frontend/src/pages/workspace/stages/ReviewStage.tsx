@@ -82,6 +82,8 @@ export default function ReviewStage() {
   // Same for "Re-transcribe selected", the waveform's "Transcribe this gap" and
   // "Add and transcribe": ids start a run on exactly those lines.
   const [retranscribeRequest, setRetranscribeRequest] = useState<RetranscribeRequest | null>(null)
+  const [handledRetranscribeSeq, setHandledRetranscribeSeq] = useState(0)
+  const pendingRetranscribe = retranscribeRequest && retranscribeRequest.seq !== handledRetranscribeSeq ? retranscribeRequest : null
   const openRetranscribe = useCallback(
     (lineIds: number[] | null) => setRetranscribeRequest((r) => ({ seq: (r?.seq ?? 0) + 1, lineIds })),
     [],
@@ -160,7 +162,7 @@ export default function ReviewStage() {
                   {parts.history}
                   {!!lineCount && opened && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />}
                   {!!lineCount && opened && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />}
-                  {!!lineCount && opened && <RetranscribeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} request={retranscribeRequest} />}
+                  {!!lineCount && opened && <RetranscribeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} request={pendingRetranscribe} onRequestHandled={setHandledRetranscribeSeq} />}
                   {!!lineCount && opened && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
                 </>
               )}

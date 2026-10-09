@@ -31,11 +31,13 @@ export function RetranscribeLines({
   jobRunning,
   onChanged,
   request,
+  onRequestHandled,
 }: {
   dramaId: number
   jobRunning: boolean
   onChanged: () => void
   request?: RetranscribeRequest | null
+  onRequestHandled?: (seq: number) => void
 }) {
   const { selectedIds } = useLineSelectionContext()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -80,11 +82,13 @@ export function RetranscribeLines({
   }
 
   // Each request opens the section and brings it into view; the run starts
-  // once per request even if the effect runs again.
+  // once per request even if the effect runs again; the parent is told so a
+  // remount (the fold collapsing and reopening) doesn't replay a finished request.
   const handled = useRef(0)
   useEffect(() => {
     if (!request || request.seq === handled.current) return
     handled.current = request.seq
+    onRequestHandled?.(request.seq)
     setSectionSignal((n) => n + 1)
     panelRef.current?.scrollIntoView?.({ block: 'start' })
     if (request.lineIds) start(request.lineIds)

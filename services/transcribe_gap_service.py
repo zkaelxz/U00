@@ -12,7 +12,9 @@ beyond the last line (or before the first) are added; without it `speech` is
 None, never false, because a check that ran before a line was deleted would
 make that stretch look silent.
 """
+import contextlib
 import math
+import threading
 from typing import Optional
 
 import core as core_module
@@ -27,7 +29,8 @@ MIN_GAP_SECONDS = 2.0
 # and a failed or misheard 30 s piece costs little to redo.
 MAX_PIECE_SECONDS = 30.0
 MIN_PIECE_SECONDS = 1.0
-# 20 pieces; a longer stretch is added in parts so one request can't create
+# 20 pieces; list_gaps reports a longer stretch as several windows of at most
+# this length (each added by its own request) so one request can't create
 # hundreds of lines.
 MAX_ADD_SECONDS = 600.0
 MIN_ADD_SECONDS = 0.5
@@ -39,6 +42,13 @@ _EDGE_TOLERANCE_S = 0.05
 # A coverage gap counts as the line gap's when they share at least this much.
 _SPEECH_OVERLAP_S = 0.5
 _COVERED_BY_LINE_S = 0.3
+# Slack past the audio's end (ffprobe's duration is rounded, and the last line
+# often runs a hair over).
+_DURATION_TOLERANCE_S = 0.5
+# Titles with a pause scan under way: the scan decodes audio and runs a model in
+# the request thread, so a second one for the same title is refused, not queued.
+_scanning: set = set()
+_scanning_lock = threading.Lock()
 GAP_FLAG = "gap_untranscribed"
 GAP_FLAG_NOTE = "Added for a stretch with no subtitle line; check the text"
 
@@ -73,8 +83,10 @@ def _coverage_gaps(drama_id: int) -> Optional[list]:
 
 
 def list_gaps(drama_id: int, min_gap: float = MIN_GAP_SECONDS) -> dict:
-    """{gaps: [{start, end, seconds, pieces, after_line_id, before_line_id,
-    speech}], speech_checked}. NotFoundError for an unknown drama."""
+    """{gaps: [{start, end, seconds, pieces, part, parts, after_line_id,
+    before_line_id, speech}], speech_checked}. A stretch longer than
+    MAX_ADD_SECONDS comes as `parts` equal consecutive windows, each one
+    addable on its own. NotFoundError for an unknown drama."""
     if db.get_drama(drama_id) is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
     lines = db.load_line_objects(drama_id)
@@ -101,11 +113,22 @@ def list_gaps(drama_id: int, min_gap: float = MIN_GAP_SECONDS) -> dict:
                          if after else None,
                          "speech": True})
         gaps.sort(key=lambda g: g["start"])
-    for g in gaps:
-        g["start"], g["end"] = round(g["start"], 3), round(g["end"], 3)
-        g["seconds"] = round(g["end"] - g["start"], 3)
-        g["pieces"] = max(1, math.ceil(g["seconds"] / MAX_PIECE_SECONDS - 1e-9))
-    return {"gaps": gaps, "speech_checked": coverage is not None}
+    return {"gaps": [w for g in gaps for w in _windows(g)], "speech_checked": coverage is not None}
+
+
+def _windows(gap: dict) -> list:
+    """The gap as windows of at most MAX_ADD_SECONDS, equal in length so the
+    last is never a sliver. Every window keeps the gap's after_line_id: none
+    of them has a line between it and that neighbour until an earlier one is
+    added, and the list is refetched after any add."""
+    start, end = round(gap["start"], 3), round(gap["end"], 3)
+    parts = max(1, math.ceil((end - start) / MAX_ADD_SECONDS - 1e-9))
+    edges = [start] + [round(start + (end - start) * k / parts, 3)
+                       for k in range(1, parts)] + [end]
+    return [{**gap, "start": a, "end": b, "seconds": round(b - a, 3),
+             "pieces": max(1, math.ceil((b - a) / MAX_PIECE_SECONDS - 1e-9)),
+             "part": i + 1, "parts": parts}
+            for i, (a, b) in enumerate(zip(edges, edges[1:]))]
 
 
 def _even_cuts(start: float, end: float, pieces: int) -> list:
@@ -174,16 +197,27 @@ def add_gap_lines(drama_id: int, expected_line_ids, *, start, end,
     audio_path = transcribe_service._drama_audio_path(drama_id, drama)
     if audio_path is None:
         raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
-    needs_split = end - start > MAX_PIECE_SECONDS
-    pauses = _pauses(audio_path, start, end) if needs_split else None
+    # The cheap refusals come before any audio work so a stale or blocked
+    # request can't tie up a worker thread decoding; structural_write checks
+    # them again under the lock.
+    restructure._refuse_if_job_running(drama_id)
+    expected = restructure._id_list("expected_line_ids", expected_line_ids)
+    current = db.load_line_objects(drama_id)
+    restructure._check_expected(current, expected)
+    _check_free(current, _insert_pos(current, after_line_id), start, end)
+    with _scan_slot(drama_id):
+        duration = transcribe_service._audio_duration_seconds(audio_path)
+        if duration is not None and end > duration + _DURATION_TOLERANCE_S:
+            raise InvalidInputError(
+                f"This stretch ends after the audio does ({duration:.1f} s).")
+        needs_split = end - start > MAX_PIECE_SECONDS
+        pauses = _pauses(audio_path, start, end) if needs_split else None
     pieces, on_pauses = split_gap(start, end, pauses)
     how = "single" if len(pieces) == 1 else "pauses" if on_pauses else "even"
 
     def build(lines):
-        pos = 0 if after_line_id is None else restructure._index_of(lines, after_line_id) + 1
-        if (any(float(ln.end) > start + _EDGE_TOLERANCE_S for ln in lines[:pos])
-                or any(float(ln.start) < end - _EDGE_TOLERANCE_S for ln in lines[pos:])):
-            raise ConflictError("A line now covers part of this stretch -- reload and try again.")
+        pos = _insert_pos(lines, after_line_id)
+        _check_free(lines, pos, start, end)
         new = [core_module.Line(idx=pos + i, start=s, end=e, zh="", en="", flag=GAP_FLAG,
                                 flag_note=GAP_FLAG_NOTE)
                for i, (s, e) in enumerate(pieces)]
@@ -191,3 +225,27 @@ def add_gap_lines(drama_id: int, expected_line_ids, *, start, end,
     result = restructure.structural_write(drama_id, expected_line_ids, "before adding gap lines",
                                           build)
     return {**result, "new_line_ids": [ln["id"] for ln in result["lines"]], "split": how}
+
+
+def _insert_pos(lines, after_line_id) -> int:
+    return 0 if after_line_id is None else restructure._index_of(lines, after_line_id) + 1
+
+
+def _check_free(lines, pos: int, start: float, end: float):
+    if (any(float(ln.end) > start + _EDGE_TOLERANCE_S for ln in lines[:pos])
+            or any(float(ln.start) < end - _EDGE_TOLERANCE_S for ln in lines[pos:])):
+        raise ConflictError("A line now covers part of this stretch -- reload and try again.")
+
+
+@contextlib.contextmanager
+def _scan_slot(drama_id: int):
+    with _scanning_lock:
+        if drama_id in _scanning:
+            raise ConflictError("Another gap is being prepared for this title -- try again "
+                                "in a moment.")
+        _scanning.add(drama_id)
+    try:
+        yield
+    finally:
+        with _scanning_lock:
+            _scanning.discard(drama_id)

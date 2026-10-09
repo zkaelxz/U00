@@ -339,6 +339,8 @@ export interface TranscribeGap {
   end: number
   seconds: number
   pieces: number
+  part: number
+  parts: number
   after_line_id: number | null
   before_line_id: number | null
   speech: boolean | null
