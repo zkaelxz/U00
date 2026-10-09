@@ -13,6 +13,7 @@ import re
 import shutil
 import stat
 import tempfile
+import threading
 import time
 
 
@@ -241,6 +242,13 @@ def new_partial_file(prefix: str, suffix: str = ".part") -> str:
     return path
 
 
+# Work folders in use by this process. A sweep never touches them, so "clean
+# now" can't pull a folder out from under a browser or export that is not a
+# registered job (the sign-in window, a restore).
+_held_lock = threading.Lock()
+_held = set()
+
+
 @contextlib.contextmanager
 def job_workdir(job_id=None, dir=None):
     """A work folder removed on exit. `dir` overrides the parent (tests)."""
@@ -248,10 +256,14 @@ def job_workdir(job_id=None, dir=None):
         path = tempfile.mkdtemp(dir=dir)
     else:
         path = new_workdir(job_id)
+    with _held_lock:
+        _held.add(path)
     try:
         yield path
     finally:
         shutil.rmtree(path, ignore_errors=True)
+        with _held_lock:
+            _held.discard(path)
 
 
 def _is_link(path: str) -> bool:
@@ -265,6 +277,107 @@ def _is_link(path: str) -> bool:
     return bool(getattr(st, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
 
 
+# Folders Baihe once created straight in the system temp folder. Matched by
+# name prefix only: the system temp is shared with every other program, so a
+# folder is Baihe's only when it carries one of these.
+LEGACY_TEMP_PREFIXES = (
+    "baihe_live_", "baihe_vocab_", "baihe_scanlate_", "baihe_vocalsep_chunks_",
+    "baihe_pronounce_", "baihe_anki_", "baihe_deno_", "baihe_upgrade_check_",
+    "baihe_qwen3_asr_", "baihe_forced_align_", "baihe_sensevoice_",
+)
+# A start must stay quick even if a temp folder holds a huge number of entries.
+SWEEP_MAX_EXAMINED = 5000
+SWEEP_MAX_REMOVED = 500
+SWEEP_MAX_SECONDS = 10.0
+
+
+def _tree_bytes(path: str) -> int:
+    """Size of a tree without following links; unreadable parts count as 0."""
+    total = 0
+    stack = [path]
+    while stack:
+        cur = stack.pop()
+        try:
+            with os.scandir(cur) as it:
+                for entry in it:
+                    try:
+                        if entry.is_symlink() or _is_link(entry.path):
+                            continue
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                        else:
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return total
+
+
+def _sweep_folder(root: str, accept, max_age: float, now: float, live: set,
+                  measure: bool) -> dict:
+    """Removes entries of `root` that `accept(name, path)` allows, are older
+    than `max_age`, are not links, are not owned by a live job and are not a
+    folder this process holds. Best effort: Windows keeps files open, so any
+    OS error just leaves the entry for next time. Bounded by
+    SWEEP_MAX_EXAMINED / SWEEP_MAX_REMOVED / SWEEP_MAX_SECONDS."""
+    out = {"removed": 0, "freed_bytes": 0}
+    if _is_link(root):
+        return out
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return out
+    with _held_lock:
+        held = set(_held)
+    deadline = time.monotonic() + SWEEP_MAX_SECONDS
+    for examined, name in enumerate(names):
+        if (examined >= SWEEP_MAX_EXAMINED or out["removed"] >= SWEEP_MAX_REMOVED
+                or time.monotonic() > deadline):
+            break
+        path = os.path.join(root, name)
+        owner = name.rsplit(_OWNER_SEP, 1)[0] if _OWNER_SEP in name else None
+        if owner in live or path in held or _is_link(path) or not accept(name, path):
+            continue
+        try:
+            if now - os.lstat(path).st_mtime < max_age:
+                continue
+            is_dir = os.path.isdir(path)
+            size = (_tree_bytes(path) if is_dir else os.lstat(path).st_size) if measure else 0
+            if is_dir:
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            out["removed"] += 1
+            out["freed_bytes"] += size
+        except OSError:
+            continue
+    return out
+
+
+def sweep_library_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None,
+                       measure: bool = False) -> dict:
+    """{"removed", "freed_bytes"} for <library>/tmp (see sweep_stale_temp).
+    freed_bytes is only measured when `measure` is set: it costs a walk."""
+    import background_jobs
+    import db
+    now = time.time() if now is None else now
+    live = {_owner_token(j) for j in background_jobs.active_job_ids()}
+    root = os.path.join(db.LIBRARY_DIR, TEMP_DIRNAME)
+    return _sweep_folder(root, lambda name, path: True, max_age, now, live, measure)
+
+
+def sweep_legacy_system_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None,
+                             system_temp: str = None) -> int:
+    """Removes folders left in the system temp folder by older Baihe versions
+    (LEGACY_TEMP_PREFIXES, folders only). Nothing else there is touched."""
+    now = time.time() if now is None else now
+    root = system_temp or tempfile.gettempdir()
+    return _sweep_folder(
+        root, lambda name, path: name.startswith(LEGACY_TEMP_PREFIXES) and os.path.isdir(path),
+        max_age, now, set(), False)["removed"]
+
+
 def sweep_stale_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None) -> int:
     """Startup sweep of the library temp folder: entries older than
     `max_age` whose owning job is not queued or running. Links (symlinks,
@@ -272,36 +385,75 @@ def sweep_stale_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None) -> 
     removes separator checkpoints left truncated by a killed download (see
     audio_preprocess.sweep_interrupted_downloads). Returns the number of
     temp entries removed."""
-    import background_jobs
-    import db
     try:
         import audio_preprocess
         audio_preprocess.sweep_interrupted_downloads()
     except Exception:
         pass  # a model-folder hiccup must not stop the temp sweep
-    now = time.time() if now is None else now
-    root = os.path.join(db.LIBRARY_DIR, TEMP_DIRNAME)
-    if _is_link(root):
-        return 0
+    return sweep_library_temp(max_age, now)["removed"]
+
+
+# ---------------------------------------------------------------------------
+# Playwright/Chromium temp folders. The node driver makes
+# playwright_chromiumdev_profile-* and playwright-artifacts-* with os.tmpdir(),
+# which follows TMPDIR/TEMP/TMP of the driver process. Only that process gets
+# the override: changing os.environ would redirect every other thread and
+# subprocess of the server, and Baihe must never touch another program's
+# Playwright folders.
+# ---------------------------------------------------------------------------
+
+_driver_env_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def _driver_tmp_env(path: str):
+    """While active, the driver Playwright spawns gets TMPDIR/TEMP/TMP=path.
+    The environment is read once, when the driver starts, so this only needs
+    to wrap that start. Without the hook (another Playwright version) the
+    driver keeps the default temp folder and the launch still works."""
     try:
-        names = os.listdir(root)
-    except OSError:
-        return 0
-    live = {_owner_token(j) for j in background_jobs.active_job_ids()}
-    removed = 0
-    for name in names:
-        path = os.path.join(root, name)
-        owner = name.rsplit(_OWNER_SEP, 1)[0] if _OWNER_SEP in name else None
-        if owner in live or _is_link(path):
-            continue
+        from playwright._impl import _transport
+        original = _transport.get_driver_env
+    except (ImportError, AttributeError):
+        original = None
+    if original is None:
+        yield
+        return
+
+    def confined():
+        env = original()
+        env.update(TMPDIR=path, TEMP=path, TMP=path)
+        return env
+
+    with _driver_env_lock:
+        _transport.get_driver_env = confined
         try:
-            if now - os.lstat(path).st_mtime < max_age:
-                continue
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
-            removed += 1
-        except OSError:
-            continue
-    return removed
+            yield
+        finally:
+            _transport.get_driver_env = original
+
+
+@contextlib.contextmanager
+def playwright_session(sync_playwright):
+    """`with sync_playwright() as p`, with the driver's temp folder confined
+    and removed after the driver has stopped, whatever happens inside."""
+    with job_workdir("playwright") as path:
+        with contextlib.ExitStack() as stack:
+            with _driver_tmp_env(path):
+                pw = stack.enter_context(sync_playwright())
+            yield pw
+
+
+def playwright_start(sync_playwright):
+    """(playwright, release) for a launch the caller closes later (a
+    persistent browser profile). The caller stops the driver first, then calls
+    `release()` once to remove the temp folder."""
+    workdir = job_workdir("playwright")
+    path = workdir.__enter__()
+    try:
+        with _driver_tmp_env(path):
+            pw = sync_playwright().start()
+    except BaseException:
+        workdir.__exit__(None, None, None)
+        raise
+    return pw, lambda: workdir.__exit__(None, None, None)

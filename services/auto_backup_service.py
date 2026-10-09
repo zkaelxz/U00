@@ -99,6 +99,7 @@ import threading
 import time
 import uuid
 import zipfile
+import storage
 import zlib
 
 import background_jobs
@@ -987,7 +988,7 @@ def _verify_snapshot(path: str):
     one: the restore zip checks, a readable manifest, a sound library.db
     whose dramas match the manifest."""
     las.validate_backup_file(path, check_disk=False, check_limits=False)
-    with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory() as tmp:
+    with zipfile.ZipFile(path) as zf, storage.job_workdir("backup_restore") as tmp:
         manifest = _read_manifest(zf)
         dest = extract_db(zf, tmp)
         with contextlib.closing(sqlite3.connect(ro_uri(dest), uri=True)) as conn:
@@ -1671,7 +1672,7 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
     las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a drama")
     if job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
-    with las.maintenance("restoring a drama"), tempfile.TemporaryDirectory() as tmp:
+    with las.maintenance("restoring a drama"), storage.job_workdir("backup_restore") as tmp:
         db.recover_media_imports()
         staging = staged = None
         with _snapshot_lock:

@@ -111,3 +111,6 @@ export type UnusedVoiceClipTrashDone = {
   moved_bytes: number
   skipped: { id: string; reason: 'no_longer_unused' | 'changed' }[]
 }
+
+// "Clean temp files now": counts and megabytes only, never a path.
+export type TempCleanDone = { removed: number; freed_mb: number }

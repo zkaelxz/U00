@@ -49,12 +49,11 @@ Permission contract for routes (user decision, 2026-09-29):
 
 import os
 import re
-import shutil
-import tempfile
 
 import core as core_module
 import db
 import reader
+import storage
 import story_context
 import subtitle_formats
 import translate_engines
@@ -581,8 +580,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
         original = None
     deck = _title(drama, "Baihe Vocab")
     name = "vocab_sentence.apkg" if rich else "vocab.apkg"
-    tmp = tempfile.mkdtemp(prefix="baihe_vocab_")
-    try:
+    with storage.job_workdir("vocab_export") as tmp:
         out_path = os.path.join(tmp, name)
         try:
             if rich:
@@ -598,8 +596,6 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
                 "Needs `pip install genanki` for .apkg export -- CSV works without it.") from None
         with open(out_path, "rb") as f:
             content = f.read()
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
     return {"filename": name, "media_type": "application/octet-stream", "content": content,
             "audio_omitted": audio_omitted, "cards_capped": cards_capped}
 

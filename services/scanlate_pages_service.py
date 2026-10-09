@@ -27,12 +27,12 @@ import json
 import os
 import re
 import shutil
-import tempfile
 import threading
 import warnings
 
 import background_jobs
 import db
+import storage
 from services import comic_view_service
 from services import page_import_limits as limits
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -444,7 +444,7 @@ def add_page_images(drama_id: int, files, slice_strips: bool = SLICE_STRIPS_DEFA
         raise InvalidInputError(f"Too many files (at most {limits.MAX_FILES_PER_IMPORT} at once).")
     exts = [_safe_extension(name) for name, _f in files]
     with upload_claim(drama_id):
-        staging = tempfile.mkdtemp(prefix="baihe_scanlate_")
+        staging = storage.new_workdir("scanlate_import")
         try:
             staged, pdf_skipped, sliced = [], 0, 0
             budget = [limits.MAX_IMPORT_BYTES]

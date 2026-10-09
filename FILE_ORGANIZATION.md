@@ -200,6 +200,8 @@ baihe-subtitler/
 │   ├── disk_usage_service.py     Disk usage: bounded scan of the data folder (relative paths, links never
 │   │                             followed), move-to-Trash clear, Trash restore / permanent delete and automatic-backup folder move with
 │   │                             server-enforced protected paths; router: disk_usage_routes.py
+│   ├── temp_cleanup_service.py   "Clean temp files now": empties the library temp folder (409 while a job
+│   │                             runs; counts and MB only); route in disk_usage_routes.py
 │   ├── backup_import_service.py  Step 143: import chosen dramas from an uploaded backup file (snapshot
 │   │                             copy, manual backup zip or library.db) as new dramas owned by the acting
 │   │                             user; reuses auto_backup_service._copy_drama; router: backup_routes.py
@@ -905,7 +907,7 @@ baihe-subtitler/
 | `check_setup.py` | `start.bat`/`start.ps1`'s "print anything missing in plain words" check |
 | `process_guard.py` | Windows Job Object that ends every child process (ffmpeg, Playwright's Node and Chromium, pip...) with the API server, however it was started, plus the console-close handler that runs the clean stop first; `launcher.py --stop` can end an install's whole group (Step 80b) |
 | `portable.py` | lets the whole app folder be copied/moved and still work; `data_dir()` is where library/, .env and (installed copies) model caches live -- the app folder for a source checkout, the per-user data folder for an installed copy (Step 80b) |
-| `storage.py` | disk usage, cache cleanup |
+| `storage.py` | disk usage, cache cleanup, library temp folder and its sweeps, Playwright's temp folders kept inside it |
 | `benchmark.py` | the case runners the Benchmark Lab (services/benchmark_lab_service.py) builds on: regression tracking against your own reference cases, across every content type (audio drama, streamer VOD, novel, manhua) |
 | `action_tiers.py` | 🟢/🟡/🔴 action-permission-tier classification an AI-driven feature checks before acting |
 

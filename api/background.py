@@ -209,6 +209,12 @@ def start_background_services() -> dict:
         from translate_engines import redact_secrets
         _log("leftover temp files were not swept: %s", redact_secrets(str(exc)))
     try:
+        import storage
+        storage.sweep_legacy_system_temp()
+    except Exception as exc:
+        from translate_engines import redact_secrets
+        _log("old Baihe folders in the system temp were not swept: %s", redact_secrets(str(exc)))
+    try:
         from services import lncrawl_service
         lncrawl_service.cleanup_stale_workdirs()
     except Exception as exc:

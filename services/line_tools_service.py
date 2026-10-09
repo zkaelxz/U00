@@ -25,11 +25,11 @@ grammar) live in services/line_ai_service.py.
 """
 import asyncio
 import os
-import tempfile
 
 import db
 import dub
 import line_tools
+import storage
 import translate_engines
 from core import Line
 from services import drama_service, line_ai_service, lines_service
@@ -62,7 +62,7 @@ def pronounce_line(drama_id: int, line_id: int) -> bytes:
             "Pronouncing needs edge-tts (pip install edge-tts).") from None
     lang = drama.get("source_language") or "zh"
     voice = line_tools.SOURCE_LANG_VOICES.get(lang, line_tools.SOURCE_LANG_VOICES["zh"])
-    with tempfile.TemporaryDirectory(prefix="baihe_pronounce_") as tmp:
+    with storage.job_workdir("pronounce") as tmp:
         out = os.path.join(tmp, "pronounce.mp3")
         try:
             asyncio.run(asyncio.wait_for(dub.edge_tts_synthesize(text, voice, out),

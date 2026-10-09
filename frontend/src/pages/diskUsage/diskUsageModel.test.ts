@@ -4,7 +4,7 @@ import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
   CLIP_BATCH_SIZE, clipBatches, clipsDoneBeforeError, describeClipsStopped, sumClipResults,
-  clipLine, clipTitle, clipsInUseText, describeClipsMoved, filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
+  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
@@ -98,6 +98,14 @@ describe('what can be done', () => {
     expect(cellLabel(item(), 5, 5)).toBe('')
     expect(cellLabel(item(), 10, 10)).toBe('tmp')
     expect(cellLabel(item(), 30, 20)).toBe('tmp\n1.5 MB')
+  })
+})
+
+describe('temp cleanup text', () => {
+  it('says what was removed, or that nothing was left', () => {
+    expect(describeTempCleaned({ removed: 0, freed_mb: 0 })).toBe('No leftover temp files.')
+    expect(describeTempCleaned({ removed: 1, freed_mb: 0.5 })).toBe('Removed 1 temp item and freed 0.5 MB.')
+    expect(describeTempCleaned({ removed: 3, freed_mb: 1200.5 })).toBe('Removed 3 temp items and freed 1,200.5 MB.')
   })
 })
 

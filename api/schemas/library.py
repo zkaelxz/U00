@@ -14,6 +14,7 @@ import storage as _storage
 from api.schemas.common import LibraryPreset
 
 __all__ = [
+    "TempCleanResult",
     "DramaSummary",
     "DramaDetail",
     "DramaListResponse",
@@ -725,6 +726,12 @@ class LibraryStorageScan(BaseModel):
     would_free_bytes: int
     categories: List[LibraryStorageCategory]
     per_drama: List[LibraryStorageDrama]
+
+
+class TempCleanResult(BaseModel):
+    """Counts only: never a path."""
+    removed: int
+    freed_mb: float
 
 
 class LibraryStorageCleanResult(BaseModel):

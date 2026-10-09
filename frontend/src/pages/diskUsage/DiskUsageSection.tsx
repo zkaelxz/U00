@@ -25,6 +25,7 @@ import {
   PARTIAL_TEXT, barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeMoved,
   diskLine, itemTone, moveBlock, moveConfirmLabel, percentText, sizeLine,
 } from './diskUsageModel'
+import { TempCleanup } from './TempCleanup'
 import { TrashPanel } from './TrashPanel'
 import { UnusedVoiceClips } from './UnusedVoiceClips'
 import { squarify } from './treemap'
@@ -211,6 +212,7 @@ function DiskUsageLive() {
           }}
           onStale={() => rescan(true)}
         />
+        <TempCleanup onCleaned={() => rescan(true)} />
       </section>
     </Section>
   )

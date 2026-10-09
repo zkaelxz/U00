@@ -3,7 +3,8 @@ services/live_service.py -- Live capture sessions (spec
 docs/specs/discover-sources-live-api-spec.md section 4, L-1, polling only).
 
 A session is one background job (`live_<uuid>`) running
-live_translate.run_live_job in its own tempfile.mkdtemp directory, which is
+live_translate.run_live_job in its own folder under the library temp
+folder (storage.new_workdir, owned by the session id), which is
 removed when the job ends (done, error, cancel -- including a cancel while
 still queued). Every start gets its own id and directory, use_gpu reaches the
 pipeline, and max_minutes is a hard stop.
@@ -21,13 +22,13 @@ capability; stop is gated like jobs.cancel.
 """
 import re
 import shutil
-import tempfile
 import threading
 import uuid
 from typing import Optional
 
 import background_jobs
 import live_translate
+import storage
 import translate_engines
 from core import SOURCE_LANGUAGES
 from services import ownership_service, settings_service, translate_service, url_guard
@@ -206,7 +207,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     engine_name, eng = _build_engine(engine, model)
 
     session_id = f"live_{uuid.uuid4().hex}"
-    out_dir = tempfile.mkdtemp(prefix="baihe_live_")
+    out_dir = storage.new_workdir(session_id)
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
