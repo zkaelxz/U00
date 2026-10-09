@@ -32,7 +32,7 @@ def test_config_audio_and_novel(client):
     a = client.get(f"{BASE}/{_seed()}/config")
     assert a.status_code == 200
     body = a.json()
-    assert body["defaults"] == {"context_window": 6, "context_window_ahead": 3, "batch_size": 20}
+    assert body["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 30}
     assert body["line_count"] == 2 and body["untranslated_count"] == 1
     assert body["engines"] and body["workflow_tiers"] and body["style_presets"]
     assert isinstance(body["cap_applies_by_engine"]["claude"], bool)

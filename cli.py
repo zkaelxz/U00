@@ -748,7 +748,7 @@ def cmd_translate(args):
         if missing:
             print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
             return
-        # Same defaults the service/React use (10/6/30 for novel narration).
+        # Same defaults the service/React use.
         tdefaults = get_translate_config_defaults(d.get("content_mode") == "novel_narration")
         style_preset = args.style_preset or (
             "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
@@ -1448,18 +1448,16 @@ def main():
                                 "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     # Matches the Workspace tab's own three sliders. Unset means
     # the service's per-drama defaults (translate_run_service.
-    # get_translate_config_defaults): 6/3/20, or 10/6/30 for novel narration.
+    # get_translate_config_defaults): 10/6/30.
     p_translate.add_argument("--context-window", type=int, default=None,
                            help="Lines of already-translated context shown from before each "
-                                "batch (default 6, 10 for novel narration). 0 turns this off.")
+                                "batch (default 10). 0 turns this off.")
     p_translate.add_argument("--context-window-ahead", type=int, default=None,
                            help="Lines of source text shown from after each batch, to resolve "
-                                "a reference that's only disambiguated later (default 3, 6 for "
-                                "novel narration). 0 "
+                                "a reference that's only disambiguated later (default 6). 0 "
                                 "turns this off.")
     p_translate.add_argument("--batch-size", type=int, default=None,
-                           help="Lines translated per request (default 20, 30 for novel "
-                                "narration). More lines per "
+                           help="Lines translated per request (default 30). More lines per "
                                 "request is cheaper/faster overall but a bigger single point "
                                 "of failure.")
     p_translate.add_argument("--fallback", default=None, metavar="ENGINE[,ENGINE]",

@@ -97,9 +97,8 @@ def _parse_errors(raw) -> Optional[list]:
 
 
 def get_translate_config_defaults(is_novel: bool) -> dict:
-    return {"context_window": 10 if is_novel else 6,
-            "context_window_ahead": 6 if is_novel else 3,
-            "batch_size": 30 if is_novel else 20}
+    # Per-sentence lines carry little each; batch 30 keeps context cost flat.
+    return {"context_window": 10, "context_window_ahead": 6, "batch_size": 30}
 
 
 def get_translate_config(drama_id: int) -> dict:
