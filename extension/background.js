@@ -118,6 +118,124 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
   });
 }
 
+// -- re-fetching an image the page won't let a script read -----------------
+//
+// A reader that draws a cross-origin <img> (or paints it onto a canvas) without
+// CORS taints the canvas, so content.js cannot read its pixels back. The browser
+// still lets this worker download the file once the person has allowed that one
+// image origin, so the bytes come from here and go through the same upload path.
+
+// The bridge accepts exactly these (page_server.ALLOWED_IMAGE_TYPES) and refuses
+// anything over 12 MB, so a download that could never be sent is cut off early.
+const FETCH_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
+const FETCH_IMAGE_TIMEOUT_MS = 20000;
+
+// Decided from the bytes, not the Content-Type header: a CDN that labels a page
+// "application/octet-stream" is still serving an image, and one that labels HTML
+// "image/jpeg" is not.
+function sniffImageType(bytes) {
+  const startsWith = (...sig) => sig.every((b, i) => bytes[i] === b);
+  if (startsWith(0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (startsWith(0x52, 0x49, 0x46, 0x46) && bytes[8] === 0x57 && bytes[9] === 0x45
+      && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+  return "";
+}
+
+// The page chooses this URL, so it must not be able to aim the person's browser
+// at their own machine or network (including the app on 8600 and the bridge).
+function isPrivateHost(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (/^(?:.*\.)?local(?:host)?$/.test(host)) return true;
+  if (host.includes(":")) return true;     // IPv6 literals: loopback, link-local, ULA
+  const m = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+function base64Of(bytes) {
+  let binary = "";
+  const chunk = 0x8000;      // chunked, so a big page can't blow the stack
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function readCapped(response, controller) {
+  const reader = response.body.getReader();
+  const parts = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > FETCH_IMAGE_MAX_BYTES) {
+      controller.abort();
+      return null;
+    }
+    parts.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const part of parts) { bytes.set(part, at); at += part.length; }
+  return bytes;
+}
+
+async function fetchImage({ url }) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    return { ok: false, error: "that image address isn't valid" };
+  }
+  if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || isPrivateHost(parsed.hostname)) {
+    return { ok: false, error: "that image is not on a public web address" };
+  }
+  const origins = [`${parsed.origin}/*`];
+  if (!(await chrome.permissions.contains({ origins }))) {
+    // Only the popup can ask: the prompt needs the click that happens there.
+    return {
+      ok: false, code: "NEEDS_PERMISSION", origin: parsed.origin,
+      error: `The page draws its image from ${parsed.origin}, which the browser won't let the page read. ` +
+             'Click "Allow this site" in the extension popup to let it download that image itself.',
+    };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_IMAGE_TIMEOUT_MS);
+  try {
+    // credentials: "include" because some CDNs only serve images to a browser
+    // holding the site's cookies. A worker cannot send the page as Referer.
+    const response = await fetch(parsed.href, { credentials: "include", signal: controller.signal });
+    if (!response.ok) return { ok: false, error: `the image server answered HTTP ${response.status}` };
+    // A redirect can lead somewhere the first check would have refused.
+    if (response.url && isPrivateHost(new URL(response.url).hostname)) {
+      return { ok: false, error: "that image is not on a public web address" };
+    }
+    const declared = Number(response.headers.get("content-length") || 0);
+    if (declared > FETCH_IMAGE_MAX_BYTES) {
+      controller.abort();
+      return { ok: false, error: "the image is larger than the 12 MB the app accepts" };
+    }
+    const bytes = await readCapped(response, controller);
+    if (!bytes) return { ok: false, error: "the image is larger than the 12 MB the app accepts" };
+    const contentType = sniffImageType(bytes);
+    if (!contentType) {
+      return { ok: false, error: "the address returned something that isn't a PNG, JPEG or WebP image" };
+    }
+    return { ok: true, data: { data: base64Of(bytes), content_type: contentType, url: response.url || parsed.href } };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e && e.name === "AbortError" ? "the image download took too long" : "the image could not be downloaded",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     try {
@@ -133,6 +251,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         case "progress":
         case "captureDone":
           respond({ ok: true });
+          break;
+        case "fetchImage":
+          respond(await fetchImage(message));
           break;
         case "sendText":
           respond(await sendText(message));

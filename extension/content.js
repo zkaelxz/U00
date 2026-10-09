@@ -187,18 +187,23 @@
       canvas.getContext("2d").drawImage(el, 0, 0, width, height);
       source = canvas;
     }
-    const blob = await new Promise((resolve, reject) => {
-      try {
-        // toBlob throws a SecurityError on a canvas tainted by a
-        // cross-origin image drawn without CORS. That is a real limit,
-        // not a bug to route around: the browser is refusing to let any
-        // script read those pixels, and this extension respects that.
-        source.toBlob((b) => (b ? resolve(b) : reject(new Error("the image could not be read"))),
-                      "image/png");
-      } catch (e) {
-        reject(e);
-      }
-    });
+    let blob;
+    try {
+      // toBlob throws a SecurityError on a canvas tainted by a cross-origin
+      // image drawn without CORS: the browser will not let any script read
+      // those pixels, and nothing here tries to get around that.
+      blob = await new Promise((resolve, reject) => {
+        try {
+          source.toBlob((b) => (b ? resolve(b) : reject(new Error("the image could not be read"))),
+                        "image/png");
+        } catch (e) {
+          reject(e);
+        }
+      });
+    } catch (e) {
+      if (!(e && e.name === "SecurityError")) throw e;
+      return extractViaWorker(el, e);
+    }
     const buffer = await blob.arrayBuffer();
     return {
       data: base64(buffer),
@@ -207,6 +212,104 @@
       height,
       hash: await sha256Hex(buffer),
       url: el.currentSrc || el.src || location.href,
+    };
+  }
+
+  // Canvases whose pixels came from the worker's download, because their own
+  // are unreadable. They have no pixel hash to key an overlay on.
+  const taintedCanvases = new WeakSet();
+
+  const IMAGE_URL_ATTRS = ["data-src", "data-original", "data-lazy-src", "data-url", "src"];
+
+  function httpUrl(value) {
+    if (!value) return "";
+    try {
+      const url = new URL(value, location.href);
+      return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // The file behind an element whose pixels are unreadable: its own src, or for
+  // a canvas the image the reader painted it from, kept as a sibling <img>, a
+  // data attribute or a CSS background on the canvas or its container.
+  function findImageUrl(el) {
+    if (el.tagName !== "CANVAS") return httpUrl(el.currentSrc || el.src);
+    const holders = [el];
+    for (let node = el.parentElement; node && holders.length < 4; node = node.parentElement) {
+      holders.push(node);
+    }
+    for (const holder of holders) {
+      for (const attr of IMAGE_URL_ATTRS) {
+        const found = httpUrl(holder.getAttribute(attr));
+        if (found) return found;
+      }
+      const background = /url\(["']?([^"')]+)["']?\)/.exec(getComputedStyle(holder).backgroundImage || "");
+      if (background && httpUrl(background[1])) return httpUrl(background[1]);
+    }
+    const parent = el.parentElement;
+    if (parent) {
+      for (const sibling of parent.querySelectorAll("img, amp-img")) {
+        const found = httpUrl(sibling.currentSrc || sibling.src
+          || IMAGE_URL_ATTRS.map((a) => sibling.getAttribute(a)).find(Boolean));
+        if (found) return found;
+      }
+    }
+    return "";
+  }
+
+  // Asks the service worker to download the file instead. For a canvas the
+  // download must have the canvas's proportions, otherwise it is not the page the
+  // person sees (a reader that reassembles scrambled tiles onto the canvas).
+  async function extractViaWorker(el, taintError) {
+    const url = findImageUrl(el);
+    if (!url) throw taintError;
+    const response = await chrome.runtime.sendMessage({ type: "fetchImage", url });
+    if (!response || !response.ok) {
+      const reason = (response && response.error) || "the image could not be downloaded";
+      const err = new Error(reason);
+      if (response && response.code === "NEEDS_PERMISSION") {
+        err.code = response.code;
+        err.origin = response.origin;
+      }
+      throw err;
+    }
+    const { data, content_type } = response.data;
+    const raw = atob(data);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: content_type }));
+    const { width, height } = bitmap;
+    bitmap.close();
+    if (el.tagName === "CANVAS") {
+      const same = (a, b) => Math.abs(a - b) <= Math.max(a, b) * 0.02;
+      if (!(same(width / height, el.width / el.height))) {
+        throw new Error("the image file doesn't match what the page draws, so it can't be used");
+      }
+      taintedCanvases.add(el);
+    }
+    return {
+      data, content_type, width, height,
+      hash: await sha256Hex(bytes.buffer), url: response.data.url || url,
+    };
+  }
+
+  // The refusal when nothing could be read. A page whose images only need the
+  // person's go-ahead for one site gets a code the popup turns into a button.
+  function unreadableResult(reason, needAccess) {
+    if (needAccess.size) {
+      const origins = [...needAccess];
+      return {
+        ok: false, code: "NEEDS_SITE_ACCESS", origins,
+        error: `This page draws its images from ${origins.join(", ")}, and the browser won't let the page ` +
+               'read them. Click "Allow this site" to let the extension download them itself.',
+      };
+    }
+    return {
+      ok: false,
+      error: `Your browser wouldn't let this page's image be read (${reason}). ` +
+             "That happens when the site draws it from another domain without allowing it.",
     };
   }
 
@@ -673,6 +776,7 @@
     // gets the same overlay.
     const pending = new Map();
     const unreadable = [];
+    const needAccess = new Set();
     const fromCache = [];
     for (const el of chosen) {
       try {
@@ -690,6 +794,7 @@
           pending.set(extracted.hash, { extracted, elements: [el] });
         }
       } catch (e) {
+        if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
         unreadable.push(String(e && e.message ? e.message : e));
       }
     }
@@ -700,13 +805,9 @@
         watchForPageChanges();
         return { ok: true, data: { pages: [], cached: fromCache.length } };
       }
-      return {
-        ok: false,
-        error: unreadable.length
-          ? `Your browser wouldn't let this page's image be read (${unreadable[0]}). ` +
-            "That happens when the site draws it from another domain without allowing it."
-          : "Nothing on this page could be read as an image.",
-      };
+      return unreadable.length
+        ? unreadableResult(unreadable[0], needAccess)
+        : { ok: false, error: "Nothing on this page could be read as an image." };
     }
 
     const pages = [];
@@ -908,11 +1009,14 @@
   // repaints the canvas with another page while a batch is in flight changes the hash, and the
   // bubbles are not drawn on the wrong page.
   function drawTargetKey(el, hash) {
+    if (taintedCanvases.has(el)) return `tainted:${findImageUrl(el)}`;
     return el.tagName === "CANVAS" ? hash : elementKey(el);
   }
 
   async function currentDrawTargetKey(el) {
     if (el.tagName !== "CANVAS") return elementKey(el);
+    // Its pixels can never be hashed; the file it was painted from stands in.
+    if (taintedCanvases.has(el)) return `tainted:${findImageUrl(el)}`;
     try {
       const blob = await new Promise((resolve, reject) => {
         el.toBlob((b) => (b ? resolve(b) : reject(new Error("unreadable"))), "image/png");
@@ -989,6 +1093,7 @@
     let limit = MAX_IMAGES_PER_REQUEST;
     let capHit = false;
     let unreadable = "";
+    const needAccess = new Set();
     let failure = "";
 
     const report = (suffix = "") => {
@@ -1015,6 +1120,7 @@
           extracted = await extractBytes(el);
         } catch (e) {
           unreadable = String(e && e.message ? e.message : e);
+          if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
           if (key !== null) handled.set(el, key);
           continue;
         }
@@ -1106,6 +1212,8 @@
         found = await collectNew();
       }
       if (run.cancelled) { reason = "cancelled"; break; }
+      // Scrolling the whole chapter cannot help until the person allows the site.
+      if (needAccess.size && !seen.size) { reason = "end"; break; }
       stalls = found ? 0 : stalls + 1;
       report();
       if (queue.length >= limit) {
@@ -1134,14 +1242,10 @@
     }
 
     if (!seen.size) {
-      return {
-        ok: false,
-        error: reason === "error" ? failure
-          : unreadable
-            ? `Your browser wouldn't let this page's image be read (${unreadable}). ` +
-              "That happens when the site draws it from another domain without allowing it."
-            : "No page-sized images found here. If the page is still loading, try again.",
-      };
+      if (reason === "error") return { ok: false, error: failure };
+      return unreadable
+        ? unreadableResult(unreadable, needAccess)
+        : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
     const tally = [`${seen.size} page${seen.size === 1 ? "" : "s"} found`];
     if (counts.translated) tally.push(`${counts.translated} translated`);
