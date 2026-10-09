@@ -83,20 +83,21 @@ export function VoiceDetectorField() {
   const canDownload = pc !== 'remote' && opts.voice_detector !== 'standard' && !opts.asmr_vad_model_downloaded
 
   return (
-    <Field label="Voice detector" help={HELP}>
-      <>
-      <select
-        value={opts.voice_detector}
-        disabled={pc === 'remote'}
-        onChange={(e) => void save(e.target.value as VoiceDetector)}
-        aria-label="Voice detector"
-      >
-        {(Object.keys(VOICE_DETECTOR_LABELS) as VoiceDetector[]).map((v) => (
-          <option key={v} value={v}>
-            {VOICE_DETECTOR_LABELS[v]}
-          </option>
-        ))}
-      </select>
+    <div className="field-with-extras">
+      <Field label="Voice detector" help={HELP}>
+        <select
+          value={opts.voice_detector}
+          disabled={pc === 'remote'}
+          onChange={(e) => void save(e.target.value as VoiceDetector)}
+          aria-label="Voice detector"
+        >
+          {(Object.keys(VOICE_DETECTOR_LABELS) as VoiceDetector[]).map((v) => (
+            <option key={v} value={v}>
+              {VOICE_DETECTOR_LABELS[v]}
+            </option>
+          ))}
+        </select>
+      </Field>
       {error ? <ErrorBanner error={error} /> : null}
       {note ? (
         <p className="muted" data-testid="voice-detector-note">
@@ -113,7 +114,6 @@ export function VoiceDetectorField() {
           Download the ASMR detector (about 119 MB)
         </button>
       ) : null}
-      </>
-    </Field>
+    </div>
   )
 }
