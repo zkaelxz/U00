@@ -40,12 +40,12 @@ def no_abandoned():
     llm_tasks._abandoned.clear()
 
 
-def test_deepseek_gets_max_tokens_and_timeout_in_a_bounded_call():
+def test_deepseek_gets_timeout_but_no_max_tokens_while_thinking():
     engine, comp = _engine("deepseek")
     with llm_tasks.bounded_llm_calls("j0", lambda: False):
         llm_tasks.call_llm_json(engine, "p", max_tokens=4000)
     (kw,) = comp.calls
-    assert kw["max_tokens"] == 4000
+    assert "max_tokens" not in kw  # hidden reasoning would eat the cap
     assert kw["timeout"] == llm_tasks.LLM_TASK_REQUEST_TIMEOUT
     assert "extra_body" not in kw  # thinking stays the title's choice
 
@@ -55,6 +55,7 @@ def test_thinking_is_off_only_when_the_bounded_call_asks():
     with llm_tasks.bounded_llm_calls("j0", lambda: False, no_thinking=True):
         llm_tasks.call_llm_json(engine, "p")
     assert comp.calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert comp.calls[0]["max_tokens"] == 2000
     other, ocomp = _engine("someother")
     with llm_tasks.bounded_llm_calls("j0", lambda: False, no_thinking=True):
         llm_tasks.call_llm_json(other, "p")
@@ -65,12 +66,13 @@ def test_unbounded_deepseek_call_keeps_default_timeout_and_thinking():
     engine, comp = _engine("deepseek")
     llm_tasks.call_llm_json(engine, "p", max_tokens=500)
     (kw,) = comp.calls
-    assert "timeout" not in kw and "extra_body" not in kw
+    assert "timeout" not in kw and "extra_body" not in kw and "max_tokens" not in kw
 
 
-def test_deepseek_max_tokens_is_clamped():
+def test_deepseek_max_tokens_is_clamped_when_thinking_is_off():
     engine, comp = _engine("deepseek")
-    llm_tasks.call_llm_json(engine, "p", max_tokens=10000)
+    with llm_tasks.bounded_llm_calls("j0", lambda: False, no_thinking=True):
+        llm_tasks.call_llm_json(engine, "p", max_tokens=10000)
     assert comp.calls[0]["max_tokens"] == llm_tasks.DEEPSEEK_MAX_OUTPUT_TOKENS
     other, ocomp = _engine("someother")
     llm_tasks.call_llm_json(other, "p", max_tokens=10000)
@@ -184,3 +186,48 @@ def test_retry_is_reported_and_late_result_is_fine(no_abandoned):
                                      on_wait=lambda *a: waits.append(a), deadline=30):
         assert llm_tasks.call_llm_json(engine, "p") == "[1]"
     assert len(comp.calls) == 2 and waits == [(1, 2, 5)]
+
+
+def test_empty_reply_is_a_clear_error_not_a_crash():
+    engine, _ = _engine("deepseek", lambda n: _reply(None))
+    with pytest.raises(RuntimeError, match="empty reply"):
+        llm_tasks.call_llm_json(engine, "p")
+
+
+def test_abandoned_worker_stops_retrying_and_reports_nothing(no_abandoned):
+    fail_now = threading.Event()
+
+    def behaviour(n):
+        fail_now.wait(5)
+        raise RuntimeError("boom")  # would normally retry once after a backoff
+    engine, comp = _engine("deepseek", behaviour)
+    reports = []
+    with llm_tasks.bounded_llm_calls("jw", lambda: False,
+                                     on_wait=lambda *a: reports.append(a), deadline=0.3):
+        with pytest.raises(llm_tasks.LLMTaskTimeout):
+            llm_tasks.call_llm_json(engine, "p")
+    fail_now.set()  # the abandoned worker fails only now, after the job let go
+    llm_tasks._abandoned["jw"].join(5)
+    assert reports == []
+    assert len(comp.calls) == 1
+
+
+def test_stale_worker_does_not_resend_when_a_new_run_reuses_the_job_id(no_abandoned):
+    in_wait = threading.Event()
+    release = threading.Event()
+    engine, comp = _engine("deepseek", lambda n: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    def stale_on_wait(*a):
+        in_wait.set()
+        release.wait(5)
+    with llm_tasks.bounded_llm_calls("jr", lambda: False, on_wait=stale_on_wait, deadline=0.4):
+        with pytest.raises(llm_tasks.LLMTaskTimeout):
+            llm_tasks.call_llm_json(engine, "p")
+    assert in_wait.is_set()
+    # A new run of the same job id has its own, unset cancel flag; the stale
+    # worker must not consult it and must not send the request again.
+    worker = llm_tasks._abandoned["jr"]
+    release.set()
+    worker.join(5)
+    assert not worker.is_alive()
+    assert len(comp.calls) == 1

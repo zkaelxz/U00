@@ -107,9 +107,18 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None):
                 "Wait a minute and try again.")
         _abandoned.pop(scope.job_id, None)
     box = {}
-    # The worker needs the cancel check and retry-notice variables set above.
+    scope_on_wait = _backoff_wait_var.get()
     ctx = contextvars.copy_context()
     abandon = threading.Event()
+    # Once the job lets go, the worker's retry loop must stop at its next
+    # backoff check and write nothing: job ids repeat per drama, so a late
+    # progress update or a cancel check would land on the next run.
+    ctx.run(_cancel_check_var.set, lambda: abandon.is_set() or bool(scope.cancel_check()))
+    if scope_on_wait is not None:
+        def on_wait(*args):
+            if not abandon.is_set():
+                scope_on_wait(*args)
+        ctx.run(_backoff_wait_var.set, on_wait)
     if isinstance(engine, OllamaEngine):
         # Lets cancel and the deadline close the Ollama request, which makes it
         # stop generating; otherwise it holds the GPU after the job has let go.
@@ -190,12 +199,17 @@ def _is_deepseek(engine) -> bool:
 def _deepseek_kwargs(engine, max_tokens) -> dict:
     """Request arguments only DeepSeek gets: its keep-alive connection needs
     the tighter read timeout inside a bounded call, and thinking is off only
-    when the bounded call asked for it."""
+    when the bounded call asked for it.
+
+    max_tokens is sent only with thinking off: with thinking on (the default)
+    hidden reasoning counts toward it, so a cap sized for the visible JSON cuts
+    the reply off and returns empty content."""
     scope = _scope_var.get()
-    kwargs = {"max_tokens": min(max_tokens, DEEPSEEK_MAX_OUTPUT_TOKENS)}
+    kwargs = {}
     if scope is not None:
         kwargs["timeout"] = LLM_TASK_REQUEST_TIMEOUT
         if scope.no_thinking:
+            kwargs["max_tokens"] = min(max_tokens, DEEPSEEK_MAX_OUTPUT_TOKENS)
             kwargs.update(deepseek_extra_body({"reply_without_thinking": True}))
     return kwargs
 
@@ -221,7 +235,11 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
         if usage_cb and getattr(resp, "usage", None):
             usage_cb(getattr(resp.usage, "prompt_tokens", 0),
                      getattr(resp.usage, "completion_tokens", 0))
-        return resp.choices[0].message.content.strip()
+        content = resp.choices[0].message.content
+        if not content:
+            raise RuntimeError(
+                "The AI engine returned an empty reply (it may have run out of output tokens).")
+        return content.strip()
 
     if isinstance(engine, GeminiEngine):
         import requests
