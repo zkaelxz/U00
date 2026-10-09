@@ -629,7 +629,8 @@
   // batches also keep saved pages (store=true) in chapter order, since
   // the app appends pages in request order. `send(batch, range)` returns
   // the background's {ok, data|error, status}; `onBatch(batch, data)`
-  // handles each successful reply. Stops at the first hard error.
+  // handles each successful reply and may return true to stop the run.
+  // Stops at the first hard error.
   async function sendInBatches(items, send, onBatch, limit = MAX_IMAGES_PER_REQUEST) {
     let done = 0;
     let sentAny = false;
@@ -642,8 +643,11 @@
         { ok: false, error: "No answer from the extension's background worker." };
       if (response.ok) {
         sentAny = true;
-        await onBatch(batch, response.data || {});
+        const halt = await onBatch(batch, response.data || {});
         done += batch.length;
+        // The app stopped the whole request (every later page would fail
+        // the same way); sending the rest would only repeat that.
+        if (halt === true) return { sentAny, limit: size, failure: null, halted: true };
         continue;
       }
       const match = response.status === 413 && /at most (\d+) images/.exec(response.error || "");
@@ -747,6 +751,7 @@
     // person can check, not by its content hash.
     const positionByKey = new Map(images.map((i) => [i.extracted.hash, i.position]));
     let drawn = 0;
+    let serverStop = "";
     const outcome = await sendInBatches(images, async (batch, range) => {
       reportProgress(`Translating ${range.from}-${range.to} of ${range.total}...`);
       return chrome.runtime.sendMessage({
@@ -789,6 +794,8 @@
       totals.sent += Number.isFinite(data.sent) ? data.sent : batch.length;
       totals.received += Number.isFinite(data.received) ? data.received : batch.length;
       totals.stored += Number.isFinite(data.stored) ? data.stored : 0;
+      if (data.stopped) serverStop = String(data.stopped);
+      return !!data.stopped;
     });
 
     if (outcome.sentAny) watchForPageChanges();
@@ -801,9 +808,14 @@
       }
       data.stopped = {
         done: f.done, total: images.length, at: f.done + 1, reason: f.reason,
+        // The reason can be a raw network error, so the message names the
+        // place only.
         message: `Translated ${f.done} of ${images.length} pages; stopped at page ` +
-                 `${f.done + 1}: ${f.reason}`,
+                 `${f.done + 1} because the app stopped answering`,
       };
+    }
+    if (serverStop) {
+      data.stopped = { reason: serverStop, message: `Stopped early: ${serverStop}` };
     }
     return { ok: true, data };
   }
@@ -1029,6 +1041,7 @@
     const queue = [];
     const counts = { translated: 0, stored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0 };
     let firstFailure = "";
+    let serverStop = "";
     let seq = 0;
     let limit = MAX_IMAGES_PER_REQUEST;
     let capHit = false;
@@ -1122,10 +1135,13 @@
           counts.skipped += (data.skipped || []).length;
           counts.failed += (data.failed || []).length;
           if (!firstFailure && (data.failed || []).length) firstFailure = data.failed[0].error;
+          if (data.stopped) serverStop = String(data.stopped);
+          return !!data.stopped;
         }, limit);
         limit = outcome.limit || limit;
         if (outcome.sentAny) watchForPageChanges();
         if (outcome.failure) return outcome.failure.reason;
+        if (serverStop) return serverStop;
       }
       return "";
     }

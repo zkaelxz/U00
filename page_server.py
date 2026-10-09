@@ -88,6 +88,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import page_capture_checks
+
 # Deliberately not adjacent to the API's port (8600), so a person reading a
 # port number in a browser URL bar can tell which of the two they are looking at.
 DEFAULT_PORT = 8756
@@ -352,11 +354,15 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     config = get_translation_config()
     notes = []
     page = None
+    newly_stored = False
     temp_path = None
 
     with PIPELINE_LOCK:
         if store and drama is not None:
-            page = _store_page(int(drama_id), data, ext)
+            page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
+            newly_stored = page is None
+            if newly_stored:
+                page = _store_page(int(drama_id), data, ext)
             image_path = os.path.join(db.drama_dir(int(drama_id)), page["filename"])
         else:
             # Overlay-only: the person is reading, not importing, so the
@@ -409,6 +415,17 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
 
             if page is not None:
                 db.save_bubbles(page["id"], bubbles)
+        except BaseException:
+            # A page whose reading failed must not stay behind as an empty
+            # page: the caller reports it as not delivered, and a retry
+            # would add it a second time.
+            if page is not None and newly_stored:
+                from sources import pipeline
+                try:
+                    pipeline._discard_pages(int(drama_id), [page["id"]])
+                except Exception:
+                    pass
+            raise
         finally:
             if temp_path:
                 try:
@@ -528,23 +545,6 @@ def _image_size(data: bytes):
             return int(img.width), int(img.height)
     except Exception:
         return 0, 0
-
-
-def _looks_blank(data: bytes) -> bool:
-    """True for a single-colour image. A reader that has not painted a
-    canvas yet hands back exactly this, and storing it would leave a silent
-    empty page in the chapter. Undecodable data is not called blank: the
-    pipeline reports that itself."""
-    try:
-        import io
-
-        from PIL import Image
-        with Image.open(io.BytesIO(data)) as img:
-            probe = img.convert("RGB")
-            probe.thumbnail((64, 64))
-            return all(lo == hi for lo, hi in probe.getextrema())
-    except Exception:
-        return False
 
 
 def select_page_images(images, page_url: str):
@@ -771,9 +771,10 @@ class _Handler(BaseHTTPRequestHandler):
         # is named so the person sees a mismatch instead of a short count.
         results = []
         failed = []
+        stopped = ""
         for image in decoded:
             try:
-                if _looks_blank(image["content"]):
+                if page_capture_checks.looks_blank(image["content"]):
                     raise EndpointError(422, "the page was blank (the reader had not drawn it yet)")
                 result = translate_image(
                     image["content"], image["content_type"], drama_id=drama_id,
@@ -784,17 +785,25 @@ class _Handler(BaseHTTPRequestHandler):
                 failed.append({"key": image["key"], "url": image["url"], "error": e.message})
                 continue
             except Exception as e:
-                import translate_engines
+                # The raw text can carry the OS user name or library path
+                # and the extension shows it on the page being read, so
+                # only a fixed message leaves; the detail stays in the log.
+                page_capture_checks.log_page_failure(e)
                 failed.append({"key": image["key"], "url": image["url"],
-                               "error": translate_engines.redact_secrets(str(e))[:300]
-                               or "the page could not be processed"})
+                               "error": page_capture_checks.page_failure_message(e)})
+                if page_capture_checks.is_request_fatal(e):
+                    # Every remaining page would fail the same way and
+                    # each would leave a stored, empty page behind.
+                    stopped = page_capture_checks.page_failure_message(e)
+                    break
                 continue
             result["key"] = image["key"]
             result["url"] = image["url"]
             results.append(result)
         return {"pages": results, "skipped": skipped, "failed": failed,
                 "received": len(images),
-                "stored": sum(1 for r in results if r.get("stored"))}
+                "stored": sum(1 for r in results if r.get("stored")),
+                **({"stopped": stopped} if stopped else {})}
 
     # -- logging -------------------------------------------------------
     def log_message(self, fmt, *args):

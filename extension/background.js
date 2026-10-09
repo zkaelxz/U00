@@ -165,6 +165,10 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
     merged.failed.push(...(data.failed || []));
     merged.received += Number.isFinite(data.received) ? data.received : batch.length;
     merged.stored += Number.isFinite(data.stored) ? data.stored : 0;
+    if (data.stopped) {
+      merged.stopped = data.stopped;
+      break;
+    }
   }
   // Nothing arrived at all: surface the app's own refusal (bad token, bridge
   // off, no such drama) rather than a table of identical per-page failures.

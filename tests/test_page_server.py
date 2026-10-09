@@ -21,6 +21,7 @@ import threading
 
 import pytest
 
+import page_capture_checks
 import page_server
 
 
@@ -848,3 +849,94 @@ class TestAWholeChapterIsAccountedFor:
         handler = _post(token, {"images": [_distinct_page(0)], "store": False})
         assert handler.payload["stored"] == 0
         assert handler.payload["received"] == 1
+
+
+class TestAPageFailureNeverLeaksOrLeavesDebris:
+    def test_a_windows_path_in_an_error_is_not_in_the_response(self, token, fake_pipeline,
+                                                              isolated_db, monkeypatch):
+        import scanlate
+        leak = r"C:\Users\alice\AppData\Baihe\library\pages\page_0001.png"
+
+        def boom(path, lang, **kw):
+            raise ValueError(f"Could not read image: {leak}")
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", boom)
+        handler = _post(token, {"images": [_distinct_page(0), _distinct_page(1)], "store": False},
+                        path="/pages")
+        wire = json.dumps(handler.payload)
+        assert "alice" not in wire and "AppData" not in wire
+        assert [f["key"] for f in handler.payload["failed"]] == ["p0", "p1"]
+        assert all(f["error"] for f in handler.payload["failed"])
+
+    def test_an_oserror_path_is_not_in_the_response(self, token, fake_pipeline, isolated_db,
+                                                   monkeypatch):
+        import scanlate
+
+        def boom(path, lang, **kw):
+            raise OSError(28, "No space left on device", r"C:\Users\alice\lib\x.png")
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", boom)
+        handler = _post(token, {"images": [_distinct_page(0)], "store": False})
+        assert "alice" not in json.dumps(handler.payload)
+
+    def test_a_failed_stored_page_is_rolled_back_so_a_retry_does_not_duplicate(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        import scanlate
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        real = scanlate.detect_and_ocr_page
+        state = {"fail": True}
+
+        def flaky(path, lang, **kw):
+            if state["fail"]:
+                raise RuntimeError("model fell over")
+            return real(path, lang, **kw)
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", flaky)
+        body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
+        first = _post(token, body).payload
+        assert first["stored"] == 0 and len(first["failed"]) == 1
+        assert db.list_pages(drama_id) == []
+        state["fail"] = False
+        _post(token, body)
+        assert len(db.list_pages(drama_id)) == 1
+
+    def test_a_headroom_error_stops_the_request_once(self, token, fake_pipeline, isolated_db,
+                                                    monkeypatch):
+        import db
+        import scanlate
+        from memory_headroom import HeadroomError
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        calls = {"n": 0}
+
+        def no_memory(path, lang, **kw):
+            calls["n"] += 1
+            raise HeadroomError("Not loading the OCR model: Keep free graphics memory")
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", no_memory)
+        handler = _post(token, {"images": [_distinct_page(i) for i in range(5)],
+                                "drama_id": drama_id, "store": True,
+                                "filter_pages": False}, path="/pages")
+        body = handler.payload
+        assert calls["n"] == 1
+        assert len(body["failed"]) == 1 and body["stopped"]
+        assert body["stored"] == 0
+        assert db.list_pages(drama_id) == []
+
+    def test_recapturing_the_same_page_replaces_it_instead_of_duplicating(
+            self, token, fake_pipeline, isolated_db):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        body = {"images": [_distinct_page(0), _distinct_page(1)], "drama_id": drama_id,
+                "store": True, "filter_pages": False}
+        _post(token, body, path="/pages")
+        second = _post(token, body, path="/pages").payload
+        assert len(db.list_pages(drama_id)) == 2
+        assert second["stored"] == 2
+
+    def test_a_huge_canvas_is_not_decoded_for_the_blank_check(self):
+        Image = pytest.importorskip("PIL.Image")
+        img = Image.new("1", (20000, 20000))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        assert page_capture_checks.looks_blank(buf.getvalue()) is False

@@ -154,7 +154,9 @@ function summarizeCapture(data, { store, dramaId }) {
   const short = (data.sent !== undefined && data.received !== undefined &&
                  data.received < data.sent) ||
                 (saving && data.stored !== undefined && data.stored < pages);
-  const bad = problems.length > 0 || short || notes.some((n) => n[0] === "error");
+  const stopped = data.stopped && data.stopped.message;
+  if (stopped) parts.push(stopped);
+  const bad = problems.length > 0 || short || !!stopped || notes.some((n) => n[0] === "error");
   return {
     text: parts.join(" · ") + (notes.length ? ` — ${notes[0][1]}` : ""),
     bad,

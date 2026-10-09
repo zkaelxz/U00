@@ -89,3 +89,11 @@ def test_the_no_engine_note_says_where_to_set_one_and_offers_ollama():
     note = js("NO_ENGINE_NOTE")
     assert "Settings" in note and "Browser extension" in note
     assert "Ollama" in note and "free" in note.lower()
+
+
+def test_a_stopped_run_shows_its_message_and_is_flagged():
+    out = summary({"captured": 10, "sent": 3, "received": 3, "stored": 3, "pages": pages(3),
+                   "skipped": [], "failed": [], "unreadable": [],
+                   "stopped": {"message": "Translated 3 of 10 pages; stopped at page 4 because "
+                                          "the app stopped answering"}})
+    assert out["bad"] is True and "stopped at page 4" in out["text"]

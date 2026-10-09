@@ -1,0 +1,82 @@
+"""Per-page checks and failure wording for `page_server`, split out to keep
+that module under the size limit: the blank-page probe, the byte-identical
+page lookup for re-captures, and the fixed failure messages."""
+
+import os
+
+
+def page_with_same_bytes(drama_id: int, data: bytes):
+    """A page already in the drama whose file is byte-identical, so a
+    re-capture of a chapter replaces its bubbles instead of doubling the
+    pages. Pages the importer re-encoded (WebP) never match and are added
+    again."""
+    import db
+    for page in db.list_pages(drama_id):
+        path = os.path.join(db.drama_dir(drama_id), page["filename"])
+        try:
+            if os.path.getsize(path) != len(data):
+                continue
+            with open(path, "rb") as fh:
+                if fh.read() == data:
+                    return page
+        except OSError:
+            continue
+    return None
+
+
+# Pixels the blank check will decode. A flat canvas compresses to almost
+# nothing, so the byte cap alone does not bound the memory a decode takes.
+BLANK_CHECK_MAX_PIXELS = 100_000_000
+
+
+def looks_blank(data: bytes) -> bool:
+    """True for a single-colour image. A reader that has not painted a
+    canvas yet hands back exactly this, and storing it would leave a silent
+    empty page in the chapter. Undecodable data is not called blank: the
+    pipeline reports that itself."""
+    try:
+        import io
+
+        from PIL import Image
+        with Image.open(io.BytesIO(data)) as img:
+            if img.width * img.height > BLANK_CHECK_MAX_PIXELS:
+                return False
+            # draft() lets JPEG decode at a fraction of the size; convert
+            # only after shrinking so the full canvas is never held as RGB.
+            img.draft("RGB", (128, 128))
+            img.thumbnail((64, 64))
+            probe = img.convert("RGB")
+            return all(lo == hi for lo, hi in probe.getextrema())
+    except Exception:
+        return False
+
+
+def is_request_fatal(e: Exception) -> bool:
+    """Failures every page of the request would repeat."""
+    from memory_headroom import HeadroomError
+    return isinstance(e, HeadroomError)
+
+
+def page_failure_message(e: Exception) -> str:
+    """Fixed text per failure kind. Exception text is never used: it can
+    quote the image path."""
+    from PIL import UnidentifiedImageError
+    from memory_headroom import HeadroomError
+    if isinstance(e, HeadroomError):
+        return ("not enough free memory to load the reading model; "
+                "stopped here, nothing further was processed")
+    if isinstance(e, (UnidentifiedImageError, ValueError)):
+        return "the page could not be read as an image"
+    if isinstance(e, OSError):
+        return "the page could not be saved or read on this PC"
+    return "the page could not be processed"
+
+
+def log_page_failure(e: Exception) -> None:
+    import translate_engines
+    try:
+        from applog import get_logger
+        get_logger().warning("page_server page failed: %s: %s", type(e).__name__,
+                             translate_engines.redact_secrets(str(e))[:300])
+    except Exception:
+        pass
