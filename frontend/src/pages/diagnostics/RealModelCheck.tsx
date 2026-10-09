@@ -67,6 +67,8 @@ function RealModelCheckBody({ local, jobsActive }: { local: boolean; jobsActive:
           Nothing is downloaded: a missing package, model or Ollama is skipped. A pass means the model loaded
           and ran, not that words were recognised. Qwen3-ASR is skipped ("Tone only") when the sample
           has no speech, because it then never loads. It uses the GPU, so close other GPU apps first.
+          While it runs, Hugging Face offline mode is on for the whole app, so a transcription started
+          meanwhile with a model that is not downloaded fails instead of downloading it.
         </p>
         {error && <p className="error" role="alert">{error}</p>}
         {running && status?.job && (
