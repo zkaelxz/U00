@@ -421,7 +421,7 @@ def _note_gpu_wait_reason_locked(job_id):
     if job is None or job.get("status") != "queued":
         return
     import live_whisper
-    reason = live_whisper.WAIT_MESSAGE if live_whisper.outstanding_label() else None
+    reason = live_whisper.WAIT_MESSAGE if live_whisper.gpu_claim_held() else None
     if reason is None and _running_gpu_job_count_locked(job_id) == 0:
         try:
             import diagnostics
