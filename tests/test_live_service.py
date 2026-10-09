@@ -417,6 +417,30 @@ def test_reap_keeps_a_session_that_is_still_starting(live, monkeypatch):
     assert "starting" not in live_service._sessions[sid]
 
 
+def test_work_dir_lives_in_library_tmp_owned_by_the_session(live):
+    import storage
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    out_dir = live["out_dir"]
+    assert os.path.dirname(out_dir) == storage.temp_root()
+    assert os.path.basename(out_dir).startswith(sid + "~")
+    live_service.stop_session(sid)
+    assert _terminal(sid)
+    assert not os.path.exists(out_dir)
+
+
+def test_running_session_dir_survives_the_sweep(live):
+    import storage
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    out_dir = live["out_dir"]
+    os.utime(out_dir, (0, 0))
+    assert storage.sweep_library_temp(max_age=0)["removed"] == 0
+    assert os.path.isdir(out_dir)
+    live_service.stop_session(sid)
+    assert _terminal(sid)
+
+
 def _capture_engine(live, monkeypatch):
     seen = {}
 
@@ -493,3 +517,18 @@ def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
     with pytest.raises(local.OllamaUnavailableError) as exc:
         local.check_ollama_model_installed("http://x", "gemma4:12b")
     assert exc.value.reason == "ollama_model_missing" and 'ollama pull gemma4:12b' in exc.value.message
+
+
+def test_session_folder_is_held_until_the_job_is_registered(live, monkeypatch):
+    import storage
+    real_start = background_jobs.start_job
+    swept = {}
+
+    def start_after_a_clean_now(*a, **kw):
+        swept["removed"] = storage.sweep_library_temp(max_age=0)["removed"]
+        return real_start(*a, **kw)
+
+    monkeypatch.setattr(background_jobs, "start_job", start_after_a_clean_now)
+    sid = _start()
+    assert swept["removed"] == 0
+    assert os.path.isdir(live_service._sessions[sid]["dir"])

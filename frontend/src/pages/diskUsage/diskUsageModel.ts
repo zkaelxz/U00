@@ -1,6 +1,6 @@
 // Pure helpers for the Disk usage section (DiskUsageSection.tsx).
 import type {
-  DiskUsageClearDone, DiskUsageItem, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashItem, UnusedVoiceClip,
+  DiskUsageClearDone, DiskUsageItem, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashItem, TempCleanDone, UnusedVoiceClip,
   UnusedVoiceClipTrashDone,
 } from '../../types/diskUsage'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
@@ -145,6 +145,15 @@ export const clipLine = (c: Pick<UnusedVoiceClip, 'file_type' | 'size_bytes' | '
 
 export const clipsInUseText = (n: number) =>
   `${n} title${n === 1 ? ' is' : 's are'} left out because a dub, narration or audiobook job is running. Check again when it finishes.`
+
+export const TEMP_CLEAN_INTRO =
+  "Baihe keeps its work files for running jobs in its own temp folder and removes them when a job ends. "
+  + "If a job was killed or the app crashed, some can be left behind. This deletes all of them."
+
+export const describeTempCleaned = (r: TempCleanDone): string =>
+  r.removed === 0
+    ? 'No leftover temp files.'
+    : `Removed ${r.removed.toLocaleString('en-US')} temp item${r.removed === 1 ? '' : 's'} and freed ${r.freed_mb.toLocaleString('en-US')} MB.`
 
 export function describeClipsMoved(r: UnusedVoiceClipTrashDone): string {
   const moved = r.moved_count === 0

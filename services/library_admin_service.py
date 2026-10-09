@@ -544,7 +544,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         if should_cancel is not None and should_cancel():
             raise background_jobs.JobCancelled()
 
-    with tempfile.TemporaryDirectory() as snapdir:
+    with storage.job_workdir("snapshot") as snapdir:
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
         _sanitized_snapshot(snap)
@@ -826,7 +826,7 @@ def write_user_backup_zip(dest: str, owner_id=None, cancelled=None):
         if cancelled is not None and cancelled():
             raise background_jobs.JobCancelled()
 
-    with tempfile.TemporaryDirectory() as snapdir:
+    with storage.job_workdir("snapshot") as snapdir:
         snap = os.path.join(snapdir, "library.db")
         _sanitized_snapshot(snap)
         kept = _user_backup_filter(snap, owner_id)

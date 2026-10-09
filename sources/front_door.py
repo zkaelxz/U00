@@ -191,7 +191,6 @@ def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=N
     check that the URL is public, check the drama's content mode, or cap the
     download's duration and running time.
     Returns the installed downloaded file's path."""
-    import shutil
 
     import db
     import storage
@@ -211,10 +210,13 @@ def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=N
     ddir = db.drama_dir(drama_id)
     fetched = {}
     tmp = None
+    workdir = storage.job_workdir(f"frontdoor_{drama_id}")
     try:
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(mus._BUSY)
-        tmp = storage.new_workdir(f"frontdoor_{drama_id}")
+        # Held for the whole download: this runs in a request, not a job, so
+        # "clean temp now" would otherwise see nothing using the folder.
+        tmp = workdir.__enter__()
         adapter = registry.find_for_url(url)
         if adapter is not None and hasattr(adapter, "download") and ContentType.VIDEO.value in adapter.content_types:
             # Re-checked here, not just relied on from an earlier preview() call
@@ -258,5 +260,5 @@ def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=N
         with mus.claims_lock:
             mus.claimed.discard(drama_id)
         if tmp is not None:
-            shutil.rmtree(tmp, ignore_errors=True)
+            workdir.__exit__(None, None, None)
     return os.path.join(ddir, names[field])

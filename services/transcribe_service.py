@@ -639,6 +639,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         # The worker's temp files go here; removed by on_finish however the
         # run ends, since a killed worker cannot clean up after itself.
         scratch_dir = storage.new_workdir(job_id)
+        # Held until the job is registered: before that nothing owns the folder.
+        hold = contextlib.ExitStack()
+        hold.enter_context(storage.holding(scratch_dir))
         try:
             started = background_jobs.start_process_job(
                 job_id, _transcribe_worker,
@@ -673,6 +676,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         except BaseException:
             _remove_scratch_dir(scratch_dir)
             raise
+        finally:
+            hold.close()
         if not started:
             _remove_scratch_dir(scratch_dir)
     if not started:

@@ -108,6 +108,11 @@ class DiskUsageMoveRequest(BaseModel):
     confirm: StrictBool = False
 
 
+class TempCleanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: Literal[True]
+
+
 class DiskUsageMoveDone(BaseModel):
     moved_bytes: int
     remaining_bytes: int

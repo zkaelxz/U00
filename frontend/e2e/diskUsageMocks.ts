@@ -142,6 +142,11 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
         size_bytes: trashBytes(), item_count: trash.length, partial: false, busy_reason: state.busy,
       } })
     }
+    if (url.pathname === '/api/data-usage/clean-temp') {
+      mock.posts.push({ path: 'clean-temp', body: req.postDataJSON() })
+      if (state.busy) return route.fulfill(conflict(state.busy, 'busy'))
+      return route.fulfill({ json: { removed: 3, freed_mb: 12.5 } })
+    }
     if (url.pathname === '/api/data-usage/trash/restore') {
       const body = req.postDataJSON()
       mock.posts.push({ path: 'restore', body })

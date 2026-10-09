@@ -37,11 +37,11 @@ import datetime
 import logging
 import os
 import sqlite3
-import tempfile
 import time
 import zipfile
 
 import db
+import storage
 from services import auto_backup_service as abs_
 from services import library_admin_service as las
 from services import media_upload_service
@@ -233,7 +233,7 @@ def list_backup_dramas(stream) -> dict:
     """The dramas inside an uploaded backup file: {kind ("zip" | "database"),
     media_available, schema_differs, dramas: [{id, title, media_type,
     line_count, has_media}]}. Touches nothing."""
-    with tempfile.TemporaryDirectory() as tmp:
+    with storage.job_workdir("backup_import") as tmp:
         backup = _Backup(tmp, stream)
         dramas = _drama_summaries(backup)
         return {"kind": "zip" if backup.zip_path else "database",
@@ -309,7 +309,7 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
     las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Importing dramas")
     if abs_.job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
-    with las.maintenance("importing dramas"), tempfile.TemporaryDirectory() as tmp:
+    with las.maintenance("importing dramas"), storage.job_workdir("backup_import") as tmp:
         db.recover_media_imports()
         backup = _Backup(tmp, stream)
         stagings, staging = {}, None
