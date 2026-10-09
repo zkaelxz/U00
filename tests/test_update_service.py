@@ -283,17 +283,23 @@ def test_start_download_thread_reports_verified(http):
 def test_start_download_reports_downloading_even_if_the_thread_wins_the_race(http, monkeypatch):
     _serve_release(http)
     us.check()
-    main = threading.main_thread()
+    # A thread left by an earlier test would hide whether this call's own thread exists yet.
+    monkeypatch.setattr(us, "_download_thread", None)
     reads = []
+    thread_started_at_snapshot = []
 
     def slow_for_the_caller():
-        # Only the caller's status() read stalls; the first read is start_download's own.
+        # The first read is start_download's own; the second is the status() snapshot.
         reads.append(1)
-        if len(reads) > 1 and threading.current_thread() is main:
-            us._download_thread.join(10)
+        if len(reads) == 2:
+            thread_started_at_snapshot.append(us._download_thread is not None)
         return "0.1.0"
     monkeypatch.setattr(us, "current_version", slow_for_the_caller)
     assert us.start_download()["download"] == "downloading"
+    # The snapshot is taken before the thread exists, so a fast download can't make
+    # the call that started it report "verified".
+    assert thread_started_at_snapshot == [False]
+    us._download_thread.join(10)
 
 
 def _no_installer_left():
