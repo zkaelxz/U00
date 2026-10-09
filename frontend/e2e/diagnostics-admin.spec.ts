@@ -1,3 +1,4 @@
+import { mockPlainPlan } from './pendingInstallMocks'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 
@@ -55,6 +56,7 @@ async function guard(page: Page): Promise<string[]> {
     unmocked.push(`${r.method()} ${r.url()}`)
     return route.abort()
   })
+  await mockPlainPlan(page)
   return unmocked
 }
 
