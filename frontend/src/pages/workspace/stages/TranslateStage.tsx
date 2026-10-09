@@ -71,6 +71,7 @@ import { GlossaryPanel } from './GlossaryPanel'
 import { engineNotesHelp, engineOptionLabel } from '../../../api/translate'
 import { GlossaryRetranslate } from './GlossaryRetranslate'
 import { GlossaryReview } from './GlossaryReview'
+import { useResumableScan } from './useGlossaryRun'
 import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
 import { translateBlocker } from './stageBlockers'
@@ -340,6 +341,19 @@ function RunPanel({
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
+  // A scan started before leaving the stage (or reloading) is picked up here.
+  // Only a stage opened with the option already on resumes; flipping it on later must not pop a stale scan open.
+  const [reviewOnMount] = useState(reviewFirst && canReview)
+  const resumable = useResumableScan(dramaId, reviewOnMount)
+  const [resumedFor, setResumedFor] = useState<number | null>(null)
+  const [resumeOpen, setResumeOpen] = useState(false)
+  useEffect(() => {
+    if (resumable && resumedFor !== dramaId) {
+      setResumedFor(dramaId)
+      setResumeOpen(true)
+      setReviewing(1)
+    }
+  }, [resumable, resumedFor, dramaId])
   const [f, setF] = useState<RunForm>(restored.form)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -411,6 +425,7 @@ function RunPanel({
     if (bad) return
     if (reviewFirst && canReview && !afterReview) {
       setReviewNote(null)
+      setResumeOpen(false)
       setReviewing((n) => n + 1)
       return
     }
@@ -525,6 +540,7 @@ function RunPanel({
       {reviewing > 0 && (
         <GlossaryReview
           key={reviewing}
+          resume={resumeOpen}
           engine={config.translation_engine}
           onStart={(note) => {
             setReviewing(0)
