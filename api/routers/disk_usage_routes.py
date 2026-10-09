@@ -25,11 +25,12 @@ from api.disk_usage_schemas import (
     DiskUsageClearDone, DiskUsageClearRequest, DiskUsageMoveDone, DiskUsageMoveRequest,
     DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashEmptyRequest, DiskUsageTrashList,
     DiskUsageTrashPurgeDone, DiskUsageTrashPurgeRequest, DiskUsageTrashRestoreDone,
-    DiskUsageTrashRestoreRequest, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
+    DiskUsageTrashRestoreRequest, TempCleanRequest, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
     UnusedVoiceClipTrashRequest)
-from api.schemas import ErrorResponse
+from api.schemas import ErrorResponse, TempCleanResult
 from services import disk_usage_clips_service as clips_svc
 from services import disk_usage_service as svc
+from services import temp_cleanup_service
 
 router = APIRouter(prefix="/api/data-usage", tags=["disk-usage"])
 
@@ -118,3 +119,11 @@ async def post_unused_voice_clips_to_trash(body: UnusedVoiceClipTrashRequest):
         clips_svc.trash_unused_voice_clips,
         [{"id": c.id, "expected_size_bytes": c.expected_size_bytes} for c in body.clips],
         confirm=body.confirm)
+
+
+@router.post("/clean-temp", dependencies=[local_only()], response_model=TempCleanResult,
+             responses=_ERR,
+             summary="Delete everything in Baihe's own temp folder (confirm=true; 409 while a job "
+                     "runs); returns how many entries and how many MB, never a path")
+async def post_clean_temp(body: TempCleanRequest):
+    return await run_in_threadpool(temp_cleanup_service.clean_now)

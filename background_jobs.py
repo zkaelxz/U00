@@ -420,8 +420,9 @@ def _note_gpu_wait_reason_locked(job_id):
     job = _jobs.get(job_id)
     if job is None or job.get("status") != "queued":
         return
-    reason = None
-    if _running_gpu_job_count_locked(job_id) == 0:
+    import live_whisper
+    reason = live_whisper.WAIT_MESSAGE if live_whisper.outstanding_label() else None
+    if reason is None and _running_gpu_job_count_locked(job_id) == 0:
         try:
             import diagnostics
             from gpu_wait_message import external_gpu_wait_message
@@ -768,7 +769,9 @@ def wait_for_job_threads(timeout: float, job_ids=None) -> bool:
                    and (job_ids is None or getattr(t, "baihe_job_id", None) in job_ids)]
     for t in threads:
         t.join(max(0.0, deadline - time.monotonic()))
-    return not any(t.is_alive() for t in threads)
+    import live_whisper
+    return not any(t.is_alive() for t in threads) and (
+        job_ids is not None or live_whisper.wait_for_outstanding(deadline - time.monotonic()))
 
 
 def _promote_next_queued_gpu_job():
@@ -826,7 +829,8 @@ def _promote_one_queued_gpu_job(dropped):
                         job_id, entry["target"], entry["args"],
                         run["gpu_touching"], entry["description"],
                         run.get("owner_user_id"), start_method=entry.get("start_method"),
-                        run_settings=run.get("run_settings"))
+                        run_settings=run.get("run_settings"),
+                        initial_result=run.get("result"))
                     run = _jobs[job_id]
                 except Exception as exc:
                     # mp.Queue()/Process() can fail (no fds, no /dev/shm)
@@ -874,9 +878,11 @@ def acquire_exclusive(label: str) -> bool:
     process or another exclusive hold is active; otherwise take the hold,
     so no new job can start until release_exclusive()."""
     global _exclusive_label
+    import live_whisper
     with _lock:
         if _exclusive_label is not None or _maintenance_count or any(
-                j.get("status") in ("running", "queued") for j in _jobs.values()):
+                j.get("status") in ("running", "queued") for j in _jobs.values()
+        ) or live_whisper.outstanding_label():
             return False
         _exclusive_label = label
         return True
@@ -1015,7 +1021,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str = None, on_done=None, on_finish=None,
                       kill_whole_tree: bool = False, start_method: str = None,
-                      run_settings: dict = None) -> bool:
+                      run_settings: dict = None, initial_result=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -1081,6 +1087,9 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     GPU check, an in-process GPU job) cannot use it. Under spawn, target and
     args must pickle and target's module is imported fresh in the child.
 
+    initial_result: the result shown while queued or running; on_done's
+    return or the subprocess's result replaces it.
+
     on_done/on_finish/kill_whole_tree/start_method are carried through the
     GPU queue like target/args. Records its starter and refuses during a clean stop like
     start_job().
@@ -1099,7 +1108,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                 "status": "queued", "progress": 0.0,
                 "message": GPU_WAIT_MESSAGE,
                 "error": None, "started_at": time.time(), "finished_at": None,
-                "cancel_requested": False, "result": None,
+                "cancel_requested": False, "result": initial_result,
                 "gpu_touching": True, "description": description, "kind": "process",
                 "process": None, "owner_user_id": owner_user_id,
                 "run_settings": run_settings,
@@ -1113,7 +1122,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
                                                    owner_user_id, start_method=start_method,
-                                                   run_settings=run_settings)
+                                                   run_settings=run_settings,
+                                                   initial_result=initial_result)
         run = _jobs[job_id]
     try:
         proc.start()
@@ -1128,7 +1138,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
 
 
 def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,
-                          start_method=None, run_settings=None):
+                          start_method=None, run_settings=None,
+                          initial_result=None):
     """Caller must already hold _lock. Builds the Process and its result
     queue and records the job dict entry, but doesn't call proc.start()
     itself -- constructing a Process is cheap, but actually starting one
@@ -1142,7 +1153,7 @@ def _register_process_job(job_id, target, args, gpu_touching, description, owner
     _jobs[job_id] = {
         "status": "running", "progress": 0.0, "message": "Starting...",
         "error": None, "started_at": time.time(), "finished_at": None,
-        "cancel_requested": False, "result": None,
+        "cancel_requested": False, "result": initial_result,
         "gpu_touching": gpu_touching, "description": description, "kind": "process",
         "process": proc, "owner_user_id": owner_user_id, "run_settings": run_settings,
     }
@@ -1334,6 +1345,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 was_cleared = job is None
                 if kill_whole_tree:
                     kill_tree(proc)
+                    # SIGKILL is async; "cancelled" must mean the worker is gone.
+                    proc.join(timeout=5)
                 else:
                     _stop_process(proc)
                 with _lock:
