@@ -21,7 +21,7 @@ test('splits with estimated timing and shows the summary', async ({ page }) => {
 test('Split long lines runs one click: 12 s cap, audio alignment', async ({ page }) => {
   const calls = await mockResplit(page, () => ({ json: SUMMARY }))
   const group = await openResplit(page)
-  await group.getByRole('button', { name: 'Split long lines' }).click()
+  await group.getByRole('button', { name: 'Split long lines', exact: true }).click()
   await expect(group.getByTestId('resplit-summary')).toHaveText('Split 31 lines into 118; speakers re-assigned.')
   expect(calls.resplits[0]).toMatchObject({ align_to_audio: true, sensitivity: 'normal', max_seconds: 12, confirm: false })
 })
