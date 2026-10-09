@@ -181,6 +181,13 @@ def _remove_dir(session_id: str):
         shutil.rmtree(path, ignore_errors=True)
 
 
+def _previous_whisper_call():
+    """Label of an abandoned Whisper call of an earlier session that is still
+    decoding: starting beside it would load a second model copy."""
+    import live_whisper
+    return live_whisper.outstanding_label()
+
+
 def _active_session_locked():
     """The id of a session that is reserved, queued or running,
     else None. Call with _lock held."""
@@ -281,6 +288,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     with _lock:
         if _active_session_locked() is not None:
             raise ConflictError("A live session is already running. Stop it first.")
+        if _previous_whisper_call() is not None:
+            raise ConflictError("The previous session's Whisper call is still finishing. "
+                                "Try again in a moment.")
     engine_name, eng = _build_engine(engine, model)
 
     session_id = f"live_{uuid.uuid4().hex}"
@@ -293,6 +303,10 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         if _active_session_locked() is not None:
             shutil.rmtree(out_dir, ignore_errors=True)
             raise ConflictError("A live session is already running. Stop it first.")
+        if _previous_whisper_call() is not None:
+            shutil.rmtree(out_dir, ignore_errors=True)
+            raise ConflictError("The previous session's Whisper call is still finishing. "
+                                "Try again in a moment.")
         if len(_sessions) >= MAX_SESSIONS:
             # Forget the oldest finished sessions (dicts keep insertion order).
             for sid in list(_sessions):

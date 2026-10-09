@@ -65,21 +65,66 @@ def _log(level: str, text: str) -> None:
         pass
 
 
+# The one Whisper thread this process may have, across jobs: a per-runner field
+# would let Stop then Start put a second decode beside an abandoned, stuck one.
+# `abandoned_at` is set once the job gave the call up while it was still alive;
+# from then until the thread exits it also counts as a GPU claim.
+_outstanding_lock = threading.Lock()
+_outstanding = None
+
+
+def outstanding_label():
+    """Label of the Whisper call still alive in this process, else None."""
+    with _outstanding_lock:
+        entry = _outstanding
+        if entry is not None and entry["worker"].is_alive():
+            return entry["label"]
+    return None
+
+
+def gpu_claim_active() -> bool:
+    """True while an abandoned GPU call may still be decoding. Bounded by
+    db.GPU_LOCK_STALE_SECONDS from the abandon, like a gpu_lock row that stops
+    heartbeating, so a call stuck forever cannot hold the GPU forever."""
+    import db
+    with _outstanding_lock:
+        entry = _outstanding
+        if entry is None or not entry["gpu"] or entry["abandoned_at"] is None:
+            return False
+        if not entry["worker"].is_alive():
+            return False
+        return time.monotonic() - entry["abandoned_at"] < db.GPU_LOCK_STALE_SECONDS
+
+
+def _worker_ended(entry: dict) -> None:
+    """Releases the call's GPU claim, then wakes the queue: a GPU job held back
+    by the claim has nothing else to wake it. The claim is released before the
+    thread has finished exiting, so it must not wait for is_alive() to turn False."""
+    with _outstanding_lock:
+        held = entry["gpu"] and entry["abandoned_at"] is not None
+        entry["abandoned_at"] = None
+    if not held:
+        return
+    try:
+        background_jobs._promote_next_queued_gpu_job()
+    except Exception as exc:
+        _log("warning", f"Live: could not promote the next GPU job: {exc}")
+
+
 class WhisperRunner:
     """Runs Whisper calls one at a time on a worker thread the job polls. Stop
     and a time limit are noticed within a poll; the worker quits at its next
     segment. `clock`, `poll` and `grace` are injectable so tests need no sleeps."""
 
     def __init__(self, should_stop, note, clock=None, poll: float = None, grace: float = None,
-                 unload: "ollama_unload.JobScope" = None):
+                 unload: "ollama_unload.JobScope" = None, gpu: bool = False):
         self._should_stop = should_stop
         self._note = note
         self.unload = unload or ollama_unload.JobScope(False)
         self._clock = clock or time.monotonic
         self._poll = POLL_SECONDS if poll is None else poll
         self._grace = grace
-        self._worker = None
-        self._label = ""
+        self._gpu = bool(gpu)
         self._closed = False
 
     @property
@@ -87,10 +132,8 @@ class WhisperRunner:
         return ABANDON_GRACE_SECONDS if self._grace is None else self._grace
 
     def busy_with(self):
-        """Label of the abandoned call still running, else None."""
-        if self._worker is not None and self._worker.is_alive():
-            return self._label
-        return None
+        """Label of the call still running in this process, else None."""
+        return outstanding_label()
 
     def close(self):
         """Marks the job over; returns the label of a call still running, to be
@@ -104,11 +147,9 @@ class WhisperRunner:
         WhisperBusy when an earlier call is still alive, JobCancelled once Stop
         is pressed and ChunkTimeout after `timeout` seconds; the worker is
         abandoned in the last two cases."""
-        busy = self.busy_with()
-        if busy is not None:
-            raise WhisperBusy(busy)
         abandoned = threading.Event()
         box = {}
+        entry = {"worker": None, "label": label, "gpu": self._gpu, "abandoned_at": None}
 
         def progress(_fraction):
             if abandoned.is_set():
@@ -126,20 +167,27 @@ class WhisperRunner:
                 if abandoned.is_set():
                     _log("info", f"Live: the abandoned Whisper call ({label}) has ended"
                          + (" after the job did" if self._closed else ""))
+                    _worker_ended(entry)
 
+        global _outstanding
         worker = threading.Thread(target=work, daemon=True, name="live-whisper")
-        self._worker, self._label = worker, label
+        entry["worker"] = worker
+        with _outstanding_lock:
+            current = _outstanding
+            if current is not None and current["worker"].is_alive():
+                raise WhisperBusy(current["label"])
+            _outstanding = entry
+            worker.start()
         deadline = self._clock() + timeout
-        worker.start()
         while True:
             worker.join(self._poll)
             if not worker.is_alive():
                 break
             if self._should_stop():
-                self._abandon(worker, abandoned, "stop")
+                self._abandon(entry, abandoned, "stop")
                 raise background_jobs.JobCancelled("live whisper")
             if self._clock() >= deadline:
-                self._abandon(worker, abandoned, "time limit")
+                self._abandon(entry, abandoned, "time limit")
                 raise ChunkTimeout(timeout)
         if "error" in box:
             raise box["error"]
@@ -162,11 +210,14 @@ class WhisperRunner:
     def mark_model_ready(self):
         self.unload.model_ready = True
 
-    def _abandon(self, worker: threading.Thread, abandoned: threading.Event, why: str) -> None:
+    def _abandon(self, entry: dict, abandoned: threading.Event, why: str) -> None:
+        worker = entry["worker"]
         abandoned.set()
         worker.join(self.grace)
         if not worker.is_alive():
             return
+        with _outstanding_lock:
+            entry["abandoned_at"] = time.monotonic()
         frame = sys._current_frames().get(worker.ident)
         stack = "".join(traceback.format_stack(frame)) if frame is not None else "(gone)"
         _log("warning", f"Live: Whisper call abandoned ({why}); it is at:\n{stack}")
@@ -296,8 +347,9 @@ class ChunkTiming:
     """Where one chunk's time went: waiting for its turn, Whisper (which holds
     the model load on a cold start), then translation."""
 
-    def __init__(self, path: str, audio_seconds: float):
+    def __init__(self, path: str, audio_seconds: float, use_gpu: bool = False):
         self.audio = audio_seconds
+        self.use_gpu = use_gpu
         self.cold = not model_cached()
         self.queued = chunk_age(path)
         self.whisper = 0.0
@@ -308,7 +360,8 @@ class ChunkTiming:
 
     def report(self, idx: int, note) -> None:
         translate = time.monotonic() - (self._whisper_done or time.monotonic())
-        log_chunk(idx, self.audio, self.queued, self.whisper, translate, self.cold, note)
+        log_chunk(idx, self.audio, self.queued, self.whisper, translate, self.cold, note,
+                  self.use_gpu)
 
 
 def warm_start(runner: "WhisperRunner", whisper_size: str, use_gpu: bool) -> float:
@@ -321,20 +374,24 @@ def warm_start(runner: "WhisperRunner", whisper_size: str, use_gpu: bool) -> flo
 
 
 def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: float,
-              cold: bool, note) -> None:
+              cold: bool, note, use_gpu: bool = False) -> None:
     """One app-log line per chunk with where the time went, plus nvidia-smi's
     free/total VRAM when it can be read (numbers only: nothing to redact beyond
     what redact_secrets would pass anyway). A chunk far slower than its audio
     also gets a one-line status note."""
-    gpu = ""
-    try:
-        import diagnostics
-        load = diagnostics.external_gpu_load()
-        if load:
-            gpu = f", GPU free {load['memory_free_mb']:.0f} of {load['memory_total_mb']:.0f} MB"
-    except Exception:
-        pass
     total = queued + whisper + translate
+    slow = audio > 0 and total > SLOW_CHUNK_FACTOR * audio
+    gpu = ""
+    # nvidia-smi is a subprocess on the job thread: only worth it for a GPU run
+    # whose chunk was slow, when the VRAM reading explains why.
+    if use_gpu and slow:
+        try:
+            import diagnostics
+            load = diagnostics.external_gpu_load()
+            if load:
+                gpu = f", GPU free {load['memory_free_mb']:.0f} of {load['memory_total_mb']:.0f} MB"
+        except Exception:
+            pass
     line = (f"chunk {idx}: {audio:.1f} s of audio; waited {queued:.1f} s, Whisper {whisper:.1f} s"
             f"{' (model was not loaded yet)' if cold else ''}, translate {translate:.1f} s{gpu}")
     try:
@@ -342,6 +399,6 @@ def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: 
         _log("info", "Live " + redact_secrets(line))
     except Exception:
         pass
-    if audio > 0 and total > SLOW_CHUNK_FACTOR * audio:
+    if slow:
         note(f"Chunk {idx} took {total:.0f} s for {audio:.0f} s of audio: waited {queued:.1f} s, "
              f"Whisper {whisper:.1f} s, translate {translate:.1f} s{gpu}.", "slow-chunk")

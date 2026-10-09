@@ -317,6 +317,12 @@ class TestStopIsPrompt:
         release.set()
 
 
+@pytest.fixture(autouse=True)
+def _no_leftover_whisper_worker():
+    yield
+    live_whisper._outstanding = None
+
+
 class TestWhisperRunner:
     def _runner(self, should_stop=lambda: False, clock=None):
         return live_whisper.WhisperRunner(should_stop, lambda t, key=None: None, clock=clock or FakeClock(),
@@ -366,6 +372,63 @@ class TestWhisperRunner:
         assert _wait(lambda: runner.busy_with() is None)
         assert runner.run(lambda cb: "ok", 3, "chunk 6") == "ok"
         assert runner.close() is None
+
+    def test_a_second_runner_is_refused_while_the_first_ones_abandoned_call_lives(self):
+        release = threading.Event()
+        with pytest.raises(live_whisper.ChunkTimeout):
+            self._runner(clock=TickingClock()).run(lambda cb: release.wait(20), 3, "chunk 4")
+        started = []
+        other = self._runner()
+        with pytest.raises(live_whisper.WhisperBusy):
+            other.run(lambda cb: started.append(1), 3, "the model load")
+        assert started == []
+        release.set()
+        assert _wait(lambda: other.busy_with() is None)
+
+    def test_a_new_session_is_refused_while_the_old_sessions_whisper_call_lives(self):
+        release = threading.Event()
+        with pytest.raises(live_whisper.ChunkTimeout):
+            self._runner(clock=TickingClock()).run(lambda cb: release.wait(20), 3, "chunk 4")
+        with pytest.raises(live_service.ConflictError, match="still finishing"):
+            live_service.start_session(url="https://example.com/live", engine="google")
+        release.set()
+        assert _wait(lambda: live_whisper.outstanding_label() is None)
+
+    def test_an_abandoned_gpu_call_holds_the_gpu_until_it_ends(self, monkeypatch):
+        release = threading.Event()
+        promoted = []
+        monkeypatch.setattr(background_jobs, "_promote_next_queued_gpu_job",
+                            lambda: promoted.append(live_whisper.gpu_claim_active()))
+        runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
+                                            clock=TickingClock(), poll=0.005, grace=0.05, gpu=True)
+        with pytest.raises(live_whisper.ChunkTimeout):
+            runner.run(lambda cb: release.wait(20), 3, "chunk 4")
+        assert live_whisper.gpu_claim_active()
+        assert background_jobs._abandoned_gpu_call_alive()
+        release.set()
+        assert _wait(lambda: promoted)
+        assert promoted == [False]
+        assert not live_whisper.gpu_claim_active()
+
+    def test_the_gpu_claim_goes_stale_like_a_silent_lock(self, monkeypatch):
+        import db
+        release = threading.Event()
+        runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
+                                            clock=TickingClock(), poll=0.005, grace=0.05, gpu=True)
+        with pytest.raises(live_whisper.ChunkTimeout):
+            runner.run(lambda cb: release.wait(20), 3, "chunk 4")
+        real = time.monotonic()
+        monkeypatch.setattr(live_whisper.time, "monotonic",
+                            lambda: real + db.GPU_LOCK_STALE_SECONDS + 1)
+        assert not live_whisper.gpu_claim_active()
+        release.set()
+
+    def test_a_cpu_call_never_claims_the_gpu(self):
+        release = threading.Event()
+        with pytest.raises(live_whisper.ChunkTimeout):
+            self._runner(clock=TickingClock()).run(lambda cb: release.wait(20), 3, "chunk 4")
+        assert not live_whisper.gpu_claim_active()
+        release.set()
 
     def test_per_segment_abort_reaches_the_real_decode_loop(self, monkeypatch, tmp_path):
         """core.transcribe_for_timing calls progress_cb as each lazily yielded
@@ -629,11 +692,24 @@ class TestChunkDiagnostics:
             "memory_free_mb": 1200.0, "memory_total_mb": 8192.0})
         logged, notes = [], []
         monkeypatch.setattr(live_whisper, "_log", lambda level, text: logged.append(text))
-        live_whisper.log_chunk(1, 10.0, 2.0, 200.0, 5.0, False, lambda t, k=None: notes.append(t))
+        live_whisper.log_chunk(1, 10.0, 2.0, 200.0, 5.0, False, lambda t, k=None: notes.append(t),
+                               use_gpu=True)
         assert logged and "GPU free 1200 of 8192 MB" in logged[0] and "Whisper 200.0 s" in logged[0]
         assert len(notes) == 1 and "took 207 s for 10 s of audio" in notes[0]
         live_whisper.log_chunk(2, 10.0, 0.5, 4.0, 1.0, False, lambda t, k=None: notes.append(t))
         assert len(notes) == 1   # 5.5 s for 10 s of audio is healthy
+
+    def test_nvidia_smi_runs_only_for_a_slow_gpu_chunk(self, monkeypatch):
+        import diagnostics
+        calls = []
+        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: calls.append(1))
+        monkeypatch.setattr(live_whisper, "_log", lambda level, text: None)
+        note = lambda t, k=None: None
+        live_whisper.log_chunk(0, 10.0, 0.1, 2.0, 1.0, False, note, use_gpu=True)
+        live_whisper.log_chunk(1, 10.0, 0.5, 200.0, 1.0, False, note, use_gpu=False)
+        assert calls == []
+        live_whisper.log_chunk(2, 10.0, 0.5, 200.0, 1.0, False, note, use_gpu=True)
+        assert calls == [1]
 
     def test_a_missing_nvidia_smi_is_not_an_error(self, monkeypatch):
         import diagnostics
