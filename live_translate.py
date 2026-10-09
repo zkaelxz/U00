@@ -626,9 +626,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     note = report_note or (lambda text, key=None: None)
 
     runner = live_whisper.WhisperRunner(
-        should_stop, note, clock=whisper_clock,
-        unload=live_whisper.unload_scope_for(engine, use_gpu, whisper_size),
-        gpu=use_gpu)
+        should_stop, note, clock=whisper_clock, gpu=use_gpu,
+        unload=live_whisper.unload_scope_for(engine, use_gpu, whisper_size))
 
     report("Resolving the stream address...")
     try:
@@ -776,7 +775,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                         note(f"Chunk {idx} held {window.audio_seconds + window.trimmed_seconds:.0f} s "
                              f"of audio: skipped its first {window.trimmed_seconds:.0f} s to catch up.")
                     chunk_info["audio"] = window.audio_seconds
-                    timing = live_whisper.ChunkTiming(path, window.audio_seconds, use_gpu)
+                    timing = runner.timing(path, window.audio_seconds)
 
                     def whisper_done(took, idx=idx):
                         timing.whisper_done(took)

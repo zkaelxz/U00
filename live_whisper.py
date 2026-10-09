@@ -215,6 +215,9 @@ class WhisperRunner:
             self._note(f"Whisper is still finishing {busy} in the background; it ends by itself.")
         return "Stopped."
 
+    def timing(self, path: str, audio_seconds: float) -> "ChunkTiming":
+        return ChunkTiming(path, audio_seconds, self._gpu)
+
     def flush_ollama_notice(self) -> None:
         text = self.unload.take_notice()
         if text:
