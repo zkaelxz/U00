@@ -16,6 +16,11 @@ describe('SourceLink', () => {
     expect(html).toContain('Open original page')
   })
 
+  it('takes a class so a caller can style it as a button', () => {
+    const html = renderToStaticMarkup(createElement(SourceLink, { href: 'https://c.example/1', className: 'btn btn-secondary' }))
+    expect(html).toContain('class="btn btn-secondary"')
+  })
+
   it('takes a custom label', () => {
     expect(render('http://c.example/1', 'Open chapter page')).toContain('>Open chapter page<')
   })
