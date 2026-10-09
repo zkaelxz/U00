@@ -9,6 +9,7 @@ a threshold is crossed by a clear margin before a line is flagged, and a
 file where the detector hears next to nothing is reported as broken audio
 instead of flagging every line.
 """
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -80,7 +81,20 @@ def _suggest(line, covering) -> Optional[tuple]:
     if (start - line.start < SNAP_MIN_SHIFT_S and line.end - end < SNAP_MIN_SHIFT_S) \
             or end - start < MIN_SNAPPED_DURATION_S:
         return None
-    return round(start, 2), round(end, 2)
+    # Rounding must not undo the bounds checked above: a rounded edge can land
+    # outside the line or just past the shift cap, and the sidecar reader
+    # drops any suggestion that does.
+    new_start = line.start if start == line.start else round(start, 2)
+    if new_start - line.start > SNAP_MAX_SHIFT_S:
+        new_start = math.floor(start * 100) / 100
+    new_start = max(new_start, line.start)
+    new_end = line.end if end == line.end else round(end, 2)
+    if line.end - new_end > SNAP_MAX_SHIFT_S:
+        new_end = math.ceil(end * 100) / 100
+    new_end = min(new_end, line.end)
+    if new_end - new_start < MIN_SNAPPED_DURATION_S:
+        return None
+    return new_start, new_end
 
 
 def find_drift(lines, spans, audio_seconds: Optional[float], *, conservative: bool = False,

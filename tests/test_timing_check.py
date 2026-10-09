@@ -38,6 +38,23 @@ class TestFindDrift:
         assert found[1].note.startswith("Starts 2.0 s before speech.")
         assert found[1].suggestion == (9.9, 14.0)
 
+    def test_suggestion_stays_inside_the_line_after_rounding(self):
+        found = self.notes([L(0, 8.0, 14.237)], spans=[(10.0, 14.5)])
+        start, end = found[1].suggestion
+        assert (start, end) == (9.9, 14.237)
+
+    def test_rounding_cannot_grow_a_line_or_pass_the_shift_cap(self):
+        found = self.notes([L(0, 8.001, 14.0)], spans=[(10.0, 14.0)])
+        start, end = found[1].suggestion
+        assert start >= 8.001 and start - 8.001 <= timing_drift.SNAP_MAX_SHIFT_S
+
+    def test_a_shift_just_under_the_cap_stays_within_it_once_rounded(self):
+        # Wanted start is 10.997, a 2.996 s shift that rounds to 11.0 (2.999 s).
+        line = L(0, 8.001, 14.0)
+        suggestion = timing_drift._suggest(line, [(11.097, 14.0)])
+        assert suggestion and suggestion[0] - line.start <= timing_drift.SNAP_MAX_SHIFT_S
+        assert suggestion[0] >= line.start
+
     def test_small_lead_is_tolerated(self):
         assert self.notes([L(0, 9.4, 14.0)]) == {}
 
@@ -450,6 +467,30 @@ class TestHostileSidecar:
         _write_sidecar(drama, {"dismissed": [1]})
         monkeypatch.setattr(svc, "_MAX_STATE_BYTES", 5)
         assert svc._read_state(drama)["dismissed"] == []
+
+    def test_numeric_and_key_extremes_read_as_empty(self, isolated_db, drama):
+        huge = "9" * 400
+        _write_sidecar(drama, None, '{"suggestions": {"1": {"start": 1, "end": 3, "new_start": '
+                                    + huge + ', "new_end": 2}}}')
+        assert svc._read_state(drama)["suggestions"] == {}
+        good = {"start": 8.0, "end": 14.0, "new_start": 9.9, "new_end": 14.0}
+        _write_sidecar(drama, {"suggestions": {"7" * 5000: good, "2": good}})
+        assert list(svc._read_state(drama)["suggestions"]) == ["2"]
+
+    def test_a_suggestion_the_check_wrote_survives_the_reader(self, isolated_db, drama, fake_speech):
+        fake_speech["spans"] = [(10.0, 14.5)]
+        _seed(isolated_db, drama, [Line(idx=0, start=8.001, end=14.237, zh="a")])
+        svc.start_timing_check(drama)
+        _wait(drama)
+        assert len(svc._read_state(drama)["suggestions"]) == 1
+
+    def test_snap_all_with_a_huge_hostile_sidecar_is_fast(self, isolated_db, drama):
+        _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])
+        entry = {"start": 8.0, "end": 14.0, "new_start": 9.9, "new_end": 14.0}
+        _write_sidecar(drama, {"suggestions": {str(i): entry for i in range(1, 60001)}})
+        began = time.monotonic()
+        out = svc.snap_to_speech(drama)
+        assert time.monotonic() - began < 10 and out["snapped"] == 0
 
     def test_valid_entries_survive_beside_bad_ones(self, isolated_db, drama):
         good = {"start": 8.0, "end": 14.0, "new_start": 9.9, "new_end": 14.0}

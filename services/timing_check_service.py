@@ -65,7 +65,10 @@ def _is_int(value) -> bool:
 def _finite(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    value = float(value)
+    try:
+        value = float(value)
+    except (OverflowError, ValueError):
+        return None
     return value if math.isfinite(value) else None
 
 
@@ -83,7 +86,11 @@ def _clean_suggestion(key, raw):
     if not (start < end and new_start < new_end and start <= new_start
             and new_end <= end and new_start - start <= shift and end - new_end <= shift):
         return None
-    return str(int(key)), {"start": start, "end": end, "new_start": new_start, "new_end": new_end}
+    try:
+        lid = str(int(key))
+    except ValueError:  # Python 3.12 refuses int() on very long digit strings
+        return None
+    return lid, {"start": start, "end": end, "new_start": new_start, "new_end": new_end}
 
 
 def _clean_last_check(raw):
@@ -371,15 +378,15 @@ def snap_to_speech(drama_id: int, line_ids=None) -> dict:
         current = {ln.id: ln for ln in lines}
         # Already-stale items are known without writing, and a snapshot of a
         # call that changes nothing would push older history out (keep_last).
-        stale_now = [lid for lid, _, expected in items
+        stale_now = {lid for lid, _, expected in items
                      if lid not in current or current[lid].start != expected["start"]
-                     or current[lid].end != expected["end"] or current[lid].flag != expected["flag"]]
+                     or current[lid].end != expected["end"] or current[lid].flag != expected["flag"]}
         live = [it for it in items if it[0] not in stale_now]
         history_id, missed = None, []
         if live:
             history_id = db.save_line_history_snapshot(drama_id, lines, SNAP_HISTORY_LABEL)
             missed = db.update_lines_fields_if_many(drama_id, live)
-        stale = stale_now + list(missed)
+        stale = sorted(stale_now) + list(missed)
         # A stale suggestion would only fail again, so it goes too.
         for lid, _, _ in items:
             state["suggestions"].pop(str(lid), None)
