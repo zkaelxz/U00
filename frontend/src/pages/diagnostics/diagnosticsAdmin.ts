@@ -106,7 +106,8 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
   if (c.browser) {
-    if (c.browser.package !== undefined) {
+    // null/undefined means the server couldn't tell; only a definite false is a problem.
+    if (typeof c.browser.package === 'boolean') {
       add('playwright', 'Playwright package', c.browser.package, 'installed',
         'Playwright package not installed (add it from Diagnostics > Packages, the playwright row, or run pip install playwright; no browser download is needed when Chrome or Edge is installed)')
     }
