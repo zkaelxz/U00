@@ -141,7 +141,7 @@ def _bounded_calls(job_id):
         background_jobs.update_progress(
             job_id, 0.1, f"The AI engine is slow or busy; retrying (attempt {next_attempt} of {max_retries})...")
     return llm_tasks.bounded_llm_calls(
-        job_id, lambda: background_jobs.is_cancel_requested(job_id), on_wait)
+        job_id, lambda: background_jobs.is_cancel_requested(job_id), on_wait, no_thinking=True)
 
 
 def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_text, en_text,

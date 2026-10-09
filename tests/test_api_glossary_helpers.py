@@ -159,6 +159,9 @@ class TestLinesGlossaryService:
         background_jobs.request_cancel(out["job_id"])
         st = _wait(out["job_id"])
         release.set()
+        # Drama ids repeat across tests; a leftover entry would refuse their calls.
+        from engine_backends import llm_tasks
+        llm_tasks._abandoned.clear()
         assert st["status"] == "cancelled"
 
     def test_model_supplied_renderings_are_not_alternatives(self, isolated_db, monkeypatch,
