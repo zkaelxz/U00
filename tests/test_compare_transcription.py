@@ -501,3 +501,18 @@ class TestApi:
         assert jobs_service.job_kind(res["job_id"]) == "transcribe"
         assert jobs_service.job_page(res["job_id"]) == "title"
         assert client.get(f"/api/transcribe/dramas/999999/compare-transcription/result").status_code == 404
+
+
+@pytest.mark.parametrize("language", ["ja", "ko"])
+def test_aligner_backends_are_refused_without_the_language_tokeniser(monkeypatch, language):
+    seen = []
+
+    def fake_require(feature, aligner_language=None):
+        seen.append(aligner_language)
+        raise DependencyUnavailableError("needs the tokeniser")
+
+    monkeypatch.setattr(transcribe_service, "require_qwen3_packages", fake_require)
+    monkeypatch.setattr(transcribe_service, "require_vad_backend_packages",
+                        lambda choice, lang: fake_require("Qwen3-ASR", lang))
+    assert "tokeniser" in svc._backend_problem("qwen3_asr_long", language)
+    assert seen == [language]

@@ -209,27 +209,6 @@ NOT_OFFERED_FOR_INSTALL = {
                           "Advanced.",
 }
 
-# Exact pins a package declares on another one the app shares, for a
-# "this would downgrade X" warning before installing (package -> {dep: pin}).
-KNOWN_EXACT_PINS = {}
-
-
-def install_downgrade_warning(name: str):
-    """None, or a plain-English warning when installing `name` would move an
-    already-installed shared package to an older pinned version. Read-only:
-    checks the installed version only."""
-    pins = KNOWN_EXACT_PINS.get(canonical_dist(pip_install_name(name)))
-    if not pins:
-        return None
-    for dep, pin in pins.items():
-        have = get_installed_version(dep)
-        if have and _version_sort_key(have) > _version_sort_key(pin):
-            return (f"installing this would downgrade {dep} from {have} to {pin}, which "
-                    f"other features (Scanlate, voice engines) use -- "
-                    f"they may stop working until {dep} is upgraded again.")
-    return None
-
-
 # Install presets: what the user wants to do -> the packages it needs (by
 # OPTIONAL_DEPENDENCIES key, or MODEL_ENGINE_REGISTRY package when it has
 # no key). Derived from the "feature" descriptions above. Each package is
@@ -251,8 +230,8 @@ INSTALL_TASKS = [
      "packages": ["pyannote.audio", "soundfile", "torch"]},
     {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
      "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
-     "packages": ["transformers", "nagisa", "soynlp", "funasr", "torch"],
-     "recommended": ["transformers", "nagisa", "soynlp", "funasr"]},
+     "packages": ["transformers", "nagisa", "soynlp", "funasr", "soundfile", "torch"],
+     "recommended": ["transformers", "nagisa", "soynlp", "funasr", "soundfile"]},
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},

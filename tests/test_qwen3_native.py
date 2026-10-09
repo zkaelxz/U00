@@ -724,9 +724,8 @@ def test_diagnostics_registers_the_real_requirements():
     assert "qwen-asr" not in deps
     assert deps["transformers"][0] == "transformers" and "5.15" in deps["transformers"][1]
     assert deps["nagisa"][0] == "nagisa" and deps["soynlp"][0] == "soynlp"
-    assert "qwen-asr" not in diagnostics.KNOWN_EXACT_PINS
     task = next(t for t in diagnostics.INSTALL_TASKS if t["id"] == "alt_asr")
-    assert {"transformers", "nagisa", "soynlp", "torch"} <= set(task["packages"])
+    assert {"transformers", "nagisa", "soynlp", "soundfile", "torch"} <= set(task["packages"])
     assert "qwen-asr" not in task["packages"]
 
 

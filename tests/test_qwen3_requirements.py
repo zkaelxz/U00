@@ -90,7 +90,7 @@ def _fake_installed(monkeypatch, missing=(), transformers="5.19.0", qwen_asr=Non
     real = importlib.util.find_spec
     monkeypatch.setattr(importlib.util, "find_spec",
                         lambda name, *a: None if name in missing
-                        else (object() if name in ("torch", "nagisa", "soynlp") else real(name, *a)))
+                        else (object() if name in ("torch", "soundfile", "nagisa", "soynlp") else real(name, *a)))
     monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: transformers)
     monkeypatch.setattr(qwen3_native, "installed_qwen_asr_version", lambda: qwen_asr)
 
@@ -168,3 +168,9 @@ def test_diagnostics_row_shows_a_too_old_transformers_as_not_ready(monkeypatch):
     monkeypatch.setattr(importlib.metadata, "version", lambda name: "5.19.0")
     row = next(r for r in diagnostics.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
     assert row["version"] == "5.19.0"
+
+
+def test_missing_soundfile_is_named_before_any_model_loads(monkeypatch):
+    _fake_installed(monkeypatch, missing=("soundfile",))
+    with pytest.raises(DependencyUnavailableError, match="soundfile"):
+        reqs.require_qwen3_packages("Qwen3-ASR")

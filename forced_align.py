@@ -73,8 +73,6 @@ _WORD_UNIT_LANGUAGES = {"English"}
 
 # Loaded models stay cached across calls; core.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
-# The one repo the aligner loads; the real-model check looks for exactly this id.
-ALIGNER_REPO_ID = "Qwen/Qwen3-ForcedAligner-0.6B"
 _aligner_model_cache = {}
 
 

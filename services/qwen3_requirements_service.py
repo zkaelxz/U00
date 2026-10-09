@@ -25,6 +25,11 @@ def require_qwen3_packages(feature: str, aligner_language: str = None) -> None:
     if importlib.util.find_spec("torch") is None:
         raise DependencyUnavailableError(
             f"{feature} needs torch, which isn't installed yet. Open Diagnostics to install it.")
+    # qwen3_native.load_audio_16k reads audio with soundfile, which the old
+    # qwen-asr package used to bring in.
+    if importlib.util.find_spec("soundfile") is None:
+        raise DependencyUnavailableError(
+            f"{feature} needs soundfile, which isn't installed yet. Open Diagnostics to install it.")
     problem = qwen3_native.transformers_problem(feature)
     if problem:
         raise DependencyUnavailableError(problem)

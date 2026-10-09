@@ -146,21 +146,18 @@ def _check_speech_clip_size(path: str) -> None:
 
 
 def _check_asr(speech_clip=None, expected_text=None) -> str:
-    from services import asr_options_service, settings_service, transcribe_service
-    # No global ASR setting exists (the choice is per title), so this is
-    # the backend a new Chinese title would get.
-    backend = asr_options_service.stored_asr_backend({"source_language": _LANGUAGE})
+    from services import settings_service, transcribe_service
+    # Whisper only: a title uses Qwen3-ASR only when the user picked it, so
+    # no backend is a default the check could stand in for, and Qwen3 needs
+    # a title's own settings plus several GB of weights.
+    backend = "whisper"
     use_gpu = settings_service.get_use_gpu()
-    if backend == "whisper":
-        import core
-        size = transcribe_service.default_whisper_size()
-        if not _installed("faster_whisper"):
-            raise _Skip("faster-whisper is not installed.")
-        if not core.is_whisper_model_cached(size):
-            raise _Skip(f"The Whisper {size} model is not downloaded.")
-    else:
-        if not _installed("qwen_asr"):
-            raise _Skip("qwen-asr is not installed.")
+    import core
+    size = transcribe_service.default_whisper_size()
+    if not _installed("faster_whisper"):
+        raise _Skip("faster-whisper is not installed.")
+    if not core.is_whisper_model_cached(size):
+        raise _Skip(f"The Whisper {size} model is not downloaded.")
     if not os.path.isfile(_CLIP):
         raise _Failed("The bundled audio sample is missing; reinstall the app.")
     if speech_clip:
@@ -168,33 +165,11 @@ def _check_asr(speech_clip=None, expected_text=None) -> str:
 
     import asr_backend
     runner = asr_backend.get_backend(backend)
-    if backend != "whisper":
-        import forced_align
-        repos = [asr_backend.qwen3_asr_repo_id(runner.model_size)]
-        # The aligner loads only once speech is found, so a tone never needs
-        # it, but the speech clip and real titles do.
-        if getattr(runner, "long_windows", False):
-            repos.append(forced_align.ALIGNER_REPO_ID)
-        if not all(_hf_repo_exact(r) for r in repos):
-            raise _Skip("A Qwen3-ASR model is not downloaded.")
-    loaded = []
-
-    def finish(detail):
-        # The Qwen backends return before loading anything when speech
-        # detection finds none, so a plain tone proves nothing about the model.
-        if backend != "whisper" and not loaded:
-            raise _Skip("Tone only: speech detection found no speech, so the recognition model was not loaded.")
-        return detail
 
     def transcribe(path):
         fallback = []
-        if backend == "whisper":
-            segments = runner.transcribe(path, _LANGUAGE, whisper_size=size, use_gpu=use_gpu,
-                                         on_gpu_fallback=fallback.append)
-        else:
-            segments = runner.transcribe(path, _LANGUAGE, use_gpu=use_gpu,
-                                         on_device=lambda *_: loaded.append(1),
-                                         on_gpu_fallback=lambda *_: fallback.append(1))
+        segments = runner.transcribe(path, _LANGUAGE, whisper_size=size, use_gpu=use_gpu,
+                                     on_gpu_fallback=fallback.append)
         if fallback:
             # A silent CPU fallback is the breakage this check exists to surface.
             raise _Failed("The GPU could not be used, so it ran on the CPU instead.")
@@ -208,11 +183,11 @@ def _check_asr(speech_clip=None, expected_text=None) -> str:
             heard = _spoken_text(transcribe(speech_clip))
             if not expected_text:
                 detail += f" The speech clip produced {len(heard.strip())} character(s); no expected text was given to compare."
-                return finish(detail)
+                return detail
             if _comparable(expected_text) not in _comparable(heard):
                 raise _Failed("The speech clip was transcribed, but the text did not match the expected text.")
             detail += " The speech clip matched the expected text."
-    return finish(detail)
+    return detail
 
 
 def _paddle_models_state() -> str:

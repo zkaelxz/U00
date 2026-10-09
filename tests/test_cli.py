@@ -644,7 +644,7 @@ class TestCmdAlignUsesDramaSettings:
         import importlib.util
         real_find_spec = importlib.util.find_spec
         monkeypatch.setattr(importlib.util, "find_spec",
-                            lambda name, *a: object() if name == "torch" else real_find_spec(name, *a))
+                            lambda name, *a: object() if name in ("torch", "soundfile") else real_find_spec(name, *a))
         import qwen3_native
         monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "4.57.6")
         monkeypatch.setattr(cli, "transcribe_for_timing",
@@ -668,7 +668,7 @@ class TestCmdAlignUsesDramaSettings:
         import importlib.util
         real_find_spec = importlib.util.find_spec
         monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: (
-            object() if name == "torch" else None if name == "nagisa" else real_find_spec(name, *a)))
+            object() if name in ("torch", "soundfile") else None if name == "nagisa" else real_find_spec(name, *a)))
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: pytest.fail("transcribed before the dependency check"))
         out, err = io.StringIO(), io.StringIO()

@@ -809,8 +809,7 @@ def _package_info(name: str, installed: bool, offered: set, mins: dict = None) -
         "pulls_torch": diagnostics.canonical_dist(dist) in diagnostics.PULLS_TORCH,
         "source_url": diagnostics.package_source_url(name),
         "not_offered_reason": reason,
-        "warning": None if installed else (limitation
-                                           or diagnostics.install_downgrade_warning(name)),
+        "warning": None if installed else limitation,
     }
 
 
