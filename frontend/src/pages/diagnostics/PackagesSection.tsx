@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 
 import { checkPackageUpdates, getInstallPresets, installDependency, setupGpuTorch, upgradeDependency } from '../../api/diagnostics'
 import { getUpgradeCheck, testUpgrade } from '../../api/diagnosticsInstalls'
+import { cancelPendingInstall, dismissInstallResult, getPendingInstall, planInstall, queueInstall } from '../../api/pendingInstall'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -9,6 +10,7 @@ import { Section } from '../../components/Section'
 import { capFirst } from '../../labels'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
+import type { PendingInstallStatus } from '../../types/pendingInstall'
 import type {
   DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsOverview, DiagnosticsPackageInfo, DiagnosticsPackageUpdate,
   DiagnosticsPackageUpdates, DiagnosticsTorchVariant,
@@ -19,6 +21,7 @@ import {
   isInstallable, useDetailsOpen, type AdminBusy,
 } from './diagnosticsAdmin'
 import { GpuTorchPanel } from './GpuTorchPanel'
+import { InstallPlanPanel, PendingInstallBanner, needsPlanPanel, pendingKeys, type PlannedInstall } from './PendingInstall'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
 import { canUpdate, updateLine, updatesSummary, versionLabel } from './packageUpdates'
 import { strandedTest } from './upgradeTestText'
@@ -87,6 +90,17 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   const info = (name: string): DiagnosticsPackageInfo | undefined => presets?.packages[name]
   const torchInstalled = !!overview.dependencies.torch?.installed
 
+  // Installs waiting for the next start, and how the last one went.
+  const [queuedStatus, setQueuedStatus] = useState<PendingInstallStatus | null>(null)
+  const loadQueued = useCallback(() => {
+    getPendingInstall().then(setQueuedStatus, () => undefined)
+  }, [])
+  useEffect(() => {
+    if (pc === 'local') loadQueued()
+  }, [pc, loadQueued])
+  const queued = pendingKeys(queuedStatus)
+  const [planned, setPlanned] = useState<PlannedInstall | null>(null)
+
   const deps = splitDependencies(overview.dependencies)
   // Missing packages no task installs (a package that isn't on PyPI, one that ships with the app).
   const inTask = new Set((presets?.tasks ?? []).flatMap((t) => t.packages))
@@ -115,6 +129,38 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
       setCheckError(adminErrorText(e, 'upgrade'))
     } finally {
       setChecking(false)
+    }
+  }
+
+  // Previews what an install would change before it runs. A preview that
+  // can't be had (older server, offline) falls back to installing as before.
+  const withPlan = async (label: string, keys: string[], installNow: () => Promise<void>) => {
+    setOutcome(null)
+    onBusy({ kind: 'install', name: `Checking what ${label} will change` })
+    let plan
+    try {
+      plan = await planInstall(keys)
+    } catch {
+      onBusy(null)
+      return installNow()
+    }
+    onBusy(null)
+    if (!needsPlanPanel(plan)) return installNow()
+    setPlanned({ label, keys, plan, installNow: () => { setPlanned(null); void installNow() } })
+  }
+
+  const queueForRestart = async (acceptRisk: boolean) => {
+    if (!planned) return
+    const { label, keys } = planned
+    try {
+      const r = await queueInstall(keys, acceptRisk)
+      setPlanned(null)
+      if (r.install_now) return void planned.installNow()
+      setOutcome({ kind: 'install', name: label, ok: true, output: [], text: `${label} is queued. It installs when you restart Baihe.` })
+      loadQueued()
+    } catch (e) {
+      setPlanned(null)
+      setOutcome({ kind: 'install', name: label, error: e })
     }
   }
 
@@ -210,7 +256,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 
   const taskRow = (t: DiagnosticsInstallTask) => presets && (
   <TaskRow key={t.id} task={t} packages={presets.packages} torchInstalled={torchInstalled}
-    installOne={(n) => action('install', n)}
+    queued={queued}
+    installOne={(n) => (queued.has(n) ? null : action('install', n))}
     action={local && t.to_install.length > 0 && (
       <ConfirmButton
         name={t.label}
@@ -222,7 +269,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         disabled={!!blocked}
         describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={!!busy && taskRunning === t.id}
-        onConfirm={() => void runTask(t)}
+        onConfirm={() => void withPlan(t.label, t.to_install, () => runTask(t))}
       />
     )} />
   )
@@ -239,7 +286,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         disabled={!!blocked}
         describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={busy?.name === name && busy.kind === kind}
-        onConfirm={() => void run(kind, name, target)}
+        onConfirm={() => void (kind === 'install' ? withPlan(name, [name], () => run(kind, name, target)) : run(kind, name, target))}
       />
     )
 
@@ -271,6 +318,14 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         <p className="muted" aria-live="polite" data-testid="install-running" id={runningId}>
           {running ?? ''}
         </p>
+        {queuedStatus && (
+          <PendingInstallBanner status={queuedStatus}
+            onCancel={() => void cancelPendingInstall().then(loadQueued, loadQueued)}
+            onDismiss={() => void dismissInstallResult().then(loadQueued, loadQueued)} />
+        )}
+        {planned && (
+          <InstallPlanPanel planned={planned} onQueue={(risk) => void queueForRestart(risk)} onCancel={() => setPlanned(null)} />
+        )}
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}
         {noTranscription && presets && (
           <div className="diag-stack" data-testid="transcription-missing" role="group" aria-labelledby={`${tasksId}-tr`} ref={noTranscriptionRef}>
@@ -299,8 +354,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
             <ul aria-label={hasTasks ? 'Packages not part of a task' : 'Not installed'} className="pkg-list">
               {leftover.map((d) => (
                 <li key={d.name}>
-                  <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} />
-                  {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && action('install', d.name)}
+                  <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} queued={queued.has(d.name)} />
+                  {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && !queued.has(d.name) && action('install', d.name)}
                 </li>
               ))}
             </ul>
@@ -367,7 +422,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 }
 
 /** Name and purpose, then approx. size, a PyPI link, and any caveat. */
-function PackageText({ name, text, info, torchInstalled, installed = false, update, quiet = false }: {
+function PackageText({ name, text, info, torchInstalled, installed = false, update, quiet = false, queued = false }: {
   name: string
   text: string
   info: DiagnosticsPackageInfo | undefined
@@ -377,6 +432,8 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
   update?: DiagnosticsPackageUpdate
   // The task row already shows the not-offered reason and warning.
   quiet?: boolean
+  // Waiting for the next start (see PendingInstall).
+  queued?: boolean
 }) {
   const size = info && !installed ? packageSizeText(info, torchInstalled) : null
   const url = safeSourceUrl(info?.source_url)
@@ -386,6 +443,7 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
     <span className="pkg-text">
       <span>
         <strong>{name}</strong>{version && <> <span className="pkg-version" data-testid="pkg-version">{version}</span></>}{' '}
+        {queued && <Badge tone="warn">pending install (restart)</Badge>}{' '}
         <span className="muted">{capFirst(text)}</span>
       </span>
       {line && <span className={line.tone === 'muted' ? 'muted' : line.tone} data-testid="pkg-update">{line.text}</span>}
@@ -407,11 +465,12 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
   )
 }
 
-function TaskRow({ task, packages, action, torchInstalled, installOne }: {
+function TaskRow({ task, packages, action, torchInstalled, installOne, queued }: {
   task: DiagnosticsInstallTask
   packages: Record<string, DiagnosticsPackageInfo>
   action: ReactNode
   torchInstalled: boolean
+  queued: Set<string>
   // The Install… button for one package (optional extras are installed one by one).
   installOne: (name: string) => ReactNode
 }) {
@@ -451,7 +510,7 @@ function TaskRow({ task, packages, action, torchInstalled, installOne }: {
             <ul className="pkg-list" aria-label={`${task.label} packages`}>
               {missing.map((n) => (
                 <li key={n}>
-                  <PackageText name={n} text={packages[n].powers} info={packages[n]} torchInstalled={torchInstalled} quiet />
+                  <PackageText name={n} text={packages[n].powers} info={packages[n]} torchInstalled={torchInstalled} quiet queued={queued.has(n)} />
                   {task.optional_missing?.includes(n) && installOne(n)}
                 </li>
               ))}

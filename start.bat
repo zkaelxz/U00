@@ -393,6 +393,12 @@ if not errorlevel 1 (
     exit /b 1
 )
 
+REM --- Installs queued from Diagnostics ----------------------------------------
+REM Packages whose files the running app had loaded (Windows can't replace
+REM those) are installed here, before the server imports anything. It never
+REM fails the launch; the outcome shows in Diagnostics > Packages.
+%PY% -m pending_install
+
 REM --- Start the server ------------------------------------------------------
 echo Starting Baihe Studio at %APP_URL% ...
 if defined BAIHE_CI goto :start_server_noninteractive

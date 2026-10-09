@@ -39,6 +39,10 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `db.py`
 - `diagnostics.py`
 - `expected_files.py`
+- `install_plan.py` (what a Diagnostics install would change, and whether to run it now or at restart)
+- `install_registry.py` (package keys an install may name, and their pip argv)
+- `pending_install.py` (installs queued for the next start, and the apply step `python -m pending_install` that start.bat and the launcher run first; standard library only)
+- `pending_install_child.py` (the apply step's short-lived helper: derive the pip command, redact output)
 - `portable.py`
 - `process_guard.py`
 - `real_model_check_cli.py`
@@ -150,6 +154,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `diagnostics_gaps_service.py`
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
+- `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)
 - `diarization_service.py`
 - `discover_catalog_service.py`
 - `discover_lookup_service.py`
@@ -255,7 +260,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
@@ -277,6 +282,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `diagnostics_gaps_routes.py`
 - `diagnostics_installs_routes.py`
 - `diagnostics_routes.py`
+- `pending_install_routes.py`
 - `diarization_routes.py`
 - `discover_lookup_routes.py`
 - `discover_routes.py`

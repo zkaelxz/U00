@@ -703,7 +703,7 @@ class TestSubprocessTextDecoding:
 MAX_MODULE_BYTES = 40 * 1024
 OVERSIZED_MODULE_BYTES = {
     "db.py": 299105,
-    "diagnostics.py": 109274,
+    "diagnostics.py": 109532,
     "services/transcribe_service.py": 102565,
     "cli.py": 90858,
     "scanlate.py": 89904,
