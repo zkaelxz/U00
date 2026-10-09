@@ -418,6 +418,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/settings` | local_only() |
 | `GET /api/settings/asr-options` | admin.settings |
 | `POST /api/settings/asr-options` | local_only() |
+| `POST /api/settings/asr-options/voice-detector/download` | local_only() |
 | `POST /api/settings/endpoints/{name}` | local_only() |
 | `POST /api/settings/endpoints/{name}/clear` | local_only() |
 | `GET /api/settings/engine-routing` | admin.settings |

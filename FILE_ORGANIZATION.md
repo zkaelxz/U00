@@ -47,6 +47,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 **ASR, transcription & alignment**
 
+- `asmr_vad.py`
 - `asr_backend.py`
 - `asr_benchmark.py`
 - `audio_preprocess.py`
