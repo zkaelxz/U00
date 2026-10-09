@@ -60,6 +60,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "qa.py",
     "raw_transcript.py",
     "reader.py",
+    "real_model_check_cli.py",
     "resegment.py",
     "run_tests.py",
     "scanlate.py",
