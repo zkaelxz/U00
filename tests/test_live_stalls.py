@@ -394,40 +394,42 @@ class TestWhisperRunner:
         release.set()
         assert _wait(lambda: live_whisper.outstanding_label() is None)
 
-    def test_an_abandoned_gpu_call_holds_the_gpu_until_it_ends(self, monkeypatch):
+    def test_an_abandoned_gpu_call_holds_a_gpu_lock_until_it_ends(self, isolated_db, monkeypatch):
+        import db
         release = threading.Event()
         promoted = []
         monkeypatch.setattr(background_jobs, "_promote_next_queued_gpu_job",
-                            lambda: promoted.append(live_whisper.gpu_claim_active()))
+                            lambda: promoted.append(db.gpu_lock_status()[0]))
         runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
                                             clock=TickingClock(), poll=0.005, grace=0.05, gpu=True)
         with pytest.raises(live_whisper.ChunkTimeout):
             runner.run(lambda cb: release.wait(20), 3, "chunk 4")
-        assert live_whisper.gpu_claim_active()
-        assert background_jobs._abandoned_gpu_call_alive()
+        assert db.gpu_lock_status()[0] == live_whisper.CLAIM_HOLDER
+        # The Live job's own slot is released after this; a queued job still waits.
+        assert not db.try_acquire_gpu_lock("ui:queued", max_holders=1)
         release.set()
         assert _wait(lambda: promoted)
-        assert promoted == [False]
-        assert not live_whisper.gpu_claim_active()
+        assert promoted == [None] and db.gpu_lock_status()[0] is None
 
-    def test_the_gpu_claim_goes_stale_like_a_silent_lock(self, monkeypatch):
+    def test_a_call_that_ends_within_the_grace_leaves_no_claim(self, isolated_db):
         import db
-        release = threading.Event()
         runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
-                                            clock=TickingClock(), poll=0.005, grace=0.05, gpu=True)
+                                            clock=TickingClock(), poll=0.005, grace=0.5, gpu=True)
+
+        def decode(cb):
+            time.sleep(0.1)
+            cb(1.0)
         with pytest.raises(live_whisper.ChunkTimeout):
-            runner.run(lambda cb: release.wait(20), 3, "chunk 4")
-        real = time.monotonic()
-        monkeypatch.setattr(live_whisper.time, "monotonic",
-                            lambda: real + db.GPU_LOCK_STALE_SECONDS + 1)
-        assert not live_whisper.gpu_claim_active()
-        release.set()
+            runner.run(decode, 3, "chunk 0")
+        assert _wait(lambda: runner.busy_with() is None)
+        assert db.gpu_lock_status()[0] is None
 
     def test_a_cpu_call_never_claims_the_gpu(self):
         release = threading.Event()
         with pytest.raises(live_whisper.ChunkTimeout):
             self._runner(clock=TickingClock()).run(lambda cb: release.wait(20), 3, "chunk 4")
-        assert not live_whisper.gpu_claim_active()
+        import db
+        assert db.gpu_lock_status()[0] is None
         release.set()
 
     def test_per_segment_abort_reaches_the_real_decode_loop(self, monkeypatch, tmp_path):

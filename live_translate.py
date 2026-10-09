@@ -627,7 +627,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
 
     runner = live_whisper.WhisperRunner(
         should_stop, note, clock=whisper_clock,
-        unload=live_whisper.unload_scope_for(engine, use_gpu, whisper_size), gpu=use_gpu)
+        unload=live_whisper.unload_scope_for(engine, use_gpu, whisper_size),
+        gpu=use_gpu)
 
     report("Resolving the stream address...")
     try:

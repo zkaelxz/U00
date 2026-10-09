@@ -67,8 +67,8 @@ def _log(level: str, text: str) -> None:
 
 # The one Whisper thread this process may have, across jobs: a per-runner field
 # would let Stop then Start put a second decode beside an abandoned, stuck one.
-# `abandoned_at` is set once the job gave the call up while it was still alive;
-# from then until the thread exits it also counts as a GPU claim.
+# A call the job gave up on while it was alive also holds a gpu_lock claim until
+# the thread exits.
 _outstanding_lock = threading.Lock()
 _outstanding = None
 
@@ -82,33 +82,46 @@ def outstanding_label():
     return None
 
 
-def gpu_claim_active() -> bool:
-    """True while an abandoned GPU call may still be decoding. Bounded by
-    db.GPU_LOCK_STALE_SECONDS from the abandon, like a gpu_lock row that stops
-    heartbeating, so a call stuck forever cannot hold the GPU forever."""
-    import db
-    with _outstanding_lock:
-        entry = _outstanding
-        if entry is None or not entry["gpu"] or entry["abandoned_at"] is None:
-            return False
-        if not entry["worker"].is_alive():
-            return False
-        return time.monotonic() - entry["abandoned_at"] < db.GPU_LOCK_STALE_SECONDS
+CLAIM_HOLDER = "live-whisper:abandoned"
+
+
+def _claim_gpu(entry: dict) -> None:
+    """Holds a gpu_lock slot while an abandoned GPU call may still decode, so a
+    queued GPU job (or a CLI run) is not promoted into its VRAM after the Live
+    job released its own slot. Never heartbeated: a call stuck forever stops
+    counting after db.GPU_LOCK_STALE_SECONDS, like any silent holder."""
+    if not entry["gpu"]:
+        return
+    try:
+        import db
+        with _outstanding_lock:
+            if entry["ended"]:
+                return
+            # Up to the table's cap, not the user's gpu_max_parallel: the Live
+            # job still holds its own slot at this moment.
+            entry["claimed"] = db.try_acquire_gpu_lock(
+                CLAIM_HOLDER, "an abandoned Live Whisper decode", max_holders=db.GPU_LOCK_MAX_SLOTS)
+    except Exception as exc:
+        _log("warning", f"Live: could not claim the GPU for the abandoned call: {exc}")
 
 
 def _worker_ended(entry: dict) -> None:
-    """Releases the call's GPU claim, then wakes the queue: a GPU job held back
-    by the claim has nothing else to wake it. The claim is released before the
-    thread has finished exiting, so it must not wait for is_alive() to turn False."""
+    """Releases the claim and wakes the queue: a GPU job held back by the claim
+    has nothing else to wake it."""
     with _outstanding_lock:
-        held = entry["gpu"] and entry["abandoned_at"] is not None
-        entry["abandoned_at"] = None
-    if not held:
-        return
-    try:
-        background_jobs._promote_next_queued_gpu_job()
-    except Exception as exc:
-        _log("warning", f"Live: could not promote the next GPU job: {exc}")
+        entry["ended"] = True
+        held, entry["claimed"] = entry["claimed"], False
+        if held:
+            try:
+                import db
+                db.release_gpu_lock(CLAIM_HOLDER)
+            except Exception as exc:
+                _log("warning", f"Live: could not release the GPU claim: {exc}")
+    if held:
+        try:
+            background_jobs._promote_next_queued_gpu_job()
+        except Exception as exc:
+            _log("warning", f"Live: could not promote the next GPU job: {exc}")
 
 
 class WhisperRunner:
@@ -149,7 +162,7 @@ class WhisperRunner:
         abandoned in the last two cases."""
         abandoned = threading.Event()
         box = {}
-        entry = {"worker": None, "label": label, "gpu": self._gpu, "abandoned_at": None}
+        entry = {"worker": None, "label": label, "gpu": self._gpu, "claimed": False, "ended": False}
 
         def progress(_fraction):
             if abandoned.is_set():
@@ -167,7 +180,7 @@ class WhisperRunner:
                 if abandoned.is_set():
                     _log("info", f"Live: the abandoned Whisper call ({label}) has ended"
                          + (" after the job did" if self._closed else ""))
-                    _worker_ended(entry)
+                _worker_ended(entry)
 
         global _outstanding
         worker = threading.Thread(target=work, daemon=True, name="live-whisper")
@@ -216,8 +229,7 @@ class WhisperRunner:
         worker.join(self.grace)
         if not worker.is_alive():
             return
-        with _outstanding_lock:
-            entry["abandoned_at"] = time.monotonic()
+        _claim_gpu(entry)
         frame = sys._current_frames().get(worker.ident)
         stack = "".join(traceback.format_stack(frame)) if frame is not None else "(gone)"
         _log("warning", f"Live: Whisper call abandoned ({why}); it is at:\n{stack}")

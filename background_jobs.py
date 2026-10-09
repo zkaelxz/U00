@@ -468,17 +468,6 @@ def _refresh_queue_messages_locked():
             _mirror_locked(entry["job_id"])
 
 
-def _abandoned_gpu_call_alive():
-    """True while Live's abandoned Whisper decode may still hold VRAM: its job
-    is over and has released its slot, but the thread cannot be killed."""
-    try:
-        import live_whisper
-        return live_whisper.gpu_claim_active()
-    except Exception as exc:
-        _warn("abandoned Whisper claim check failed", exc)
-        return False
-
-
 def _gpu_slot_available_locked(job_id, description):
     """Caller must already hold _lock. True if job_id may actually start
     running right now -- nothing else, in this process, another one
@@ -516,8 +505,6 @@ def _gpu_slot_available_locked(job_id, description):
     is not ignored: the job queues (False) until the lock can be taken,
     since starting anyway could share the GPU with a CLI run."""
     if _running_gpu_job_count_locked(job_id) >= get_gpu_max_parallel():
-        return False
-    if _abandoned_gpu_call_alive():
         return False
     try:
         if try_take_gpu_slot(f"ui:{job_id}", description, check_external_load=True):
