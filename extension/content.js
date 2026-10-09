@@ -1033,6 +1033,23 @@
     }
   }
 
+  // The closing line of a chapter capture: every page found is either
+  // counted in it or named as unreadable, so a shortfall is never silent.
+  function captureTally(found, counts, firstFailure, unreadablePages) {
+    const tally = [`${found} page${found === 1 ? "" : "s"} found`];
+    if (counts.translated) tally.push(`${counts.translated} translated`);
+    if (counts.cached) tally.push(`${counts.cached} already done`);
+    if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
+    if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
+    if (unreadablePages.length) {
+      const named = unreadablePages.slice(0, 3)
+        .map((u) => `page ${u.position}: ${u.error}`).join("; ");
+      const more = unreadablePages.length > 3 ? `; and ${unreadablePages.length - 3} more` : "";
+      tally.push(`${unreadablePages.length} unreadable (${named}${more})`);
+    }
+    return tally.join(", ");
+  }
+
   async function runCapture(run, ui, scroller, { dramaId, store, fromHere }) {
     // Hashes already handled this run (sent, cached, skipped or duplicate).
     // Distinct pages seen is also what the cap counts.
@@ -1046,6 +1063,10 @@
     let limit = MAX_IMAGES_PER_REQUEST;
     let capHit = false;
     let unreadable = "";
+    // Pages that could not be read, numbered in the order they were met, so
+    // the closing summary can name them like Translate-visible does.
+    const unreadablePages = [];
+    const countedUnreadable = new WeakSet();
     let failure = "";
 
     const report = (suffix = "") => {
@@ -1072,6 +1093,11 @@
           extracted = await extractBytes(el);
         } catch (e) {
           unreadable = String(e && e.message ? e.message : e);
+          if (!countedUnreadable.has(el)) {
+            countedUnreadable.add(el);
+            unreadablePages.push({ position: seen.size + unreadablePages.length + 1,
+                                   error: unreadable });
+          }
           if (key !== null) handled.set(el, key);
           continue;
         }
@@ -1205,15 +1231,12 @@
             : "No page-sized images found here. If the page is still loading, try again.",
       };
     }
-    const tally = [`${seen.size} page${seen.size === 1 ? "" : "s"} found`];
-    if (counts.translated) tally.push(`${counts.translated} translated`);
-    if (counts.cached) tally.push(`${counts.cached} already done`);
-    if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
-    if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
-    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally.join(", ")}.`;
+    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages);
+    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}.`;
     reportProgress(message);
     toast(message, 8000);
-    return { ok: true, data: { reason, message, found: seen.size, ...counts, pages: [] } };
+    return { ok: true, data: { reason, message, found: seen.size, ...counts,
+                               unreadable: unreadablePages, pages: [] } };
   }
 
   function cancelCapture() {
@@ -1272,5 +1295,5 @@
   window.__baihe = { translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture };
+                     captureChapter, cancelCapture, captureTally };
 })();

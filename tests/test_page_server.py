@@ -936,7 +936,92 @@ class TestAPageFailureNeverLeaksOrLeavesDebris:
 
     def test_a_huge_canvas_is_not_decoded_for_the_blank_check(self):
         Image = pytest.importorskip("PIL.Image")
-        img = Image.new("1", (20000, 20000))
+        # Over the blank check's own cap but under Pillow's decompression
+        # bomb error threshold (twice MAX_IMAGE_PIXELS), so only that cap keeps this flat (hence blank) canvas
+        # from being called blank.
+        side = 11000
+        assert side * side > page_capture_checks.BLANK_CHECK_MAX_PIXELS
+        assert side * side < 2 * Image.MAX_IMAGE_PIXELS
+        img = Image.new("1", (side, side))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         assert page_capture_checks.looks_blank(buf.getvalue()) is False
+        assert page_capture_checks.looks_blank(_png_bytes(blank=True)) is True
+
+
+class TestRecapturingKeepsSavedWork:
+    def _first_capture(self, token, isolated_db, monkeypatch):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+        body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
+        _post(token, body)
+        page = db.list_pages(drama_id)[0]
+        bubbles = db.load_bubbles(page["id"])
+        bubbles[0]["translated_text"] = "my correction"
+        db.save_bubbles(page["id"], bubbles)
+        return drama_id, page, body
+
+    @pytest.mark.parametrize("engine", ["works", "fails", "unset"])
+    def test_a_corrected_translation_survives_a_recapture(
+            self, token, fake_pipeline, isolated_db, monkeypatch, engine):
+        import db
+        import scanlate
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        if engine == "unset":
+            monkeypatch.setattr(page_server, "_build_engine", lambda config: None)
+        elif engine == "fails":
+            def boom(*a, **kw):
+                raise RuntimeError("engine down")
+            monkeypatch.setattr(scanlate, "translate_page_bubbles", boom)
+        reads = len(fake_pipeline["detect"])
+        second = _post(token, body).payload
+        assert len(fake_pipeline["detect"]) == reads
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction"]
+        assert len(db.list_pages(drama_id)) == 1
+        assert second["failed"] == [] and second["stored"] == 1
+        assert second["already_stored"] == 1
+        assert second["pages"][0]["regions"][0]["translated_text"] == "my correction"
+
+    def test_a_shared_page_keeps_its_bubbles_and_other_chapters_context(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        context = dict(page_server._contexts)
+        chapter_two = {"images": [_distinct_page(0), _distinct_page(1)], "drama_id": drama_id,
+                       "store": True, "filter_pages": False}
+        result = _post(token, chapter_two, path="/pages").payload
+        assert len(db.list_pages(drama_id)) == 2
+        assert result["stored"] == 2 and result["already_stored"] == 1
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction"]
+        assert fake_pipeline["translate"][-1]["kwargs"]["previous_context"] == context.get(
+            str(drama_id), "")
+
+    def test_a_saved_page_without_bubbles_is_read_again(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        db.save_bubbles(page["id"], [])
+        reads = len(fake_pipeline["detect"])
+        _post(token, body)
+        assert len(fake_pipeline["detect"]) == reads + 1
+        assert len(db.load_bubbles(page["id"])) == 1
+
+    def test_the_stored_page_is_the_one_this_request_added(self, isolated_db, monkeypatch):
+        import db
+        from sources import pipeline
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        real = pipeline.add_page_images
+        foreign = {}
+
+        def racing(did, images, ids_out=None, chapter=None):
+            added = real(did, images, ids_out=ids_out, chapter=chapter)
+            # Another writer's page lands before this caller looks.
+            foreign["id"] = db.create_page(did, 99, "pages/page_0099.png", 1, 1)
+            return added
+
+        monkeypatch.setattr(pipeline, "add_page_images", racing)
+        page = page_server._store_page(drama_id, _png_bytes(), ".png")
+        assert page["id"] != foreign["id"]
+        pipeline._discard_pages(drama_id, [page["id"]])
+        assert [p["id"] for p in db.list_pages(drama_id)] == [foreign["id"]]

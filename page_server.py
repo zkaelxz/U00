@@ -318,11 +318,14 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     Scanlate's own upload uses, and returns its new page row."""
     import db
     from sources import pipeline
-    added = pipeline.add_page_images(drama_id, [(data, ext)])
-    if not added:
+    # The id comes from the import itself: other writers add pages without
+    # this module's lock, so "the last page" could be theirs, and a rollback
+    # of it would delete their page.
+    ids = []
+    added = pipeline.add_page_images(drama_id, [(data, ext)], ids_out=ids)
+    if not added or not ids:
         raise EndpointError(500, "the image could not be saved as a page")
-    pages = db.list_pages(drama_id)
-    return pages[-1] if pages else None
+    return db.get_page(ids[0], drama_id)
 
 
 def translate_image(data: bytes, content_type: str, drama_id=None,
@@ -360,6 +363,23 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     with PIPELINE_LOCK:
         if store and drama is not None:
             page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
+            if page is not None:
+                # Opening a saved chapter again must not redo its pages:
+                # OCR and translation would replace every bubble the person
+                # has corrected in Scanlate. A page without bubbles has
+                # nothing to lose and is read as usual. Capture never
+                # labels chapters, so an identical page shared with another
+                # chapter (credits) is reused as it is, not duplicated.
+                saved = db.load_bubbles(page["id"])
+                if saved:
+                    width, height = _image_size(data)
+                    return {
+                        "width": width, "height": height,
+                        "regions": _regions_for_response(saved),
+                        "notes": [], "drama_id": int(drama_id),
+                        "page_id": page["id"], "stored": True,
+                        "already_stored": True,
+                    }
             newly_stored = page is None
             if newly_stored:
                 page = _store_page(int(drama_id), data, ext)
@@ -803,6 +823,7 @@ class _Handler(BaseHTTPRequestHandler):
         return {"pages": results, "skipped": skipped, "failed": failed,
                 "received": len(images),
                 "stored": sum(1 for r in results if r.get("stored")),
+                "already_stored": sum(1 for r in results if r.get("already_stored")),
                 **({"stopped": stopped} if stopped else {})}
 
     # -- logging -------------------------------------------------------

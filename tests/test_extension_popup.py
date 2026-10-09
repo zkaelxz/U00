@@ -97,3 +97,55 @@ def test_a_stopped_run_shows_its_message_and_is_flagged():
                    "stopped": {"message": "Translated 3 of 10 pages; stopped at page 4 because "
                                           "the app stopped answering"}})
     assert out["bad"] is True and "stopped at page 4" in out["text"]
+
+
+CONTENT = Path(__file__).resolve().parents[1] / "extension" / "content.js"
+
+CONTENT_HARNESS = textwrap.dedent("""
+    const vm = require("vm"), fs = require("fs");
+    const noop = () => {};
+    const el = () => ({ addEventListener: noop, appendChild: noop, style: {}, classList: { add: noop, remove: noop } });
+    const window = { addEventListener: noop, location: { href: "https://s/c" } };
+    const sandbox = {
+      window, location: window.location,
+      document: { addEventListener: noop, createElement: el, documentElement: el(), body: el(),
+                  querySelectorAll: () => [], querySelector: () => null, title: "" },
+      chrome: { runtime: { sendMessage: async () => ({}), onMessage: { addListener: noop } } },
+      MutationObserver: class { observe() {} disconnect() {} },
+      ResizeObserver: class { observe() {} disconnect() {} },
+      IntersectionObserver: class { observe() {} disconnect() {} },
+      console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set, WeakMap, WeakSet,
+      setTimeout, clearTimeout, setInterval, clearInterval, getComputedStyle: () => ({}),
+    };
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), sandbox);
+    console.log(JSON.stringify(eval(process.argv[2])));
+""")
+
+
+def tally(found, counts, first_failure, unreadable):
+    expression = ("sandbox.window.__baihe.captureTally(" +
+                  ", ".join(json.dumps(a) for a in (found, counts, first_failure, unreadable)) + ")")
+    out = subprocess.run(["node", "-e", CONTENT_HARNESS, str(CONTENT), expression],
+                         capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_a_chapter_capture_names_the_pages_it_could_not_read():
+    counts = {"translated": 2, "cached": 0, "skipped": 0, "failed": 0}
+    text = tally(3, counts, "", [{"position": 2, "error": "the page was still blank after waiting for it to draw"}])
+    assert "2 translated" in text
+    assert "1 unreadable (page 2: the page was still blank after waiting for it to draw)" in text
+
+
+def test_many_unreadable_pages_are_counted_and_only_some_named():
+    counts = {"translated": 0, "cached": 0, "skipped": 0, "failed": 0}
+    text = tally(5, counts, "", [{"position": i, "error": "blank"} for i in range(1, 6)])
+    assert "5 unreadable" in text and "and 2 more" in text
+
+
+def test_a_clean_capture_mentions_no_unreadable_pages():
+    counts = {"translated": 3, "cached": 0, "skipped": 0, "failed": 0}
+    assert "unreadable" not in tally(3, counts, "", [])

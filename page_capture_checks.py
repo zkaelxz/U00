@@ -7,8 +7,7 @@ import os
 
 def page_with_same_bytes(drama_id: int, data: bytes):
     """A page already in the drama whose file is byte-identical, so a
-    re-capture of a chapter replaces its bubbles instead of doubling the
-    pages. Pages the importer re-encoded (WebP) never match and are added
+    re-capture of a chapter reuses it instead of doubling the pages. Pages the importer re-encoded (WebP) never match and are added
     again."""
     import db
     for page in db.list_pages(drama_id):
@@ -38,7 +37,7 @@ def looks_blank(data: bytes) -> bool:
         import io
 
         from PIL import Image
-        with Image.open(io.BytesIO(data)) as img:
+        with Image.open(io.BytesIO(data), formats=("PNG", "JPEG", "WEBP")) as img:
             if img.width * img.height > BLANK_CHECK_MAX_PIXELS:
                 return False
             # draft() lets JPEG decode at a fraction of the size; convert
