@@ -56,12 +56,15 @@ def data_problems(data: dict) -> list:
         for key, row in data[group].items():
             if row.get("status") not in STATUSES:
                 problems.append(f"{group}/{key}: unknown status {row.get('status')!r}")
-            when = row.get("last_verified", "")
-            if when:
-                try:
-                    datetime.date.fromisoformat(when)
-                except (TypeError, ValueError):
-                    problems.append(f"{group}/{key}: last_verified {when!r} is not an ISO date")
+            for field in ("last_verified", "pace_verified"):
+                when = row.get(field, "")
+                if when:
+                    try:
+                        datetime.date.fromisoformat(when)
+                    except (TypeError, ValueError):
+                        problems.append(f"{group}/{key}: {field} {when!r} is not an ISO date")
+            if row.get("pace") and not row.get("pace_verified"):
+                problems.append(f"{group}/{key}: pace note without pace_verified")
     return problems
 
 
@@ -141,7 +144,8 @@ def _flags(cls) -> str:
 
 
 def _text(row) -> str:
-    return " ".join(t for t in (row.get("notes"), row.get("reason")) if t)
+    pace = f"**Pace ({row['pace_verified']}):** {row['pace']}" if row.get("pace") else ""
+    return " ".join(t for t in (row.get("notes"), row.get("reason"), pace) if t)
 
 
 def build_block(data: dict, adapters: dict) -> str:

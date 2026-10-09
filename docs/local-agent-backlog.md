@@ -31,6 +31,17 @@ first. **FREE-TIER-OK** = bigger but well bounded; a free Claude/Codex session w
 | 17 | Jellyfin-aware GPU headroom (extends "Keep free" settings, draft #984) | GPU slot code, `services/`, settings | ~120 | medium-high | NEEDS-SUBSCRIPTION | GPU slots and concurrency; brief B6 |
 | 18 | Hardening PR for live capture's `media.import_url` before household users get it (owner decision 2026-10-06; its scope isn't recorded) | `services/egress_proxy.py`, `services/live_fetch.py`, `docs/remote-access-decision.md` | unknown | high | NEEDS-SUBSCRIPTION | SSRF and remote access; Opus security review; brief B7 |
 
+## Open compliance items
+
+Found while recording the 2026-10-09 pacing vetting (`docs/source-status.json`). Not fixed; each is for the owner to decide.
+
+- `ranobes`: the adapter fetches `/chapters/*/page/*` for pages 2 and later, which robots.txt disallows.
+- `guazimanhua`: the adapter's search uses `/category.php?*keyword=`, which robots.txt disallows.
+- `syosetu`: the adapter scrapes HTML, while the terms (Art. 14 item 23) allow automated access only through the official なろうデベロッパー API.
+- `toonkor`: `toonkor0.org` now redirects to `toonkor3.org`, so `BASE_URL` is stale.
+- `mangak`: the adapter ships although the site's terms of service (section 4) forbid bots.
+- `manhuagui`: the site footer prohibits downloading.
+
 ## Briefs for NEEDS-SUBSCRIPTION rows
 
 Each brief goes into one session on its own branch off the latest `baihe-subtitler`. Before running, re-check the row

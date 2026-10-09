@@ -65,6 +65,7 @@ from urllib.parse import quote, urlsplit
 from ..base import SourceAdapter
 from ..models import (AccessTier, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       SearchResult, SeriesInfo, SourceError)
+from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 
 BASE_URL = "https://zerosumonline.com"
@@ -136,6 +137,10 @@ class ZerosumOnlineSource(SourceAdapter):
     display_name = "ゼロサムオンライン Zero-Sum Online"
     content_types = [ContentType.MANGA.value]
     languages = ["ja"]
+    pacing_profile = PacingProfile(
+        fast=PaceLevel(min_delay=1.0, max_delay=2.0, max_concurrent=1),
+        evidence=("zerosumonline.com and api.zerosumonline.com robots.txt return 404 and no terms page was found (checked 2026-10-09)."),
+        fast_allowed=True)
     url_patterns = [r"zerosumonline\.com/detail/[^/?#]+"]
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
