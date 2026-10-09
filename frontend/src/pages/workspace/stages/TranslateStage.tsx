@@ -636,7 +636,7 @@ function RunPanel({
             </Field>
             <Field
               label="Default ambiguous pronouns to she/her"
-              help={`A soft default, not a rule: Mandarin 他/她 sound the same, so where a pronoun is ambiguous the translator is told to write she/her. Context, an honorific, or a character's own pronouns (set under Characters) still win; a character set to he/him stays he/him.${savedNote}`}
+              help={`Mandarin 他/她 sound the same, so the translator is told to write she/her where a pronoun is ambiguous, and lines that still come out he/him for a speaker with no he/him set are asked again once, then flagged in Review. It applies to lines translated after you save it: turn on Re-translate existing to redo lines that already have English. It does not override characters set to he/him, nor an honorific or context that says male.${savedNote}`}
             >
               <Toggle checked={f.female_pronouns} onChange={(v) => saveToggle('female_pronouns', v)} />
             </Field>

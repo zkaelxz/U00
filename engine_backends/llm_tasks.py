@@ -385,6 +385,8 @@ SYSTEM_FLAG_REASONS = {
                        "source and the translation"),
     "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
                             "result wasn't applied; translate this line again"),
+    "pronoun_check": ("Pronoun check -- the translation says he/him but no he/him character "
+                      "is set for this speaker"),
     "content_blocked": ("Blocked by the translation engine's own content-moderation system -- "
                         "see the note for which engine and its stated reason"),
 }

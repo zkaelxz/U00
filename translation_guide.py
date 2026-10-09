@@ -19,7 +19,7 @@ import re
 import json
 from core import LANGUAGE_NAMES
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
-from translate_engines import call_llm_json, parse_json_array
+from translate_engines import PRONOUN_DEFAULT_MARKER, call_llm_json, parse_json_array
 
 
 # ---------------------------------------------------------------------------
@@ -106,8 +106,8 @@ Genre notes (baihe / GL):
   consistent English pet name.
 """
 
-FEMALE_PRONOUN_DEFAULT_GUIDANCE = """
-Pronoun default: unless context, an honorific, or a character's known gender
+FEMALE_PRONOUN_DEFAULT_GUIDANCE = f"""
+{PRONOUN_DEFAULT_MARKER} unless context, an honorific, or a character's known gender
 (see below, if given) says otherwise, default an ambiguous third-person
 reference to female (she/her/hers) -- most baihe/GL casts are entirely or
 almost entirely women, and spoken Mandarin doesn't distinguish 他/她/它
