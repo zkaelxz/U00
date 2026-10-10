@@ -47,7 +47,7 @@ import {
   lineRanges,
   loadPresetStart,
   restoreRunOptions,
-  saveRunOptions,
+  runOptionsDraft,
   MAX_FALLBACKS,
   monthSpendText,
   cloudModelNotice,
@@ -63,8 +63,10 @@ import {
   validateRun,
   withPresetEngine,
   withSavedEngine,
+  TRANSLATE_DRAFT_STAGE,
   type RunForm,
 } from '../translateForm'
+import { useStageDraft } from '../../../hooks/useStageDraft'
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
@@ -333,7 +335,10 @@ function RunPanel({
   const { dramaId, drama } = useStage()
   const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
   // What the owner last chose for this title, restored after a reload.
-  const [restored] = useState(() => restoreRunOptions(dramaId, base, config))
+  const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSLATE_DRAFT_STAGE, {})
+  const [restored] = useState(() => restoreRunOptions(rawDraft, base, config))
+  // Bumped by Reset to defaults so the tier picker starts over too.
+  const [resets, setResets] = useState(0)
   const [tierChoice, setTierChoice] = useState<string | null>(restored.tier)
   // Parity X28: review proposed glossary terms before the run starts.
   // reviewing counts presses (0 = closed) so each press extracts afresh.
@@ -361,8 +366,17 @@ function RunPanel({
   const [estimateError, setEstimateError] = useState<unknown>(null)
   const set = <K extends keyof RunForm>(k: K, v: RunForm[K]) => setF((s) => ({ ...s, [k]: v }))
   useEffect(() => {
-    saveRunOptions(dramaId, { form: f, baseEngine: config.translation_engine, reviewFirst, tier: tierChoice ?? '' })
-  }, [dramaId, f, config.translation_engine, reviewFirst, tierChoice])
+    saveDraft(runOptionsDraft({ form: f, baseEngine: config.translation_engine, reviewFirst, tier: tierChoice ?? '' }))
+  }, [saveDraft, f, config.translation_engine, reviewFirst, tierChoice])
+  // Back to the title's saved engine and the Settings defaults; the draft for this title is dropped.
+  const resetToDefaults = () => {
+    clearDraft()
+    setF(base)
+    setTierChoice(null)
+    setReviewFirst(false)
+    setProblem(null)
+    setResets((n) => n + 1)
+  }
   // The two prompt toggles are saved for the title as soon as they change, so
   // every later run (retries, glossary re-translation, AI line actions, the
   // CLI) uses what is shown here, not a default.
@@ -565,8 +579,9 @@ function RunPanel({
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <TierPicker
+        key={resets}
         config={config}
-        initialTier={restored.tier}
+        initialTier={resets ? null : restored.tier}
         onTierChange={setTierChoice}
         onApplied={(t) => {
           setF((s) => applyTierToForm(s, t, config))
@@ -686,6 +701,9 @@ function RunPanel({
             </Field>
           </div>
           <SavePreset f={f} defaultEngine={config.translation_engine} />
+          <div className="advanced-wide actions">
+            <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
+          </div>
         </div>
       </Section>
     </section>
