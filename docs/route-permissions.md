@@ -2,7 +2,7 @@
 
 The route -> permission table `tests/test_api_permissions.py` checks against the app. The permission model and the reasoning behind each row are in [`remote-access-decision.md`](remote-access-decision.md).
 
-One row per route (`METHOD /path`), sorted by path and then method, and no counts or totals: the test derives them from the app, so a new route adds one row and touches no shared line. Declarations: a permission name, `public()`, `authenticated()` or `local_only()`. Rows are for the auth-on app with the frontend built.
+One row per route (`METHOD /path`), sorted by path and then method, and no counts or totals: the test derives them from the app, so a new route adds one row and touches no shared line. Declarations: a permission name, `public()`, `authenticated()` or `local_only()`. Rows are for the auth-on app with the frontend built. The table is generated from the decorators: after adding or changing a route run `python tools/route_table.py --write`, never edit rows by hand; the prose above the table is the only part to edit.
 
 | Route | Declaration |
 |---|---|

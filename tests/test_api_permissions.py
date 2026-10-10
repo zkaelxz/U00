@@ -32,8 +32,8 @@ from services.service_errors import RateLimitedError
 HOW_TO_DECLARE = (
     "Every route needs exactly one of dependencies=[require_permission(\"x.y\")], "
     "[public_route()], [local_only()] or (own-session routes under /api/auth/ only) "
-    "[authenticated()] from api/auth.py on its decorator, and a row in "
-    "the route table in docs/route-permissions.md.")
+    "[authenticated()] from api/auth.py on its decorator, and its row in "
+    "docs/route-permissions.md, regenerated with `python tools/route_table.py --write`.")
 
 # Starlette routes FastAPI itself adds for the interactive docs. Only served
 # with auth off (loopback-only); create_app drops them when auth is on.
@@ -41,13 +41,17 @@ DOCS_PATHS = {"/api/openapi.json", "/api/docs", "/docs/oauth2-redirect"}
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture
-def dist(tmp_path):
-    d = tmp_path / "dist"
+def make_fake_dist(d):
+    """A minimal built frontend; tools/route_table.py builds the same app with it."""
     (d / "assets").mkdir(parents=True)
     (d / "index.html").write_text("<html>FAKE-INDEX</html>")
     (d / "assets" / "app.js").write_text("console.log(1)")
     return d
+
+
+@pytest.fixture
+def dist(tmp_path):
+    return make_fake_dist(tmp_path / "dist")
 
 
 def _app(auth="on", dist_dir=None, **kw):
@@ -92,6 +96,23 @@ def _h(session, csrf=True, **extra):
 
 # --- the static test ---------------------------------------------------------
 
+def declaration_label(decls):
+    kind, perm = decls[0]
+    return {"public": "public()", "local_only": "local_only()",
+            "authenticated": "authenticated()"}.get(kind, perm)
+
+
+def route_declarations(app):
+    """{"METHOD /path": declaration} for the app, as the doc table lists it."""
+    actual = {}
+    for _r, path, methods, decls in api_auth.iter_route_declarations(app):
+        if path in DOCS_PATHS:
+            continue
+        for m in methods:
+            actual[f"{m} {path}"] = declaration_label(decls)
+    return actual
+
+
 def _undeclared(app):
     bad = []
     for route, path, methods, decls in api_auth.iter_route_declarations(app):
@@ -127,7 +148,8 @@ class TestEveryRouteDeclared:
     def test_doc_route_table_matches_the_app(self, dist):
         """Every row of the route table in docs/route-permissions.md
         (one `METHOD /path` and its declaration per row) equals what the app
-        declares, and the rows are sorted with one route per line."""
+        declares, and the rows are sorted with one route per line. The table is
+        generated: regenerate with `python tools/route_table.py --write`."""
         import pathlib
         import re
         doc = (pathlib.Path(__file__).resolve().parent.parent / "docs"
@@ -150,17 +172,7 @@ class TestEveryRouteDeclared:
         if order != sorted(order):
             problems.append("rows are not sorted by path, then method")
 
-        def label(decls):
-            kind, perm = decls[0]
-            return {"public": "public()", "local_only": "local_only()",
-                    "authenticated": "authenticated()"}.get(kind, perm)
-
-        actual = {}
-        for _r, path, methods, decls in api_auth.iter_route_declarations(_app("on", dist)):
-            if path in DOCS_PATHS:
-                continue
-            for m in methods:
-                actual[f"{m} {path}"] = label(decls)
+        actual = route_declarations(_app("on", dist))
 
         for r in sorted(set(actual) - set(documented)):
             problems.append(f"missing from the doc: {r} ({actual[r]})")
@@ -169,8 +181,25 @@ class TestEveryRouteDeclared:
         for r in sorted(set(actual) & set(documented)):
             if actual[r] != documented[r]:
                 problems.append(f"{r}: doc says {documented[r]} but the app declares {actual[r]}")
-        assert not problems, ("docs/route-permissions.md route table is out of date:\n  "
+        assert not problems, ("docs/route-permissions.md route table is out of date "
+                              "(regenerate with `python tools/route_table.py --write`):\n  "
                               + "\n  ".join(problems))
+
+    def test_generator_output_equals_the_doc_table_and_write_is_idempotent(self):
+        import importlib.util
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        spec = importlib.util.spec_from_file_location("route_table", root / "tools" / "route_table.py")
+        rt = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rt)
+        doc = (root / "docs" / "route-permissions.md").read_text(encoding="utf-8")
+        table = rt.build_table()
+        assert table in doc, "run `python tools/route_table.py --write`"
+        once = rt.replace_table(doc, table)
+        assert once == doc
+        assert rt.replace_table(once, table) == once
+        stale = doc.replace("| public() |", "| local_only() |", 1)
+        assert rt.replace_table(stale, table) == doc
 
     def test_walker_sees_every_route(self, dist):
         app = _app("off", dist)
