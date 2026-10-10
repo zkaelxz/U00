@@ -14,6 +14,7 @@ import sys
 import tempfile
 
 import diagnostics
+import diagnostics_torch
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -37,7 +38,7 @@ def unqueueable_reason(keys) -> str:
     for key in keys:
         if key not in known:
             return "Unknown or non-installable package."
-    if any(k in diagnostics.TORCH_FAMILY for k in keys) and shutil.which("nvidia-smi"):
+    if any(k in diagnostics_torch.TORCH_FAMILY for k in keys) and shutil.which("nvidia-smi"):
         return ("PyTorch on an NVIDIA PC is set up under GPU PyTorch, not here, so it keeps "
                 "its CUDA build.")
     return None
@@ -63,9 +64,9 @@ def write_torch_pins(keys):
     """Path of a temporary constraints file pinning the installed torch family
     (the caller removes it), or None when there is nothing to pin or the keys
     are themselves torch packages."""
-    if any(k in diagnostics.TORCH_FAMILY for k in keys):
+    if any(k in diagnostics_torch.TORCH_FAMILY for k in keys):
         return None
-    pins = diagnostics.torch_pin_lines()
+    pins = diagnostics_torch.torch_pin_lines()
     if not pins:
         return None
     fd, path = tempfile.mkstemp(prefix="baihe-torch-pins-", suffix=".txt")

@@ -219,9 +219,9 @@ class _TrippedTorch:
 
 def test_status_and_settings_save_never_touch_torch(monkeypatch, isolated_db):
     import sys
-    import diagnostics
+    import diagnostics_torch
     monkeypatch.setitem(sys.modules, "torch", _TrippedTorch)
-    monkeypatch.setattr(diagnostics, "external_gpu_load",
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load",
                         lambda: {"memory_total_mb": 8 * GB, "memory_free_mb": 6 * GB})
     assert loaded_models_service._memory_row()["vram"]["free_bytes"] == 6 * GB * mh.MB
     settings_service.set_settings({"keep_free_vram_gb": 1})
@@ -238,8 +238,8 @@ def test_load_time_check_uses_torch_only_once_cuda_is_initialized(monkeypatch):
             mem_get_info = staticmethod(lambda: (3 * GB * mh.MB, 8 * GB * mh.MB))
     monkeypatch.setitem(sys.modules, "torch", Torch)
     monkeypatch.setattr(mh, "reserved_mb", lambda memory: 4 * GB)
-    import diagnostics
-    monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None)
+    import diagnostics_torch
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: None)
     assert mh.read_memory_mb("vram", at_load=True) is None
     Torch.cuda.initialized = True
     assert mh.read_memory_mb("vram", at_load=True) == (8 * GB, 3 * GB)

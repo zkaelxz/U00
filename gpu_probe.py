@@ -19,11 +19,11 @@ _local = threading.local()
 
 def prefetch() -> None:
     """Never raises; a failed reading is simply not cached."""
-    import diagnostics
+    import diagnostics_torch
     try:
         at = time.monotonic()
-        load = diagnostics.external_gpu_load()
-        _local.readings = {"busy": diagnostics.external_gpu_is_busy(load), "load": load, "at": at}
+        load = diagnostics_torch.external_gpu_load()
+        _local.readings = {"busy": diagnostics_torch.external_gpu_is_busy(load), "load": load, "at": at}
     except Exception:
         _local.readings = None
 
@@ -36,12 +36,12 @@ def _take(key):
 
 
 def external_gpu_is_busy() -> bool:
-    import diagnostics
+    import diagnostics_torch
     found, value = _take("busy")
-    return value if found else diagnostics.external_gpu_is_busy()
+    return value if found else diagnostics_torch.external_gpu_is_busy()
 
 
 def external_gpu_load():
-    import diagnostics
+    import diagnostics_torch
     found, value = _take("load")
-    return value if found else diagnostics.external_gpu_load()
+    return value if found else diagnostics_torch.external_gpu_load()

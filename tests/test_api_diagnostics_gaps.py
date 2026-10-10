@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 import db
 import diagnostics
+import diagnostics_torch
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -100,7 +101,7 @@ def fakes(isolated_db, monkeypatch):
         yield {"returncode": 0, "timed_out": False}
 
     monkeypatch.setattr(svc, "stream_tree", fake_stream)
-    monkeypatch.setattr(diagnostics, "nvidia_driver_info",
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info",
                         lambda: {"gpu_name": "NVIDIA GeForce RTX 3080 Ti", "driver_version": "580.97"})
     monkeypatch.setattr(svc, "verify_torch", lambda blocking=True, cancel=None: {
         "torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128", "torchaudio": "2.11.0+cu128",

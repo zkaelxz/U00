@@ -810,8 +810,8 @@ class TestTimingsAndNotes:
 class TestChunkDiagnostics:
     def test_a_chunk_over_three_times_its_audio_gets_a_status_line_and_a_log_line(
             self, monkeypatch):
-        import diagnostics
-        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: {
+        import diagnostics_torch
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: {
             "memory_free_mb": 1200.0, "memory_total_mb": 8192.0})
         logged, notes = [], []
         monkeypatch.setattr(live_whisper, "_log", lambda level, text: logged.append(text))
@@ -823,9 +823,9 @@ class TestChunkDiagnostics:
         assert len(notes) == 1   # 5.5 s for 10 s of audio is healthy
 
     def test_nvidia_smi_runs_only_for_a_slow_gpu_chunk(self, monkeypatch):
-        import diagnostics
+        import diagnostics_torch
         calls = []
-        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: calls.append(1))
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: calls.append(1))
         monkeypatch.setattr(live_whisper, "_log", lambda level, text: None)
         note = lambda t, k=None: None
         live_whisper.log_chunk(0, 10.0, 0.1, 2.0, 1.0, False, note, use_gpu=True)
@@ -835,8 +835,8 @@ class TestChunkDiagnostics:
         assert calls == [1]
 
     def test_a_missing_nvidia_smi_is_not_an_error(self, monkeypatch):
-        import diagnostics
-        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None)
+        import diagnostics_torch
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: None)
         logged = []
         monkeypatch.setattr(live_whisper, "_log", lambda level, text: logged.append(text))
         live_whisper.log_chunk(0, 10.0, 0.1, 2.0, 1.0, True, lambda t, k=None: None)

@@ -476,7 +476,7 @@ def _gpu_slot_available_locked(job_id, description):
     itself started -- neither can see a different application on the same
     machine using the same physical GPU (Jellyfin's hardware-accelerated
     transcoding on the same card is the motivating case). nvidia-smi's own
-    utilization/free-VRAM numbers (diagnostics.external_gpu_is_busy) are
+    utilization/free-VRAM numbers (diagnostics_torch.external_gpu_is_busy) are
     checked as a third, independent guard for exactly that: real driver-
     level load, whoever caused it. Same accepted-latency tradeoff as the
     cross-process check below: nothing polls this on its own, so a
