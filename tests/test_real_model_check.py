@@ -1,5 +1,6 @@
 """The opt-in real-model check (services/real_model_check_service.py). Every
 model, backend and Ollama call is faked: no GPU, no models, no network."""
+import whisper_models
 import os
 import time
 
@@ -28,7 +29,7 @@ def _wait(timeout=10):
 def env(isolated_db, monkeypatch):
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
-    monkeypatch.setattr("core.release_gpu_models", lambda: None)
+    monkeypatch.setattr("whisper_models.release_gpu_models", lambda: None)
     background_jobs.clear_job(svc.JOB_ID)
     svc._STATE.update(checks=[], finished=False)
     yield
@@ -80,7 +81,7 @@ def asr(monkeypatch):
     monkeypatch.setattr(asr_options_service, "stored_asr_backend", lambda d: "whisper")
     monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
     monkeypatch.setattr(svc, "_installed", lambda m: True)
-    monkeypatch.setattr(core, "is_whisper_model_cached", lambda size: state["cached"])
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: state["cached"])
     monkeypatch.setattr(asr_backend, "get_backend", lambda name: state["backend"])
     return state
 
@@ -381,7 +382,7 @@ def test_could_not_check_does_not_fail_the_job(env, monkeypatch):
 
 def test_run_checks_releases_gpu_models_even_when_stopped(monkeypatch):
     released = []
-    monkeypatch.setattr("core.release_gpu_models", lambda: released.append(1))
+    monkeypatch.setattr("whisper_models.release_gpu_models", lambda: released.append(1))
 
     def stop(i, label):
         raise background_jobs.JobCancelled()
@@ -596,7 +597,7 @@ def _refusal(kind):
 @pytest.mark.parametrize("kind", ["vram", "headroom"])
 def test_memory_refusal_keeps_its_message_and_stops_the_run(monkeypatch, kind):
     ran = []
-    monkeypatch.setattr("core.release_gpu_models", lambda: None)
+    monkeypatch.setattr("whisper_models.release_gpu_models", lambda: None)
 
     def refuse(**kw):
         raise _refusal(kind)

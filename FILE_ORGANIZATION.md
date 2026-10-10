@@ -42,9 +42,11 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `cli.py`
 - `cli_subtitle.py` (the `import-subtitle` command)
 - `cli_timing.py` (the `timing-check` command, and the wait after a Qwen-only `transcribe`)
+- `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db.py`
 - `diagnostics.py`
+- `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
 - `upgrade_check.py` (try a package upgrade in a throwaway venv and run the tests there before touching the real environment)
 - `expected_files.py`
@@ -78,6 +80,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `sensitivity_preset.py`
 - `vad_segments.py`
 - `voice_id.py`
+- `whisper_models.py` (loads or releases the Whisper model on the right device and explains why it fell back to the CPU; the model list, GPU status and download-error diagnosis)
 - `word_align.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**
@@ -121,6 +124,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `reader.py`
 - `scanlate.py`
 - `scanlate_detect.py`
+- `scanlate_inpaint.py`
 - `segment.py`
 
 **Story & learning**
@@ -201,6 +205,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `engine_routing_service.py`
 - `event_stream_service.py`
 - `export_service.py`
+- `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
 - `extension_service.py`
 - `fixflag_transcribe.py`
 - `bulk_job_view.py` (public view of a bulk_jobs row)
