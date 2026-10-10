@@ -121,6 +121,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `reader.py`
 - `scanlate.py`
 - `scanlate_detect.py`
+- `scanlate_inpaint.py`
 - `segment.py`
 
 **Story & learning**
