@@ -15,15 +15,15 @@ test('walks the steps, picks a translator and dismisses for good', async ({ page
   })
   await page.goto('/')
   const card = page.getByRole('region', { name: 'Get started' })
-  await expect(card.getByRole('listitem')).toHaveCount(5)
-  await expect(card.getByRole('listitem').first()).toContainText('Add.')
+  await expect(card.locator('.get-started-steps').getByRole('listitem')).toHaveCount(5)
+  await expect(card.locator('.get-started-steps').getByRole('listitem').first()).toContainText('Add.')
   await expect(card.getByRole('link', { name: 'Discover' })).toHaveAttribute('href', '#/discover')
   await expect(card.getByRole('link', { name: 'Sources' })).toHaveAttribute('href', '#/sources')
 
   // Claude is the saved default but has no key: the card says so.
   await expect(card.getByRole('radio', { name: /Claude/ })).toBeChecked()
   await expect(card.getByTestId('translator-needs-key')).toContainText("Claude can't run until a key is added")
-  await expect(card.getByRole('link', { name: 'Add it in Settings' })).toHaveAttribute('href', '#/settings')
+  await expect(card.getByRole('button', { name: 'Add key' })).toBeVisible()
 
   await card.getByRole('radio', { name: /Ollama/ }).check()
   await expect(card.getByTestId('translator-needs-key')).toHaveCount(0)
