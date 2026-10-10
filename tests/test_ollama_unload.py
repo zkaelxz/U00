@@ -10,6 +10,7 @@ import pytest
 import requests
 
 import ollama_unload
+from lib import http
 from services import jobs_service, settings_service
 from services.service_errors import InvalidInputError
 
@@ -34,7 +35,7 @@ class FakeOllama:
             raise self.ps_error
         body = self.ps_body if self.ps_body is not None else json.dumps(
             {"models": [{"name": n, "model": n} for n in self.loaded]}).encode()
-        return types.SimpleNamespace(ok=True, headers={}, close=lambda: None,
+        return types.SimpleNamespace(ok=True, status_code=200, headers={}, close=lambda: None,
                                      iter_content=lambda size: iter([body]))
 
     def post(self, url, **kw):
@@ -43,7 +44,8 @@ class FakeOllama:
         name = kw["json"]["model"]
         if name not in self.sticky and name in self.loaded:
             self.loaded.remove(name)
-        return types.SimpleNamespace(close=lambda: None)
+        return types.SimpleNamespace(status_code=200, headers={}, close=lambda: None,
+                                     iter_content=lambda size: iter([b"{}"]))
 
 
 @pytest.fixture(autouse=True)
@@ -59,8 +61,12 @@ def fresh_thread_state(monkeypatch):
 
 
 def _install(monkeypatch, fake):
-    monkeypatch.setattr(requests, "get", fake.get)
-    monkeypatch.setattr(requests, "post", fake.post)
+    def pinned_get(url, ip, headers, timeout, method="GET", **kw):
+        assert ip is None  # the user's own Ollama address: unpinned, never the public guard
+        if method == "POST":
+            return fake.post(url, json=kw.get("json"), timeout=timeout)
+        return fake.get(url, timeout=timeout)
+    monkeypatch.setattr(http, "pinned_get", pinned_get)
     return fake
 
 

@@ -18,6 +18,7 @@ import background_jobs
 import bulk_translate as bt
 import translate_engines as te
 from core import Line
+from lib import http
 from tests.http_fakes import StreamedBody
 
 
@@ -457,6 +458,21 @@ class _Resp(StreamedBody):
         return self._data
 
 
+def _patch_http(monkeypatch, post=None, get=None):
+    """Route lib.http's one connection call to per-verb fakes taking the old
+    requests-style (url, headers=, json=, timeout=, stream=) arguments. A
+    second call in a test adds its verb to the first one's."""
+    current = http.pinned_get
+    calls = getattr(current, "calls", {})
+    calls.update({k: v for k, v in (("POST", post), ("GET", get)) if v})
+
+    def fake(url, ip, headers, timeout=None, method="GET", **kw):
+        extra = {"json": kw["json"]} if method == "POST" else {}
+        return calls[method](url, headers=headers, timeout=timeout, stream=True, **extra)
+    fake.calls = calls
+    monkeypatch.setattr(http, "pinned_get", fake)
+
+
 class TestGeminiProvider:
     def _engine(self):
         return te.GeminiEngine("gm-key", model="gemini-flash-lite-latest")
@@ -467,7 +483,7 @@ class TestGeminiProvider:
         def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             sent.update(url=url, headers=headers, json=json, timeout=timeout)
             return _Resp({"name": "batches/abc123"})
-        monkeypatch.setattr("requests.post", fake_post)
+        _patch_http(monkeypatch, post=fake_post)
         did = _drama(isolated_db, n=4)
         lines = isolated_db.load_line_objects(did)
         bulk_id = bt.submit_bulk_translation(did, lines, self._engine(), "gemini", {"drama_meta": {}},
@@ -481,7 +497,7 @@ class TestGeminiProvider:
 
     def test_results_are_matched_by_metadata_key_not_position(self, isolated_db, monkeypatch):
         submitted = {}
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
+        _patch_http(monkeypatch, post=lambda url, headers=None, json=None, timeout=None, stream=None:
                             submitted.update(json=json) or _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=4)
         lines = isolated_db.load_line_objects(did)
@@ -497,12 +513,12 @@ class TestGeminiProvider:
         done = {"name": "batches/abc", "done": True,
                 "metadata": {"state": "BATCH_STATE_SUCCEEDED"},
                 "response": {"inlinedResponses": {"inlinedResponses": list(reversed(responses))}}}
-        monkeypatch.setattr("requests.get", lambda url, headers=None, timeout=None, stream=None: _Resp(done))
+        _patch_http(monkeypatch, get=lambda url, headers=None, timeout=None, stream=None: _Resp(done))
         assert bt.check_once(bulk_id, bt.make_provider("gemini", self._engine())) == "applied"
         assert all(r["en"] == f"G[{r['zh']}]" for r in isolated_db.load_lines(did))
 
     def test_a_response_without_its_key_is_never_attributed(self, isolated_db, monkeypatch):
-        monkeypatch.setattr("requests.post", lambda *a, **k: _Resp({"name": "batches/abc"}))
+        _patch_http(monkeypatch, post=lambda *a, **k: _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         lines = isolated_db.load_line_objects(did)
         bulk_id = bt.submit_bulk_translation(did, lines, self._engine(), "gemini", {"drama_meta": {}})
@@ -510,33 +526,33 @@ class TestGeminiProvider:
         done = {"done": True, "metadata": {"state": "JOB_STATE_SUCCEEDED"}, "response": {
             "inlinedResponses": [{"response": {"candidates": [{"content": {"parts": [
                 {"text": json.dumps({str(lid): "orphan"})}]}}]}}]}}
-        monkeypatch.setattr("requests.get", lambda *a, **k: _Resp(done))
+        _patch_http(monkeypatch, get=lambda *a, **k: _Resp(done))
         bt.check_once(bulk_id, bt.make_provider("gemini", self._engine()))
         assert isolated_db.load_lines(did)[0]["en"] == ""
 
     def test_a_401_while_polling_becomes_an_auth_error_on_the_job(self, isolated_db, monkeypatch):
-        monkeypatch.setattr("requests.post", lambda *a, **k: _Resp({"name": "batches/abc"}))
+        _patch_http(monkeypatch, post=lambda *a, **k: _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),
                                              "gemini", {"drama_meta": {}})
-        monkeypatch.setattr("requests.get", lambda *a, **k: _Resp({}, status=401))
+        _patch_http(monkeypatch, get=lambda *a, **k: _Resp({}, status=401))
         with pytest.raises(bt.BulkAuthError):
             bt.check_once(bulk_id, bt.make_provider("gemini", self._engine()))
         assert isolated_db.get_bulk_job(bulk_id)["status"] == "auth_error"
 
     def test_a_failed_batch_is_marked_failed(self, isolated_db, monkeypatch):
-        monkeypatch.setattr("requests.post", lambda *a, **k: _Resp({"name": "batches/abc"}))
+        _patch_http(monkeypatch, post=lambda *a, **k: _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),
                                              "gemini", {"drama_meta": {}})
-        monkeypatch.setattr("requests.get", lambda *a, **k: _Resp(
+        _patch_http(monkeypatch, get=lambda *a, **k: _Resp(
             {"done": True, "metadata": {"state": "BATCH_STATE_EXPIRED"}}))
         assert bt.check_once(bulk_id, bt.make_provider("gemini", self._engine())) == "failed"
         assert "EXPIRED" in isolated_db.get_bulk_job(bulk_id)["last_error"]
 
     def test_cancel_posts_to_the_cancel_endpoint(self, isolated_db, monkeypatch):
         calls = []
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
+        _patch_http(monkeypatch, post=lambda url, headers=None, json=None, timeout=None, stream=None:
                             calls.append(url) or _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),

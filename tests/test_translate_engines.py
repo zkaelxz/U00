@@ -15,6 +15,7 @@ import pytest
 
 import translate_engines as te
 from core import Line
+from lib import http
 from tests import fake_engine
 from tests.http_fakes import StreamedBody
 
@@ -1537,38 +1538,56 @@ class TestOllamaReachability:
     def _fake_get(self, ok=True, raises=None):
         captured = {}
 
-        def fake_get(url, timeout=None, stream=None):
+        def fake_get(url, ip=None, headers=None, timeout=None, method="GET", **kw):
             captured["url"] = url
             captured["timeout"] = timeout
+            captured["ip"] = ip
             if raises:
                 raise raises
-            return type("Resp", (), {"ok": ok, "close": lambda self: None})()
+            return type("Resp", (), {"status_code": 200 if ok else 503, "headers": {},
+                                     "iter_content": lambda self, size: iter([b"x"]),
+                                     "close": lambda self: None})()
         return fake_get, captured
 
     def test_true_when_the_server_responds_ok(self, monkeypatch):
         fake_get, captured = self._fake_get(ok=True)
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         assert te.check_ollama_reachable("http://localhost:11434") is True
         assert captured["url"] == "http://localhost:11434/api/tags"
         assert captured["timeout"] is not None
+        assert captured["ip"] is None  # the user's own Ollama address: never the public guard
 
     def test_false_when_the_server_responds_with_an_error_status(self, monkeypatch):
         fake_get, _ = self._fake_get(ok=False)
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         assert te.check_ollama_reachable("http://localhost:11434") is False
+
+    def test_false_when_the_server_redirects(self, monkeypatch):
+        calls = []
+
+        class Redirect:
+            status_code = 302
+            headers = {"Location": "http://elsewhere.example/api/tags"}
+            def iter_content(self, size):
+                return iter([])
+            def close(self):
+                pass
+        monkeypatch.setattr(http, "pinned_get", lambda url, *a, **kw: calls.append(url) or Redirect())
+        assert te.check_ollama_reachable("http://localhost:11434") is False
+        assert calls == ["http://localhost:11434/api/tags"]
 
     def test_false_when_the_connection_fails(self, monkeypatch):
         fake_get, _ = self._fake_get(raises=ConnectionError("refused"))
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         assert te.check_ollama_reachable("http://localhost:11434") is False
 
     def test_result_is_cached_briefly_not_rechecked_every_call(self, monkeypatch):
         fake_get, _ = self._fake_get(ok=True)
         calls = {"n": 0}
-        def counting_get(url, timeout=None, stream=None):
+        def counting_get(url, ip, headers, timeout=None, method="GET", **kw):
             calls["n"] += 1
-            return fake_get(url, timeout=timeout)
-        monkeypatch.setattr("requests.get", counting_get)
+            return fake_get(url, ip, headers, timeout=timeout)
+        monkeypatch.setattr(http, "pinned_get", counting_get)
 
         te.check_ollama_reachable("http://localhost:11434")
         te.check_ollama_reachable("http://localhost:11434")
@@ -1577,17 +1596,17 @@ class TestOllamaReachability:
         assert calls["n"] == 1
 
     def test_a_different_base_url_is_cached_separately(self, monkeypatch):
-        monkeypatch.setattr("requests.get", self._fake_get(ok=True)[0])
+        monkeypatch.setattr(http, "pinned_get", self._fake_get(ok=True)[0])
         te.check_ollama_reachable("http://localhost:11434")
         # A second, different URL must still be checked fresh, not
         # short-circuited by the first URL's cache entry.
         fake_get_down, _ = self._fake_get(ok=False)
-        monkeypatch.setattr("requests.get", fake_get_down)
+        monkeypatch.setattr(http, "pinned_get", fake_get_down)
         assert te.check_ollama_reachable("http://otherhost:9999") is False
 
     def test_trailing_slash_in_base_url_is_normalized(self, monkeypatch):
         fake_get, captured = self._fake_get(ok=True)
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         te.check_ollama_reachable("http://localhost:11434/")
         assert captured["url"] == "http://localhost:11434/api/tags"
 

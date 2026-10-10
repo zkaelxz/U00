@@ -136,12 +136,12 @@ class TestEngines:
             local._ollama_chat("http://localhost:11434", {"model": "m"})
         assert exc.value.reason == "ollama_model_missing" and r.closed
 
-    def test_ollama_health_check_never_reads_the_model_list(self, posts):
+    def test_ollama_health_check_never_reads_the_model_list(self, monkeypatch):
         local._ollama_reachability_cache.clear()
-        r = posts(StreamResp(b"x" * 10_000))
+        r = StreamResp(b"x" * 10_000)
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: r)
         assert local.check_ollama_reachable("http://cap-test:11434") is True
-        assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True
+        assert r.chunks_read <= 1 and r.closed  # lib.http reads one byte of a truncated body
 
     def test_call_llm_json_gemini(self, posts):
         r = posts(_oversized())
@@ -171,22 +171,43 @@ class TestQa:
 
 
 class TestBulkGemini:
+    @pytest.fixture
+    def posts(self, monkeypatch):
+        calls = []
+
+        def install(resp):
+            def fake(url, ip, headers, timeout=None, method="GET", **kwargs):
+                calls.append({"url": url, "ip": ip, "headers": headers, "timeout": timeout})
+                return resp
+            monkeypatch.setattr(http, "pinned_get", fake)
+            return resp
+        install.calls = calls
+        return install
+
     def _provider(self):
         return bulk_translate.GeminiBatchProvider(gemini.GeminiEngine(SECRET))
 
     def test_poll_reply_over_cap(self, posts):
         r = posts(StreamResp(headers={
             "Content-Length": str(bulk_translate.BATCH_RESPONSE_MAX_BYTES + 1)}))
-        with pytest.raises(shared.ProviderResponseTooLarge):
+        with pytest.raises(RuntimeError, match="Gemini batch request failed: The response is larger"):
             self._provider().poll("batches/1")
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True
+        assert posts.calls[0]["timeout"] and posts.calls[0]["ip"] is None
+        assert posts.calls[0]["headers"] == {"x-goog-api-key": SECRET}
 
-    def test_auth_error_closes_without_reading(self, posts):
-        r = posts(StreamResp(b"x" * 100, status=401))
-        with pytest.raises(bulk_translate.BulkAuthError):
+    def test_auth_error_reads_only_a_small_error_body(self, posts):
+        r = posts(StreamResp(b"x" * 100_000, status=401))
+        with pytest.raises(bulk_translate.BulkAuthError) as exc:
             self._provider().poll("batches/1")
-        assert r.chunks_read == 0 and r.closed
+        assert r.chunks_read <= 1 and r.closed
+        assert SECRET not in str(exc.value)
+
+    def test_a_redirect_is_not_followed_so_the_key_stays_home(self, posts):
+        r = posts(StreamResp(b"", status=302, headers={"Location": "https://evil.example/"}))
+        with pytest.raises(RuntimeError) as exc:
+            self._provider().poll("batches/1")
+        assert "302" in str(exc.value) and len(posts.calls) == 1
 
     def test_a_batch_bigger_than_one_llm_reply_is_allowed(self, posts):
         body = b'{"done": true, "pad": "' + b"x" * (shared.PROVIDER_RESPONSE_MAX_BYTES + 1) + b'"}'
