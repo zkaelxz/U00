@@ -392,6 +392,21 @@ def acting_user_id():
     return user_id(holder.get("principal")) if holder else None
 
 
+_REPLACE_NEEDS_EDIT = "Replacing existing lines or speakers needs permission to edit lines."
+
+
+def require_acting_lines_edit() -> None:
+    """For a job whose route needs only `jobs.start` but whose request would
+    replace text or speakers already there: that is an edit, so the caller
+    must also hold `lines.edit` (owner decision 2026-10-10). No principal
+    noted means the local owner, auth off, the CLI or a job's own thread,
+    which hold every permission."""
+    holder = _ACTING.get()
+    principal = holder.get("principal") if holder else None
+    if principal is not None and "lines.edit" not in principal.get("permissions", ()):
+        raise ForbiddenError(_REPLACE_NEEDS_EDIT)
+
+
 def drama_id_of_job(job_id):
     """The drama a `<prefix><drama_id>` job id (background_jobs.
     DRAMA_JOB_PREFIXES) is for, else None. Only an exact prefix followed

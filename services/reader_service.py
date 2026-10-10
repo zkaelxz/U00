@@ -36,10 +36,11 @@ limit (the whole drama); a route or React caller that wants spoiler-free
 must pass that boundary explicitly.
 
 Permission contract for routes (user decision, 2026-09-29):
-  - reads (page, overview, notes, vocab list, wiki list,
+  - reads (overview, notes, vocab list, wiki list,
     media availability): `library.read`;
-  - caption tracks, media streaming and every export
-    (CSV, .apkg, wiki Markdown): `lines.read`;
+  - the page (it carries line text; owner decision 2026-10-10), caption
+    tracks, media streaming and every export (CSV, .apkg, wiki Markdown):
+    `lines.read`;
   - reader-data writes (progress, notes, rich-export queue, clear wiki):
     `lines.edit`;
   - LLM tools (who-is, explain, recap, relationships, wiki update, Q&A,

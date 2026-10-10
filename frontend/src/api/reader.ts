@@ -1,5 +1,5 @@
-// Reader API (/api/reader, route batch 2B). Reads need library.read, exports
-// lines.read, writes lines.edit; AI tools need jobs.start plus the engine
+// Reader API (/api/reader, route batch 2B). Reads need library.read, the page and
+// exports lines.read, writes lines.edit; AI tools need jobs.start plus the engine
 // check (paid engines need engines.paid) and answer 429 when busy.
 
 import type { TranslateEngine } from '../types/translate'
