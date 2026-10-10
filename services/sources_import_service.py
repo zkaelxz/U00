@@ -95,7 +95,7 @@ MAX_FOLLOW_PAGES = novel_follow.MAX_FOLLOW_PAGES
 FOLLOW_STOPS = novel_follow.FOLLOW_STOPS
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
-_BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+_BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 _COMIC_BUSY = ("Another comic import is running. One runs at a time; wait for it to "
                "finish, then try again.")
 _COMIC_SLOT_LOCK = threading.Lock()
@@ -156,7 +156,7 @@ def require_drama(drama_id, principal=None) -> dict:
         raise InvalidInputError("drama_id must be a positive integer.")
     drama = db.get_drama(drama_id)
     if drama is None or not ownership_service.can_edit_drama(principal, drama_id):
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -190,7 +190,7 @@ def _outcome(row: dict) -> dict:
 
 _NOT_ATTEMPTED = "Not attempted: the import stopped before this chapter."
 _PARTLY = ("Stopped by an unexpected error while saving this chapter; it may be partly "
-           "imported -- check the drama before retrying it.")
+           "imported -- check the title before retrying it.")
 
 
 def _import_result(chapters: list, cancelled: bool, handoff) -> dict:
@@ -339,9 +339,9 @@ def start_chapter_import(name, series_id, chapter_ids, drama_id, principal=None)
     if adapter.supports("get_pages"):
         if media not in COMIC_MEDIA_TYPES:
             raise InvalidInputError("Comic chapters import into a manhua, manga or manhwa "
-                                    "drama. Pick one of those, or create one first.")
+                                    "title. Pick one of those, or create one first.")
     elif media not in NOVEL_MEDIA_TYPES:
-        raise InvalidInputError("Novel chapters import into a novel drama. Pick one, "
+        raise InvalidInputError("Novel chapters import into a novel title. Pick one, "
                                 "or create one first.")
     require_idle(drama_id)
     job_id = import_job_id(drama_id)
@@ -414,11 +414,11 @@ def start_ai_recover(name, chapter_id, series_id, drama_id, engine_name, confirm
         raise InvalidInputError("AI recovery is for sources that import novel chapters.")
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
-        raise InvalidInputError("Novel chapters import into a novel drama.")
+        raise InvalidInputError("Novel chapters import into a novel title.")
     if extraction.review_open(drama_id):
-        raise ConflictError("Finish or close the extraction review for this drama first.")
+        raise ConflictError("Finish or close the extraction review for this title first.")
     if chapter_id in store.imported_chapter_ids(name, series_id, drama_id):
-        raise ConflictError("That chapter is already imported into this drama.")
+        raise ConflictError("That chapter is already imported into this title.")
     require_idle(drama_id)
     engine = extraction.build_ai_engine(engine_name)
     job_id = import_job_id(drama_id)
@@ -577,7 +577,7 @@ def start_url_import(url, drama_id, local: bool = True, principal=None,
     require_url_not_extension_only(url)
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
-        raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
+        raise InvalidInputError("Novel text imports into a novel title. Pick one, "
                                 "or create one first.")
     require_idle(drama_id)
     engine = extraction.build_ai_engine(ai_engine)
@@ -712,7 +712,7 @@ def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
     require_url_not_extension_only(url)
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in COMIC_MEDIA_TYPES:
-        raise InvalidInputError("Comic pages import into a manhua, manga or manhwa drama. "
+        raise InvalidInputError("Comic pages import into a manhua, manga or manhwa title. "
                                 "Pick one of those, or create one first.")
     require_idle(drama_id)
     engine = extraction.build_ai_engine(ai_engine)

@@ -1498,7 +1498,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
     media_dir (None = no files imported, so all are cleared)."""
     drama = table_rows(src, "dramas", "id = ?", (old_id,))
     if not drama:
-        raise NotFoundError("That drama isn't in the snapshot.")
+        raise NotFoundError("That title isn't in the snapshot.")
     drama = drama[0]
     counts = {}
     users = {r[0] for r in dst.execute("SELECT id FROM users")}
@@ -1589,10 +1589,10 @@ def stage_media(zf: zipfile.ZipFile, old_id: int, staging: str):
         return None
     if len(members) > las.RESTORE_MAX_MEMBERS or any(
             i.file_size > _MAX_MEMBER_BYTES for i in members):
-        raise InvalidInputError("The drama's files in the snapshot look corrupted or unsafe "
+        raise InvalidInputError("The title's files in the snapshot look corrupted or unsafe "
                                 "to extract.")
     if not las.has_disk_room(db.DRAMAS_DIR, sum(i.file_size for i in members)):
-        raise InvalidInputError("Not enough free disk space to restore this drama's files.")
+        raise InvalidInputError("Not enough free disk space to restore this title's files.")
     folder = os.path.join(staging, f"drama-{int(old_id)}")
     os.makedirs(folder)
     base = os.path.realpath(folder)
@@ -1660,11 +1660,11 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
     title, media_restored, snapshot (the copy's name), snapshot_kind,
     series, counts, skipped_tables}."""
     if isinstance(drama_id, bool) or not isinstance(drama_id, int) or drama_id < 1:
-        raise InvalidInputError("A drama id is a positive whole number.")
-    las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a drama")
+        raise InvalidInputError("A title id is a positive whole number.")
+    las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a title")
     if job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
-    with las.maintenance("restoring a drama"), storage.job_workdir() as tmp:
+    with las.maintenance("restoring a title"), storage.job_workdir() as tmp:
         db.recover_media_imports()
         staging = staged = None
         with _snapshot_lock:
@@ -1676,7 +1676,7 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
                     manifest = _read_manifest(zf)
                     if drama_id not in [d.get("id") for d in manifest["dramas"]
                                         if isinstance(d, dict)]:
-                        raise NotFoundError("That drama isn't in the snapshot.")
+                        raise NotFoundError("That title isn't in the snapshot.")
                     snap_db = extract_db(zf, tmp)
                     if manifest["kind"] == "full":
                         staging = db.new_media_staging()
@@ -1701,7 +1701,7 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
     folder_free = not os.path.lexists(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     keep_id = db.get_drama(drama_id) is None and folder_free
     suffix = None if keep_id else f"(restored {datetime.date.today().isoformat()})"
-    conflict = ("A folder for the restored drama is already in the library's dramas folder "
+    conflict = ("A folder for the restored title is already in the library's dramas folder "
                 "and could not be moved aside; nothing was restored.")
     with contextlib.closing(sqlite3.connect(ro_uri(snap_db), uri=True)) as src, \
             contextlib.closing(db.get_conn()) as dst:
@@ -1717,13 +1717,13 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
         except BaseException as exc:
             dst.rollback()
             if staging is not None and not end_media_staging(staging):
-                raise ServiceError("The drama was not restored, but some of its files could not "
+                raise ServiceError("The title was not restored, but some of its files could not "
                                    "be cleaned up and are still in the library's dramas folder; "
                                    "the app tries again at the next start.") from None
             if isinstance(exc, (ServiceError, KeyboardInterrupt, SystemExit)):
                 raise
             log.warning("Single-drama restore failed: %s", type(exc).__name__)
-            raise ServiceError("The drama could not be restored; nothing was changed.") \
+            raise ServiceError("The title could not be restored; nothing was changed.") \
                 from None
         title = dst.execute("SELECT COALESCE(NULLIF(title_en, ''), title_zh) FROM dramas "
                             "WHERE id = ?", (live_id,)).fetchone()[0]
@@ -1731,7 +1731,7 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
         from services import auth_service
         auth_service.write_audit(actor_id, "library.restore_drama",
                                  f"drama {drama_id} restored from backup copy {copy_name} "
-                                 f"as drama {live_id}")
+                                 f"as title {live_id}")
     except Exception:
         log.warning("Could not write the audit entry for a drama restore")
     return {"drama_id": live_id, "restored_as_new": not keep_id, "title": title or "",

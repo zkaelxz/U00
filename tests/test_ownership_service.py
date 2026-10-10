@@ -328,7 +328,7 @@ def test_mixed_owner_series_python_and_sql_agree(people):
     assert _visible_py(a, ids) == _visible_sql(people["a_id"]) == {a_ep, b_ep}
     assert _visible_py(b, ids) == _visible_sql(people["b_id"]) == {a_ep, b_ep, b_solo}
     # Refused while B's drama is inside; B keeps seeing it.
-    with pytest.raises(ConflictError, match="Move other people's dramas"):
+    with pytest.raises(ConflictError, match="Move other people's titles"):
         own.set_private(a, "series", sid, True)
     with pytest.raises(ConflictError):
         own.set_private(people["admin"], "series", sid, True)
@@ -401,7 +401,7 @@ def test_series_assignment_guard(people):
     assert own.check_series_assignment(a, secret, people["a_id"]) == secret
     assert own.check_series_assignment(a, secret, None) == secret
     for who in (a, admin, LOCAL, None):
-        with pytest.raises(ConflictError, match="only its owner's dramas"):
+        with pytest.raises(ConflictError, match="only its owner's titles"):
             own.check_series_assignment(who, secret, people["b_id"])
     assert own.check_series_assignment(b, shared, people["b_id"]) == shared
 

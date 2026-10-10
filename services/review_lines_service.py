@@ -36,7 +36,7 @@ _ONLY_VALUES = ("all", "flagged", "untranslated")
 def _load_drama_and_lines(drama_id: int):
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = core_module.lines_from_rows(db.load_lines(drama_id))
     return drama, lines
 
@@ -64,7 +64,7 @@ def _find_line(lines, line_id):
     for ln in lines:
         if ln.id == line_id:
             return ln
-    raise NotFoundError(f"No line with id {line_id} in this drama.")
+    raise NotFoundError(f"No line with id {line_id} in this title.")
 
 
 def _check_len(name: str, value: str):

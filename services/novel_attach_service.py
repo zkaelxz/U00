@@ -63,13 +63,13 @@ if lzma is not None:  # a corrupt LZMA (method 14) entry raises LZMAError, not O
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
 def _check_idle(drama_id: int):
     if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError("A job is running for this drama. Wait for it to finish or cancel it.")
+        raise ConflictError("A job is running for this title. Wait for it to finish or cancel it.")
 
 
 def _novel_path(drama_id: int, create: bool) -> str:
@@ -294,7 +294,7 @@ def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     _check_mode(mode)
     path = os.path.join(db.DRAMAS_DIR, str(drama_id), RAW_NOVEL_FILENAME)
     if not os.path.isfile(path):
-        raise NotFoundError("No chapters have been imported for this drama.")
+        raise NotFoundError("No chapters have been imported for this title.")
     with open(path, encoding="utf-8", errors="replace") as f:
         raw = f.read(MAX_TEXT_CHARS + 1)
     if len(raw) > MAX_TEXT_CHARS:     # checked before cleaning, so it never truncates
@@ -366,9 +366,9 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
             job_id, _run_ocr_job, job_id, drama_id, stage, paths, backend, mode, language,
             drama.get("chinese_script") or "simplified", tesseract_cmd or None,
             gpu_touching=True,
-            description=f"Chapter OCR (drama {drama_id})")
+            description=f"Chapter OCR (title {drama_id})")
         if not started:
-            raise ConflictError("A chapter OCR run is already active for this drama.")
+            raise ConflictError("A chapter OCR run is already active for this title.")
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise

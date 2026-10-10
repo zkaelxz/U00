@@ -15,7 +15,7 @@ from services.service_errors import ConflictError, InvalidInputError, NotFoundEr
 
 def _groups(drama_id: int):
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     pages = db.list_pages(drama_id)
     return pages, comic_chapters.group_pages(pages, comic_chapters.load(drama_id))
 
@@ -24,7 +24,7 @@ def _chapter(groups, chapter_id: str) -> dict:
     for g in groups:
         if g["id"] == chapter_id:
             return g
-    raise NotFoundError("No such chapter in this drama.")
+    raise NotFoundError("No such chapter in this title.")
 
 
 def set_visibility(drama_id: int, hidden: bool, page_ids=None, chapter_id=None, edge=None,
@@ -38,7 +38,7 @@ def set_visibility(drama_id: int, hidden: bool, page_ids=None, chapter_id=None, 
     if page_ids is not None:
         by_id = {p["id"]: p["filename"] for p in pages}
         if any(pid not in by_id for pid in page_ids):
-            raise NotFoundError("No such page in this drama.")
+            raise NotFoundError("No such page in this title.")
         names = [by_id[pid] for pid in page_ids]
     else:
         if edge not in ("first", "last", "all"):

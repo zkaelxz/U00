@@ -47,19 +47,19 @@ def load(drama_id: int, line_id: int):
     never existed, or another drama's -- all the same 404)."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = db.load_line_objects(drama_id)
     for ln in lines:
         if ln.id == line_id:
             return drama, lines, ln
-    raise NotFoundError(f"No line with id {line_id} in this drama.")
+    raise NotFoundError(f"No line with id {line_id} in this title.")
 
 
 def _reload_dict(drama_id: int, line_id: int) -> dict:
     for ln in db.load_line_objects(drama_id):
         if ln.id == line_id:
             return line_dict(ln)
-    raise NotFoundError(f"No line with id {line_id} in this drama.")
+    raise NotFoundError(f"No line with id {line_id} in this title.")
 
 
 def _number(name: str, value) -> float:
@@ -198,7 +198,7 @@ def set_lines_lang(drama_id: int, lang, *, line_ids=None, speaker=None) -> dict:
         if not speaker:
             raise InvalidInputError("speaker must not be empty.")
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = db.load_line_objects(drama_id)
     if line_ids is not None:
         by_id = {ln.id: ln for ln in lines}
@@ -259,7 +259,7 @@ def apply_find_replace(drama_id: int, matches) -> dict:
 
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     by_id = {ln.id: ln for ln in db.load_line_objects(drama_id)}
     changed, applied_ids, stale_ids, pairs = [], [], [], []
     for lid, (old_text, new_text) in wanted.items():
@@ -294,7 +294,7 @@ def accept_tm_suggestion(drama_id: int, line_id: int, entry_id: int, expected_en
     entry = next((e for e in (db.list_translation_memory(series_id) if series_id else [])
                   if e["id"] == entry_id), None)
     if entry is None:
-        raise NotFoundError(f"No translation-memory entry with id {entry_id} for this drama.")
+        raise NotFoundError(f"No translation-memory entry with id {entry_id} for this title.")
     if not db.update_line_fields_if(drama_id, line_id, {"en": entry["translation"]},
                                     {"en": expected_en}):
         raise ConflictError("This line changed since you loaded it.",
@@ -326,8 +326,8 @@ def delete_note(drama_id: int, note_id: int) -> dict:
     """Deletes one translation note. `db.delete_translation_note` takes only
     an id, so ownership is checked here: another drama's note is a 404."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if not any(n["id"] == note_id for n in db.list_translation_notes(drama_id)):
-        raise NotFoundError(f"No note with id {note_id} in this drama.")
+        raise NotFoundError(f"No note with id {note_id} in this title.")
     db.delete_translation_note(note_id)
     return {"deleted": True, "note_id": note_id}

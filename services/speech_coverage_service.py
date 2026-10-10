@@ -219,7 +219,7 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
     running, so its lines are about to change, or a check is already running)."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if (isinstance(min_gap_seconds, bool) or not isinstance(min_gap_seconds, (int, float))
             or not MIN_GAP_SECONDS_MIN <= min_gap_seconds <= MIN_GAP_SECONDS_MAX):
         raise InvalidInputError(
@@ -227,14 +227,14 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
     audio_filename = drama.get("audio_filename")
     audio_path = os.path.join(db.drama_dir(drama_id), audio_filename) if audio_filename else None
     if not audio_path or not os.path.exists(audio_path):
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     if background_jobs.is_running(f"transcribe_{drama_id}"):
         raise ConflictError("A transcription is running for this title. "
                             "Check the coverage when it finishes.")
     job_id = speech_coverage_job_id(drama_id)
     if not background_jobs.start_job(
             job_id, _run_job, job_id, drama_id, audio_path, float(min_gap_seconds),
-            description=f"Speech coverage check (drama #{drama_id})"):
+            description=f"Speech coverage check (title #{drama_id})"):
         raise ConflictError("A coverage check is already running for this title.")
     return {"job_id": job_id}
 
@@ -244,7 +244,7 @@ def get_speech_coverage(drama_id: int) -> dict:
     when no check is held in this app session. result is the report only when
     the job is done; a failed run is {"failed_reason": ...}."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     job_id = speech_coverage_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:

@@ -72,7 +72,7 @@ def get_drama_progress(drama_id: int) -> dict:
     from services.service_errors import NotFoundError
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = core_module.lines_from_rows(db.load_lines(drama_id))
     ddir = os.path.join(db.DRAMAS_DIR, str(drama_id))
     index = compute_workspace_stage_index(drama, lines, ddir)

@@ -38,7 +38,7 @@ def _require_drama(drama_id) -> dict:
     if isinstance(drama_id, int) and not isinstance(drama_id, bool) and 0 < drama_id <= 2**31 - 1:
         drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError("No drama with that id.")
+        raise NotFoundError("No title with that id.")
     return drama
 
 
@@ -133,9 +133,9 @@ def cover_file(drama_id: int):
     drama = _require_drama(drama_id)
     name = drama.get("cover_art_filename")
     if not _servable_name(name):
-        raise NotFoundError("This drama has no cover.")
+        raise NotFoundError("This title has no cover.")
     folder = os.path.realpath(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     path = os.path.realpath(os.path.join(folder, name))
     if os.path.dirname(path) != folder or not os.path.isfile(path):
-        raise NotFoundError("This drama has no cover.")
+        raise NotFoundError("This title has no cover.")
     return path, _SERVE_TYPES[os.path.splitext(name)[1].lower()]

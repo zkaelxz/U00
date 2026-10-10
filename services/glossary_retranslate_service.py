@@ -50,7 +50,7 @@ def _selected_terms(drama: dict, term_ids) -> list:
         return terms
     wanted = set(term_ids)
     if not wanted <= {t["id"] for t in terms}:
-        raise InvalidInputError("term_ids must be terms in this drama's glossary.")
+        raise InvalidInputError("term_ids must be terms in this title's glossary.")
     return [t for t in terms if t["id"] in wanted]
 
 
@@ -168,7 +168,7 @@ def start_affected_retranslate(drama_id: int, line_ids, preview_hash: str,
         raise InvalidInputError("Choose at least one line to re-translate.")
     drama_line_ids = {row["id"] for row in db.load_lines(drama_id)}
     if not wanted <= drama_line_ids:
-        raise InvalidInputError("line_ids must be this drama's lines.")
+        raise InvalidInputError("line_ids must be this title's lines.")
     try:
         _terms, lines, current_hash = _affected(drama_id, drama, term_ids)
     except InvalidInputError:

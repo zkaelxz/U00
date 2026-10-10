@@ -274,10 +274,10 @@ def start_timing_check(drama_id: int, after_transcription: bool = False) -> dict
     run it starts itself, or a check is already running)."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     audio_path = _audio_path(drama_id, drama)
     if audio_path is None:
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     if not db.load_line_ids(drama_id):
         raise UnsupportedOperationError("This title has no lines yet.")
     if not after_transcription:
@@ -296,7 +296,7 @@ def start_timing_check(drama_id: int, after_transcription: bool = False) -> dict
         generation = _generation.get(drama_id, 0)
     if not background_jobs.start_job(
             job_id, _run_job, job_id, drama_id, audio_path, conservative, generation,
-            description=f"Timing check (drama #{drama_id})"):
+            description=f"Timing check (title #{drama_id})"):
         raise ConflictError("A timing check is already running for this title.")
     return {"job_id": job_id}
 
@@ -329,7 +329,7 @@ def get_timing_check(drama_id: int) -> dict:
     last_check is the newest finished check, kept across restarts;
     suggestions lists each flagged line's saved corrected times."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     with _state_lock:
         state = _read_state(drama_id)
     suggestions = [{"line_id": int(k), **v} for k, v in state["suggestions"].items()]
@@ -359,7 +359,7 @@ def snap_to_speech(drama_id: int, line_ids=None) -> dict:
                 or any(isinstance(i, bool) or not isinstance(i, int) for i in line_ids)):
             raise InvalidInputError("line_ids must be a list of integer line ids.")
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     with _state_lock:
         state = _read_state(drama_id)
         wanted = set(line_ids) if line_ids is not None else None

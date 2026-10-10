@@ -1120,7 +1120,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         if background_jobs.is_cancel_requested(job_id):
             break
         drama = db.get_drama(did)
-        title = (drama.get("title_en") or drama.get("title_zh") or f"drama #{did}") if drama else f"drama #{did}"
+        title = (drama.get("title_en") or drama.get("title_zh") or f"title #{did}") if drama else f"title #{did}"
         per_job_id = f"translate_{did}"
         background_jobs.update_progress(job_id, i / total, f"Translating {i + 1}/{len(drama_ids)} -- {title} (0%)")
         if not drama:

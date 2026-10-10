@@ -217,7 +217,7 @@ def start_import(drama_id: int, url, chapters: str = "all", count: Optional[int]
                  mode: str = "replace") -> dict:
     """Checks everything, then starts the background job. Returns {job_id}."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if mode not in ("append", "replace"):
         raise InvalidInputError("mode must be one of append, replace.")
     chapters, count = check_range(chapters, count)
@@ -228,13 +228,13 @@ def start_import(drama_id: int, url, chapters: str = "all", count: Optional[int]
             "or set its program path in Settings.")
     url = check_url(url)
     if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError("A job is running for this drama. Wait for it to finish or cancel it.")
+        raise ConflictError("A job is running for this title. Wait for it to finish or cancel it.")
     job_id = job_id_for(drama_id)
     started = background_jobs.start_job(
         job_id, _run_job, job_id, drama_id, program, url, chapters, count, mode,
-        description=f"Import with lightnovel-crawler (drama {drama_id})")
+        description=f"Import with lightnovel-crawler (title {drama_id})")
     if not started:
-        raise ConflictError("A lightnovel-crawler import is already running for this drama.")
+        raise ConflictError("A lightnovel-crawler import is already running for this title.")
     return {"job_id": job_id}
 
 

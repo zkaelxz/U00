@@ -42,7 +42,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
     length is unknown. Raises NotFoundError for an unknown drama."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     turns = diarize.load_turns(db.drama_dir(drama_id))
     if not turns:
         return None
@@ -91,7 +91,7 @@ def get_diarization_config(drama_id: int) -> dict:
     drama id."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     ddir = db.drama_dir(drama_id)
     audio_path = _drama_audio_path(drama_id, drama)
@@ -157,9 +157,9 @@ def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
     for the drama. The saved turns are tied to whatever audio detection last
     ran on, so this is only ever done on request, never after a transcription."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError("A background job is still running for this drama -- wait for it "
+        raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before re-assigning speakers.")
     return relabel_from_saved_turns(drama_id)
 
@@ -170,7 +170,7 @@ def relabel_from_saved_turns(drama_id: int, only_ids=None) -> dict:
     only_ids: relabel just these lines; every other line keeps its speaker."""
     turns = diarize.load_turns(db.drama_dir(drama_id))
     if turns is None:
-        raise ConflictError("No saved speaker detection for this drama; run Detect speakers first.")
+        raise ConflictError("No saved speaker detection for this title; run Detect speakers first.")
     lines = db.load_line_objects(drama_id)
     if only_ids is not None:
         keep = set(only_ids)
@@ -261,7 +261,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     {job_id}."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     if overwrite_manual and confirm is not True:
         raise InvalidInputError("overwrite_manual=true replaces speakers you corrected by hand "
@@ -282,7 +282,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         # The drama itself exists (checked above) -- it just has no audio
         # yet, which is a well-formed request this record can't currently
         # satisfy (HTTP 400), not "the drama doesn't exist" (404).
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
 
     job_id = f"diarize_{drama_id}"
     # start_process_job returns False without starting anything if this job
@@ -291,7 +291,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         job_id, diarize.diarize_subprocess_worker,
         args=(audio_path, hf_token, expected_speakers or None,
               worker_options(min_speakers, max_speakers)),
-        gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+        gpu_touching=True, description=f"Diarization (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
                                    min_speakers, max_speakers),
@@ -299,7 +299,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
             expected_speakers, min_speakers, max_speakers, settings_service.get_use_gpu(),
             overwrite_manual=overwrite_manual))
     if not started:
-        raise ConflictError(f"A diarization job is already running for drama {drama_id}.")
+        raise ConflictError(f"A diarization job is already running for title {drama_id}.")
     return {"job_id": job_id}
 
 

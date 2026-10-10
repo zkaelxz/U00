@@ -601,7 +601,7 @@ class TestDramaIdsInBodies:
         from services.service_errors import ConflictError, NotFoundError
         monkeypatch.setattr(reg, "require_source", lambda name: None)
         b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
-        with pytest.raises(NotFoundError, match="No drama"):
+        with pytest.raises(NotFoundError, match="No title"):
             reg.set_tracked("x", "s1", True, drama_id=world["private"], principal=b)
         with pytest.raises(ConflictError):     # past the drama check: series not loaded
             reg.set_tracked("x", "s1", True, drama_id=world["shared"], principal=b)

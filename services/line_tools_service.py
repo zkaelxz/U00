@@ -88,12 +88,12 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
             raise InvalidInputError(f"line_ids must be a list of at most {MAX_SHORTEN_IDS} ids.")
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if confirm is not True:
         raise InvalidInputError("Shortening overwrites the English of the overlong lines; "
                                 "send confirm=true.")
     if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError("A background job is still running for this drama -- wait for it "
+        raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before shortening lines.")
     targets = _too_long_lines(db.load_line_objects(drama_id))
     if line_ids is not None:

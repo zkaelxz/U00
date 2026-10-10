@@ -474,7 +474,7 @@ def test_failures_are_reported_and_logged_without_secrets(env, dns, posts):
 
 def test_burst_collapses_into_one_message(env, dns, posts, no_timer):
     _write(env, discord=DISCORD)
-    ns.notify_job_finished("Translation (drama #1)", "done")
+    ns.notify_job_finished("Translation (title #1)", "done")
     ns.notify_job_finished("Dub generation (drama #2)", "error")
     ns.notify_job_finished("Library backup", "done")
     ns.notify_job_finished("Cancelled thing", "cancelled")   # not an ending we push
@@ -544,7 +544,7 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_h
     # job thread left over from an earlier test in this worker may also
     # queue an event while the env fixture has notifications on, so only
     # this test's own messages are checked.
-    ours = {"Translation (drama #1)", "Dub generation (drama #1)"}
+    ours = {"Translation (title #1)", "Dub generation (drama #1)"}
     seen, both_queued = [], threading.Event()
     real = ns.notify_job_finished
 
@@ -560,8 +560,8 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_h
     def boom():
         raise RuntimeError("real job error")
 
-    background_jobs.start_job("notify_t1", lambda: None, description="Translation (drama #1)")
-    background_jobs.start_job("notify_t2", boom, description="Dub generation (drama #1)")
+    background_jobs.start_job("notify_t1", lambda: None, description="Translation (title #1)")
+    background_jobs.start_job("notify_t2", boom, description="Dub generation (title #1)")
     assert both_queued.wait(timeout=30), f"only {seen} were queued"
     assert background_jobs.get_status("notify_t1")["status"] == "done"
     job = background_jobs.get_status("notify_t2")
@@ -771,7 +771,7 @@ def test_in_app_list_is_bounded(env, no_timer):
 def test_in_app_list_follows_job_visibility(env, no_timer, monkeypatch):
     from services import ownership_service
     monkeypatch.setattr(ownership_service, "can_see_drama", lambda p, d: d == 1)
-    ns.notify_job_finished("Translation (drama #1)", "done", job_id="translate_1",
+    ns.notify_job_finished("Translation (title #1)", "done", job_id="translate_1",
                            owner_user_id=7)
     ns.notify_job_finished("Translation (drama #2)", "done", job_id="translate_2",
                            owner_user_id=8)

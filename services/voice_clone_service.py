@@ -76,7 +76,7 @@ JOB_PREFIX = "voiceref_"
 # be deleted under them. Not drama_service.job_running_for_drama: that also
 # counts voiceref_ (an extraction for another speaker) and every other job.
 _CLIP_READING_JOB_PREFIXES = ("dub_", "narration_", "audiobook_")
-_CLIP_IN_USE = ("A dub, narration or audiobook job is running for this drama and may be "
+_CLIP_IN_USE = ("A dub, narration or audiobook job is running for this title and may be "
                 "using this clip. Wait for it to finish or cancel it first.")
 
 # One lock per title around "a clip file exists" + "a speaker row points at
@@ -137,7 +137,7 @@ def _require_speaker(drama_id: int, speaker_label) -> str:
     if not isinstance(speaker_label, str) or not speaker_label or len(speaker_label) > 200:
         raise InvalidInputError("speaker_label is required.")
     if speaker_label not in characters_service.known_speakers(drama_id):
-        raise NotFoundError("No such speaker in this drama.")
+        raise NotFoundError("No such speaker in this title.")
     return speaker_label
 
 
@@ -419,26 +419,26 @@ def start_extract_candidates(drama_id: int, speaker_label, max_candidates: int =
         raise InvalidInputError(f"max_candidates must be 1 to {MAX_CANDIDATES}.")
     audio = _safe_file(_drama_path(drama_id), drama.get("audio_filename") or "")
     if audio is None:
-        raise InvalidInputError("This drama has no audio to extract clips from.")
+        raise InvalidInputError("This title has no audio to extract clips from.")
     if shutil.which("ffmpeg") is None:
         raise DependencyUnavailableError(_NO_FFMPEG)
     job_id = f"{JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
         job_id, _extract_job, job_id, drama_id, speaker_label, max_candidates,
-        description=f"Reference clip extraction (drama #{drama_id})")
+        description=f"Reference clip extraction (title #{drama_id})")
     if not started:
-        raise ConflictError("A reference clip extraction is already running for this drama.")
+        raise ConflictError("A reference clip extraction is already running for this title.")
     return {"job_id": job_id}
 
 
 def _extract_job(job_id, drama_id, speaker_label, max_candidates):
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise RuntimeError("The drama no longer exists.")
+        raise RuntimeError("The title no longer exists.")
     root = _drama_path(drama_id)
     audio = _safe_file(root, drama.get("audio_filename") or "")
     if audio is None:
-        raise RuntimeError("The drama's audio is missing.")
+        raise RuntimeError("The title's audio is missing.")
     lines = db.load_lines(drama_id)
     chosen, skip = pick_segments(_speaker_segments(drama_id, speaker_label, lines), max_candidates)
     cdir = _candidates_dir(drama_id)
@@ -462,7 +462,7 @@ def _extract_job(job_id, drama_id, speaker_label, max_candidates):
                     os.remove(out)
                 if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError)):
                     # ffmpeg's stderr names paths: never passed on.
-                    raise RuntimeError("Could not cut a clip from the drama's audio.") from None
+                    raise RuntimeError("Could not cut a clip from the title's audio.") from None
                 raise
             line = _match_line(lines, speaker_label, start, end)
             made.append({"id": token, "start": round(start, 3), "end": round(end, 3),
@@ -574,7 +574,7 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
     _require_drama(drama_id)
     label, cand, path = _find_candidate(drama_id, candidate_id)
     if label not in characters_service.known_speakers(drama_id):
-        raise NotFoundError("No such speaker in this drama.")
+        raise NotFoundError("No such speaker in this title.")
     root = db.drama_dir(drama_id)
     rel = f"{REFS_DIR}/clone_pick_{candidate_id}.wav"
     ref_text = None
@@ -630,7 +630,7 @@ def save_to_voice_bank(drama_id: int, speaker_label, name, notes: str = "") -> d
         clone_engine=_bank_engine(row.get("clone_engine")),
         voice_design=row.get("voice_design") or "",
         language=drama.get("source_language") or "zh", notes=(notes or "").strip(),
-        source_drama=drama.get("title_en") or drama.get("title_zh") or f"drama #{drama_id}",
+        source_drama=drama.get("title_en") or drama.get("title_zh") or f"title #{drama_id}",
         source_speaker=display or speaker_label)
     for e in characters_service.list_voice_bank():
         if e["id"] == entry_id:
@@ -655,7 +655,7 @@ def link_series_character(drama_id: int, speaker_label, series_character_id) -> 
     match = next((sc for sc in (db.list_series_characters(series_id) if series_id else [])
                   if sc["id"] == series_character_id), None)
     if match is None:
-        raise NotFoundError("No such character in this drama's series.")
+        raise NotFoundError("No such character in this title's series.")
     db.upsert_character(drama_id, speaker_label, character_name=match["character_name"],
                         series_character_id=match["id"])
     return characters_service.get_one(drama_id, speaker_label)

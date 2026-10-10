@@ -92,16 +92,16 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
     if background_jobs.is_running(job_id) or any(
             (j.get("kind") or "translate") == bulk_kind
             for j in db.list_bulk_jobs(drama_id, statuses=pending)):
-        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this drama.")
+        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this title.")
 
     def submit():
         return submit_bulk_review(bulk_kind, drama_id, engine, engine_name, **submit_kwargs)[0]
     started = background_jobs.start_job(
         job_id, translate_run_service.run_bulk_translate_job, job_id, engine, engine_name, submit,
         translate_run_service.month_cap_usd() or None,
-        description=f"Bulk {_KINDS[kind][1]} (drama #{drama_id})")
+        description=f"Bulk {_KINDS[kind][1]} (title #{drama_id})")
     if not started:
-        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this drama.")
+        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "kind": kind, "engine": engine_name,
             "model": getattr(engine, "model", None), "line_count": line_count, "bulk": True}
 
@@ -117,7 +117,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     drama = translate_run_service.require_drama(drama_id)
     lines = core.lines_from_rows(db.load_lines(drama_id))
     if not lines:
-        raise UnsupportedOperationError("This drama has no lines yet.")
+        raise UnsupportedOperationError("This title has no lines yet.")
     if precheck:
         precheck(lines)
     engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
@@ -142,7 +142,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
                            bulk_kwargs(drama) if bulk_kwargs else {})
     job_id = f"{prefix}{drama_id}"
     if background_jobs.is_running(job_id):
-        raise ConflictError(f"A {label} is already running for this drama.")
+        raise ConflictError(f"A {label} is already running for this title.")
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
@@ -152,9 +152,9 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     kwargs.setdefault("gpu_touching", translate_engines.ollama_touches_local_gpu(engine_name, model))
     started = background_jobs.start_job(
         job_id, runner, job_id, drama_id, *args,
-        description=f"{label.capitalize()} (drama #{drama_id})", **kwargs)
+        description=f"{label.capitalize()} (title #{drama_id})", **kwargs)
     if not started:
-        raise ConflictError(f"A {label} is already running for this drama.")
+        raise ConflictError(f"A {label} is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "kind": kind, "engine": engine_name,
             "model": getattr(engine, "model", model), "line_count": len(lines), "bulk": False}
 

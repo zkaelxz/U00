@@ -63,7 +63,7 @@ _MAX_VALUE_BYTES = 64 * 1024 ** 2
 _MAX_IMPORT_BYTES = 512 * 1024 ** 2
 _SQLITE_MAGIC = b"SQLite format 3\x00"
 _BAD_FILE = "That file isn't a Baihe backup, or it is damaged."
-_FOLDER_EXISTS = ("A folder for an imported drama is already in the library's dramas folder "
+_FOLDER_EXISTS = ("A folder for an imported title is already in the library's dramas folder "
                   "and could not be moved aside; nothing was imported.")
 # How long reads of the uploaded database may run: a crafted file must not
 # hold the request (and, for an import, the maintenance lock) indefinitely.
@@ -243,13 +243,13 @@ def list_backup_dramas(stream) -> dict:
 
 def _check_ids(drama_ids) -> list:
     if not isinstance(drama_ids, (list, tuple)) or not drama_ids:
-        raise InvalidInputError("Pick at least one drama.")
+        raise InvalidInputError("Pick at least one title.")
     if len(drama_ids) > MAX_DRAMAS_PER_IMPORT:
-        raise InvalidInputError(f"At most {MAX_DRAMAS_PER_IMPORT} dramas per import.")
+        raise InvalidInputError(f"At most {MAX_DRAMAS_PER_IMPORT} titles per import.")
     out = []
     for did in drama_ids:
         if isinstance(did, bool) or not isinstance(did, int) or not 1 <= did <= 2 ** 31 - 1:
-            raise InvalidInputError("A drama id is a positive whole number.")
+            raise InvalidInputError("A title id is a positive whole number.")
         if did not in out:
             out.append(did)
     return out
@@ -273,7 +273,7 @@ def _check_row_limits(src, ids: list):
             continue
         total += src.execute(f'SELECT COUNT(*) FROM "{table}" WHERE {where}', ids).fetchone()[0]
         if total > _MAX_ROWS_PER_IMPORT:
-            raise InvalidInputError("Those dramas hold too many rows to import at once; "
+            raise InvalidInputError("Those titles hold too many rows to import at once; "
                                     "import fewer of them.")
     size = 0
     for table, where in [("dramas", f"id IN ({marks})"), ("series", f"id {in_series}")] + wheres:
@@ -288,7 +288,7 @@ def _check_row_limits(src, ids: list):
         biggest = max((v or 0) for v in row[0::2])
         size += sum((v or 0) for v in row[1::2])
         if biggest > _MAX_VALUE_BYTES or size > _MAX_IMPORT_BYTES:
-            raise InvalidInputError("Those dramas hold too much data to import at once "
+            raise InvalidInputError("Those titles hold too much data to import at once "
                                     "(or one value is too large); import fewer of them.")
 
 
@@ -306,10 +306,10 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
     Returns {imported: [{source_id, drama_id, title, media_imported}],
     series_created, media_imported, counts}."""
     ids = _check_ids(drama_ids)
-    las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Importing dramas")
+    las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Importing titles")
     if abs_.job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
-    with las.maintenance("importing dramas"), storage.job_workdir("backup_import") as tmp:
+    with las.maintenance("importing titles"), storage.job_workdir("backup_import") as tmp:
         db.recover_media_imports()
         backup = _Backup(tmp, stream)
         stagings, staging = {}, None
@@ -320,7 +320,7 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
                     present = {r[0] for r in src.execute(
                         f"SELECT id FROM dramas WHERE id IN ({marks})", ids)}
                     if any(i not in present for i in ids):
-                        raise NotFoundError("A chosen drama isn't in that file.")
+                        raise NotFoundError("A chosen title isn't in that file.")
                     _check_row_limits(src, ids)
             except sqlite3.Error:
                 raise InvalidInputError(_BAD_FILE) from None
@@ -381,13 +381,13 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
         except BaseException as exc:
             dst.rollback()
             if staging is not None and not abs_.end_media_staging(staging):
-                raise ServiceError("The dramas were not imported, but some of their files could "
-                                   "not be cleaned up and are still in the library's dramas "
+                raise ServiceError("The titles were not imported, but some of their files could "
+                                   "not be cleaned up and are still in the library's titles "
                                    "folder; the app tries again at the next start.") from None
             if isinstance(exc, (ServiceError, KeyboardInterrupt, SystemExit)):
                 raise
             log.warning("Drama import failed: %s", type(exc).__name__)
-            raise ServiceError("The dramas could not be imported; nothing was changed.") \
+            raise ServiceError("The titles could not be imported; nothing was changed.") \
                 from None
     try:
         from services import auth_service

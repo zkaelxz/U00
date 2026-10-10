@@ -53,7 +53,7 @@ def compare_job_id(drama_id: int) -> str:
 def _drama_or_404(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -267,7 +267,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
     for prefix in transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")
         if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this drama's lines. "
+            raise ConflictError("Another job is changing this title's lines. "
                                 "Try again when it finishes.")
     job_id = compare_job_id(drama_id)
     if background_jobs.is_running(job_id):
@@ -294,7 +294,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
          "use_gpu": settings_service.get_use_gpu()},
         translation, gpu_touching=True,
-        description=f"Comparing transcription of {len(picked)} line(s) (drama #{drama_id})")
+        description=f"Comparing transcription of {len(picked)} line(s) (title #{drama_id})")
     if not started:
         raise ConflictError("A transcription comparison is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(picked)}

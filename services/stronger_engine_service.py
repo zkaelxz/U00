@@ -61,7 +61,7 @@ AMBIGUOUS_FLAGS = {"ambiguous_reference", "name_uncertain"}
 def _drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -244,14 +244,14 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     lines = core.lines_from_rows(db.load_lines(drama_id))
     pos = next((i for i, ln in enumerate(lines) if ln.id == line_id), None)
     if pos is None:
-        raise NotFoundError(f"No line with id {line_id} in this drama.")
+        raise NotFoundError(f"No line with id {line_id} in this title.")
     line = lines[pos]
     if not (line.zh or "").strip():
         raise UnsupportedOperationError("This line has no source text.")
     stronger = _stronger(drama)
     if stronger is None:
         raise UnsupportedOperationError(
-            "Pick a stronger engine than this drama's own in Settings > Which engine does "
+            "Pick a stronger engine than this title's own in Settings > Which engine does "
             "what first.")
     if stronger != engine_name:
         raise ConflictError("The stronger engine was changed in Settings; try again.")

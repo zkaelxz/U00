@@ -56,14 +56,14 @@ def start_retime(drama_id: int, line_ids: list) -> dict:
     for prefix in _BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")
         if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this drama's lines. "
+            raise ConflictError("Another job is changing this title's lines. "
                                 "Try again when it finishes.")
     job_id = retime_job_id(drama_id)
     started = background_jobs.start_job(
         job_id, run_retime_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
         drama.get("source_language") or "zh", settings_service.get_use_gpu(),
         gpu_touching=True,
-        description=f"Re-timing {len(picked)} line(s) with the Qwen3 aligner (drama #{drama_id})")
+        description=f"Re-timing {len(picked)} line(s) with the Qwen3 aligner (title #{drama_id})")
     if not started:
         raise ConflictError("A re-time run is already active for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(picked)}

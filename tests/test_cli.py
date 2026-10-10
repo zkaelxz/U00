@@ -2062,7 +2062,7 @@ class TestCmdSetLanguage:
         with pytest.raises(SystemExit) as exc:
             self._run("--id", "9999", "--lines", "1", "--lang", "en")
         assert exc.value.code == 1
-        assert "No drama with id 9999" in capsys.readouterr().out
+        assert "No title with id 9999" in capsys.readouterr().out
 
     def test_other_dramas_line_ids_are_skipped(self, isolated_db, capsys):
         did, _ = self._drama(isolated_db)

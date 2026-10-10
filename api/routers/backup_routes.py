@@ -154,7 +154,7 @@ def _drama_ids(form) -> list:
     out = []
     for raw in form.getlist("drama_ids"):
         if not isinstance(raw, str) or not (raw.isascii() and raw.isdigit()) or len(raw) > 10:
-            raise InvalidInputError("A drama id is a positive whole number.")
+            raise InvalidInputError("A title id is a positive whole number.")
         out.append(int(raw))
     return out
 
@@ -185,7 +185,7 @@ async def post_import(request: Request):
         # Checked before the uploaded file is opened or the library is locked.
         if (form.get("confirm") != "true"
                 or form.get("confirm_text") != bis.RESTORE_CONFIRM_TEXT):
-            raise InvalidInputError(f"Importing dramas needs confirm=true and confirm_text set "
+            raise InvalidInputError(f"Importing titles needs confirm=true and confirm_text set "
                                     f"to the word {bis.RESTORE_CONFIRM_TEXT}, in capitals.")
         upload, drama_ids = _upload(form), _drama_ids(form)
         principal = getattr(request.state, "principal", None)

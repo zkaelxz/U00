@@ -96,7 +96,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     NotFoundError for an unknown drama or one with no lines yet, the
     same vocabulary every other service in this app's migration uses."""
     if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
-        raise InvalidInputError("A drama id is a positive whole number.")
+        raise InvalidInputError("A title id is a positive whole number.")
     if not isinstance(chapter_size, int) or isinstance(chapter_size, bool) or not (10 <= chapter_size <= 200):
         raise InvalidInputError("chapter_size must be a whole number from 10 to 200.")
     if not isinstance(page, int) or isinstance(page, bool) or page < 1:
@@ -104,7 +104,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
 
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -164,10 +164,10 @@ def _require_drama(drama_id) -> dict:
     """The ownership check every function below starts with: a bad id is
     InvalidInputError, an unknown drama NotFoundError."""
     if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
-        raise InvalidInputError("A drama id is a positive whole number.")
+        raise InvalidInputError("A title id is a positive whole number.")
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -369,7 +369,7 @@ def media_file_path(drama_id: int, kind: str) -> tuple:
         raise InvalidInputError("kind must be one of: " + ", ".join(MEDIA_KINDS))
     found = _media_paths(drama_id, drama).get(kind)
     if found is None:
-        raise NotFoundError(f"This drama has no {kind} media file.")
+        raise NotFoundError(f"This title has no {kind} media file.")
     return found
 
 
@@ -543,7 +543,7 @@ def set_rich_export(drama_id: int, words: list, queued: bool = True) -> dict:
     known = {r["word"] for r in db.list_vocab_lookups(drama_id)}
     missing = [w for w in words if w not in known]
     if missing:
-        raise NotFoundError("Not in this drama's vocab list: " + ", ".join(missing[:10]))
+        raise NotFoundError("Not in this title's vocab list: " + ", ".join(missing[:10]))
     unique = list(dict.fromkeys(words))
     for w in unique:
         db.set_vocab_export_rich(drama_id, w, bool(queued))
@@ -556,7 +556,7 @@ def export_vocab_csv(drama_id: int) -> dict:
     drama = _require_drama(drama_id)
     vocab = db.list_vocab_lookups(drama_id)
     if not vocab:
-        raise NotFoundError("No words have been looked up in this drama yet.")
+        raise NotFoundError("No words have been looked up in this title yet.")
     return {"filename": _safe_filename(_title(drama, "vocab"), "csv"), "media_type": "text/csv",
             "content": vocab_export.export_vocab_csv(vocab)}
 
@@ -574,7 +574,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
     vocab = db.list_vocab_lookups(drama_id, rich_only=bool(rich))
     if not vocab:
         raise NotFoundError("No words queued for the rich export yet." if rich
-                            else "No words have been looked up in this drama yet.")
+                            else "No words have been looked up in this title yet.")
     cards_capped = bool(rich) and len(vocab) > MAX_RICH_CARDS
     if cards_capped:
         vocab = vocab[:MAX_RICH_CARDS]

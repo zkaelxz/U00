@@ -59,7 +59,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
         raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
     audio_path = transcribe_service._drama_audio_path(drama_id, drama)
     if audio_path is None:
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     if (not isinstance(line_ids, list) or not line_ids or len(line_ids) > MAX_LINES
             or any(isinstance(i, bool) or not isinstance(i, int) for i in line_ids)):
         raise InvalidInputError(f"Choose between 1 and {MAX_LINES} lines.")
@@ -67,14 +67,14 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
     wanted = set(line_ids)
     picked = [ln for ln in lines if ln.id in wanted]
     if len(picked) != len(wanted):
-        raise NotFoundError("Some of those lines are not in this drama any more.")
+        raise NotFoundError("Some of those lines are not in this title any more.")
     if any(not float(ln.end) > float(ln.start) for ln in picked):
         raise UnsupportedOperationError("A chosen line has no timing window to re-transcribe.")
     prompt = transcribe_service._resolve_initial_prompt(drama_id, initial_prompt, extra_names)
     for prefix in transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")
         if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this drama's lines. "
+            raise ConflictError("Another job is changing this title's lines. "
                                 "Try again when it finishes.")
     job_id = _job_id(drama_id)
     default_language = drama.get("source_language") or "zh"
@@ -99,7 +99,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
                       size, whisper_models.is_whisper_model_cached(size)),
                   retranscribe_timeout_s(sum(w[2] - w[1] for w in windows)), scratch_dir),
             gpu_touching=True,
-            description=f"Re-transcribing {len(windows)} lines (drama #{drama_id})",
+            description=f"Re-transcribing {len(windows)} lines (title #{drama_id})",
             kill_whole_tree=True, initial_result={"line_count": len(windows)},
             start_method="spawn",
             on_done=functools.partial(apply_retranscribe_many_outcome, drama_id=drama_id,
@@ -110,7 +110,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
         raise
     if not started:
         transcribe_pipeline._remove_scratch_dir(scratch_dir)
-        raise ConflictError("A re-transcription is already running for this drama.")
+        raise ConflictError("A re-transcription is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(windows)}
 
 

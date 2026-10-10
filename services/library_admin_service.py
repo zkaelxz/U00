@@ -96,14 +96,14 @@ def require_confirm(confirm, confirm_text, word: str, action: str):
 
 def _check_ids(drama_ids) -> list:
     if not isinstance(drama_ids, (list, tuple)) or not drama_ids:
-        raise InvalidInputError("Pick at least one drama.")
+        raise InvalidInputError("Pick at least one title.")
     if len(drama_ids) > MAX_BULK_IDS:
-        raise InvalidInputError(f"At most {MAX_BULK_IDS} dramas per request.")
+        raise InvalidInputError(f"At most {MAX_BULK_IDS} titles per request.")
     out = []
     for did in drama_ids:
         if (isinstance(did, bool) or not isinstance(did, int)
                 or not 1 <= did <= drama_service.MAX_ID):
-            raise InvalidInputError("A drama id is a positive whole number.")
+            raise InvalidInputError("A title id is a positive whole number.")
         if did not in out:
             out.append(did)
     return out
@@ -167,7 +167,7 @@ def refuse_during_maintenance(label: str):
     """A backup/export must not read the library while a bulk delete or
     storage cleanup is changing it (_maintenance refuses the reverse)."""
     if background_jobs.maintenance_active():
-        raise ConflictError(f"Dramas are being deleted or storage cleaned; the {label} "
+        raise ConflictError(f"Titles are being deleted or storage cleaned; the {label} "
                             f"can start when that finishes.")
 
 
@@ -249,8 +249,8 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     single-drama delete uses); checked before anything is touched. A drama
     with a running/queued job is skipped with error "job_running"."""
     ids = _check_ids(drama_ids)
-    require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting dramas")
-    with maintenance("deleting dramas"):
+    require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting titles")
+    with maintenance("deleting titles"):
         results = []
         for did in ids:
             if db.get_drama(did) is None:
@@ -305,15 +305,15 @@ def bulk_translate_engines(drama_ids, principal=None) -> dict:
 
 def _check_expected_engines(expected) -> dict:
     if not isinstance(expected, dict) or len(expected) > MAX_BULK_IDS:
-        raise InvalidInputError("expected_engines maps drama ids to engine names.")
+        raise InvalidInputError("expected_engines maps title ids to engine names.")
     out = {}
     for k, v in expected.items():
         try:
             did = int(k)
         except (TypeError, ValueError):
-            raise InvalidInputError("expected_engines maps drama ids to engine names.") from None
+            raise InvalidInputError("expected_engines maps title ids to engine names.") from None
         if not isinstance(v, str):
-            raise InvalidInputError("expected_engines maps drama ids to engine names.")
+            raise InvalidInputError("expected_engines maps title ids to engine names.")
         out[did] = v
     return out
 
@@ -349,7 +349,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                 skipped.append({"drama_id": did, "reason": "engine_changed"})
         expected_engines = {did: expected[did] for did in queued}
     if not queued:
-        raise InvalidInputError("None of the picked dramas are untranslated (status 'aligned').")
+        raise InvalidInputError("None of the picked titles are untranslated (status 'aligned').")
     api_keys = {}
     for engine in translate_engines.ENGINES:
         try:
@@ -455,7 +455,7 @@ def start_export_zip(drama_ids=None) -> dict:
                 ids.append(did)
                 results.append({"drama_id": did, "ok": True})
     if not ids:
-        raise InvalidInputError("No translated dramas to export.",
+        raise InvalidInputError("No translated titles to export.",
                                 details={"results": results} if results is not None else None)
     refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
@@ -633,7 +633,7 @@ def start_database_backup() -> dict:
 #   keep: household-wide, nothing personal
 #   empty: every row dropped
 USER_BACKUP_TABLES = {
-    "dramas": ("owned_dramas", "the owner's dramas"),
+    "dramas": ("owned_dramas", "the owner's titles"),
     "series": ("owned_series", "the owner's series"),
     "lines": ("drama", ""), "characters": ("drama", ""), "pages": ("drama", ""),
     "translation_notes": ("drama", ""), "line_emotions": ("drama", ""),
@@ -669,7 +669,7 @@ USER_BACKUP_TABLES = {
     "metadata_research_cache": ("empty", "lookups from every user"),
     "app_settings": ("empty", "this PC's settings"),
     "assistant_backlog": ("empty", "this PC's maintenance notes"),
-    "benchmark_cases": ("empty", "this PC's test set, may quote any drama"),
+    "benchmark_cases": ("empty", "this PC's test set, may quote any title"),
     "benchmark_runs": ("empty", "belongs to benchmark_cases"),
     "benchmark_sessions": ("empty", "this PC's benchmark runs"),
     "benchmark_results": ("empty", "belongs to benchmark_sessions"),

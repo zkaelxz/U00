@@ -60,9 +60,9 @@ def _check_media(source: str, drama: dict):
     media = (drama.get("media_type") or "").lower()
     if adapter is not None and adapter.supports("get_pages"):
         if media not in COMIC_MEDIA_TYPES:
-            raise InvalidInputError("Comic chapters import into a manhua, manga or manhwa drama.")
+            raise InvalidInputError("Comic chapters import into a manhua, manga or manhwa title.")
     elif media not in NOVEL_MEDIA_TYPES:
-        raise InvalidInputError("Novel chapters import into a novel drama.")
+        raise InvalidInputError("Novel chapters import into a novel title.")
 
 
 def set_tracked_drama(source: str, series_id: str, drama_id, principal=None) -> list:
@@ -80,7 +80,7 @@ def set_tracked_drama(source: str, series_id: str, drama_id, principal=None) -> 
     if drama_id is not None:
         drama = db.get_drama(drama_id)
         if drama is None or not ownership_service.can_edit_drama(principal, drama_id):
-            raise NotFoundError(f"No drama with id {drama_id}.")
+            raise NotFoundError(f"No title with id {drama_id}.")
         _check_media(source, drama)
     if not store.set_tracked_drama(source, series_id, drama_id,
                                    linked_by_user_id=(principal or {}).get("user_id")):

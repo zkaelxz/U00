@@ -486,7 +486,7 @@ def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optiona
         if not isinstance(seen, dict) or field not in seen:
             raise InvalidInputError(f"Send the {field} value you were shown.")
         if (seen[field] or "").strip() != current:
-            raise ConflictError("This drama's details changed since the research was shown. "
+            raise ConflictError("This title's details changed since the research was shown. "
                                 "Look again before applying.", details={"reason": "changed",
                                                                        "field": field})
         if choice == "confirm" and fields[field]["value"] != current:

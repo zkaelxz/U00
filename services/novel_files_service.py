@@ -66,7 +66,7 @@ MAX_TEXT_BYTES = 32 * 1024 * 1024
 MAX_TEXT_CHARS = 10_000_000
 _BOMS = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"),
          (codecs.BOM_UTF16_BE, "utf-16"))
-_BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+_BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 _IMPORT_BUSY = ("A Sources chapter import is running and may be adding to the raw novel. "
                 "Wait for it to finish or cancel it.")
 SOURCE_IMPORT_PREFIX = "source_import_"  # sources/pipeline.import_job_id
@@ -78,7 +78,7 @@ _ACTIVE = ("running", "queued")
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -253,7 +253,7 @@ def remove_reference(drama_id: int, confirm=False) -> dict:
     path = _reference_path(drama_id, drama)
     has_file = bool(path and os.path.isfile(path))
     if not has_file and not drama.get("novel_reference_filename"):
-        raise NotFoundError("This drama has no novel reference saved.")
+        raise NotFoundError("This title has no novel reference saved.")
     if confirm is not True:
         raise InvalidInputError("Removing the novel reference needs confirm=true.")
     _require_idle(drama_id)

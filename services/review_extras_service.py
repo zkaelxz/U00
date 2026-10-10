@@ -66,7 +66,7 @@ from services.service_errors import (
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -421,17 +421,17 @@ def start_sensevoice(drama_id: int) -> dict:
         raise DependencyUnavailableError("Audio emotion tags need: pip install funasr")
     audio = _audio_path(drama_id)
     if audio is None:
-        raise UnsupportedOperationError("This drama has no audio to tag.")
+        raise UnsupportedOperationError("This title has no audio to tag.")
     lines = db.load_line_objects(drama_id)
     if not lines:
-        raise UnsupportedOperationError("This drama has no lines yet.")
+        raise UnsupportedOperationError("This title has no lines yet.")
     job_id = f"{SENSEVOICE_JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
         job_id, workspace_job_service.run_sensevoice_job, job_id, drama_id, lines, audio,
         db.drama_dir(drama_id), settings_service.get_use_gpu(), gpu_touching=True,
-        description=f"SenseVoice audio tagging (drama #{drama_id})")
+        description=f"SenseVoice audio tagging (title #{drama_id})")
     if not started:
-        raise ConflictError("Already tagging this drama's audio.")
+        raise ConflictError("Already tagging this title's audio.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(lines)}
 
 
@@ -535,13 +535,13 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
     export_service.check_wrap(wrap_chars_source, "wrap_chars_source")
     video = _video_path(drama_id)
     if video is None:
-        raise UnsupportedOperationError("This drama has no source video to preview on.")
+        raise UnsupportedOperationError("This title has no source video to preview on.")
     if not _ffmpeg_available():
         raise DependencyUnavailableError("The preview needs ffmpeg (with libass) installed.")
     lines = db.load_line_objects(drama_id)
     line = next((ln for ln in lines if ln.id == line_id), None)
     if line is None:
-        raise NotFoundError(f"No line with id {line_id} in this drama.")
+        raise NotFoundError(f"No line with id {line_id} in this title.")
     if speaker_colors is not None:
         colors = dict(speaker_colors)
     elif per_speaker_colors:
@@ -561,15 +561,15 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
     job_id = f"{BURN_PREVIEW_JOB_PREFIX}{drama_id}"
     with _BURN_PREVIEW_START_LOCK:   # the count and the start, together
         if background_jobs.is_running(job_id):
-            raise ConflictError("A preview clip is already rendering for this drama.")
+            raise ConflictError("A preview clip is already rendering for this title.")
         if background_jobs.count_active_jobs(BURN_PREVIEW_JOB_PREFIX) >= \
                 MAX_CONCURRENT_BURN_PREVIEWS:
             raise ConflictError("Other preview clips are rendering; try again in a moment.")
         started = background_jobs.start_job(
             job_id, _run_burn_preview_job, job_id, drama_id, video, ass, start, end, meta,
-            description=f"Burned-subtitle preview (drama #{drama_id})")
+            description=f"Burned-subtitle preview (title #{drama_id})")
     if not started:
-        raise ConflictError("A preview clip is already rendering for this drama.")
+        raise ConflictError("A preview clip is already rendering for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_id": line.id,
             "start": start, "end": end}
 
@@ -624,8 +624,8 @@ def preview_clip_path(drama_id: int) -> str:
     _require_drama(drama_id)
     if _video_path(drama_id) is None:
         _drop_stale_preview(drama_id)
-        raise NotFoundError("No preview clip has been rendered for this drama.")
+        raise NotFoundError("No preview clip has been rendered for this title.")
     path = _preview_file(drama_id)
     if path is None:
-        raise NotFoundError("No preview clip has been rendered for this drama.")
+        raise NotFoundError("No preview clip has been rendered for this title.")
     return path

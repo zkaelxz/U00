@@ -17,7 +17,7 @@ MAX_NOTES_LEN = 1000
 def _drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError("Drama not found.")
+        raise NotFoundError("Title not found.")
     return drama
 
 
@@ -25,7 +25,7 @@ def _series_id(drama: dict, *, required: bool) -> Optional[int]:
     sid = drama.get("series_id")
     if not sid and required:
         raise UnsupportedOperationError(
-            "This drama isn't part of a series; add it to a series first.")
+            "This title isn't part of a series; add it to a series first.")
     return sid or None
 
 

@@ -72,7 +72,7 @@ _NO_DISK_ROOM = ("There is not enough free disk space for this upload. Free up s
 # The content modes with an audio pipeline (source_service's
 # `has_audio_pipeline`); keep in sync by hand.
 UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
-NO_UPLOAD_MODE = ("This drama has no audio to upload (it is set to work from a novel). "
+NO_UPLOAD_MODE = ("This title has no audio to upload (it is set to work from a novel). "
                    "Change what you are working from to Audio drama or Streamer/VOD first.")
 _BAD_TYPE = "Unsupported file type. Upload an audio or video file."
 _EXTRACT_FAILED = ("Could not read audio from that video file. The uploaded video was kept "
@@ -80,7 +80,7 @@ _EXTRACT_FAILED = ("Could not read audio from that video file. The uploaded vide
 _SAVE_FAILED = ("Could not put the upload in place as this title's media. The uploaded file was "
                 "kept in this title's folder and is counted with the old copies; the title's "
                 "audio and video are unchanged.")
-_CONFIRM_REPLACE = "This drama already has audio. Confirm replacing it first."
+_CONFIRM_REPLACE = "This title already has audio. Confirm replacing it first."
 KEPT_DIRNAME = "kept_media"
 _MEDIA_FIELDS = ("audio_filename", "source_video_filename")
 # A new title has no transcript_mode (it reads as have_transcript), which
@@ -110,7 +110,7 @@ def follow_deadline_seconds(media_seconds) -> float:
 # has just put in place and not yet recorded (the upload claim is per
 # process), so recovery leaves it for a later pass.
 UNNAMED_MIN_AGE_SECONDS = 10 * 60
-_BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+_BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 # Per-drama upload claim: held from the running-job check until the
 # file is in place and any extraction job is registered, so a concurrent
 # upload is refused before it touches `source<ext>`. In-process only;
@@ -465,7 +465,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
     ext = _safe_extension(client_filename)
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in UPLOAD_CONTENT_MODES:
         raise InvalidInputError(NO_UPLOAD_MODE)
     if has_media(drama, drama_id) and not confirm_replace_audio:
@@ -515,7 +515,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         raise InvalidInputError("confirm_replace_audio must be true or false.")
     with claims_lock:
         if drama_id in claimed:
-            raise ConflictError("Another upload is in progress for this drama.")
+            raise ConflictError("Another upload is in progress for this title.")
         claimed.add(drama_id)
     try:
         if drama_service.job_running_for_drama(drama_id):
@@ -542,7 +542,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         try:
             started = background_jobs.start_job(
                 job_id, _extract_audio_job, job_id, drama_id, ext, staged, transcribe_options,
-                description=f"Audio extraction (drama #{drama_id})")
+                description=f"Audio extraction (title #{drama_id})")
         except BaseException:
             _keep_failed_upload(ddir, staged, ext)
             raise
@@ -666,7 +666,7 @@ def get_media_status(drama_id) -> dict:
     """Booleans, counts and the upload cap only -- never a path or filename."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     audio = drama.get("audio_filename")
     return {
         "drama_id": drama_id,

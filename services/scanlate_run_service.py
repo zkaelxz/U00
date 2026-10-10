@@ -96,7 +96,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
         raise InvalidInputError("detect_backend must be 'auto', 'cv' or 'ml'.")
     pages = db.list_pages(drama_id)
     if not pages:
-        raise UnsupportedOperationError("This drama has no pages yet. Upload some first.")
+        raise UnsupportedOperationError("This title has no pages yet. Upload some first.")
     if mode == "page":
         if page_id is None:
             raise InvalidInputError("page_id is required to redo one page.")
@@ -119,7 +119,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
     started = pages_svc.start_drama_job(
         drama_id, _run_job, pages_svc.job_id(drama_id), drama_id, mode, targets,
         engine_name, built, detect_backend,
-        description=f"Scanlate translate (drama {drama_id})")
+        description=f"Scanlate translate (title {drama_id})")
     return {**started, "engine": engine_name, "mode": mode}
 
 

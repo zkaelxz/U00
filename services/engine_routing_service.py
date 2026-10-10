@@ -48,7 +48,7 @@ _DEFAULT_ENGINE = "default_engine"  # sentinel: Settings' default engine
 CAPABILITIES = {
     "translation.cheap": {
         "label": "Everyday translation",
-        "help": "Used for each new drama, and for a drama that has no engine of its own.",
+        "help": "Used for each new title, and for a title that has no engine of its own.",
         "requires": translate_engines.CAP_TRANSLATE,
         "pref": "default_engine",
         "choices": settings_service.engine_preference_choices,
@@ -64,8 +64,8 @@ CAPABILITIES = {
     },
     "llm.instructions": {
         "label": "Line helpers for translation-only engines",
-        "help": ("Improve, Why this?, Alternatives and Grammar use the drama's own engine. "
-                 "For a drama translated with an engine that "
+        "help": ("Improve, Why this?, Alternatives and Grammar use the title's own engine. "
+                 "For a title translated with an engine that "
                  "can't follow instructions, they use this engine instead."),
         "requires": translate_engines.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,

@@ -151,7 +151,7 @@ def get_media(drama_id: int = Path(ge=1)):
 def get_caption_track(track: Track, drama_id: int = Path(ge=1)):
     tracks = reader_service.get_caption_tracks(drama_id)["tracks"]
     if track not in tracks:
-        raise NotFoundError(f"This drama has no {track} caption track.")
+        raise NotFoundError(f"This title has no {track} caption track.")
     return Response(content=tracks[track], media_type="text/vtt; charset=utf-8",
                     headers={"X-Content-Type-Options": "nosniff"})
 
