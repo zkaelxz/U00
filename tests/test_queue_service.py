@@ -394,3 +394,19 @@ def test_runner_exits_on_shutdown_and_holds_no_lock_while_a_job_runs(jobs, monke
 def test_a_stored_document_from_another_version_starts_empty(isolated_db):
     db.set_app_setting(q.QUEUE_KEY, {"version": 99, "items": [{"id": 1}]})
     assert q.get_queue(None)["items"] == []
+
+
+def test_a_transcribe_over_lines_needs_lines_edit_as_for_a_click(isolated_db):
+    # The real start function: the queue runs it as the adder, so the
+    # service's own overwrite rule applies to a queued run too.
+    u = auth_service.add_user("a@example.com")
+    auth_service.revoke_permission(u["id"], "lines.edit")
+    did = _drama("Mine", owner_user_id=u["id"], is_private=1)
+    q.add_item({"user_id": u["id"], "is_admin": False, "permissions": ["jobs.start"]},
+               did, "transcribe", False)
+    q.start(None)
+    q.tick()
+    item = _items()[0]
+    from services import ownership_service
+    assert item["status"] == "skipped"
+    assert item["reason"] == f"Skipped: {ownership_service._REPLACE_NEEDS_EDIT}"
