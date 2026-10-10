@@ -35,7 +35,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Area | pytest (`python -m pytest -q ...`) | vitest (`npx vitest run ...`) | Playwright (`npx playwright test ...`) |
 |---|---|---|---|
 | Library / titles | `tests/test_library_service.py tests/test_drama_service.py tests/test_api_dramas.py tests/test_title_library.py` | `src/api/library.test.ts src/pages/libraryForm.test.ts src/pages/libraryParity` | `e2e/library.spec.ts` |
-| Transcription (ASR) | `tests/test_transcribe_service.py tests/test_asr_backend.py tests/test_diarize.py` | `src/api/asrOptions.test.ts` | `e2e/transcribe-card.spec.ts` |
+| Transcription (ASR) | `tests/test_transcribe_service.py tests/test_asr_backend.py tests/test_diarize.py tests/test_segment.py tests/test_compare_transcription.py` | `src/api/asrOptions.test.ts` | `e2e/transcribe-card.spec.ts` |
 | Translation + engines | `tests/test_translate_engines.py tests/test_translate_run_service.py tests/test_bulk_translate.py tests/test_engine_routing.py` | `src/api/translate.test.ts src/pages/translateFile.test.ts src/pages/workspace/translateForm.test.ts` | `e2e/translate.spec.ts` |
 | Review / lines | `tests/test_lines_service.py tests/test_review_lines_service.py tests/test_api_lines.py` | `src/api/review.test.ts src/pages/workspace/stages/review` | `e2e/review-stage.spec.ts` |
 | Characters / glossary | `tests/test_characters_service.py tests/test_glossary_service.py tests/test_api_glossary.py` | `src/api/characters.test.ts src/pages/workspace/stages/glossaryExtract.test.ts` | `e2e/characters-rename.spec.ts` |
@@ -44,13 +44,14 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Scanlate / OCR | `tests/test_scanlate.py tests/test_ocr.py tests/test_hardsub_ocr.py tests/test_api_comic_viewer.py` | `src/api/scanlate.test.ts src/pages/comic` | `e2e/scanlate.spec.ts` |
 | Sources / adapters | `tests/test_sources_core.py tests/test_api_sources_search.py tests/test_source_service.py` (an adapter: `tests/test_sources_<site>.py`) | `src/api/sources.test.ts src/pages/sources` | `e2e/sources.spec.ts` |
 | Benchmark lab | `tests/test_benchmark_lab.py tests/test_benchmark.py tests/test_model_reeval.py tests/test_api_benchmark.py` | `src/api/benchmark.test.ts src/pages/benchmark` | `e2e/lab-benchmark.spec.ts` |
-| Diagnostics / installs | `tests/test_diagnostics_service.py tests/test_api_diagnostics_installs.py tests/test_install_presets.py` | `src/api/diagnostics.test.ts src/pages/diagnostics` | `e2e/diagnostics.spec.ts` |
-| Jobs | `tests/test_background_jobs.py tests/test_jobs_service.py tests/test_api_job_cancel.py` | `src/api/jobs.test.ts src/pages/jobs` | `e2e/jobs.spec.ts` |
-| Settings / backups | `tests/test_settings_service.py tests/test_auto_backup_service.py tests/test_api_backups.py tests/test_user_backup.py` | `src/api/settings.test.ts src/pages/settings` | `e2e/settings.spec.ts e2e/backups.spec.ts` |
+| Diagnostics / installs | `tests/test_diagnostics_service.py tests/test_api_diagnostics_installs.py tests/test_install_presets.py tests/test_install_plan.py tests/test_pending_install.py tests/test_api_pending_install.py tests/test_upgrade_check.py` | `src/api/diagnostics.test.ts src/pages/diagnostics` | `e2e/diagnostics.spec.ts` |
+| Jobs | `tests/test_background_jobs.py tests/test_jobs_service.py tests/test_api_job_cancel.py tests/test_gpu_process_job.py tests/test_job_process_result.py tests/test_cancellable_lock.py tests/test_ytdlp_child.py` | `src/api/jobs.test.ts src/pages/jobs` | `e2e/jobs.spec.ts` |
+| Settings / backups | `tests/test_settings_service.py tests/test_settings_schema.py tests/test_auto_backup_service.py tests/test_api_backups.py tests/test_user_backup.py` | `src/api/settings.test.ts src/pages/settings` | `e2e/settings.spec.ts e2e/backups.spec.ts` |
 | Auth / permissions | `tests/test_api_permissions.py tests/test_auth_service.py tests/test_auth_login.py tests/test_api_admin_users.py` | `src/api/auth.test.ts src/hooks/useSession.test.ts` | `e2e/signin.spec.ts` |
 | Installer / updates | `tests/test_installer_service.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
 | Database / migrations | `tests/test_db.py tests/test_save_lines_write_race.py` | n/a | n/a |
-| Repo guards | `tests/test_static_analysis.py tests/test_repo_map.py` | n/a | n/a |
+| Shared helpers (`lib/`) | `tests/test_lib_http.py tests/test_lib_proc.py tests/test_cancellable_lock.py tests/test_settings_schema.py` | n/a | n/a |
+| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first four are the CI `guards` job) | n/a | n/a |
 
 ## Tests
 

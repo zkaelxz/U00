@@ -82,6 +82,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "scanlate.py",
     "scanlate_detect.py",
     "review_thresholds.py",
+    "scanlate_inpaint.py",
     "segment.py",
     "segment_splitting.py",
     "sensevoice_tags.py",
