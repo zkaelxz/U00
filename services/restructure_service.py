@@ -42,6 +42,7 @@ from typing import Optional
 
 import background_jobs
 import core as core_module
+import segment_splitting
 import db
 import diarize
 import long_line_split
@@ -249,9 +250,9 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             raise InvalidInputError("line_ids must be adjacent lines, in order.")
         head, rest = lines[first], lines[first + 1:first + len(line_ids)]
         # Joined only when every line's words are valid and in time order; else dropped.
-        words = core_module.line_words(head)
+        words = segment_splitting.line_words(head)
         for ln in rest:
-            more = core_module.line_words(ln)
+            more = segment_splitting.line_words(ln)
             words = (words + more if words and more and more[0]["start"] >= words[-1]["start"]
                      else None)
         for ln in rest:
@@ -266,7 +267,7 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             if ln.lang != head.lang:
                 head.lang = None
         head.end = max(head.end, rest[-1].end)
-        head.word_timings = core_module.encode_line_words(head.zh, words) if words else None
+        head.word_timings = segment_splitting.encode_line_words(head.zh, words) if words else None
         return lines[:first + 1] + lines[first + len(line_ids):], [head]
     return structural_write(drama_id, expected_line_ids, "before merge", build, with_words=True)
 
@@ -308,9 +309,9 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
         en_first, en_second = ln.en, ""
         if en_at_char is not None:
             en_first, en_second = ln.en[:en_at_char].rstrip(), ln.en[en_at_char:].strip()
-        index = core_module.line_word_index(ln)
-        words = ([core_module.span_words(index, 0, at_char, pieces[0]),
-                  core_module.span_words(index, at_char, len(ln.zh), pieces[1])]
+        index = segment_splitting.line_word_index(ln)
+        words = ([segment_splitting.span_words(index, 0, at_char, pieces[0]),
+                  segment_splitting.span_words(index, at_char, len(ln.zh), pieces[1])]
                  if index is not None else [None, None])
         second = core_module.Line(idx=0, start=cut, end=ln.end, zh=pieces[1], en=en_second,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
@@ -713,25 +714,25 @@ class _Resplit:
     language: str = "zh"
     sensitivity: str = "normal"
     max_seconds: Optional[float] = None
-    min_pause: float = core_module.MIN_WORD_GAP_SECONDS
+    min_pause: float = segment_splitting.MIN_WORD_GAP_SECONDS
 
     @property
     def label(self) -> str:
         return RESPLIT_SENSITIVITIES[self.sensitivity] + (
             f", {self.max_seconds:g} s cap" if self.max_seconds else "")
 
-    def rules(self, ln) -> Optional[core_module.SplitRules]:
+    def rules(self, ln) -> Optional[segment_splitting.SplitRules]:
         """None is today's fixed 8 s / 40 CJK characters. The cap replaces the
         8 s limit rather than adding to it: a cap above 8 would otherwise do nothing."""
         if self.sensitivity == "normal" and not self.max_seconds:
             return None
-        seconds = self.max_seconds or core_module.SPLIT_MAX_SECONDS
+        seconds = self.max_seconds or segment_splitting.SPLIT_MAX_SECONDS
         if self.sensitivity == "normal":
-            return core_module.SplitRules(seconds, core_module.SPLIT_MAX_CJK_CHARS, count_latin=False)
+            return segment_splitting.SplitRules(seconds, segment_splitting.SPLIT_MAX_CJK_CHARS, count_latin=False)
         if self.sensitivity == "more":
-            return core_module.SplitRules(
+            return segment_splitting.SplitRules(
                 seconds, subtitle_formats.line_char_limit(ln.lang or self.language))
-        return core_module.SplitRules(self.max_seconds, None, per_sentence=True)
+        return segment_splitting.SplitRules(self.max_seconds, None, per_sentence=True)
 
     def too_long(self, ln) -> bool:
         return len(ln.zh) > RESPLIT_MAX_CHARS and self.rules(ln) is not None
@@ -742,7 +743,7 @@ class _Resplit:
         seg = {"start": ln.start, "end": ln.end, "text": ln.zh}
         if self.too_long(ln):
             return [seg]
-        words = core_module.line_words(ln)
+        words = segment_splitting.line_words(ln)
         kw = {"rules": self.rules(ln), "min_pause": self.min_pause}
         if not words:
             return long_line_split.split_long_segments([seg], **kw)
@@ -841,14 +842,14 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             aligned += ln.id in timed
             first, *rest = pieces
             ln.start, ln.end, ln.zh, ln.en = first["start"], first["end"], first["text"], ""
-            ln.word_timings = core_module.encode_line_words(first["text"], first.get("words"))
+            ln.word_timings = segment_splitting.encode_line_words(first["text"], first.get("words"))
             if first.get("flag"):
                 ln.flag, ln.flag_note = first["flag"], first["flag_note"]
             new_pieces = [core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
                                            speaker=ln.speaker, speaker_manual=ln.speaker_manual,
                                            sfx=ln.sfx, lang=ln.lang, flag=p.get("flag"),
                                            flag_note=p.get("flag_note", ""),
-                                           word_timings=core_module.encode_line_words(
+                                           word_timings=segment_splitting.encode_line_words(
                                                p["text"], p.get("words")))
                           for p in rest]
             new_lines.append(ln)
