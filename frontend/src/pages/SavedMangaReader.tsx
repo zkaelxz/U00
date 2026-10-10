@@ -75,6 +75,15 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const figures = useRef(new Map<number, HTMLElement>())
   const jumpHandled = useRef(-1)
   const jumpRef = useRef(jump)
+  // Continue only follows a reader the user moved; opening a chapter to peek
+  // at it, or placeholder layout shifting before images load, must not
+  // overwrite where they really were.
+  const [moved, setMoved] = useState(false)
+  const movedRef = useRef(false)
+  const markMoved = useCallback(() => {
+    movedRef.current = true
+    setMoved(true)
+  }, [])
 
   useEffect(() => {
     getSavedPages(source, series, chapter).then(setData, setError)
@@ -98,6 +107,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
       const n = clampPage(routePage, count)
       setPicked(n)
       requestJump(n)
+      markMoved()
     }
   }
 
@@ -119,11 +129,14 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
     (n: number, fromScroll = false) => {
       if (!count) return
       const target = clampPage(n, count)
-      if (!fromScroll) setJump((j) => ({ page: target, seq: (j?.seq ?? 0) + 1 }))
+      if (!fromScroll) {
+        setJump((j) => ({ page: target, seq: (j?.seq ?? 0) + 1 }))
+        markMoved()
+      }
       setPicked(target)
       if (hashIsReading(window.location.hash, source, series, chapter)) window.location.replace(hrefAt(target))
     },
-    [count, hrefAt, source, series, chapter],
+    [count, hrefAt, source, series, chapter, markMoved],
   )
 
   useEffect(() => {
@@ -147,6 +160,8 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
       (entries) => {
         const j = jumpRef.current
         if (j && jumpHandled.current !== j.seq) return
+        // Before the user scrolls, what crosses the middle is just layout.
+        if (!movedRef.current) return
         for (const e of entries) {
           if (!e.isIntersecting) continue
           const n = Number((e.target as HTMLElement).dataset.page)
@@ -159,10 +174,31 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
     return () => io.disconnect()
   }, [prefs.mode, pages, go, ready])
 
+  // Wheel, touch, a scrollbar drag or a scrolling key: the user, not the page, moved.
+  useEffect(() => {
+    if (moved) return
+    const onKey = (e: KeyboardEvent) => {
+      if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(e.key)) markMoved()
+    }
+    const onPointer = (e: PointerEvent) => {
+      if (e.target === document.documentElement) markMoved()
+    }
+    window.addEventListener('wheel', markMoved, { passive: true })
+    window.addEventListener('touchmove', markMoved, { passive: true })
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onPointer)
+    return () => {
+      window.removeEventListener('wheel', markMoved)
+      window.removeEventListener('touchmove', markMoved)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onPointer)
+    }
+  }, [moved, markMoved])
+
   // Where the reader is, for Continue (this browser only).
   useEffect(() => {
-    if (current !== null) saveLastRead(browserStorage(), source, series, { chapter, page: current })
-  }, [current, source, series, chapter])
+    if (moved && current !== null) saveLastRead(browserStorage(), source, series, { chapter, page: current })
+  }, [moved, current, source, series, chapter])
 
   const srcFor = useCallback((p: ComicPageInfo) => savedPageUrl(source, series, chapter, p.id), [source, series, chapter])
   const preload = useMemo(

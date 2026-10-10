@@ -160,6 +160,24 @@ test('promote needs the second press, sends the reason, and says what changes', 
   }
 })
 
+test('a failed reload after Promote shows the error above the content it could not refresh', async ({ page }) => {
+  const { unmocked } = await mockReeval(page, overview({ withReport: true }))
+  await page.goto('/#/benchmark')
+  await openBenchSections(page)
+  const c = card(page)
+  await expect(c.getByTestId('reeval-production')).toBeVisible()
+  // Registered after the stand-in, so it answers the reload that Promote triggers.
+  await page.route((u) => u.pathname === '/api/models/reeval', (route) =>
+    route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Boom.' } } }))
+  const row = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'gemma4:26b' })
+  await row.getByRole('button', { name: 'Promote Ollama · gemma4:26b to production' }).click()
+  await row.getByRole('button', { name: 'Confirm: make Ollama · gemma4:26b production' }).click()
+  await expect(c.getByTestId('reeval-promote-status')).toBeVisible()
+  await expect(c.getByRole('alert').first()).toBeVisible()
+  await expect(c.getByTestId('reeval-production')).toBeVisible()
+  expect(unmocked).toEqual([])
+})
+
 test('reject asks a reason, reopen puts it back, re-adding a rejected model shows its decision', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true }))
   await page.goto('/#/benchmark')

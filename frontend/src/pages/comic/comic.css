@@ -53,6 +53,8 @@
 .comic-stage.comic-zoomed { touch-action: none; cursor: grab; }
 .comic-zoom-layer { transform-origin: 0 0; }
 .comic-stage-vertical .comic-zoom-layer { display: grid; justify-items: center; }
+/* ComicPageView compensates for pages above the reader resizing; native anchoring on top would scroll twice. */
+.comic-stage-vertical { overflow-anchor: none; }
 .comic-stage-paged { min-height: var(--comic-avail-h); display: grid; }
 .comic-stage-paged .comic-zoom-layer { display: grid; place-items: center; }
 
