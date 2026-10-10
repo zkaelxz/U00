@@ -10,6 +10,8 @@ import pytest
 
 import background_jobs
 import diagnostics_torch
+import install_plan
+import pending_install
 from services import diagnostics_gaps_service as gaps
 from services import diagnostics_installs_service as svc
 
@@ -38,6 +40,8 @@ def env(isolated_db, monkeypatch):
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
     monkeypatch.setattr(diagnostics_torch, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: ({"install": []}, None))
+    monkeypatch.setattr(svc.os, "access", lambda path, mode: True)
     background_jobs.clear_job(JOB)
     svc._DEPENDENCY.update(kind=None, package=None, last=None)
     yield
@@ -89,7 +93,7 @@ def test_cancel_kills_the_pip_tree_and_releases_the_hold(env, monkeypatch, tmp_p
     _wait(lambda: _dead(int(marker.read_text())))
     state = svc.get_dependency_install()
     assert state["result"]["cancelled"] is True and state["result"]["ok"] is False
-    assert "run the install again" in state["result"]["hint"]
+    assert state["result"]["hint"] == "Cancelled. Nothing else was changed."
     assert background_jobs.start_job("other_job", lambda: None) is True
 
 
@@ -201,3 +205,100 @@ def test_gpu_torch_setup_runs_as_a_job_and_cancel_skips_the_check(env, monkeypat
     background_jobs.request_cancel(JOB)
     assert _wait(_finished)["status"] == "cancelled"
     assert background_jobs.exclusive_active() is False
+
+
+def _report(*pairs):
+    return {"install": [{"metadata": {"name": n, "version": v}} for n, v in pairs]}
+
+
+def test_install_now_refuses_a_blocked_plan(env, monkeypatch):
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: (None, "conflict"))
+    with pytest.raises(gaps.AdminActionNotPossible, match="can't be installed together"):
+        svc.start_dependency_install("jieba", confirm=True)
+    assert background_jobs.get_status(JOB) is None
+
+
+def test_install_now_needs_the_downgrade_accepted(env, monkeypatch):
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: (_report(("numpy", "1.0")), None))
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "2.0"})
+    monkeypatch.setattr(install_plan, "app_required_names", lambda: {"numpy"})
+    with pytest.raises(gaps.AdminActionRefused, match="downgrade") as exc:
+        svc.start_dependency_install("jieba", confirm=True)
+    assert getattr(exc.value, "http_status", 409) == 409
+    assert background_jobs.get_status(JOB) is None
+    _commands(monkeypatch, "pass")
+    assert svc.start_dependency_install("jieba", confirm=True, accept_risk=True)["started"] is True
+    assert _wait(_finished)["status"] == "done"
+
+
+def test_install_now_refuses_what_must_wait_for_a_restart(env, monkeypatch):
+    real = install_plan.build_plan
+    monkeypatch.setattr(install_plan, "build_plan", lambda keys: real(
+        keys, windows=True, report=_report(("numpy", "2.1")), installed={"numpy": "2.0"},
+        in_use=lambda name: True, mins={}, required=set()))
+    with pytest.raises(svc.InstallNeedsRestart, match="Queue it for the next start"):
+        svc.start_dependency_install("jieba", confirm=True)
+    assert background_jobs.get_status(JOB) is None
+
+
+def test_a_read_only_install_folder_refuses_before_a_job_exists(env, monkeypatch):
+    monkeypatch.setattr(svc.os, "access", lambda path, mode: False)
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: pytest.fail("no preview"))
+    with pytest.raises(gaps.AdminActionNotPossible, match="Stop the service"):
+        svc.start_dependency_install("jieba", confirm=True)
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
+    monkeypatch.setattr(svc.gaps, "_python_supported", lambda: True)
+    with pytest.raises(gaps.AdminActionNotPossible, match="Stop the service"):
+        svc.start_gpu_torch_setup("cpu", confirm=True)
+    assert background_jobs.get_status(JOB) is None
+
+
+@pytest.fixture
+def restore(monkeypatch):
+    """`pip` (a fake runner) replaces numpy 2.0 with 2.1, then fails or is
+    cancelled; the restore is asked to put 2.0 back."""
+    state = {"numpy": "2.0", "calls": []}
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": state["numpy"]})
+
+    def fake_restore(before, now_versions, budget, echo):
+        state["calls"].append((before, now_versions))
+        return ["numpy"], []
+    monkeypatch.setattr(pending_install, "_restore", fake_restore)
+    _commands(monkeypatch, "pip")
+    return state
+
+
+def test_a_pip_failure_puts_the_earlier_packages_back(env, monkeypatch, restore):
+    def fake_tree(cmd, timeout, cancel=None, **_kw):
+        restore["numpy"] = "2.1"
+        yield {"returncode": 1, "timed_out": False, "cancelled": False}
+    monkeypatch.setattr(gaps, "stream_tree", fake_tree)
+    svc.start_dependency_install("jieba", confirm=True)
+    assert _wait(_finished)["status"] == "error"
+    assert restore["calls"] == [({"numpy": "2.0"}, {"numpy": "2.1"})]
+    assert "Your earlier packages were put back." in svc.get_dependency_install()["result"]["hint"]
+    assert background_jobs.exclusive_active() is False
+
+
+def test_cancel_puts_the_earlier_packages_back(env, monkeypatch, restore):
+    def fake_tree(cmd, timeout, cancel=None, **_kw):
+        restore["numpy"] = "2.1"
+        background_jobs.request_cancel(JOB)
+        yield {"returncode": None, "timed_out": False, "cancelled": True}
+    monkeypatch.setattr(gaps, "stream_tree", fake_tree)
+    svc.start_dependency_install("jieba", confirm=True)
+    assert _wait(_finished)["status"] == "cancelled"
+    assert restore["calls"] == [({"numpy": "2.0"}, {"numpy": "2.1"})]
+    result = svc.get_dependency_install()["result"]
+    assert result["hint"] == "Cancelled. Your earlier packages were put back."
+    assert background_jobs.exclusive_active() is False
+
+
+def test_a_package_that_could_not_be_put_back_is_named(env, monkeypatch):
+    monkeypatch.setattr(pending_install, "_restore",
+                        lambda before, now, budget, echo: ([], ["numpy"]))
+    _commands(monkeypatch, "import sys; sys.exit(1)")
+    svc.start_dependency_install("jieba", confirm=True)
+    _wait(_finished)
+    hint = svc.get_dependency_install()["result"]["hint"]
+    assert "could not be put back: numpy" in hint

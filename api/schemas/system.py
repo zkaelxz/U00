@@ -76,6 +76,7 @@ __all__ = [
     "DiagnosticsTorchVerify",
     "DiagnosticsGpuTorchStatus",
     "DiagnosticsGpuTorchSetupRequest",
+    "DiagnosticsDependencyInstallRequest",
     "DiagnosticsResetRequest",
     "DiagnosticsResetResult",
     "ExtensionStatus",
@@ -696,6 +697,14 @@ class DiagnosticsGpuTorchSetupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
     variant: Optional[Literal["cu128", "cpu"]] = None
+
+
+class DiagnosticsDependencyInstallRequest(BaseModel):
+    """confirm=true; accept_risk=true when the install plan downgrades a
+    package Baihe needs (409 without it)."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    accept_risk: StrictBool = False
 
 
 class DiagnosticsResetRequest(BaseModel):

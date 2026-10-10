@@ -3,6 +3,7 @@ jobs, over services/diagnostics_installs_service.py. Every download, winget
 run and pip/pytest run is faked; no network, no install."""
 import hashlib
 import io
+import os
 import time
 import zipfile
 
@@ -29,6 +30,7 @@ ABS_PATH = "/home/someone/private/thing"
 LATEST = svc.DENO_DOWNLOADS[("Linux", "x86_64")]
 VERSIONED = ("https://github.com/denoland/deno/releases/download/v2.9.7/"
              "deno-x86_64-unknown-linux-gnu.zip")
+_REAL_DENO_RUNS = svc._deno_runs
 ASSET_HOST = "https://release-assets.githubusercontent.com/github-production-release-asset/1/x"
 
 
@@ -83,6 +85,8 @@ def env(isolated_db, monkeypatch, tmp_path):
                         else real_which(n, *a, **k))
     dest = tmp_path / "home" / ".deno" / "bin" / "deno"
     monkeypatch.setattr(diagnostics, "deno_default_install_path", lambda: str(dest))
+    # The fake binaries aren't executables; a test of the real check sets its own.
+    monkeypatch.setattr(svc, "_deno_runs", lambda path: True)
     monkeypatch.setattr(diagnostics, "check_js_runtime",
                         lambda: {"found": False, "name": None, "path": None})
     import requests
@@ -382,3 +386,55 @@ def test_upgrade_check_state_only_changes_when_the_job_starts(client, env, monke
     assert r.status_code == 409
     s = client.get("/api/diagnostics/upgrade-check").json()
     assert s["package"] == "jieba" and s["target"] == "1.0" and s["result"]["verdict"] == "safe"
+
+
+def test_deno_unpack_goes_through_a_partial_file(env, tmp_path, monkeypatch):
+    """A leftover .partial from a killed download is overwritten, and a copy
+    that dies part-way leaves nothing at the real path."""
+    z = tmp_path / "d.zip"
+    z.write_bytes(_zip())
+    partial = env["dest"].parent / (env["dest"].name + ".partial")
+    partial.parent.mkdir(parents=True)
+    partial.write_bytes(b"#!half")
+
+    def die(src, out, n):
+        out.write(b"#!de")
+        assert not env["dest"].exists()
+        raise KeyboardInterrupt
+    monkeypatch.setattr(svc.shutil, "copyfileobj", die)
+    with pytest.raises(KeyboardInterrupt):
+        svc._unpack_binary(str(z))
+    assert not env["dest"].exists() and not partial.exists()
+    monkeypatch.undo()
+    monkeypatch.setattr(diagnostics, "deno_default_install_path", lambda: str(env["dest"]))
+    svc._unpack_binary(str(z))
+    assert env["dest"].read_bytes() == b"#!deno-binary" and not partial.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell scripts stand in for deno")
+def test_a_deno_stub_that_does_not_run_is_not_installed(env, monkeypatch):
+    monkeypatch.setattr(svc, "_deno_runs", _REAL_DENO_RUNS)
+    env["dest"].parent.mkdir(parents=True)
+    env["dest"].write_bytes(b"\x7fELF stub left by a hard kill")
+    env["dest"].chmod(0o755)
+    assert svc._deno_installed_somewhere() is False
+    env["dest"].write_text("#!/bin/sh\nexit 1\n")
+    assert svc._deno_installed_somewhere() is False
+    env["dest"].write_text("#!/bin/sh\necho deno 2.9.7\n")
+    assert svc._deno_installed_somewhere() is True
+
+
+def test_test_first_is_unavailable_without_a_test_suite(client, env, monkeypatch, tmp_path):
+    monkeypatch.setattr(gaps, "default_project_root", lambda: str(tmp_path))
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate",
+                        lambda *a, **k: pytest.fail("nothing to run"))
+    _cache_update()
+    b = client.get("/api/diagnostics/upgrade-check").json()
+    assert b["unavailable_reason"] == upgrade_check.NO_TEST_SUITE
+    assert str(tmp_path) not in str(b)
+    r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
+                    json={"confirm": True, "target": "2.0.0"})
+    assert r.status_code == 422 and "no test suite" in r.text
+    assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
+    (tmp_path / "tests").mkdir()
+    assert client.get("/api/diagnostics/upgrade-check").json()["unavailable_reason"] is None

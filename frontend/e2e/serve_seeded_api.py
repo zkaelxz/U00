@@ -51,7 +51,7 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     from services import settings_service
     from lib.errors import ConflictError
 
-    def refuse_pip(name, confirm=False, target=None, job_id=None):
+    def refuse_pip(name, confirm=False, target=None, job_id=None, accept_risk=False):
         raise ConflictError("Installing is disabled on the e2e server.")
 
     def refuse_torch_setup(variant=None, confirm=False, job_id=None):
