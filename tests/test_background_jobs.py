@@ -2133,11 +2133,12 @@ class TestOrphanedWorkerExits:
 
 def _pid_gone(pid) -> bool:
     """Linux: True once `pid` has exited (a zombie counts: a re-parented
-    child may wait on a reaper that never collects it here)."""
+    child may wait on a reaper that never collects it here). A read that
+    lands while the kernel is releasing the task gets ESRCH, not ENOENT."""
     try:
         with open(f"/proc/{pid}/stat") as f:
             return f.read().rsplit(")", 1)[1].split()[0] == "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return True
 
 
@@ -2386,6 +2387,40 @@ class TestProcessWatcherRobustness:
         assert bg.get_status("w_normal")["status"] == "done"
         assert proc.joins >= 1
         assert q.closed
+
+    def test_job_is_not_done_until_the_worker_has_been_joined(self):
+        proc = _register_fake_process_job("w_order")
+        seen = []
+        original_join = proc.join
+
+        def recording_join(timeout=None):
+            seen.append(bg.get_status("w_order")["status"])
+            original_join(timeout)
+
+        proc.join = recording_join
+        bg._process_watcher("w_order", proc, _SpyQueue(items=[("ok", {"n": 1})]),
+                            poll_interval=0.01)
+        assert seen and set(seen) == {"running"}
+        assert bg.get_status("w_order")["status"] == "done"
+
+    def test_worker_alive_after_the_grace_join_is_stopped_before_done(self):
+        # kill_whole_tree is off, so there is no group kill to fall back on;
+        # the stub ignores join and terminate until kill().
+        proc = _register_fake_process_job("w_linger")
+        seen = []
+        original_join = proc.join
+
+        def recording_join(timeout=None):
+            seen.append(bg.get_status("w_linger")["status"])
+            original_join(timeout)
+
+        proc.join = recording_join
+        bg._process_watcher("w_linger", proc, _SpyQueue(items=[("ok", {"n": 1})]),
+                            poll_interval=0.01)
+        assert proc.terminated and proc.killed
+        assert not proc.is_alive()
+        assert set(seen) == {"running"}
+        assert bg.get_status("w_linger")["status"] == "done"
 
 
 _FAKE_KEY = "AIzaSyFAKESECRETVALUE12345"
