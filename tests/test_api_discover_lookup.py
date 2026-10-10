@@ -184,6 +184,17 @@ def test_urls_differing_only_by_query_stay_distinct(client, monkeypatch):
     assert "https://m.example/b?id=9" in {r["source_url"] for r in db.list_known_titles()}
 
 
+def test_catalogue_list_hides_a_committed_url_query(client):
+    """The catalogue is readable by every library.read member, so a token
+    pasted in a manual entry's URL stays in storage only."""
+    manual = {"title": "Shared", "source_url": "https://m.example/b?token=SECRET123#frag"}
+    assert client.post("/api/discover/bulk-commit", json={"entries": [manual]}).json()["added"] == 1
+    r = client.get("/api/discover/titles")
+    assert r.status_code == 200 and "SECRET123" not in r.text and "frag" not in r.text
+    assert [t["source_url"] for t in r.json()["titles"]] == ["https://m.example/b"]
+    assert db.list_known_titles()[0]["source_url"] == manual["source_url"]
+
+
 def test_navigation_help(client):
     r = client.post("/api/discover/navigation-help",
                     json={"url": "https://site.example/", "goal": "find chapter list",
