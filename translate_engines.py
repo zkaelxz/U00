@@ -60,6 +60,7 @@ from engine_backends.shared import (  # noqa: F401
     build_numbered_lines,
     call_with_backoff,
     claude_usage,
+    display_url,
     extract_first_json_value,
     gemini_usage,
     is_english_line,

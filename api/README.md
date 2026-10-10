@@ -12,7 +12,7 @@ FastAPI app: HTTP in, service call, JSON out. No business logic here.
 ## Rules
 - Routers call `services/`, never `db` (enforced). Services never import `api` (enforced).
 - Every route declares exactly one permission (see `routers/README.md`).
-- Responses never carry secrets, filesystem paths or fetched URLs (booleans only).
+- Responses never carry secrets, filesystem paths or fetched URLs (booleans only), except a `display_url`-cleaned source page link (scheme, host, path only).
 - Error text passes through redaction before it is returned (`error_handlers._redact`).
 - Every outbound HTTP call under `api/` has `timeout=` (enforced).
 

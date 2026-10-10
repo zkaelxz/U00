@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { NovelChapterList, NovelChapterRow } from '../../../types/novelChapters'
-import { chaptersHeadline, chaptersSummary, loadedLabel, rowMeta, rowTitle, translationLine } from './novelChapters'
+import { chaptersHeadline, chaptersSummary, loadedLabel, neighbour, optionLabel, rowMeta, rowTitle, translationLine } from './novelChapters'
 
 const list = (over: Partial<NovelChapterList> = {}): NovelChapterList => ({
   drama_id: 1, present: true, size_bytes: 10, split: true, total: 12, char_count: 48210,
@@ -66,5 +66,18 @@ describe('row helpers', () => {
   it('labels a partly loaded slice', () => {
     expect(loadedLabel(20000, 150000)).toBe('20,000 of 150,000 characters')
     expect(loadedLabel(5, 5)).toBe('5 characters')
+  })
+})
+
+describe('chapter selector helpers', () => {
+  it('steps to the previous and next chapter and stops at both ends', () => {
+    expect(neighbour(2, 5, -1)).toBe(1)
+    expect(neighbour(2, 5, 1)).toBe(3)
+    expect(neighbour(1, 5, -1)).toBeNull()
+    expect(neighbour(5, 5, 1)).toBeNull()
+  })
+  it('labels an option with its number and the source title', () => {
+    expect(optionLabel(row())).toBe('3. 第3章')
+    expect(optionLabel(row({ title: '' }))).toBe('3. Chapter 3')
   })
 })

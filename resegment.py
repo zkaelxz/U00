@@ -327,7 +327,8 @@ def _piece_spans(text: str, pieces) -> list:
 def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
                     chinese_script: str = "simplified", max_chars: int = None,
                     usage_cb=None, boundaries_fn=word_boundaries,
-                    min_pause: float = segment_splitting.MIN_WORD_GAP_SECONDS, even_split: bool = True):
+                    min_pause: float = segment_splitting.MIN_WORD_GAP_SECONDS, even_split: bool = True,
+                    check_cancel=None):
     """Returns (new_lines, changed).
 
     new_lines: fresh Line objects for the whole drama, renumbered in order.
@@ -346,7 +347,10 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
 
     even_split: a piece no rule or LLM pass could cut (no punctuation, no
     spaces, no word timings) is cut into equal runs of characters and flagged
-    timing_uncertain instead of staying one unreadable line."""
+    timing_uncertain instead of staying one unreadable line.
+
+    check_cancel: optional callable run before each line that may need an LLM
+    call; it stops the pass by raising."""
     from core import Line
     max_chars = max_chars or max_line_chars(language)
     new_lines, changed = [], []
@@ -355,6 +359,8 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
         if length(text) <= max_chars:
             new_lines.append(dataclasses.replace(ln, merged_ids=list(ln.merged_ids)))
             continue
+        if check_cancel is not None:
+            check_cancel()
         bounds = boundaries_fn(text, language, chinese_script)
         index = _word_index(ln)
         pauses = segment_splitting.pause_offsets(index, min_pause) if index is not None else None

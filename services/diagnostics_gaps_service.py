@@ -30,6 +30,7 @@ import job_process_kill
 import db
 import diagnostics
 import diagnostics_torch as gpu_torch
+import install_registry
 from lib import proc as proc_run
 from lib.proc import stream_tree
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
@@ -281,14 +282,7 @@ def guard(confirm: bool):
 
 
 def installable_packages() -> set:
-    """Package names an install/upgrade wrapper accepts: optional
-    dependencies in an installable tier plus model-registry packages."""
-    names = {k for k, (_imp, _f, tier) in diagnostics.OPTIONAL_DEPENDENCIES.items()
-             if tier in diagnostics.INSTALLABLE_TIERS}
-    names |= {e["package"] for e in diagnostics.MODEL_ENGINE_REGISTRY if e.get("package")}
-    return {n for n in names
-            if diagnostics.canonical_dist(diagnostics.pip_install_name(n))
-            not in diagnostics.NOT_OFFERED_FOR_INSTALL}
+    return install_registry.installable_packages()
 
 
 def _pip(command: str, *args) -> list:

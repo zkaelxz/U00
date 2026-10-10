@@ -16,10 +16,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getRawChapterText, getRawChapters } from '../../../api/novelChapters'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
+import { SourceLink } from '../../discover/ExternalLink'
 import { copyText } from '../../../components/clipboard'
 import type { NovelChapterList, NovelChapterRow, NovelChapterText } from '../../../types/novelChapters'
 import { useStage } from '../StageContext'
-import { chaptersHeadline, chaptersSummary, loadedLabel, rowMeta, rowTitle, translationLine } from './novelChapters'
+import { chaptersHeadline, chaptersSummary, loadedLabel, neighbour, optionLabel, rowMeta, rowTitle, translationLine } from './novelChapters'
 import { useNovelFilesVersion } from './novelFileEvents'
 import './novelChapters.css'
 
@@ -132,6 +133,8 @@ export function NovelChaptersPanel() {
   const hasText = !!list && list.present && list.char_count > 0
   const translation = list ? translationLine(list) : ''
   const marks = !!list && list.translation_chars > 0
+  const prev = preview && list ? neighbour(preview.number, list.total, -1) : null
+  const following = preview && list ? neighbour(preview.number, list.total, 1) : null
 
   return (
     <section className="panel" aria-label="Saved chapters">
@@ -142,6 +145,25 @@ export function NovelChaptersPanel() {
           <p className="muted">
             Chapter boundaries are not known for this text (saved before chapters were tracked). Chapters imported from now on are listed one by one.
           </p>
+        )}
+        {hasText && list.split && list.total > 1 && (
+          <div className="chapters-nav" role="group" aria-label="Chapter selector">
+            <button type="button" aria-label="Previous chapter" disabled={loading || prev === null} onClick={() => prev !== null && open(prev)}>‹</button>
+            <select
+              aria-label="Chapter"
+              value={preview?.number ?? ''}
+              onChange={(e) => e.target.value && open(Number(e.target.value))}
+            >
+              {!preview && <option value="">Choose a chapter</option>}
+              {preview && !rows.some((r) => r.number === preview.number) && (
+                <option value={preview.number}>{preview.number}. {preview.head.title || `Chapter ${preview.number}`}</option>
+              )}
+              {rows.map((r) => (
+                <option key={r.number} value={r.number}>{optionLabel(r)}</option>
+              ))}
+            </select>
+            <button type="button" aria-label="Next chapter" disabled={loading || following === null} onClick={() => following !== null && open(following)}>›</button>
+          </div>
         )}
         {hasText && (
           <ul className="chapters-list" aria-label="Saved chapters">
@@ -164,6 +186,7 @@ export function NovelChaptersPanel() {
                     </span>
                   )}
                 </button>
+                <SourceLink href={r.url}>Open chapter page</SourceLink>
               </li>
             ))}
           </ul>
@@ -178,6 +201,7 @@ export function NovelChaptersPanel() {
           <div className="chapters-preview" role="region" aria-label="Chapter preview">
             <h4 className="source-subhead">{preview.head.title || `Chapter ${preview.number}`}</h4>
             <p className="muted">
+              <SourceLink href={preview.head.url}>Open chapter page</SourceLink>{preview.head.url ? ' · ' : ''}
               {loadedLabel(preview.text.length, preview.head.chars)}
               {preview.head.in_translation ? ' · in the translation text' : ''}
             </p>

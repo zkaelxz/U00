@@ -17,6 +17,8 @@
 // If you ever see a CORS error here, the fix is to make the request from
 // this worker -- never to add a permissive header on the server.
 
+importScripts("site_access.js");
+
 // Fixed on purpose: the app's bridge always binds this port (page_server.DEFAULT_PORT)
 // and the manifest's host permission is narrowed to it, so it is not a setting.
 const BRIDGE_PORT = 8756;
@@ -201,6 +203,123 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
   return { ok: true, data: merged };
 }
 
+// -- re-fetching an image the page won't let a script read -----------------
+//
+// A reader that draws a cross-origin <img> (or paints it onto a canvas) without
+// CORS taints the canvas, so content.js cannot read its pixels back. The browser
+// still lets this worker download the file once the person has allowed that one
+// image origin, so the bytes come from here and go through the same upload path.
+
+// The bridge accepts exactly these (page_server.ALLOWED_IMAGE_TYPES) and refuses
+// anything over 12 MB, so a download that could never be sent is cut off early.
+const FETCH_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
+const FETCH_IMAGE_TIMEOUT_MS = 20000;
+
+// Decided from the bytes, not the Content-Type header: a CDN that labels a page
+// "application/octet-stream" is still serving an image, and one that labels HTML
+// "image/jpeg" is not.
+function sniffImageType(bytes) {
+  const startsWith = (...sig) => sig.every((b, i) => bytes[i] === b);
+  if (startsWith(0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (startsWith(0x52, 0x49, 0x46, 0x46) && bytes[8] === 0x57 && bytes[9] === 0x45
+      && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+  return "";
+}
+
+function base64Of(bytes) {
+  let binary = "";
+  const chunk = 0x8000;      // chunked, so a big page can't blow the stack
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function readCapped(response, controller) {
+  const reader = response.body.getReader();
+  const parts = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > FETCH_IMAGE_MAX_BYTES) {
+      controller.abort();
+      return null;
+    }
+    parts.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const part of parts) { bytes.set(part, at); at += part.length; }
+  return bytes;
+}
+
+function senderOrigin(sender) {
+  try {
+    const page = new URL((sender && (sender.url || (sender.tab && sender.tab.url))) || "");
+    return page.protocol === "https:" || page.protocol === "http:" ? page.origin : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+async function fetchImage({ url }, sender) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    return { ok: false, error: "that image address isn't valid" };
+  }
+  const target = permissionTarget(parsed);
+  if (!target) return { ok: false, error: "that image is not on a public web address" };
+  const origins = [target.pattern];
+  if (!(await chrome.permissions.contains({ origins }))) {
+    // Only the popup can ask: the prompt needs the click that happens there.
+    return {
+      ok: false, code: "NEEDS_PERMISSION", origin: target.origin,
+      error: `The page draws its image from ${target.origin}, which the browser won't let the page read. ` +
+             `Click "Allow ${target.origin}" in the extension popup to let it download that image itself.`,
+    };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_IMAGE_TIMEOUT_MS);
+  try {
+    // Cookies are omitted: with a granted host permission the request counts as
+    // first-party, so a hostile page could otherwise read another site's private
+    // images through the person's login. The referrer is only the page's origin,
+    // what a browser sends natively, for CDNs that check it; browsers may ignore
+    // a cross-origin referrer set from a worker.
+    const options = { credentials: "omit", redirect: "error", signal: controller.signal };
+    const pageOrigin = senderOrigin(sender);
+    if (pageOrigin) Object.assign(options, { referrer: `${pageOrigin}/`, referrerPolicy: "origin" });
+    // redirect "error" because a redirect target would be requested before it
+    // could be checked, letting a granted origin bounce the fetch to a LAN address.
+    const response = await fetch(parsed.href, options);
+    if (!response.ok) return { ok: false, error: `the image server answered HTTP ${response.status}` };
+    const declared = Number(response.headers.get("content-length") || 0);
+    if (declared > FETCH_IMAGE_MAX_BYTES) {
+      controller.abort();
+      return { ok: false, error: "the image is larger than the 12 MB the app accepts" };
+    }
+    const bytes = await readCapped(response, controller);
+    if (!bytes) return { ok: false, error: "the image is larger than the 12 MB the app accepts" };
+    const contentType = sniffImageType(bytes);
+    if (!contentType) {
+      return { ok: false, error: "the address returned something that isn't a PNG, JPEG or WebP image" };
+    }
+    return { ok: true, data: { data: base64Of(bytes), content_type: contentType, url: response.url || parsed.href } };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e && e.name === "AbortError" ? "the image download took too long" : "the image could not be downloaded",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     try {
@@ -216,6 +335,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         case "progress":
         case "captureDone":
           respond({ ok: true });
+          break;
+        case "fetchImage":
+          respond(await fetchImage(message, sender));
           break;
         case "sendText":
           respond(await sendText(message));

@@ -3,7 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { getWorkflowProgress } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
+import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { SourceLink } from '../discover/ExternalLink'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { Breadcrumbs } from '../../nav/BreadcrumbNav'
 import { routeCrumbs } from '../../nav/breadcrumbs'
@@ -84,6 +86,23 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
 
   const title = drama ? drama.title_en || drama.title_zh || `Title #${id}` : `Title #${id}`
 
+  // On a phone the sticky strip has no room for a second row, so the buttons sit just below it and scroll away.
+  const actions = (
+    <div className="ws-actions">
+      <SourceLink href={drama?.source_url} className={buttonClass('secondary', 'sm', 'ws-source')} />
+      {drama && (
+        <ButtonLink
+          href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}
+          variant="primary"
+          size="sm"
+          className="ws-read"
+          data-testid="header-open"
+        >
+          {comic ? 'Open in Scanlate' : 'Read'}
+        </ButtonLink>
+      )}
+    </div>
+  )
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
       <Breadcrumbs crumbs={routeCrumbs({ name: 'drama', id, stage }, { title, stage: active })} />
@@ -110,16 +129,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           )}
         </div>
         <JobPill dramaId={id} onFinished={refetch} />
-        {drama && (
-          <ButtonLink
-            href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}
-            variant="ghost"
-            size="sm"
-            className={comic ? 'ws-read ws-read-comic' : 'ws-read'}
-          >
-            {comic ? 'Open in Scanlate' : 'Read'}
-          </ButtonLink>
-        )}
+        {!phone && actions}
         {next && nextHref && !phone && (
           <ButtonLink href={nextHref} variant="primary" size="sm" className="ws-next" data-testid="next-action">
             Next: {next.label}
@@ -163,6 +173,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
         })}
       </nav>
       </div>
+      {phone && actions}
       <ErrorBanner error={error} />
       {comicNotice ? (
         <ComicStageNotice id={id} />

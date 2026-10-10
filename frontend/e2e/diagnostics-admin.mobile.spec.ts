@@ -1,3 +1,4 @@
+import { mockPlainPlan } from './pendingInstallMocks'
 import { expect, test, type Page } from '@playwright/test'
 import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
@@ -31,6 +32,7 @@ async function guard(page: Page): Promise<string[]> {
     unmocked.push(`${r.method()} ${r.url()}`)
     return route.abort()
   })
+  await mockPlainPlan(page)
   return unmocked
 }
 

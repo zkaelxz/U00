@@ -178,7 +178,8 @@ def list_chapters(drama_id: int, offset: int = 0, limit: int = DEFAULT_PAGE) -> 
             inside = _in_translation(f, b, raw_key, tkey, translation)
             rows.append({"number": n, "title": b["title"], "chars": _chars(f, b, raw_key),
                          "source": b["source"], "imported_at": b["imported_at"],
-                         "unsplit": b["unsplit"], "in_translation": inside})
+                         "unsplit": b["unsplit"], "in_translation": inside,
+                         "url": b.get("url", "")})
     out["chapters"] = rows
     out["in_translation"] = sum(1 for r in rows if r["in_translation"])
     return out
@@ -211,5 +212,6 @@ def read_chapter(drama_id: int, number: int, offset: int = 0,
     end = offset + len(text)
     return {"drama_id": drama_id, "number": number, "title": b["title"], "source": b["source"],
             "imported_at": b["imported_at"], "unsplit": b["unsplit"], "chars": chars,
+            "url": b.get("url", ""),
             "in_translation": inside, "offset": offset, "text": text,
             "next_offset": end if end < chars else None}

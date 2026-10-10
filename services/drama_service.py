@@ -25,6 +25,7 @@ No FastAPI import: plain dicts in, plain dicts out.
 """
 
 import contextlib
+import datetime
 import logging
 import os
 import re
@@ -266,6 +267,29 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     if fields:
         db.update_drama(drama_id, **fields)
     return library_service.get_library_drama(drama_id)
+
+
+def set_source_url_once(drama_id, url) -> bool:
+    """Records where an import came from, only while the title has no link,
+    so what the owner typed is never overwritten. Stores the display-safe
+    form (no query, userinfo or token-like path); a link that leaves
+    nothing usable is ignored. Never raises: a link is a convenience and
+    must not fail the import that called it."""
+    safe = library_service.display_source_url(url)
+    if not safe or len(safe) > MAX_URL_LEN:
+        return False
+    try:
+        # One conditional statement: a link the owner saves between a read
+        # and a write would otherwise be overwritten by the import.
+        with contextlib.closing(db.get_conn()) as conn:
+            cur = conn.execute(
+                "UPDATE dramas SET source_url = ?, updated_at = ? "
+                "WHERE id = ? AND TRIM(COALESCE(source_url, '')) = ''",
+                (safe, datetime.datetime.utcnow().isoformat(), drama_id))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception:
+        return False
 
 
 # A job_records row still saying running/queued but not heartbeated this

@@ -50,6 +50,7 @@ import raw_transcript
 import resegment
 import subtitle_formats
 import translate_engines
+from engine_backends import llm_tasks
 from services import (diarization_service, drama_service, settings_service, transcribe_service,
                       translate_service)
 from services.review_lines_service import line_dict
@@ -396,12 +397,27 @@ def _usage_logger(drama_id, engine_name, engine):
     return log
 
 
+def _raise_if_cancelled(job_id):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+
+
+def _bounded(job_id, engine):
+    if engine is None:
+        return contextlib.nullcontext()
+    return llm_tasks.bounded_job_calls(
+        job_id, lambda: background_jobs.is_cancel_requested(job_id),
+        deadline=llm_tasks.request_deadline_for(engine), lenient_empty=True)
+
+
 def _run_resegment_job(job_id, drama_id, lines, source_ids, language, engine, engine_name,
                        segments, script, min_pause):
     usage = _usage_logger(drama_id, engine_name, engine) if engine is not None else None
-    new_lines, changed = resegment.resegment_lines(lines, language, engine=engine,
-                                                   segments=segments, chinese_script=script,
-                                                   usage_cb=usage, min_pause=min_pause)
+    with _bounded(job_id, engine):
+        new_lines, changed = resegment.resegment_lines(
+            lines, language, engine=engine, segments=segments, chinese_script=script,
+            usage_cb=usage, min_pause=min_pause,
+            check_cancel=lambda: _raise_if_cancelled(job_id))
     result = {"changed": len(changed)}
     if changed:
         result.update(_apply_resegmented(drama_id, new_lines, source_ids))
@@ -521,10 +537,11 @@ def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, eng
 
 def _run_llm_preview_job(job_id, drama_id, lines, language, engine, engine_name, segments,
                          script, min_pause):
-    new_lines, changed = resegment.resegment_lines(
-        [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
-        chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine),
-        min_pause=min_pause)
+    with _bounded(job_id, engine):
+        new_lines, changed = resegment.resegment_lines(
+            [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
+            chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine),
+            min_pause=min_pause, check_cancel=lambda: _raise_if_cancelled(job_id))
     _store_llm_preview(drama_id, lines, language, new_lines,
                        [(ln.id, ln.idx, ln.zh, p) for ln, p in changed], engine_name)
     background_jobs.set_result(job_id, {"line_count": len(new_lines)})

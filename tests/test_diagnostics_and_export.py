@@ -12,11 +12,13 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
+import requests
 import db
 import diagnostics
 import diagnostics_torch
 import expected_files
 from core import Line, lines_to_srt, lines_to_bilingual_srt
+from lib import http
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -431,6 +433,7 @@ class TestModelEngineVersions:
             raise AssertionError("should not touch the network")
         monkeypatch.setattr("requests.get", boom)
         monkeypatch.setattr("requests.post", boom)
+        monkeypatch.setattr(http, "pinned_get", boom)
         diagnostics.get_model_engine_versions("qwen3:8b")  # must not raise
 
     def test_installed_is_a_real_boolean_not_a_string_match(self):
@@ -593,7 +596,7 @@ class TestCheckEngineReachable:
 class TestDependencyVersionCheck:
     """Step 27: 'is this outdated' + Upgrade. Like the pyannote check
     above, this reaches the network -- every test here mocks
-    requests.get so no test ever makes a real call to PyPI."""
+    lib.http.pinned_get so no test ever makes a real call to PyPI."""
 
     def test_get_installed_version_returns_none_for_unknown_distribution(self):
         assert diagnostics.get_installed_version("definitely-not-a-real-package-xyz") is None
@@ -612,20 +615,35 @@ class TestDependencyVersionCheck:
             def close(self):
                 pass
         captured = {}
-        def fake_get(url, timeout=None, stream=False, allow_redirects=True):
-            captured["url"], captured["timeout"] = url, timeout
+        def fake_get(url, ip, headers, timeout=None, method="GET", **kw):
+            captured["url"], captured["timeout"], captured["ip"] = url, timeout, ip
             return FakeResp()
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         assert diagnostics.get_latest_pypi_version("somepkg", timeout=3.5) == "9.9.9"
         assert captured["url"] == "https://pypi.org/pypi/somepkg/json"
         assert captured["timeout"] == 3.5
+        assert captured["ip"] is None  # a fixed vendor URL: no pinning, no redirects
+
+    def test_get_latest_pypi_version_does_not_follow_a_redirect(self, monkeypatch):
+        calls = []
+
+        class FakeResp:
+            status_code = 302
+            headers = {"Location": "https://elsewhere.example/json"}
+            def close(self):
+                pass
+        monkeypatch.setattr(http, "pinned_get",
+                            lambda url, *a, **kw: calls.append(url) or FakeResp())
+        assert diagnostics.get_latest_pypi_version("somepkg") is None
+        assert calls == ["https://pypi.org/pypi/somepkg/json"]
 
     def test_get_latest_pypi_version_returns_none_on_404(self, monkeypatch):
         class FakeResp:
             status_code = 404
+            headers = {}
             def close(self):
                 pass
-        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: FakeResp())
         assert diagnostics.get_latest_pypi_version("no-such-package") is None
 
     def test_get_latest_pypi_version_gives_up_on_an_oversized_body(self, monkeypatch):
@@ -640,14 +658,14 @@ class TestDependencyVersionCheck:
             def close(self):
                 closed.append(True)
         monkeypatch.setattr(diagnostics, "PYPI_JSON_MAX_BYTES", 1000)
-        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: FakeResp())
         assert diagnostics.get_latest_pypi_version("somepkg") is None
         assert closed
 
     def test_get_latest_pypi_version_returns_none_on_network_error(self, monkeypatch):
-        def boom(url, timeout=None, **kw):
-            raise ConnectionError("no network")
-        monkeypatch.setattr("requests.get", boom)
+        def boom(*a, **kw):
+            raise requests.ConnectionError("no network")
+        monkeypatch.setattr(http, "pinned_get", boom)
         assert diagnostics.get_latest_pypi_version("somepkg") is None
 
     def test_check_dependency_versions_flags_an_outdated_package(self, monkeypatch):
@@ -693,6 +711,7 @@ class TestDependencyVersionCheck:
             raise AssertionError("should not touch the network")
         monkeypatch.setattr("requests.get", boom)
         monkeypatch.setattr("requests.post", boom)
+        monkeypatch.setattr(http, "pinned_get", boom)
         # Everything else on this page must stay network-free by default.
         diagnostics.check_all_dependencies()
         diagnostics.run_full_diagnostics(PROJECT_ROOT, str(tmp_path), {})

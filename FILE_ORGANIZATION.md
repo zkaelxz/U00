@@ -11,7 +11,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`) | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
@@ -46,6 +46,10 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `diagnostics.py`
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
 - `expected_files.py`
+- `install_plan.py` (what a Diagnostics install would change, and whether to run it now or at restart)
+- `install_registry.py` (package keys an install may name, and their pip argv)
+- `pending_install.py` (installs queued for the next start, and the apply step `python -m pending_install` that start.bat and the launcher run first; standard library only)
+- `pending_install_child.py` (the apply step's short-lived helper: derive the pip command, redact output)
 - `portable.py`
 - `process_guard.py`
 - `real_model_check_cli.py`
@@ -145,12 +149,14 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 Shared helpers with no domain knowledge; nothing here imports `services`, `api`, `db` or a domain module (`tests/test_static_analysis.py` enforces it).
 
+- `cancellable_lock.py` (`hold`: take a lock while polling a cancel check, so a job waiting on the pipeline lock can be cancelled)
 - `capped_body.py` (byte- and time-capped read of a streamed HTTP body)
 - `http.py` (the one outbound GET/POST: guard on every redirect hop, pinned connection, byte cap, total deadline, fixed-text errors)
 - `proc.py` (the one runner for external commands whose output is read: own process group, tree kill on timeout or cancel, bounded output drain)
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
+- `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
 
 ## services/
 
@@ -162,6 +168,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `auth_service.py`
 - `auto_backup_service.py`
 - `backup_import_service.py`
+- `benchmark_case_service.py`
 - `benchmark_lab_service.py`
 - `blocked_retry_service.py`
 - `browser_install_service.py`
@@ -176,6 +183,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `diagnostics_gaps_service.py`
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
+- `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)
 - `diarization_service.py`
 - `discover_catalog_service.py`
 - `discover_lookup_service.py`
@@ -291,7 +299,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
@@ -314,6 +322,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `diagnostics_gaps_routes.py`
 - `diagnostics_installs_routes.py`
 - `diagnostics_routes.py`
+- `pending_install_routes.py`
 - `diarization_routes.py`
 - `timing_check_routes.py`
 - `discover_lookup_routes.py`

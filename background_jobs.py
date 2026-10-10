@@ -892,6 +892,11 @@ def acquire_exclusive(label: str, ignore_job_id: str = None) -> bool:
         return True
 
 
+def exclusive_held() -> bool:
+    with _lock:
+        return _exclusive_label is not None
+
+
 def release_exclusive():
     global _exclusive_label
     with _lock:
