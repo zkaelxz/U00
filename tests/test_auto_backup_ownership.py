@@ -22,6 +22,7 @@ import pytest
 import background_jobs
 import db
 from services import auto_backup_service as abs_
+from services import drama_restore_service as drs
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -105,7 +106,7 @@ def _choose(fn):
 
 
 def _restore(did, snapshot=None):
-    return abs_.restore_drama(did, confirm=True, confirm_text="RESTORE", snapshot=snapshot)
+    return drs.restore_drama(did, confirm=True, confirm_text="RESTORE", snapshot=snapshot)
 
 
 # --------------------------------------------------------------------------

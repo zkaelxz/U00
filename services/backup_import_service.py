@@ -10,14 +10,14 @@ drama is a NEW drama (never overwriting one); the owner and privacy come
 from the acting user (ownership_service.new_item_defaults), never from the
 file; a series comes back as a new series ("... (imported <date>)"), shared
 by the imported dramas that shared it, never merged into an existing one.
-The row copy is auto_backup_service._copy_drama (the one-drama restore).
+The row copy is drama_restore_service.copy_drama (the one-drama restore).
 
 Written: dramas, lines, characters and the other per-drama tables, plus the
 series, glossary, series characters and translation memory of the dramas'
 series, and (when the file has them) each drama's media folder. Not written:
 per-profile reading progress and personal notes (profile ids mean something
 else here), usage/bulk-job/research-cache tables (see
-auto_backup_service._SKIPPED_TABLES), `notion_page_id` (old backups may carry it; dropped on import), and
+drama_restore_service._SKIPPED_TABLES), `notion_page_id` (old backups may carry it; dropped on import), and
 anything outside the chosen dramas. Responses hold ids, titles and counts,
 never paths.
 
@@ -43,6 +43,7 @@ import zipfile
 import db
 import storage
 from services import auto_backup_service as abs_
+from services import drama_restore_service as drs
 from services import library_admin_service as las
 from services import media_upload_service
 from services import ownership_service
@@ -70,8 +71,8 @@ _FOLDER_EXISTS = ("A folder for an imported drama is already in the library's dr
 _READ_TIME_LIMIT_S = 30
 _IMPORT_TIME_LIMIT_S = 300
 # Every table the import reads from the file; each must be an ordinary table.
-_READ_TABLES = (("dramas", "lines", "series", "bubbles") + abs_.CHILD_TABLES
-                + abs_.SERIES_CHILDREN)
+_READ_TABLES = (("dramas", "lines", "series", "bubbles") + drs.CHILD_TABLES
+                + drs.SERIES_CHILDREN)
 # The dramas/lines/characters columns the import treats specially; every
 # other column is copied as is. The coverage test in
 # tests/test_api_backup_import.py fails when a column is in none of the sets.
@@ -80,7 +81,7 @@ FORCED_COLUMNS = {"dramas": {"id", "series_id", "owner_user_id", "is_private", "
                   "characters": {"id", "drama_id", "series_character_id"}}
 IGNORED_COLUMNS = {"dramas": {"notion_page_id"}, "lines": set(), "characters": set()}
 # File references: copied only after sanitising (see the module docstring).
-FILE_COLUMNS = {t: set(cols) for t, cols in abs_.IMPORT_FILE_COLUMNS.items()}
+FILE_COLUMNS = {t: set(cols) for t, cols in drs.IMPORT_FILE_COLUMNS.items()}
 
 
 def _save_upload(stream, dest: str):
@@ -220,9 +221,9 @@ def _schema_differs(backup: _Backup) -> bool:
         with contextlib.closing(_open_db(backup.db_path)) as conn, \
                 contextlib.closing(db.get_conn()) as dst:
             for table in ("dramas", "lines", "characters"):
-                if not abs_.has_table(conn, table):
+                if not drs.has_table(conn, table):
                     continue
-                if set(abs_.columns(conn, table)) - set(abs_.columns(dst, table)):
+                if set(drs.columns(conn, table)) - set(drs.columns(dst, table)):
                     return True
     except sqlite3.Error:
         raise InvalidInputError(_BAD_FILE) from None
@@ -264,12 +265,12 @@ def _check_row_limits(src, ids: list):
     total = 0
     marks = ",".join("?" for _ in ids)
     in_series = f"IN (SELECT series_id FROM dramas WHERE id IN ({marks}))"
-    wheres = [(table, f"drama_id IN ({marks})") for table in abs_.CHILD_TABLES]
-    if abs_.has_table(src, "pages"):
+    wheres = [(table, f"drama_id IN ({marks})") for table in drs.CHILD_TABLES]
+    if drs.has_table(src, "pages"):
         wheres.append(("bubbles", f"page_id IN (SELECT id FROM pages WHERE drama_id IN ({marks}))"))
-    wheres += [(table, f"series_id {in_series}") for table in abs_.SERIES_CHILDREN]
+    wheres += [(table, f"series_id {in_series}") for table in drs.SERIES_CHILDREN]
     for table, where in wheres:
-        if not abs_.has_table(src, table):
+        if not drs.has_table(src, table):
             continue
         total += src.execute(f'SELECT COUNT(*) FROM "{table}" WHERE {where}', ids).fetchone()[0]
         if total > _MAX_ROWS_PER_IMPORT:
@@ -277,9 +278,9 @@ def _check_row_limits(src, ids: list):
                                     "import fewer of them.")
     size = 0
     for table, where in [("dramas", f"id IN ({marks})"), ("series", f"id {in_series}")] + wheres:
-        if not abs_.has_table(src, table):
+        if not drs.has_table(src, table):
             continue
-        cols = ['"' + c.replace('"', '""') + '"' for c in abs_.columns(src, table)]
+        cols = ['"' + c.replace('"', '""') + '"' for c in drs.columns(src, table)]
         if not cols:
             continue
         sizes = ", ".join(f"MAX(length(CAST({c} AS BLOB))), SUM(length(CAST({c} AS BLOB)))"
@@ -332,13 +333,13 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
                     with zipfile.ZipFile(backup.zip_path) as zf:
                         for did in ids:
                             if did in media:
-                                stagings[did] = abs_.stage_media(zf, did, staging)
+                                stagings[did] = drs.stage_media(zf, did, staging)
                 except (OSError, zipfile.BadZipFile):
                     raise InvalidInputError(_BAD_FILE) from None
             return _import_from(backup.db_path, ids, stagings, staging, principal)
         finally:
             if staging is not None:
-                abs_.end_media_staging(staging)
+                drs.end_media_staging(staging)
 
 
 def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
@@ -358,14 +359,14 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
         try:
             dst.execute("BEGIN IMMEDIATE")
             for old_id in ids:
-                row = abs_.table_rows(src, "dramas", "id = ?", (old_id,))[0]
+                row = drs.table_rows(src, "dramas", "id = ?", (old_id,))[0]
                 title = (_text(row.get("title_en"), 300) or _text(row.get("title_zh"), 300))
                 suffix = f"(restored {today})" if title.casefold() in titles else None
                 staged = stagings.get(old_id)
                 import_as["media_dir"] = staged
-                live_id, counts, _ = abs_.copy_drama(src, dst, old_id, None, suffix, import_as)
+                live_id, counts, _ = drs.copy_drama(src, dst, old_id, None, suffix, import_as)
                 # Never inherit a stray dramas/<new id>, files imported or not.
-                abs_.claim_folder(live_id, _FOLDER_EXISTS)
+                drs.claim_folder(live_id, _FOLDER_EXISTS)
                 shown = dst.execute("SELECT COALESCE(NULLIF(title_en, ''), title_zh) FROM dramas "
                                     "WHERE id = ?", (live_id,)).fetchone()[0] or ""
                 titles.add(str(shown).strip().casefold())
@@ -376,11 +377,11 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
                 imported.append({"source_id": old_id, "drama_id": live_id, "title": str(shown),
                                  "media_imported": staged is not None})
             if folders:
-                abs_.move_media_in(staging, folders, _FOLDER_EXISTS)
+                drs.move_media_in(staging, folders, _FOLDER_EXISTS)
             dst.commit()
         except BaseException as exc:
             dst.rollback()
-            if staging is not None and not abs_.end_media_staging(staging):
+            if staging is not None and not drs.end_media_staging(staging):
                 raise ServiceError("The dramas were not imported, but some of their files could "
                                    "not be cleaned up and are still in the library's dramas "
                                    "folder; the app tries again at the next start.") from None
