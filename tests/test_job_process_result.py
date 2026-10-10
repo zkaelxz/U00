@@ -116,3 +116,32 @@ def test_get_removes_the_result_file_once_it_has_read_it(channel):
     channel.put(("ok", big))
     assert channel.get(timeout=1) == ("ok", big)
     assert os.listdir(channel._dir) == []
+
+
+def test_a_huge_item_is_spilled_to_a_file_and_never_queued_inline(channel):
+    big = {"payload": "x" * (jpr.INLINE_LIMIT_BYTES * 3)}
+    channel.put(("item", big))
+    assert len(pickle.dumps(channel._queue.queue[0])) < 100
+    assert channel.get(timeout=1) == ("item", big)
+    assert os.listdir(channel._dir) == []
+
+
+def test_a_huge_progress_message_is_spilled_too(channel):
+    channel.put(("progress", 0.5, "m" * (jpr.INLINE_LIMIT_BYTES * 3)))
+    assert len(pickle.dumps(channel._queue.queue[0])) <= jpr.INLINE_LIMIT_BYTES
+    assert channel.get(timeout=1)[0] == "progress"
+
+
+def test_spilled_items_do_not_overwrite_each_other_before_they_are_read(channel):
+    first = {"payload": "a" * (jpr.INLINE_LIMIT_BYTES * 2)}
+    second = {"payload": "b" * (jpr.INLINE_LIMIT_BYTES * 2)}
+    channel.put(("item", first))
+    channel.put(("item", second))
+    assert channel.get(timeout=1) == ("item", first)
+    assert channel.get(timeout=1) == ("item", second)
+
+
+def test_discard_removes_unread_spilled_items(channel):
+    channel.put(("item", {"payload": "a" * (jpr.INLINE_LIMIT_BYTES * 2)}))
+    channel.discard()
+    assert os.listdir(channel._dir) == []
