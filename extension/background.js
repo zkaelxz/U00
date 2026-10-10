@@ -157,6 +157,7 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
   const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
   let firstError = null;
   for (const batch of planBatches(images, cap, filterPages !== false ? 2 : 1)) {
+    // /pages is the only route that runs the page filter, so a chapter of two or more images uses it even if the filter later leaves one.
     const answer = await call(batch.length === 1 && images.length === 1 ? "/page" : "/pages", {
       method: "POST",
       body: {
@@ -228,12 +229,14 @@ function sniffImageType(bytes) {
 }
 
 function base64Of(bytes) {
-  let binary = "";
+  const pieces = [];
   const chunk = 0x8000;      // chunked, so a big page can't blow the stack
   for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    pieces.push(String.fromCharCode.apply(null, bytes.subarray(i, i + chunk)));
   }
-  return btoa(binary);
+  // One join instead of `+=`: a 12 MB page would otherwise regrow the string hundreds of times.
+  // Synchronous on purpose; FileReader would make every caller async for no gain.
+  return btoa(pieces.join(""));
 }
 
 async function readCapped(response, controller) {
