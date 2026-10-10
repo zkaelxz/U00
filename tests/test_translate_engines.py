@@ -2698,6 +2698,22 @@ class TestStablePromptPrefix:
         assert "Reference novel text." in system[-1]["text"]
         assert all("cache_control" not in b for b in system[:-1])
 
+    def test_a_cut_down_novel_leaves_the_breakpoint_on_the_instructions(self):
+        filler = "\n\n".join(f"Paragraph {i} about nothing much at all." * 20 for i in range(40))
+        novel = f"Su Shan opened the gate.\n\n{filler}\n\nLin Wan closed the book."
+        lines = [Line(idx=i, start=i, end=i + 1, zh=zh, id=100 + i)
+                 for i, zh in enumerate(["苏杉来了", "苏杉走了", "林婉来了", "林婉走了"])]
+        engine = _claude_engine_with_fake_client()
+        te.translate_lines_with_engine(
+            lines, engine, {"title_en": "Drama"}, batch_size=2, novel_reference=novel,
+            glossary_terms=[{"term_original": "苏杉", "term_translation": "Su Shan"},
+                            {"term_original": "林婉", "term_translation": "Lin Wan"}])
+        first, second = (c["system"] for c in engine.client.messages.calls)
+        assert first[1]["text"] != second[1]["text"]   # per-batch excerpts
+        assert repr(first[0]) == repr(second[0])
+        assert first[0]["cache_control"] == {"type": "ephemeral"}
+        assert all("cache_control" not in s[1] for s in (first, second))
+
     def test_without_a_novel_reference_the_instructions_block_is_cached(self):
         blocks = te.build_claude_system_blocks({"drama_meta": {}})
         assert len(blocks) == 1
