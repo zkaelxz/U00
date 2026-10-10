@@ -32,6 +32,7 @@ import db
 import emotion
 import translate_engines
 import translation_guide as tguide
+from lib import http
 
 BULK_ENGINES = ("claude", "gemini", "deepseek")
 # Claude's Message Batches and Gemini's Batch API both bill at half the
@@ -167,29 +168,28 @@ class GeminiBatchProvider:
         return {"request": {"contents": [{"parts": [{"text": prompt}]}]},
                 "metadata": {"key": key}}
 
-    def _check(self, resp):
-        if resp.status_code in (401, 403):
-            resp.close()
-            raise BulkAuthError(f"Gemini refused the API key (HTTP {resp.status_code}).")
-        return translate_engines.read_json_capped(resp, BATCH_READ_DEADLINE_SECONDS,
-                                                  BATCH_RESPONSE_MAX_BYTES)
-
-    def _headers(self):
-        return {"x-goog-api-key": self.engine.api_key}
+    def _send(self, method, url, timeout, **kw):
+        # guard=None: fixed vendor URL, no redirects.
+        try:
+            resp = http.request(method, url, headers={"x-goog-api-key": self.engine.api_key}, timeout=timeout, guard=None,
+                max_error_bytes=4096, max_bytes=BATCH_RESPONSE_MAX_BYTES,
+                deadline=BATCH_READ_DEADLINE_SECONDS, **kw)
+        except http.FetchError as e:
+            raise RuntimeError(f"Gemini batch request failed: {e}")
+        if resp.status in (401, 403):
+            raise BulkAuthError(f"Gemini refused the API key (HTTP {resp.status}).")
+        if resp.status >= 300:
+            raise RuntimeError(f"HTTP {resp.status}")
+        return json.loads(resp.body)
 
     def submit(self, requests_: list) -> str:
-        import requests
-        resp = requests.post(
-            f"{self.BASE}/models/{self.engine.model}:batchGenerateContent",
-            headers=self._headers(), timeout=120, stream=True,
+        return self._send(
+            "POST", f"{self.BASE}/models/{self.engine.model}:batchGenerateContent", 120,
             json={"batch": {"display_name": "baihe-bulk-translation",
-                            "input_config": {"requests": {"requests": requests_}}}})
-        return self._check(resp)["name"]
+                            "input_config": {"requests": {"requests": requests_}}}})["name"]
 
     def _get(self, batch_id: str) -> dict:
-        import requests
-        return self._check(requests.get(f"{self.BASE}/{batch_id}", headers=self._headers(),
-                                        timeout=60, stream=True))
+        return self._send("GET", f"{self.BASE}/{batch_id}", 60)
 
     @staticmethod
     def _state(data: dict) -> str:
@@ -236,9 +236,7 @@ class GeminiBatchProvider:
             yield key, text, translate_engines.gemini_usage(r.get("usageMetadata")), None
 
     def cancel(self, batch_id: str):
-        import requests
-        self._check(requests.post(f"{self.BASE}/{batch_id}:cancel", headers=self._headers(),
-                                  json={}, timeout=60, stream=True))
+        self._send("POST", f"{self.BASE}/{batch_id}:cancel", 60, json={})
 
 
 def make_provider(engine_choice: str, engine):
@@ -1352,14 +1350,15 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
     and whose English hasn't changed since scheduling, as a normal run."""
     job = db.get_bulk_job(bulk_job_id)
     args = job.get("translate_args") or {}
+    did = job["drama_id"]
     rows = {r["line_id"]: r for r in db.list_bulk_job_lines(bulk_job_id)}
-    lines = db.load_line_objects(job["drama_id"])
+    lines = db.load_line_objects(did)
     eligible = {ln.id for ln in lines
                 if ln.id in rows and (ln.en or "") == (rows[ln.id]["en_at_submit"] or "")}
-    drama = db.get_drama(job["drama_id"]) or {}
+    drama = db.get_drama(did) or {}
     series_id = drama.get("series_id")
     character_names = tguide.build_speaker_labels(
-        db.list_characters_with_series_names(job["drama_id"]),
+        db.list_characters_with_series_names(did),
         db.list_series_characters(series_id) if series_id else [])
     cap = {}
     _, errors = translate_engines.translate_lines_with_engine(
@@ -1368,20 +1367,20 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
         target_ids=eligible, locale=args.get("locale", "en-US"),
         glossary_terms=args.get("glossary_terms"), style_guidelines=args.get("style_guidelines", ""),
         context_window=args.get("context_window", 6), character_names=character_names,
-        save_cb=lambda ls: db.save_lines(job["drama_id"], ls, fields=("en",)),
+        save_cb=lambda ls: db.save_lines(did, ls, fields=("en",)),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-            job["drama_id"], job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
+            did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
+        thinking=args.get("thinking"),
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
     summary = {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
                "batch_errors": len(errors), "cap_reached": cap.get("spent")}
     # Same gate as apply_bulk_results above: a run with batch failures or
     # skipped (source-changed) lines must stay re-runnable, not "translated".
-    _status = dict(translation_engine=job["engine"])
-    if untranslated_line_count(job["drama_id"]) == 0:
-        _status["status"] = "translated"
-    db.update_drama(job["drama_id"], **_status)
+    done = untranslated_line_count(did) == 0
+    db.update_drama(did, translation_engine=job["engine"],
+                    **({"status": "translated"} if done else {}))
     return summary
 
 

@@ -59,7 +59,8 @@ def test_preference_defaults(isolated_db, env_file):
     assert prefs == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
         "scene_aware_batches": True, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
-        "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "whisper_model_path": "", "ocr_backend": "auto",
+        "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
+        "keep_free_ram_gb": 0.0, "whisper_model_path": "", "ocr_backend": "auto",
         "ocr_prefer_paddle_vl_manga": False, "tesseract_cmd": "", "lncrawl_cmd": "",
         "cookies_browser": None, "cookies_file": ""}
     assert settings_service.get_monthly_cap_usd() == 0.0
@@ -500,7 +501,7 @@ def test_transcribe_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch
 
 def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monkeypatch):
     import core as core_module
-    from services import transcribe_service
+    from services import transcribe_pipeline, transcribe_service
     from tests.test_transcribe_service import _drama_with_audio
     did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
     settings_service.set_settings({"whisper_model_path": "/models/faster-whisper-small"})
@@ -515,7 +516,7 @@ def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monke
     def fake_transcribe(*a, **k):
         seen["transcribe"] = k.get("local_model_path")
         raise RuntimeError("stop here")
-    monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", fake_transcribe)
     captured = {}
 
     def fake_start_process_job(job_id, target, args=(), **k):
@@ -558,23 +559,24 @@ def test_novel_ocr_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch)
 
 
 def test_url_download_passes_saved_cookies(isolated_db, env_file, monkeypatch, tmp_path):
-    import video_download
-    from services import url_media_service
-    seen = {}
+    from services import url_media_service, ytdlp_child
+    specs = []
 
-    def fake_download(url, out_dir, **k):
-        seen.update(k)
-        path = os.path.join(out_dir, "x.wav")
+    def fake_run_download(tmp_dir, spec, timeout, cancel):
+        specs.append(spec)
+        path = os.path.join(tmp_dir, "x.wav")
         open(path, "wb").close()
-        return path
-    monkeypatch.setattr(video_download, "download", fake_download)
+        yield {"event": {"path": path}}
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+    monkeypatch.setattr(ytdlp_child, "run_download", fake_run_download)
     url_media_service._download("urlmedia_1", "https://example.com/v", str(tmp_path), True)
-    assert seen["cookies_browser"] is None and seen["cookies_file"] is None
-    assert not [k for k in seen["extra_opts"] if "cookie" in k.lower()]
+    assert specs[-1]["cookies_browser"] is None and specs[-1]["cookies_file"] is None
+    assert not [k for k in ytdlp_child.ydl_options(str(tmp_path), None, None) if "cookie" in k.lower()]
     settings_service.set_settings({"cookies_browser": "chrome",
                                    "cookies_file": "/home/me/cookies.txt"})
     url_media_service._download("urlmedia_1", "https://example.com/v", str(tmp_path), True)
-    assert seen["cookies_browser"] == "chrome" and seen["cookies_file"] == "/home/me/cookies.txt"
+    assert specs[-1]["cookies_browser"] == "chrome"
+    assert specs[-1]["cookies_file"] == "/home/me/cookies.txt"
 
 
 def test_live_saved_cookies_only_when_asked(isolated_db, env_file, monkeypatch):

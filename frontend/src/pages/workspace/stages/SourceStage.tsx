@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
@@ -14,12 +14,14 @@ import { writeSectionOpen } from '../../../components/sectionStorage'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
-import { usePersistedState } from '../../../hooks/usePersistedState'
+import { PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
+import { useStageDraft } from '../../../hooks/useStageDraft'
 import {
   checkUploadFile,
   isUploadLimitProblem,
   isVideoFile,
+  SOURCE_DRAFT_SHAPE,
+  SOURCE_DRAFT_STAGE,
   sourceJobIds,
   UPLOAD_EXTENSIONS,
   UPLOAD_LIMIT_SETTINGS_HREF,
@@ -30,6 +32,8 @@ import { useStage } from '../StageContext'
 import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
+import { NovelChaptersPanel } from './NovelChaptersPanel'
+import { SubtitleImport } from './SubtitleImport'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
@@ -54,12 +58,17 @@ export default function SourceStage() {
   // The server says the drama has audio/video even if the status we read did not.
   const [serverHasMedia, setServerHasMedia] = useState(false)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  const transcribeRetry = useRef<(() => void) | null>(null)
   const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
   const [removeError, setRemoveError] = useState<unknown>(null)
-  // "Upload a file" or "From a URL", remembered per viewer.
-  const [from, setFrom] = usePersistedState<'file' | 'url'>('source.mediaFrom', 'file')
+  // "Upload a file" or "From a URL", remembered for this title.
+  const { draft, save: saveDraft } = useStageDraft(dramaId, SOURCE_DRAFT_STAGE, SOURCE_DRAFT_SHAPE)
+  const [from, setFrom] = useState<'file' | 'url'>(draft.from === 'url' ? 'url' : 'file')
+  useEffect(() => {
+    saveDraft({ from })
+  }, [saveDraft, from])
   const fromUrl = from === 'url'
 
   // Arriving from Library "Create and auto-fill" must show the Auto-fill panel,
@@ -259,7 +268,7 @@ export default function SourceStage() {
           {isUploadLimitProblem(fileProblem) && (
             <>
               {' '}
-              <a href={UPLOAD_LIMIT_SETTINGS_HREF}>Change it in Settings &gt; Advanced &gt; Uploads</a>.
+              <a href={UPLOAD_LIMIT_SETTINGS_HREF}>Change it in Settings &gt; System &gt; Uploads</a>.
             </>
           )}
         </p>
@@ -282,6 +291,7 @@ export default function SourceStage() {
     >
       <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace}
         replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
+        retryRef={transcribeRetry}
         onJobStarted={(id, expected, sentFile) => {
           // Otherwise every later run would upload the same file again and keep another full copy.
           if (sentFile) {
@@ -299,10 +309,21 @@ export default function SourceStage() {
   )
   const novel = (
     <div key="novel" className="source-group">
+      {kind === 'novel' && <NovelChaptersPanel />}
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
     </div>
   )
-  const groups = kind === 'audio' ? [transcribe, novel] : [novel, transcribe]
+  const subtitles = (
+    <Section
+      key="subtitles"
+      storageKey="source.group.subtitles"
+      title="Import subtitle file"
+      summary={pc === 'remote' ? PC_ONLY_SUMMARY : 'SRT, VTT, ASS or LRC'}
+    >
+      <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
+    </Section>
+  )
+  const groups = kind === 'audio' ? [transcribe, novel, subtitles] : [novel, transcribe, subtitles]
 
   return (
     <div className="stage-source">
@@ -316,7 +337,19 @@ export default function SourceStage() {
         <DetailsPanel openSignal={revealDetails} onAddCredits={addCredits} />
         <FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} liveEta={jobId.startsWith('transcribe_')} expectedSeconds={expectedSeconds} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        liveEta={!!jobId?.startsWith('transcribe_')}
+        expectedSeconds={expectedSeconds}
+        lastRun={{
+          dramaId,
+          ids: sourceJobIds(dramaId),
+          // Only a transcription has a form here to run again.
+          retryFor: (j) => (j.job_id.startsWith('transcribe_') ? () => transcribeRetry.current?.() : null),
+        }}
+      />
     </div>
   )
 }

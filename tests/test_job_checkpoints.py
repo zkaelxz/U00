@@ -361,9 +361,9 @@ def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
 
 
 def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
-    import diagnostics
+    import diagnostics_torch
     monkeypatch.delitem(sys.modules, "torch", raising=False)
-    monkeypatch.setattr(diagnostics, "external_gpu_load",
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load",
                         lambda: {"memory_free_mb": 1024.0, "memory_used_mb": 0,
                                  "memory_total_mb": 1024.0, "utilization_percent": 0})
     assert vram_service.free_vram_mb() == 1024.0
@@ -584,9 +584,9 @@ def test_cli_narrate_prep_resumes_and_can_start_over(isolated_db, monkeypatch):
     import argparse
     import os
     import cli
-    import dub
+    import dub_narration
     did = _narration_setup(isolated_db, monkeypatch)
-    with open(os.path.join(isolated_db.drama_dir(did), dub.NOVEL_SOURCE_FILENAME), "w",
+    with open(os.path.join(isolated_db.drama_dir(did), dub_narration.NOVEL_SOURCE_FILENAME), "w",
               encoding="utf-8") as f:
         f.write("novel")
     monkeypatch.setattr(cli, "chunk_novel_text", lambda text: [f"段落{i}" for i in range(40)])

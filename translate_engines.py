@@ -60,12 +60,14 @@ from engine_backends.shared import (  # noqa: F401
     build_numbered_lines,
     call_with_backoff,
     claude_usage,
+    display_url,
     extract_first_json_value,
     gemini_usage,
     is_english_line,
     language_name,
     parse_id_keyed_json,
     parse_json_array,
+    post_json,
     read_json_capped,
     redact_for_storage,
     redact_secrets,
@@ -81,7 +83,15 @@ from engine_backends.prompts import (  # noqa: F401
     _MEDIUM_DESCRIPTIONS,
     _select_relevant_novel_passages,
     _wants_baihe_framing,
+    MALE_PRONOUN_WORD,
+    PRONOUN_DEFAULT_MARKER,
+    batch_context_for,
     build_batch_context,
+    is_male_speaker_label,
+    known_male_names,
+    pronoun_batch_note,
+    pronoun_default_active,
+    pronoun_neutral_texts,
     build_batch_user_message,
     build_claude_system_blocks,
     build_llm_instructions,
@@ -98,6 +108,7 @@ from engine_backends.openai_compat import (  # noqa: F401
     DeepSeekEngine,
     OpenAIEngine,
 )
+from engine_backends.thinking import think_flag  # noqa: F401
 from engine_backends.gemini import (  # noqa: F401
     GEMINI_FREE_TIER_DEFAULT_LIMITS,
     GEMINI_FREE_TIER_LIMITS,
@@ -111,10 +122,12 @@ from engine_backends.gemini import (  # noqa: F401
     progress_message_with_rate_status,
 )
 from engine_backends.local import (  # noqa: F401
+    OLLAMA_CLOUD_MODELS,
     OLLAMA_DEFAULT_MODEL,
     OLLAMA_MIN_NUM_CTX,
     OLLAMA_MODELS,
     OLLAMA_REACHABILITY_CACHE_SECONDS,
+    OllamaCloudLimitError,
     OllamaEngine,
     OllamaUnavailableError,
     _OLLAMA_ID_KEYED_JSON_SCHEMA,
@@ -123,6 +136,9 @@ from engine_backends.local import (  # noqa: F401
     check_ollama_model_installed,
     check_ollama_reachable,
     estimate_ollama_num_ctx,
+    is_ollama_cloud_model,
+    chain_touches_local_gpu,
+    ollama_touches_local_gpu,
 )
 from engine_backends.llm_tasks import (  # noqa: F401
     FLAG_REASONS,

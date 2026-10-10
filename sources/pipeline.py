@@ -24,9 +24,10 @@ import threading
 import time
 
 import background_jobs
+import comic_chapters
 import db
 
-from . import ladder, registry, store
+from . import chapter_manifest, ladder, registry, store
 from .cache import RawCache
 from .http import Cancelled
 from .models import (ChallengeDetected, ChapterInfo, FailureReason, SourceError,
@@ -84,10 +85,11 @@ def _claim_page_index(pages_dir: str, idx: int):
     return claim
 
 
-def add_page_images(drama_id: int, images, ids_out: list = None) -> int:
+def add_page_images(drama_id: int, images, ids_out: list = None, chapter: dict = None) -> int:
     """`images`: iterable of (bytes, ext). Returns how many pages were
     added (and appends each new page's id to `ids_out` when given). Same
-    files and rows as Scanlate's own upload path.
+    files and rows as Scanlate's own upload path. `chapter`
+    (comic_chapters.chapter_ref) labels the new pages' chapter.
 
     Safe against a second writer (security review MED-2): a per-drama lock
     covers the index computation and the writes in this process, and each
@@ -100,6 +102,7 @@ def add_page_images(drama_id: int, images, ids_out: list = None) -> int:
     pages_dir = os.path.join(db.drama_dir(drama_id), "pages")
     os.makedirs(pages_dir, exist_ok=True)
     added = 0
+    written = []
     with _page_lock(drama_id):
         idx = _next_page_index(drama_id, pages_dir)
         for content, ext in images:
@@ -134,11 +137,19 @@ def add_page_images(drama_id: int, images, ids_out: list = None) -> int:
                         raise
                     if ids_out is not None:
                         ids_out.append(pid)
+                    written.append(os.path.join("pages", fname))
                 finally:
                     os.remove(claim)
                 break
             idx += 1
             added += 1
+    if chapter and written:
+        try:
+            comic_chapters.record_pages(drama_id, chapter, written)
+        except OSError:
+            # Unlabelled pages still read fine ("Chapter unknown"); losing
+            # the chapter's pages to a full disk would be worse.
+            _warn("Could not record a chapter's label")
     return added
 
 
@@ -154,6 +165,10 @@ def _discard_pages(drama_id: int, page_ids):
         path = os.path.join(db.drama_dir(drama_id), p["filename"])
         if os.path.exists(path):
             os.remove(path)
+    try:
+        comic_chapters.forget_pages(drama_id, [p["filename"] for p in rows])
+    except OSError:
+        _warn("Could not drop a removed chapter's label")
 
 
 _fsync = os.fsync   # module-level so a test can fail this call alone
@@ -164,19 +179,23 @@ def _as_written(text: str) -> bytes:
     return text.replace("\n", os.linesep).encode("utf-8")
 
 
-def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "") -> str:
+def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "",
+                    url: str = "") -> str:
     """Writes fetched novel text into the drama's raw-novel file, through
-    the same loader an uploaded .txt goes through. Returns the path."""
+    the same loader an uploaded .txt goes through. `url` is the page the
+    text came from, kept in the chapter manifest. Returns the path."""
     import core
     loaded = core.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
     if heading:
         loaded = f"{heading}\n\n{loaded}"
     path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)
     mode = "a" if append and os.path.exists(path) else "w"
+    offset = os.path.getsize(path) if mode == "a" else -1
     with open(path, mode, encoding="utf-8") as f:
         if mode == "a":
             f.write("\n\n")
         f.write(loaded)
+    _note_block(drama_id, offset, loaded, heading, "", url)
     return path
 
 
@@ -255,6 +274,19 @@ def _record_imported(source: str, ch, drama_id: int) -> bool:
         return False
 
 
+def _note_block(drama_id: int, offset: int, loaded: str, title: str, source: str,
+                url: str = "") -> None:
+    """Records the block `_append_chapter_text` / `save_novel_text` put at
+    `offset` (-1: it started the file) in the chapter manifest."""
+    sep = len(_as_written("\n\n")) if offset >= 0 else 0
+    body = len(_as_written(loaded))
+    pre = max(offset, 0)
+    chapter_manifest.record(drama_id, pre_size=pre, post_size=pre + sep + body,
+                            content_start=pre + sep, content_length=body,
+                            content_chars=chapter_manifest.chars_of(loaded),
+                            title=title, source=source, url=url)
+
+
 def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
     """Appends one chapter the way save_novel_text(append=True,
     heading=title) does, writing only the new block. The file's length
@@ -292,6 +324,7 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
                     f.seek(max(earlier, 0))
                     tail = f.read(len(want) + 1)
                 if tail[:len(want)] == want:
+                    _note_block(drama_id, earlier, loaded, ch.title, source, ch.url)
                     return ""   # the interrupted attempt wrote all of it
                 if len(tail) < len(want) and want.startswith(tail):
                     os.truncate(path, max(earlier, 0))
@@ -319,6 +352,7 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
             else:
                 os.truncate(path, offset)
             return _NOT_SAVED
+        _note_block(drama_id, offset, loaded, ch.title, source, ch.url)
     return ""
 
 
@@ -339,7 +373,7 @@ def append_recovered_chapter(source: str, ch, drama_id: int, text: str) -> str:
 
 
 def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=None,
-                   skip_ids=None, on_layout_changed=None):
+                   skip_ids=None, on_layout_changed=None, series_url: str = ""):
     """Background-job body. `chapters` are ChapterInfo (or their dicts) --
     only the ones the person ticked. Stores a result dict with per-chapter
     outcomes, the final Source Access stats, and a hand-off record if a
@@ -354,9 +388,15 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
     (LAYOUT_CHANGED) is recorded as "needs_ai" and ends the run: the rest
     are not attempted. `on_layout_changed(ch, url, html)` is told the page
     the adapter read (both None when it is not known). This job never
-    holds an engine."""
+    holds an engine.
+
+    `series_url` is the series' page; it becomes the title's source link
+    only while the title has none."""
     if db.get_drama(drama_id) is None:
         raise SourceError("The drama to import into no longer exists.")
+    if series_url:
+        from services import drama_service
+        drama_service.set_source_url_once(drama_id, series_url)
     skip_ids = {str(i) for i in (skip_ids or ())}
     chapters = [c if isinstance(c, ChapterInfo) else ChapterInfo(**c) for c in chapters]
     total = len(chapters)
@@ -418,7 +458,9 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                         continue
                     page_ids = []
                     try:
-                        outcome = {"pages": add_page_images(drama_id, images, ids_out=page_ids)}
+                        outcome = {"pages": add_page_images(
+                            drama_id, images, ids_out=page_ids,
+                            chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, source, ch.url))}
                     except Exception:
                         _warn("Could not add a chapter's pages")
                         # If this raises, pages may remain: the chapter stays "partial".
@@ -501,7 +543,8 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                                             "finished_at": time.time()})
 
 
-def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=None) -> bool:
+def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=None,
+                 series_url: str = "") -> bool:
     """Claims `sourceimport_<drama_id>`. False, starting nothing, while any
     job for the drama runs here or (per job_records) in the other process.
     Chapters already imported into the drama are skipped unless `skip_ids`
@@ -517,4 +560,5 @@ def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=
     job_id = import_job_id(drama_id)
     return background_jobs.start_job(
         job_id, run_import_job, job_id, source, chapters, drama_id, skip_ids=skip_ids,
+        series_url=series_url,
         description=f"Import {len(chapters)} chapter(s) from {source}")

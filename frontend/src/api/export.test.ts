@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError, onUnauthorized } from './client'
-import { getAssText, getEpub, getSubtitleText, startBurnedVideo, subtitleQuery } from './export'
+import { dispositionFilename, getAssText, getEpub, getSubtitleText, startBurnedVideo, subtitleQuery } from './export'
 
 const resp = (body: string, status = 200) => new Response(body, { status })
 const assReq = {
@@ -26,7 +26,7 @@ describe('subtitleQuery', () => {
 describe('text fetches', () => {
   it('returns the body as text', async () => {
     const f = vi.fn().mockResolvedValue(resp('1\n00:00:00,000 --> 00:00:01,000\nHi\n'))
-    expect(await getSubtitleText(4, { fmt: 'srt', field: 'en', includeNotes: false }, f)).toContain('Hi')
+    expect((await getSubtitleText(4, { fmt: 'srt', field: 'en', includeNotes: false }, f)).text).toContain('Hi')
     expect(f.mock.calls[0][0]).toBe('/api/export/dramas/4/subtitle?fmt=srt&field=en')
   })
   it('turns a 422 JSON error into ApiError', async () => {
@@ -50,7 +50,7 @@ describe('CSRF and 401 on text/binary fetches', () => {
   it('getAssText (a POST) sends X-CSRF-Token and X-Baihe-Local when signed in', async () => {
     vi.stubGlobal('document', { cookie: '__Host-baihe_csrf=tok%3D' })
     const f = vi.fn().mockResolvedValue(resp('[Script Info]'))
-    expect(await getAssText(4, assReq, f)).toBe('[Script Info]')
+    expect((await getAssText(4, assReq, f)).text).toBe('[Script Info]')
     expect(f.mock.calls[0][0]).toBe('/api/export/dramas/4/ass')
     expect(f.mock.calls[0][1].method).toBe('POST')
     expect(headers(f)).toEqual({
@@ -99,5 +99,26 @@ describe('startBurnedVideo', () => {
     expect(await startBurnedVideo(2, assReq, f)).toEqual({ job_id: 'j' })
     expect(f.mock.calls[0][0]).toBe('/api/export/dramas/2/burned-video')
     expect(JSON.parse(f.mock.calls[0][1].body)).toEqual(assReq)
+  })
+})
+
+describe('dispositionFilename', () => {
+  it('prefers filename*= and decodes its UTF-8 percent escapes', () => {
+    const h = `attachment; filename="__ - Ep 1.srt"; filename*=UTF-8''%E6%B2%BB%E6%84%88%20-%20Ep%201.srt`
+    expect(dispositionFilename(h)).toBe('治愈 - Ep 1.srt')
+  })
+  it('reads a quoted filename= and unescapes quotes', () => {
+    expect(dispositionFilename('attachment; filename="a b.srt"')).toBe('a b.srt')
+    expect(dispositionFilename('attachment; filename="a\\"b.srt"')).toBe('a"b.srt')
+  })
+  it('reads an unquoted filename=', () => {
+    expect(dispositionFilename('attachment; filename=a.srt')).toBe('a.srt')
+  })
+  it('falls back to filename= when the encoded name is malformed', () => {
+    expect(dispositionFilename(`attachment; filename="ok.srt"; filename*=UTF-8''%E6%B2`)).toBe('ok.srt')
+  })
+  it('is null when the header is missing or has no name', () => {
+    expect(dispositionFilename(null)).toBeNull()
+    expect(dispositionFilename('attachment')).toBeNull()
   })
 })

@@ -9,7 +9,7 @@ export function canRetranscribe(
   return !!cfg && cfg.has_audio_pipeline && cfg.audio_available
 }
 
-export const NO_AUDIO_MESSAGE = 'Needs this drama’s audio or video.'
+export const NO_AUDIO_MESSAGE = 'Needs this title’s audio or video.'
 
 // The sheet's "Re-transcribe…" item: same availability as the editor's button,
 // plus the job guard the sheet's other source-changing items use.
@@ -42,6 +42,9 @@ export function retranscribeOutcome(job: Pick<JobRecord, 'status' | 'outcome' | 
     return { kind: 'none', text: 'The line was merged, split or deleted while this ran.' }
   }
   if (reason === 'model_download') return { kind: 'none', text: 'The speech model could not be downloaded.' }
+  if (reason === 'timeout') {
+    return { kind: 'none', text: 'Transcribing this line took too long and was stopped. The speech model may be stuck.' }
+  }
   if (reason === 'audio_slice') return { kind: 'none', text: "This line's audio could not be cut." }
   return { kind: 'none', text: 'Re-transcribing failed. The line was not changed.' }
 }

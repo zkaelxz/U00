@@ -16,6 +16,7 @@ import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
+from lib import http
 from services import auth_service, translate_service
 from services import model_registry_service as svc
 
@@ -52,14 +53,12 @@ class FakeResp:
         self._body = body
 
     headers = {}
+    status_code = 200
 
     def iter_content(self, size):
         yield json.dumps(self._body).encode()
 
     def close(self):
-        pass
-
-    def raise_for_status(self):
         pass
 
 
@@ -85,16 +84,15 @@ def test_check_and_switch_are_pc_only(isolated_db):
     db.save_preset("P", translation_engine="deepseek", engine_model="deepseek-chat")
     pid = db.list_presets()[0]["id"]
     r = remote.post(f"/api/models/presets/{pid}/switch", headers=adm,
-                    json={"from_model": "deepseek-chat", "to_model": "deepseek-v4-flash",
+                    json={"from_model": "deepseek-chat", "to_model": "deepseek-flash",
                           "confirm": True})
     assert r.status_code == 403
     assert db.list_presets()[0]["engine_model"] == "deepseek-chat"
 
 
 def test_check_flags_unlisted_model_without_leaking_key(isolated_db, monkeypatch):
-    import requests
     db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
-    monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp({"data": [{"id": "claude-sonnet-5"}]}))
+    monkeypatch.setattr(http, "pinned_get", lambda url, ip, headers, *a, **kw: FakeResp({"data": [{"id": "claude-sonnet-5"}]}))
     r = _local().post("/api/models/check", headers=LOCAL_HDR)
     assert r.status_code == 200
     assert SECRET not in r.text
@@ -110,11 +108,11 @@ def test_switch_needs_confirm_then_switches(isolated_db):
     db.save_preset("P", translation_engine="deepseek", engine_model="deepseek-chat")
     pid = db.list_presets()[0]["id"]
     c = _local()
-    body = {"from_model": "deepseek-chat", "to_model": "deepseek-v4-flash"}
+    body = {"from_model": "deepseek-chat", "to_model": "deepseek-flash"}
     assert c.post(f"/api/models/presets/{pid}/switch", json=body).status_code == 422
     assert db.list_presets()[0]["engine_model"] == "deepseek-chat"
     r = c.post(f"/api/models/presets/{pid}/switch", json={**body, "confirm": True})
-    assert r.status_code == 200 and r.json()["to_model"] == "deepseek-v4-flash"
+    assert r.status_code == 200 and r.json()["to_model"] == "deepseek-flash"
     stale = c.post(f"/api/models/presets/{pid}/switch", json={**body, "confirm": True})
     assert stale.status_code == 409
 
@@ -154,7 +152,7 @@ def test_translate_engines_route_labels_extra_models(isolated_db):
 def test_override_set_and_clear_are_pc_only(isolated_db):
     remote = _remote()
     adm = {**_session(True), **LOCAL_HDR}
-    body = {"kind": "default", "key": "deepseek", "from_model": "deepseek-v4-flash",
+    body = {"kind": "default", "key": "deepseek", "from_model": "deepseek-flash",
             "to_model": "deepseek-v4-pro", "confirm": True}
     assert remote.post("/api/models/overrides", headers=adm, json=body).status_code == 403
     assert remote.post("/api/models/overrides/clear", headers=adm,
@@ -164,7 +162,7 @@ def test_override_set_and_clear_are_pc_only(isolated_db):
 
 def test_override_set_status_stale_and_clear(isolated_db):
     c = _local()
-    body = {"kind": "default", "key": "deepseek", "from_model": "deepseek-v4-flash",
+    body = {"kind": "default", "key": "deepseek", "from_model": "deepseek-flash",
             "to_model": "deepseek-v4-pro"}
     assert c.post("/api/models/overrides", json=body).status_code == 422   # no confirm
     assert db.get_app_setting("model_overrides.defaults") is None
@@ -175,9 +173,9 @@ def test_override_set_status_stale_and_clear(isolated_db):
     item = next(i for i in c.get("/api/models/status").json()["items"]
                 if i["kind"] == "default" and i["engine"] == "deepseek")
     assert item["model"] == "deepseek-v4-pro" and item["is_override"] is True
-    assert item["builtin_model"] == "deepseek-v4-flash" and item["key"] == "deepseek"
+    assert item["builtin_model"] == "deepseek-flash" and item["key"] == "deepseek"
     clear = {"kind": "default", "key": "deepseek"}
     assert c.post("/api/models/overrides/clear", json=clear).status_code == 422
     r = c.post("/api/models/overrides/clear", json={**clear, "confirm": True})
-    assert r.status_code == 200 and r.json()["model"] == "deepseek-v4-flash"
+    assert r.status_code == 200 and r.json()["model"] == "deepseek-flash"
     assert db.get_app_setting("model_overrides.defaults") == {}

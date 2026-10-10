@@ -26,7 +26,7 @@ const ITEMS: Item[] = [
   { kind: 'drama', id: 5, title: 'Solo Story', owner_name: 'PC owner', created_at_pc: true, is_private: true, series_id: null, series_name: null, series_is_private: null },
 ]
 
-const CONFLICT = "Move other people's dramas out of this series first."
+const CONFLICT = "Move other people's titles out of this series first."
 const ADMIN_ME: MeBody = { ...ME.authOff, permissions: ['admin.settings', 'admin.library', 'library.read', 'lines.edit'] }
 
 async function mockSharing(page: Page, me: MeBody) {
@@ -44,6 +44,8 @@ async function mockSharing(page: Page, me: MeBody) {
   // Settings also shows a signed-in person their devices (signed-in-devices.spec.ts covers it).
   await page.route('**/api/auth/sessions', (route) =>
     route.fulfill({ json: { sessions: [], idle_timeout_days: 14, absolute_timeout_days: 30 } }))
+  // ...and their browser-extension devices (extension-devices.spec.ts covers it).
+  await page.route('**/api/auth/device-tokens', (route) => route.fulfill({ json: { tokens: [], max_active: 10 } }))
   await page.route('**/api/sharing/**', (route) => {
     const r = route.request()
     const path = new URL(r.url()).pathname
@@ -77,7 +79,7 @@ async function mockSharing(page: Page, me: MeBody) {
 test('admin: share-new-items switch, every item with its owner, flips and a plain 409', async ({ page }) => {
   const { posts, unmocked } = await mockSharing(page, ADMIN_ME)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Sharing' })
 
   const shareDefault = card.getByRole('switch', { name: 'New items I create are shared with the household' })
@@ -87,7 +89,7 @@ test('admin: share-new-items switch, every item with its owner, flips and a plai
   await expect(shareDefault).toHaveAttribute('aria-checked', 'true')
   await expect(card.getByTestId('share-default-help')).toHaveText(/^On: /)
 
-  const list = card.getByRole('list', { name: 'Dramas and series' })
+  const list = card.getByRole('list', { name: 'Titles and series' })
   await expect(list.getByRole('listitem')).toHaveCount(4)
   await expect(list).not.toContainText('@')
   const hidden = card.getByTestId('sharing-drama:3')
@@ -97,9 +99,9 @@ test('admin: share-new-items switch, every item with its owner, flips and a plai
   // A drama in a series has no switch of its own.
   const ep = card.getByTestId('sharing-drama:4')
   await expect(ep.getByRole('switch')).toHaveCount(0)
-  await expect(ep).toContainText('Dramas in a series follow the series')
+  await expect(ep).toContainText('Titles in a series follow the series')
 
-  await card.getByRole('switch', { name: 'Share drama “Hidden Letters” with the household' }).click()
+  await card.getByRole('switch', { name: 'Share title “Hidden Letters” with the household' }).click()
   await expect(hidden).toContainText('Shared')
 
   const series = card.getByRole('switch', { name: 'Share series “Saga” with the household' })
@@ -109,12 +111,12 @@ test('admin: share-new-items switch, every item with its owner, flips and a plai
   await expect(series).toHaveAttribute('aria-checked', 'true')
 
   // Items made at the PC (no owner) are private until an admin shares them.
-  await expect(card.getByTestId('sharing-pc-note')).toHaveText(/sign-in is turned on, others .* will not see them/)
+  await expect(card.getByTestId('sharing-pc-note')).toHaveText(/sign-in is turned on, others will not see them/)
   await expect(card.getByTestId('sharing-drama:5')).toContainText('Created at the PC')
   await expect(hidden).not.toContainText('Created at the PC')
   await card.getByRole('switch', { name: 'Show only private items created at the PC' }).click()
   await expect(list.getByRole('listitem')).toHaveCount(1)
-  await card.getByRole('switch', { name: 'Share drama “Solo Story” with the household' }).click()
+  await card.getByRole('switch', { name: 'Share title “Solo Story” with the household' }).click()
   await expect(list).toHaveCount(0)
   await expect(card.getByText('No private items created at the PC.')).toBeVisible()
 
@@ -134,14 +136,14 @@ test('household member: only their own share-new-items switch, no item list, fit
     route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Sharing' })
   await expect(card.getByRole('switch', { name: 'New items I create are shared with the household' })).toHaveAttribute(
     'aria-checked',
     'false',
   )
-  await expect(card.getByTestId('share-default-help')).toContainText('an admin can change those one at a time')
-  await expect(card.getByRole('list', { name: 'Dramas and series' })).toHaveCount(0)
+  await expect(card.getByTestId('share-default-help')).toContainText('An admin can change existing ones one at a time')
+  await expect(card.getByRole('list', { name: 'Titles and series' })).toHaveCount(0)
   await expect(card.getByTestId('sharing-pc-note')).toHaveCount(0)
   // Not an admin: the settings 403 hides the admin cards without an error banner.
   await expect(page.getByRole('alert')).toHaveCount(0)

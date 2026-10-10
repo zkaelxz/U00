@@ -23,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 # A listing over this (~6k tokens at ~4 bytes per token) is split into parts, so
-# one read stays well under a 16-32k window with room left for the code itself.
+# one read stays well under a 64K window with room left for the code itself.
 BUDGET_BYTES = 24_000
 SKIP_DIRS = {".git", "__pycache__", "node_modules", "tests", "library", "model_cache", "venv",
              ".venv", "env", "build", "dist", "tmp", "smoke_pack", "test-results", "frontend"}
@@ -400,6 +400,7 @@ LAYERS = (
     ("Services (services/*_service.py)", lambda r: r.startswith("services/")),
     ("Translation engines (engine_backends/)", lambda r: r.startswith("engine_backends/")),
     ("Sources and site adapters (sources/)", lambda r: r.startswith("sources/")),
+    ("Shared helpers (lib/, no domain knowledge)", lambda r: r.startswith("lib/")),
     ("Root domain modules", lambda r: "/" not in r and r not in ("db.py", "cli.py")),
     ("Database (db.py: never open whole; list it with `repo_map.py db`)", lambda r: r == "db.py"),
     ("Entry points and tooling (not the app's runtime logic)", lambda r: True),

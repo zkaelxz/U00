@@ -8,7 +8,7 @@ import pytest
 import background_jobs
 import core
 import translation_guide as tguide
-from services import glossary_service as gs
+from services import glossary_extract_service, glossary_service as gs
 from services import settings_service, transcribe_service as ts, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
@@ -58,8 +58,10 @@ class TestAutotune:
         captured = {}
         monkeypatch.setattr(background_jobs, "start_process_job",
                             lambda job_id, target, args=(), **kw: captured.update(
-                                job_id=job_id, target=target, args=args) or True)
+                                job_id=job_id, target=target, args=args, kw=kw) or True)
         out = ts.start_autotune_run(did, candidates=[300, 1500])
+        assert captured["kw"]["kill_whole_tree"] is True
+        assert captured["kw"]["start_method"] == "spawn"
         assert out == {"job_id": f"autotune_{did}", "candidates": [300, 1500]}
         assert captured["args"][1] == "small" and captured["args"][6] == 7
 
@@ -184,7 +186,7 @@ def _wait(job_id):
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(gs.translate_engines, "get_engine",
+    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 
@@ -341,3 +343,12 @@ def test_novel_glossary_job_blocks_drama_delete():
     finally:
         with background_jobs._lock:
             background_jobs._jobs.pop(job_id, None)
+
+
+def test_autotune_worker_leaves_the_parents_process_group(monkeypatch):
+    left = []
+    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
+    monkeypatch.setattr(core, "transcribe_for_timing", lambda *a, **kw: [])
+    ts._autotune_all_worker("a", "small", "zh", False, None, "", 5, [300], 0.5, False,
+                            "normal", False, _Queue())
+    assert left == [True]

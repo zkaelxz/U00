@@ -6,13 +6,14 @@ faked; nothing touches the network or starts a process.
 
 import hashlib
 import json
+import threading
 import os
 
 import pytest
 import requests
 
 import db
-from services import capped_body
+from lib import capped_body
 from services import update_service as us
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
@@ -277,6 +278,28 @@ def test_start_download_thread_reports_verified(http):
     us._download_thread.join(10)
     s = us.status()
     assert s["download"] == "verified" and s["verified"] and s["downloaded_bytes"] == len(PAYLOAD)
+
+
+def test_start_download_reports_downloading_even_if_the_thread_wins_the_race(http, monkeypatch):
+    _serve_release(http)
+    us.check()
+    # A thread left by an earlier test would hide whether this call's own thread exists yet.
+    monkeypatch.setattr(us, "_download_thread", None)
+    reads = []
+    thread_started_at_snapshot = []
+
+    def slow_for_the_caller():
+        # The first read is start_download's own; the second is the status() snapshot.
+        reads.append(1)
+        if len(reads) == 2:
+            thread_started_at_snapshot.append(us._download_thread is not None)
+        return "0.1.0"
+    monkeypatch.setattr(us, "current_version", slow_for_the_caller)
+    assert us.start_download()["download"] == "downloading"
+    # The snapshot is taken before the thread exists, so a fast download can't make
+    # the call that started it report "verified".
+    assert thread_started_at_snapshot == [False]
+    us._download_thread.join(10)
 
 
 def _no_installer_left():

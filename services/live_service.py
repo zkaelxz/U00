@@ -1,15 +1,16 @@
 """
 services/live_service.py -- Live capture sessions (spec
-docs/specs/discover-sources-live-api-spec.md section 4, L-1, polling only).
+docs/archive/discover-sources-live-api-spec.md section 4, L-1, polling only).
 
 A session is one background job (`live_<uuid>`) running
-live_translate.run_live_job in its own tempfile.mkdtemp directory, which is
+live_translate.run_live_job in its own folder under the library temp
+folder (storage.new_workdir, owned by the session id), which is
 removed when the job ends (done, error, cancel -- including a cancel while
 still queued). Every start gets its own id and directory, use_gpu reaches the
 pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
-(host checked by services.url_guard.resolve_public, no fetch here). The
+(host checked by lib.url_guard.resolve_public, no fetch here). The
 job runs yt-dlp and the stream fetcher (live_fetch, which pipes the
 stream into ffmpeg; ffmpeg itself opens nothing) through a
 services.egress_proxy.GuardedProxy, so every connection they make
@@ -24,19 +25,22 @@ outside translate_engines.FREE_ENGINES (Gemini counts as paid: whether a key
 is free-tier isn't known server-side) additionally needs the engines.paid
 capability; stop is gated like jobs.cancel.
 """
+import functools
 import re
 import shutil
-import tempfile
 import threading
 import uuid
 from typing import Optional
 
 import background_jobs
+import live_cue_feed
 import live_translate
+import storage
 import translate_engines
 from core import SOURCE_LANGUAGES
-from services import (egress_proxy, jobs_service, ownership_service, settings_service,
-                      translate_service, url_guard)
+from lib import url_guard
+from services import (egress_proxy, job_stage_service, jobs_service, ownership_service,
+                      run_settings_service, settings_service, translate_service)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -47,12 +51,16 @@ from services.service_errors import (
 )
 
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
-SEGMENT_RANGE = (10, 60)
+SEGMENT_RANGE = (3, 60)
 OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
+LIVE_DEFAULT_ENGINE = "ollama"
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
+# Kept per session, newest last: the skipped-chunk and catch-up events the status
+# line would otherwise overwrite a second later.
+MAX_NOTES = 6
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -103,7 +111,10 @@ def _require_offered_model(engine_name: str, model: Optional[str]):
 
 
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
-    engine_name = engine_name or settings_service.get_default_engine()
+    # Never the Settings default: that may be a hosted engine, and a Live
+    # request without an engine (API client, extension, stale bundle) must not
+    # send the stream's text off this PC unasked.
+    engine_name = engine_name or LIVE_DEFAULT_ENGINE
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     _require_offered_model(engine_name, model)
@@ -129,12 +140,54 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
     return engine_name, engine
 
 
+def check_ollama(model: Optional[str] = None) -> dict:
+    """{ok, model, message}: whether Ollama answers and has the model, so the
+    Live form can say so before Start. The message is the plain text the chat
+    call uses and never carries the Ollama address."""
+    from services import translate_run_service
+    # The model Start would run when none is chosen, so the note describes it.
+    model = model or translate_engines.effective_default_model("ollama")
+    if not translate_run_service._is_safe_ollama_model(model):
+        raise InvalidInputError("That model isn't offered for this engine.")
+    try:
+        translate_engines.check_ollama_model_installed(
+            settings_service.resolve_key("ollama_url") or "http://localhost:11434", model)
+    except translate_engines.OllamaUnavailableError as exc:
+        return {"ok": False, "model": model, "message": translate_engines.redact_secrets(exc.message)}
+    return {"ok": True, "model": model, "message": None}
+
+
+def add_note(session_id: str, text: str, key: Optional[str] = None) -> None:
+    """Keeps a short event for the session's status. The text is fixed wording
+    the job composes from numbers, passed through clean_message anyway. A note
+    with a key replaces the earlier one with that key and becomes the newest,
+    so a running count of skips is never the first note to scroll out."""
+    with _lock:
+        entry = _sessions.get(session_id)
+        if entry is not None:
+            notes = entry.setdefault("notes", [])
+            if key is not None:
+                keyed = entry.setdefault("note_keys", {})
+                if keyed.get(key) in notes:
+                    notes.remove(keyed[key])
+                keyed[key] = clean_message(text)
+            notes.append(clean_message(text))
+            del notes[:-MAX_NOTES]
+
+
 def _remove_dir(session_id: str):
     with _lock:
         entry = _sessions.get(session_id)
         path = entry.pop("dir", None) if entry else None
     if path:
         shutil.rmtree(path, ignore_errors=True)
+
+
+def _previous_whisper_call():
+    """Label of an abandoned Whisper call of an earlier session that is still
+    decoding: starting beside it would load a second model copy."""
+    import live_whisper
+    return live_whisper.outstanding_label()
 
 
 def _active_session_locked():
@@ -151,7 +204,7 @@ def _active_session_locked():
 
 def check_stream_url(stream_url) -> None:
     """Run on the direct stream URL yt-dlp resolved, before it is
-    fetched: services.url_guard.resolve_public (http/https only, no userinfo,
+    fetched: lib.url_guard.resolve_public (http/https only, no userinfo,
     every resolved address public), on the full URL (no length cap: a
     signed stream URL can be long). The error never echoes the URL, which
     can carry a signed token."""
@@ -177,8 +230,12 @@ def _make_target(session_id: str):
             # run_live_job stops the stream fetcher (and ffmpeg) before
             # returning, so the proxy outlives every connection it serves.
             with egress_proxy.GuardedProxy() as proxy:
-                live_translate.run_live_job(*args, proxy=proxy.url, **kwargs)
+                live_translate.run_live_job(
+                    *args, proxy=proxy.url,
+                    report_stage=functools.partial(job_stage_service.set_stage, session_id),
+                    report_note=functools.partial(add_note, session_id), **kwargs)
         finally:
+            job_stage_service.clear_stage(session_id)
             _remove_dir(session_id)
     return _target
 
@@ -201,7 +258,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                   overlap_seconds=live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
                   max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
-                  use_saved_cookies: bool = False) -> dict:
+                  use_saved_cookies: bool = False,
+                  reply_without_thinking: bool = True) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
     use_saved_cookies: pass yt-dlp the saved Settings cookies (browser or
     cookies.txt). The router sets it only for a request made at the PC, so
@@ -232,10 +290,24 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     with _lock:
         if _active_session_locked() is not None:
             raise ConflictError("A live session is already running. Stop it first.")
+        if _previous_whisper_call() is not None:
+            raise ConflictError("The previous session's Whisper call is still finishing. "
+                                "Try again in a moment.")
     engine_name, eng = _build_engine(engine, model)
 
     session_id = f"live_{uuid.uuid4().hex}"
-    out_dir = tempfile.mkdtemp(prefix="baihe_live_")
+    out_dir = storage.new_workdir(session_id)
+    # Held until the job is registered: before that nothing owns the folder, so
+    # a "clean temp now" in the gap would delete it.
+    with storage.holding(out_dir):
+        return _start_registered(session_id, out_dir, url, source_language, whisper_size,
+                                 segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
+                                 use_gpu, use_saved_cookies, reply_without_thinking)
+
+
+def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
+                      overlap_seconds, max_minutes, eng, engine_name, use_gpu,
+                      use_saved_cookies, reply_without_thinking):
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
@@ -244,6 +316,10 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         if _active_session_locked() is not None:
             shutil.rmtree(out_dir, ignore_errors=True)
             raise ConflictError("A live session is already running. Stop it first.")
+        if _previous_whisper_call() is not None:
+            shutil.rmtree(out_dir, ignore_errors=True)
+            raise ConflictError("The previous session's Whisper call is still finishing. "
+                                "Try again in a moment.")
         if len(_sessions) >= MAX_SESSIONS:
             # Forget the oldest finished sessions (dicts keep insertion order).
             for sid in list(_sessions):
@@ -261,9 +337,16 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             session_id, _make_target(session_id),
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
+            reply_without_thinking=bool(reply_without_thinking),
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
+            run_settings=run_settings_service.build(
+                engine=engine_name, model=getattr(eng, "model", None),
+                whisper_size=whisper_size, source_language=source_language,
+                segment_seconds=segment_seconds, overlap_seconds=overlap_seconds,
+                use_gpu=bool(use_gpu), reply_without_thinking=bool(reply_without_thinking),
+                max_minutes=max_minutes),
             gpu_touching=bool(use_gpu), description=f"Live capture (local Whisper, {engine_name}"
             f"{' ' + eng.model if getattr(eng, 'model', None) else ''})")
     except Exception:
@@ -293,7 +376,7 @@ def _require(session_id, principal=None) -> dict:
         entry = _sessions.get(session_id) if isinstance(session_id, str) else None
     if entry is None or not _visible(principal, session_id, entry):
         raise NotFoundError("No such live session.")
-    return background_jobs.get_status(session_id)
+    return job_stage_service.annotate(background_jobs.get_status(session_id))
 
 
 def stop_session(session_id, principal=None) -> dict:
@@ -323,7 +406,9 @@ def _status(job) -> str:
 
 def get_session(session_id, after=0, principal=None) -> dict:
     """{status, message, progress, cues[after:], next_index}. Never a
-    traceback, a filesystem path or a key."""
+    traceback, a filesystem path or a key. A cue is added untranslated and
+    changes in place when its translation lands, so a client that wants those
+    updates asks again from its oldest still-pending cue's id."""
     job = _require(session_id, principal)
     _reap()
     with _lock:
@@ -340,13 +425,18 @@ def get_session(session_id, after=0, principal=None) -> dict:
     if not isinstance(cues, list):
         cues = []
     out = []
-    for c in cues[after:]:
-        out.append({"start": float(c.get("start", 0)), "end": float(c.get("end", 0)),
-                    "text": _cue_text(c.get("text")),
-                    "translated": _cue_text(c.get("translated"))})
+    for pos, c in enumerate(cues[after:], start=after):
+        translated = _cue_text(c.get("translated"))
+        out.append({"id": int(c.get("id", pos)),
+                    "start": float(c.get("start", 0)), "end": float(c.get("end", 0)),
+                    "text": _cue_text(c.get("text")), "translated": translated,
+                    "translation": c.get("translation") or (
+                        live_cue_feed.FAILED if translated.startswith(live_cue_feed.FAILED_PREFIX)
+                        else live_cue_feed.DONE)})
     return {"session_id": session_id, "status": status, "message": message,
             "engine": entry.get("engine"), "model": entry.get("model"),
             "progress": float((job or {}).get("progress") or 0.0),
+            "notes": list(entry.get("notes") or ()),
             "cues": out, "next_index": max(after, len(cues))}
 
 

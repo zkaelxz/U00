@@ -32,6 +32,7 @@ import db
 import diagnostics
 import translate_engines
 import dub as dub_module
+import dub_narration
 from core import Line
 import cli
 from services import dub_service
@@ -182,9 +183,9 @@ class TestCmdTranslateParity:
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_translate(args)
 
-        assert seen["context_window"] == 6
-        assert seen["context_window_ahead"] == 3
-        assert seen["batch_size"] == 20
+        assert seen["context_window"] == 10
+        assert seen["context_window_ahead"] == 6
+        assert seen["batch_size"] == 30
 
     def test_context_window_ahead_and_batch_size_flags_reach_the_engine(
             self, isolated_db, monkeypatch):
@@ -391,7 +392,7 @@ class TestCmdTranslateSpendingCaps:
         did = self._drama(isolated_db)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(_translate_args(id=did, cost_cap=3.0, monthly_cap=None))
+            cli.cmd_translate(_translate_args(id=did, cost_cap=3.0, monthly_cap=None, batch_size=20))
         assert engine.calls == 2
         assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 40
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(4.0)
@@ -410,6 +411,18 @@ class TestCmdTranslateSpendingCaps:
                 pass
         assert engine.calls == 0
         assert not any(r["en"] for r in isolated_db.load_lines(did))
+
+    def test_thinking_is_saved_only_once_the_run_is_accepted(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: self._Engine())
+        did = self._drama(isolated_db, n=2)
+        isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 50.0)
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0, thinking=True))
+        # The run is refused (reported as that drama's failure), so the choice was never saved.
+        assert "spending cap" in err.getvalue() and "already used up" in err.getvalue()
+        assert "0 succeeded, 1 failed" in out.getvalue()
+        assert isolated_db.get_drama(did)["translate_thinking"] is None
 
 
 class TestCmdTranslateRetryAndWorkspaceParity:
@@ -431,7 +444,7 @@ class TestCmdTranslateRetryAndWorkspaceParity:
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(_translate_args(cost_cap=3.0, monthly_cap=None))
+            cli.cmd_translate(_translate_args(cost_cap=3.0, monthly_cap=None, batch_size=20))
         assert "stopped at the spending cap" in out.getvalue()
         assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 40
         assert isolated_db.get_drama(did)["status"] == "aligned"
@@ -945,7 +958,7 @@ class TestCmdDubNarration:
             for i, ln in enumerate(lines):
                 ln.start, ln.end, ln.dub_filename = 10.0 + i, 10.5 + i, "dub_clips/line_0000-0001.wav"
             return "narration_track.wav", []
-        monkeypatch.setattr(dub_module, "build_narration_track", fake_build_narration_track)
+        monkeypatch.setattr(dub_narration, "build_narration_track", fake_build_narration_track)
 
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
@@ -956,10 +969,10 @@ class TestCmdDubNarration:
 
     def test_m4b_flag_exports_the_audiobook(self, isolated_db, monkeypatch):
         did = self._narration_drama(isolated_db)
-        monkeypatch.setattr(dub_module, "build_narration_track",
+        monkeypatch.setattr(dub_narration, "build_narration_track",
                             lambda lines, *a, **k: ("narration_track.wav", []))
         exported = []
-        monkeypatch.setattr(dub_module, "export_narration_m4b",
+        monkeypatch.setattr(dub_narration, "export_narration_m4b",
                             lambda lines, ddir, title=None, **k: exported.append(title) or "x.m4b")
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did, m4b=True))
@@ -979,7 +992,7 @@ class TestCmdDubNarration:
             seen.update(narrate_original=narrate_original, source_language=source_language,
                         clone_map=character_clone_map)
             return "narration_track.wav", []
-        monkeypatch.setattr(dub_module, "build_narration_track", fake_build_narration_track)
+        monkeypatch.setattr(dub_narration, "build_narration_track", fake_build_narration_track)
 
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
@@ -993,7 +1006,7 @@ class TestCmdDubNarration:
             self, isolated_db, monkeypatch, capsys):
         did = self._narration_drama(isolated_db)
         isolated_db.update_drama(did, narration_language="original", source_language="en")
-        monkeypatch.setattr(dub_module, "build_narration_track",
+        monkeypatch.setattr(dub_narration, "build_narration_track",
                             lambda *a, **k: pytest.fail("must not start"))
         cli.cmd_dub(_dub_args(id=did))
         assert "can't speak this title's original language" in capsys.readouterr().err
@@ -1008,7 +1021,7 @@ class TestCmdDubNarration:
                                         narration_language="original")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="一", en="", speaker="Hero")])
         called = []
-        monkeypatch.setattr(dub_module, "build_narration_track",
+        monkeypatch.setattr(dub_narration, "build_narration_track",
                             lambda lines, *a, **k: called.append(True) or ("narration_track.wav", []))
 
         out = io.StringIO()
@@ -1433,7 +1446,7 @@ class TestNarratePrepIdKeyed:
 
     def _run(self, isolated_db, monkeypatch, engine):
         did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
-        with open(os.path.join(isolated_db.drama_dir(did), dub_module.NOVEL_SOURCE_FILENAME),
+        with open(os.path.join(isolated_db.drama_dir(did), dub_narration.NOVEL_SOURCE_FILENAME),
                   "w", encoding="utf-8") as f:
             f.write(self.NOVEL)
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
@@ -1665,9 +1678,9 @@ class TestCliServiceParity:
         _, seen = self._translate(isolated_db, monkeypatch, {"content_mode": "novel_narration"})
         assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (10, 6, 30)
 
-    def test_translate_non_novel_drama_keeps_6_3_20(self, isolated_db, monkeypatch):
+    def test_translate_non_novel_drama_gets_10_6_30(self, isolated_db, monkeypatch):
         _, seen = self._translate(isolated_db, monkeypatch, {})
-        assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (6, 3, 20)
+        assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (10, 6, 30)
 
     def test_run_parser_leaves_engine_and_sizes_unset(self, monkeypatch):
         captured = {}

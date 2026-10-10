@@ -5,7 +5,7 @@ import { expect, test, type Page, type Request } from '@playwright/test'
 
 const overview = {
   dependencies: { jieba: { installed: true, powers: 'Chinese word segmentation', tier: 'feature' } },
-  file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+  file_completeness: { missing_top_level: [], all_present: true },
   library_writable: true,
   gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
   model_engine_versions: [],
@@ -17,7 +17,7 @@ const setup = {
   ffmpeg: { found: true, version: 'ffmpeg version 6.1', libass: false },
   js_runtime: { found: true, name: 'deno' },
   cuda: { torch_installed: false, cuda_available: null },
-  files: { all_present: true, missing_top_level: [], missing_tabs: [] },
+  files: { all_present: true, missing_top_level: [] },
   library_writable: true,
 }
 

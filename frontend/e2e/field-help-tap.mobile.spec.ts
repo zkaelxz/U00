@@ -6,7 +6,7 @@ import { openTranscribeOptions } from './sourceHelpers'
 async function openAdvanced(page: Page) {
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
 }
 
 test('a tap opens the (i), keeps it open, and a second tap closes it', async ({ page }) => {
@@ -33,7 +33,7 @@ test('tapping outside closes the (i)', async ({ page }) => {
   await button.tap()
   await expect(text).toBeVisible()
 
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).tap()
+  await page.locator('.section-title', { hasText: /^More options$/ }).tap()
   await expect(text).toBeHidden()
 })
 

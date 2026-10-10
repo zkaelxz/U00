@@ -12,12 +12,14 @@ what the user can do.
 
 Free memory comes from torch.cuda.mem_get_info() when torch is already
 imported with CUDA available (it sees this process's own cache too), else
-from nvidia-smi (diagnostics.external_gpu_load). `MODEL_VRAM_MB` holds
+from nvidia-smi (diagnostics_torch.external_gpu_load). `MODEL_VRAM_MB` holds
 deliberately low estimates of what each model needs, so the check only
 refuses loads that can't possibly fit.
 """
 
 import sys
+
+import memory_headroom
 
 # Rough lower bounds (MB) for weights plus a working margin, half precision
 # where the loader uses it. Low on purpose: see the module docstring.
@@ -42,8 +44,8 @@ def free_vram_mb():
         except Exception:
             pass
     try:
-        import diagnostics
-        load = diagnostics.external_gpu_load()
+        import diagnostics_torch
+        load = diagnostics_torch.external_gpu_load()
     except Exception:
         load = None
     if load and load.get("memory_free_mb") is not None:
@@ -58,7 +60,11 @@ def check_fits(what: str, required_mb=None, free_mb=None) -> None:
     if not required:
         return
     free = free_vram_mb() if free_mb is None else free_mb
-    if free is None or free >= required:
+    if free is None:
+        return
+    if free >= required:
+        # Also honours Settings > Keep free VRAM, the same check the ASR loaders use.
+        memory_headroom.check_need(what, required, "vram", free_mb=free)
         return
     raise InsufficientVramError(
         f"Not enough free GPU memory to load {what}: it needs about "

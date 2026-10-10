@@ -132,6 +132,14 @@ export interface ComicMockOptions {
   firstPageText: string | null
   // Hold the page list back this long (ms), to see the bar before the pages arrive.
   pagesDelayMs: number
+  // Chapter groups in order (their page counts sum to pageCount); none: an older server.
+  chapters?: { title: string; pages: number; url?: string }[]
+  // The title's source page, as the drama detail returns it.
+  sourceUrl?: string
+  // Page indexes (0-based) marked "not part of the story".
+  hidden?: number[]
+  // Page indexes (0-based) with no text boxes yet.
+  noRegions?: number[]
 }
 
 export interface ComicMockState {
@@ -140,6 +148,8 @@ export interface ComicMockState {
   // Image requests as "<pageId>:<variant>".
   images: string[]
   progressPosts: number[]
+  // Bodies of POST .../pages/visibility.
+  visibility: unknown[]
   unmocked: string[]
 }
 
@@ -167,7 +177,7 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
     id: 7, title: 'Moonlit Courtyard', mediaType: 'manhua', pageCount: 8, width: 800, height: 1200,
     lastPage: 1, progressFails: false, rendered: [], imagesForbidden: false, firstPageText: null, pagesDelayMs: 0, ...over,
   }
-  const s: ComicMockState = { opts, calls: [], images: [], progressPosts: [], unmocked: [] }
+  const s: ComicMockState = { opts, calls: [], images: [], progressPosts: [], visibility: [], unmocked: [] }
   const pngCache = new Map<string, Buffer>()
   const record = (route: Route) => {
     const req = route.request()
@@ -214,12 +224,19 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
       translation_engine: null, custom_tags: [], created_at: null, updated_at: null, summary: null, genre: null,
       publication_status: null, chapter_count: null, narration_language: null, author_romanized: null,
       studio_romanized: null, director_romanized: null, voice_actors_romanized: null, series_instructions: null,
-      has_audio: false, has_novel_reference: false, has_cover_art: false,
+      has_audio: false, has_novel_reference: false, has_cover_art: false, source_url: opts.sourceUrl ?? '',
     })
   })
   await page.route(new RegExp(`${root}/pages$`), async (route) => {
     record(route)
     if (opts.pagesDelayMs) await new Promise((r) => setTimeout(r, opts.pagesDelayMs))
+    const hidden = new Set(opts.hidden ?? [])
+    const groups = (opts.chapters ?? []).map((c, k, all) => ({
+      id: `src:c${k + 1}`, title: c.title, known: true, url: c.url ?? '',
+      first_page: all.slice(0, k).reduce((n, g) => n + g.pages, 0) + 1, page_count: c.pages, hidden_count: 0,
+    }))
+    const groupOf = (i: number) => groups.find((g) => i + 1 >= g.first_page && i + 1 < g.first_page + g.page_count)
+    for (const g of groups) g.hidden_count = [...hidden].filter((i) => groupOf(i) === g).length
     return json(route, {
       drama_id: id,
       media_type: opts.mediaType,
@@ -228,10 +245,34 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
       page_count: opts.pageCount,
       pages: Array.from({ length: opts.pageCount }, (_, i) => ({
         id: pageIdOf(id, i), ordinal: i + 1, width: opts.width, height: opts.height,
-        has_rendered: opts.rendered.includes(i), has_regions: true, image_version: 1700000000 + i,
+        has_rendered: opts.rendered.includes(i), has_regions: !(opts.noRegions ?? []).includes(i),
+        image_version: 1700000000 + i,
+        ...(groups.length
+          ? { chapter_id: groupOf(i)?.id ?? null, chapter_page: i + 2 - (groupOf(i)?.first_page ?? 1), hidden: hidden.has(i) }
+          : {}),
       })),
-      chapters: [],
+      hidden_count: hidden.size,
+      chapters: groups,
     })
+  })
+  // Hide / restore pages; the list answers with the new state afterwards.
+  await page.route(new RegExp(`${root}/pages/visibility$`), (route) => {
+    record(route)
+    const body = route.request().postDataJSON() as { hidden: boolean; page_ids?: number[]; chapter_id?: string; edge?: string; count?: number }
+    s.visibility.push(body)
+    const set = new Set(opts.hidden ?? [])
+    let targets: number[] = []
+    if (body.page_ids) targets = body.page_ids.map((p) => p - id * 100 - 1)
+    else {
+      const k = Number((body.chapter_id ?? '').replace('src:c', '')) - 1
+      const list = opts.chapters ?? []
+      const first = list.slice(0, k).reduce((n, g) => n + g.pages, 0)
+      const all = Array.from({ length: list[k]?.pages ?? 0 }, (_, i) => first + i)
+      targets = body.edge === 'first' ? all.slice(0, body.count) : body.edge === 'last' ? all.slice(-(body.count ?? 1)) : all
+    }
+    for (const t of targets) body.hidden ? set.add(t) : set.delete(t)
+    opts.hidden = [...set]
+    return json(route, { changed: targets.length, hidden_count: set.size })
   })
   await page.route(new RegExp(`${root}/pages/\\d+/image(\\?.*)?$`), (route) => {
     const url = record(route)
