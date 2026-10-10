@@ -152,6 +152,11 @@ async def _lifespan(app: FastAPI):
         jobs_service.sweep_stale_job_records()
     except Exception:
         logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
+    from services import gpu_lock_recovery_service
+    try:
+        gpu_lock_recovery_service.release_orphaned_server_holders()
+    except Exception:
+        logging.getLogger(__name__).warning("Orphaned GPU slot release failed", exc_info=True)
     import live_whisper
     try:
         live_whisper.release_stale_claims()
