@@ -22,8 +22,10 @@ _TITLE_RE = re.compile(r"<title[^<>]*>([^<]*)</title>", re.I)
 # reason: `<[^>]+>` rescans to the end from every "<" when no ">" follows.
 _TAG_RE = re.compile(r"<[^<>]+>")
 _BLOCK_OPEN_RE = re.compile(r"<(script|style|noscript)\b", re.I)
+_BLOCK_CLOSE_RE = {tag: re.compile("</" + tag, re.I) for tag in ("script", "style", "noscript")}
 # Every threshold classify() compares against is a few thousand characters,
-# so text past this cap can't change a verdict; it only costs time.
+# so text past this cap can't change a verdict. Applied to the text, not the
+# markup: a page can carry far more markup than this before its first word.
 _MAX_VISIBLE_TEXT = 512 * 1024
 
 # Cloudflare's managed/JS challenge. `cf-mitigated: challenge` is the
@@ -96,7 +98,6 @@ def page_title(html: str) -> str:
 
 
 def _strip_blocks(html: str) -> str:
-    lower = html.lower()
     parts = []
     pos = 0
     while True:
@@ -106,10 +107,12 @@ def _strip_blocks(html: str) -> str:
             break
         parts.append(html[pos:m.start()])
         # An unclosed block runs to the end of the page, as a browser treats it.
-        close = lower.find("</" + m.group(1).lower(), m.end())
-        if close < 0:
+        # Searched in `html` itself: offsets from a lowercased copy drift,
+        # since some characters ("İ") lowercase to two code points.
+        close = _BLOCK_CLOSE_RE[m.group(1).lower()].search(html, m.end())
+        if not close:
             break
-        end = lower.find(">", close)
+        end = html.find(">", close.end())
         if end < 0:
             break
         parts.append(" ")
@@ -118,9 +121,8 @@ def _strip_blocks(html: str) -> str:
 
 
 def visible_text(html: str) -> str:
-    text = _strip_blocks(html or "")[:_MAX_VISIBLE_TEXT]
-    text = _TAG_RE.sub(" ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = _TAG_RE.sub(" ", _strip_blocks(html or ""))
+    return re.sub(r"\s+", " ", text).strip()[:_MAX_VISIBLE_TEXT]
 
 
 def machine_translated(html: str) -> list:

@@ -39,7 +39,7 @@ import re
 from urllib.parse import quote, urlsplit
 
 from ..base import SourceAdapter
-from ..lzstring import decompress_from_base64
+from ..lzstring import LZStringTooLarge, decompress_from_base64
 from ..models import (ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
 from ..registry import register
@@ -106,6 +106,10 @@ def unpack_packer(script: str) -> str:
 
     def sub(m):
         key = m.group(0)
+        # Base-62 decoding is quadratic in the token's length, and 62**6 is
+        # far past any real word list, so a longer token can't be an index.
+        if len(key) > 6:
+            return key
         i = _radix62(key)
         if 0 <= i < len(words) and words[i]:
             return words[i]
@@ -113,9 +117,19 @@ def unpack_packer(script: str) -> str:
     return _WORD.sub(sub, payload)
 
 
-def _lz_decode(data: str, what: str) -> str:
+class TooLarge(SourceError):
+    """A compressed payload expands past what this app accepts. Not a
+    layout change: the adapter read it fine, it is just too big."""
+
+    def __init__(self, what: str):
+        super().__init__(f"{what} is larger than this app accepts.", FailureReason.UNKNOWN)
+
+
+def _lz_decode(data: str, what: str, too_large: str) -> str:
     try:
         return decompress_from_base64(data)
+    except LZStringTooLarge:
+        raise TooLarge(too_large) from None
     except ValueError:
         raise LayoutChanged(what) from None
 
@@ -160,7 +174,8 @@ def decode_image_data(html: str) -> dict:
         raise LayoutChanged("the chapter page's image script")
 
     def expand(match):
-        decoded = _lz_decode(match.group(1), "readable page data in the image script")
+        decoded = _lz_decode(match.group(1), "readable page data in the image script",
+                             "This chapter's page list")
         if decoded is None:
             raise LayoutChanged("readable page data in the image script")
         return "'" + decoded + "'.split('|')"
@@ -172,6 +187,8 @@ def decode_image_data(html: str) -> dict:
         raise LayoutChanged("the image list inside the page script")
     try:
         return json.loads(unpacked[start:end + 1])
+    except RecursionError:
+        raise LayoutChanged("valid image data") from None
     except ValueError as e:
         raise LayoutChanged(f"valid image data ({e})") from None
 
@@ -293,7 +310,8 @@ class ManhuaguiSource(SourceAdapter):
             if not self.allow_adult:
                 raise ContentHidden(self.adult_hidden_message("this work's chapter list"),
                                     FailureReason.COOKIE_REQUIRED)
-            decoded = _lz_decode(hidden.get("value") or "", "the hidden chapter list")
+            decoded = _lz_decode(hidden.get("value") or "", "the hidden chapter list",
+                                 "This work's chapter list")
             if not decoded:
                 raise LayoutChanged("the hidden chapter list")
             fragment = _soup(decoded)

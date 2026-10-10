@@ -196,7 +196,15 @@ class RanobesSource(SourceAdapter):
         first = self._get(f"/chapters/{book_id}/", f"Loading chapter list for {series_id}")
         data = _extract_data_blob(first)
         chapters = list(data.get("chapters") or [])
-        pages_count = min(int(data.get("pages_count") or 1), MAX_LIST_PAGES)
+        try:
+            pages_count = int(data.get("pages_count") or 1)
+        except (ValueError, TypeError, OverflowError):
+            raise LayoutChanged("a readable chapter-list page count") from None
+        if pages_count > MAX_LIST_PAGES:
+            # The list is newest first: stopping at the cap would drop
+            # chapter 1 onwards without anyone noticing.
+            raise SourceError("This work's chapter list is longer than this app can fetch.",
+                              FailureReason.UNKNOWN)
         for n in range(2, pages_count + 1):
             html = self._get(f"/chapters/{book_id}/page/{n}/",
                              f"Loading chapter list for {series_id} (page {n}/{pages_count})")

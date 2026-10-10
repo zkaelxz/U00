@@ -113,15 +113,21 @@ def _parse_protobuf(data: bytes) -> dict:
         field_no, wire_type = tag >> 3, tag & 7
         if wire_type == 0:
             val, pos = _read_varint(data, pos)
-        elif wire_type == 2:
+            fields.setdefault(field_no, []).append(val)
+            continue
+        if wire_type == 2:
             length, pos = _read_varint(data, pos)
-            val, pos = data[pos:pos + length], pos + length
         elif wire_type == 1:
-            val, pos = data[pos:pos + 8], pos + 8
+            length = 8
         elif wire_type == 5:
-            val, pos = data[pos:pos + 4], pos + 4
+            length = 4
         else:
             raise LayoutChanged(f"a recognized protobuf wire type ({wire_type})")
+        # A slice past the end comes back short rather than failing, which
+        # would hand a truncated field on as if it were whole.
+        if pos + length > end:
+            raise LayoutChanged("a complete protobuf field")
+        val, pos = data[pos:pos + length], pos + length
         fields.setdefault(field_no, []).append(val)
     return fields
 

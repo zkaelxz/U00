@@ -163,6 +163,18 @@ class TestNuxtStateDecoderBounds:
         with pytest.raises(kuaikan.LayoutChanged):
             kuaikan._extract_nuxt_state(_state_page("a,b", "return {x:a}", "b,a"))
 
+    @pytest.mark.parametrize("params,body,args", [
+        ("a", "return {x:a}", "1" * 5000),
+        ("a", "a.x='\\return {x:a,y:'", "{}"),
+        ("a", "return {x:a}", "'\\uZZZZ'"),
+        ("a", "a[99999]=1;return {x:a}", "Array(1)"),
+        ("a", "a.x=1;return {x:a}", "Array(1)"),
+    ], ids=["huge-int", "trailing-backslash", "bad-unicode-escape", "index-past-end",
+            "property-on-array"])
+    def test_malformed_values_are_a_layout_error(self, params, body, args):
+        with pytest.raises(kuaikan.LayoutChanged):
+            kuaikan._extract_nuxt_state(_state_page(params, body, args))
+
     def test_hostile_megabyte_is_linear(self):
         n = 50_000
         params = ",".join(f"p{i}" for i in range(n))

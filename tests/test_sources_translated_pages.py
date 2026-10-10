@@ -203,3 +203,20 @@ class TestVisibleTextOnHostilePages:
 
     def test_the_text_is_capped(self):
         assert len(detect.visible_text("<p>" + "word " * 400_000)) <= detect._MAX_VISIBLE_TEXT
+
+    def test_text_after_a_script_survives_characters_that_grow_when_lowercased(self):
+        # "İ".lower() is two code points, so offsets into a lowercased copy
+        # would land past the real end of the script.
+        page = "<p>" + "İ" * 1000 + "</p><script>var hidden = 1;</script><p>after</p>"
+        text = detect.visible_text(page)
+        assert text.endswith("after")
+        assert "hidden" not in text
+
+    def test_a_large_markup_prefix_does_not_hide_the_text_that_follows(self):
+        sprite = "<svg>" + '<path d="M0 0"/>' * 80_000 + "</svg>"
+        assert len(sprite) > 2 * detect._MAX_VISIBLE_TEXT
+        story = "A real paragraph of story text. " * 100
+        page = f'<html><body><div id="app">{sprite}<p>{story}</p></div></body></html>'
+        assert "real paragraph" in detect.visible_text(page)
+        reasons = detect.classify(200, {}, page, "https://example.com/")
+        assert detect.FailureReason.EMPTY_SPA_SHELL not in reasons

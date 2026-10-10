@@ -419,8 +419,10 @@ def _extract_nuxt_state(html: str):
         raise LayoutChanged("the end of this page's embedded __NUXT__ state")
     try:
         return _decode_nuxt_state(html[m.start():end])
-    except RecursionError:
-        # Deep nesting, or arguments that refer to each other in a cycle.
+    except (RecursionError, ValueError, IndexError, TypeError):
+        # Deep nesting, arguments that refer to each other in a cycle, a
+        # malformed number or escape, or a prelude assignment that doesn't
+        # fit its target. LayoutChanged is none of these, so it passes.
         raise LayoutChanged("a well-formed embedded state") from None
 
 

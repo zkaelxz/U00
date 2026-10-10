@@ -227,9 +227,16 @@ class TestProtobufDecoderRobustness:
     def test_a_varint_longer_than_ten_bytes_is_a_layout_error(self):
         with pytest.raises(zerosumonline.LayoutChanged):
             zerosumonline._parse_protobuf(b"\xff" * 11 + b"\x01")
+        with pytest.raises(zerosumonline.LayoutChanged):
+            zerosumonline._read_varint(b"\xff" * 11 + b"\x01", 0)
         assert zerosumonline._read_varint(b"\xff" * 9 + b"\x01", 0) == (2 ** 64 - 1, 10)
 
-    @pytest.mark.parametrize("data", [b"\x80", _tag(1, 0), _tag(1, 2)])
+    @pytest.mark.parametrize("data", [
+        b"\x80", _tag(1, 0), _tag(1, 2),
+        _tag(1, 2) + _varint(10) + b"abc",
+        _tag(1, 1) + b"abc",
+        _tag(1, 5) + b"a",
+    ], ids=["varint", "tag-only", "no-length", "short-bytes", "short-fixed64", "short-fixed32"])
     def test_truncated_input_is_a_layout_error(self, data):
         with pytest.raises(zerosumonline.LayoutChanged):
             zerosumonline._parse_protobuf(data)

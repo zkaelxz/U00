@@ -22,6 +22,11 @@ _B64_INDEX = {c: i for i, c in enumerate(_B64)}
 MAX_OUTPUT_CHARS = 1_000_000
 
 
+class LZStringTooLarge(ValueError):
+    """Valid data whose output passes the size limit, so callers can say
+    "too large" rather than "unreadable"."""
+
+
 def decompress_from_base64(data: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     if data is None:
         return ""
@@ -103,7 +108,7 @@ def _decompress(length: int, reset_value: int, get_next_value, max_chars: int) -
             raise ValueError("Invalid LZString data")
         total += len(entry)
         if total > max_chars:
-            raise ValueError("LZString data decompresses past the size limit")
+            raise LZStringTooLarge("LZString data decompresses past the size limit")
         result.append(entry)
 
         dictionary[dict_size] = w + entry[0]
