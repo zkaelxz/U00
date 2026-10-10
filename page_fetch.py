@@ -108,7 +108,7 @@ def make_request_guard(resolver=None):
     `data:`/`blob:` or an http(s) URL whose host resolves only to public
     addresses. Resolutions are cached per host for this handler's life."""
     from urllib.parse import urlsplit
-    from services import url_guard
+    from lib import url_guard
     resolve = resolver or (lambda u: url_guard.resolve_public(u))
     cache = {}
 
@@ -233,7 +233,7 @@ class _PinningProxy:
 
     @staticmethod
     def _pinned(url):
-        from services import url_guard
+        from lib import url_guard
         return url_guard.resolve_public(url)
 
     def _handle(self, client):
@@ -384,7 +384,8 @@ def fetch_static(url: str, timeout: int = 20):
     public http(s) address."""
     from urllib.parse import urljoin
     from bs4 import BeautifulSoup
-    from services import metadata_service, url_guard
+    from services import metadata_service
+    from lib import url_guard
 
     headers = {"User-Agent": _UA}
     current = url
@@ -407,7 +408,7 @@ def fetch_static(url: str, timeout: int = 20):
     except Exception:
         resp.close()
         raise
-    from services import capped_body
+    from lib import capped_body
 
     def too_big():
         return ValueError("The page is too large to fetch.")
@@ -937,7 +938,7 @@ def _redact(exc) -> str:
     redact_secrets does not mask. Only the guard's own fixed messages and
     the install hint for a missing browser are passed through."""
     from engine_backends.shared import redact_secrets
-    from services import url_guard
+    from lib import url_guard
     if isinstance(exc, (url_guard.UnsafeURLError, url_guard.URLResolveError, ImportError)):
         return redact_secrets(str(exc))
     status = getattr(getattr(exc, "response", None), "status_code", None)

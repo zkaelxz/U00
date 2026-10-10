@@ -1,5 +1,5 @@
 """
-services/url_guard.py -- the one public-address check for server-side
+lib/url_guard.py -- the one public-address check for server-side
 fetches of a user- or site-supplied URL.
 
 `resolve_public(url)` accepts http(s) URLs only (no userinfo) whose host

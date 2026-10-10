@@ -93,7 +93,7 @@ engine in the app: the key-free `FakeEngine` lives in `tests/fake_engine.py`
 Every `requests`-based provider call (OpenAI, Gemini, Ollama, the `llm_tasks`
 Gemini path, bulk batch polling, Groq transcription, `qa.py`) is made with
 `stream=True` and read through `engine_backends.shared.read_json_capped`. It
-streams the body through `services/capped_body.read_capped` (default 16 MB,
+streams the body through `lib/capped_body.read_capped` (default 16 MB,
 `PROVIDER_RESPONSE_MAX_BYTES`, plus a total deadline) and raises
 `ProviderResponseTooLarge` with no URL or header in the message; a non-2xx
 status raises `requests.HTTPError` without reading the body. The Anthropic and

@@ -393,8 +393,8 @@ def test_list_sessions(live, monkeypatch):
 
 def test_url_guard_is_the_one_policy(live, monkeypatch):
     """Both the typed URL and the resolved stream URL go through
-    services.url_guard.resolve_public (the B-25 policy)."""
-    from services import url_guard
+    lib.url_guard.resolve_public (the B-25 policy)."""
+    from lib import url_guard
     called = []
     monkeypatch.setattr(url_guard, "resolve_public", lambda u: called.append(u) or "93.184.216.34")
     sid = _start()

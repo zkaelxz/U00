@@ -5,7 +5,7 @@ import re
 import threading
 import weakref
 
-from services import capped_body
+from lib import capped_body
 
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import (
@@ -213,7 +213,7 @@ OLLAMA_ERROR_BODY_MAX_BYTES = 2000
 def _error_body_text(resp) -> str:
     """A small, redacted slice of an error response's body; "" if unreadable.
     read_capped closes the response."""
-    from services import capped_body
+    from lib import capped_body
     try:
         raw = capped_body.read_capped(resp, OLLAMA_ERROR_BODY_MAX_BYTES, 5.0,
                                       lambda: ValueError("error body too large"))
