@@ -23,6 +23,7 @@ import pytest
 
 import page_capture_checks
 import page_server
+import page_turns
 
 
 def _png_bytes(width=600, height=900, colour=(240, 240, 240), blank=False):
@@ -150,8 +151,8 @@ def fake_pipeline(monkeypatch):
 def _reset_module_state():
     page_server.set_translation_config(engine=None, api_key="", base_url=None,
                                        free_tier=False)
-    with page_server._context_lock:
-        page_server._contexts.clear()
+    with page_turns._context_lock:
+        page_turns._contexts.clear()
     yield
 
 
@@ -1122,7 +1123,7 @@ class TestRecapturingKeepsSavedWork:
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
         drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
-        context = dict(page_server._contexts)
+        context = dict(page_turns._contexts)
         chapter_two = {"images": [_distinct_page(0), _distinct_page(1)], "drama_id": drama_id,
                        "store": True, "filter_pages": False}
         result = _post(token, chapter_two, path="/pages").payload
@@ -1160,3 +1161,139 @@ class TestRecapturingKeepsSavedWork:
         assert page["id"] != foreign["id"]
         pipeline._discard_pages(drama_id, [page["id"]])
         assert [p["id"] for p in db.list_pages(drama_id)] == [foreign["id"]]
+
+
+class TestConcurrentCapturesOfOneTitle:
+    """Translation runs outside PIPELINE_LOCK, so a stored page is visible
+    to other requests while its LLM call is still running."""
+
+    WAIT = 5.0
+
+    def _drama(self, monkeypatch):
+        import db
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+        return db.create_drama(title_en="Chapter", media_type="comic")
+
+    def _blocking_translate(self, monkeypatch):
+        import scanlate
+        state = {"calls": [], "entered": threading.Event(), "release": threading.Event()}
+
+        def translate(bubbles, engine, drama_meta, **kwargs):
+            n = len(state["calls"]) + 1
+            state["calls"].append(kwargs.get("previous_context"))
+            if n == 1:
+                state["entered"].set()
+                assert state["release"].wait(self.WAIT)
+            for b in bubbles:
+                b["translated_text"] = "the translation"
+            return f"context after call {n}"
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate)
+        return state
+
+    def _in_thread(self, token, body):
+        out = {}
+        worker = threading.Thread(target=lambda: out.update(handler=_post(token, body)))
+        worker.start()
+        return worker, out
+
+    def test_a_recapture_during_the_llm_call_makes_no_second_call(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        drama_id = self._drama(monkeypatch)
+        state = self._blocking_translate(monkeypatch)
+        saw_busy = threading.Event()
+        real_claim = page_turns.claim_page
+
+        def claim(page_id):
+            theirs, mine = real_claim(page_id)
+            if theirs is not None:
+                saw_busy.set()
+            return theirs, mine
+        monkeypatch.setattr(page_turns, "claim_page", claim)
+        body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
+        first, first_out = self._in_thread(token, body)
+        assert state["entered"].wait(self.WAIT)
+        second, second_out = self._in_thread(token, body)
+        assert saw_busy.wait(self.WAIT)
+        state["release"].set()
+        first.join(self.WAIT)
+        second.join(self.WAIT)
+        assert len(state["calls"]) == 1
+        again = second_out["handler"].payload
+        assert again["failed"] == [] and again["already_stored"] == 1
+        assert again["pages"][0]["regions"][0]["translated_text"] == "the translation"
+        assert first_out["handler"].payload["failed"] == []
+        assert len(db.list_pages(drama_id)) == 1
+
+    def test_a_recapture_that_outwaits_the_bound_says_so_without_translating(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        drama_id = self._drama(monkeypatch)
+        state = self._blocking_translate(monkeypatch)
+        monkeypatch.setattr(page_turns, "INFLIGHT_WAIT_SECONDS", 0.05)
+        body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
+        first, _ = self._in_thread(token, body)
+        assert state["entered"].wait(self.WAIT)
+        again = _post(token, body).payload
+        state["release"].set()
+        first.join(self.WAIT)
+        assert len(state["calls"]) == 1
+        assert again["failed"] == [] and again["already_stored"] == 1
+        assert "still being translated" in again["pages"][0]["notes"][0][1]
+
+    def test_two_pages_of_one_title_keep_the_context_chain_in_order(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        drama_id = self._drama(monkeypatch)
+        state = self._blocking_translate(monkeypatch)
+        contended = threading.Event()
+
+        class SpyLock:
+            def __init__(self):
+                self._lock = threading.Lock()
+
+            def __enter__(self):
+                if not self._lock.acquire(blocking=False):
+                    contended.set()
+                    self._lock.acquire()
+
+            def __exit__(self, *exc):
+                self._lock.release()
+        monkeypatch.setitem(page_turns._chain_locks, str(drama_id), SpyLock())
+        first, _ = self._in_thread(token, {"images": [_distinct_page(0)],
+                                           "drama_id": drama_id, "store": True})
+        assert state["entered"].wait(self.WAIT)
+        second, _ = self._in_thread(token, {"images": [_distinct_page(1)],
+                                            "drama_id": drama_id, "store": True})
+        assert contended.wait(self.WAIT)
+        state["release"].set()
+        first.join(self.WAIT)
+        second.join(self.WAIT)
+        assert state["calls"] == ["", "context after call 1"]
+        assert page_turns._contexts[str(drama_id)] == "context after call 2"
+
+    def test_a_late_failure_keeps_a_page_another_request_returned(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import sqlite3
+
+        import db
+        drama_id = self._drama(monkeypatch)
+        state = self._blocking_translate(monkeypatch)
+        monkeypatch.setattr(page_turns, "INFLIGHT_WAIT_SECONDS", 0.05)
+        real_save = page_capture_checks.save_translations_of_read
+
+        def locked_db(*a, **kw):
+            raise sqlite3.OperationalError("database is locked")
+        monkeypatch.setattr(page_capture_checks, "save_translations_of_read", locked_db)
+        body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
+        first, first_out = self._in_thread(token, body)
+        assert state["entered"].wait(self.WAIT)
+        seen = _post(token, body).payload["pages"][0]["page_id"]
+        state["release"].set()
+        first.join(self.WAIT)
+        assert len(first_out["handler"].payload["failed"]) == 1
+        assert [p["id"] for p in db.list_pages(drama_id)] == [seen]
+
+        monkeypatch.setattr(page_capture_checks, "save_translations_of_read", real_save)
+        retry = _post(token, body).payload
+        assert retry["already_stored"] == 1
+        assert [b["translated_text"] for b in db.load_bubbles(seen)] == ["the translation"]
+        assert [p["id"] for p in db.list_pages(drama_id)] == [seen]

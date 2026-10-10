@@ -150,6 +150,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `page_scroll.py` (scroll-through-then-settle step shared by the rendered and signed-in fetches)
 - `page_capture_checks.py` (blank-page probe, re-capture lookup and fixed failure messages for the extension bridge)
 - `page_server.py`
+- `page_turns.py` (which extension-bridge request translates a page and in what order: in-flight page claims, the per-title context chain, discard only before release)
 - `title_library.py`
 
 ## lib/

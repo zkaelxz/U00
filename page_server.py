@@ -70,6 +70,9 @@ translation runs outside the lock so an LLM call never stalls other pages
 or a Cancel. This is a single-user local app, so serialising is the right
 trade rather than a bug.
 
+A stored page is visible to other requests before it is translated; see
+`page_turns` for how captures of one page or one title take turns.
+
 ## Where the translation settings come from
 
 The server runs on its own background thread with no request session of
@@ -91,6 +94,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import page_capture_checks
+import page_turns
 
 # Deliberately not adjacent to the API's port (8600), so a person reading a
 # port number in a browser URL bar can tell which of the two they are looking at.
@@ -143,15 +147,6 @@ _config = {
     "prefer_paddle_vl_manga": False,
     "detect_backend": "auto",
 }
-
-# Rolling per-drama translation context, so consecutive pages of the same
-# book read as one conversation rather than N isolated pages -- the same
-# `previous_context` the Scanlate run (services/scanlate_run_service.py)
-# threads between pages. In-memory only, like `background_jobs`: a process
-# restart simply starts the context fresh, which costs quality on one page
-# and nothing else.
-_context_lock = threading.Lock()
-_contexts = {}
 
 
 class EndpointError(Exception):
@@ -315,7 +310,6 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
                        config: dict) -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
-    import scanlate
     import translate_engines
 
     missing = [b for b in saved if not (b.get("translated_text") or "").strip()]
@@ -326,18 +320,12 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
         return [["warning", "already in the library; translate it in Scanlate"]]
     glossary = (db.list_glossary_terms(drama["series_id"])
                 if drama and drama.get("series_id") else None)
-    key = str(drama_id) if drama_id else f"url:{source_url}"
-    with _context_lock:
-        previous = _contexts.get(key, "")
     originals = page_capture_checks.snapshot_texts(missing)
     try:
-        new_context = scanlate.translate_page_bubbles(
-            missing, engine, drama or {}, previous_context=previous,
-            glossary_terms=glossary, usage_cb=_usage_cb(drama, config, engine))
+        page_turns.translate_in_chain(drama_id, source_url, missing, engine, drama, glossary,
+                                      _usage_cb(drama, config, engine))
     except Exception as e:
         return [["warning", f"translation failed ({translate_engines.redact_secrets(str(e))})"]]
-    with _context_lock:
-        _contexts[key] = new_context
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
 
 
@@ -375,8 +363,12 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     temp_path = None
 
     reuse_saved = None
+    busy = None
+    claim = None
     try:
-        with PIPELINE_LOCK:
+        # The discard runs before the lock is released, while no other
+        # request can have seen the page.
+        with PIPELINE_LOCK, page_turns.discard_on_failure(drama_id) as added:
             if store and drama is not None:
                 page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
                 if page is not None:
@@ -391,7 +383,11 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     newly_stored = page is None
                     if newly_stored:
                         page = _store_page(int(drama_id), data, ext)
+                        added.append(page["id"])
                     image_path = os.path.join(db.drama_dir(int(drama_id)), page["filename"])
+                # Claimed under the lock, where a re-capture looks the page up.
+                busy, mine = page_turns.claim_page(page["id"])
+                claim = (page["id"], mine) if mine else None
             else:
                 # Overlay-only: the person is reading, not importing, so the
                 # bytes never enter the library. Cleaned up below whatever
@@ -429,8 +425,16 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     stored_bubbles = [] if read_notes else db.load_bubbles(page["id"])
 
         # Only detection and OCR touch the shared model caches; an LLM call
-        # under the lock would stall every other page and a Cancel.
+        # under the lock would stall every other page and a Cancel. From here
+        # on a failure keeps the page: a re-capture fills what is missing.
         if reuse_saved is not None:
+            if busy is not None:
+                reuse_saved, mine = page_turns.await_other_capture(page["id"], busy)
+                if mine is None:
+                    return page_capture_checks.reused_page_response(
+                        data, reuse_saved, [page_turns.STILL_TRANSLATING_NOTE],
+                        int(drama_id), page["id"])
+                claim = (page["id"], mine)
             reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, int(drama_id), page["id"])
@@ -443,15 +447,9 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         if bubbles and engine is not None:
             glossary = (db.list_glossary_terms(drama["series_id"])
                         if drama and drama.get("series_id") else None)
-            key = str(drama_id) if drama_id else f"url:{source_url}"
-            with _context_lock:
-                previous = _contexts.get(key, "")
             try:
-                new_context = scanlate.translate_page_bubbles(
-                    bubbles, engine, drama or {}, previous_context=previous,
-                    glossary_terms=glossary, usage_cb=_usage_cb(drama, config, engine))
-                with _context_lock:
-                    _contexts[key] = new_context
+                page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama,
+                                              glossary, _usage_cb(drama, config, engine))
             except Exception as e:
                 # The OCR text is still real and still useful, so it
                 # is returned rather than thrown away -- the same
@@ -464,18 +462,9 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             notes.extend(read_notes)
             notes.extend(page_capture_checks.save_translations_of_read(
                 page["id"], stored_bubbles, bubbles))
-    except BaseException:
-        # A page whose reading failed must not stay behind as an empty
-        # page: the caller reports it as not delivered, and a retry
-        # would add it a second time.
-        if page is not None and newly_stored:
-            from sources import pipeline
-            try:
-                with PIPELINE_LOCK:
-                    pipeline._discard_pages(int(drama_id), [page["id"]])
-            except Exception:
-                pass
-        raise
+    finally:
+        if claim is not None:
+            page_turns.release_page(*claim)
 
     width, height = page_capture_checks.image_size(data)
     return {
