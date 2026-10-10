@@ -81,6 +81,7 @@ class TestEveryTransitionIsWrittenOnce:
         _finish()
         assert [s for j, s in writes if j == "st_done"] == ["running", "done"]
         _assert_row_matches_job("st_done")
+        assert "st_done" not in job_store._last_write
         bg.clear_job("st_done")
 
     def test_running_cancelling_then_cancelled(self, writes):
@@ -219,6 +220,48 @@ class TestAFailedWriteIsVisibleAndRetried:
         bg.clear_job("st_locked")
 
 
+class TestAWriteUnderTheJobsLockNeverWaitsLong:
+    @pytest.mark.parametrize("failure", ["locked", "disk"])
+    def test_a_database_held_by_another_connection_fails_fast(
+            self, isolated_db, monkeypatch, failure):
+        release = threading.Event()
+        assert bg.start_job("st_held", lambda: release.wait(10.0))
+        if failure == "disk":
+            # A non-lock failure must not follow up with its own write under
+            # the lock: that write would wait out the holder below.
+            def boom(*a, **k):
+                raise sqlite3.OperationalError("disk I/O error")
+            monkeypatch.setattr(job_store, "_write_row", boom)
+        holding, done = threading.Event(), threading.Event()
+
+        def hold():
+            with contextlib.closing(db.get_conn()) as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                holding.set()
+                done.wait(10.0)
+                conn.rollback()
+        holder = threading.Thread(target=hold)
+        holder.start()
+        try:
+            assert holding.wait(5.0)
+            t0 = time.monotonic()
+            with bg._lock:
+                ok = job_store.write_transition("st_held", bg._jobs["st_held"])
+            assert time.monotonic() - t0 < 2.0
+            assert ok is False
+            assert bg.get_status("st_held")["sync_error"]
+            assert "st_held" in job_store._pending
+        finally:
+            done.set()
+            holder.join(10)
+            monkeypatch.undo()
+            release.set()
+            _finish()
+        bg._heartbeat_once()
+        assert "st_held" not in job_store._pending
+        bg.clear_job("st_held")
+
+
 class TestRowsOfGoneOwners:
     def test_my_pid_with_another_instance_is_swept_a_live_other_pid_is_not(self, isolated_db):
         db.save_job_record("st_earlier", "running", owner_pid=os.getpid())
@@ -235,6 +278,63 @@ class TestRowsOfGoneOwners:
         row = db.get_job_record("st_earlier")
         assert (row["status"], row["detail_state"], row["error"]) == (
             "cancelled", "interrupted", bg.INTERRUPTED_MESSAGE)
+
+    def test_a_stale_heartbeat_closes_a_dead_owners_row_not_a_live_ones(self, isolated_db):
+        """A live owner that stopped heartbeating (paused, under a debugger)
+        rewrites its row when it wakes, so heartbeat age must not close it."""
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait(timeout=30)
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            for job_id, pid in (("st_paused", other.pid), ("st_dead", gone.pid)):
+                db.save_job_record(job_id, "running", owner_pid=pid)
+                _set_row(job_id, owner_instance="another-server", updated_at=time.time() - 3600)
+            cutoff = time.time() - bg.STALE_JOB_SECONDS
+            assert job_store.close_stale("st_paused", cutoff) is False
+            assert db.get_job_record("st_paused")["status"] == "running"
+            assert job_store.close_stale("st_dead", cutoff) is True
+        finally:
+            other.kill()
+            other.wait(timeout=10)
+        assert db.get_job_record("st_dead")["detail_state"] == "interrupted"
+
+    def test_a_live_pid_protects_a_quiet_row_only_up_to_the_ceiling(self, isolated_db):
+        """After a hard kill and reboot an unrelated process can hold the dead
+        server's pid; past the ceiling the row must close anyway."""
+        from services import jobs_service
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            ages = {"st_reused": job_store.STALE_ALIVE_CEILING_SECONDS + 60,
+                    "st_napping": bg.STALE_JOB_SECONDS + 60}
+            for job_id, age in ages.items():
+                db.save_job_record(job_id, "running", owner_pid=other.pid)
+                _set_row(job_id, owner_instance="another-server", updated_at=time.time() - age)
+            assert jobs_service.is_stale(db.get_job_record("st_reused")) is True
+            assert jobs_service.is_stale(db.get_job_record("st_napping")) is False
+            cutoff = time.time() - bg.STALE_JOB_SECONDS
+            assert job_store.close_stale("st_napping", cutoff) is False
+            assert job_store.close_stale("st_reused", cutoff) is True
+        finally:
+            other.kill()
+            other.wait(timeout=10)
+        assert db.get_job_record("st_napping")["status"] == "running"
+        assert db.get_job_record("st_reused")["detail_state"] == "interrupted"
+
+    def test_my_own_row_with_a_write_still_pending_is_not_closed(self, isolated_db):
+        """A job cleared from memory while its last write is owed: the row
+        is this process's to write, not an earlier server's to close."""
+        db.save_job_record("st_owed", "running", owner_pid=os.getpid())
+        _set_row("st_owed", owner_instance=job_store.INSTANCE_ID)
+        with bg._lock:
+            job_store._pending.add("st_owed")
+        try:
+            assert job_store.owner_gone(db.get_job_record("st_owed")) is False
+            assert job_store.sweep_dead_owners(bg.STALE_JOB_SECONDS) == 0
+            assert db.get_job_record("st_owed")["status"] == "running"
+        finally:
+            with bg._lock:
+                job_store._pending.discard("st_owed")
+        assert job_store.close_if_owner_gone(db.get_job_record("st_owed")) is True
 
     def test_a_close_loses_to_a_new_run_by_another_instance(self, isolated_db):
         db.save_job_record("st_race", "running", owner_pid=os.getpid())
@@ -272,18 +372,30 @@ class TestRowsOfGoneOwners:
         db.save_job_record("st_mid", "running", owner_pid=os.getpid())
         _set_row("st_mid", owner_instance="an-earlier-server")
         seen = db.get_job_record("st_mid")
-        real = db.save_job_record
         sweeps = []
+        # owner_gone waits on background_jobs._lock, which start_job holds
+        # for the whole write; another process's sweep has no such lock, so
+        # only the single transaction can keep its UPDATE out from between.
+        monkeypatch.setattr(job_store, "owner_gone", lambda record: True)
+        real_connect = job_store._connect
 
-        def sweep_in_between(job_id, *a, **k):
-            real(job_id, *a, **k)
-            if job_id == "st_mid" and not sweeps:
-                t = threading.Thread(
-                    target=lambda: sweeps.append(job_store.close_if_owner_gone(seen)))
-                sweeps.append(t)
-                t.start()
-                time.sleep(0.2)   # the sweep's UPDATE is ready to run now
-        monkeypatch.setattr(db, "save_job_record", sweep_in_between)
+        class SweepBeforeOwnerUpdate:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def execute(self, sql, *a):
+                if sql.startswith("UPDATE job_records SET kind") and not sweeps:
+                    t = threading.Thread(
+                        target=lambda: sweeps.append(job_store.close_if_owner_gone(seen)))
+                    sweeps.append(t)
+                    t.start()
+                    t.join(0.3)   # long enough to land if nothing holds it off
+                return self._conn.execute(sql, *a)
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+        monkeypatch.setattr(job_store, "_connect",
+                            lambda timeout=None: SweepBeforeOwnerUpdate(real_connect(timeout)))
         release = threading.Event()
         assert bg.start_job("st_mid", lambda: release.wait(5.0))
         try:
@@ -374,6 +486,124 @@ class TestRetriesNeverHoldTheJobsLock:
         finally:
             release.set()
             _finish("st_race2")
+
+    def test_a_second_retry_waits_for_the_one_in_flight(self, isolated_db, monkeypatch):
+        """The heartbeat's retry and the exit flush's can overlap; the second
+        would write an older copy that can land after the first returned."""
+        real = job_store._write_row
+        release = threading.Event()
+        assert bg.start_job("st_two", lambda: release.wait(5.0))
+        with bg._lock:
+            job_store._pending.add("st_two")
+        inside, active, overlapped = threading.Event(), [], []
+
+        def slow_write(job_id, job, result_json, timeout=None):
+            overlapped.append(bool(active))
+            active.append(1)
+            inside.set()
+            time.sleep(0.3)
+            real(job_id, job, result_json, timeout)
+            active.pop()
+        monkeypatch.setattr(job_store, "_write_row", slow_write)
+        first = threading.Thread(target=job_store.retry_pending)
+        try:
+            first.start()
+            assert inside.wait(5.0)
+            second = threading.Thread(target=job_store.retry_pending)
+            second.start()
+            first.join(5.0)
+            second.join(5.0)
+            assert not first.is_alive() and not second.is_alive()
+            assert overlapped == [False]
+            assert "st_two" not in job_store._pending
+        finally:
+            release.set()
+            _finish("st_two")
+
+
+    def test_a_sync_error_stored_after_a_newer_write_landed_is_rewritten(
+            self, isolated_db, monkeypatch):
+        real_save, real_store = db.save_job_record, job_store._store_sync_error
+        failing = [True]
+
+        def disk_error_once(job_id, *a, **k):
+            if failing[0]:
+                raise sqlite3.OperationalError("disk I/O error")
+            return real_save(job_id, *a, **k)
+
+        def store_after_a_transition(job_id, text, deadline=None):
+            failing[0] = False
+            with bg._lock:   # lands before the older sync_error is stored
+                bg._jobs["st_stale"]["message"] = "newer"
+                assert job_store.write_transition("st_stale", bg._jobs["st_stale"])
+            real_store(job_id, text, deadline)
+        release = threading.Event()
+        assert bg.start_job("st_stale", lambda: release.wait(5.0))
+        monkeypatch.setattr(db, "save_job_record", disk_error_once)
+        monkeypatch.setattr(job_store, "_store_sync_error", store_after_a_transition)
+        try:
+            with bg._lock:
+                job_store._pending.add("st_stale")
+            job_store.retry_pending()
+            row = db.get_job_record("st_stale")
+            assert (row["message"], row["sync_error"]) == ("newer", None)
+            assert "st_stale" not in job_store._pending
+        finally:
+            release.set()
+            _finish("st_stale")
+
+    def test_a_cleared_job_leaves_no_token_behind(self, isolated_db, monkeypatch):
+        real = db.save_job_record
+
+        def fail_final(job_id, *a, **k):
+            if k.get("status") == "done":
+                raise sqlite3.OperationalError("disk I/O error")
+            return real(job_id, *a, **k)
+        monkeypatch.setattr(db, "save_job_record", fail_final)
+        assert bg.start_job("st_gone", lambda: None)
+        assert _wait_for(lambda: bg.get_status("st_gone")["status"] == "done")
+        _finish("st_gone")
+        assert "st_gone" in job_store._pending and "st_gone" in job_store._last_write
+        job_store.retry_pending()
+        assert "st_gone" not in job_store._pending
+        assert "st_gone" not in job_store._last_write
+
+    def test_a_job_cleared_mid_retry_stays_owed_until_its_row_is_dropped(
+            self, isolated_db, monkeypatch):
+        real_save, real_drop = db.save_job_record, job_store._drop_cleared_row
+
+        def fail_final(job_id, *a, **k):
+            if k.get("status") == "done":
+                raise sqlite3.OperationalError("disk I/O error")
+            return real_save(job_id, *a, **k)
+        monkeypatch.setattr(db, "save_job_record", fail_final)
+        assert bg.start_job("st_mid_clear", lambda: None)
+        assert _wait_for(lambda: bg.get_status("st_mid_clear")["status"] == "done")
+        _finish()
+
+        def cleared_while_writing(job_id, *a, **k):
+            real_save(job_id, *a, **k)
+            with bg._lock:   # clear_job's in-memory part
+                bg._clear_job_locked(job_id)
+        owed_while_dropping = []
+
+        def drop(job_id, copy):
+            with bg._lock:
+                owed_while_dropping.append(job_id in job_store._pending)
+            real_drop(job_id, copy)
+        monkeypatch.setattr(db, "save_job_record", cleared_while_writing)
+        monkeypatch.setattr(job_store, "_drop_cleared_row", drop)
+        job_store.retry_pending()
+        assert owed_while_dropping == [True]
+        assert "st_mid_clear" not in job_store._pending
+        assert "st_mid_clear" not in job_store._last_write
+        assert db.get_job_record("st_mid_clear") is None
+
+    def test_one_failed_beat_does_not_raise_out_of_the_heartbeat(self, isolated_db, monkeypatch):
+        def boom():
+            raise RuntimeError("reconcile failed")
+        monkeypatch.setattr(bg, "reconcile_dead_workers", boom)
+        bg._heartbeat_once()
 
 
 class TestExitFlush:
@@ -475,7 +705,9 @@ _OWNER_SCRIPT = r"""
 import os, sys, threading
 sys.path.insert(0, sys.argv[2])
 import db, background_jobs as bg
+from jobs import job_store
 db.configure_library_dir(sys.argv[1])
+job_store.register_exit_flush()   # as the server's lifespan does
 bg.start_job("st_owner", lambda: threading.Event().wait(60))
 assert db.get_job_record("st_owner")["status"] == "running"
 if sys.argv[3] == "kill":
@@ -485,7 +717,7 @@ if sys.argv[3] == "kill":
 
 @pytest.mark.parametrize("how", ["exit", "kill"])
 def test_an_exited_server_leaves_no_running_row(isolated_db, how):
-    """A clean exit closes the row itself (atexit); a hard kill skips atexit,
+    """A clean exit closes the row itself (the server's atexit hook); a hard kill skips atexit,
     so the next start's sweep closes it. Either way it ends interrupted."""
     proc = subprocess.run([sys.executable, "-c", _OWNER_SCRIPT, db.LIBRARY_DIR, REPO, how],
                           capture_output=True, text=True, timeout=60)
@@ -504,3 +736,45 @@ def test_each_jobs_module_imports_alone(module):
     proc = subprocess.run([sys.executable, "-c", f"import {module}"], cwd=REPO,
                           capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
+
+
+def test_importing_the_store_registers_no_exit_hook():
+    script = ("import atexit; calls = []; "
+              "atexit.register = lambda fn, *a, **k: calls.append(fn.__module__); "
+              "import jobs.job_store; print(calls.count('jobs.job_store'))")
+    proc = subprocess.run([sys.executable, "-c", script], cwd=REPO,
+                          capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "0"
+
+
+def test_starting_the_server_registers_the_exit_flush_once(isolated_db, monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    import atexit
+    import api.background as api_bg
+    from fastapi.testclient import TestClient
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    for name in ("start_background_services", "start_gpu_queue_poller", "stop_gpu_queue_poller",
+                 "start_reeval_scheduler", "stop_reeval_scheduler"):
+        monkeypatch.setattr(api_bg, name, lambda *a: None)
+    monkeypatch.setattr(api_bg, "start_remote_health_monitor", lambda settings: None)
+    monkeypatch.setattr(api_bg, "stop_remote_health_monitor", lambda: None)
+    registered = []
+    monkeypatch.setattr(atexit, "register", lambda fn, *a, **k: registered.append(fn))
+    monkeypatch.setattr(job_store, "_exit_hook_registered", False)
+    for _ in range(2):
+        with TestClient(create_app(ApiSettings(background_services=True))):
+            pass
+    assert registered.count(job_store._flush_unless_flushed) == 1
+
+
+def test_the_exit_hook_skips_a_flush_shutdown_already_ran(isolated_db, monkeypatch):
+    runs = []
+    monkeypatch.setattr(job_store, "_flushed", False)
+    real = job_store.flush_at_exit
+    monkeypatch.setattr(job_store, "flush_at_exit", lambda: (runs.append(1), real()))
+    job_store.flush_at_exit()          # shutdown_service.stop_services
+    job_store._flush_unless_flushed()  # atexit
+    assert len(runs) == 1

@@ -16,6 +16,7 @@ cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cle
 
 import scanlate
 import scanlate_detect
+import scanlate_inpaint
 
 
 @pytest.fixture
@@ -99,7 +100,7 @@ class TestInpaintRegion:
     def test_inpaint_produces_valid_image(self, synthetic_page, temp_dir):
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         out_path = os.path.join(temp_dir, "cleaned.png")
-        result_path = scanlate.inpaint_region(synthetic_page, box, out_path=out_path)
+        result_path = scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=out_path)
         assert os.path.exists(result_path)
         result_img = cv2.imread(result_path)
         assert result_img is not None
@@ -107,7 +108,7 @@ class TestInpaintRegion:
 
     def test_inpaint_without_out_path_returns_array(self, synthetic_page):
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
-        result = scanlate.inpaint_region(synthetic_page, box, out_path=None)
+        result = scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=None)
         assert isinstance(result, np.ndarray)
 
 
@@ -515,13 +516,13 @@ class TestAutoBackendSelection:
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename: str(cached_file))
-        assert scanlate.lama_ml_weights_cached() is True
+        assert scanlate_inpaint.lama_ml_weights_cached() is True
 
     def test_lama_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
         huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename: None)
-        assert scanlate.lama_ml_weights_cached() is False
+        assert scanlate_inpaint.lama_ml_weights_cached() is False
 
     def test_detect_bubbles_auto_never_calls_ml_when_not_cached(self, monkeypatch, synthetic_page):
         monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: False)
@@ -539,39 +540,39 @@ class TestAutoBackendSelection:
         assert scanlate_detect.detect_bubbles(synthetic_page, backend="auto") == fake_boxes
 
     def test_inpaint_region_auto_uses_cv_when_lama_not_cached(self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: False)
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: False)
         called = {}
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
                              lambda *a, **k: called.setdefault("ml", True))
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         out_path = os.path.join(temp_dir, "auto_cv.png")
-        result = scanlate.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
+        result = scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
         assert "ml" not in called
         assert os.path.exists(result)
 
     def test_inpaint_region_auto_uses_ml_when_cached(self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: True)
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
         called = {}
 
         def fake_ml_inpaint(roi, mask, hf_token=None):
             called["used"] = True
             return roi  # identity -- still a valid image array
 
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint", fake_ml_inpaint)
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", fake_ml_inpaint)
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         out_path = os.path.join(temp_dir, "auto_ml.png")
-        result = scanlate.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
+        result = scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
         assert called.get("used") is True
         assert os.path.exists(result)
 
     def test_inpaint_region_ml_unavailable_falls_back_to_cv_and_raises(
             self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
                              lambda *a, **k: (_ for _ in ()).throw(ImportError("no torch")))
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         out_path = os.path.join(temp_dir, "fallback.png")
-        with pytest.raises(scanlate.InpaintModelUnavailable) as exc_info:
-            scanlate.inpaint_region(synthetic_page, box, out_path=out_path, backend="ml")
+        with pytest.raises(scanlate_inpaint.InpaintModelUnavailable) as exc_info:
+            scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=out_path, backend="ml")
         assert exc_info.value.fell_back_to_cv is True
         # The CV-inpainted result was still produced and written, not lost.
         assert os.path.exists(out_path)
@@ -649,7 +650,7 @@ class TestInpaintMaskRegion:
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
         out_path = os.path.join(temp_dir, "brush.png")
-        result_path = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
+        result_path = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
         assert os.path.exists(result_path)
         img = cv2.imread(result_path)
         assert img.shape == (400, 600, 3)
@@ -657,7 +658,7 @@ class TestInpaintMaskRegion:
     def test_empty_mask_leaves_the_image_unchanged(self, synthetic_page, temp_dir):
         mask = np.zeros((400, 600), dtype=np.uint8)
         out_path = os.path.join(temp_dir, "brush_empty.png")
-        result_path = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
+        result_path = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
         original = cv2.imread(synthetic_page)
         result = cv2.imread(result_path)
         assert (original == result).all()
@@ -665,53 +666,53 @@ class TestInpaintMaskRegion:
     def test_mismatched_mask_shape_raises(self, synthetic_page):
         mask = np.zeros((10, 10), dtype=np.uint8)
         with pytest.raises(ValueError):
-            scanlate.inpaint_mask_region(synthetic_page, mask)
+            scanlate_inpaint.inpaint_mask_region(synthetic_page, mask)
 
     def test_without_out_path_returns_array(self, synthetic_page):
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
-        result = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=None)
+        result = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=None)
         assert isinstance(result, np.ndarray)
 
     def test_ml_backend_unavailable_falls_back_and_attaches_result(
             self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
                              lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
         out_path = os.path.join(temp_dir, "brush_fallback.png")
-        with pytest.raises(scanlate.InpaintModelUnavailable) as exc_info:
-            scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="ml")
+        with pytest.raises(scanlate_inpaint.InpaintModelUnavailable) as exc_info:
+            scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="ml")
         assert exc_info.value.fell_back_to_cv is True
         assert os.path.exists(out_path)
 
     def test_auto_uses_cv_when_lama_not_cached(self, monkeypatch, synthetic_page, temp_dir):
         # Same shared auto-select as inpaint_region() (Step 11 item 5) --
         # the brush uses the exact same backend logic, not a separate copy.
-        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: False)
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: False)
         called = {}
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
                              lambda *a, **k: called.setdefault("ml", True))
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
         out_path = os.path.join(temp_dir, "brush_auto_cv.png")
-        result = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
+        result = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
         assert "ml" not in called
         assert os.path.exists(result)
 
     def test_auto_uses_ml_when_cached(self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: True)
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
         called = {}
 
         def fake_ml_inpaint(roi, mask, hf_token=None):
             called["used"] = True
             return roi
 
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint", fake_ml_inpaint)
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", fake_ml_inpaint)
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
         out_path = os.path.join(temp_dir, "brush_auto_ml.png")
-        result = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
+        result = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
         assert called.get("used") is True
         assert os.path.exists(result)
 

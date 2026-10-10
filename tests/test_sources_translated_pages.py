@@ -16,6 +16,8 @@ produced, not an invented one -- nested `<font style="vertical-align:
 inherit;">` wrappers, `translated-ltr` on `<html>`, and the `goog-gt-*`
 elements injected at translation time.
 """
+import time
+
 import pytest
 
 from sources import detect
@@ -175,3 +177,46 @@ class TestParagraphsNestedOneLevelDeeper:
         from sources.generic_import import extract_main_text_heuristic
         assert extract_main_text_heuristic("<html><body></body></html>") == ""
         assert extract_main_text_heuristic("") == ""
+
+
+class TestVisibleTextOnHostilePages:
+    """visible_text runs on every fetched page, so it must stay linear
+    whatever the page sends."""
+
+    def test_strips_scripts_styles_and_tags(self):
+        page = "<p>a</p><script>x<b>y</b></script >b<STYLE>q</style>c<noscript>z</noscript>d"
+        assert detect.visible_text(page) == "a b c d"
+
+    def test_an_unclosed_script_hides_the_rest_of_the_page(self):
+        assert detect.visible_text("<p>shown</p><script>var x = '<p>hidden</p>';") == "shown"
+
+    @pytest.mark.parametrize("page", [
+        "<script>" + "a" * 1_000_000,
+        "<script>" * 125_000,
+        "<" * 1_000_000,
+        "<a" * 500_000,
+    ], ids=["unclosed-script", "many-script-openers", "bare-lt", "unclosed-tags"])
+    def test_hostile_megabyte_is_linear(self, page):
+        t = time.perf_counter()
+        detect.classify(200, {}, page, "https://example.com/")
+        assert time.perf_counter() - t < 2.0
+
+    def test_the_text_is_capped(self):
+        assert len(detect.visible_text("<p>" + "word " * 400_000)) <= detect._MAX_VISIBLE_TEXT
+
+    def test_text_after_a_script_survives_characters_that_grow_when_lowercased(self):
+        # "İ".lower() is two code points, so offsets into a lowercased copy
+        # would land past the real end of the script.
+        page = "<p>" + "İ" * 1000 + "</p><script>var hidden = 1;</script><p>after</p>"
+        text = detect.visible_text(page)
+        assert text.endswith("after")
+        assert "hidden" not in text
+
+    def test_a_large_markup_prefix_does_not_hide_the_text_that_follows(self):
+        sprite = "<svg>" + '<path d="M0 0"/>' * 80_000 + "</svg>"
+        assert len(sprite) > 2 * detect._MAX_VISIBLE_TEXT
+        story = "A real paragraph of story text. " * 100
+        page = f'<html><body><div id="app">{sprite}<p>{story}</p></div></body></html>'
+        assert "real paragraph" in detect.visible_text(page)
+        reasons = detect.classify(200, {}, page, "https://example.com/")
+        assert detect.FailureReason.EMPTY_SPA_SHELL not in reasons

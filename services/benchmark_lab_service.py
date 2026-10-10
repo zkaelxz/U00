@@ -43,6 +43,7 @@ they are stored.
 Not built here: scoped translation-memory saves,
 the auto-derived Translation Profile and a COMET scorer.
 """
+import whisper_models
 import functools
 import json
 import uuid
@@ -253,12 +254,7 @@ def list_cases(stage: str = None, tier: str = None, set_name: str = None) -> dic
         raise InvalidInputError("Unknown stage.")
     if tier is not None:
         _check_tier(tier)
-    cases = db.list_benchmark_cases(stage)
-    if tier:
-        cases = [c for c in cases if (c.get("tier") or "application") == tier]
-    if set_name:
-        cases = [c for c in cases if (c.get("set_name") or "") == set_name]
-    return {"cases": [_case_out(c) for c in cases]}
+    return {"cases": [_case_out(c) for c in _select_cases(stage, tier, set_name)]}
 
 
 def list_sets() -> dict:
@@ -410,7 +406,7 @@ def get_options() -> dict:
     return {
         "stages": list(STAGES), "tiers": list(TIERS), "source_languages": list(SOURCE_LANGUAGES),
         "translation_engines": translate_service.list_engines(),
-        "whisper_sizes": list(core.WHISPER_MODELS.keys()),
+        "whisper_sizes": list(whisper_models.WHISPER_MODELS.keys()),
         "ocr_backends": list(OCR_BACKENDS),
         "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
         "max_configs": MAX_CONFIGS,
@@ -446,7 +442,7 @@ def check_config(stage: str, cfg) -> dict:
     if stage == "transcription":
         import core
         size = model or engine
-        if size not in core.WHISPER_MODELS:
+        if size not in whisper_models.WHISPER_MODELS:
             raise InvalidInputError("Unknown Whisper size.")
         return {"engine": "whisper", "model": size}
     if engine not in OCR_BACKENDS:
@@ -520,7 +516,7 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
 
 def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
               case_ids: list = None, label: str = "", prompt_version: str = "",
-              use_gpu: bool = None, max_cost_usd: float = None) -> dict:
+              use_gpu: bool = None, max_cost_usd: float = None, judge: dict = None) -> dict:
     """Starts a background run: one benchmark_sessions row per config
     (several configs = one Model Arena group). Refused when the monthly cap
     is used up or the estimate is over what's left of it. max_cost_usd is an
@@ -562,7 +558,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             "case_count": len(cases)}))
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = background_jobs.start_job(
-        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd,
+        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
         gpu_touching=stage != "translation" or any(
             translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
         description="Benchmark run")
@@ -597,9 +593,12 @@ def _reset_vram():
         pass
 
 
-def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
+def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
     try:
         _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap)
+        if judge:
+            from services import benchmark_judge_service
+            benchmark_judge_service.run_pass(job_id, plan, judge)
     finally:
         # A crash mid-run must not leave a run looking "running" forever.
         for sid, _cfg, _key in plan:

@@ -47,7 +47,7 @@ import time
 import action_tiers
 import db
 import diagnostics
-from lib import proc as proc_run
+from lib import http, proc as proc_run
 from services import diagnostics_gaps_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
@@ -108,7 +108,7 @@ _SECRET_NAME_RE = re.compile(r"(^\.env|secret|token|password|credential|cookie|\
 
 def _redact(text) -> str:
     """Keys and tokens out, plus this PC's absolute project/home folder
-    prefixes. Deliberately NOT diagnostics.redact_for_support: that one
+    prefixes. Deliberately NOT diagnostics_report.redact_for_support: that one
     collapses every "a/b/c" to ".../c" and replaces the OS user name as a
     bare substring, which mangles repo-relative paths, code and patches.
     The log, job history and support report tools are already redacted
@@ -997,7 +997,11 @@ def _tier_failure(error: ServiceError, engine_name: str, ladder: list) -> Servic
     if reason == "no_key":
         reason = "unavailable"
     if reason is None:
-        if isinstance(error, UnsupportedOperationError):
+        if isinstance(error, http.FetchError):
+            # Ollama that isn't running surfaces as a fetch failure, which is
+            # a DependencyUnavailableError and would read as "not set up".
+            reason = "unreachable"
+        elif isinstance(error, UnsupportedOperationError):
             # The monthly cap refusal, or an engine that can't chat.
             reason = "spend_cap" if "spending cap" in error.message else "unavailable"
         else:

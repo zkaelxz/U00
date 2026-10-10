@@ -1,5 +1,6 @@
 """The optional ASMR voice detector: hysteresis, windowing, fallback and the
 opt-in download. No onnxruntime, model or network: everything is faked."""
+import whisper_models
 import hashlib
 
 import numpy as np
@@ -370,7 +371,7 @@ class TestRunOutcome:
                                 type("R", (), {"text": "x"})()
                                 for _ in (audio if isinstance(audio, list) else [audio])]})())
         monkeypatch.setattr(vad_segments, "_silero_spans", lambda *a: [(1.0, 20.0)])
-        monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models", lambda: None)
+        monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
         monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 30.0)
         self.tmp_path = tmp_path
 
