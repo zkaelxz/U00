@@ -71,7 +71,7 @@ def _source_url(did):
 
 @pytest.mark.parametrize("given,stored", [
     ("https://user:pw@novel.example/book/7?token=abc#frag", "https://novel.example/book/7"),
-    ("https://novel.example/dl/" + "aB3dE5fG7h" * 4, "https://novel.example/dl"),
+    ("https://novel.example/dl/" + "a" * 40, "https://novel.example/"),
     ("ftp://novel.example/book", ""),
     ("javascript:alert(1)", ""),
     ("not a url", ""),
@@ -166,7 +166,7 @@ def test_review_import_sets_the_link_and_chapter_link(client, env):
     ("https://site.example/b/reincarnation-of-the-strongest-sword-god/",
      "reincarnation of the strongest sword god"),
     ("https://site.example/sk-ii-skincare-review", "sk ii skincare review"),
-    ("https://site.example/dl/aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3x/chapter-2", "chapter 2"),
+    ("https://site.example/dl/aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3x/chapter-2", ""),
 ])
 def test_title_from_url(url, label):
     assert adaptive.title_from_url(url) == label
@@ -176,12 +176,18 @@ def test_title_from_url(url, label):
     ("https://site.example/b/reincarnation-of-the-strongest-sword-god/",
      "https://site.example/b/reincarnation-of-the-strongest-sword-god/"),
     ("https://site.example/sk-ii-skincare-review", "https://site.example/sk-ii-skincare-review"),
-    ("https://site.example/dl/aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3x/chapter-2",
-     "https://site.example/dl/chapter-2"),
-    ("https://site.example/sk-ant-api03-AbC123dEf456GhI789jKl/ch-1", "https://site.example/ch-1"),
-    ("https://site.example/file/bot123456:AAEhBP0av28/a.jpg", "https://site.example/file/a.jpg"),
+    ("https://site.example/novel/the-girl-who-leapt-through-time-chapter-12-part-2",
+     "https://site.example/novel/the-girl-who-leapt-through-time-chapter-12-part-2"),
+    ("https://site.example/s/The-King-Returns-2024/", "https://site.example/s/The-King-Returns-2024/"),
+    ("https://youtube.example/watch/dQw4w9WgXcQ", "https://youtube.example/watch/dQw4w9WgXcQ"),
+    ("https://site.example/dl/aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3x/chapter-2", "https://site.example/"),
+    ("https://site.example/sk-ant-api03-AbC123dEf456GhI789jKl/ch-1", "https://site.example/"),
+    ("https://site.example/file/bot123456:AAEhBP0av28/a.jpg", "https://site.example/"),
+    ("https://cdn.example/v/d41d8cd98f00b204e9800998ecf8427e/ep1.mp4", "https://cdn.example/"),
+    ("https://cdn.example/v/" + "7" * 32 + "/ep1.mp4", "https://cdn.example/"),
+    ("https://cdn.example/s/abcDEF_ghiJKL-mnoPQR_stuVWX/ep1.mp4", "https://cdn.example/"),
 ])
-def test_display_url_drops_only_the_token_segment(url, shown):
+def test_display_url_keeps_slugs_and_drops_token_paths(url, shown):
     from translate_engines import display_url
     assert display_url(url) == shown
 

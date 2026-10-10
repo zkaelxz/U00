@@ -316,9 +316,9 @@ def test_detail_source_url_never_returns_a_query_or_userinfo(client):
 @pytest.mark.parametrize("stored,shown", [
     ("https://host/v.mp4;jsessionid=ABC", "https://host/v.mp4"),
     ("https://api.telegram.org/file/bot123456:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/videos/f.mp4",
-     "https://api.telegram.org/file/videos/f.mp4"),
+     "https://api.telegram.org/"),
     ("https://customer-x.cloudflarestream.com/eyJhbGciOiJSUzI1NiIsImtpZCI6IjEyMyJ9abcdefgh/downloads/d.mp4",
-     "https://customer-x.cloudflarestream.com/downloads/d.mp4"),
+     "https://customer-x.cloudflarestream.com/"),
     ("https://[2001:db8::1]:8443/p", "https://[2001:db8::1]:8443/p"),
     ("file://localhost/C:/Users/me/Videos/ep1.mp4", None),
     ("javascript://host/%0Aalert(1)", None),
