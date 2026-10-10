@@ -24,14 +24,18 @@ ACTIVE = ("queued", "running")
 _WRITE_TRIES = 3
 _RETRY_DELAY = 0.05
 EXIT_FLUSH_SECONDS = 2.0
+# A write under background_jobs._lock waits no longer than this for another
+# process's write lock: every get_status waits on that lock too.
+UNDER_LOCK_BUSY_SECONDS = 0.5
 SYNC_ERROR_SUFFIX = "Job state could not be saved ({}); showing the in-memory state"
 
 # Job ids whose last write failed, retried by heartbeat_tick. Guarded by
 # background_jobs._lock, like the jobs themselves.
 _pending = set()
-# job id -> a token unique to its latest write_transition (same lock). A
-# retry written outside the lock applies its outcome only if no transition
-# wrote in the meantime, or it could pass off an older state as landed.
+# job id -> a token unique to its latest write not yet landed (same lock;
+# dropped once it lands, so finished jobs leave nothing behind). A retry
+# written outside the lock applies its outcome only if no transition wrote
+# in the meantime, or it could pass off an older state as landed.
 _last_write = {}
 _tokens = itertools.count()
 
@@ -113,18 +117,20 @@ def _result_json(job_id, job):
 
 def write_transition(job_id, job) -> bool:
     """Caller holds background_jobs._lock. Writes `job`'s status-transition
-    fields to its row in one try (a retry's backoff would stall every
+    fields to its row in one try with a short busy wait (a retry's backoff,
+    or sqlite's 5 s wait on another process's lock, would stall every
     get_status); True when the write landed. A failed write never breaks the
     job, and is never silent: the job carries `sync_error` and detail_state
     "unknown" (the API shows them), the failure is logged once, and
     heartbeat_tick retries it outside the lock until it lands."""
     import background_jobs as bj
-    _last_write[job_id] = next(_tokens)
     if job is None:
         _pending.discard(job_id)
+        _last_write.pop(job_id, None)
         return False
+    _last_write[job_id] = next(_tokens)
     try:
-        _write_row(job_id, job, _result_json(job_id, job))
+        _write_row(job_id, job, _result_json(job_id, job), UNDER_LOCK_BUSY_SECONDS)
     except Exception as exc:
         _note_failure(job_id, job, exc)
         ok = False
@@ -137,6 +143,7 @@ def write_transition(job_id, job) -> bool:
 
 def _landed(job_id, job):
     _pending.discard(job_id)
+    _last_write.pop(job_id, None)
     job.pop("sync_error", None)
     if job.get("detail_state") == "unknown":
         job.pop("detail_state")
@@ -152,11 +159,15 @@ def _note_failure(job_id, job, exc):
     job["sync_error"] = text
     if job.get("status") in ACTIVE or not job.get("detail_state"):
         job["detail_state"] = "unknown"
-    if _is_lock_error(exc):
-        return   # the same lock would block this write too, under background_jobs._lock
-    # Lands when only the full write failed (a value it could not store);
-    # with the database down this fails too and the job still carries it.
-    with contextlib.suppress(Exception), contextlib.closing(db.get_conn()) as conn:
+
+
+def _store_sync_error(job_id, text, deadline=None):
+    """Never under background_jobs._lock (it can wait out sqlite's busy
+    timeout). Lands when only the full write failed (a value it could not
+    store); with the database down this fails too and the job still
+    carries it."""
+    left = None if deadline is None else max(0.0, deadline - time.monotonic())
+    with contextlib.suppress(Exception), contextlib.closing(_connect(left)) as conn:
         conn.execute("UPDATE job_records SET sync_error = ? WHERE job_id = ?",
                      (_storage_text(text), job_id))
         conn.commit()
@@ -220,8 +231,11 @@ def retry_pending(deadline=None) -> None:
                 if job is None:
                     _pending.discard(job_id)
                     continue
-                batch.append((job_id, job, _last_write.get(job_id), dict(job),
-                              _result_json(job_id, job)))
+                # A landed write drops the token, so a pending job may have
+                # none; without one, a transition landing meanwhile would
+                # read as "no newer write" and pass this copy off as landed.
+                token = _last_write.setdefault(job_id, next(_tokens))
+                batch.append((job_id, job, token, dict(job), _result_json(job_id, job)))
         finally:
             bj._lock.release()
         again = False
@@ -236,6 +250,7 @@ def retry_pending(deadline=None) -> None:
                 error = exc
             if not _acquire(bj._lock, deadline):
                 return
+            sync_error = None
             try:
                 current = bj._jobs.get(job_id)
                 if current is None:
@@ -250,8 +265,12 @@ def retry_pending(deadline=None) -> None:
                     _landed(job_id, job)
                 else:
                     _note_failure(job_id, job, error)
+                    if not _is_lock_error(error):
+                        sync_error = job["sync_error"]
             finally:
                 bj._lock.release()
+            if sync_error:
+                _store_sync_error(job_id, sync_error, deadline)
             if current is None:
                 _drop_cleared_row(job_id, copy)
             bj._emit_change(job_id)
@@ -282,7 +301,11 @@ def owner_gone(record: dict) -> bool:
     if pid is None:
         return False
     if pid == os.getpid():
-        return True
+        # A write still owed here means the row is this run's, not an
+        # earlier server's with the same pid: the retry (or clear_job's
+        # delete) settles it, and closing it here would race them.
+        with bj._lock:
+            return record.get("job_id") not in _pending
     return not bj.owner_process_alive(pid)
 
 
