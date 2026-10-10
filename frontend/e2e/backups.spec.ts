@@ -239,3 +239,20 @@ test.describe('Copies from another library or with no clear newest (mocked)', ()
     ])
   })
 })
+
+test('a search with no match in the restore list offers Clear search', async ({ page }) => {
+  await mockBackups(page)
+  // Enough titles to show the search box; registered last, so it answers before the shared mock.
+  await page.route('**/api/backups/snapshot/dramas*', (route) => route.fulfill({ json: {
+    name: 'baihe_snapshot-20260928-093000.zip', created_at: '2026-09-28T09:30:00+00:00', kind: 'db-only',
+    dramas: Array.from({ length: 9 }, (_, i) => ({ id: i + 1, title: `Title ${i + 1}`, media_type: 'novel', line_count: 1, exists_now: false })),
+  } }))
+  const block = await openAdmin(page)
+  await block.getByRole('button', { name: 'Restore one title…' }).click()
+  const list = block.getByRole('list', { name: 'Titles in the copy' })
+  await expect(list.getByRole('button')).toHaveCount(9)
+  await block.getByLabel('Find a title').fill('nothing like this')
+  await expect(block.getByText('No title matches.')).toBeVisible()
+  await block.getByRole('button', { name: 'Clear search' }).click()
+  await expect(list.getByRole('button')).toHaveCount(9)
+})

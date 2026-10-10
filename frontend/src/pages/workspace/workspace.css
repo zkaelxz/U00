@@ -110,8 +110,9 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header .ws-back-text,
   .workspace-header .ws-media,
   .workspace-header .ws-lines { display: none; }
-  .ws-actions { margin: var(--space-2) 0; }
-  .workspace .ws-actions a.btn { flex: 1 1 0; justify-content: center; min-height: 44px; }
+  .ws-actions { margin: var(--space-2) 0; justify-content: flex-end; }
+  /* Kept to their own width: stretched full width, Read outranked each stage's own primary action. */
+  .workspace .ws-actions a.btn { flex: 0 1 auto; justify-content: center; min-height: 44px; }
   .workspace-header h2 { flex: 1 1 auto; font-size: var(--text-lg); }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }

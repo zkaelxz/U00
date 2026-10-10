@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+
+import { installHitArea } from './hitArea'
 import { listBody, mockChapters, row } from './novelChaptersMocks'
 
 // Phone project: the saved-chapters list and preview fit 390px, keep 44px
@@ -34,4 +36,30 @@ test('chapters list and preview fit the phone', async ({ page }) => {
     client: document.documentElement.clientWidth,
   }))
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+})
+
+test('a 130-character chapter title with no spaces wraps at 360px and the row links keep 44px', async ({ page }) => {
+  await installHitArea(page)
+  await page.setViewportSize({ width: 360, height: 780 })
+  for (const long of ['x'.repeat(130), '章'.repeat(130)]) {
+    const rows = [row(1, { title: long, url: 'https://novel.example/b/1.html' }), row(2)]
+    await mockChapters(page, listBody(rows), (number) => ({
+      drama_id: 2, number, title: long, source: 'xbanxia', imported_at: '', unsplit: false, chars: 3000,
+      in_translation: false, url: 'https://novel.example/b/1.html', offset: 0, text: '正文', next_offset: null,
+    }))
+    await page.goto('/#/drama/2/source')
+    const panel = page.getByRole('region', { name: 'Saved chapters' })
+    await panel.locator('.chapters-row').first().click()
+    const preview = panel.getByRole('region', { name: 'Chapter preview' })
+    await expect(preview.getByRole('heading')).toBeVisible()
+    const heading = (await preview.getByRole('heading').boundingBox())!
+    expect(heading.x + heading.width).toBeLessThanOrEqual(360)
+    const link = panel.getByRole('list', { name: 'Saved chapters' }).getByRole('link').first()
+    expect(await link.evaluate((n) => window.hitHeight(n))).toBeGreaterThanOrEqual(44)
+    const { scroll, client } = await page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+    }))
+    expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+  }
 })

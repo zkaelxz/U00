@@ -337,7 +337,12 @@ function RestorePicker({ copies, initial, onDone, onCancel }: {
               </li>
             ))}
           </ul>
-          {!shown.length && <p className="muted">No title matches.</p>}
+          {!shown.length && (
+            <div className="actions">
+              <span className="muted">No title matches.</span>
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setQuery('')}>Clear search</button>
+            </div>
+          )}
         </>
       )}
       <div className="actions">

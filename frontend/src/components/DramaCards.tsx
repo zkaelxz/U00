@@ -32,7 +32,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
           <li key={d.id} className={d.id === selectedId ? 'drama-card selected' : 'drama-card'}>
             <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">{tileText(d)}</div>
             <div className="drama-card-main">
-              <a className="drama-card-title" href={workspaceHref(d.id)}>{title}</a>
+              <a className="drama-card-title" href={workspaceHref(d.id)} title={title}>{title}</a>
               <CardText d={d} />
               <div className="drama-card-foot">
                 <ButtonLink variant="ghost" size="sm" href={readHref(d)} aria-label={`Read ${title}`} className="drama-card-read">

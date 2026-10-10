@@ -47,3 +47,25 @@ test('More filters and Continue fit a phone', async ({ page }) => {
   expect(await heightOf(page, '.tag-filter .check')).toBeGreaterThanOrEqual(44)
   expect(await heightOf(page, '.continue-item .btn')).toBeGreaterThanOrEqual(44)
 })
+
+test('at 360px the loading grid matches the loaded card height and a long title does not scroll the page', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 })
+  let release!: () => void
+  const gate = new Promise<void>((r) => { release = r })
+  await page.route((u) => u.pathname === '/api/library/dramas', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    await gate
+    const res = await route.fetch()
+    const body = await res.json()
+    const one = { ...body.items.find((d: { id: number }) => d.id === 1), title_en: 'Signal', custom_tags: [] }
+    const long = { ...one, id: 2, title_en: 'x'.repeat(130), title_zh: '魔'.repeat(130) }
+    await route.fulfill({ response: res, json: { ...body, items: [one, long], count: 2 } })
+  })
+  await page.goto('/#/library')
+  const skeleton = (await page.locator('.drama-grid.skeleton .drama-card').first().boundingBox())!.height
+  release()
+  const card = page.locator('.drama-grid:not(.skeleton) .drama-card').first()
+  await expect(card).toBeVisible()
+  expect(Math.abs((await card.boundingBox())!.height - skeleton)).toBeLessThanOrEqual(4)
+  await expectNoHorizontalOverflow(page)
+})

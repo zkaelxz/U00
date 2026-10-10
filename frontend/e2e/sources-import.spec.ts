@@ -302,3 +302,17 @@ test('save chosen chapters of a comic series as CBZ files, without a title', asy
   await expect(outcomes.getByText('Already saved', { exact: true })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })
+
+test('with no novel titles yet the picker offers New title as a button', async ({ page }) => {
+  const s = await mockSources(page)
+  await mockImports(page, s, { previewBody: NOVEL_PREVIEW, dramas: [] })
+  await page.goto('/#/sources')
+  await page.getByRole('radio', { name: 'Paste a link' }).check()
+  await page.getByRole('textbox', { name: 'Paste a link' }).fill('https://novels.example/book/5')
+  await page.getByRole('textbox', { name: 'Paste a link' }).press('Enter')
+  const card = page.getByRole('article', { name: 'Link preview' })
+  await expect(card.getByText('No novel titles yet.')).toBeVisible()
+  await card.getByRole('button', { name: 'New title', exact: true }).click()
+  await expect(card.getByRole('group', { name: 'New title' }).getByLabel('Title')).toBeVisible()
+  expect(s.unmocked).toEqual([])
+})
