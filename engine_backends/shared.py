@@ -202,6 +202,9 @@ class _ErrorResponse:
         self.ok = False
 
 
+PROVIDER_UNREACHABLE = "The provider could not be reached."
+
+
 def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict] = None,
               label: str = "The provider", error_detail_bytes: Optional[int] = None):
     """POST `payload` as JSON through lib.http and return (parsed reply, headers).
@@ -212,8 +215,8 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
     non-2xx reply is a requests.HTTPError carrying the status (429/503/529
     back off, anything else gets one quick retry), a reply over the cap or
     past the deadline is ProviderResponseTooLarge, and a transport failure or
-    redirect is a requests.ConnectionError: fallback.py classifies transient
-    errors by class name, and lib.http's FetchError would read as fatal there.
+    redirect is a lib.http.FetchError with fixed text; fallback.py recognises
+    it as transient.
     Every message is fixed text, so the key in `headers` cannot reach one.
     """
     import requests
@@ -224,7 +227,7 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
     except (http.ResponseTooLarge, http.ResponseTooSlow):
         raise ProviderResponseTooLarge("The provider's reply was too large or too slow to read.") from None
     except http.FetchError:
-        raise requests.ConnectionError("The provider could not be reached.") from None
+        raise http.FetchError(PROVIDER_UNREACHABLE) from None
     if resp.status >= 400:
         detail = ""
         if error_detail_bytes:
@@ -236,7 +239,7 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
                                                 + (f": {detail}" if detail else "")),
                                  response=_ErrorResponse(resp))
     if resp.status >= 300:  # redirects are not followed, so there is no reply to read
-        raise requests.ConnectionError("The provider could not be reached.")
+        raise http.FetchError(PROVIDER_UNREACHABLE)
     from requests.structures import CaseInsensitiveDict
     return json.loads(resp.body), CaseInsensitiveDict(resp.headers)
 
