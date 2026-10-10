@@ -42,7 +42,7 @@ async function openSpeakers(page: Page) {
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
 }
 
 test('Expected speakers starts at the last run\'s count; corrections are kept by default (D03, D06)', async ({ page }) => {

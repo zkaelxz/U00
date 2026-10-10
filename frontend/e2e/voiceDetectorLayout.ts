@@ -25,7 +25,7 @@ export async function openVoiceDetector(page: Page, state: State) {
     }))
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
   const select = page.getByLabel('Voice detector', { exact: true })
   await expect(select).toBeVisible()
   return select

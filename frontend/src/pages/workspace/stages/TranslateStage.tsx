@@ -1,10 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { getPresets, updateDramaMetadata } from '../../../api/library'
+import { updateDramaMetadata } from '../../../api/library'
 import {
-  applyTranslatePreset,
-  applyWorkflowTier,
   dismissTranslateErrors,
   getTranslateConfig,
   getTranslateEstimate,
@@ -23,7 +21,6 @@ import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
 import { isBulkJobId, translateJobIds } from '../stageJobIds'
 import { routeHref } from '../../../router'
-import type { LibraryPreset } from '../../../types/library'
 import type {
   TranslatePresetApplied,
   TranslateRunConfig,
@@ -57,7 +54,6 @@ import {
   thinkingHelp,
   translateButtonLabel,
   PRESET_NAME_MAX,
-  savePresetStart,
   styleGuidance,
   validatePresetName,
   validateRun,
@@ -67,6 +63,7 @@ import {
   type RunForm,
 } from '../translateForm'
 import { useStageDraft } from '../../../hooks/useStageDraft'
+import { StartFromPicker } from './StartFromPicker'
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
@@ -78,7 +75,7 @@ import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
 import { translateBlocker } from './stageBlockers'
 import './translate.css'
-import { AI_ENGINE_LABEL, NOTHING_STARTS_HELP, NO_KEY_ENGINES_HELP } from '../../../helpText'
+import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
 
 const REVIEW_GLOSSARY_NOTE = 'Translate will first scan the transcript for glossary terms and show them for your approval, then translate.'
 const REVIEW_GLOSSARY_HELP = `Changes what the Translate button does. ${REVIEW_GLOSSARY_NOTE} The scan uses the engine saved for this title.`
@@ -120,105 +117,6 @@ function advancedSummary(f: RunForm, base: RunForm): string {
   if (f.thinking !== base.thinking) parts.push(f.thinking ? 'thinking on' : 'thinking off')
   if (f.force) parts.push('re-translate existing')
   return parts.length ? parts.join(' · ') : 'defaults'
-}
-
-function appliedText(t: WorkflowTierApplied): string {
-  const model = t.engine_model ? ` (${t.engine_model})` : ''
-  const name = t.tier.charAt(0).toUpperCase() + t.tier.slice(1)
-  const qc = t.auto_qc ? ` ${name} recommends Auto QC; run it from the Export stage.` : ''
-  return `Applied ${t.label}: ${humanize('engine', t.translation_engine)}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
-}
-
-// "Starting tier" + "Apply tier". Saves the tier's engine on the drama and
-// fills the form; never starts a run.
-function TierPicker({ config, initialTier, onTierChange, onApplied }: {
-  config: TranslateRunConfig
-  initialTier: string | null
-  onTierChange: (tier: string) => void
-  onApplied: (t: WorkflowTierApplied) => void
-}) {
-  const { dramaId } = useStage()
-  const tiers = config.workflow_tiers ?? []
-  const [tier, setTier] = useState(() =>
-    initialTier && tiers.some((t) => t.key === initialTier) ? initialTier
-      : tiers.some((t) => t.key === 'standard') ? 'standard' : (tiers[0]?.key ?? ''))
-  const [applied, setApplied] = useState<WorkflowTierApplied | null>(null)
-  const [error, setError] = useState<unknown>(null)
-  const [pending, setPending] = useState(false)
-  if (!tiers.length) return null
-  const apply = () => {
-    setPending(true)
-    applyWorkflowTier(dramaId, tier).then(
-      (t) => {
-        setError(null)
-        setApplied(t)
-        onApplied(t)
-      },
-      setError,
-    ).finally(() => setPending(false))
-  }
-  return (
-    <div className="check-row translate-tier">
-      <Field label="Starting tier" help={`Sets engine, model and Reflect together (Draft: DeepSeek; Standard: Claude Sonnet; Release: Claude Opus with Reflect and Auto QC), and stays editable. ${NOTHING_STARTS_HELP}`}>
-        <select value={tier} onChange={(e) => { setTier(e.target.value); onTierChange(e.target.value) }}>
-          {tiers.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-        </select>
-      </Field>
-      <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending || !tier} onClick={apply}>Apply tier</button>
-      {applied && <span className="muted" role="status">{appliedText(applied)}</span>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </div>
-  )
-}
-
-// "Apply a preset" on an existing drama. Saves the
-// preset's engine on the drama, fills the form and keeps its values for later
-// visits (as a preset chosen at creation does); never starts a run.
-function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) => void }) {
-  const { dramaId } = useStage()
-  const [presets, setPresets] = useState<LibraryPreset[] | null>(null)
-  const [picked, setPicked] = useState('')
-  const [applied, setApplied] = useState<string | null>(null)
-  const [error, setError] = useState<unknown>(null)
-  const [pending, setPending] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    getPresets().then(
-      (r) => !cancelled && setPresets(r.items),
-      () => !cancelled && setPresets([]), // the list is optional here; the Library shows its own error
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  if (!presets?.length) return null
-  const apply = () => {
-    setPending(true)
-    applyTranslatePreset(dramaId, Number(picked))
-      .then(
-        (p) => {
-          setError(null)
-          savePresetStart(dramaId, p)
-          setApplied(`Applied preset "${p.name}". Nothing has started.`)
-          onApplied(p)
-        },
-        setError,
-      )
-      .finally(() => setPending(false))
-  }
-  return (
-    <div className="check-row translate-tier">
-      <Field label="Saved preset" help={`Fills in engine, model, style, English variant and guidance toggles from a saved preset. ${NOTHING_STARTS_HELP} Manage presets in the Library.`}>
-        <select value={picked} onChange={(e) => { setPicked(e.target.value); setApplied(null) }}>
-          <option value="">Choose a preset</option>
-          {presets.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-        </select>
-      </Field>
-      <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending || !picked} onClick={apply}>Apply preset</button>
-      {applied && <span className="muted" role="status">{applied}</span>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </div>
-  )
 }
 
 // "Save as preset". Captures engine, model, style,
@@ -473,6 +371,20 @@ function RunPanel({
           </select>
         </Field>
       </div>
+      <StartFromPicker
+        key={resets}
+        config={config}
+        initialTier={resets ? null : restored.tier}
+        onTierChange={setTierChoice}
+        onTierApplied={(t) => {
+          setF((s) => applyTierToForm(s, t, config))
+          onTierApplied(t)
+        }}
+        onPresetApplied={(p) => {
+          setF((s) => applyPresetToForm(s, p, config))
+          onPresetApplied(p)
+        }}
+      />
       {guidance && (
         <details className="style-guidance">
           <summary>What this style asks the translator for</summary>
@@ -578,23 +490,7 @@ function RunPanel({
         <p className="error" role="alert">A translate job is already running for this drama.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      <TierPicker
-        key={resets}
-        config={config}
-        initialTier={resets ? null : restored.tier}
-        onTierChange={setTierChoice}
-        onApplied={(t) => {
-          setF((s) => applyTierToForm(s, t, config))
-          onTierApplied(t)
-        }}
-      />
-      <PresetPicker
-        onApplied={(p) => {
-          setF((s) => applyPresetToForm(s, p, config))
-          onPresetApplied(p)
-        }}
-      />
-      <Section storageKey="translate.advanced" title="Advanced" summary={advancedSummary(f, base)}>
+      <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base)}>
         <div className="advanced-grid">
           <div className="advanced-wide">
             <Field label="Style note" help="Optional extra instruction for this run only.">
