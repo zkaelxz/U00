@@ -42,8 +42,35 @@ Run `BaiheStudio-Setup-<version>.exe` (built by the "Windows Installer" workflow
 
 ### From a source checkout
 
+#### Set up a new Windows PC, step by step
+
+1. **Open PowerShell as a normal user** (not "Run as administrator"). Don't open it from the root of a drive or from `C:\WINDOWS\System32`: Windows starts the window in the wrong folder. Go to a folder you own first, for example `cd $HOME` or `cd L:\`.
+2. **Get the code.** Install [Git](https://git-scm.com/download/win) if `git --version` fails, then clone it. A clone matters: only a clone updates itself (see Automatic updates below); a downloaded zip never does.
+   ```
+   git clone https://github.com/zkaelxz/U00 Baihe
+   cd Baihe
+   ```
+   The project is on the `baihe-subtitler` branch.
+3. **Run the setup check.** In PowerShell a program in the current folder needs `.\` in front of its name:
+   ```
+   .\setup.bat
+   ```
+   It checks for Git, Python 3.12, ffmpeg (with the subtitles filter) and, only if the app's screens still have to be built, Node.js 22 or newer, and installs what is missing with `winget` (it may ask for permission; the script needs no admin rights). It only reports the NVIDIA driver; install that yourself from <https://www.nvidia.com/drivers> if you want GPU features.
+4. **Open a new window after any install.** Windows doesn't find newly installed programs in the window that installed them. Close it, open a new PowerShell, `cd` back into the Baihe folder and run `.\setup.bat` again until it ends with **Ready**.
+5. **Build the screens and start.** The first run creates the Python environment, installs dependencies, builds the app's screens and checks ffmpeg and CUDA. It takes several minutes:
+   ```
+   .\start.bat --build-frontend
+   ```
+   After that, double-click **`start.bat`** (or run `.\start.bat`). The app opens in its own window at `http://127.0.0.1:8600/`.
+6. **First run.** Add your API keys in Settings, or copy your `.env` next to `start.bat`. To bring over your titles, copy the old PC's `library` folder into the Baihe folder before the first start. Models such as Whisper download the first time they are used.
+
+Using Command Prompt (`cmd`) instead of PowerShell? The same commands work without the `.\`.
+
+#### Starting an existing checkout
+
 Double-click **`start.bat`**. On first run it creates the virtual environment and installs dependencies, checks ffmpeg, a JS runtime and CUDA and says plainly what is missing, starts `python -m api` on `http://127.0.0.1:8600/` (loopback only), and opens it in its own window (Edge app mode, else Chrome, else your default browser). Running it again just reopens the window. `make_shortcut.bat` makes a desktop shortcut; `uninstall.bat` removes the shortcut and virtual environment and asks separately (default no) before touching your library or your user PATH entries for ffmpeg/Tesseract.
 
+- **`setup.bat`.** Optional and never run by `start.bat`; it only points to it when something is missing. Run it again at any time to re-check the prerequisites.
 - **The app's screens.** A source checkout needs `frontend\dist\index.html`. Download `baihe-frontend-<version>.zip` from the project's GitHub Releases and extract it into the Baihe folder, or with Node.js 22 run `start.bat --build-frontend` (how the zip is made: [`docs/RELEASE.md`](docs/RELEASE.md)). If it is missing, `start.bat` stops and says so.
 - **Flags.** `--portable`, `--server-only` (don't open a window), `--ci`, `--no-update`, `--build-frontend`, and `--python-version 3.12` (or a `PYTHON_VERSION` marker file). `start.ps1` is the PowerShell equivalent (`-Portable`, `-PythonVersion`, `-BuildFrontend`; it does not update). `constraints.lock.txt` (from `make_lock.bat`) is used instead of `constraints.txt` when present.
 - **Automatic updates.** A git clone on the `baihe-subtitler` branch is fast-forwarded to `origin/baihe-subtitler` before launch; it never discards or overwrites your changes. It skips the update and starts what is on disk when the copy is on another branch, has edited tracked files, or Baihe is already running (restart to pick up an update). Turn it off for one run with `--no-update`, or for good with an empty file named `NOUPDATE` next to `start.bat`. `--ci` and `--server-only` never update.
