@@ -8,6 +8,8 @@ the real site, and nothing here executes any JavaScript -- the fixture
 exercises the same bounded literal-plus-identifier parser the adapter
 itself uses.
 """
+import time
+
 import pytest
 
 from sources.adapters import kuaikan
@@ -130,6 +132,48 @@ class TestNuxtStateDecoder:
     def test_layout_changed_when_no_nuxt_state_is_present(self):
         with pytest.raises(SourceError):
             kuaikan._extract_nuxt_state("<html><body>nothing here</body></html>")
+
+
+def _state_page(params, body, args):
+    return (f"<script>window.__NUXT__=(function({params}){{{body}}}({args}));</script>")
+
+
+class TestNuxtStateDecoderBounds:
+    @pytest.mark.parametrize("count", ["2e9", "2000000000", "10001", "-1", "1.5"])
+    def test_refuses_an_unreasonable_array_size(self, count):
+        with pytest.raises(kuaikan.LayoutChanged):
+            kuaikan._extract_nuxt_state(_state_page("a", "return {x:a}", f"Array({count})"))
+
+    def test_largest_allowed_array_still_decodes(self):
+        state = kuaikan._extract_nuxt_state(_state_page("a", "return {x:a}", "Array(10000)"))
+        assert len(state["x"]) == 10_000
+
+    def test_many_arrays_share_one_budget(self):
+        n = kuaikan._MAX_ARRAY_CELLS // kuaikan._MAX_ARRAY_LEN + 1
+        body = "return {x:[" + ",".join(["Array(10000)"] * n) + "]}"
+        with pytest.raises(kuaikan.LayoutChanged):
+            kuaikan._extract_nuxt_state(_state_page("a", body, "1"))
+
+    def test_deep_nesting_is_a_layout_error(self):
+        body = "return {x:" + "[" * 100_000 + "]" * 100_000 + "}"
+        with pytest.raises(kuaikan.LayoutChanged):
+            kuaikan._extract_nuxt_state(_state_page("a", body, "1"))
+
+    def test_arguments_referring_to_each_other_are_a_layout_error(self):
+        with pytest.raises(kuaikan.LayoutChanged):
+            kuaikan._extract_nuxt_state(_state_page("a,b", "return {x:a}", "b,a"))
+
+    def test_hostile_megabyte_is_linear(self):
+        n = 50_000
+        params = ",".join(f"p{i}" for i in range(n))
+        args = ",".join(str(i) for i in range(n))
+        body = "return {" + ",".join(f"k{i}:p{i}" for i in range(n)) + "}"
+        page = _state_page(params, body, args)
+        assert len(page) > 1_000_000
+        t = time.perf_counter()
+        state = kuaikan._extract_nuxt_state(page)
+        assert time.perf_counter() - t < 2.0
+        assert state["k49999"] == 49_999
 
 
 class TestSeries:

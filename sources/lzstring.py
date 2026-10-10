@@ -15,8 +15,14 @@ thing the page's own script does for every visitor.
 _B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 _B64_INDEX = {c: i for i, c in enumerate(_B64)}
 
+# LZ78 output can grow quadratically in its input (18 KB of crafted data
+# expands to 40 MB), and the input is whatever a page sends. The largest
+# real payload, manhuagui's hidden chapter list for a 1,000+ chapter
+# series, is roughly 250k characters; this is about four times that.
+MAX_OUTPUT_CHARS = 1_000_000
 
-def decompress_from_base64(data: str) -> str:
+
+def decompress_from_base64(data: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     if data is None:
         return ""
     if data == "":
@@ -25,10 +31,10 @@ def decompress_from_base64(data: str) -> str:
         values = [_B64_INDEX[c] for c in data]
     except KeyError as e:
         raise ValueError(f"Not LZString Base64 data (bad character {e.args[0]!r})") from None
-    return _decompress(len(values), 32, lambda i: values[i])
+    return _decompress(len(values), 32, lambda i: values[i], max_chars)
 
 
-def _decompress(length: int, reset_value: int, get_next_value) -> str:
+def _decompress(length: int, reset_value: int, get_next_value, max_chars: int) -> str:
     dictionary = {0: 0, 1: 1, 2: 2}
     enlarge_in = 4
     dict_size = 4
@@ -66,6 +72,7 @@ def _decompress(length: int, reset_value: int, get_next_value) -> str:
     dictionary[3] = c
     w = c
     result.append(c)
+    total = 1
 
     while True:
         if data_index > length:
@@ -94,6 +101,9 @@ def _decompress(length: int, reset_value: int, get_next_value) -> str:
             entry = w + w[0]
         else:
             raise ValueError("Invalid LZString data")
+        total += len(entry)
+        if total > max_chars:
+            raise ValueError("LZString data decompresses past the size limit")
         result.append(entry)
 
         dictionary[dict_size] = w + entry[0]

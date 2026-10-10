@@ -107,6 +107,18 @@ class LayoutChanged(SourceError):
 # is not. No function calls, no operators, no general JS evaluation.
 # ---------------------------------------------------------------------------
 
+# `Array(n)` is a placeholder Nuxt fills in by index, so real counts are a
+# handful of slots. The page picks n, and `Array(2e9)` would otherwise
+# allocate until the process runs out of memory; the total bounds many
+# small ones in a row the same way.
+_MAX_ARRAY_LEN = 10_000
+_MAX_ARRAY_CELLS = 1_000_000
+
+_IDENT_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+_NUMBER_RE = re.compile(r"-?\d+(\.\d+)?([eE][+-]?\d+)?")
+_NUMBER_KEY_RE = re.compile(r"-?\d+(\.\d+)?")
+
+
 class _LiteralParser:
     def __init__(self, text):
         self.s = text
@@ -159,8 +171,10 @@ class _LiteralParser:
             if self.peek() != ")":
                 count = self.parse_number()
             self.expect(")")
-            return [None] * int(count)
-        m = re.match(r"[A-Za-z_$][A-Za-z0-9_$]*", self.s[self.i:])
+            return [None] * env.reserve_array(count)
+        # Matching at self.i rather than on a slice: slicing copies the rest
+        # of the payload for every token, which is quadratic on a big page.
+        m = _IDENT_RE.match(self.s, self.i)
         if not m:
             raise LayoutChanged("a recognized token in the embedded state")
         name = m.group(0)
@@ -197,8 +211,7 @@ class _LiteralParser:
     def parse_key(self):
         if self.peek() in ("'", '"'):
             return self.parse_string()
-        m = re.match(r"[A-Za-z_$][A-Za-z0-9_$]*", self.s[self.i:]) or \
-            re.match(r"-?\d+(\.\d+)?", self.s[self.i:])
+        m = _IDENT_RE.match(self.s, self.i) or _NUMBER_KEY_RE.match(self.s, self.i)
         if not m:
             raise LayoutChanged("a well-formed key in the embedded state")
         self.i += len(m.group(0))
@@ -255,7 +268,9 @@ class _LiteralParser:
         raise LayoutChanged("a properly closed string in the embedded state")
 
     def parse_number(self):
-        m = re.match(r"-?\d+(\.\d+)?([eE][+-]?\d+)?", self.s[self.i:])
+        m = _NUMBER_RE.match(self.s, self.i)
+        if not m:
+            raise LayoutChanged("a well-formed number in the embedded state")
         text = m.group(0)
         self.i += len(text)
         return float(text) if any(ch in text for ch in ".eE") else int(text)
@@ -268,11 +283,22 @@ class _LazyEnv(dict):
 
     def __init__(self, params, arg_texts):
         super().__init__()
-        self._params = params
+        self._index = {name: i for i, name in enumerate(params)}
         self._arg_texts = arg_texts
+        self._array_cells = 0
+
+    def __contains__(self, name):
+        return name in self._index
+
+    def reserve_array(self, count) -> int:
+        if not isinstance(count, int) or not 0 <= count <= _MAX_ARRAY_LEN \
+                or self._array_cells + count > _MAX_ARRAY_CELLS:
+            raise LayoutChanged("a placeholder array of a sensible size in the embedded state")
+        self._array_cells += count
+        return count
 
     def __missing__(self, name):
-        idx = self._params.index(name)
+        idx = self._index[name]
         parser = _LiteralParser(self._arg_texts[idx])
         value = parser.parse_value(self)
         self[name] = value
@@ -363,7 +389,7 @@ def _decode_nuxt_state(script_text: str):
     pos = 0
     while True:
         sm = stmt_re.search(prelude, pos)
-        if not sm or sm.group(1) not in params:
+        if not sm or sm.group(1) not in env:
             break
         target = env[sm.group(1)]
         vp = _LiteralParser(prelude)
@@ -391,7 +417,11 @@ def _extract_nuxt_state(html: str):
     end = html.find("</script>", m.start())
     if end < 0:
         raise LayoutChanged("the end of this page's embedded __NUXT__ state")
-    return _decode_nuxt_state(html[m.start():end])
+    try:
+        return _decode_nuxt_state(html[m.start():end])
+    except RecursionError:
+        # Deep nesting, or arguments that refer to each other in a cycle.
+        raise LayoutChanged("a well-formed embedded state") from None
 
 
 # ---------------------------------------------------------------------------
