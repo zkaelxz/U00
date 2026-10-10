@@ -560,7 +560,7 @@ class TestModelOverrides:
 
     def test_cli_get_engine_uses_the_override(self, isolated_db):
         svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
-        import cli
+        import cli_translate
         seen = {}
         import argparse
         import contextlib
@@ -578,7 +578,7 @@ class TestModelOverrides:
                                       style_note=None, style_preset="audio_drama", locale="en-US",
                                       force=False, ollama_num_ctx=None)
             with contextlib.redirect_stdout(io.StringIO()):
-                cli.cmd_translate(args)
+                cli_translate.cmd_translate(args)
         assert seen["model"] == "deepseek-v4-pro"
 
 

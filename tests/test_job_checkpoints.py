@@ -616,7 +616,7 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
     import argparse
     import contextlib
     import io
-    import cli
+    import cli_translate
     from services import workspace_job_service as wjs
     did = isolated_db.create_drama(title_en="C", status="aligned")
     isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
@@ -632,7 +632,7 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
                               style_note="Keep it short", style_preset="novel",
                               locale="en-GB", force=False, ollama_num_ctx=None)
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args)
+        cli_translate.cmd_translate(args)
     line = isolated_db.load_line_objects(did)[0]
     prov = line_provenance_service.get(did, line.id, current_en=line.en)
     assert line.en == "hello" and prov is not None
@@ -646,7 +646,7 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
                         lambda *a, **k: captured.update(k) or real(*a, **k))
     isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args)
+        cli_translate.cmd_translate(args)
     assert captured["style_preset"] == "novel"
     assert captured["style_note"] == "Keep it short"
     assert captured["style_guidelines"]

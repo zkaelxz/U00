@@ -21,6 +21,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "cli.py",
     "cli_subtitle.py",
     "cli_timing.py",
+    "cli_translate.py",
     "comic_chapters.py",
     "core.py",
     "db.py",
