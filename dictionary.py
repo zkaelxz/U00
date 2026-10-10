@@ -47,6 +47,8 @@ def _ensure_cedict():
         raise RuntimeError("The CC-CEDICT download is larger than expected.") from None
     except http.ResponseTooSlow:
         raise RuntimeError("The CC-CEDICT download took too long.") from None
+    except http.FetchError:
+        raise RuntimeError("The CC-CEDICT download failed; check the connection and try again.") from None
     if resp.status != 200:
         raise RuntimeError("CEDICT download failed")
     packed = resp.body
