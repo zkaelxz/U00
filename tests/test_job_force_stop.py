@@ -225,6 +225,21 @@ class TestGpuProbeOutsideTheLock:
         assert slowest < 0.2, f"a status read waited {slowest:.2f}s behind the GPU probe"
         assert _wait_for(lambda: (bg.get_status("gpu_job") or {}).get("status") == "done")
 
+    def test_a_probe_slower_than_the_max_age_is_still_the_reading_used(self, monkeypatch):
+        import gpu_probe
+        calls = []
+
+        def hung():
+            calls.append(1)
+            time.sleep(0.3)
+            return None   # nvidia-smi timeout
+        monkeypatch.setattr(gpu_probe, "MAX_AGE_SECONDS", 0.1)
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", hung)
+        gpu_probe.prefetch()
+        assert gpu_probe.external_gpu_is_busy() is False
+        assert gpu_probe.external_gpu_load() is None   # "load" was prefetched too
+        assert len(calls) == 1
+
     def test_the_prefetched_reading_still_decides_the_slot(self, isolated_db, monkeypatch):
         busy = {"value": True}
         monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: busy["value"])
