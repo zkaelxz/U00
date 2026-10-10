@@ -1,5 +1,5 @@
 """
-tests/test_navigator.py -- navigator.py's own logic (label extraction,
+tests/test_navigator.py -- navigator.py's own logic (label
 translation, navigation-step generation), independent of whichever tab
 renders it.
 
@@ -21,22 +21,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import navigator
-import page_fetch
 import translate_engines
-
-pytest.importorskip("bs4")
-
-PAGE = """
-<html><head><style>.x{}</style><script>var a = "not a label";</script></head>
-<body>
-  <div><a href="/">首页</a> <a href="/ranking">排行榜</a></div>
-  <h1>广播剧</h1>
-  <button>搜索</button>
-  <a href="/">首页</a>
-  <p>This long paragraph body text is not a navigation label at all.</p>
-</body></html>
-"""
-
 
 class _LLMEngine:
     supports_reference = True
@@ -47,17 +32,6 @@ class _MTEngine:
 
     def translate_batch(self, lines, context):
         return [f"MT:{l}" for l in lines]
-
-
-@pytest.fixture
-def fake_page(monkeypatch):
-    fetched = []
-
-    def fake_fetch_static(url, timeout=20):
-        fetched.append((url, timeout))
-        return PAGE, ""
-    monkeypatch.setattr(page_fetch, "fetch_static", fake_fetch_static)
-    return fetched
 
 
 def _fake_llm(monkeypatch, label_answer):
@@ -72,16 +46,6 @@ def _fake_llm(monkeypatch, label_answer):
         return "1. Click 广播剧 (Audio dramas).\n2. Use 搜索 (Search)."
     monkeypatch.setattr(translate_engines, "call_llm_json", fake_call)
     return prompts
-
-
-class TestFetchVisibleLabels:
-    def test_pulls_short_unique_nav_labels(self, fake_page):
-        labels = navigator.fetch_visible_labels("https://example.com")
-        assert labels[:2] == ["首页", "排行榜"]
-        assert "广播剧" in labels and "搜索" in labels
-        assert labels.count("首页") == 1
-        assert not any("paragraph" in l for l in labels)
-        assert fake_page == [("https://example.com", 20)]
 
 
 class TestTranslateLabels:

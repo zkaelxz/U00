@@ -1,38 +1,11 @@
 """
 navigator.py -- helps you navigate a site in a language you don't
-read: fetches a public page's visible text/menu labels, translates
-them, and asks the LLM for plain-language step-by-step guidance for a
-stated goal (e.g. "find this title's audio drama section" or "get to
+read: translates a public page's visible text/menu labels and asks the
+LLM for plain-language step-by-step guidance for a stated goal (e.g. "find this title's audio drama section" or "get to
 the episode list"). This only ever describes how to use a site's own
 public interface -- it doesn't log in, purchase, or fetch anything on
 your behalf, and it never touches the underlying creative content.
 """
-
-
-def fetch_visible_labels(url: str, timeout: int = 20, max_labels: int = 150):
-    """Pulls short visible text snippets (menu items, buttons, headings)
-    from a page -- the kind of thing that makes up site navigation --
-    rather than full body text. Requires `pip install requests
-    beautifulsoup4`."""
-    import page_fetch
-    from bs4 import BeautifulSoup
-
-    html, _text = page_fetch.fetch_static(url, timeout=timeout)
-    soup = BeautifulSoup(html, "html.parser")
-    for tag in soup(["script", "style"]):
-        tag.decompose()
-
-    candidates = soup.find_all(["a", "button", "nav", "h1", "h2", "h3", "label"])
-    labels = []
-    seen = set()
-    for el in candidates:
-        text = el.get_text(strip=True)
-        if text and 1 <= len(text) <= 40 and text not in seen:
-            labels.append(text)
-            seen.add(text)
-        if len(labels) >= max_labels:
-            break
-    return labels
 
 
 def translate_labels(labels, target_language: str, engine):
