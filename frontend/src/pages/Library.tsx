@@ -18,6 +18,7 @@ import {
 } from '../components/libraryView'
 import { buttonClass } from '../components/uiClasses'
 import { useLoad, type Loaded } from '../hooks/useLoad'
+import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
@@ -53,7 +54,8 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
 }) {
   const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
-  if (!items.length) return <ErrorBanner error={recent.error} />
+  const errors = <><ErrorBanner error={continuing.error} /><ErrorBanner error={recent.error} /></>
+  if (!items.length) return errors
   const limit = phone ? 1 : 4
   const shown = all ? items : items.slice(0, limit)
   const href = (x: ContinueItem) =>
@@ -62,7 +64,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
       : workspaceHref(x.dramaId)
   return (
     <Card title={phone ? undefined : 'Continue'} className="continue-card" aria-label="Continue">
-      <ErrorBanner error={recent.error} />
+      {errors}
       <ul className="continue-list">
         {shown.map((x) => (
           <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
@@ -177,6 +179,8 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         </Field>
       </div>
       <Section title="Credits, summary, series and preset" summary="Author, studio, director, voice actors, summary, series, preset">
+        <ErrorBanner error={series.error} />
+        <ErrorBanner error={presets.error} />
         <div className="field-row">
           <Field label="Author">
             <input value={form.author} onChange={set('author')} />
@@ -240,6 +244,8 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
+  // POST /api/dramas needs admin.library, which household members lack.
+  const canCreate = useHolds('admin.library')
   const [startedDismissed, setStartedDismissed] = usePersistedState(GET_STARTED_PREF, false)
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
@@ -313,9 +319,11 @@ export default function LibraryPage() {
             </details>
           )}
         </div>
-        <div className="actions">
-          <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
-        </div>
+        {canCreate && (
+          <div className="actions">
+            <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
+          </div>
+        )}
       </header>
 
       {notice && (
@@ -328,6 +336,12 @@ export default function LibraryPage() {
       {showGetStarted(stats.data?.total_dramas, startedDismissed)
         ? <GetStarted onDismiss={() => setStartedDismissed(true)} />
         : <MakeSubtitles />}
+
+      {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
+        <p className="muted" data-testid="member-empty-note">
+          No titles yet. Add some from <a href="#/sources">Sources</a> or <a href="#/discover">Discover</a>.
+        </p>
+      )}
 
       <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
 
@@ -342,11 +356,11 @@ export default function LibraryPage() {
         selectMode={selectMode}
         onSelectModeChange={setSelectMode}
         onItems={onItems}
-        onCreate={() => setCreating(true)}
+        onCreate={canCreate ? () => setCreating(true) : undefined}
       />
       {phone && bar}
 
-      <Sheet open={creating} title="New title" onClose={() => setCreating(false)}>
+      <Sheet open={creating && canCreate} title="New title" onClose={() => setCreating(false)}>
         <CreateForm
           series={series}
           presets={presets}
