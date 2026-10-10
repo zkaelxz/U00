@@ -1714,6 +1714,31 @@ class TestProcessWatcherChildDiesMidResult:
         assert [n for n in os.listdir(storage.temp_root()) if "result-" in n] == []
         bg.clear_job(job_id)
 
+    def test_done_is_not_published_while_the_result_file_still_exists(
+            self, isolated_db, monkeypatch):
+        import storage
+        import job_process_result
+        job_id = "test_process_result_file_before_done"
+        release = threading.Event()
+        real_discard = job_process_result.ResultChannel.discard
+
+        def held_discard(channel):
+            # The watcher's last step, held back so a done-then-remove
+            # ordering would be observable.
+            release.wait(timeout=10)
+            real_discard(channel)
+        monkeypatch.setattr(job_process_result.ResultChannel, "discard", held_discard)
+        bg.clear_job(job_id)
+        try:
+            assert bg.start_process_job(job_id, _large_result_worker_with_path,
+                                        args=(200_000,)) is True
+            status = _wait_for_status(job_id, "running", timeout=15.0)
+            assert status["status"] == "done"
+            assert [n for n in os.listdir(storage.temp_root()) if "result-" in n] == []
+        finally:
+            release.set()
+            bg.clear_job(job_id)
+
 
 class TestProcessJobHookCancelled:
     def test_on_done_raising_job_cancelled_ends_the_job_cancelled(self, monkeypatch):

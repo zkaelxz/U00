@@ -109,3 +109,10 @@ def test_a_missing_result_file_carries_no_path(channel):
 def test_get_times_out_when_nothing_arrived(channel):
     with pytest.raises(queue.Empty):
         channel.get(timeout=0.05)
+
+
+def test_get_removes_the_result_file_once_it_has_read_it(channel):
+    big = {"payload": "x" * (jpr.INLINE_LIMIT_BYTES * 3)}
+    channel.put(("ok", big))
+    assert channel.get(timeout=1) == ("ok", big)
+    assert os.listdir(channel._dir) == []
