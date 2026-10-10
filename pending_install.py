@@ -44,6 +44,10 @@ WATCHDOG_MARGIN = 90
 TAIL_LINES = 40
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 _VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.!_-]{0,63}$")      # no "+": local builds aren't on PyPI
+LOCK_TOUCH_SECONDS = 30
+# Mirrors diagnostics.PIP_INSTALL_FLAGS, which this stdlib-only module cannot import;
+# a test keeps the two equal.
+_PIP_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
 _FILES = {"pending": "pending.json", "result": "result.json", "lock": "apply.lock"}
 
 
@@ -171,7 +175,20 @@ def run_capture(argv: list, timeout: float, echo: bool = False):
     """(returncode, last lines, timed_out). No shell; the tree is killed on
     timeout so pip's own children can't outlive the budget."""
     lines, end = [], {"returncode": None, "timed_out": False}
-    for event in stream_tree(argv, timeout=max(1.0, timeout), cancel=lambda: _CURRENT["stop"]):
+    touched = [time.monotonic()]
+
+    def cancel():
+        # Polled even while pip is silent, unlike the output lines; status()
+        # reads a stale lock as a crashed apply, so a live one keeps it fresh.
+        if time.monotonic() - touched[0] >= LOCK_TOUCH_SECONDS:
+            touched[0] = time.monotonic()
+            try:
+                os.utime(_path("lock"))
+            except OSError:
+                pass
+        return _CURRENT["stop"]
+
+    for event in stream_tree(argv, timeout=max(1.0, timeout), cancel=cancel):
         if "line" in event:
             lines.append(event["line"])
             del lines[:-200]
@@ -215,6 +232,31 @@ def child_json(*args, stdin_text: str = None):
             continue
         return doc if isinstance(doc, dict) else None
     return None
+
+
+def _argv_accepted(argv) -> bool:
+    """The child prints the command on its stdout, where any stray JSON line in
+    a module it imports would win; run only a registry-shaped `pip install`."""
+    if (not isinstance(argv, list) or len(argv) < 5 or argv[0] != sys.executable
+            or argv[1:4] != ["-m", "pip", "install"]
+            or not all(isinstance(a, str) for a in argv)):
+        return False
+    allowed_dirs = [os.path.normcase(os.path.realpath(d))
+                    for d in (state_dir(), tempfile.gettempdir(),
+                              os.path.dirname(os.path.abspath(__file__)))]
+    rest, i = argv[4:], 0
+    while i < len(rest):
+        arg = rest[i]
+        if arg in _PIP_FLAGS or _NAME_RE.match(arg):
+            i += 1
+        elif arg == "-c" and i + 1 < len(rest):
+            path = os.path.normcase(os.path.realpath(rest[i + 1]))
+            if not any(os.path.dirname(path) == d for d in allowed_dirs):
+                return False
+            i += 2
+        else:
+            return False
+    return True
 
 
 def snapshot() -> dict:
@@ -328,8 +370,13 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
                 "message": (plan or {}).get("message") or
                            "The queued install was not run: the package list was not accepted. "
                            "Nothing was changed."}, [])}
+        argv = plan.get("argv")
+        if not _argv_accepted(argv):
+            return {"ran": True, **_finish({
+                "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
+                "message": "The queued install was not run: the package list was not accepted. "
+                           "Nothing was changed."}, [])}
         before = snapshot()
-        argv = plan["argv"]
         argv[1:1] = _python()[1:]
         if echo:
             print("Installing the packages you queued: " + ", ".join(keys), flush=True)

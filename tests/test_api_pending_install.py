@@ -227,6 +227,17 @@ def test_a_preview_is_refused_while_the_install_hold_is_taken(client, env):
     assert r.status_code == 409 and env["calls"] == 0
 
 
+def test_queueing_is_refused_while_the_install_hold_is_taken(client, env, tmp_path):
+    import background_jobs
+    assert background_jobs.acquire_exclusive("Dependency install")
+    try:
+        r = queue(client)
+    finally:
+        background_jobs.release_exclusive()
+    assert r.status_code == 409 and env["calls"] == 0
+    assert not (tmp_path / "pending_install" / "pending.json").exists()
+
+
 def test_a_second_preview_is_refused_while_one_runs(client, env):
     assert svc._PREVIEW_LOCK.acquire(blocking=False)
     try:

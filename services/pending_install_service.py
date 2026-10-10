@@ -88,6 +88,9 @@ def queue(packages, confirm: bool = False, accept_risk: bool = False) -> dict:
     install; a plan with a hard block, or a risk not accepted, is refused."""
     if confirm is not True:
         raise gaps.AdminActionUnconfirmed("Confirmation required.")
+    if background_jobs.exclusive_held():
+        raise ConflictError("An install, restore or another preview is in progress; "
+                            "try again in a moment.")
     current, _problem = pending_install.read_pending()
     queued = (current or {}).get("packages", [])
     # The queue runs as one pip command, so it is planned (clash check, risks)
