@@ -139,7 +139,7 @@ export function runOptionProblem(
   if (mode === 'whisper' && alignment === 'qwen3_forced_align') {
     return {
       field: 'alignment_method',
-      message: 'Qwen3 forced alignment needs a transcript to align, but this drama transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
+      message: 'Qwen3 forced alignment needs a transcript to align, but this title transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
     }
   }
   return null
@@ -165,7 +165,7 @@ export function whisperModelWarning(size: string, language: string): string {
     return 'On Korean speech in our tests, large-v3 made about half a point fewer character errors than turbo, and was about twice as slow.'
   }
   if (language === 'zh') {
-    return 'On Chinese our tests disagree: large-v3 was more accurate on clean speech, turbo on one drama clip.'
+    return 'On Chinese our tests disagree: large-v3 was more accurate on clean speech, turbo on one title clip.'
   }
   return ''
 }

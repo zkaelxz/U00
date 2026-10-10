@@ -156,7 +156,7 @@ export function LibraryList({
 
   return (
     <section className="library-list" aria-labelledby="library-heading">
-      <h3 id="library-heading" className="visually-hidden">Dramas</h3>
+      <h3 id="library-heading" className="visually-hidden">Titles</h3>
       <form className="library-toolbar" role="search" onSubmit={submit}>
         <div className="toolbar-search">
           <input
@@ -210,17 +210,17 @@ export function LibraryList({
                 <p className="muted">At most {MAX_SELECTION} at a time.</p>
               )}
               {items.length === 0 && !filtered && (
-                <Card title="No dramas yet" meta="Add one to start transcribing, translating or reading.">
+                <Card title="No titles yet" meta="Add one to start transcribing, translating or reading.">
                   {onCreate && (
                     <div className="actions">
-                      <button type="button" className={buttonClass('primary')} onClick={onCreate}>New drama</button>
+                      <button type="button" className={buttonClass('primary')} onClick={onCreate}>New title</button>
                     </div>
                   )}
                 </Card>
               )}
               {items.length === 0 && filtered && (
                 <div className="empty-note">
-                  <p>No dramas match.</p>
+                  <p>No titles match.</p>
                   <button type="button" className={buttonClass('ghost', 'sm')} onClick={clearFilters}>Clear filters</button>
                 </div>
               )}
@@ -305,7 +305,7 @@ function LineHits({ hits, error }: { hits: LibrarySearchHit[] | null; error: unk
   return (
     <div className="line-hits">
       <ErrorBanner error={error} />
-      {hits === null && !error && <p className="muted">Type a word or phrase and press Enter to search every drama's lines.</p>}
+      {hits === null && !error && <p className="muted">Type a word or phrase and press Enter to search every title's lines.</p>}
       {hits && <p className="muted" data-testid="search-count">{hits.length} {hits.length === 1 ? 'match' : 'matches'}</p>}
       {hits && hits.length > 0 && (
         <ul className="line-hit-list">
@@ -327,7 +327,7 @@ function LineHits({ hits, error }: { hits: LibrarySearchHit[] | null; error: unk
 
 function SkeletonGrid() {
   return (
-    <ul className="drama-grid skeleton" aria-label="Loading dramas">
+    <ul className="drama-grid skeleton" aria-label="Loading titles">
       {Array.from({ length: 6 }, (_, i) => (
         <li key={i} className="drama-card" aria-hidden="true">
           <div className="drama-tile" />

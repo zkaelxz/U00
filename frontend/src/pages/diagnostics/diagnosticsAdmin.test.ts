@@ -234,8 +234,8 @@ describe('other sections', () => {
   })
 
   it('states library size before a reset', () => {
-    expect(libraryStatsLine({ total_dramas: 12, total_lines: 48210 })).toBe('Currently 12 dramas, 48,210 lines.')
-    expect(libraryStatsLine({ total_dramas: 1, total_lines: 1 })).toBe('Currently 1 drama, 1 line.')
+    expect(libraryStatsLine({ total_dramas: 12, total_lines: 48210 })).toBe('Currently 12 titles, 48,210 lines.')
+    expect(libraryStatsLine({ total_dramas: 1, total_lines: 1 })).toBe('Currently 1 title, 1 line.')
     expect(libraryStatsLine({ total_dramas: 0, total_lines: 0 })).toBeNull()
   })
 })

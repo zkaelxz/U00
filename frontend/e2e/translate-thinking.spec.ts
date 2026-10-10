@@ -41,7 +41,7 @@ async function mockStage(page: Page, state: { engine: string; saved: boolean; ru
     state.run.push(route.request().postDataJSON())
     await route.fulfill({
       status: 409,
-      json: { error: { code: 'conflict', message: 'A translation is already running for this drama.' } },
+      json: { error: { code: 'conflict', message: 'A translation is already running for this title.' } },
     })
   })
 }

@@ -16,7 +16,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('translation', 'engine-routing', 'Which engine does what', 'engines keys api key test gemini openai deepl routing'),
   e('translation', 'defaults', 'Translation style', 'english variant locale style note default'),
   e('translation', 'spending', 'Spending', 'monthly cap budget cost counter reset usd'),
-  e('translation', 'past-costs', 'Past costs', 'cost by drama history spend'),
+  e('translation', 'past-costs', 'Past costs', 'cost by title history spend'),
   e('translation', 'spend-history', 'Spend history', 'monthly spend chart months'),
 
   e('preferences', 'notify-toggle', 'Notify when a job finishes', 'notifications completion'),

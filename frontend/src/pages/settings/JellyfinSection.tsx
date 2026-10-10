@@ -136,7 +136,7 @@ function JellyfinControls() {
                 <input type="url" value={url} placeholder="http://localhost:8096" onChange={(e) => setUrl(e.target.value)} />
               </Field>
               <Field label="Library folder" help="The folder Jellyfin reads on this PC (the one set in its library). Files are written only inside it.">
-                <input type="text" value={folder} placeholder="D:\Media\Dramas" onChange={(e) => setFolder(e.target.value)} />
+                <input type="text" value={folder} placeholder="D:\Media\Titles" onChange={(e) => setFolder(e.target.value)} />
               </Field>
               <div className="settings-actions">
                 <button type="button" className={buttonClass('primary', 'sm')} disabled={busy || !dirty} onClick={save}>
@@ -210,7 +210,7 @@ function JellyfinControls() {
           )}
           {report.items.length > 50 && <p className="muted">…and {report.items.length - 50} more.</p>}
           <p className="settings-note">
-            To add subtitles, open the matching drama in Baihe and use Export, Send to Jellyfin.
+            To add subtitles, open the matching title in Baihe and use Export, Send to Jellyfin.
           </p>
         </div>
       )}

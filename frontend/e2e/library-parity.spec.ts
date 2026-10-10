@@ -13,27 +13,27 @@ const tools = (page: Page) => page.getByRole('region', { name: 'Library tools' }
 
 test('More filters: language, author and custom tags go through the API', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
   await page.getByText('More filters', { exact: true }).click()
   const more = page.locator('.more-filters')
 
   await more.getByLabel('Language', { exact: true }).selectOption('ko')
-  await expect(page.getByTestId('drama-count')).toHaveText('1 drama')
+  await expect(page.getByTestId('drama-count')).toHaveText('1 title')
   await expect(dramas(page).getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
   await expect(page.getByText('More filters (1)')).toBeVisible()
   await page.getByRole('button', { name: 'Clear these filters' }).click()
-  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
 
   await expect(more.getByLabel('Author', { exact: true }).locator('option', { hasText: '墨香铜臭' })).toHaveCount(1)
   await more.getByLabel('Author', { exact: true }).selectOption('墨香铜臭')
-  await expect(page.getByTestId('drama-count')).toHaveText('1 drama')
+  await expect(page.getByTestId('drama-count')).toHaveText('1 title')
   await more.getByLabel('Author', { exact: true }).selectOption('')
 
   await page.getByRole('checkbox', { name: 'wuxia' }).check()
-  await expect(page.getByTestId('drama-count')).toHaveText('1 drama')
+  await expect(page.getByTestId('drama-count')).toHaveText('1 title')
   await expect(dramas(page).getByRole('link', { name: 'Grandmaster of Demonic Cultivation', exact: true })).toBeVisible()
   await page.getByRole('checkbox', { name: 'wuxia' }).uncheck()
-  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
 })
 
 test('a More filters choice with no match: Clear filters resets it too', async ({ page }) => {
@@ -41,9 +41,9 @@ test('a More filters choice with no match: Clear filters resets it too', async (
   await page.getByText('More filters', { exact: true }).click()
   await page.getByRole('checkbox', { name: 'wuxia' }).check()
   await page.locator('.more-filters').getByLabel('Language', { exact: true }).selectOption('ko')
-  await expect(page.getByText('No dramas match.')).toBeVisible()
+  await expect(page.getByText('No titles match.')).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click()
-  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
   await expect(page.getByText('More filters', { exact: true })).toBeVisible()
   await expect(page.getByRole('checkbox', { name: 'wuxia' })).not.toBeChecked()
 })
@@ -101,11 +101,11 @@ test('Reading history on a remote device: no Clear button', async ({ page }) => 
   await expect(section.getByRole('button', { name: 'Clear reading history' })).toHaveCount(0)
 })
 
-test('Library header has only New drama; Library tools lives in the rail or drawer (no Saved manga item)', async ({ page }) => {
+test('Library header has only New title; Library tools lives in the rail or drawer (no Saved manga item)', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 })
   await page.goto('/')
   const head = page.locator('.page-head')
-  await expect(head.getByRole('button', { name: 'New drama' })).toBeVisible()
+  await expect(head.getByRole('button', { name: 'New title' })).toBeVisible()
   await expect(head.getByRole('link', { name: 'Saved manga' })).toHaveCount(0)
   await expect(head.getByRole('link', { name: 'Library tools' })).toHaveCount(0)
   await openMenu(page)

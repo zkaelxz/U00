@@ -7,7 +7,7 @@ import { reflectAvailable } from '../../translateForm'
 import { spendText } from './reviewResults'
 
 
-export const JOB_RUNNING_MESSAGE = 'A job is running on this drama. Structure edits wait until it finishes.'
+export const JOB_RUNNING_MESSAGE = 'A job is running on this title. Structure edits wait until it finishes.'
 
 export function resegmentSummary(p: ResegmentPreview): string {
   const notes = `${p.notes} note${p.notes === 1 ? '' : 's'}`
@@ -81,7 +81,7 @@ export function resegmentCostNote(
 }
 
 // The preview carries no cost figure; the call is logged with the drama's usage.
-export const RESEGMENT_COST_RECORDED = 'The AI cost is logged with this drama’s usage (Library → Cost by drama).'
+export const RESEGMENT_COST_RECORDED = 'The AI cost is logged with this title’s usage (Library → Cost by title).'
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 

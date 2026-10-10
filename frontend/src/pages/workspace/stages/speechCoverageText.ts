@@ -31,7 +31,7 @@ export function coverageTotals(report: SpeechCoverageReport): string {
 
 export function coverageBlocker(hasAudio: boolean, busy: boolean): string | null {
   if (busy) return 'Wait for the running job to finish.'
-  if (!hasAudio) return 'Still needed: audio on this drama.'
+  if (!hasAudio) return 'Still needed: audio on this title.'
   return null
 }
 

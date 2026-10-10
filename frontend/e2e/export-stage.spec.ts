@@ -49,7 +49,7 @@ test('with no lines, Export is disabled and links to Source (rule 22)', async ({
   await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeDisabled()
   const blocker = page.getByTestId('export-blocker')
   await expect(blocker).toContainText('No lines to export yet.')
-  await blocker.getByRole('link', { name: 'Go to Source' }).click()
+  await blocker.getByRole('link', { name: 'Go to Media' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/source$/)
 })
 
@@ -99,7 +99,7 @@ test('the ASS style shows at the top only when ASS is chosen', async ({ page }) 
   await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
 })
 
-test('a drama that is not novel narration has no EPUB section', async ({ page }) => {
+test('a title that is not novel narration has no EPUB section', async ({ page }) => {
   await page.goto('/#/drama/1/export')
   await expect(page.getByTestId('readiness')).toBeVisible()
   await expect(page.getByRole('group', { name: 'EPUB' })).toHaveCount(0)

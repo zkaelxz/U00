@@ -39,8 +39,8 @@ describe('dates and snapshot lines', () => {
     expect(describeSnapshot(null)).toBe('Checking for a snapshot…')
     expect(describeSnapshot({ exists: false })).toBe('No snapshot yet.')
     expect(describeSnapshot({ exists: true, readable: false })).toMatch(/can't be read/)
-    expect(describeSnapshot(SNAP, UTC)).toBe('28 Sept 2026, 09:30 · Database only · 12.3 MB · 3 dramas')
-    expect(snapshotFacts({ exists: true, kind: 'full', size: 900, drama_count: 1 })).toBe('Database + media · 900 B · 1 drama')
+    expect(describeSnapshot(SNAP, UTC)).toBe('28 Sept 2026, 09:30 · Database only · 12.3 MB · 3 titles')
+    expect(snapshotFacts({ exists: true, kind: 'full', size: 900, drama_count: 1 })).toBe('Database + media · 900 B · 1 title')
   })
 
   it('summarises the settings for the Card header', () => {
@@ -151,7 +151,7 @@ describe('changed fields only', () => {
   })
 })
 
-describe('restore one drama', () => {
+describe('restore one title', () => {
   const many: SnapshotDrama[] = [
     DRAMA,
     { ...DRAMA, id: 5, title: 'Heaven Official’s Blessing' },
@@ -185,14 +185,14 @@ describe('restore one drama', () => {
       skipped_tables: ['bulk_jobs', 'usage_log', 'other'],
     }
     expect(describeRestore(r)).toBe(
-      "Restored 'Signal (restored 2026-09-30)' as a new drama. 120 lines. No files were in the snapshot. " +
+      "Restored 'Signal (restored 2026-09-30)' as a new title. 120 lines. No files were in the snapshot. " +
         'Not restored: provider batch jobs and spending history.',
     )
     expect(describeRestore({ ...r, restored_as_new: false, title: 'Signal', media_restored: true, counts: { lines: 1 }, skipped_tables: [] }))
       .toBe("Restored 'Signal'. 1 line.")
     expect(describeRestore({ ...r, series: 'dropped_private', media_restored: true, skipped_tables: [] }))
-      .toBe("Restored 'Signal (restored 2026-09-30)' as a new drama. 120 lines. " +
-        "Its series is now someone else's private series, so the drama is back without a series.")
+      .toBe("Restored 'Signal (restored 2026-09-30)' as a new title. 120 lines. " +
+        "Its series is now someone else's private series, so the title is back without a series.")
     expect(describeRestore({ ...r, series: 'recreated', media_restored: true, skipped_tables: [] }))
       .toContain('Its series was gone, so it was restored from the snapshot too.')
     expect(describeRestore({ ...r, skipped_tables: ['bulk_jobs', 'metadata_research_results', 'usage_log'] }))

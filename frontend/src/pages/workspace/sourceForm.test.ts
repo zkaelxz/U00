@@ -79,11 +79,11 @@ describe('chapter OCR helpers', () => {
 })
 
 describe('runOptionProblem', () => {
-  it('flags forced alignment on a Whisper-only drama', () => {
+  it('flags forced alignment on a Whisper-only title', () => {
     expect(runOptionProblem('whisper', 'qwen3_forced_align')?.field).toBe('alignment_method')
     expect(runOptionProblem('have_transcript', 'qwen3_forced_align')).toBeNull()
   })
-  it('has nothing to flag for Whisper-diff on a Whisper-only drama', () => {
+  it('has nothing to flag for Whisper-diff on a Whisper-only title', () => {
     expect(runOptionProblem('whisper', 'whisper_diff')).toBeNull()
   })
 })
@@ -91,7 +91,7 @@ describe('runOptionProblem', () => {
 describe('runProblemFromError', () => {
   const err = (code: string, message: string) => new ApiError(422, { code, message })
   it('maps the server sentence to the field it names', () => {
-    const msg = "Qwen3 forced alignment needs a transcript to align, but this drama is in Whisper-text-only mode."
+    const msg = "Qwen3 forced alignment needs a transcript to align, but this title is in Whisper-text-only mode."
     expect(runProblemFromError(err('validation_error', msg))).toEqual({ field: 'alignment_method', message: msg })
     expect(runProblemFromError(err('validation_error', 'Use either an exact speaker count or a min/max range, not both.'))?.field).toBe('speakers')
   })

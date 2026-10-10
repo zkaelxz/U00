@@ -156,7 +156,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   }
 
   return (
-    <form onSubmit={submit} className="stack create-form" aria-label="New drama">
+    <form onSubmit={submit} className="stack create-form" aria-label="New title">
       <Field label="English title">
         {/* The attribute (not React's autoFocus) so the dialog's own focusing picks it. */}
         <input value={form.title_en} onChange={set('title_en')} ref={(el) => el?.setAttribute('autofocus', '')} />
@@ -210,7 +210,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
             </Field>
           )}
           {!!presets.data?.items.length && (
-            <Field label="Preset" help="Saves the preset's translation engine on the new drama, and starts its Translate stage with the preset's style and English variant.">
+            <Field label="Preset" help="Saves the preset's translation engine on the new title, and starts its Translate stage with the preset's style and English variant.">
               <select value={extras.preset} onChange={setExtra('preset')}>
                 <option value="">No preset</option>
                 {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
@@ -222,7 +222,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
       {invalid && <p className="error" role="alert">{invalid}</p>}
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
-        <button type="submit" className={buttonClass('primary')} disabled={busy}>Create drama</button>
+        <button type="submit" className={buttonClass('primary')} disabled={busy}>Create title</button>
         <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create and auto-fill</button>
         <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
@@ -263,7 +263,7 @@ export default function LibraryPage() {
 
   const openDetails = (id: number) => {
     const d = items.find((x) => x.id === id)
-    setSelected({ id, title: d ? dramaName(d) : 'Drama details' })
+    setSelected({ id, title: d ? dramaName(d) : 'Title details' })
   }
   const mediaTypes = new Map(items.map((d) => [d.id, d.media_type]))
 
@@ -314,7 +314,7 @@ export default function LibraryPage() {
           )}
         </div>
         <div className="actions">
-          <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>
+          <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
         </div>
       </header>
 
@@ -346,7 +346,7 @@ export default function LibraryPage() {
       />
       {phone && bar}
 
-      <Sheet open={creating} title="New drama" onClose={() => setCreating(false)}>
+      <Sheet open={creating} title="New title" onClose={() => setCreating(false)}>
         <CreateForm
           series={series}
           presets={presets}

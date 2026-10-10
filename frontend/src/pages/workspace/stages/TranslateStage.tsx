@@ -156,7 +156,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
       {!open ? (
         <div className="check-row">
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
-          <span className="muted">Saves the engine, model, style, English variant and the two guidance toggles for any drama.</span>
+          <span className="muted">Saves the engine, model, style, English variant and the two guidance toggles for any title.</span>
           {saved && <span role="status">{saved}</span>}
         </div>
       ) : (
@@ -417,7 +417,7 @@ function RunPanel({
               <>
                 <span>Still needed: lines to translate.</span>
                 <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                  Go to Source
+                  Go to Media
                 </ButtonLink>
               </>
             )}
@@ -493,7 +493,7 @@ function RunPanel({
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={estimateError} onDismiss={() => setEstimateError(null)} />
       {error instanceof ApiError && error.status === 409 && (
-        <p className="error" role="alert">A translate job is already running for this drama.</p>
+        <p className="error" role="alert">A translate job is already running for this title.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base)}>
@@ -580,7 +580,7 @@ function RunPanel({
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
                 label="Bulk"
-                help={`Send the whole drama as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.${!canBulk && !f.bulk ? ' Not with Reflect on this engine.' : ''}`}
+                help={`Send the whole title as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.${!canBulk && !f.bulk ? ' Not with Reflect on this engine.' : ''}`}
               >
                 <Toggle checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(v) => set('bulk', v)} />
               </Field>

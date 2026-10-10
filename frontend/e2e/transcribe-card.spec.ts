@@ -20,7 +20,7 @@ async function shot(page: Page, name: string) {
 }
 
 const QWEN_SENTENCE =
-  "Qwen3 forced alignment needs a transcript to align, but this drama is in Whisper-text-only mode. Supply a transcript, or set alignment_method back to 'whisper_diff'."
+  "Qwen3 forced alignment needs a transcript to align, but this title is in Whisper-text-only mode. Supply a transcript, or set alignment_method back to 'whisper_diff'."
 
 test('a refused option is highlighted on its field, with the reason beside it', async ({ page }) => {
   await page.route('**/api/transcribe/dramas/1/run', (route) =>

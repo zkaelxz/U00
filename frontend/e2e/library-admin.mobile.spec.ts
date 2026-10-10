@@ -19,7 +19,7 @@ async function heights(page: Page, selector: string) {
 
 test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
   await page.getByRole('button', { name: 'Select', exact: true }).click()
 
   // Tapping a card toggles it; titles are not links in select mode.
@@ -84,7 +84,7 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
 
 test('Escape right after opening still closes the phone Actions menu', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
   await page.getByRole('button', { name: 'Select', exact: true }).click()
   await page.locator('.drama-grid li', { hasText: 'Signal' }).click()
   // Open and press Escape in one task, before the details' toggle event runs

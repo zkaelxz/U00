@@ -116,7 +116,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         <p className="stage-blocker" id="export-blocker" data-testid="export-blocker">
           <span>No lines to export yet.</span>
           <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-            Go to Source
+            Go to Media
           </ButtonLink>
         </p>
       )}

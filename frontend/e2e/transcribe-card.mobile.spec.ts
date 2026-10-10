@@ -39,7 +39,7 @@ test('a refused option is flagged on the phone without sideways scroll', async (
   await page.route('**/api/transcribe/dramas/1/run', (route) =>
     route.fulfill({
       status: 422,
-      json: { error: { code: 'validation_error', message: 'Qwen3 forced alignment needs a transcript to align, but this drama is in Whisper-text-only mode.' } },
+      json: { error: { code: 'validation_error', message: 'Qwen3 forced alignment needs a transcript to align, but this title is in Whisper-text-only mode.' } },
     }),
   )
   await page.goto('/#/drama/1/source')

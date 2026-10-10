@@ -50,7 +50,7 @@ export function lastRunCounts(job: Pick<JobRecord, 'result'>): string {
     const b = bulk as Record<string, unknown>
     const done = count(b.translated_count)
     const failed = count(b.failed_count)
-    if (done !== null) parts.push(plural(done, 'drama'))
+    if (done !== null) parts.push(plural(done, 'title'))
     if (failed) parts.push(`${failed} failed`)
     return parts.join(' · ')
   }

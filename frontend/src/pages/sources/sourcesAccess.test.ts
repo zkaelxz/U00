@@ -13,10 +13,10 @@ describe('checkSummary', () => {
   it('reads a finished check', () => {
     expect(checkSummary({ checked: 3, new: 0, errors: {}, queued: [] })).toBe('Checked 3 series · no new chapters.')
     expect(checkSummary({ checked: 2, new: 1, errors: { A: 'x' }, queued: ['B'] })).toBe(
-      'Checked 2 series · 1 new chapter · importing into 1 drama · 1 failed.',
+      'Checked 2 series · 1 new chapter · importing into 1 title · 1 failed.',
     )
     expect(checkSummary({ checked: 1, new: 4, errors: {}, queued: ['A', 'B'] })).toBe(
-      'Checked 1 series · 4 new chapters · importing into 2 dramas.',
+      'Checked 1 series · 4 new chapters · importing into 2 titles.',
     )
     expect(checkSummary({ checked: 2, new: 3, errors: {}, queued: [], saved: ['A'] })).toBe(
       'Checked 2 series · 3 new chapters · saved 1 series as CBZ.',
@@ -29,7 +29,7 @@ describe('checkSummary', () => {
 
 describe('trackedDramaChoices', () => {
   const dramas = [drama(1, 'novel'), drama(2, 'manhua'), drama(3, 'Manga'), drama(4, null), drama(5, 'drama')]
-  it('comic sources feed comic dramas, text sources novels', () => {
+  it('comic sources feed comic titles, text sources novels', () => {
     expect(trackedDramaChoices(dramas, source(true)).map((d) => d.id)).toEqual([2, 3])
     expect(trackedDramaChoices(dramas, source(false)).map((d) => d.id)).toEqual([1])
   })

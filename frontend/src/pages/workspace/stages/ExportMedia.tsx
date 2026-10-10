@@ -294,7 +294,7 @@ export function MarkExported() {
   return (
     <div className="export-actions" data-testid="mark-exported">
       {exported ? (
-        <span className="muted" role="status">This drama is marked as exported.</span>
+        <span className="muted" role="status">This title is marked as exported.</span>
       ) : (
         <>
           <button type="button" className={buttonClass('secondary')} disabled={pending} onClick={mark}>

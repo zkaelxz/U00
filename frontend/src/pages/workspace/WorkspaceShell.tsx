@@ -82,10 +82,10 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     return () => ro.disconnect()
   }, [])
 
-  const title = drama ? drama.title_en || drama.title_zh || `Drama #${id}` : `Drama #${id}`
+  const title = drama ? drama.title_en || drama.title_zh || `Title #${id}` : `Title #${id}`
 
   return (
-    <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Drama ${id} workspace`}>
+    <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
       <Breadcrumbs crumbs={routeCrumbs({ name: 'drama', id, stage }, { title, stage: active })} />
       <div className="ws-strip" ref={stripRef}>
       <header className="workspace-header">

@@ -106,7 +106,7 @@ test('resumes at the saved page and saves progress', async ({ page }) => {
   await expect(page).toHaveURL(/page=3$/)
 })
 
-test('an empty drama says so and links to Source', async ({ page }) => {
+test('an empty title says so and links to Source', async ({ page }) => {
   await page.goto('/#/read/1')
   await expect(page.getByText('No lines to read yet.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Add lines on Source' })).toHaveAttribute('href', '#/drama/1/source')
@@ -203,7 +203,7 @@ test('a 429 part-way through a wiki update resumes where it stopped', async ({ p
   expect(froms).toEqual([0, 40, 40])
 
   await page.locator('summary', { hasText: 'Ask about the story' }).click()
-  await expect(page.getByText('Q&A uses the whole drama, including later lines.')).toBeVisible()
+  await expect(page.getByText('Q&A uses the whole title, including later lines.')).toBeVisible()
 
   // "Uses <engine> · Change" opens Story tools and focuses its picker.
   const ask = page.locator('details', { has: page.locator('summary', { hasText: 'Ask about the story' }) })

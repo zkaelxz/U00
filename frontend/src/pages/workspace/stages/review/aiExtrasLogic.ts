@@ -97,7 +97,7 @@ export function resolveLineNumber(
   if (!m) return { error: 'Enter a line number, e.g. 12.' }
   const idx = idxFromLineNumber(Number(m[1]))
   const line = lines.find((l) => l.idx === idx)
-  return line ? { lineId: line.id } : { error: `No line #${m[1]} in this drama.` }
+  return line ? { lineId: line.id } : { error: `No line #${m[1]} in this title.` }
 }
 
 export function fmtSeconds(s: number | null | undefined): string {

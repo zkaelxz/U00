@@ -112,7 +112,7 @@ async function open(page: Page, title: string) {
   return section
 }
 
-test('defaults for new dramas save only what changed', async ({ page }) => {
+test('defaults for new titles save only what changed', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Translation and keys')

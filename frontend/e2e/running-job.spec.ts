@@ -83,7 +83,7 @@ test.describe('a running job (real API)', () => {
     await expect(after.getByRole('button', { name: `Cancel ${description}` })).toHaveCount(0)
   })
 
-  test('Library: deleting a drama with a running job is refused (409) and the drama stays listed', async ({ page, request }) => {
+  test('Library: deleting a title with a running job is refused (409) and the title stays listed', async ({ page, request }) => {
     const title = 'Running Job E2E Library'
     dramaId = await createDrama(request, title)
     jobId = `transcribe_${dramaId}`
@@ -91,24 +91,24 @@ test.describe('a running job (real API)', () => {
 
     await page.goto('/')
     await page.getByLabel('Search title or summary').fill('Running Job E2E')
-    await expect(page.getByTestId('drama-count')).toHaveText('1 drama')
+    await expect(page.getByTestId('drama-count')).toHaveText('1 title')
     await page.getByRole('region', { name: 'Dramas' }).getByRole('button', { name: `Details: ${title}` }).click()
     const detail = page.getByRole('dialog', { name: title })
     await expect(detail).toBeVisible()
 
-    await detail.getByRole('button', { name: 'Delete drama…' }).click()
+    await detail.getByRole('button', { name: 'Delete title…' }).click()
     await detail.getByLabel('Type DELETE to confirm').fill('DELETE')
     const refused = page.waitForResponse((r) => r.url().includes(`/api/dramas/${dramaId}`) && r.request().method() === 'DELETE')
     await detail.getByRole('button', { name: 'Delete permanently' }).click()
     expect((await refused).status()).toBe(409)
-    await expect(detail.getByRole('alert')).toContainText('Not deleted: a background job is still running for this drama')
+    await expect(detail.getByRole('alert')).toContainText('Not deleted: a background job is still running for this title')
 
     // Still there: the dialog stays open, the drama is still in the list and the API.
     await expect(detail).toBeVisible()
     expect((await request.get(`/api/library/dramas/${dramaId}`)).status()).toBe(200)
     await page.reload()
     await page.getByLabel('Search title or summary').fill('Running Job E2E')
-    await expect(page.getByTestId('drama-count')).toHaveText('1 drama')
+    await expect(page.getByTestId('drama-count')).toHaveText('1 title')
     await expect(page.getByRole('region', { name: 'Dramas' }).getByRole('link', { name: title, exact: true })).toBeVisible()
     // The job was not touched by the refused delete.
     expect(await jobStatus(request, jobId)).toBe('running')

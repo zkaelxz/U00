@@ -255,7 +255,7 @@ export const COPIED_MS = 2000
 export function libraryStatsLine(s: Pick<LibraryDashboard, 'total_dramas' | 'total_lines'>): string | null {
   if (s.total_dramas <= 0) return null
   const n = s.total_dramas
-  return `Currently ${n.toLocaleString('en-US')} ${n === 1 ? 'drama' : 'dramas'}, ` +
+  return `Currently ${n.toLocaleString('en-US')} ${n === 1 ? 'title' : 'titles'}, ` +
     `${s.total_lines.toLocaleString('en-US')} ${s.total_lines === 1 ? 'line' : 'lines'}.`
 }
 
