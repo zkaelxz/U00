@@ -3,7 +3,7 @@ tests/test_install_presets.py -- Diagnostics "Packages" install fixes and
 presets: pip flags (--no-cache-dir, --disable-pip-version-check), the
 pip-cache permission hint, install names that are real PyPI distributions,
 the task map, approx. sizes, PyPI links, the not-offered canvas package
-and the qwen-asr transformers downgrade warning. No network, no real pip.
+and the transformers downgrade warning. No network, no real pip.
 """
 import os
 
@@ -29,7 +29,7 @@ KNOWN_PYPI_DISTS = {
     "pypdf", "genanki", "ebooklib", "plyer", "playwright",
     "lightnovel-crawler",
     "trafilatura", "audio-separator", "funasr", "demucs", "cryptography", "authlib",
-    "numpy", "httpx", "qwen-asr", "jiwer", "sacrebleu",
+    "numpy", "httpx", "nagisa", "soynlp", "jiwer", "sacrebleu",
 }
 # Import names whose PyPI project is something else (or a squatter).
 IMPORT_ONLY_NAMES = {"cv2", "pil", "bs4", "sklearn", "yaml", "skimage", "dateutil",
@@ -185,17 +185,6 @@ def test_lncrawl_install_is_refused_by_the_service(monkeypatch):
         svc.install_dependency("lightnovel-crawler", confirm=True)
 
 
-@pytest.mark.parametrize("have,warned", [("5.2.0", True), ("4.57.6", False), (None, False)])
-def test_qwen_asr_warns_before_downgrading_transformers(monkeypatch, have, warned):
-    monkeypatch.setattr(diagnostics, "get_installed_version",
-                        lambda dist: have if dist == "transformers" else None)
-    w = diagnostics.install_downgrade_warning("qwen-asr")
-    assert (w is not None) is warned
-    if warned:
-        assert "5.2.0" in w and "4.57.6" in w
-    assert diagnostics.install_downgrade_warning("jieba") is None
-
-
 def test_python_version_limitation_is_a_warning_not_a_refusal(monkeypatch):
     monkeypatch.setattr(diagnostics, "known_install_limitation_reason",
                         lambda n: "known not to install on Python 3.14" if n == "audio-separator"
@@ -267,7 +256,6 @@ def test_install_commands_omit_constraints_when_file_is_absent(monkeypatch, tmp_
     monkeypatch.setattr(svc, "default_project_root", lambda: str(tmp_path))
     ((cmd, _t),) = svc._install_commands("jieba")
     assert cmd[3:] == ["install", *FLAGS, "jieba"]
-    assert all("-c" not in c for c, _t in svc._qwen_asr_fallback_commands("qwen-asr"))
 
 
 def test_install_commands_include_constraints_when_file_exists(monkeypatch, tmp_path):
@@ -278,5 +266,3 @@ def test_install_commands_include_constraints_when_file_exists(monkeypatch, tmp_
     want = ["-c", str(tmp_path / "constraints.txt")]
     ((cmd, _t),) = svc._install_commands("jieba")
     assert cmd[-2:] == want
-    for cmd, _t in svc._qwen_asr_fallback_commands("qwen-asr"):
-        assert cmd[-2:] == want

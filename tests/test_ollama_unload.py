@@ -221,11 +221,16 @@ def test_transcribe_for_timing_asks_once_for_a_job(monkeypatch, hook_calls):
 def test_the_qwen3_asr_and_aligner_loaders_call_the_hook(monkeypatch, hook_calls):
     import asr_backend
     import forced_align
-    fake_torch = types.SimpleNamespace(bfloat16=object())
-    model_cls = types.SimpleNamespace(from_pretrained=lambda *a, **k: object())
-    fake_qwen = types.SimpleNamespace(Qwen3ASRModel=model_cls, Qwen3ForcedAligner=model_cls)
+    import qwen3_native
+    fake_torch = types.SimpleNamespace(
+        bfloat16=object(), float16=object(),
+        cuda=types.SimpleNamespace(is_bf16_supported=lambda: True))
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
-    monkeypatch.setitem(sys.modules, "qwen_asr", fake_qwen)
+    monkeypatch.setattr(qwen3_native, "require_transformers", lambda feature="x": None)
+    monkeypatch.setattr(qwen3_native.NativeQwen3ASR, "from_pretrained",
+                        classmethod(lambda cls, *a, **k: object()))
+    monkeypatch.setattr(qwen3_native.NativeQwen3Aligner, "from_pretrained",
+                        classmethod(lambda cls, *a, **k: object()))
     monkeypatch.setattr(asr_backend, "_asr_model_cache", {})
     monkeypatch.setattr(forced_align, "_aligner_model_cache", {})
     asr_backend.load_qwen3_asr(use_gpu=True)

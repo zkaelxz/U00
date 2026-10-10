@@ -50,8 +50,9 @@ OPTIONAL_DEPENDENCIES = {
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
-    "transformers": ("transformers", "ML bubble detection (Scanlate), PaddleOCR-VL-For-Manga "
-                                     "(needs transformers 5+), qwen-asr", "feature"),
+    "transformers": ("transformers", "Qwen3-ASR and Qwen3 forced alignment (5.15 or newer), "
+                                     "ML bubble detection (Scanlate), PaddleOCR-VL-For-Manga "
+                                     "(needs transformers 5+)", "feature"),
     "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "
                         "word-level realignment, several TTS/ASR backends", "feature"),
     "torchaudio": ("torchaudio", "word-level realignment (MMS forced alignment, experimental)",
@@ -87,8 +88,10 @@ OPTIONAL_DEPENDENCIES = {
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
-    "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
-                             "(line timing); best in its own Python 3.12 environment", "feature"),
+    # Qwen3's own tokenisation for forced alignment; transformers' processor
+    # raises if the package for the title's language is missing.
+    "nagisa": ("nagisa", "Qwen3 forced alignment of Japanese (word splitting)", "feature"),
+    "soynlp": ("soynlp", "Qwen3 forced alignment of Korean (word splitting)", "feature"),
     "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
                                      "encrypted HLS streams", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
@@ -160,10 +163,10 @@ APPROX_DOWNLOAD_MB = {
     "genanki": 1, "ebooklib": 1, "plyer": 1,
     "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
-    "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
+    "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "nagisa": 22, "soynlp": 1,
     "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15,
 }
-PULLS_TORCH = {"pyannote-audio", "omnivoice", "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
+PULLS_TORCH = {"pyannote-audio", "omnivoice", "manga-ocr", "audio-separator", "funasr", "demucs", "torchaudio"}
 
 
 def approx_download_mb(name: str):
@@ -200,30 +203,6 @@ NOT_OFFERED_FOR_INSTALL = {
                           "Advanced.",
 }
 
-# Exact pins a package declares on another one the app shares, for a
-# "this would downgrade X" warning before installing (package -> {dep: pin}).
-KNOWN_EXACT_PINS = {
-    "qwen-asr": {"transformers": "4.57.6"},
-}
-
-
-def install_downgrade_warning(name: str):
-    """None, or a plain-English warning when installing `name` would move an
-    already-installed shared package to an older pinned version (e.g.
-    qwen-asr pins transformers==4.57.6 while 5.x is installed). Read-only:
-    checks the installed version only."""
-    pins = KNOWN_EXACT_PINS.get(canonical_dist(pip_install_name(name)))
-    if not pins:
-        return None
-    for dep, pin in pins.items():
-        have = get_installed_version(dep)
-        if have and _version_sort_key(have) > _version_sort_key(pin):
-            return (f"installing this would downgrade {dep} from {have} to {pin}, which "
-                    f"other features (Scanlate, voice engines) use -- "
-                    f"they may stop working until {dep} is upgraded again.")
-    return None
-
-
 # Install presets: what the user wants to do -> the packages it needs (by
 # OPTIONAL_DEPENDENCIES key, or MODEL_ENGINE_REGISTRY package when it has
 # no key). Derived from the "feature" descriptions above. Each package is
@@ -245,8 +224,8 @@ INSTALL_TASKS = [
      "packages": ["pyannote.audio", "soundfile", "torch"]},
     {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
      "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
-     "packages": ["qwen-asr", "funasr", "torch", "onnxruntime"],
-     "recommended": ["qwen-asr", "funasr"], "optional": ["onnxruntime"]},
+     "packages": ["transformers", "nagisa", "soynlp", "funasr", "soundfile", "torch", "onnxruntime"],
+     "recommended": ["transformers", "nagisa", "soynlp", "funasr", "soundfile"], "optional": ["onnxruntime"]},
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
@@ -382,22 +361,17 @@ def _warn_deno_old():
     return None
 
 
-def _warn_qwen_transformers():
-    if not (get_installed_version("qwen-asr") and
-            (_ints(get_installed_version("transformers"), 1) or (0,))[0] >= 5):
+def _warn_qwen_asr_package():
+    """The removed qwen-asr package pins transformers to 4.57.6, so while it
+    is installed Diagnostics cannot move transformers up to what Qwen3-ASR
+    now needs."""
+    if not get_installed_version("qwen-asr"):
         return None
-    return ("Qwen3-ASR and transformers 5 or newer don't work together. "
-            "Uninstall Qwen3-ASR, or install transformers 4.57.6.")
-
-
-def _warn_qwen_nonascii_path():
-    if platform.system() != "Windows" or not get_installed_version("qwen-asr"):
+    if not below_min_version(get_installed_version("transformers"), "5.15"):
         return None
-    import portable
-    if portable.data_dir().isascii():
-        return None
-    return ("The data folder's name has non-English characters, which stops Qwen3-ASR "
-            "from loading. Move the data folder to a plain English path, or uninstall Qwen3-ASR.")
+    return ("Qwen3-ASR no longer uses the qwen-asr package, which holds transformers back "
+            "from the version it needs. Run `pip uninstall qwen-asr` in this app's Python, "
+            "then update transformers in Diagnostics.")
 
 
 def _warn_low_vram_pyannote():
@@ -418,8 +392,8 @@ def startup_warnings() -> list:
     """Short, path-free warnings about risky dependency combinations. Each
     check is local and cheap; one that fails for any reason adds nothing."""
     out = []
-    for check in (_warn_ytdlp_old, _warn_deno_old, _warn_qwen_transformers,
-                  _warn_qwen_nonascii_path, _warn_low_vram_pyannote):
+    for check in (_warn_ytdlp_old, _warn_deno_old, _warn_qwen_asr_package,
+                  _warn_low_vram_pyannote):
         try:
             msg = check()
         except Exception:
@@ -646,10 +620,13 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/SYSTRAN/faster-whisper",
      "help": "The default speech-to-text engine used to transcribe dialogue when you start a "
              "new drama."},
-    {"name": "Qwen3-ASR", "kind": "package", "package": "qwen-asr",
-     "url": "https://github.com/QwenLM/Qwen3-ASR",
-     "help": "An alternative speech-to-text engine to Whisper, used for transcription when "
-             "selected in Settings."},
+    {"name": "Qwen3-ASR", "kind": "package", "package": "transformers", "min_version": "5.15",
+     "url": "https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf",
+     "help": "An alternative speech-to-text engine to Whisper, run by transformers 5.15 or "
+             "newer. Models download from Hugging Face on first use: about 4.1 GB for 1.7B, "
+             "1.6 GB for 0.6B and 1.8 GB for the forced aligner. Weights cached by the older "
+             "qwen-asr package (Qwen/Qwen3-ASR-1.7B, ...) aren't reused, so the first run "
+             "downloads them again."},
     {"name": "SenseVoice (FunASR)", "kind": "package", "package": "funasr",
      "url": "https://github.com/modelscope/FunASR",
      "help": "An alternate transcription engine that also tags emotion and non-speech sounds "
@@ -714,6 +691,10 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
             try:
                 version = importlib.metadata.version(entry["package"])
                 installed = True
+                # Still "installed" (the Update button fixes it), but the row
+                # must not read as ready.
+                if below_min_version(version, entry.get("min_version")):
+                    version += f" (needs {entry['min_version']} or newer)"
             except importlib.metadata.PackageNotFoundError:
                 version = "not installed"
                 installed = False
@@ -928,55 +909,6 @@ def pip_cache_permission_hint(lines) -> str:
     return None
 
 
-# qwen-asr 0.0.6 declares exactly these runtime dependencies besides `sox`
-# (its pyproject.toml), and the app's Qwen3 paths run without `sox`: nothing
-# in qwen_asr, librosa (uses `soxr`) or transformers imports it, and it needs
-# no SoX program either. `sox` is the only dependency pip must build from
-# source (sdist only), so it is the one that breaks in environments with a
-# missing, old or unreachable setuptools. Kept here, in one place, for the
-# fallback install; bump together with requirements-optional.txt's qwen-asr.
-QWEN_ASR_FALLBACK_DEPS = (
-    "transformers==4.57.6", "accelerate==1.12.0", "nagisa==0.2.11", "soynlp==0.0.493",
-    "qwen-omni-utils", "librosa", "soundfile", "gradio", "flask", "pytz",
-)
-
-SOX_BUILD_HINT = (
-    "pip couldn't build the small `sox` helper that Qwen3-ASR lists as a dependency "
-    "(Baihe doesn't use it). Usually Python's build tools are too old or can't be "
-    "downloaded: update them with `python -m pip install --upgrade pip setuptools wheel`, "
-    "check your internet connection or proxy, then try again.")
-
-_SOX_SDIST_RE = re.compile(r"\bsox-\d[\w.]*\.tar\.gz", re.IGNORECASE)
-_SOX_BUILT_RE = re.compile(r"Successfully built sox\b|Building wheel for sox .*status 'done'",
-                           re.IGNORECASE)
-
-
-class SoxBuildWatch:
-    """Feed it pip's output lines; `failed` is True when pip fetched the `sox`
-    source package (the only reason it does) and never reported building it,
-    so a failed run that shows this is the sox build failure. Judged on pip's
-    own output because the failure text varies (a traceback, a missing
-    setuptools or distutils, or build dependencies that couldn't be
-    downloaded)."""
-
-    def __init__(self):
-        self._fetched = self._built = False
-
-    def feed(self, line: str):
-        line = line or ""
-        self._fetched = self._fetched or bool(_SOX_SDIST_RE.search(line))
-        self._built = self._built or bool(_SOX_BUILT_RE.search(line))
-
-    @property
-    def failed(self) -> bool:
-        return self._fetched and not self._built
-
-
-def qwen_asr_fallback_pip_args() -> list:
-    """pip args, in order, for installing qwen-asr without its `sox`
-    dependency: its other dependencies first, then qwen-asr itself with
-    --no-deps, so a failure part-way leaves no half-working qwen-asr."""
-    return [list(QWEN_ASR_FALLBACK_DEPS), ["--no-deps", "qwen-asr"]]
 
 
 # ---------------------------------------------------------------------------
@@ -1143,13 +1075,14 @@ KNOWN_UPGRADE_LIMITATIONS = {
     # imports the real transformers, so only pip's own conflict report
     # caught it. Applies only while the installed transformers still
     # declares that cap, so it lifts itself once a transformers release
-    # accepts huggingface_hub 2.x.
+    # accepts huggingface_hub 2.x: transformers 5.15.0 declares
+    # huggingface-hub<2.0,>=1.5 and 5.19.0 declares <3.0,>=1.31 (wheel METADATA).
     "huggingface-hub": {
         "blocked_from": 2,
         "while_required_below_by": "transformers",
         "reason": "the installed transformers (Scanlate's ML bubble detector, "
                   "speech models) requires huggingface_hub below 2.0 and refuses to import "
-                  "with 2.x -- upgrade transformers first once a release accepts it.",
+                  "with 2.x -- upgrade transformers (5.19 or newer accepts it) first.",
     },
 }
 
@@ -1352,6 +1285,12 @@ def constraint_specifiers(project_root: str = None) -> dict:
     return out
 
 
+# Installed packages whose declared requirements never hold another package
+# back: qwen-asr pins transformers==4.57.6, and the app no longer uses it
+# (the startup warning tells the user to uninstall it).
+IGNORED_REQUIRERS = {"qwen-asr"}
+
+
 def installed_requirements_on() -> dict:
     """{canonical dist: [(requirer dist, SpecifierSet)]} from every
     installed distribution's own requirements (markers evaluated for this
@@ -1362,6 +1301,8 @@ def installed_requirements_on() -> dict:
     for d in importlib.metadata.distributions():
         requirer = (d.metadata or {}).get("Name")
         if not requirer:
+            continue
+        if canonical_dist(requirer) in IGNORED_REQUIRERS:
             continue
         for text in d.requires or []:
             try:

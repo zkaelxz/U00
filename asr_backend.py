@@ -31,9 +31,9 @@ module's -- and note forced_align.py needs a real reference transcript to
 align against, which this whisper-text-only mode by definition doesn't have.
 
 SETUP:
-    pip install qwen-asr torch
-Same Python 3.14/CUDA-wheel caveat as forced_align.py -- see that module's
-docstring.
+    pip install "transformers>=5.15" torch
+(see qwen3_native.py for why 5.15). Same Python 3.14/CUDA-wheel caveat as
+forced_align.py -- see that module's docstring.
 """
 
 import os
@@ -45,6 +45,7 @@ from core import (
     ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname, extract_audio_slice,
     transcribe_for_timing,
 )
+import qwen3_native
 from segment_splitting import SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, SplitRules
 from forced_align import LANGUAGE_NAMES
 
@@ -128,39 +129,15 @@ def coverage_warning(segments, audio_seconds, qwen3_asr: bool = False) -> Option
 # this dict by name (it never imports this module), so keep the name.
 _asr_model_cache = {}
 
-# Batching (Qwen3ASRBackend.transcribe's batch_size) was written
-# against qwen-asr 0.0.6, whose transcribe(list) returns one result per input
-# in input order -- the order texts are assigned back to segments in. Any
-# other installed version runs one segment per call, since that ordering is
-# not checked there. Batching stays off by default until a real before/after
-# run on the user's GPU confirms it doesn't change the text on varied-length
-# audio (docs/asr-experiments.md). The 1-16 range lives in
+# Results come back in input order (qwen3_native checks the count), so batching
+# only changes throughput. It stays off by default until a real before/after run
+# on a GPU confirms that padding a batch of varied-length clips doesn't change
+# the text (docs/asr-experiments.md). The 1-16 range lives in
 # services/asr_options_service.
-QWEN_ASR_BATCH_TESTED_VERSION = "0.0.6"
-
-
-def installed_qwen_asr_version():
-    """The installed qwen-asr version, or None if it can't be read."""
-    try:
-        import importlib.metadata
-        return importlib.metadata.version("qwen-asr")
-    except Exception:
-        return None
 
 
 def effective_qwen_batch_size(requested) -> int:
-    """requested, when the installed qwen-asr is the tested version; else 1."""
-    requested = max(1, int(requested or 1))
-    if requested == 1:
-        return 1
-    version = installed_qwen_asr_version()
-    if version != QWEN_ASR_BATCH_TESTED_VERSION:
-        import applog
-        applog.get_logger().info(
-            f"Qwen3-ASR batching needs qwen-asr {QWEN_ASR_BATCH_TESTED_VERSION} (installed: "
-            f"{version or 'unknown'}); sending one segment at a time.")
-        return 1
-    return requested
+    return max(1, int(requested or 1))
 
 
 class WhisperBackend:
@@ -183,10 +160,6 @@ class WhisperBackend:
         )
 
 
-def qwen3_asr_repo_id(model_size: str) -> str:
-    return f"Qwen/Qwen3-ASR-{model_size}"
-
-
 def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=None,
                    on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ASR model. Same GPU-fallback/network-
@@ -207,20 +180,18 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
             on_device("GPU" if use_gpu else "CPU")
         return _asr_model_cache[cache_key]
 
+    qwen3_native.require_transformers("Qwen3-ASR")
     import torch
-    from qwen_asr import Qwen3ASRModel
 
     device = "cuda:0" if use_gpu else "cpu"
-    model_id = qwen3_asr_repo_id(model_size)
+    model_id = qwen3_native.asr_repo_id(model_size)
     try:
-        model = Qwen3ASRModel.from_pretrained(
-            model_id, dtype=torch.bfloat16, device_map=device, max_new_tokens=256,
-        )
+        model = qwen3_native.NativeQwen3ASR.from_pretrained(
+            model_id, device=device, dtype=qwen3_native.pick_dtype(torch, use_gpu))
     except Exception as exc:
         if use_gpu and is_gpu_error(exc):
-            model = Qwen3ASRModel.from_pretrained(
-                model_id, dtype=torch.bfloat16, device_map="cpu", max_new_tokens=256,
-            )
+            model = qwen3_native.NativeQwen3ASR.from_pretrained(
+                model_id, device="cpu", dtype=qwen3_native.pick_dtype(torch, False))
             cache_key = f"{model_size}_cpu"
             use_gpu = False
             if on_gpu_fallback:
@@ -265,7 +236,7 @@ class Qwen3ASRBackend:
         self.model_size = model_size
 
     def transcribe(self, audio_path, language, whisper_segments, use_gpu=False, batch_size=1,
-                   progress_cb=None, on_device=None, on_gpu_fallback=None):
+                   progress_cb=None, on_device=None, on_gpu_fallback=None, prompt=None):
         """whisper_segments: the segmentation from WhisperBackend.transcribe()
         (or core.transcribe_for_timing() directly) -- see module docstring
         for why this backend needs Whisper's boundaries rather than
@@ -274,8 +245,10 @@ class Qwen3ASRBackend:
         batch_size (experimental): how many segments go to Qwen3-ASR
         in one call. 1 (the default) is the original one-segment-at-a-time
         behaviour. Timing is Whisper's either way; only throughput changes.
-        Only used with the tested qwen-asr version (effective_qwen_batch_size);
-        not yet validated on real audio -- see docs/asr-experiments.md.
+        Not yet validated on real audio -- see docs/asr-experiments.md.
+
+        prompt: an optional "Vocabulary: ..." hint (vocabulary_hint_service); None or
+        empty sends the request exactly as without it.
 
         progress_cb(fraction): called after each batch, 0..1 of the segments
         to re-transcribe. on_device(task, "GPU"|"CPU") and on_gpu_fallback(task, exc)
@@ -305,7 +278,7 @@ class Qwen3ASRBackend:
             for pos in range(0, len(todo), batch_size):
                 batch = todo[pos:pos + batch_size]
                 texts = self._transcribe_batch(model, audio_path, whisper_segments, batch,
-                                               language_name, tmp_dir)
+                                               language_name, tmp_dir, prompt)
                 for i, text in texts.items():
                     seg = whisper_segments[i]
                     out[i] = {"start": seg["start"], "end": seg["end"], "text": text}
@@ -313,13 +286,15 @@ class Qwen3ASRBackend:
                     progress_cb(min(pos + len(batch), len(todo)) / len(todo))
         return out
 
-    def _transcribe_batch(self, model, audio_path, segments, indices, language_name, tmp_dir):
+    def _transcribe_batch(self, model, audio_path, segments, indices, language_name, tmp_dir,
+                          prompt=None):
         """{segment index: text} for one batch. With more than one
-        index, qwen-asr's transcribe() gets a list of slices and returns one
-        result per input in input order (checked against qwen-asr 0.0.6's
-        own code); results are keyed back by segment index, and a batch that
-        raises or whose result count doesn't match falls back to one call per segment rather
-        than guessing which text belongs to which line."""
+        index, transcribe() gets a list of slices and returns one result per
+        input in input order (qwen3_native checks the count); results are
+        keyed back by segment index, and a batch that raises or whose result
+        count doesn't match falls back to one call per segment rather than
+        guessing which text belongs to which line."""
+        extra = {"prompt": prompt} if prompt else {}
         paths = {}
         try:
             for i in indices:
@@ -328,7 +303,7 @@ class Qwen3ASRBackend:
             if len(indices) > 1:
                 try:
                     results = model.transcribe(audio=[paths[i] for i in indices],
-                                               language=language_name)
+                                               language=language_name, **extra)
                 except Exception as exc:
                     # e.g. CUDA out of memory on a large batch: retry this
                     # batch one segment at a time rather than failing the run.
@@ -341,7 +316,7 @@ class Qwen3ASRBackend:
                             for i, r in zip(indices, results)}
             texts = {}
             for i in indices:
-                results = model.transcribe(audio=paths[i], language=language_name)
+                results = model.transcribe(audio=paths[i], language=language_name, **extra)
                 texts[i] = results[0].text if results else ""
             return texts
         finally:
@@ -377,7 +352,7 @@ class Qwen3ASRVadBackend:
     def transcribe(self, audio_path, language, use_gpu=False, batch_size=1, progress_cb=None,
                    cancel_check=None, refine_timing=False, vad_fn=None,
                    mixed_languages=False, stage_cb=None, on_device=None,
-                   on_gpu_fallback=None, detector="standard", on_notice=None):
+                   on_gpu_fallback=None, detector="standard", on_notice=None, prompt=None):
         """Segments as {"start", "end", "text"} (plus "flag"/"flag_note" where
         refined timing is uncertain). cancel_check() is called between batches
         and between aligned spans and should raise to stop; nothing is written
@@ -401,7 +376,8 @@ class Qwen3ASRVadBackend:
         detector "asmr" uses the ASMR-trained detector (asmr_vad.py); when it
         can't run, Silero is used and on_notice(text) says why. "auto_asmr" is
         the same but falls back without a notice. An explicit
-        vad_fn wins."""
+        vad_fn wins.
+        prompt: see Qwen3ASRBackend.transcribe."""
         import vad_segments
         from core import filter_hallucinated_segments
         from segment_splitting import split_long_segments
@@ -461,11 +437,12 @@ class Qwen3ASRVadBackend:
         if mixed_languages:
             transcribed = self._transcribe_mixed(audio_path, language, spans, windows, use_gpu,
                                                  _progress, cancel_check, on_device,
-                                                 on_gpu_fallback)
+                                                 on_gpu_fallback, prompt)
         else:
             transcribed = Qwen3ASRBackend(model_size=self.model_size).transcribe(
                 audio_path, language, span_segments, use_gpu=use_gpu, batch_size=batch_size,
-                progress_cb=_progress, on_device=on_device, on_gpu_fallback=on_gpu_fallback)
+                progress_cb=_progress, on_device=on_device, on_gpu_fallback=on_gpu_fallback,
+                prompt=prompt)
             # The model heard the padded windows; a line is timed by its span.
             transcribed = [{**seg, "start": span.start_s, "end": span.end_s}
                            for seg, span in zip(transcribed, spans)]
@@ -495,19 +472,20 @@ class Qwen3ASRVadBackend:
         return [p for group in groups.values() for p in group]
 
     def _transcribe_mixed(self, audio_path, language, spans, windows, use_gpu, progress_cb,
-                          cancel_check, on_device=None, on_gpu_fallback=None):
+                          cancel_check, on_device=None, on_gpu_fallback=None, prompt=None):
         """Up to one segment per span (none when it has no text), with
         "lang"/"flag" set per mixed_language.transcribe_spans."""
         import mixed_language
         model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size,
                                **_device_callbacks("Qwen3-ASR", on_device, on_gpu_fallback))
+        extra = {"prompt": prompt} if prompt else {}
         with tempfile.TemporaryDirectory(prefix="baihe_qwen3_asr_") as tmp_dir:
             def transcribe(span, language_name):
                 window = windows[spans.index(span)]
                 path = os.path.join(tmp_dir, "span.wav")
                 extract_audio_slice(audio_path, window.start_s, window.end_s, path)
                 try:
-                    results = model.transcribe(audio=path, language=language_name)
+                    results = model.transcribe(audio=path, language=language_name, **extra)
                 finally:
                     if os.path.exists(path):
                         os.unlink(path)

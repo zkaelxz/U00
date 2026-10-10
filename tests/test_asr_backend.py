@@ -2,7 +2,7 @@
 tests/test_asr_backend.py -- asr_backend.py's pluggable transcription
 backends: WhisperBackend's passthrough to the existing (unchanged)
 core.transcribe_for_timing(), and Qwen3ASRBackend's segment-reuse/
-re-transcription logic, exercised against fake qwen_asr/torch modules
+re-transcription logic, exercised against fake qwen3_native/torch modules
 and a monkeypatched audio slicer, since the real model needs a GPU/
 network this sandbox doesn't have.
 """
@@ -173,21 +173,30 @@ class TestQwen3ASRBackendTranscription:
 
 class TestLoadQwen3Asr:
     def _install_fake_qwen_asr(self, from_pretrained):
+        """from_pretrained keeps the (model_id, dtype, device_map, max_new_tokens)
+        shape the tests below were written with; the native loader is called
+        with (model_id, device, dtype)."""
         fake_torch = types.ModuleType("torch")
         fake_torch.bfloat16 = "bfloat16"
+        fake_torch.float16 = "float16"
+        fake_torch.cuda = types.SimpleNamespace(is_bf16_supported=lambda: True)
         sys.modules["torch"] = fake_torch
 
-        fake_module = types.ModuleType("qwen_asr")
-
-        class FakeModel:
-            pass
-        FakeModel.from_pretrained = staticmethod(from_pretrained)
-        fake_module.Qwen3ASRModel = FakeModel
-        sys.modules["qwen_asr"] = fake_module
+        import qwen3_native
+        self._native_saved = (qwen3_native.NativeQwen3ASR.__dict__["from_pretrained"],
+                              qwen3_native.installed_transformers_version)
+        qwen3_native.NativeQwen3ASR.from_pretrained = staticmethod(
+            lambda model_id, device, dtype, max_new_tokens=256:
+            from_pretrained(model_id, dtype, device, max_new_tokens))
+        qwen3_native.installed_transformers_version = lambda: "5.19.0"
 
     def teardown_method(self):
         sys.modules.pop("torch", None)
-        sys.modules.pop("qwen_asr", None)
+        saved = getattr(self, "_native_saved", None)
+        if saved:
+            import qwen3_native
+            qwen3_native.NativeQwen3ASR.from_pretrained = saved[0]
+            qwen3_native.installed_transformers_version = saved[1]
         import asr_backend
         asr_backend._asr_model_cache.clear()
 
@@ -208,7 +217,7 @@ class TestLoadQwen3Asr:
         m3 = asr_backend.load_qwen3_asr(use_gpu=False, model_size="0.6B")
         assert m1 is m2
         assert m1 is not m3
-        assert calls == [("Qwen/Qwen3-ASR-1.7B", "cpu"), ("Qwen/Qwen3-ASR-0.6B", "cpu")]
+        assert calls == [("Qwen/Qwen3-ASR-1.7B-hf", "cpu"), ("Qwen/Qwen3-ASR-0.6B-hf", "cpu")]
 
     def test_gpu_error_falls_back_to_cpu(self):
         calls = []

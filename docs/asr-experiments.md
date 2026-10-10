@@ -14,7 +14,7 @@ table) is in `archive/asr-experiments-history.md`.
 | Option | Where | Default | Notes |
 |---|---|---|---|
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `core.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
-| ASR backend | per title | `whisper`, except as below | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`. |
+| ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`. |
 | Qwen3-ASR batch size | Settings > Transcription experiments (PC only) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
 | Mixed languages | same card | off | |
@@ -26,24 +26,26 @@ sees "PC only". They are stored in `app_settings` (`services/asr_options_service
 ### Which backend a title gets
 
 A saved `asr_backend_choice` wins. A title with none saved (or a removed one) gets
-`qwen3_asr_long` when its source language is Chinese or Japanese, it does not use
-Groq, and `qwen_asr`, `torch` and `faster_whisper` are all installed. Everything
-else gets `whisper` (`stored_asr_backend`).
+`whisper` (`stored_asr_backend`). Qwen3 is never picked automatically: it downloads
+several GB of weights on first use, and transformers 5.15+ alone (which other
+features install) is no sign the user wants that. Before the move off `qwen-asr`,
+having that package installed made Chinese and Japanese titles default to
+`qwen3_asr_long`; they now stay on Whisper until the backend is chosen.
 
 | Backend | Boundaries and timing | Needs |
 |---|---|---|
 | `whisper` | Whisper's | `faster-whisper` |
-| `qwen3_asr` | Whisper's; Qwen3-ASR replaces only the text. Cannot add lines Whisper missed. | `qwen-asr`, `torch`, plus Whisper's pass (`faster-whisper`, or Groq) |
-| `qwen3_asr_vad` | Silero speech spans (about 15 s cap); the forced aligner only if "Refine line timing" is on | `qwen-asr`, `torch`, `faster-whisper` |
+| `qwen3_asr` | Whisper's; Qwen3-ASR replaces only the text. Cannot add lines Whisper missed. | transformers 5.15+, `torch`, plus Whisper's pass (`faster-whisper`, or Groq) |
+| `qwen3_asr_vad` | Silero speech spans (about 15 s cap); the forced aligner only if "Refine line timing" is on | transformers 5.15+, `torch`, `faster-whisper` |
 | `qwen3_asr_long` | Gentler speech detection, windows up to 30 s, one line per sentence, forced aligner always on | same |
 
 ### Batch size
 
 - Used by `qwen3_asr` and by the non-mixed path of the two speech-detection backends.
   Timing is not affected, only speed.
-- Written against qwen-asr **0.0.6** (`asr_backend.QWEN_ASR_BATCH_TESTED_VERSION`). With
-  any other version installed, one segment goes per call whatever the saved size;
-  the Settings card says which applies.
+- Runs on transformers 5.15+'s native Qwen3-ASR (`qwen3_native.py`), which returns one
+  result per input in order; below 5.15 Qwen3-ASR can't run at all, and the Settings
+  card says which applies.
 - Results are matched back by segment index. A batch that raises (for example CUDA
   out of memory) or returns the wrong number of results is redone one segment at a time.
 - Qwen3 ASR keeps Whisper's own text for a segment longer than 300 s
@@ -150,35 +152,56 @@ differences under about 1 point are noise.
 | Wrong script or empty lines on a mixed recording | A fixed language rewrote the other languages into its script. Turn on Mixed languages. |
 | Mixed languages still wrong on short spans | Short or ambiguous spans were detected as English. The script check cannot see this (English output is allowed). Longer spans help. |
 | Chinese output in Traditional characters (medium most often) | Use turbo or large-v3. A Chinese initial prompt cut it in one test. |
-| Qwen3-ASR will not load | Diagnostics warns when transformers 5 or newer is installed with qwen-asr (use 4.57.6 or uninstall), and on Windows when the data folder path has non-ASCII characters (move it to a plain path). |
-| Qwen3-ASR install fails building `sox` | See "Installing qwen-asr". |
-| Batch size has no effect | Installed qwen-asr is not 0.0.6, Mixed languages is on (one span per call), or the backend is `whisper`. |
+| Qwen3-ASR will not load | The start-of-job message names what is missing (torch, transformers 5.15+, nagisa for Japanese or soynlp for Korean alignment); Diagnostics warns at startup while the old `qwen-asr` package is installed (see "Qwen3 on transformers' own classes"). |
+| Batch size has no effect | Mixed languages is on (one span per call), or the backend is `whisper`. |
 
-## Installing qwen-asr
+## Qwen3 on transformers' own classes
 
-Diagnostics > Packages > Install runs `python -m pip install --no-cache-dir
---disable-pip-version-check qwen-asr` with the app's own interpreter, plus `-c
-constraints.txt` when that file exists and a temporary constraints file pinning the
-installed torch family (pip refuses a package that would replace torch). The `sox`
-fallback below passes the same constraints. Optional packages install from PyPI at click time. The Windows
-installer's hash-pinned `wheels/` cover `requirements-core.txt` only.
+Qwen3-ASR and Qwen3-ForcedAligner run on `Qwen/Qwen3-ASR-1.7B-hf`,
+`Qwen/Qwen3-ASR-0.6B-hf` and `Qwen/Qwen3-ForcedAligner-0.6B-hf` (Apache-2.0)
+through `qwen3_native.py`, not the `qwen-asr` package. The `qwen-asr` package
+pinned transformers to 4.57.6; the native classes need **transformers 5.15 or
+newer**. The floor is 5.15, not the 5.13 the model cards say: the released
+5.13 and 5.14 wheels contain the classes but force the language through the
+system prompt and have no `prompt=` argument, while 5.15 prefills
+`language <NAME><asr_text>` as the models were trained and adds `prompt=`
+(checked against the wheels). The aligner card's "install from source" note is
+out of date: the released 5.13+ wheels include `Qwen3ASRForTokenClassification`,
+its auto-mapping and `prepare_forced_aligner_inputs` / `decode_forced_alignment`.
 
-qwen-asr 0.0.6 depends on `sox`, a source-only package pip must build. That fails when
-build tools are missing, too old or unreachable. Baihe does not use `sox`, so when the
-install fails building it the app installs the other dependencies
-(`diagnostics.QWEN_ASR_FALLBACK_DEPS`) and then `qwen-asr --no-deps`. If that fails too,
-the result carries `SOX_BUILD_HINT`: update `pip setuptools wheel`, check the
-connection or proxy, retry.
-
-Manual check on Windows:
-
-1. Diagnostics > Packages. If Qwen3-ASR is installed, uninstall it first
-   (`python -m pip uninstall qwen-asr sox`).
-2. Install Qwen3-ASR (several GB with PyTorch). Either the plain install finishes, or
-   the output starts with "Installing Qwen3-ASR without its `sox` dependency" and then
-   finishes. A red result shows the hint above.
-3. Run `python -c "import qwen_asr.inference.qwen3_asr"` in Baihe's Python, then select
-   Qwen3-ASR on a short clip and transcribe; the package row shows installed.
+- **Upgrading from `qwen-asr`.** The package is no longer used, but while it stays
+  installed its exact `transformers==4.57.6` pin holds transformers below the floor.
+  A startup warning and the job-start message say so; the fix is
+  `pip uninstall qwen-asr` in the app's Python, then update transformers in
+  Diagnostics. Diagnostics' update check ignores the pin (`IGNORED_REQUIRERS`).
+- **No automatic Qwen3 default.** A title that never saved a backend uses Whisper.
+  Before this change, having `qwen-asr` installed made Chinese and Japanese titles
+  default to Qwen3 on long windows; with a plain transformers install that would
+  have started a ~6 GB download nobody asked for, so Qwen3 is now only used when
+  the title's backend is set to it.
+- **Non-ASCII data folder (unchecked).** The old startup warning for a Windows data
+  folder with non-English characters fired only when `qwen-asr` was installed, and
+  its root cause isn't recorded in the repo, so it can't be ruled out for the
+  native path. That path reads audio with soundfile (`qwen3_native.load_audio_16k`)
+  and loads the models through Hugging Face, whose cache is under the data folder
+  (`HF_HOME`). The warning was dropped with the package; nobody has run a Qwen3
+  transcription from a non-ASCII Windows path since. Owner check: do that once.
+- **Downloads are new.** Weights cached for the old `Qwen/Qwen3-ASR-1.7B` and
+  `Qwen/Qwen3-ForcedAligner-0.6B` repos are not reused. First use downloads about
+  4.1 GB (1.7B), 1.6 GB (0.6B) and 1.8 GB (the aligner) from Hugging Face; the old
+  folders can be deleted in Diagnostics > Model cache.
+- **Japanese and Korean alignment** need `nagisa` and `soynlp`; a missing one is
+  reported in plain words, at job start (app and CLI), not as an ImportError after
+  the recognition pass.
+- **Name hint (off by default).** A per-title switch in the Transcribe stage's
+  Advanced section (CLI: `transcribe --vocab-hint` / `--no-vocab-hint`) sends
+  `Vocabulary: a, b, c` as the processor's `prompt=`, built from the title's
+  character names and series glossary (`services/vocabulary_hint_service.py`).
+  At most 40 terms and 300 characters, because every segment's request carries
+  it and a long list makes the model write the words where they weren't said.
+  With the switch off, or no names, the request is exactly as without the feature.
+- **Mixing with other voice engines.** OmniVoice (transformers >= 5.3) can share
+  an environment with it.
 
 ## Speaker detection on the GPU (manual check)
 

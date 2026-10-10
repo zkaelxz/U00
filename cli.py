@@ -432,11 +432,7 @@ def cmd_diarize(args):
 def _qwen3_missing(exc) -> RuntimeError:
     """Same as the API (dependency_missing): a drama saved to use Qwen3
     forced alignment fails rather than quietly using a method nobody chose."""
-    detail = translate_engines.redact_secrets(str(exc))
-    return RuntimeError(
-        "Qwen3-ASR isn't installed, so Qwen3 forced alignment can't run. "
-        "Install qwen-asr from Diagnostics (or: pip install qwen-asr torch), "
-        f"or change this drama's alignment method. ({detail})")
+    return RuntimeError(transcribe_service.import_failure_message(exc))
 
 
 def _read_transcript_option(args):
@@ -487,10 +483,11 @@ def cmd_align(args):
         # requires transcript.txt.)
         whisper_size = args.whisper_size or transcribe_service.stored_whisper_size(d)
         alignment_method = d.get("alignment_method") or "whisper_diff"
+        language = d.get("source_language") or "zh"
         if alignment_method == "qwen3_forced_align":
             # Checked before any transcription, as the API does.
             try:
-                transcribe_service.require_qwen3_packages("Qwen3 forced alignment")
+                transcribe_service.require_qwen3_packages("Qwen3 forced alignment", language)
             except DependencyUnavailableError as exc:
                 raise _qwen3_missing(exc) from exc
         # Glossary names plus raw-novel excerpt, shared with the API path.
@@ -500,7 +497,6 @@ def cmd_align(args):
         cfg = transcribe_service.get_transcribe_config(d["id"])
         fast = getattr(args, "fast", False) or cfg["whisper_fast_mode"]
         use_gpu = settings_service.get_use_gpu()
-        language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
         db.heartbeat_gpu_lock(_gpu_holder)
         if cfg["separate_vocals_first"]:
@@ -1155,7 +1151,7 @@ def cmd_transcribe(args):
         min_pause_sec=args.min_pause,
         vad_threshold=args.vad_threshold, sensitivity_preset=args.sensitivity,
         separation_backend=args.separation_backend,
-        separate_vocals_first=args.separate_vocals)
+        separate_vocals_first=args.separate_vocals, vocabulary_hint=args.vocab_hint)
     transcript_text = _read_transcript_option(args)
     try:
         if any(v is not None for v in tuning.values()):
@@ -1523,6 +1519,8 @@ def main():
                               help="Separate vocals from music before recognising.")
     p_transcribe.add_argument("--separation-backend", default=None,
                               choices=["auto", "audio_separator", "demucs"])
+    p_transcribe.add_argument("--vocab-hint", action=argparse.BooleanOptionalAction,
+                              default=None, help="Hint Qwen3-ASR with the title's names.")
     p_transcribe.add_argument("--diarize", action="store_true",
                               help="Detect speakers afterwards (needs a Hugging Face token in Settings).")
     p_transcribe.add_argument("--num-speakers", type=int, default=None)

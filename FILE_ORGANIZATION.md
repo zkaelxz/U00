@@ -54,6 +54,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `pending_install_child.py` (the apply step's short-lived helper: derive the pip command, redact output)
 - `portable.py`
 - `process_guard.py`
+- `qwen3_native.py`
 - `real_model_check_cli.py`
 - `run_tests.py`
 - `storage.py`
@@ -242,6 +243,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `oidc_service.py`
 - `ownership_service.py`
 - `page_import_limits.py`
+- `qwen3_requirements_service.py`
 - `reader_service.py`
 - `real_model_check_service.py`
 - `remote_health_service.py`
@@ -292,6 +294,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `update_service.py`
 - `url_media_service.py`
 - `usage_recost_service.py`
+- `vocabulary_hint_service.py`
 - `voice_bank_audio_service.py`
 - `voice_clone_service.py`
 - `vram_service.py`

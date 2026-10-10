@@ -63,7 +63,7 @@ def _backend_problem(choice: str, language: str):
         if choice == "qwen3_asr":
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
         elif choice in _VAD_BACKENDS:
-            transcribe_service.require_qwen3_packages("Qwen3-ASR")
+            transcribe_service.require_vad_backend_packages(choice, language)
             transcribe_service._require_vad_packages()
     except (DependencyUnavailableError, InvalidInputError) as exc:
         return str(exc)
@@ -92,7 +92,7 @@ def get_options(drama_id: int) -> dict:
         backends.append({"id": choice, "label": _BACKEND_LABELS[choice],
                          "available": problem is None, "reason": problem})
     try:
-        transcribe_service.require_qwen3_packages("The Qwen3 forced aligner")
+        transcribe_service.require_qwen3_packages("The Qwen3 forced aligner", language)
         aligner_reason = None
     except DependencyUnavailableError as exc:
         aligner_reason = exc.message

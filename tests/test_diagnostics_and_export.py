@@ -103,10 +103,11 @@ class TestDiagnostics:
     def test_lazy_optional_imports_in_asr_modules_are_registered(self):
         """CLAUDE.md: every optional import must be in OPTIONAL_DEPENDENCIES,
         or Diagnostics never reports it missing. asr_backend/forced_align
-        import their optional packages inside functions (qwen_asr, torch)."""
+        import their optional packages inside functions (transformers, torch); so does
+        qwen3_native (soundfile, numpy)."""
         import ast
         registered = {imp.split(".")[0] for imp, _f, _t in diagnostics.OPTIONAL_DEPENDENCIES.values()}
-        for module in ("asr_backend.py", "forced_align.py"):
+        for module in ("asr_backend.py", "forced_align.py", "qwen3_native.py"):
             with open(os.path.join(PROJECT_ROOT, module), encoding="utf-8") as f:
                 tree = ast.parse(f.read())
             for fn in ast.walk(tree):
@@ -124,7 +125,8 @@ class TestDiagnostics:
                         if top in sys.stdlib_module_names or os.path.exists(os.path.join(PROJECT_ROOT, f"{top}.py")):
                             continue
                         assert top in registered, f"{module}: {top}"
-        assert diagnostics.OPTIONAL_DEPENDENCIES["qwen-asr"][0] == "qwen_asr"
+        for key in ("transformers", "nagisa", "soynlp"):
+            assert diagnostics.OPTIONAL_DEPENDENCIES[key][0] == key
 
     def test_upload_and_numpy_deps_are_registered(self):
         """python-multipart (requirements-core; the upload routes) and numpy

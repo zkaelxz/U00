@@ -133,6 +133,7 @@ type ConfigForm = {
   whisper_fast_mode: boolean
   whisper_repeat_guard: boolean
   split_by_sentences: boolean
+  vocabulary_hint: boolean
   use_groq: boolean
 }
 
@@ -154,6 +155,7 @@ const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
   whisper_fast_mode: c.whisper_fast_mode,
   whisper_repeat_guard: c.whisper_repeat_guard ?? false,
   split_by_sentences: c.split_by_sentences ?? false,
+  vocabulary_hint: c.vocabulary_hint ?? false,
   use_groq: c.use_groq,
 })
 
@@ -498,7 +500,7 @@ export default function TranscribeStage({
         <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
       </Field>
     )
-  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'whisper_repeat_guard' | 'split_by_sentences' | 'use_groq', help?: string) =>
+  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'whisper_repeat_guard' | 'split_by_sentences' | 'vocabulary_hint' | 'use_groq', help?: string) =>
     cf && (
       <Field label={label} help={help}>
         <Toggle checked={cf[key]} onChange={(v) => setC(key, v)} />
@@ -759,6 +761,11 @@ export default function TranscribeStage({
               + (cf && !['whisper', 'qwen3_asr'].includes(cf.asr_backend_choice)
                 ? ' Not used with the selected ASR backend: choose Whisper or Qwen3 ASR for this to apply. Long lines can still be cut afterwards in Review.'
                 : ''),
+            )}
+            {toggle(
+              'Name hint for Qwen3 ASR',
+              'vocabulary_hint',
+              "Gives Qwen3 ASR this title's character names and glossary terms as a spelling hint. Can pull a line toward a name that wasn't said, so check the lines after turning it on.",
             )}
             {developerMode && toggle(
               'Whisper repeat guard',

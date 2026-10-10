@@ -1,6 +1,6 @@
 """
 forced_align.py -- true forced alignment of a known transcript to audio,
-via Qwen3-ForcedAligner (Qwen/Qwen3-ForcedAligner-0.6B), as an alternative
+via Qwen3-ForcedAligner (Qwen/Qwen3-ForcedAligner-0.6B-hf), as an alternative
 to core.py's align_transcript_to_timing().
 
 WHY THIS EXISTS: align_transcript_to_timing() recovers per-line timing by
@@ -30,16 +30,16 @@ into the output -- its per-character proportional-guess timestamps are
 discarded and replaced by the aligner's real ones.
 
 SETUP:
-    pip install qwen-asr torch
-qwen-asr recommends a clean Python 3.12 environment. If you're on Python
-3.14 (as this project's own requirements-optional.txt already warns for
+    pip install "transformers>=5.15" torch
+plus nagisa (Japanese) or soynlp (Korean) for those languages. If you're on
+Python 3.14 (as this project's own requirements-optional.txt already warns for
 PaddlePaddle), verify `pip install torch` actually gives you a CUDA-enabled
 build before relying on GPU alignment -- PyTorch's Python 3.14 wheels have
 had reported gaps where a CUDA install silently resolves to a CPU-only
 build:
     python -c "import torch; print(torch.cuda.is_available())"
 
-Model weights (~0.6B, a few hundred MB) download from Hugging Face on
+Model weights (~0.6B, about 1.8 GB) download from Hugging Face on
 first use, same as Whisper.
 """
 
@@ -47,6 +47,7 @@ import os
 import re
 import tempfile
 
+import qwen3_native
 import memory_headroom
 from core import (
     ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
@@ -63,7 +64,7 @@ MAX_CHUNK_SECONDS = 60.0
 HARD_CAP_SECONDS = 300.0
 
 # LANGUAGE_NAMES stays zh/ja/ko because asr_backend gates Qwen3-ASR on it; the
-# aligner also takes English (it is in qwen_asr's supported-language list).
+# aligner also takes English (it is in the processor's FORCED_ALIGNER_LANGUAGES).
 ALIGNER_LANGUAGE_NAMES = {**LANGUAGE_NAMES, "en": "English"}
 
 # Space-delimited languages: the aligner returns whole words, so word breaks
@@ -72,8 +73,6 @@ _WORD_UNIT_LANGUAGES = {"English"}
 
 # Loaded models stay cached across calls; core.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
-# The one repo the aligner loads; the real-model check looks for exactly this id.
-ALIGNER_REPO_ID = "Qwen/Qwen3-ForcedAligner-0.6B"
 _aligner_model_cache = {}
 
 
@@ -101,19 +100,19 @@ def load_qwen3_aligner(use_gpu: bool = False, on_device=None, on_gpu_fallback=No
             on_device("GPU" if use_gpu else "CPU")
         return _aligner_model_cache[cache_key]
 
+    qwen3_native.require_transformers("Qwen3 forced alignment")
     import torch
-    from qwen_asr import Qwen3ForcedAligner
 
     device = "cuda:0" if use_gpu else "cpu"
     try:
-        model = Qwen3ForcedAligner.from_pretrained(
-            ALIGNER_REPO_ID, dtype=torch.bfloat16, device_map=device,
-        )
+        model = qwen3_native.NativeQwen3Aligner.from_pretrained(
+            qwen3_native.ALIGNER_REPO, device=device,
+            dtype=qwen3_native.pick_dtype(torch, use_gpu))
     except Exception as exc:
         if use_gpu and is_gpu_error(exc):
-            model = Qwen3ForcedAligner.from_pretrained(
-                ALIGNER_REPO_ID, dtype=torch.bfloat16, device_map="cpu",
-            )
+            model = qwen3_native.NativeQwen3Aligner.from_pretrained(
+                qwen3_native.ALIGNER_REPO, device="cpu",
+                dtype=qwen3_native.pick_dtype(torch, False))
             cache_key = "cpu"
             use_gpu = False
             if on_gpu_fallback:

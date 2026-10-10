@@ -252,7 +252,7 @@ root modules below.
 | Choice | Code | What it does |
 |---|---|---|
 | `whisper` (default) | `asr_backend.WhisperBackend` -> `core.transcribe_for_timing` | local faster-whisper with VAD segmentation; `core.load_whisper_model` falls back from GPU to CPU |
-| `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; needs `qwen-asr`; batching (`qwen_asr_batch_size`) is honoured only on the tested qwen-asr version (`effective_qwen_batch_size`) |
+| `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; runs on transformers 5.15+ through `qwen3_native.py` (the `-hf` checkpoints; no `qwen-asr` package); batching (`qwen_asr_batch_size`) is honoured whenever it can run (`effective_qwen_batch_size`). `qwen3_asr_vad` and `qwen3_asr_long` are the speech-detection variants; none is picked unless the title saves it |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 
 `BACKENDS` / `get_backend` in `asr_backend.py` are the registry: every
@@ -281,9 +281,7 @@ aligner returns zero-length or out-of-order spans.
 speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`
 (`asr_backend_choice` `qwen3_asr_vad`, opt-in) uses it to feed Qwen3 spans of
 at most about 15 s instead of Whisper's segments. `Qwen3ASRLongBackend`
-(`qwen3_asr_long`, the default for Chinese and Japanese titles that never chose
-a backend, when qwen-asr, torch and faster-whisper are installed and Groq is off
-for the title; otherwise `whisper`) runs the same stages with gentler speech
+(`qwen3_asr_long`, opt-in: a title that never chose a backend uses `whisper`) runs the same stages with gentler speech
 detection (threshold 0.35, no minimum span, 300 ms padding), spans packed into
 windows of up to 30 s, one line per sentence (`asr_backend.SENTENCE_SPLIT_RULES`) and
 the forced aligner always on, so line length comes from the text and aligned

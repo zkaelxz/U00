@@ -337,10 +337,9 @@ def _cancel_probe(job_id):
     return None if job_id is None else (lambda: background_jobs.is_cancel_requested(job_id))
 
 
-def _run_commands(cmds: list, torch_pins: list = None, sox_watch=None, job_id: str = None) -> dict:
+def _run_commands(cmds: list, torch_pins: list = None, job_id: str = None) -> dict:
     """Runs each (command, timeout) through stream_tree; ok only if every
-    one exits 0 in time. Stops at the first failure. `sox_watch` (a
-    diagnostics.SoxBuildWatch) sees every raw output line. With a `job_id`,
+    one exits 0 in time. Stops at the first failure. With a `job_id`,
     Cancel is honoured before each command and while one runs (the whole
     pip process tree is killed; raises JobCancelled), and each redacted
     output line becomes the job's message."""
@@ -355,8 +354,6 @@ def _run_commands(cmds: list, torch_pins: list = None, sox_watch=None, job_id: s
         frac = 0.05 + 0.85 * n / len(cmds)
         for item in stream_tree(cmd, timeout, **stream_kwargs):
             if "line" in item:
-                if sox_watch:
-                    sox_watch.feed(item["line"])
                 # Checked on the raw line: redaction rewrites the cache path.
                 hint = hint or diagnostics.pip_cache_permission_hint([item["line"]])
                 if torch_pins:
@@ -404,7 +401,7 @@ def _under_install_hold(fn):
         background_jobs.release_exclusive()
 
 
-def _run_pip(name: str, confirm, cmds_for, sox_watch=None, job_id: str = None) -> dict:
+def _run_pip(name: str, confirm, cmds_for, job_id: str = None) -> dict:
     """One whitelisted package's pip run under the install hold (a job holds
     it itself and was guarded when it started: pass its `job_id`). Unless the
     package is itself torch/torchvision/torchaudio, every command also gets
@@ -420,11 +417,11 @@ def _run_pip(name: str, confirm, cmds_for, sox_watch=None, job_id: str = None) -
         cmds = cmds_for(name)
         pins = [] if name in gpu_torch.TORCH_FAMILY else gpu_torch.torch_pin_lines()
         if not pins:
-            return _run_commands(cmds, sox_watch=sox_watch, job_id=job_id)
+            return _run_commands(cmds, job_id=job_id)
         path = _write_torch_pins(pins)
         try:
             return _run_commands([(cmd + ["-c", path], t) for cmd, t in cmds],
-                                 torch_pins=pins, sox_watch=sox_watch, job_id=job_id)
+                                 torch_pins=pins, job_id=job_id)
         finally:
             try:
                 os.remove(path)
@@ -435,34 +432,11 @@ def _run_pip(name: str, confirm, cmds_for, sox_watch=None, job_id: str = None) -
     return result
 
 
-def _qwen_asr_fallback_commands(_name: str) -> list:
-    constraints = diagnostics.constraints_pip_args(default_project_root())
-    return [(_pip("install", *args, *constraints), PIP_TIMEOUT_SECONDS)
-            for args in diagnostics.qwen_asr_fallback_pip_args()]
-
-
-def _install_qwen_asr(confirm, job_id: str = None) -> dict:
-    """The normal install; if it fails building `sox` (see
-    diagnostics.QWEN_ASR_FALLBACK_DEPS), installs qwen-asr without it."""
-    watch = diagnostics.SoxBuildWatch()
-    result = _run_pip("qwen-asr", confirm, _install_commands, sox_watch=watch, job_id=job_id)
-    if result["ok"] or not watch.failed:
-        return result
-    retry = _run_pip("qwen-asr", confirm, _qwen_asr_fallback_commands, job_id=job_id)
-    note = "Installing Qwen3-ASR without its `sox` dependency, which Baihe doesn't use."
-    retry["output_tail"] = ([note] + retry["output_tail"])[-_ADMIN_OUTPUT_TAIL:]
-    if not retry["ok"]:
-        retry["hint"] = retry["hint"] or diagnostics.SOX_BUILD_HINT
-    return retry
-
-
 def install_dependency(name: str, confirm: bool = False, job_id: str = None) -> dict:
     """Runs the install and returns its result. `job_id`: running as that
     background job, which already holds the library and passed the start
     checks (see diagnostics_installs_service.start_dependency_install)."""
     try:
-        if name == "qwen-asr":
-            return _install_qwen_asr(confirm, job_id)
         return _run_pip(name, confirm, _install_commands, job_id=job_id)
     finally:
         _clear_update_cache()      # a new package can hold back (or allow) others
@@ -814,8 +788,7 @@ def _package_info(name: str, installed: bool, offered: set, mins: dict = None) -
         "pulls_torch": diagnostics.canonical_dist(dist) in diagnostics.PULLS_TORCH,
         "source_url": diagnostics.package_source_url(name),
         "not_offered_reason": reason,
-        "warning": None if installed else (limitation
-                                           or diagnostics.install_downgrade_warning(name)),
+        "warning": None if installed else limitation,
     }
 
 

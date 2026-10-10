@@ -73,6 +73,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "page_server.py",
     "portable.py",
     "process_guard.py",
+    "qwen3_native.py",
     "qa.py",
     "raw_transcript.py",
     "reader.py",

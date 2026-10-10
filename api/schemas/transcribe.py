@@ -169,6 +169,8 @@ class TranscribeConfig(BaseModel):
     whisper_repeat_guard: bool = False
     # Cut lines at sentence ends and word pauses instead of speech-detector pauses.
     split_by_sentences: bool = False
+    # Qwen3-ASR gets a "Vocabulary: ..." hint of the title's names (off by default).
+    vocabulary_hint: bool = False
     use_groq: bool
     has_video_source: bool
     hardsub_ocr_backend: str
@@ -196,6 +198,7 @@ class TranscribeConfigUpdate(BaseModel):
     whisper_fast_mode: Optional[bool] = None
     whisper_repeat_guard: Optional[bool] = None
     split_by_sentences: Optional[bool] = None
+    vocabulary_hint: Optional[bool] = None
     use_groq: Optional[bool] = None
     hardsub_ocr_backend: Optional[str] = None
     hardsub_interval_sec: Optional[float] = None

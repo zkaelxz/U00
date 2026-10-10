@@ -24,7 +24,7 @@ with asr_backend.Qwen3ASRBackend, replacing only the text; alignment_method
 transcript with forced_align.align_with_qwen3. Built with mocks only -- the
 real-model check is still owed by the user. Forced alignment needs a known
 transcript, so requesting it in Whisper-text-only mode is an
-InvalidInputError; a missing qwen-asr/torch package is a
+InvalidInputError; a missing or old transformers/torch is a
 DependencyUnavailableError, both raised at start (not inside the job).
 
 The `chunk_and_tag` novel_narration path is services/narration_service.py.
@@ -66,7 +66,9 @@ from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 
 from core import SOURCE_LANGUAGES, Line
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
 from services import (asr_options_service, diarization_service, run_settings_service, settings_service, source_service,
-                      timing_check_service, transcribe_pipeline)
+                      timing_check_service, transcribe_pipeline, vocabulary_hint_service)
+from services.qwen3_requirements_service import (
+    import_failure_message, require_qwen3_packages, require_vad_backend_packages)
 from services.retranscribe_worker import (apply_retranscribe_outcome as _apply_retranscribe_outcome,
                                            retranscribe_timeout_s as _retranscribe_timeout_s,
                                            retranscribe_worker as _retranscribe_worker)
@@ -315,6 +317,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "whisper_fast_mode": bool(drama.get("whisper_fast_mode")),
         "whisper_repeat_guard": bool(drama.get("whisper_repeat_guard")),
         "split_by_sentences": bool(drama.get("split_by_sentences")),
+        "vocabulary_hint": bool(drama.get("vocabulary_hint")),
         "use_groq": bool(drama.get("use_groq")),
         "has_video_source": source["has_video_source"],
         "hardsub_ocr_backend": drama.get("hardsub_ocr_backend")
@@ -338,7 +341,7 @@ def stored_min_pause_sec(drama) -> float:
 
 
 _BOOL_FIELDS = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
-                "whisper_repeat_guard", "split_by_sentences", "use_groq")
+                "whisper_repeat_guard", "split_by_sentences", "vocabulary_hint", "use_groq")
 _SEPARATION_BACKENDS = ("auto", "audio_separator", "demucs")
 
 
@@ -422,7 +425,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     return get_transcribe_config(drama_id)
 
 
-def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) -> None:
+def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, language) -> None:
     """Refusals shared by start_transcribe_run and validate_transcribe_options."""
     if transcript_mode == "whisper":
         if alignment_method == "qwen3_forced_align":
@@ -433,10 +436,10 @@ def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) ->
         if asr_backend_choice == "qwen3_asr":
             require_qwen3_packages("Qwen3-ASR")
         elif asr_backend_choice in transcribe_pipeline.VAD_BACKENDS:
-            require_qwen3_packages("Qwen3-ASR")
+            require_vad_backend_packages(asr_backend_choice, language)
             _require_vad_packages()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
-        require_qwen3_packages("Qwen3 forced alignment")
+        require_qwen3_packages("Qwen3 forced alignment", language)
 
 
 def _require_vad_packages() -> None:
@@ -445,19 +448,6 @@ def _require_vad_packages() -> None:
     if importlib.util.find_spec("faster_whisper") is None:
         raise DependencyUnavailableError(
             "Qwen3 speech detection needs transcription, which isn't installed yet. "
-            "Open Diagnostics to install it.")
-
-
-def require_qwen3_packages(feature: str) -> None:
-    """Raises DependencyUnavailableError naming the missing package(s) and the
-    pip line (qwen-asr's own Diagnostics entry: diagnostics.MODEL_ENGINE_REGISTRY)
-    when qwen-asr or torch can't be imported, so a Qwen3 choice never
-    silently degrades to plain Whisper."""
-    missing = [name for name, module in (("qwen-asr", "qwen_asr"), ("torch", "torch"))
-               if importlib.util.find_spec(module) is None]
-    if missing:
-        raise DependencyUnavailableError(
-            f"{feature} needs {' and '.join(missing)}, which isn't installed yet. "
             "Open Diagnostics to install it.")
 
 
@@ -502,7 +492,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     transcript_text supplied, or the drama has no audio pipeline
     (novel_narration); InvalidInputError for an unknown language/script;
     DependencyUnavailableError if use_groq is on with no Groq key
-    configured, or a chosen Qwen3 backend's package (qwen-asr/torch) isn't
+    configured, or a chosen Qwen3 backend's package (torch, or transformers 5.15+) isn't
     installed; InvalidInputError if alignment_method is
     "qwen3_forced_align" while transcript_mode is "whisper" (forced
     alignment needs a known transcript); ConflictError if a transcription is already running for
@@ -550,7 +540,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 
     asr_backend_choice = asr_options_service.stored_asr_backend(drama)
     alignment_method = drama.get("alignment_method") or "whisper_diff"
-    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method)
+    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, source_language)
     voice_detector = asr_options_service.resolve_voice_detector(drama, source_language)
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
@@ -570,6 +560,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     min_pause_sec = stored_min_pause_sec(drama)
     separation_backend = drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"]
     prompt = _resolve_initial_prompt(drama_id, initial_prompt or "", extra_names or "")
+    qwen_prompt = (vocabulary_hint_service.hint_for_run(drama)
+                   if asr_backend_choice.startswith("qwen3") else None)
     use_gpu = settings_service.get_use_gpu()
     # Read here, in the parent, and frozen with the other settings for the saved run settings.
     gpu_app_settings = raw_transcript.current_gpu_app_settings()
@@ -618,7 +610,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       hallucination_silence_sec, min_pause_sec,
                       bool(drama.get("whisper_repeat_guard")),
                       bool(drama.get("split_by_sentences")), preset, voice_detector,
-                      scratch_dir),
+                      qwen_prompt, scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
                 run_settings=run_settings,
                 # Spawn, not Linux's default fork: a forked child of a process
@@ -664,7 +656,8 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
         raise UnsupportedOperationError(
             f"Drama {drama_id} has no audio pipeline (content mode "
             f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
-    if (source_language or drama.get("source_language") or "zh") not in SOURCE_LANGUAGES:
+    language = source_language or drama.get("source_language") or "zh"
+    if language not in SOURCE_LANGUAGES:
         raise InvalidInputError(f"Unknown source_language {source_language!r}.")
     if (chinese_script or drama.get("chinese_script") or "simplified") not in _CHINESE_SCRIPTS:
         raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
@@ -674,7 +667,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
             "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
     asr_backend_choice = asr_options_service.stored_asr_backend(drama)
     alignment_method = drama.get("alignment_method") or "whisper_diff"
-    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method)
+    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, language)
     if drama.get("use_groq") and not settings_service.resolve_key("groq"):
         raise DependencyUnavailableError(
             "use_groq is on but no Groq API key is configured. Set one in Settings first.")

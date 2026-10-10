@@ -1196,6 +1196,8 @@ def _migrate_drama_columns(conn):
                           ("include_genre_notes", "INTEGER"),
                           ("whisper_repeat_guard", "INTEGER DEFAULT 0"),
                           ("split_by_sentences", "INTEGER DEFAULT 0"),
+                          # NULL/0 = off: the "Vocabulary: ..." hint for Qwen3-ASR.
+                          ("vocabulary_hint", "INTEGER"),
                           # "Think harder" for translation; NULL = never chosen (off).
                           ("translate_thinking", "INTEGER")]:
         if col not in drama_cols:

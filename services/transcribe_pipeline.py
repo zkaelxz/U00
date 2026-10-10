@@ -27,6 +27,7 @@ import storage
 from asr_backend import coverage_warning
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from services import settings_service
+from services.qwen3_requirements_service import import_failure_message
 from translate_engines import redact_secrets
 
 VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
@@ -61,7 +62,6 @@ def _raise_if_job_cancelled(job_id):
 # Fixed sentences, never the ImportError text: that names a module and reads
 # as a crash. The Diagnostics page is where the install button is.
 MISSING_TRANSCRIPTION_MESSAGE = "Transcription isn't installed yet. Open Diagnostics to install it."
-_MISSING_QWEN_MESSAGE = "Qwen3 speech recognition isn't installed yet. Open Diagnostics to install it."
 _MISSING_VAD_MESSAGE = ("Qwen3 speech detection needs transcription, which isn't installed yet. "
                         "Open Diagnostics to install it.")
 
@@ -168,8 +168,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        whisper_fast_mode, use_groq, initial_prompt, use_gpu, asr_backend_choice,
                        alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
                        mixed_languages, hallucination_silence_sec, min_pause_sec, repeat_guard,
-                       split_by_sentences, sensitivity_preset, voice_detector, scratch_dir,
-                       result_queue):
+                       split_by_sentences, sensitivity_preset, voice_detector, qwen_prompt,
+                       scratch_dir, result_queue):
     """Process-job target, started with spawn on every platform (top level
     and plain arguments only, so it pickles; nothing here may depend on
     state set up in the parent process after import): runs the pipeline for
@@ -200,7 +200,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             mixed_languages=mixed_languages, vocals_work_dir=scratch_dir,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             repeat_guard=repeat_guard, split_by_sentences=split_by_sentences,
-            sensitivity_preset=sensitivity_preset, voice_detector=voice_detector)
+            sensitivity_preset=sensitivity_preset, voice_detector=voice_detector,
+            qwen_prompt=qwen_prompt)
         result_queue.put(("ok", outcome))
     except ImportError:
         result_queue.put(("ok", missing_package_outcome()))
@@ -232,7 +233,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
                          min_pause_sec=segment_splitting.MIN_WORD_GAP_SECONDS, repeat_guard=False,
                          split_by_sentences=False, sensitivity_preset="normal",
-                         voice_detector="standard") -> dict:
+                         voice_detector="standard", qwen_prompt=None) -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
@@ -249,7 +250,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     "qwen3_asr_vad" backends only: other backends and Groq ignore it); vad_refine_timing is the saved forced-aligner timing option of the
     "qwen3_asr_vad" backend. vocals_work_dir: where vocal separation writes before its result
     is moved next to the audio, so a killed worker leaves no partial file.
-    split_by_sentences: see docs/engine-backends.md.
+    split_by_sentences: see docs/engine-backends.md. qwen_prompt: the
+    "Vocabulary: ..." hint (vocabulary_hint_service) for the Qwen3 backends, or None.
 
     asr_backend_choice / alignment_method are the drama's stored
     choices: "qwen3_asr" only applies in whisper transcript_mode, and
@@ -401,13 +403,12 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     refine_timing=vad_refine_timing, mixed_languages=mixed_languages,
                     stage_cb=_vad_set_stage, on_device=_on_vad_device,
                     on_gpu_fallback=_qwen_on_fallback, detector=voice_detector,
-                    on_notice=detector_notices.append)
+                    on_notice=detector_notices.append, prompt=qwen_prompt)
             except vad_segments.VadNotInstalledError:
                 return {"failed_reason": "dependency_missing",
                         "detail": _MISSING_VAD_MESSAGE}
-            except ImportError:
-                return {"failed_reason": "dependency_missing",
-                        "detail": _MISSING_QWEN_MESSAGE}
+            except ImportError as exc:
+                return missing_package_outcome(import_failure_message(exc))
             except core_module.ModelDownloadError as exc:
                 return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
             except ValueError as exc:
@@ -565,10 +566,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     segments = asr_backend.Qwen3ASRBackend().transcribe(
                         audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu,
                         batch_size=qwen_batch_size, progress_cb=_qwen_progress,
-                        on_device=_qwen_on_device, on_gpu_fallback=_qwen_on_fallback)
-                except ImportError:
-                    return {"failed_reason": "dependency_missing",
-                            "detail": _MISSING_QWEN_MESSAGE}
+                        on_device=_qwen_on_device, on_gpu_fallback=_qwen_on_fallback,
+                        prompt=qwen_prompt)
+                except ImportError as exc:
+                    return missing_package_outcome(import_failure_message(exc))
                 except core_module.ModelDownloadError as exc:
                     return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
                 except ValueError as exc:
@@ -612,9 +613,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 except background_jobs.JobCancelled:
                     core_module.release_gpu_models()
                     raise
-                except ImportError:
-                    return {"failed_reason": "dependency_missing",
-                            "detail": _MISSING_QWEN_MESSAGE}
+                except ImportError as exc:
+                    return missing_package_outcome(import_failure_message(exc))
                 except core_module.ModelDownloadError as exc:
                     return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
                 except ValueError as exc:
@@ -646,7 +646,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 "min_pause_sec": min_pause_sec, "sensitivity_preset": sensitivity_preset,
                 "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq and not vad_run,
                 "whisper_repeat_guard": repeat_guard, "split_by_sentences": split_by_sentences,
-                "separate_vocals_first": separate_vocals_first,
+                "vocabulary_hint": bool(qwen_prompt), "separate_vocals_first": separate_vocals_first,
                 "separation_backend": separation_backend,
                 "realign_long_segments": realign_long_segments,
                 "mixed_languages": mixed_languages, "vad_refine_timing": (vad_refine_timing

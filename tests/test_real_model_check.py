@@ -7,7 +7,7 @@ import pytest
 
 import background_jobs
 import translate_engines
-from services import asr_options_service, settings_service
+from services import settings_service
 from services import diagnostics_gaps_service as gaps
 from services import real_model_check_service as svc
 
@@ -77,7 +77,6 @@ def asr(monkeypatch):
     import asr_backend
     import core
     state = {"backend": _Backend(), "cached": True}
-    monkeypatch.setattr(asr_options_service, "stored_asr_backend", lambda d: "whisper")
     monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
     monkeypatch.setattr(svc, "_installed", lambda m: True)
     monkeypatch.setattr(core, "is_whisper_model_cached", lambda size: state["cached"])
@@ -420,88 +419,31 @@ def test_routes_are_declared_and_start(env, monkeypatch):
     assert body["checks"][0]["status"] == "pass" and body["finished"] is True
 
 
-# --- Qwen: exact repos, offline, tone-only -------------------------------------
+# --- Offline guard -------------------------------------------------------------
 
-class _QwenBackend:
-    model_size = "1.7B"
+def test_the_check_runs_models_offline_and_restores_the_switch(asr, monkeypatch):
+    seen = []
 
-    def __init__(self, long_windows=True, segments=None, load=False):
-        self.long_windows, self.segments, self.load = long_windows, segments or [], load
-        self.calls, self.offline = 0, []
+    class Probe(_Backend):
+        def transcribe(self, audio, language, **kw):
+            seen.append((os.environ.get("HF_HUB_OFFLINE"), os.environ.get("TRANSFORMERS_OFFLINE")))
+            return super().transcribe(audio, language, **kw)
 
-    def transcribe(self, audio, language, on_device=None, on_gpu_fallback=None, **kw):
-        import huggingface_hub.constants as hc
-        self.calls += 1
-        self.offline.append((os.environ.get("HF_HUB_OFFLINE"), hc.HF_HUB_OFFLINE))
-        if self.load:
-            on_device("Qwen3-ASR", "GPU")
-        return self.segments
-
-
-@pytest.fixture
-def qwen(monkeypatch):
-    import sys
-    import types
-    import asr_backend
-    # A stand-in so the offline switch is exercised without the real package.
-    constants = types.ModuleType("huggingface_hub.constants")
-    constants.HF_HUB_OFFLINE = False
-    hub = types.ModuleType("huggingface_hub")
-    hub.constants = constants
-    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
-    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
-    state = {"backend": _QwenBackend(), "repos": ["Qwen/Qwen3-ASR-1.7B", "Qwen/Qwen3-ForcedAligner-0.6B"]}
-    monkeypatch.setattr(asr_options_service, "stored_asr_backend", lambda d: "qwen3_asr_long")
-    monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
-    monkeypatch.setattr(svc, "_installed", lambda m: True)
-    monkeypatch.setattr(asr_backend, "get_backend", lambda name: state["backend"])
-    monkeypatch.setattr(svc.diagnostics, "scan_hf_cache",
-                        lambda: [{"repo_id": r} for r in state["repos"]])
-    return state
-
-
-def test_qwen_with_only_another_qwen_model_cached_is_skipped_and_never_loads(qwen):
-    qwen["repos"] = ["Qwen/Qwen3-ASR-0.6B", "Qwen/Qwen3-ASR-1.7B-Extra"]
-    r = _run("asr")
-    assert r["status"] == svc.SKIPPED and "not downloaded" in r["reason"]
-    assert qwen["backend"].calls == 0
-
-
-def test_qwen_long_needs_the_aligner_too(qwen):
-    qwen["repos"] = ["Qwen/Qwen3-ASR-1.7B"]
-    assert _run("asr")["status"] == svc.SKIPPED
-    assert qwen["backend"].calls == 0
-    qwen["backend"] = _QwenBackend(long_windows=False, load=True)
-    assert _run("asr")["status"] == svc.PASS
-
-
-def test_qwen_repo_ids_come_from_the_backend_constants(qwen, monkeypatch):
-    import forced_align
-    monkeypatch.setattr(forced_align, "ALIGNER_REPO_ID", "Org/Other-Aligner")
-    assert _run("asr")["status"] == svc.SKIPPED
-
-
-def test_the_check_runs_models_offline_and_restores_the_switch(qwen, monkeypatch):
-    import huggingface_hub.constants as hc
+    asr["backend"] = Probe()
     monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
-    before = hc.HF_HUB_OFFLINE
-    qwen["backend"] = _QwenBackend(load=True)
+    monkeypatch.delenv("TRANSFORMERS_OFFLINE", raising=False)
     assert _run("asr")["status"] == svc.PASS
-    assert qwen["backend"].offline == [("1", True)]
-    assert "HF_HUB_OFFLINE" not in os.environ and hc.HF_HUB_OFFLINE == before
+    assert seen == [("1", "1")]
+    assert "HF_HUB_OFFLINE" not in os.environ and "TRANSFORMERS_OFFLINE" not in os.environ
 
 
-def test_tone_only_is_skipped_not_passed_when_no_model_loaded(qwen):
-    r = _run("asr")
-    assert r["status"] == svc.SKIPPED
-    assert r["reason"] == ("Tone only: speech detection found no speech, "
-                           "so the recognition model was not loaded.")
-
-
-def test_a_loaded_model_passes_even_with_no_segments(qwen):
-    qwen["backend"] = _QwenBackend(load=True)
-    r = _run("asr")
-    assert r["status"] == svc.PASS and "0 segment(s)" in r["reason"]
+def test_the_asr_check_always_uses_whisper(asr, monkeypatch):
+    import asr_backend
+    names = []
+    monkeypatch.setattr(asr_backend, "get_backend",
+                        lambda name: names.append(name) or asr["backend"])
+    _run("asr")
+    assert names == ["whisper"]
 
 
 # --- No raw exception text in results ----------------------------------------------
