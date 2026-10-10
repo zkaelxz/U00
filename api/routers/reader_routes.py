@@ -9,7 +9,7 @@ on 2026-09-29):
 
 - reads (overview, notes, media availability, vocab list, wiki list):
   `library.read`;
-- caption tracks and every export (vocab CSV,
+- the page, caption tracks and every export (vocab CSV,
   .apkg, wiki Markdown): `lines.read`;
 - reader-data writes (progress, notes, lookup, rich-export queue, clear
   wiki): `lines.edit`;
@@ -91,7 +91,7 @@ def _require_llm_allowed(request: Request, engine: Optional[str], model: Optiona
     require_engines_allowed(request, engine, model=model)
 
 
-@router.get("/dramas/{drama_id}/page", dependencies=[require_permission("library.read")], response_model=ReaderPageResponse,
+@router.get("/dramas/{drama_id}/page", dependencies=[require_permission("lines.read")], response_model=ReaderPageResponse,
             summary="One page of a drama's Reader view, definitions from cache only",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_reader_page(

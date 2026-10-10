@@ -36,8 +36,8 @@ import bulk_translate
 import core
 import db
 import translate_engines
-from services import (settings_service, transcribe_service, translate_run_service,
-                      translate_service, workspace_job_service)
+from services import (ownership_service, settings_service, transcribe_service,
+                      translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -209,6 +209,8 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
     """Re-transcribes (when the drama has audio) and re-translates every
     currently flagged line, clearing the flag on lines it changed. Stops at
     the spending cap, keeping what was fixed."""
+    # Fixing a flagged line rewrites its zh/en in place.
+    ownership_service.require_acting_lines_edit()
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")

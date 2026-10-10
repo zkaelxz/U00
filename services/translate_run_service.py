@@ -40,7 +40,7 @@ import db
 import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
-from services import (bulk_job_view, engine_routing_service, library_service,
+from services import (bulk_job_view, engine_routing_service, library_service, ownership_service,
                       run_settings_service, settings_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
@@ -433,6 +433,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                 and (target_ids is None or ln.id in target_ids)]
     if not eligible:
         raise UnsupportedOperationError("There are no lines to translate.")
+    if force_retranslate and any((ln.en or "").strip() for ln in eligible):
+        ownership_service.require_acting_lines_edit()
 
     chain = [{"engine": engine_name, "model": model}] + [
         {"engine": f["engine"], "model": f.get("model")} for f in (fallback_chain or [])]
