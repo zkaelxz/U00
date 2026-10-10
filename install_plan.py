@@ -37,7 +37,7 @@ def _vkey(version: str):
     try:
         return version_mod.Version(version)
     except Exception:
-        return version_mod.Version("0")
+        return None          # unknown order: neither an upgrade nor a downgrade
 
 
 def parse_report(doc) -> list:
@@ -126,12 +126,11 @@ def _classify(report: list, installed: dict) -> list:
         have = installed.get(name)
         if have is None:
             kind = "install"
-        elif _vkey(version) > _vkey(have):
-            kind = "upgrade"
-        elif _vkey(version) < _vkey(have):
-            kind = "downgrade"
         else:
-            continue
+            new, old = _vkey(version), _vkey(have)
+            if new is None or old is None or new == old:
+                continue
+            kind = "upgrade" if new > old else "downgrade"
         changes.append({"name": name, "from": have, "to": version, "kind": kind})
     return changes
 
@@ -173,6 +172,8 @@ def run_dry_run(keys: list, runner=run_captured):
             return None, "pip could not be run to preview the change."
         if proc.timed_out:
             return None, "pip could not be run to preview the change."
+        if proc.returncode is None:
+            return None, "pip did not stop in time."
         if proc.returncode != 0:
             text = (proc.stdout or "") + (proc.stderr or "")
             if "conflict" in text.lower() or "ResolutionImpossible" in text:
