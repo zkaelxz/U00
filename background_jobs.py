@@ -1650,7 +1650,7 @@ def is_running(job_id: str) -> bool:
 # can run alongside each other and the user's own edits. Replacing ALL of a
 # drama's lines (a new transcription) is the one thing that makes their work
 # pointless.
-LINE_WRITING_JOB_PREFIXES = ("translate_", "flag_", "fixflag_", "retranscribe_")
+LINE_WRITING_JOB_PREFIXES = ("translate_", "flag_", "fixflag_", "retranscribe_", "timingchk_")
 
 
 def cancel_line_jobs(drama_id):
