@@ -79,6 +79,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
 
+      # Tests guarded by shutil.which("ffmpeg") / ("ffprobe") skip without the
+      # binaries, and the runner image does not reliably ship them.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
       # Dependabot edits the requirements floors but not constraints.txt or the
       # installer lock; this fails the PR when they stop agreeing.
       - name: Check requirements, constraints and installer lock agree
