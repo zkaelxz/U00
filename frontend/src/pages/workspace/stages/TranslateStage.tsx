@@ -714,7 +714,7 @@ export default function TranslateStage() {
         jobId={jobId}
         job={job}
         pollError={pollError}
-        lastRun={{ dramaId, ids: translateJobIds(dramaId), retryFor: () => () => retry.current?.() }}
+        lastRun={{ dramaId, ids: translateJobIds(dramaId), retryFor: () => (config ? () => retry.current?.() : null) }}
       />
       <BulkBatchesPanel reloadKey={reloads} />
       <NovelFilePanel kind="reference" busy={busy} onChanged={() => setReloads((n) => n + 1)} />
