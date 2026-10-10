@@ -21,6 +21,7 @@ import sys
 import tempfile
 
 import diarize
+import job_process_kill
 from lib import proc as proc_run
 import storage
 
@@ -1322,7 +1323,8 @@ def _make_throwaway_venv(base_dir: str, name: str, python_executable: str, paren
 
 
 def _stream_process(cmd: list, timeout: float, cwd: str = None, env: dict = None, cancel=None):
-    return proc_run.stream_tree(cmd, timeout, cwd=cwd, env=env, cancel=cancel)
+    return proc_run.stream_tree(cmd, timeout, cwd=cwd, env=env, cancel=cancel,
+                                warn=job_process_kill._warn_via_jobs)
 
 
 def _parse_pytest_failures(lines: list) -> list:

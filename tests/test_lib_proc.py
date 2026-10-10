@@ -166,3 +166,34 @@ def test_throwaway_venv_probe_survives_a_non_utf8_child_locale(tmp_path, monkeyp
 
     assert err is None
     assert (wanted / "_baihe_parent_env.pth").read_text(encoding="utf-8") == "/parent/site\n"
+
+
+@posix
+def test_stream_tree_kills_a_same_group_grandchild_still_holding_the_pipe(tmp_path):
+    marker = tmp_path / "gc.pid"
+    try:
+        items = list(proc_run.stream_tree(
+            [sys.executable, "-c", _tree_script(marker, parent_sleeps=0)], 60.0,
+            drain_seconds=1.0))
+        assert items[-1]["returncode"] == 0
+        assert _wait_dead(int(marker.read_text())), "grandchild outlived stream_tree"
+    finally:
+        _kill_marker(marker)
+
+
+def test_kill_tree_failure_does_not_raise_and_logs_only_the_type(monkeypatch, caplog):
+    from lib import proc_kill
+
+    def boom(*args):
+        raise PermissionError("secret-token-in-message")
+
+    class _Proc:
+        pid = 4242
+        kill = boom
+
+    monkeypatch.setattr(proc_kill.os, "killpg", boom, raising=False)
+    monkeypatch.setattr(proc_kill.subprocess, "run", boom)
+    with caplog.at_level("WARNING", logger="baihe"):
+        proc_kill.kill_tree(_Proc())
+    assert "PermissionError" in caplog.text
+    assert "secret-token-in-message" not in caplog.text

@@ -34,7 +34,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `background_jobs.py`
 - `job_force_stop.py` (Force stop for a thread job that ignores Cancel: closes its record, abandons the worker, refuses a rerun while it lives)
 - `gpu_probe.py` (nvidia-smi readings taken before background_jobs' lock, used once by the GPU-slot decision)
-- `job_process_kill.py` (stopping a job's worker process; `kill_tree` is re-exported from `lib/proc_kill.py` by `background_jobs`)
+- `job_process_kill.py` (stopping a job's worker process; `background_jobs` re-exports the `kill_tree` wrapper here, which adds the app-log warning on top of `lib/proc_kill.py`)
 - `benchmark.py`
 - `check_setup.py`
 - `cli.py`

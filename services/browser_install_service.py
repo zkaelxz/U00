@@ -20,6 +20,7 @@ import threading
 from collections import deque
 
 import background_jobs
+import job_process_kill
 import browser_support
 import diagnostics
 import translate_engines
@@ -147,7 +148,7 @@ def _run(cmd: list, env: dict, timeout: float, on_line, cancelled):
     (returncode, timed_out, was_cancelled)."""
     end = {"returncode": None, "timed_out": False, "cancelled": False}
     for item in stream_tree(cmd, timeout, drain_seconds=KILL_DRAIN_SECONDS, env=env,
-                            cancel=cancelled):
+                            cancel=cancelled, warn=job_process_kill._warn_via_jobs):
         if "line" in item:
             on_line(item["line"])
         else:

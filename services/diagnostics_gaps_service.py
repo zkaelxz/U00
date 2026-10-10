@@ -26,6 +26,7 @@ import threading
 import time
 
 import background_jobs
+import job_process_kill
 import db
 import diagnostics
 from lib import proc as proc_run
@@ -348,7 +349,9 @@ def _run_commands(cmds: list, torch_pins: list = None, sox_watch=None, job_id: s
     pip process tree is killed; raises JobCancelled), and each redacted
     output line becomes the job's message."""
     cancel = _cancel_probe(job_id)
-    stream_kwargs = {} if cancel is None else {"cancel": cancel}
+    stream_kwargs = {"warn": job_process_kill._warn_via_jobs}
+    if cancel is not None:
+        stream_kwargs["cancel"] = cancel
     tail, ok, hint, raw = [], True, None, []
     for n, (cmd, timeout) in enumerate(cmds):
         if cancel is not None and cancel():

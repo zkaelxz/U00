@@ -232,7 +232,9 @@ def venv_python(venv_dir) -> str:
 def _run(cmd, timeout, env, cwd=None):
     """(returncode, output). A timeout returns 124 with what was captured."""
     try:
-        p = run_captured(cmd, timeout, cwd=cwd, env=env)
+        # utf8_env=False: the app's own children run in the ANSI code page on
+        # Windows, so a package that breaks there must fail in the canary too.
+        p = run_captured(cmd, timeout, cwd=cwd, env=env, utf8_env=False)
     except OSError as e:
         return 127, str(e)
     out = p.stdout + p.stderr
