@@ -138,12 +138,45 @@ def clear_result() -> None:
     _remove("result")
 
 
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5                 # access denied: it exists
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) \
+                and code.value == 259                           # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True                                             # EPERM: owned by someone else, still running
+    except OSError:
+        return False
+    return True
+
+
 def apply_running() -> bool:
     """True while a live apply holds the lock (a stale one doesn't count)."""
     try:
-        return time.time() - os.path.getmtime(_path("lock")) < OVERALL_SECONDS + 120
+        if time.time() - os.path.getmtime(_path("lock")) >= OVERALL_SECONDS + 120:
+            return False
     except OSError:
         return False
+    # After a crash the lock is fresh for the next hour; its pid says nobody holds it.
+    # A lock without a readable pid keeps the age rule alone.
+    pid = (_read_json("lock") or {}).get("pid")
+    if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+        return _pid_alive(pid)
+    return True
 
 
 def status() -> dict:
@@ -329,6 +362,10 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
                            "The queued install was not run: the package list was not accepted. "
                            "Nothing was changed."}, [])}
         before = snapshot()
+        # Saved before pip runs so the watchdog, which can exit mid-restore, can still say what was at risk.
+        _write_json("result", {"status": "running", "packages": keys, "before": before, "tail": [],
+                               "message": "Installing the packages you queued...",
+                               "restored": [], "restore_failed": []})
         argv = plan["argv"]
         argv[1:1] = _python()[1:]
         if echo:
@@ -368,17 +405,29 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
         _remove("lock")
 
 
+def _watchdog_result() -> dict:
+    """The timed_out result, keeping what the running result recorded: the exit
+    can land mid-restore, so the owner needs to know which packages were at risk."""
+    running = read_result()
+    if not (running and running.get("status") == "running"):
+        running = {}
+    packages, before = running.get("packages"), running.get("before")
+    return {"status": "timed_out", "tail": [], "restored": [], "restore_failed": [],
+            "packages": packages if isinstance(packages, list) else [],
+            "before": before if isinstance(before, dict) else {},
+            "message": "The install did not finish in time. Baihe started without waiting "
+                       "for it, so package versions may have been changed. Check Packages "
+                       "in Diagnostics.",
+            "finished": int(time.time())}
+
+
 def main(argv=None) -> int:
     """Always 0: a failed or slow install must not stop the server starting."""
     def watchdog():
         _CURRENT["stop"] = True
         time.sleep(2)       # the cancel poll runs about twice a second
         try:
-            _write_json("result", {"status": "timed_out", "packages": [], "tail": [],
-                                   "restored": [], "restore_failed": [],
-                                   "message": "The install did not finish in time. Baihe "
-                                              "started without waiting for it.",
-                                   "finished": int(time.time())})
+            _write_json("result", _watchdog_result())
         except OSError:
             pass
         _remove("lock")
