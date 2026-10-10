@@ -34,7 +34,7 @@ Do the steps in this order. Steps 1 to 4 change nothing on the internet side; st
    Otherwise it restarts Baihe's service with the household listener on 127.0.0.1, writes Caddy's config for your domain and household port, and starts the `BaiheCaddy` service (set to start at boot). If the household listener or Caddy doesn't come up, it undoes its changes. It then prints your next two steps.
 6. **Add the Windows Firewall rule it prints** (it never adds it): in an administrator prompt, the printed `netsh advfirewall firewall add rule name="Baihe Studio remote access - Caddy HTTPS" dir=in action=allow protocol=TCP localport=443 program="<caddy.exe>" profile=private,domain enable=yes`. That is TCP 443, for Caddy's program only, on private and domain networks. It applies only if Windows classes the PC's network as Private (or Domain). Add no rule for `python.exe` or for 8600, the household port or 8756. Menu item 1 (status) shows whether the rule exists.
 7. **Forward TCP 443 on the router** to the PC's LAN address; reserve that address for the PC in the router's DHCP settings so it doesn't change. Forward only 443 (see the table below). Also keep the PC awake (Windows power settings, sleep "Never").
-8. **Check it.** Once the name points at your home and 443 reaches the PC, Caddy asks for its certificate by itself and renews it by itself. Run the "Outside checklist" below from a phone on mobile data. In Baihe, a banner and Diagnostics show remote-access health: the certificate's days left (warns under 14, critical under 5, expired or untrusted), whether the household listener answers, and, if you set a public-address check URL in Settings > Remote access, whether the DNS record matches your public IP. Turn it off with the Start-menu item (4, "Turn remote access off") or `disable-remote`; see "Rollback".
+8. **Check it.** Once the name points at your home and 443 reaches the PC, Caddy asks for its certificate by itself and renews it by itself. Run the "Outside checklist" below from a phone on mobile data. In Baihe, a banner and Diagnostics show remote-access health: the certificate's days left (warns under 14, critical under 5, expired or untrusted), whether the household listener answers, and, if you set a public-address check URL in Admin > Remote access, whether the DNS record matches your public IP. Turn it off with the Start-menu item (4, "Turn remote access off") or `disable-remote`; see "Rollback".
 
 ## Which ports, and which are opened
 
@@ -58,7 +58,7 @@ From outside the LAN (a phone on mobile data, Wi-Fi off), after the router port 
 
 - [ ] `https://baihe.<your-domain>` loads with a valid padlock; `http://` redirects to `https://` only if port 80 reaches Caddy, which this guide doesn't open (see the ports table); without it, type `https://`.
 - [ ] Google sign-in works for an allowlisted member and is refused for any other account.
-- [ ] Job progress updates live; saving Settings says it is PC-only; an admin account signed in here sees Users and Audit log on the Admin page (cogwheel menu) without any buttons ("Account changes are made on the main PC."), and no other admin section works.
+- [ ] Job progress updates live; saving Settings says it is PC-only; an admin account signed in here sees Users and Audit log on the Admin page (left rail, System group) without any buttons ("Account changes are made on the main PC."), and no other admin section works.
 - [ ] `http://<your-public-ip>:8600`, `:8610` and `:8756` don't connect.
 - [ ] After a sign-in, Caddy's access log (`BAIHE_CADDY_LOG_DIR\baihe-access.log`) holds no `?code=` or `state=`: its filter drops the query string from the logged URI, and Baihe's household listener writes no access log of its own. That covers these two logs only, so read any other log before sharing it.
 
@@ -82,7 +82,7 @@ Check these first; they are the usual causes.
 1. **Close the router port forward (TCP 443) first.**
 2. Turn remote access off: Start menu > "Baihe Studio service" > 4, "Turn remote access off", or `disable-remote` with the long path from step 5 above, from an administrator prompt. It disables the Caddy service (so it doesn't come back at boot), stops it, removes its Caddyfile, and restarts Baihe without the household listener. The PC's window on 8600 is unaffected. Setting or unsetting `BAIHE_API_*` variables with `setx` does nothing on a service install, because the service sets every one of them itself.
 3. Remove the firewall rule it names, in an administrator prompt: `netsh advfirewall firewall delete rule name="Baihe Studio remote access - Caddy HTTPS"` (the command is printed if the rule is still there).
-4. Sign out every session issued remotely: at the PC, Diagnostics > Users > "Sign out everywhere..." for each user (every session was issued through the household listener; the PC's own window has none).
+4. Sign out every session issued remotely: at the PC, Admin > Users > "Sign out everywhere..." for each user (every session was issued through the household listener; the PC's own window has none).
 5. To shut someone out immediately at any time: `python -m api deactivate <email>` (ends their sessions; `python` is the install's own, as in step 4).
 
 Without the installer: stop Caddy, remove your own firewall rule, then unset the household port (`setx BAIHE_API_HOUSEHOLD_PORT ""`, or remove it in System Properties > Environment Variables) and restart Baihe.
@@ -90,7 +90,7 @@ Without the installer: stop Caddy, remove your own firewall rule, then unset the
 ## What to watch
 
 - Caddy's access log: floods of 401, 404 or 429 (sign-in is limited to 60 attempts per 10 minutes per address at Caddy, and more tightly by Baihe).
-- Baihe's audit log (Diagnostics, at the PC or signed in as an admin from away) for sign-ins you don't recognise.
+- Baihe's audit log (on the Admin page, at the PC or signed in as an admin from away) for sign-ins you don't recognise.
 - Certificate expiry and your public IP versus the DNS record (dynamic DNS drift).
 - Sign-in limit: Caddy counts attempts per connecting address. With a router that loops LAN traffic back through its public address, every device on your LAN shares one count, so one device can lock the others out of sign-in for up to 10 minutes.
 - Updates: you own patching Baihe. On a service install Caddy is bundled, so its fixes arrive with new Baihe releases. After updating Baihe, restart Caddy so a changed template is loaded.
