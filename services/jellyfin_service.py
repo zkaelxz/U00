@@ -44,7 +44,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import db
-from lib import capped_body
+from lib import http
 from services import (artifact_service, drama_service, export_service,
                       settings_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -182,36 +182,29 @@ def _server() -> tuple:
 
 def _request(method: str, path: str, params: Optional[dict] = None,
              url: Optional[str] = None, key: Optional[str] = None):
-    import requests
     if url is None:
         url, key = _server()
     _check_target(url)
-    session = requests.Session()
-    session.trust_env = False  # a proxy would reach the LAN server on our behalf
     try:
-        resp = session.request(method, url + path, params=params,
-                               headers={"Authorization": f'MediaBrowser Token="{key}"',
-                                        "Accept": "application/json"},
-                               timeout=HTTP_TIMEOUT, allow_redirects=False, stream=True)
-        try:
-            if resp.status_code in (401, 403):
-                raise DependencyUnavailableError(_BAD_KEY)
-            if resp.status_code >= 300:
-                log.info("Jellyfin answered HTTP %s", resp.status_code)
-                raise DependencyUnavailableError(_UNREACHABLE)
-            return _read_capped(resp)
-        finally:
-            resp.close()
-    except requests.RequestException:
+        # guard=None: the address is one the owner set through a local_only route
+        # and may be on the LAN, which the public-address guard would refuse; no
+        # redirects, and the key header never leaves the origin it was set for.
+        resp = http.request(method, url + path, params=params,
+                            headers={"Authorization": f'MediaBrowser Token="{key}"',
+                                     "Accept": "application/json"},
+                            timeout=HTTP_TIMEOUT, deadline=READ_DEADLINE,
+                            max_bytes=MAX_RESPONSE_BYTES, max_error_bytes=1,
+                            guard=None, trust_env=False)  # a proxy would reach the LAN server
+    except (http.ResponseTooLarge, http.ResponseTooSlow):
+        raise DependencyUnavailableError(_BAD_REPLY) from None
+    except http.FetchError:
         raise DependencyUnavailableError(_UNREACHABLE) from None
-    finally:
-        session.close()
-
-
-def _read_capped(resp) -> bytes:
-    """The body, at most MAX_RESPONSE_BYTES and READ_DEADLINE seconds in all."""
-    return capped_body.read_capped(resp, MAX_RESPONSE_BYTES, READ_DEADLINE,
-                                   lambda: DependencyUnavailableError(_BAD_REPLY))
+    if resp.status in (401, 403):
+        raise DependencyUnavailableError(_BAD_KEY)
+    if resp.status >= 300:
+        log.info("Jellyfin answered HTTP %s", resp.status)
+        raise DependencyUnavailableError(_UNREACHABLE)
+    return resp.body
 
 
 def _json(body: bytes) -> dict:

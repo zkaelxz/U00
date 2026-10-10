@@ -10,7 +10,7 @@ import translate_engines as te
 from core import Line
 from services import settings_service, translate_run_service, translate_service
 from services.service_errors import DependencyUnavailableError, InvalidInputError
-from tests.http_fakes import StreamedBody
+from tests.http_fakes import StreamedBody, patch_post
 
 KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -44,7 +44,7 @@ def posts(monkeypatch):
         calls.append({"url": url, **kw})
         return replies.pop(0)
 
-    monkeypatch.setattr(requests, "post", fake_post)
+    patch_post(monkeypatch, fake_post)
     monkeypatch.setattr("engine_backends.shared._cancellable_sleep", lambda s: None)
     return calls
 

@@ -16,10 +16,7 @@ from services.service_errors import ConflictError
 
 class _Resp:
     def __init__(self, payload, ok=True):
-        self._payload, self.ok = payload, ok
-
-    def json(self):
-        return self._payload
+        self.body, self.ok = json.dumps(payload).encode(), ok
 
 
 @pytest.fixture(autouse=True)
