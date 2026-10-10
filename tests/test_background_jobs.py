@@ -2133,11 +2133,12 @@ class TestOrphanedWorkerExits:
 
 def _pid_gone(pid) -> bool:
     """Linux: True once `pid` has exited (a zombie counts: a re-parented
-    child may wait on a reaper that never collects it here)."""
+    child may wait on a reaper that never collects it here). A read that
+    lands while the kernel is releasing the task gets ESRCH, not ENOENT."""
     try:
         with open(f"/proc/{pid}/stat") as f:
             return f.read().rsplit(")", 1)[1].split()[0] == "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return True
 
 
