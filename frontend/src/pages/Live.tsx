@@ -40,6 +40,9 @@ import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
 import { buttonClass } from '../components/uiClasses'
 
+// Consecutive failed reads (about 10 s at POLL_MS) before the page says so.
+const POLL_FAILURES_SHOWN = 5
+
 const numValue = (n: number) => (Number.isFinite(n) ? n : '')
 
 type Session = { id: string; status: LiveSessionStatus | null; cues: LiveCue[]; next: number }
@@ -73,6 +76,8 @@ export default function LivePage() {
   const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
   const sessionRef = useRef<Session | null>(null)
+  const pollFailures = useRef(0)
+  const pollErrorShown = useRef(false)
   // Declared before the polling effect so a new session is in the ref first.
   useEffect(() => {
     sessionRef.current = session
@@ -127,6 +132,11 @@ export default function LivePage() {
     const after = readFrom(cur.cues, cur.next)
     try {
       const s = await getLive(id, after)
+      pollFailures.current = 0
+      if (pollErrorShown.current) {
+        pollErrorShown.current = false
+        setError(null)
+      }
       // Merged by id: a reply that overlaps another changes nothing twice.
       setSession((prev) => {
         if (!prev || prev.id !== id) return prev
@@ -142,7 +152,19 @@ export default function LivePage() {
         setError('That live session is gone (Baihe was restarted). Start a new one.')
         return false
       }
-      return true // a network blip: keep trying
+      // Signed out or not allowed: retrying every 2 s cannot help.
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        pollErrorShown.current = true
+        setError(describeLiveError(err))
+        return false
+      }
+      // A single blip is normal; a run of them means the feed is not coming.
+      pollFailures.current += 1
+      if (pollFailures.current >= POLL_FAILURES_SHOWN && !pollErrorShown.current) {
+        pollErrorShown.current = true
+        setError(describeLiveError(err))
+      }
+      return true
     }
   }, [])
 

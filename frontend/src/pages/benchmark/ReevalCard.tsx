@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkSet } from '../../api/benchmark'
 import { modelOptionLabel } from '../../api/translate'
@@ -67,13 +67,19 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
   // What one scheduled run would cost, from the last save of an enabled schedule.
   const [scheduleEstimate, setScheduleEstimate] = useState<ScheduleEstimate | null>(null)
 
+  // Only the newest request may write: a slow earlier reply would put old candidates back.
+  const loadSeq = useRef(0)
   const load = useCallback(() => {
+    const seq = ++loadSeq.current
     getReevalOverview().then(
       (o) => {
+        if (seq !== loadSeq.current) return
         setOverview(o)
         setLoadError(null)
       },
-      (e: unknown) => setLoadError(plainError(e)),
+      (e: unknown) => {
+        if (seq === loadSeq.current) setLoadError(plainError(e))
+      },
     )
   }, [])
   const loadDecisions = useCallback(() => {
@@ -118,6 +124,11 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
       status={showProgress ? runningStatus(job) : null}
       className="reeval"
     >
+      {loadError && (
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      )}
       <p className="muted reeval-intro">
         Is a newer model better than the one in production? Add candidate models, run them against production on a
         golden set, and promote one only if you decide to. Nothing changes by itself.
@@ -152,6 +163,7 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
         remote={remote}
         savedEstimate={scheduleEstimate}
         onSaved={(o) => {
+          loadSeq.current++
           setOverview(o)
           setScheduleEstimate(o.settings.schedule_enabled
             ? { est: o.schedule_estimate ?? null, error: o.schedule_estimate_error ?? null }
