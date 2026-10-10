@@ -34,6 +34,7 @@ import {
 } from './reportBundle'
 import { closeReportDialog, isReportDialogOpen, openReportDialog, subscribeReportDialog } from './reportDialogStore'
 import './reportProblem.css'
+import { buttonClass } from '../components/uiClasses'
 
 export function ReportProblemButton() {
   const open = useSyncExternalStore(subscribeReportDialog, isReportDialogOpen, isReportDialogOpen)
@@ -194,7 +195,7 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
             <button type="submit" className="primary" disabled={sending}>
               {sending ? 'Sending…' : 'Send report'}
             </button>
-            <button type="button" onClick={onClose}>Cancel</button>
+            <button type="button" className={buttonClass('secondary')} onClick={onClose}>Cancel</button>
           </div>
         </form>
       )}

@@ -20,7 +20,7 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
 import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
-import { FORCE_STOP_HINT, offersCancel, offersForceStop, jobOutcomeText, type JobRecord } from '../types/jobs'
+import { FORCE_STOP_HINT, jobName, offersCancel, offersForceStop, jobOutcomeText, type JobRecord } from '../types/jobs'
 import { formatDuration, isActive, isFinished, jobDetail, statusLabel } from './diagnosticsFormat'
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
 import { RunSettings } from './jobs/RunSettings'
@@ -40,7 +40,6 @@ const REFUSED_TEXT: Record<number, string> = {
   401: 'Sign in to see jobs.',
 }
 
-const jobName = (j: JobRecord) => j.description || j.job_id
 const fullTime = (sec: number) => new Date(sec * 1000).toLocaleString()
 
 export default function JobsPage() {

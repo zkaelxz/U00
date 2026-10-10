@@ -12,6 +12,7 @@ import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { TERMINAL_STATUSES } from '../../../../types/jobs'
 import type { RetranscribeApplyResult, RetranscribeResult } from '../../../../types/workspace'
 import { canRetranscribe, jobIsForLine, retranscribeOutcome } from './retranscribeLogic'
+import { buttonClass } from '../../../../components/uiClasses'
 
 // Parity audit B1 (R23): re-run Whisper on just this line's audio window, for
 // one misheard line without redoing the file. A GPU-queued job that writes
@@ -129,7 +130,7 @@ export function RetranscribeLine({
           {busy ? 'Re-transcribing…' : 'Re-transcribe this line'}
         </button>
         {active && job && (
-          <button type="button" onClick={() => cancelJob(job.job_id).catch(setError)}>
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>
             Cancel
           </button>
         )}

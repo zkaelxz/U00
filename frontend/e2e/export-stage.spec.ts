@@ -112,7 +112,7 @@ test('audiobook job can be cancelled', async ({ page }) => {
   await openMedia(page)
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
-  await page.getByRole('button', { name: 'Cancel job' }).click()
+  await page.getByRole('button', { name: /^Cancel / }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 

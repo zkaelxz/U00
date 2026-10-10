@@ -38,6 +38,7 @@ import type { LiveCue, LiveSessionStatus } from '../types/live'
 import type { TranslateEngine } from '../types/translate'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
+import { buttonClass } from '../components/uiClasses'
 
 const numValue = (n: number) => (Number.isFinite(n) ? n : '')
 
@@ -319,7 +320,7 @@ export default function LivePage() {
         </Section>
         <div className="actions">
           {active ? (
-            <button type="button" className="primary" onClick={() => void stop()} disabled={stopping}>
+            <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping}>
               {stopping ? 'Stopping…' : status === 'queued' ? 'Cancel' : 'Stop'}
             </button>
           ) : (

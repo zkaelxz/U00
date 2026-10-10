@@ -40,6 +40,7 @@ import {
   useRunScoped,
 } from './useGlossaryRun'
 import './autotuneGlossary.css'
+import { buttonClass } from '../../../components/uiClasses'
 
 interface Props {
   // The engine the scan will really use: the title's saved one.
@@ -223,7 +224,7 @@ function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { sou
               {startTranslationLabel(chosen.length)}
             </button>
           )}
-          <button type="button" disabled={busy} onClick={cancel}>
+          <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={cancel}>
             Cancel
           </button>
           {missing.length > 0 && <span className="muted">{missingTranslationText(missing)}</span>}

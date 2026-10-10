@@ -114,7 +114,7 @@ function EditPerson({ seriesId, person, onSaved, onCancel }: {
         <button type="button" className="primary" disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>
           {busy ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </fieldset>

@@ -54,7 +54,7 @@ test('starts an import, shows progress with cancel, then the result', async ({ p
   await expect(start).toBeEnabled()
   await start.click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
-  await expect(page.getByRole('button', { name: /cancel job/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Cancel / })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Imported 4,321 characters (12 EPUB sections).' })).toBeVisible()
   expect(body).toEqual({ url: 'https://novels.example.com/book/1', chapters: 'first', count: 10, mode: 'replace' })
 })

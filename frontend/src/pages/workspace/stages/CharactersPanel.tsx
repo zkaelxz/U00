@@ -195,7 +195,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                 <button type="submit" disabled={busy || renameProblemText !== null} title={renameProblemText ?? undefined}>
                   {entry.line_count ? `Rename on all ${entry.line_count} lines` : 'Rename'}
                 </button>
-                <button type="button" disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
               </form>
             )}
             {mergeInto === null ? (
@@ -220,7 +220,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                 <button type="submit" disabled={busy || !mergeInto}>
                   {mergeInto ? `Merge ${entry.line_count} ${entry.line_count === 1 ? 'line' : 'lines'}` : 'Merge'}
                 </button>
-                <button type="button" disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
               </form>
             )}
           </div>

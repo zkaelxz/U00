@@ -16,7 +16,7 @@ import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSessio
 import { isActive, jobDetail, statusLabel } from '../pages/diagnosticsFormat'
 import { jobLinks } from '../pages/jobs/jobsFilter'
 import { routeHref, type Route } from '../router'
-import { FORCE_STOP_HINT, offersCancel, offersForceStop, type JobRecord } from '../types/jobs'
+import { FORCE_STOP_HINT, jobName, offersCancel, offersForceStop, type JobRecord } from '../types/jobs'
 import { Badge } from './Badge'
 import { statusTone } from './labels'
 import { activeCount, badgeText, elapsedText, jobsButtonLabel, menuJobs } from './jobsMenuState'
@@ -118,7 +118,7 @@ export function JobsMenu() {
           ) : (
             <ul className="jobs-list">
               {shown.map((j) => {
-                const name = j.description || j.job_id
+                const name = jobName(j)
                 const detail = jobDetail(j)
                 return (
                   <li key={j.job_id} className="jobs-item">
