@@ -412,13 +412,14 @@ def _reflect_prompt_parts(drama_id: int, translate_args: dict, engine, batch: li
             dict(zip(ids, sources)), dict(zip(ids, ctx["speaker_labels"])))
 
 
-def sibling_stage_job(pipeline_id: str, stage: str):
-    """The other bulk_jobs row from the same Reflect pipeline for a given
+def sibling_stage_job(pipeline_id: str, stage: str, skip_failed: bool = False):
+    """The newest bulk_jobs row from the same Reflect pipeline for a given
     stage, or None if it doesn't exist (yet, or ever -- e.g. every line
-    dropped out before reaching it). A submit that failed is skipped: it
-    holds no results and must not block a retry."""
+    dropped out before reaching it). skip_failed: a next-stage submit that
+    failed holds no results and must not block a retry; a parent stage
+    that ended failed still holds the drafts its children build on."""
     for job in db.list_bulk_jobs(pipeline_id=pipeline_id):
-        if job.get("stage") == stage and job.get("status") != "failed":
+        if job.get("stage") == stage and not (skip_failed and job.get("status") == "failed"):
             return job
     return None
 
@@ -784,13 +785,11 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
     rows = db.list_bulk_job_lines(job["id"])
     survivors = [r["line_id"] for r in rows
                  if (r["result_text"] if nxt == "reflect" else r["result_text"] is not None)]
-    if not survivors or sibling_stage_job(job["pipeline_id"], nxt) is not None:
-        db.update_bulk_job(job["id"], status="applied", result_summary=summary, last_error=None)
-        return "applied"
+    if not survivors or sibling_stage_job(job["pipeline_id"], nxt, skip_failed=True) is not None:
+        return _leave_applying(job["id"], "applied", result_summary=summary, last_error=None)
     if engine is None:
-        db.update_bulk_job(job["id"], status="needs_resubmit", result_summary=summary,
-                           last_error="Waiting for an API key to send the next Reflect stage.")
-        return "needs_resubmit"
+        return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
+                               last_error="Waiting for an API key to send the next Reflect stage.")
     _cap, error = translate_engines.resolve_cost_cap(
         None, monthly_cap_usd, db.get_month_spend() if monthly_cap_usd else 0.0)
     if not error:
@@ -802,18 +801,23 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
             drafts = _stage_texts(sibling_stage_job(job["pipeline_id"], "faithful"))
             error = _advance_to_expressive_stage(job, survivors, drafts, texts, en_at_submit, engine)
         if error is None:
-            db.update_bulk_job(job["id"], status="applied", result_summary=summary, last_error=None)
-            return "applied"
+            return _leave_applying(job["id"], "applied", result_summary=summary, last_error=None)
         summary["next_stage_attempts"] = summary.get("next_stage_attempts", 0) + 1
         if summary["next_stage_attempts"] < STAGE_SUBMIT_ATTEMPTS:
-            db.update_bulk_job(job["id"], status="needs_resubmit", result_summary=summary,
-                               last_error=f"The next Reflect stage couldn't be sent yet: {error}")
-            return "needs_resubmit"
+            return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
+                                   last_error=f"The next Reflect stage couldn't be sent yet: {error}")
     summary["drafts_applied"] = _apply_reflect_drafts(job)
-    db.update_bulk_job(job["id"], status="applied", result_summary=summary,
-                       last_error=f"The next Reflect stage wasn't sent ({error}); "
-                                  "the first-pass drafts were used instead.")
-    return "applied"
+    return _leave_applying(job["id"], "applied", result_summary=summary,
+                           last_error=f"The next Reflect stage wasn't sent ({error}); "
+                                      "the first-pass drafts were used instead.")
+
+
+def _leave_applying(job_id: int, status: str, **fields) -> str:
+    # A Cancel that landed while the next paid stage was being sent wins.
+    if not db.set_bulk_job_status_if(job_id, ("applying",), status):
+        return db.get_bulk_job(job_id)["status"]
+    db.update_bulk_job(job_id, **fields)
+    return status
 
 
 def _apply_reflect_drafts(job: dict) -> int:
@@ -1210,7 +1214,13 @@ def check_once(bulk_job_id: int, provider, engine=None, monthly_cap_usd: float =
 def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=None) -> str:
     job = db.get_bulk_job(bulk_job_id)
     if job is not None and job["status"] == "needs_resubmit":
-        return _advance_pipeline(job, engine, monthly_cap_usd, job.get("result_summary") or {})
+        if not db.set_bulk_job_status_if(bulk_job_id, ("needs_resubmit",), "applying"):
+            return db.get_bulk_job(bulk_job_id)["status"]
+        try:
+            return _advance_pipeline(job, engine, monthly_cap_usd, job.get("result_summary") or {})
+        except Exception:
+            db.set_bulk_job_status_if(bulk_job_id, ("applying",), "needs_resubmit")
+            raise
     if job is None or job["status"] not in ("submitted", "auth_error"):
         return job["status"] if job else "missing"
     try:
@@ -1386,8 +1396,9 @@ def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None)
         if job["status"] == "applying":
             # Left mid-apply by a stopped app: some results may have landed
             # and been billed, so they are never applied a second time.
-            if not _check_lock(job["id"]).locked():
-                db.update_bulk_job(job["id"], status="failed", last_error=(
+            if not _check_lock(job["id"]).locked() and db.set_bulk_job_status_if(
+                    job["id"], ("applying",), "failed"):
+                db.update_bulk_job(job["id"], last_error=(
                     "The app stopped while applying these results; lines without a result "
                     "can be run again."))
             continue

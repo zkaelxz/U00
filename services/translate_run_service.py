@@ -637,7 +637,8 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
             break
         nxt_stage = (_NEXT_REFLECT_STAGE.get(job.get("stage"))
                      if job.get("kind") == "reflect" and job.get("status") == "applied" else None)
-        nxt = bulk_translate.sibling_stage_job(job["pipeline_id"], nxt_stage) if nxt_stage else None
+        nxt = (bulk_translate.sibling_stage_job(job["pipeline_id"], nxt_stage, skip_failed=True)
+               if nxt_stage else None)
         if not nxt:
             break
         current = nxt["id"]

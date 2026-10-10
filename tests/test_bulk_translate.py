@@ -904,6 +904,21 @@ class TestBulkReflectPipeline:
         assert isolated_db.get_bulk_job(stage3["id"])["result_summary"]["kept_your_edit"] == 1
         assert isolated_db.load_line_objects(did)[0].en == "my own edit"
 
+    def test_a_failed_faithful_job_still_feeds_its_drafts_to_the_expressive_stage(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=1)
+        jid1 = bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude",
+                                          {"locale": "en-US"})
+        lid = isolated_db.list_bulk_job_lines(jid1)[0]["line_id"]
+        self._drive_stage(isolated_db, engine, jid1, lambda i: "the-draft")
+        isolated_db.update_bulk_job(jid1, status="failed")
+        stage2 = bt.sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "reflect")
+
+        assert self._drive_stage(isolated_db, engine, stage2["id"], lambda i: "polish") == "applied"
+        stage3_prompt = engine.client.messages.batches.created[0]["params"]["messages"][0]["content"]
+        assert "the-draft" in stage3_prompt and lid in [
+            r["line_id"] for r in isolated_db.list_bulk_job_lines(stage2["id"])]
+
     def test_engines_without_a_batch_api_are_rejected(self, isolated_db):
         did = _drama(isolated_db, n=1)
         with pytest.raises(ValueError, match="batch API"):
@@ -1329,6 +1344,23 @@ class TestApplyOnce:
         assert job["status"] == "failed" and job["last_error"]
 
 
+    def test_resume_does_not_fail_an_apply_that_finished_meanwhile(self, isolated_db, monkeypatch):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2)
+        bulk_id = _submit(isolated_db, did, engine)
+        isolated_db.update_bulk_job(bulk_id, status="applying")
+        background_jobs.clear_all_jobs()
+
+        class FinishesInTheGap:
+            def locked(self):
+                isolated_db.update_bulk_job(bulk_id, status="applied")
+                return False
+        monkeypatch.setattr(bt, "_check_lock", lambda _id: FinishesInTheGap())
+
+        bt.resume_pending(did, lambda e, m: engine)
+
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "applied"
+
 class TestUnreturnedRequests:
     def test_a_request_with_no_result_counts_as_failed_and_missing(self, isolated_db):
         engine = _claude_engine()
@@ -1398,12 +1430,33 @@ class TestReflectStageSubmitFailure:
 
         assert bt.check_once(jid, provider, engine=engine) == "needs_resubmit"
         pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
-        assert bt.sibling_stage_job(pipeline, "reflect") is None
+        assert bt.sibling_stage_job(pipeline, "reflect", skip_failed=True) is None
 
         assert bt.check_once(jid, provider, engine=engine) == "applied"
         stage2 = bt.sibling_stage_job(pipeline, "reflect")
         assert stage2 is not None and stage2["status"] == "submitted"
         assert _usage_ops(isolated_db, did) == ["reflect_faithful_bulk"]
+
+    def test_a_cancel_during_a_resubmit_is_not_overwritten(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        self._break_submit(monkeypatch, engine, times=1)
+        provider = bp.ClaudeBatchProvider(engine)
+        assert bt.check_once(jid, provider, engine=engine) == "needs_resubmit"
+        batches = engine.client.messages.batches
+        real = batches.create
+
+        def create(requests):
+            bt.cancel_bulk_job(jid)
+            return real(requests)
+        monkeypatch.setattr(batches, "create", create)
+
+        assert bt.check_once(jid, provider, engine=engine) == "cancelled"
+        assert bt.check_once(jid, provider, engine=engine) == "cancelled"
+        assert isolated_db.get_bulk_job(jid)["status"] == "cancelled"
+        pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        assert sorted(j["status"] for j in isolated_db.list_bulk_jobs(pipeline_id=pipeline)
+                      if j["stage"] == "reflect") == ["failed", "submitted"]
 
     def test_the_drafts_are_kept_when_the_next_stage_never_gets_submitted(self, isolated_db, monkeypatch):
         engine, did, jid = self._pipeline(isolated_db)
