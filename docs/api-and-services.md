@@ -285,6 +285,10 @@ disk. The pattern, where a route takes a raw body or multipart:
 - A route that streams back media supports Range requests and HEAD
   (`/api/media/dramas/{drama_id}/audio`, `/video`), under `media.stream`.
 
+## Declared settings and the Settings page
+
+`GET /api/settings/schema` (`admin.settings`) returns the rows of `lib/settings_schema.py` that have a field on the page: label, help, unit, type, limits and, for a choice, its resolved options. Secrets, `.env` keys, rows with no tab and (unless Developer Mode is on) `dev_only` rows are left out, and it never carries a value; the page reads values from `GET /api/settings` and saves through `POST /api/settings`. `frontend/src/pages/settings/SchemaCard.tsx` renders one field per row of a `section` (the Translation style, Spending and Advanced cards use it), so to add a setting you declare it, give the validator in `settings_service` its rule, and the field follows. A hand-written card keeps the rows it owns by marking them `custom`. `services/settings_schema_service.py` builds the response.
+
 ## Server-sent events
 
 `GET /api/events?topics=jobs,notifications,live`

@@ -262,6 +262,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `scanlate_run_service.py`
 - `series_people_service.py`
 - `service_errors.py` (re-exports `lib/errors.py` for the existing call sites)
+- `settings_schema_service.py` (the declared settings as the metadata the Settings page builds forms from)
 - `settings_service.py`
 - `shutdown_service.py`
 - `source_domains_service.py`
@@ -304,7 +305,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `settings.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
