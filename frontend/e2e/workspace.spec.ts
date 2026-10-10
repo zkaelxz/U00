@@ -294,9 +294,9 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(run.bodies[0]).toMatchObject({ extra_names: 'names: Wei', expected_speakers: 2, run_diarize: false })
 
-  await page.getByRole('button', { name: 'Cancel job' }).click()
+  await page.getByRole('button', { name: /^Cancel / }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
-  await expect(page.getByRole('button', { name: 'Cancel job' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Cancel / })).toHaveCount(0)
 })
 
 test('an out-of-range option is caught before saving and a server 409 shows a banner', async ({ page }) => {

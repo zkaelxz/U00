@@ -191,7 +191,7 @@ test('install errors: 409 shows the server sentence, 404 the unknown-package lin
   expect(unmocked).toEqual([])
 })
 
-test('a running job blocks install and reset with a reason, and a banner links to Jobs', async ({ page }) => {
+test('a running job blocks install and reset with a reason, and the reset reason links to Jobs', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, {
     jobs: [job()],
@@ -199,29 +199,17 @@ test('a running job blocks install and reset with a reason, and a banner links t
   })
   await page.goto('/#/diagnostics')
   await expect(page.getByTestId('diagnostics-summary')).toContainText('1 job running')
-  const banner = page.getByTestId('jobs-summary')
-  await expect(banner).toContainText('1 running')
-  await expect(banner.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
-  // The table, Cancel and Delete moved to the Jobs page.
+  await expect(page.getByTestId('jobs-summary')).toHaveCount(0)
+  // The table, Cancel and Delete live on the Jobs page.
   await expect(page.getByTestId('job-list')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Cancel Translate/ })).toHaveCount(0)
   await openSection(page, /^Packages/)
   await expect(page.getByTestId('dependency-panel')).toContainText('Wait for running jobs to finish.')
   await openSection(page, /^Danger zone/)
-  await expect(page.locator('.danger-zone')).toContainText('Stop running jobs first (see Jobs above).')
+  await expect(page.locator('.danger-zone')).toContainText('Stop running jobs first.')
+  await expect(page.locator('.danger-zone').getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')
   await expect(page.getByRole('button', { name: 'Reset library' })).toBeDisabled()
-  expect(unmocked).toEqual([])
-})
-
-test('without jobs the summary is hidden; with finished ones it is a quiet line and a link', async ({ page }) => {
-  const unmocked = await guard(page)
-  await mockPage(page, { jobs: [job({ status: 'done', finished_at: 2, progress: 1 })] })
-  await page.goto('/#/diagnostics')
-  const summary = page.getByTestId('jobs-summary')
-  await expect(summary).toContainText('None running')
-  await expect(summary).not.toHaveClass(/banner/)
-  await expect(summary.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
   expect(unmocked).toEqual([])
 })
 
