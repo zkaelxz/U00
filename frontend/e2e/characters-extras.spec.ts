@@ -137,7 +137,7 @@ test('voice suggestions accept and reject', async ({ page }) => {
   await expect(sugg).toBeHidden()
   // The row picks up the accepted name without a stale-form "unsaved change".
   await expect(page.getByLabel('Name for SPEAKER_00')).toHaveValue('Wei Ying')
-  await expect(page.getByTestId('character-extras-SPEAKER_00')).toContainText('Shared with other dramas in this series')
+  await expect(page.getByTestId('character-extras-SPEAKER_00')).toContainText('Shared with other titles in this series')
   await expect(page.getByLabel('Gender for SPEAKER_00').locator('option').first()).toHaveText('Series default (he/him)')
   expect(m.posts.map((p) => p.path)).not.toContain('/api/characters/dramas/1/character')
   expect(m.unmocked).toEqual([])
@@ -152,7 +152,7 @@ test('samples, series default, custom pronouns and remember in this series', asy
   await expect(page.getByTestId('character-extras-SPEAKER_02')).toContainText('No lines attributed to this speaker yet.')
   // Linked speaker: shared caption, series default named, no remember button.
   const lan = page.getByTestId('character-extras-SPEAKER_01')
-  await expect(lan).toContainText('Shared with other dramas in this series')
+  await expect(lan).toContainText('Shared with other titles in this series')
   await expect(lan.getByRole('button')).toHaveCount(0)
   await expect(page.getByLabel('Gender for SPEAKER_01')).toHaveValue('')
   await expect(page.getByLabel('Gender for SPEAKER_01').locator('option:checked')).toHaveText('Series default (she/her)')
@@ -182,7 +182,7 @@ test('samples, series default, custom pronouns and remember in this series', asy
   })
   await expect(page.getByTestId('series-cast').locator('li')).toHaveCount(3)
   await expect(remember).toBeHidden()
-  await expect(page.getByTestId('character-extras-SPEAKER_00')).toContainText('Shared with other dramas in this series')
+  await expect(page.getByTestId('character-extras-SPEAKER_00')).toContainText('Shared with other titles in this series')
   await shot(page, 'characters-extras-desktop')
   expect(m.unmocked).toEqual([])
 })

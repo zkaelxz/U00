@@ -88,6 +88,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/characters/series/{series_id}/characters/{character_id}/delete` | local_only() |
 | `GET /api/characters/voice-bank` | library.read |
 | `GET /api/data-usage` | local_only() |
+| `POST /api/data-usage/clean-temp` | local_only() |
 | `POST /api/data-usage/move` | local_only() |
 | `POST /api/data-usage/to-trash` | local_only() |
 | `GET /api/data-usage/trash` | local_only() |
@@ -108,6 +109,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/dependencies/{package}/install` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/test-upgrade` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/upgrade` | local_only() |
+| `GET /api/diagnostics/dependency-install` | admin.diagnostics |
 | `GET /api/diagnostics/gpu-torch` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/check` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/setup` | local_only() |
@@ -220,6 +222,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/jobs/{job_id}` | library.read |
 | `POST /api/jobs/{job_id}/cancel` | jobs.cancel |
 | `POST /api/jobs/{job_id}/delete` | local_only() |
+| `POST /api/jobs/{job_id}/force-stop` | jobs.cancel |
 | `GET /api/jobs/{job_id}/stages` | library.read |
 | `GET /api/language-packs` | library.read |
 | `POST /api/language-packs/defaults/{language}` | admin.settings |
@@ -517,6 +520,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/system/update/download` | local_only() |
 | `POST /api/system/update/install` | local_only() |
 | `POST /api/system/update/settings` | local_only() |
+| `GET /api/timing-check/dramas/{drama_id}` | lines.read |
+| `POST /api/timing-check/dramas/{drama_id}/run` | jobs.start |
+| `POST /api/timing-check/dramas/{drama_id}/snap` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/autotune` | library.read |
 | `POST /api/transcribe/dramas/{drama_id}/autotune` | jobs.start |
 | `POST /api/transcribe/dramas/{drama_id}/autotune/apply` | lines.edit |
@@ -527,12 +533,17 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/transcribe/dramas/{drama_id}/compare-transcription/run` | jobs.start |
 | `GET /api/transcribe/dramas/{drama_id}/config` | library.read |
 | `POST /api/transcribe/dramas/{drama_id}/config` | lines.edit |
+| `GET /api/transcribe/dramas/{drama_id}/gaps` | lines.read |
+| `POST /api/transcribe/dramas/{drama_id}/gaps/add-lines` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/lines/{line_id}/retranscribe` | lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/lines/{line_id}/retranscribe` | jobs.start |
 | `POST /api/transcribe/dramas/{drama_id}/lines/{line_id}/retranscribe/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/retime/apply` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/retime/result` | lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/retime/run` | jobs.start |
+| `GET /api/transcribe/dramas/{drama_id}/retranscribe-lines` | lines.read |
+| `POST /api/transcribe/dramas/{drama_id}/retranscribe-lines` | jobs.start |
+| `POST /api/transcribe/dramas/{drama_id}/retranscribe-lines/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/run` | jobs.start |
 | `GET /api/transcribe/dramas/{drama_id}/speech-coverage` | library.read |
 | `POST /api/transcribe/dramas/{drama_id}/speech-coverage` | jobs.start |

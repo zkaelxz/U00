@@ -4,7 +4,6 @@ go through ntpath; no real pip."""
 import json
 import ntpath
 import os
-import subprocess
 from importlib import metadata
 from pathlib import PurePosixPath
 from types import ModuleType, SimpleNamespace
@@ -139,13 +138,13 @@ def test_unknown_keys_and_cuda_torch_are_blocked_before_pip_runs(monkeypatch):
 def fake_runner(doc=None, rc=0, text=""):
     seen = {}
 
-    def run(argv, **kw):
-        seen["argv"], seen["kw"] = argv, kw
+    def run(argv, timeout):
+        seen["argv"], seen["timeout"] = argv, timeout
         out = argv[argv.index("--report") + 1]
         if doc is not None:
             with open(out, "w", encoding="utf-8") as f:
                 json.dump(doc, f)
-        return SimpleNamespace(returncode=rc, stdout=text, stderr="")
+        return SimpleNamespace(returncode=rc, stdout=text, stderr="", timed_out=False)
     run.seen = seen
     return run
 
@@ -157,7 +156,7 @@ def test_dry_run_runs_the_registry_argv_with_dry_run_and_report():
     assert why is None and doc["install"]
     assert argv[1:4] == ["-m", "pip", "install"] and "--dry-run" in argv
     assert argv[argv.index("paddleocr"):argv.index("paddleocr") + 2] == ["paddleocr", "paddlepaddle"]
-    assert run.seen["kw"]["timeout"] == plan_mod.PLAN_TIMEOUT_SECONDS
+    assert run.seen["timeout"] == plan_mod.PLAN_TIMEOUT_SECONDS
     assert not any(a.startswith("--index-url") for a in argv)
     assert not os.path.exists(argv[argv.index("--report") + 1])        # temp report removed
 
@@ -167,9 +166,13 @@ def test_dry_run_failure_reasons():
     assert "online" in plan_mod.run_dry_run(["paddleocr"], runner=fake_runner(rc=1, text="no network"))[1]
     assert "cannot preview" in plan_mod.run_dry_run(["paddleocr"], runner=fake_runner())[1]
 
-    def broken(argv, **kw):
-        raise subprocess.TimeoutExpired(argv, 1)
+    def broken(argv, timeout):
+        raise OSError("no pip")
     assert "could not be run" in plan_mod.run_dry_run(["paddleocr"], runner=broken)[1]
+
+    def slow(argv, timeout):
+        return SimpleNamespace(returncode=None, stdout="", stderr="", timed_out=True)
+    assert "could not be run" in plan_mod.run_dry_run(["paddleocr"], runner=slow)[1]
 
 
 # --- is it loaded? ----------------------------------------------------------------

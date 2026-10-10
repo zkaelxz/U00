@@ -1,6 +1,7 @@
 """Workspace video-URL download: POST /api/media/dramas/{id}/download-url
 (local_only). yt_dlp is a fake module in sys.modules, ffmpeg is a fake
 run_cancellable and DNS is patched: no network, no real yt-dlp or ffmpeg."""
+from lib import http
 import importlib.machinery
 import os
 import sys
@@ -22,7 +23,8 @@ import video_export
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, jobs_service, media_upload_service, url_guard
+from services import auth_service, jobs_service, media_upload_service
+from lib import url_guard
 from services import url_media_service as svc
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
@@ -395,7 +397,7 @@ def direct(env, monkeypatch):
         hops.append((url, ip))
         sent.append(dict(headers))
         return script.get(url) or _Resp()
-    monkeypatch.setattr(metadata_service, "pinned_get", fake_get)
+    monkeypatch.setattr(http, "pinned_get", fake_get)
     return types.SimpleNamespace(hops=hops, script=script, sent=sent)
 
 

@@ -1,7 +1,7 @@
 # File organization
 
 A short index: one line per package, with its entry point. Every non-test `.py` file at the top level,
-in `services/` and in `api/routers/` is named below, because the hook in `.claude/hooks/file-organization-check.py`
+in `lib/`, in `services/` and in `api/routers/` is named below, because the hook in `.claude/hooks/file-organization-check.py`
 warns when a file's name is missing from this file. A new file there gets its name added to the right group.
 Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier per-file descriptions are kept in
 `docs/archive/file-organization-full.md`.
@@ -11,7 +11,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `service_errors.py` | called by routers and `cli.py` |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`); imports nothing of the app's own code | imported by every layer |
+| `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`) | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
@@ -31,10 +32,15 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `action_tiers.py`
 - `applog.py`
 - `background_jobs.py`
+- `job_force_stop.py` (Force stop for a thread job that ignores Cancel: closes its record, abandons the worker, refuses a rerun while it lives)
+- `gpu_probe.py` (nvidia-smi readings taken before background_jobs' lock, used once by the GPU-slot decision)
+- `job_process_kill.py` (stopping a job's worker process; `background_jobs` re-exports the `kill_tree` wrapper here, which adds the app-log warning on top of `lib/proc_kill.py`)
+- `job_process_result.py` (the channel a process-job worker sends its result through: a large result travels as a file so a child killed mid-write cannot hang the watcher)
 - `benchmark.py`
 - `check_setup.py`
 - `cli.py`
 - `cli_subtitle.py` (the `import-subtitle` command)
+- `cli_timing.py` (the `timing-check` command, and the wait after a Qwen-only `transcribe`)
 - `core.py`
 - `db.py`
 - `diagnostics.py`
@@ -57,6 +63,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `audio_preprocess.py`
 - `diarize.py`
 - `forced_align.py`
+- `gpu_wait_message.py` (the waiting text when another program is using the GPU)
+- `long_line_split.py` (last-resort even split for lines no punctuation or pause can cut, and the plain-words reasons a re-split found nothing)
 - `memory_headroom.py` (the Settings keep-free VRAM/RAM check the model loaders call)
 - `mixed_language.py`
 - `ollama_unload.py`
@@ -76,12 +84,14 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
+- `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
 - `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
 - `live_cue_translation.py` (the per-cue context and error note for Live)
 - `live_fetch.py`
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
+- `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
 - `translate_engines.py`
 - `translation_guide.py`
 - `translation_memory.py`
@@ -94,6 +104,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
 - `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
+- `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
 - `video_download.py`
 - `video_export.py`
 
@@ -128,8 +139,20 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `navigator.py`
 - `page_fetch.py`
 - `page_scroll.py` (scroll-through-then-settle step shared by the rendered and signed-in fetches)
+- `page_capture_checks.py` (blank-page probe, re-capture lookup and fixed failure messages for the extension bridge)
 - `page_server.py`
 - `title_library.py`
+
+## lib/
+
+Shared helpers with no domain knowledge; nothing here imports `services`, `api`, `db` or a domain module (`tests/test_static_analysis.py` enforces it).
+
+- `capped_body.py` (byte- and time-capped read of a streamed HTTP body)
+- `http.py` (the one outbound GET/POST: guard on every redirect hop, pinned connection, byte cap, total deadline, fixed-text errors)
+- `proc.py` (the one runner for external commands whose output is read: own process group, tree kill on timeout or cancel, bounded output drain)
+- `proc_kill.py` (`kill_tree`: kills a child and everything it started)
+- `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
+- `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 
 ## services/
 
@@ -145,7 +168,6 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `blocked_retry_service.py`
 - `browser_install_service.py`
 - `bug_report_service.py`
-- `capped_body.py`
 - `characters_service.py`
 - `comic_chapters_service.py`
 - `comic_view_service.py`
@@ -163,6 +185,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `disk_usage_clips_service.py`
 - `disk_usage_links.py`
 - `disk_usage_service.py`
+- `temp_cleanup_service.py`
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
@@ -171,10 +194,12 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `export_service.py`
 - `extension_service.py`
 - `fixflag_transcribe.py`
+- `bulk_job_view.py` (public view of a bulk_jobs row)
 - `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
 - `glossary_service.py`
+- `gpu_lock_recovery_service.py` (frees GPU slots a killed server left behind; wait message for them)
 - `jellyfin_service.py`
 - `job_checkpoint_service.py`
 - `job_stage_service.py`
@@ -182,6 +207,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `jobs_service.py`
 - `language_pack_service.py`
 - `library_admin_service.py`
+- `library_restore_sql.py` (SQL helpers for the library restore)
 - `library_service.py`
 - `line_ai_service.py`
 - `line_provenance_service.py`
@@ -211,18 +237,21 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `real_model_check_service.py`
 - `remote_health_service.py`
 - `restructure_service.py`
+- `retranscribe_many_service.py` (Review's "Re-transcribe selected": start, read and apply of the many-line re-transcription; shares the one-line job's id)
+- `retranscribe_worker.py` (the spawned workers and result hooks of the one-line and many-line re-transcriptions; the one-line start, read and apply stay in transcribe_service)
 - `retime_service.py`
 - `review_extras_service.py`
 - `review_jobs_service.py`
 - `review_lines_service.py`
 - `review_records_service.py`
+- `run_settings_service.py` (allow-listed settings a job run used, shown in Jobs Details)
 - `safe_fetch.py`
 - `saved_comics_service.py`
 - `scanlate_pages_service.py`
 - `scanlate_render_service.py`
 - `scanlate_run_service.py`
 - `series_people_service.py`
-- `service_errors.py`
+- `service_errors.py` (re-exports `lib/errors.py` for the existing call sites)
 - `settings_service.py`
 - `shutdown_service.py`
 - `source_domains_service.py`
@@ -241,13 +270,14 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `spend_history_service.py`
 - `stronger_engine_service.py`
 - `subtitle_import_service.py`
+- `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
+- `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
 - `transcribe_service.py`
 - `translate_run_service.py`
 - `translate_service.py`
 - `translate_thinking_service.py`
 - `translation_version_service.py`
 - `update_service.py`
-- `url_guard.py`
 - `url_media_service.py`
 - `usage_recost_service.py`
 - `voice_bank_audio_service.py`
@@ -262,7 +292,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
@@ -287,6 +317,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `diagnostics_routes.py`
 - `pending_install_routes.py`
 - `diarization_routes.py`
+- `timing_check_routes.py`
 - `discover_lookup_routes.py`
 - `discover_routes.py`
 - `disk_usage_routes.py`

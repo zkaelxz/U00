@@ -137,14 +137,19 @@ describe('structure guards', () => {
   })
   it('turns a 409 into plain text', () => {
     expect(structureErrorText(new ApiError(409, { code: 'conflict', message: 'A background job is still running' }))).toBe(JOB_RUNNING_MESSAGE)
-    expect(structureErrorText(new ApiError(409, { code: 'conflict', message: "This drama's lines changed" }))).toBe(LINES_CHANGED_MESSAGE)
+    expect(structureErrorText(new ApiError(409, { code: 'conflict', message: "This title's lines changed" }))).toBe(LINES_CHANGED_MESSAGE)
     expect(structureErrorText(new ApiError(422, { code: 'invalid_input', message: 'x' }))).toBeNull()
   })
-  it('matches running jobs to the drama by id suffix', () => {
+  it('matches running jobs to the title by id suffix', () => {
     expect(jobRunsOnDrama([{ job_id: 'translate_3', status: 'running' }], 3)).toBe(true)
     expect(jobRunsOnDrama([{ job_id: 'translate_13', status: 'running' }], 3)).toBe(false)
     expect(jobRunsOnDrama([{ job_id: 'translate_3', status: 'done' }], 3)).toBe(false)
     expect(jobRunsOnDrama([{ job_id: 'bulk_translate_3', status: 'queued' }], 3)).toBe(true)
+  })
+  it('trusts the server drama_id and ignores stale rows', () => {
+    expect(jobRunsOnDrama([{ job_id: 'sourceimport_25', status: 'running', drama_id: null }], 25)).toBe(false)
+    expect(jobRunsOnDrama([{ job_id: 'transcribe_25', status: 'running', drama_id: 25 }], 25)).toBe(true)
+    expect(jobRunsOnDrama([{ job_id: 'transcribe_25', status: 'running', drama_id: 25, stale: true }], 25)).toBe(false)
   })
 })
 
@@ -220,16 +225,16 @@ describe('AI re-segmentation preview (R47)', () => {
   it('reads why an apply was refused', () => {
     const err = (status: number, message: string) => new ApiError(status, { code: 'x', message })
     expect(llmApplyProblem(err(422, 'Re-segmenting would clear translations, flags or notes on the lines being split -- pass confirm=true.'))).toBe('confirm')
-    expect(llmApplyProblem(err(409, "This drama's lines changed since the preview -- run the preview again."))).toBe('changed')
-    expect(llmApplyProblem(err(409, "This drama's lines changed since you loaded them -- reload and try again."))).toBe('changed')
-    expect(llmApplyProblem(err(409, 'A background job is still running for this drama -- wait for it to finish.'))).toBe('job')
-    expect(llmApplyProblem(err(409, 'A re-segmentation is already running for this drama.'))).toBe('job')
-    expect(llmApplyProblem(err(404, 'No LLM re-segmentation preview is ready for this drama -- run the preview first.'))).toBe('gone')
+    expect(llmApplyProblem(err(409, "This title's lines changed since the preview -- run the preview again."))).toBe('changed')
+    expect(llmApplyProblem(err(409, "This title's lines changed since you loaded them -- reload and try again."))).toBe('changed')
+    expect(llmApplyProblem(err(409, 'A background job is still running for this title -- wait for it to finish.'))).toBe('job')
+    expect(llmApplyProblem(err(409, 'A re-segmentation is already running for this title.'))).toBe('job')
+    expect(llmApplyProblem(err(404, 'No LLM re-segmentation preview is ready for this title -- run the preview first.'))).toBe('gone')
     expect(llmApplyProblem(err(503, 'down'))).toBeNull()
     expect(llmApplyProblem(new Error('x'))).toBeNull()
     // The apply job's own error text (checked again at run time).
     expect(llmApplyProblem('Re-segmenting would now clear translations, flags or notes on the lines being split -- nothing was changed; apply again with confirm=true.')).toBe('confirm')
-    expect(llmApplyProblem("This drama's lines changed since the preview -- nothing was changed; run the preview again.")).toBe('changed')
+    expect(llmApplyProblem("This title's lines changed since the preview -- nothing was changed; run the preview again.")).toBe('changed')
     expect(llmApplyProblem('Something else')).toBeNull()
   })
 

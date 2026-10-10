@@ -2,6 +2,7 @@ import { expect, test, type Page, type Request } from '@playwright/test'
 
 import { ME } from './authMocks'
 import { mockPlainPlan } from './pendingInstallMocks'
+import { mockDependencyInstall } from './dependencyInstallMock'
 
 // Packages > Install by task, sizes, Source links, not-offered packages and
 // the pip-cache hint. Every install POST is mocked; a catch-all fails the
@@ -151,23 +152,18 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
     sent.push(r.request())
     return r.fulfill({ json: UPDATES })
   })
-  await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch/setup', (r) => {
-    sent.push(r.request())
-    return r.fulfill({
-      json: { package: 'torch', ok: true, output_tail: ['Successfully installed torch'], hint: null, variant: 'cu128', verify: VERIFY },
-    })
-  })
-  await page.route('**/api/diagnostics/dependencies/**', (r) => {
+  // Installs and the PyTorch setup are a job (started by a POST, read back by polling);
+  // upgrade is still one request.
+  await mockDependencyInstall(page, (name) => name === 'torch'
+    ? { ok: true, output_tail: ['Successfully installed torch'], variant: 'cu128', verify: VERIFY }
+    : name !== 'opencc-python-reimplemented'
+      ? { ok: true, output_tail: [`Successfully installed ${name}`] }
+      : { ok: false, output_tail: ['ERROR: [Errno 13] Permission denied'], hint: HINT },
+  { onStart: (r) => sent.push(r) })
+  await page.route('**/api/diagnostics/dependencies/*/upgrade', (r) => {
     sent.push(r.request())
     const name = decodeURIComponent(r.request().url().split('/dependencies/')[1].split('/')[0])
-    const ok = name !== 'opencc-python-reimplemented'
-    return r.fulfill({
-      json: {
-        package: name, ok,
-        output_tail: ok ? [`Successfully installed ${name}`] : ['ERROR: [Errno 13] Permission denied'],
-        hint: ok ? null : HINT,
-      },
-    })
+    return r.fulfill({ json: { package: name, ok: true, output_tail: [`Successfully installed ${name}`], hint: null } })
   })
   return { sent, unmocked }
 }

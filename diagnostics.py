@@ -19,9 +19,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 
 import diarize
+import job_process_kill
+from lib import proc as proc_run
 import storage
 
 from expected_files import EXPECTED_TOP_LEVEL_FILES
@@ -697,7 +698,7 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     whatever renders it (that match would silently break
     if this literal ever changed). Makes no network call. "package" is the real pip/importlib.metadata distribution name for a
     "package" kind entry, None otherwise -- the exact string a caller
-    should pass to stream_dependency_install/stream_pip_install for that
+    should pass to the install route for that
     row's own Install button, straight from the registry rather than
     re-derived by matching against OPTIONAL_DEPENDENCIES's own keys (those
     use import-style names -- "faster_whisper", "manga_ocr" -- that don't
@@ -979,42 +980,10 @@ def qwen_asr_fallback_pip_args() -> list:
     return [list(QWEN_ASR_FALLBACK_DEPS), ["--no-deps", "qwen-asr"]]
 
 
-def stream_pip_install(pip_args: list, python_executable: str = None):
-    """Yields {"line": str} for each line of combined stdout/stderr as
-    `<python> -m pip install <pip_args>` runs, then a final
-    {"done": True, "ok": bool, "returncode": int}. Never swallows a
-    failed install into a generic message -- the real pip error text is
-    exactly what's yielded, for the caller to show in full (confirmed
-    live during this session: a genuine `audio-separator` build failure
-    on a real machine is exactly the case this must not hide)."""
-    python_executable = python_executable or sys.executable
-    cmd = [python_executable, "-m", "pip", "install", *PIP_INSTALL_FLAGS] + list(pip_args)
-    yield from _stream_pip(cmd)
-
-
-def _stream_pip(cmd: list):
-    # errors="replace": pip writes in the locale code page, and a bad byte must
-    # not kill the stream.
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            errors="replace", bufsize=1)
-    for line in proc.stdout:
-        yield {"line": line.rstrip("\n")}
-    returncode = proc.wait()
-    yield {"done": True, "ok": returncode == 0, "returncode": returncode}
-
-
-def stream_pip_uninstall(pip_args: list, python_executable: str = None):
-    """Same shape as stream_pip_install, for `<python> -m pip uninstall -y`."""
-    python_executable = python_executable or sys.executable
-    cmd = [python_executable, "-m", "pip", "uninstall", "-y"] + list(pip_args)
-    yield from _stream_pip(cmd)
-
-
 # ---------------------------------------------------------------------------
 # Install a whole requirements tier, and a real Deno install
 # action -- both real subprocess actions triggered only from an explicit
-# button click, matching stream_pip_install's own "never swallow the real
-# error" discipline.
+# button click.
 # ---------------------------------------------------------------------------
 
 def parse_requirements_file(path: str) -> list:
@@ -1076,7 +1045,7 @@ def get_latest_pypi_version(pip_name: str, timeout: float = 10.0):
     explicit button and cache the result (see check_dependency_versions)."""
     import requests
     try:
-        from services import capped_body
+        from lib import capped_body
         resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
                             stream=True, allow_redirects=False)
         if resp.status_code != 200:
@@ -1148,7 +1117,7 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     constraints.txt's existing version caps (pyannote.audio<5,
     transformers<6, torch<3, faster-whisper<2, ...) via pip's
     own `-c` flag whenever the file exists -- the same mechanism
-    stream_gpu_torch_reinstall already uses for torch/torchaudio,
+    the GPU PyTorch setup already uses for torch/torchaudio,
     generalized here since an Upgrade click can just as easily target any
     of constraints.txt's other pinned packages (e.g. transformers). A
     constraint for a package not named in the file is a no-op, so passing
@@ -1329,51 +1298,34 @@ def _venv_python(venv_dir: str) -> str:
     return os.path.join(venv_dir, "bin", "python")
 
 
-def _make_throwaway_venv(base_dir: str, name: str, python_executable: str, parent_dirs: list):
+def _make_throwaway_venv(base_dir: str, name: str, python_executable: str, parent_dirs: list,
+                         cancel=None):
     """(venv_python, None) on success, (None, reason) otherwise. No pip
     inside it -- installs go through the real pip's own --python flag, so
     this works even where ensurepip isn't available."""
     venv_dir = os.path.join(base_dir, name)
     try:
-        proc = subprocess.run([python_executable, "-m", "venv", "--without-pip", venv_dir],
-                              capture_output=True, errors="replace", timeout=300)
+        proc = proc_run.run_captured(
+            [python_executable, "-m", "venv", "--without-pip", venv_dir], 300, cancel=cancel)
+        if proc.timed_out or proc.cancelled:
+            return None, "cancelled" if proc.cancelled else "creating it took too long"
         if proc.returncode != 0:
             return None, (proc.stderr or proc.stdout).strip() or f"exit code {proc.returncode}"
         venv_py = _venv_python(venv_dir)
-        purelib = subprocess.run(
+        purelib = proc_run.run_captured(
             [venv_py, "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
-            capture_output=True, errors="replace", timeout=60).stdout.strip()
+            60, cancel=cancel).stdout.strip()
         os.makedirs(purelib, exist_ok=True)
         with open(os.path.join(purelib, "_baihe_parent_env.pth"), "w", encoding="utf-8") as f:
             f.write("\n".join(parent_dirs) + "\n")
         return venv_py, None
-    except (OSError, subprocess.SubprocessError) as exc:
+    except OSError as exc:
         return None, str(exc)
 
 
-def _stream_process(cmd: list, timeout: float, cwd: str = None, env: dict = None):
-    """Yields {"line"} per output line, then {"returncode", "timed_out"}.
-    The process is killed if it outlives `timeout` or if the caller stops
-    iterating early (a closed page), so nothing is left running."""
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            encoding="utf-8", errors="replace", bufsize=1, cwd=cwd, env=env)
-    timed_out = threading.Event()
-
-    def _kill():
-        timed_out.set()
-        proc.kill()
-    timer = threading.Timer(timeout, _kill)
-    timer.start()
-    try:
-        for line in proc.stdout:
-            yield {"line": line.rstrip("\n")}
-        returncode = proc.wait()
-    finally:
-        timer.cancel()
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
-    yield {"returncode": returncode, "timed_out": timed_out.is_set()}
+def _stream_process(cmd: list, timeout: float, cwd: str = None, env: dict = None, cancel=None):
+    return proc_run.stream_tree(cmd, timeout, cwd=cwd, env=env, cancel=cancel,
+                                warn=job_process_kill._warn_via_jobs)
 
 
 def _parse_pytest_failures(lines: list) -> list:
@@ -1420,27 +1372,27 @@ def _parse_pip_conflicts(lines: list) -> list:
     return conflicts
 
 
-def _dist_version_in(venv_py: str, pip_name: str):
+def _dist_version_in(venv_py: str, pip_name: str, cancel=None):
     try:
-        out = subprocess.run(
+        out = proc_run.run_captured(
             [venv_py, "-c", "import importlib.metadata, sys; "
                             "print(importlib.metadata.version(sys.argv[1]))", pip_name],
-            capture_output=True, errors="replace", timeout=60)
-    except (OSError, subprocess.SubprocessError):
+            60, cancel=cancel)
+    except OSError:
         return None
     return out.stdout.strip() if out.returncode == 0 else None
 
 
-def _ensure_pytest(venv_py: str, python_executable: str, timeout: float):
+def _ensure_pytest(venv_py: str, python_executable: str, timeout: float, cancel=None):
     """Yields {"line"} items, then {"ok"}. The throwaway environment only sees
     the real one's packages, and pytest is an optional install there, so it
     is added to the throwaway environment itself when it can't be imported."""
-    has = _can_import(venv_py, "pytest")
+    has = _can_import(venv_py, "pytest", cancel)
     if not has:
         yield {"line": "pytest isn't installed in your environment; adding it to the throwaway one..."}
         end = None
         for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
-                                     "install", "pytest>=7.4"], timeout):
+                                     "install", "pytest>=7.4"], timeout, cancel=cancel):
             if "line" in item:
                 yield item
             else:
@@ -1449,20 +1401,20 @@ def _ensure_pytest(venv_py: str, python_executable: str, timeout: float):
             yield {"ok": False}
             return
     # pytest-xdist only makes the run faster, so a failed install is not an error.
-    if not _can_import(venv_py, "xdist"):
+    if not _can_import(venv_py, "xdist", cancel):
         yield {"line": "Adding pytest-xdist so the tests can run on every CPU core..."}
         for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
-                                     "install", "pytest-xdist"], timeout):
+                                     "install", "pytest-xdist"], timeout, cancel=cancel):
             if "line" in item:
                 yield item
     yield {"ok": True}
 
 
-def _can_import(venv_py: str, module: str) -> bool:
+def _can_import(venv_py: str, module: str, cancel=None) -> bool:
     try:
-        return subprocess.run([venv_py, "-c", f"import {module}"], capture_output=True,
-                              timeout=60).returncode == 0
-    except (OSError, subprocess.SubprocessError):
+        return proc_run.run_captured([venv_py, "-c", f"import {module}"], 60,
+                                            cancel=cancel).returncode == 0
+    except OSError:
         return False
 
 
@@ -1483,7 +1435,7 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
                             test_args: list = None, python_executable: str = None,
                             parent_dirs: list = None, pip_extra_args: list = None,
                             pip_timeout: float = UPGRADE_CHECK_PIP_TIMEOUT,
-                            test_timeout: float = UPGRADE_CHECK_TEST_TIMEOUT):
+                            test_timeout: float = UPGRADE_CHECK_TEST_TIMEOUT, cancel=None):
     """Yields {"line"} as it goes, then a final {"done": True, "ok",
     "verdict", "reason", "version", "new_failures", "preexisting_failures",
     "conflicts"} -- "ok" is True only for verdict "safe". "conflicts" is
@@ -1496,7 +1448,9 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
     constraints.txt's caps apply exactly as they would to that real Upgrade.
     Runs this app's whole test suite by default, so it takes minutes, not
     seconds. `test_args`/`parent_dirs`/`pip_extra_args` exist so a test can
-    point this at a tiny offline suite and local wheels."""
+    point this at a tiny offline suite and local wheels. `cancel` (a
+    callable) kills the running pip/pytest tree as soon as it turns true;
+    the generator then ends without a final item (the caller knows why)."""
     project_root = project_root or os.path.dirname(os.path.abspath(__file__))
     python_executable = python_executable or sys.executable
     parent_dirs = _env_package_dirs() if parent_dirs is None else list(parent_dirs)
@@ -1510,16 +1464,18 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
 
     def _pytest(venv_py, args):
         cmd = [venv_py, "-m", "pytest", "-o", "addopts=", "-q", "-rfE", "-p", "no:cacheprovider"]
-        if args == test_args and _can_import(venv_py, "xdist"):
+        if args == test_args and _can_import(venv_py, "xdist", cancel):
             cmd += ["-n", "auto"]
         cmd += args
-        return _stream_process(cmd, test_timeout, cwd=project_root, env=test_env)
+        return _stream_process(cmd, test_timeout, cwd=project_root, env=test_env, cancel=cancel)
 
     work = tempfile.mkdtemp(prefix="baihe_upgrade_check_")
     try:
         yield {"line": "Creating a throwaway environment -- your real install isn't touched."}
-        trial_py, err = _make_throwaway_venv(work, "trial", python_executable, parent_dirs)
+        trial_py, err = _make_throwaway_venv(work, "trial", python_executable, parent_dirs, cancel)
         if err:
+            if cancel is not None and cancel():
+                return
             result["reason"] = f"couldn't create a throwaway environment: {err}"
             yield result
             return
@@ -1527,12 +1483,14 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
         yield {"line": f"Installing {spec} into it..."}
         pip_lines, end = [], None
         for item in _stream_process([python_executable, "-m", "pip", "--python", trial_py,
-                                     "install"] + pip_args, pip_timeout):
+                                     "install"] + pip_args, pip_timeout, cancel=cancel):
             if "line" in item:
                 pip_lines.append(item["line"])
                 yield item
             else:
                 end = item
+        if end.get("cancelled"):
+            return
         if end["timed_out"]:
             result["reason"] = f"installing {spec} took longer than {int(pip_timeout // 60)} minutes"
             yield result
@@ -1545,7 +1503,7 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
                                     f"a build failure -- see the output above)")
             yield result
             return
-        installed = _dist_version_in(trial_py, pip_name)
+        installed = _dist_version_in(trial_py, pip_name, cancel)
         if not installed:
             result["reason"] = f"{spec} reported success but isn't importable afterward"
             yield result
@@ -1554,11 +1512,13 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
         result["conflicts"] = _parse_pip_conflicts(pip_lines)
 
         pytest_ok = True
-        for item in _ensure_pytest(trial_py, python_executable, pip_timeout):
+        for item in _ensure_pytest(trial_py, python_executable, pip_timeout, cancel):
             if "line" in item:
                 yield item
             else:
                 pytest_ok = item["ok"]
+        if cancel is not None and cancel():
+            return
         if not pytest_ok:
             result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
             yield result
@@ -1573,6 +1533,8 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
             else:
                 end = item
         failures = _parse_pytest_failures(test_lines)
+        if end.get("cancelled"):
+            return
         if end["timed_out"]:
             result["reason"] = f"the test suite took longer than {int(test_timeout // 60)} minutes"
             yield result
@@ -1590,15 +1552,17 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
 
         yield {"line": f"{len(failures)} test(s) failed -- re-running them without {pip_name} "
                        f"{installed} to see which already fail on the current version..."}
-        base_py, err = _make_throwaway_venv(work, "baseline", python_executable, parent_dirs)
+        base_py, err = _make_throwaway_venv(work, "baseline", python_executable, parent_dirs, cancel)
         if err:
+            if cancel is not None and cancel():
+                return
             result["reason"] = (f"{len(failures)} test(s) failed, but a comparison environment "
                                 f"couldn't be created to rule out already-failing ones: {err}")
             result["new_failures"] = failures
             yield result
             return
         pytest_ok = True
-        for item in _ensure_pytest(base_py, python_executable, pip_timeout):
+        for item in _ensure_pytest(base_py, python_executable, pip_timeout, cancel):
             if "line" in item:
                 yield item
             else:
@@ -1616,6 +1580,8 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
                 yield item
             else:
                 end = item
+        if end.get("cancelled"):
+            return
         if end["timed_out"] or end["returncode"] not in (0, 1, 2):
             result["reason"] = (f"{len(failures)} test(s) failed, but re-running them on the "
                                 f"current version didn't complete -- see the output above")
@@ -1735,77 +1701,18 @@ def external_gpu_load() -> dict | None:
         return None
 
 
-def external_gpu_is_busy() -> bool:
+def external_gpu_is_busy(load=...):
     """True if the GPU looks meaningfully loaded by *something* right now,
     per nvidia-smi -- whether or not Baihe itself started it. False (never
     blocks a job) if nvidia-smi isn't available: this is a belt-and-suspenders
     check layered on top of Baihe's own two GPU locks, not a replacement for
     either, so its absence shouldn't be treated as "GPU busy" any more than
     it already is today."""
-    load = external_gpu_load()
+    load = external_gpu_load() if load is ... else load
     if load is None:
         return False
     return (load["utilization_percent"] >= EXTERNAL_GPU_BUSY_UTIL_PERCENT or
             load["memory_free_mb"] < EXTERNAL_GPU_BUSY_MIN_FREE_MB)
-
-
-# cu128, not cu124 -- confirmed directly against download.pytorch.org that
-# cu124's index only publishes wheels through cp313, nothing for cp314,
-# while cu128 already carries real Windows cp314 CUDA wheels (matches the
-# open pytorch/pytorch#169929 report of exactly this gap). Picked by the
-# running interpreter's own Python version below, not hardcoded to a
-# single value for every version, since CUDA-driver compatibility and
-# Python-ABI wheel availability vary independently.
-GPU_TORCH_CUDA_INDEX_BY_PYVER = {(3, 14): "cu128"}
-GPU_TORCH_CUDA_INDEX_DEFAULT = "cu128"
-
-
-def gpu_torch_cuda_index() -> str:
-    v = sys.version_info
-    return GPU_TORCH_CUDA_INDEX_BY_PYVER.get((v.major, v.minor), GPU_TORCH_CUDA_INDEX_DEFAULT)
-
-
-def stream_gpu_torch_reinstall(python_executable: str = None, project_root: str = None):
-    """Uninstalls the CPU-only torch/torchaudio, then reinstalls both from
-    PyTorch's own CUDA index for the running interpreter's Python version.
-    Reuses constraints.txt's existing torch<3/torchaudio<3 caps via pip's
-    own `-c` flag (rather than duplicating those version numbers here) so
-    this reinstall can't drift outside the range the rest of the app
-    already assumes. Yields the same {"line": ...}/{"done": ...} items as
-    stream_pip_install, across both subprocess calls in sequence -- only
-    the LAST item has "done", so a caller can tell the whole sequence
-    (uninstall + install) apart from either step finishing early."""
-    for item in stream_pip_uninstall(["torch", "torchaudio"], python_executable):
-        if not item.get("done"):
-            yield item
-
-    index_url = f"https://download.pytorch.org/whl/{gpu_torch_cuda_index()}"
-    install_args = ["torch", "torchaudio", "--index-url", index_url,
-                    *constraints_pip_args(project_root)]
-    yield from stream_pip_install(install_args, python_executable)
-
-
-def stream_dependency_install(name: str, python_executable: str = None,
-                              project_root: str = None):
-    """Same shape as stream_pip_install, for Diagnostics' generic
-    per-dependency "Install" button. Routes `torch` specifically
-    through the same GPU-aware CUDA-index reinstall stream_gpu_torch_reinstall
-    already uses for the dedicated "Install GPU PyTorch" action, whenever a
-    real NVIDIA GPU is present -- a bare `pip install torch` always resolves
-    to the CPU-only PyPI wheel (the install-time footgun), and
-    the generic Install button would otherwise reproduce that exact gap
-    through a second path. Every other dependency, and torch on a
-    non-NVIDIA machine, installs exactly as stream_pip_install always did."""
-    not_offered = NOT_OFFERED_FOR_INSTALL.get(canonical_dist(pip_install_name(name)))
-    if not_offered:
-        yield {"line": f"{name}: {not_offered}"}
-        yield {"done": True, "ok": False, "returncode": None}
-        return
-    if name == "torch" and shutil.which("nvidia-smi"):
-        yield from stream_gpu_torch_reinstall(python_executable, project_root)
-    else:
-        yield from stream_pip_install(
-            [pip_install_name(name), *constraints_pip_args(project_root)], python_executable)
 
 
 # ---------------------------------------------------------------------------
@@ -2081,7 +1988,7 @@ def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
     import requests
     version_mod, _s, _r = _packaging()
     try:
-        from services import capped_body
+        from lib import capped_body
         resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
                             timeout=timeout, headers={"Accept": "application/json"},
                             stream=True, allow_redirects=False)

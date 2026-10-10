@@ -27,13 +27,13 @@ import importlib.metadata
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import threading
 import time
 
 import portable
+from lib.proc import run_captured, stream_tree
 
 SCHEMA = 1
 PIP_SECONDS = 40 * 60
@@ -155,58 +155,24 @@ def status() -> dict:
 
 # --- running things -------------------------------------------------------
 
-def kill_tree(proc) -> None:
-    try:
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                           capture_output=True, timeout=15)
-        else:
-            import signal
-            os.killpg(proc.pid, signal.SIGKILL)
-    except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-
-
-_CURRENT = {"proc": None}
+# The watchdog sets "stop" so run_capture's cancel poll kills pip's whole tree.
+_CURRENT = {"stop": False}
 
 
 def run_capture(argv: list, timeout: float, echo: bool = False):
     """(returncode, last lines, timed_out). No shell; the tree is killed on
     timeout so pip's own children can't outlive the budget."""
-    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
-             else {"start_new_session": True})
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            encoding="utf-8", errors="replace", bufsize=1, **group)
-    _CURRENT["proc"] = proc
-    lines = []
-
-    def reader():
-        try:
-            for line in proc.stdout:
-                lines.append(line.rstrip("\n"))
-                del lines[:-200]
-                if echo:
-                    print(line.rstrip("\n"), flush=True)
-        except (OSError, ValueError):
-            pass
-    t = threading.Thread(target=reader, daemon=True)
-    t.start()
-    timed_out = False
-    try:
-        proc.wait(timeout=max(1.0, timeout))
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        kill_tree(proc)
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
-    t.join(5)
-    _CURRENT["proc"] = None
-    return proc.returncode, list(lines), timed_out
+    _CURRENT["stop"] = False
+    lines, end = [], {"returncode": None, "timed_out": False}
+    for event in stream_tree(argv, timeout=max(1.0, timeout), cancel=lambda: _CURRENT["stop"]):
+        if "line" in event:
+            lines.append(event["line"])
+            del lines[:-200]
+            if echo:
+                print(event["line"], flush=True)
+        else:
+            end = event
+    return end["returncode"], lines, end["timed_out"]
 
 
 def _python() -> list:
@@ -216,14 +182,25 @@ def _python() -> list:
 
 def child_json(*args, stdin_text: str = None):
     """Runs pending_install_child in a fresh interpreter and returns its last
-    JSON line, or None."""
-    argv = _python() + ["-m", "pending_install_child", *args]
+    JSON line, or None. lib.proc gives a child no stdin, so `stdin_text`
+    travels as a temp file whose path is the last argument."""
+    text_path = None
     try:
-        proc = subprocess.run(argv, input=stdin_text, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", timeout=CHILD_SECONDS,
-                              cwd=os.path.dirname(os.path.abspath(__file__)))
-    except (OSError, subprocess.SubprocessError):
+        if stdin_text is not None:
+            os.makedirs(state_dir(), exist_ok=True)
+            fd, text_path = tempfile.mkstemp(prefix="redact-", suffix=".txt", dir=state_dir())
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(stdin_text)
+        argv = _python() + ["-m", "pending_install_child", *args] + ([text_path] if text_path else [])
+        proc = run_captured(argv, CHILD_SECONDS, cwd=os.path.dirname(os.path.abspath(__file__)))
+    except OSError:
         return None
+    finally:
+        if text_path:
+            try:
+                os.remove(text_path)
+            except OSError:
+                pass
     for line in reversed(proc.stdout.splitlines()):
         try:
             doc = json.loads(line)
@@ -365,9 +342,8 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
 def main(argv=None) -> int:
     """Always 0: a failed or slow install must not stop the server starting."""
     def watchdog():
-        proc = _CURRENT["proc"]
-        if proc is not None:
-            kill_tree(proc)
+        _CURRENT["stop"] = True
+        time.sleep(2)       # the cancel poll runs about twice a second
         try:
             _write_json("result", {"status": "timed_out", "packages": [], "tail": [],
                                    "restored": [], "restore_failed": [],

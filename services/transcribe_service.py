@@ -54,7 +54,6 @@ import glob
 import importlib.util
 import os
 import shutil
-import subprocess
 import tempfile
 import time
 from typing import Optional
@@ -63,6 +62,7 @@ import asr_backend
 import background_jobs
 import ollama_unload
 import core as core_module
+import long_line_split
 import db
 import diagnostics
 import raw_transcript
@@ -71,7 +71,10 @@ import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
-from services import asr_options_service, diarization_service, settings_service, source_service
+from services import asr_options_service, diarization_service, run_settings_service, settings_service, source_service, timing_check_service
+from services.retranscribe_worker import (apply_retranscribe_outcome as _apply_retranscribe_outcome,
+                                           retranscribe_timeout_s as _retranscribe_timeout_s,
+                                           retranscribe_worker as _retranscribe_worker)
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -450,19 +453,6 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     return get_transcribe_config(drama_id)
 
 
-def _speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None):
-    """(min_speakers, max_speakers) for the chained speaker
-    detection, each None when unset. Raises InvalidInputError for a bad
-    range, or a range combined with an exact count (diarize.validate_speaker_hints)."""
-    import diarize as diarize_module
-    try:
-        _num, lo, hi = diarize_module.validate_speaker_hints(
-            expected_speakers, min_speakers, max_speakers)
-    except ValueError as exc:
-        raise InvalidInputError(str(exc)) from exc
-    return lo, hi
-
-
 def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) -> None:
     """Refusals shared by start_transcribe_run and validate_transcribe_options."""
     if transcript_mode == "whisper":
@@ -563,7 +553,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
-    min_speakers, max_speakers = _speaker_range(expected_speakers, min_speakers, max_speakers)
+    min_speakers, max_speakers = diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
 
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
@@ -626,6 +616,11 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     use_gpu = settings_service.get_use_gpu()
     # Read here, in the parent, and frozen with the other settings for the saved run settings.
     gpu_app_settings = raw_transcript.current_gpu_app_settings()
+    run_settings = run_settings_service.for_transcribe(
+        drama, source_language, chinese_script, whisper_size, beam_size, min_silence_ms,
+        vad_threshold, preset, hallucination_silence_sec, min_pause_sec, separation_backend,
+        use_gpu, asr_backend_choice, alignment_method, transcript_mode, bool(hf_token),
+        min_speakers, max_speakers)
     if transcript_mode == "hardsub_ocr":
         started = background_jobs.start_job(
             job_id, _run_transcribe_and_apply_job, job_id, drama_id, audio_path, transcript_mode,
@@ -642,11 +637,14 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             min_speakers=min_speakers, max_speakers=max_speakers,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             gpu_app_settings=gpu_app_settings,
-            gpu_touching=True, description=description)
+            gpu_touching=True, description=description, run_settings=run_settings)
     else:
         # The worker's temp files go here; removed by on_finish however the
         # run ends, since a killed worker cannot clean up after itself.
         scratch_dir = storage.new_workdir(job_id)
+        # Held until the job is registered: before that nothing owns the folder.
+        hold = contextlib.ExitStack()
+        hold.enter_context(storage.holding(scratch_dir))
         try:
             started = background_jobs.start_process_job(
                 job_id, _transcribe_worker,
@@ -665,6 +663,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       bool(drama.get("split_by_sentences")), preset, voice_detector,
                       scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
+                run_settings=run_settings,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
                 start_method="spawn",
@@ -680,6 +679,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         except BaseException:
             _remove_scratch_dir(scratch_dir)
             raise
+        finally:
+            hold.close()
         if not started:
             _remove_scratch_dir(scratch_dir)
     if not started:
@@ -701,7 +702,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
-    _speaker_range(expected_speakers, min_speakers, max_speakers)
+    diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
             f"Drama {drama_id} has no audio pipeline (content mode "
@@ -1328,7 +1329,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                           word_timings=core_module.encode_line_words(seg["text"],
                                                                      seg.get("words")))
                      for i, seg in enumerate(
-                         s for s in core_module.split_long_segments(
+                         s for s in long_line_split.split_long_segments(
                              segments, min_pause=min_pause_sec,
                              rules=asr_backend.SENTENCE_SPLIT_RULES if sentence_lines else None)
                          if s["text"].strip())]
@@ -1445,18 +1446,35 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
             **(gpu_app_settings or raw_transcript.current_gpu_app_settings()))
         if outcome.get("run_config") else None)
     db.update_drama(drama_id, status="aligned")
+    timing_check_service.after_run(drama_id, outcome)
 
     diarize_started = False
     if hf_token and diarize_audio_path:
         import diarize as diarize_module
-        diarize_started = background_jobs.start_process_job(
-            f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
-            args=(diarize_audio_path, hf_token, expected_speakers or None,
-                  diarization_service.worker_options(min_speakers, max_speakers)),
-            gpu_touching=True, description=f"Diarization (drama #{drama_id})",
-            on_done=diarization_service.make_apply_on_done(
-                drama_id, expected_speakers, min_speakers=min_speakers,
-                max_speakers=max_speakers))
+        try:
+            diarize_started = background_jobs.start_process_job(
+                f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
+                args=(diarize_audio_path, hf_token, expected_speakers or None,
+                      diarization_service.worker_options(min_speakers, max_speakers)),
+                gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+                kill_whole_tree=True, start_method="spawn",
+                on_done=diarization_service.make_apply_on_done(
+                    drama_id, expected_speakers, min_speakers=min_speakers,
+                    max_speakers=max_speakers),
+                run_settings=run_settings_service.for_diarize(
+                    expected_speakers, min_speakers, max_speakers,
+                    settings_service.get_use_gpu()))
+        except ConflictError:
+            # A clean stop cancels every job and refuses new ones, so one
+            # that began after the lines were saved refuses the follow-up
+            # job. The saved lines stay and the job ends cancelled, not
+            # error; diarization can be run again from the Speakers step.
+            # The stop sets the refusal before it cancels jobs, so a refusal
+            # in that gap sees no cancel request yet.
+            if not (background_jobs.is_cancel_requested(job_id)
+                    or background_jobs.is_stopping()):
+                raise
+            raise background_jobs.JobCancelled(job_id) from None
 
     if "work" in whisper_clock and whisper_clock["p"] < 0.5:
         # Only the Whisper pass counts, and only the part after its first
@@ -1514,6 +1532,7 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
     """Process-job target (top-level, picklable): transcribes once per
     candidate, holding every other setting constant, and returns only the
     scores (no segments, no token)."""
+    background_jobs.start_own_process_group()
     try:
         results = []
         for n, candidate_ms in enumerate(candidates):
@@ -1582,7 +1601,8 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
               bool(drama.get("whisper_fast_mode")),
               presets.normalize(drama.get("sensitivity_preset")),
               bool(drama.get("whisper_repeat_guard"))),
-        gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})")
+        gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})",
+        kill_whole_tree=True, start_method="spawn")
     if not started:
         raise ConflictError(f"Auto-tune is already running for drama {drama_id}.")
     return {"job_id": job_id, "candidates": list(candidates)}
@@ -1651,12 +1671,6 @@ def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
 # after an API restart the user re-transcribes. Local Whisper even when the
 # drama's full transcribe uses Groq, so no paid-engine gate.
 
-# Proposed text kept in the job result: same cap as a line edit.
-_RETRANSCRIBE_MAX_CHARS = 2000
-# ffmpeg cutting one line's window; a hung ffmpeg ends the job instead of
-# holding the GPU slot.
-_RETRANSCRIBE_SLICE_TIMEOUT_S = 120
-
 # Running/queued jobs that replace this drama's lines or also write `zh`, so a
 # one-line re-transcription alongside them would be pointless or race them.
 _RETRANSCRIBE_BLOCKING_PREFIXES = ("transcribe_", "fixflag_", "resegment_", "narration_")
@@ -1705,96 +1719,41 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
             raise ConflictError("Another job is changing this drama's lines. "
                                 "Try again when it finishes.")
     job_id = retranscribe_line_job_id(drama_id)
-    started = background_jobs.start_job(
-        job_id, _run_retranscribe_line_job, job_id, drama_id, line_id, audio_path,
-        float(line.start), float(line.end), line.zh,
-        line.lang or drama.get("source_language") or "zh",
-        stored_whisper_size(drama),
-        drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
-        drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-        presets.stored_vad_threshold(drama),
-        bool(drama.get("whisper_fast_mode")), settings_service.get_use_gpu(), prompt,
-        stored_hallucination_silence_sec(drama), bool(drama.get("whisper_repeat_guard")),
-        presets.normalize(drama.get("sensitivity_preset")),
-        gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})")
+    # The worker's slice and temp files go here; removed by on_finish however
+    # the run ends, since a killed worker cannot clean up after itself.
+    scratch_dir = storage.new_workdir(job_id)
+    window = float(line.end) - float(line.start)
+    try:
+        started = background_jobs.start_process_job(
+            job_id, _retranscribe_worker,
+            args=(audio_path, float(line.start), float(line.end),
+                  line.lang or drama.get("source_language") or "zh",
+                  stored_whisper_size(drama),
+                  drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
+                  drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
+                  presets.stored_vad_threshold(drama), settings_service.get_use_gpu(), prompt,
+                  stored_hallucination_silence_sec(drama),
+                  bool(drama.get("whisper_repeat_guard")),
+                  presets.normalize(drama.get("sensitivity_preset")),
+                  _model_loading_message(stored_whisper_size(drama), core_module.is_whisper_model_cached(
+                      stored_whisper_size(drama))),
+                  _retranscribe_timeout_s(window), scratch_dir),
+            gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})",
+            kill_whole_tree=True, initial_result={"line_id": line_id},
+            # Spawn, not Linux's default fork: a forked child of a process
+            # that has already initialised CUDA cannot use the GPU.
+            start_method="spawn",
+            on_done=functools.partial(_apply_retranscribe_outcome, drama_id=drama_id,
+                                      line_id=line_id, zh_before=line.zh,
+                                      start=float(line.start), end=float(line.end)),
+            on_finish=functools.partial(_remove_scratch_dir, scratch_dir))
+    except BaseException:
+        _remove_scratch_dir(scratch_dir)
+        raise
     if not started:
+        _remove_scratch_dir(scratch_dir)
         raise ConflictError("A line is already being re-transcribed for this drama.")
     return {"job_id": job_id, "drama_id": drama_id, "line_id": line_id}
-
-
-def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end, zh_before,
-                               source_language, whisper_size, beam_size, min_silence_ms,
-                               vad_threshold, fast_mode, use_gpu, initial_prompt,
-                               hallucination_silence_sec, repeat_guard=False, preset="normal"):
-    """Job body: cut [start, end) from the drama's audio and transcribe it.
-    Writes nothing to the line. Result on success: {"line_id", "proposed_zh",
-    "base_zh", "base_start", "base_end"} (proposed_zh capped at
-    _RETRANSCRIBE_MAX_CHARS; base_zh raw, for the apply compare), plus
-    "gpu_fallback" when it ran on CPU. GET /api/jobs shows only line_id and
-    gpu_fallback (jobs_service's allowlist); the text is read in-process by
-    get_retranscribe_result and apply_retranscribe_line. A failed_reason
-    instead when the audio couldn't be cut ("audio_slice", including an
-    ffmpeg timeout), nothing was heard ("empty"), the job was cancelled, or
-    the line no longer exists ("line_gone")."""
-    # Which line this run is for, visible to pollers before it finishes.
-    background_jobs.set_result(job_id, {"line_id": line_id}, mirror=True)
-    slice_path = os.path.join(os.path.dirname(audio_path), f"_retranscribe_slice_{line_id}.wav")
-    gpu_fallback = []
-    try:
-        try:
-            core_module.extract_audio_slice(audio_path, start, end, slice_path,
-                                            timeout=_RETRANSCRIBE_SLICE_TIMEOUT_S)
-        except subprocess.TimeoutExpired:
-            background_jobs.set_result(job_id, {
-                "line_id": line_id, "failed_reason": "audio_slice",
-                "detail": "Cutting this line's audio took too long and was stopped."})
-            return
-        except Exception:
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "audio_slice",
-                                                "detail": "Couldn't cut this line's audio."})
-            return
-        if background_jobs.is_cancel_requested(job_id):
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "cancelled"})
-            return
-        background_jobs.update_progress(job_id, 0.1, _model_loading_message(
-            whisper_size, core_module.is_whisper_model_cached(whisper_size)))
-        try:
-            segments = core_module.transcribe_for_timing(
-                slice_path, whisper_size, language=source_language, use_gpu=use_gpu,
-                initial_prompt=initial_prompt, beam_size=beam_size,
-                min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
-                on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
-                fast_mode=fast_mode, hallucination_silence_sec=hallucination_silence_sec,
-                repeat_guard=repeat_guard, sensitivity_preset=preset)
-        except core_module.ModelDownloadError as exc:
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "model_download",
-                                                "detail": redact_secrets(str(exc))})
-            return
-    finally:
-        if os.path.exists(slice_path):
-            os.remove(slice_path)
-        core_module.release_gpu_models()
-
-    new_zh = " ".join((s.get("text") or "").strip() for s in segments or []).strip()
-    if not new_zh:
-        background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "empty"})
-        return
-    if background_jobs.is_cancel_requested(job_id):
-        background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "cancelled"})
-        return
-    if _find_line(drama_id, line_id) is None:
-        background_jobs.set_result(job_id, {
-            "line_id": line_id, "failed_reason": "line_gone",
-            "detail": "The line was merged, split or deleted meanwhile; nothing was changed."})
-        return
-    result = {"line_id": line_id, "proposed_zh": new_zh[:_RETRANSCRIBE_MAX_CHARS],
-              "base_zh": zh_before or "", "base_start": start, "base_end": end,
-              **ollama_unload.take_notice_result()}
-    if gpu_fallback:
-        result["gpu_fallback"] = gpu_fallback[0]
-        result["device_notice"] = core_module.gpu_fallback_notice(
-            "Re-transcribing this line", gpu_fallback[0])
-    background_jobs.set_result(job_id, result)
 
 
 def _finished_proposal(drama_id: int, line_id: int) -> dict:

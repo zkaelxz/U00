@@ -2,7 +2,7 @@
 pending_install_child.py -- the two jobs pending_install.py hands to a
 short-lived child process, so the apply step itself never imports the app
 (see that module). `derive KEYS` prints the pip command re-derived from the
-registry; `redact` cleans stdin for storage with diagnostics.redact_for_support.
+registry; `redact PATH` cleans the text file at PATH for storage with diagnostics.redact_for_support.
 """
 
 import json
@@ -29,8 +29,9 @@ def redact(text: str) -> dict:
 def main(argv) -> int:
     if len(argv) >= 2 and argv[0] == "derive":
         out = derive(argv[1])
-    elif argv[:1] == ["redact"]:
-        out = redact(sys.stdin.read())
+    elif len(argv) >= 2 and argv[0] == "redact":
+        with open(argv[1], encoding="utf-8") as f:
+            out = redact(f.read())
     else:
         out = {"ok": False, "message": "unknown command"}
     print(json.dumps(out))

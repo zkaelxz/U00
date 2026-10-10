@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_SIZES,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_SIZES,
   advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, hasPending, isActive,
   listLive, mergeCues, readFrom, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
@@ -38,6 +38,7 @@ import type { LiveCue, LiveSessionStatus } from '../types/live'
 import type { TranslateEngine } from '../types/translate'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
+import { buttonClass } from '../components/uiClasses'
 
 const numValue = (n: number) => (Number.isFinite(n) ? n : '')
 
@@ -272,6 +273,13 @@ export default function LivePage() {
         {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
         <Section storageKey="live.advanced" title="Advanced" summary={advancedSummary(form)}>
           <div className="field-row">
+            <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active}
+              onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
+              Fast captions
+            </button>
+            <p className="muted">Chunk 4 s, overlap 1 s, Whisper small, no thinking: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).</p>
+          </div>
+          <div className="field-row">
             <Field label="Whisper model" help="Smaller is faster per chunk, closer to real time; medium is usually too slow for short chunks.">
               <select value={form.whisper_size} disabled={active} onChange={(e) => setOpt('whisper_size', e.target.value)}>
                 {WHISPER_SIZES.map((w) => (
@@ -282,7 +290,7 @@ export default function LivePage() {
               </select>
             </Field>
             <Field label="Chunk" unit="s" help="Shorter shows lines sooner; longer transcribes better per chunk.">
-              <input type="number" min={SEGMENT_RANGE[0]} max={SEGMENT_RANGE[1]} step={5} value={numValue(form.segment_seconds)} disabled={active}
+              <input type="number" min={SEGMENT_RANGE[0]} max={SEGMENT_RANGE[1]} step={1} value={numValue(form.segment_seconds)} disabled={active}
                 onChange={(e) => setOpt('segment_seconds', e.target.valueAsNumber)} />
             </Field>
             <Field label="Overlap" unit="s" help="Re-hears this much of the previous chunk so a sentence cut at a boundary is heard whole. 0 turns it off; at most half the chunk.">
@@ -312,7 +320,7 @@ export default function LivePage() {
         </Section>
         <div className="actions">
           {active ? (
-            <button type="button" className="primary" onClick={() => void stop()} disabled={stopping}>
+            <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping}>
               {stopping ? 'Stopping…' : status === 'queued' ? 'Cancel' : 'Stop'}
             </button>
           ) : (
@@ -369,6 +377,11 @@ export default function LivePage() {
           <p className={status === 'error' ? 'error' : 'muted'} data-testid="live-status">
             {session.status ? statusLine(session.status, total) : 'Connecting…'}
           </p>
+          {!!session.status?.notes?.length && (
+            <ul className="muted live-notes" data-testid="live-notes" aria-label="Live events">
+              {session.status.notes.map((n, i) => <li key={`${i}-${n}`}>{n}</li>)}
+            </ul>
+          )}
           {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
           {feed.length > 0 && (
             <ol className="live-cues" aria-label="Live lines, newest first">

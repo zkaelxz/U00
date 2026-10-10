@@ -23,6 +23,8 @@ import {
 import { GpuTorchPanel } from './GpuTorchPanel'
 import { InstallPlanPanel, PendingInstallBanner, needsPlanPanel, pendingKeys, type PlannedInstall } from './PendingInstall'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
+import { InstallProgress } from './InstallProgress'
+import { cancelledText, runInstallJob } from './installJob'
 import { canUpdate, updateLine, updatesSummary, versionLabel } from './packageUpdates'
 import { strandedTest } from './upgradeTestText'
 import { UpgradeTestResult } from './UpgradeTest'
@@ -42,9 +44,10 @@ export type Outcome =
   | { kind: Kind; name: string; error: unknown }
 
 /**
- * "Packages": optional packages with Install… / Upgrade… (PC only). Install
- * and upgrade are synchronous on the server (no progress, no cancel), so the
- * request stays open and every admin button on the page waits for it.
+ * "Packages": optional packages with Install… / Upgrade… (PC only). An
+ * install (and the PyTorch setup) is a server job with progress and Cancel;
+ * an upgrade is still one request that stays open. Either way every admin
+ * button on the page waits for it.
  */
 export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange, onJobStarted, onShowEngines }: {
   overview: DiagnosticsOverview
@@ -167,8 +170,12 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     onBusy({ kind, name })
     setOutcome(null)
     try {
-      const r = await (kind === 'install' ? installDependency(name) : upgradeDependency(name, target ?? ''))
-      setOutcome({ kind, name, ok: r.ok, output: r.output_tail, hint: r.hint })
+      const r = kind === 'install'
+        ? await runInstallJob(() => installDependency(name), (job) => onBusy({ kind, name, job }), name)
+        : await upgradeDependency(name, target ?? '')
+      const cancelled = 'cancelled' in r && r.cancelled
+      setOutcome({ kind, name, ok: r.ok, output: r.output_tail, hint: r.hint,
+        text: cancelled ? cancelledText(name) : undefined })
       // An install or update can move other packages too: the server dropped its check, so does this.
       setUpdates(null)
       if (r.ok) changed()
@@ -201,15 +208,17 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   // GPU PyTorch: the matched torch/torchvision/torchaudio set from the server's table.
   const GPU_NAME = 'GPU PyTorch'
   const runGpuSetup = async (v: DiagnosticsTorchVariant) => {
-    onBusy({ kind: 'install', name: `${v.needs_nvidia ? 'GPU' : 'CPU'} PyTorch (about ${v.needs_nvidia ? '2.5 GB' : '300 MB'})` })
+    const busyName = `${v.needs_nvidia ? 'GPU' : 'CPU'} PyTorch (about ${v.needs_nvidia ? '2.5 GB' : '300 MB'})`
+    onBusy({ kind: 'install', name: busyName })
     setOutcome(null)
     try {
-      const r = await setupGpuTorch(v.variant)
+      const r = await runInstallJob(() => setupGpuTorch(v.variant), (job) => onBusy({ kind: 'install', name: busyName, job }), GPU_NAME)
       setUpdates(null)
       const check = r.verify ? ` ${verifyText(r.verify)}` : ''
       setOutcome({
         kind: 'install', name: GPU_NAME, ok: r.ok, output: r.output_tail, hint: r.hint,
-        text: (r.ok ? 'PyTorch is set up. Restart Baihe to load it.' : 'PyTorch setup failed.') + check,
+        text: r.cancelled ? 'PyTorch setup cancelled.'
+          : (r.ok ? 'PyTorch is set up. Restart Baihe to load it.' : 'PyTorch setup failed.') + check,
       })
       changed()
     } catch (e) {
@@ -226,13 +235,19 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     setOutcome(null)
     setTaskRunning(t.id)
     const results: TaskRunResult[] = []
+    let cancelledTask = false
     setUpdates(null)
     try {
       for (const [i, name] of t.to_install.entries()) {
-        onBusy({ kind: 'install', name: `${name} (${i + 1} of ${t.to_install.length})` })
+        const busyName = `${name} (${i + 1} of ${t.to_install.length})`
+        onBusy({ kind: 'install', name: busyName })
         try {
-          const r = await installDependency(name)
+          const r = await runInstallJob(() => installDependency(name), (job) => onBusy({ kind: 'install', name: busyName, job }), name)
           results.push({ name, ok: r.ok, output: r.output_tail, hint: r.hint })
+          if (r.cancelled) {
+            cancelledTask = true
+            break
+          }
         } catch (e) {
           if (!results.length) {
             setOutcome({ kind: 'install', name: t.label, error: e })
@@ -244,7 +259,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
       const ok = results.every((r) => r.ok)
       setOutcome({
         kind: 'install', name: t.label, ok, output: taskOutput(results), hint: firstHint(results),
-        text: taskResultText(t.label, results),
+        text: cancelledTask ? `Cancelled installing for ${t.label}.` : taskResultText(t.label, results),
       })
     } finally {
       onBusy(null)
@@ -325,6 +340,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         {planned && (
           <InstallPlanPanel planned={planned} onQueue={(risk) => void queueForRestart(risk)} onCancel={() => setPlanned(null)} />
         )}
+        {busy?.kind === 'install' && <InstallProgress job={busy.job} name={busy.name} />}
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}
         {noTranscription && presets && (
           <div className="diag-stack" data-testid="transcription-missing" role="group" aria-labelledby={`${tasksId}-tr`} ref={noTranscriptionRef}>

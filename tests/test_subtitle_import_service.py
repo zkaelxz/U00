@@ -247,7 +247,8 @@ class TestLrcExportRoute:
                       Line(idx=1, start=3.0, end=4.0, zh="二", en="beta")])
         r = client.get(f"/api/export/dramas/{did}/subtitle", params={"fmt": "lrc", "field": "en"})
         assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
-        assert "drama_" in r.headers["content-disposition"] and r.headers["content-disposition"].endswith('.lrc"')
+        disposition = r.headers["content-disposition"]
+        assert 'subtitles (en).lrc"' in disposition and disposition.endswith(".lrc")
         assert r.text == "[00:01.00]alpha\n[00:02.00]\n[00:03.00]beta\n[00:04.00]\n"
         other = _drama()
         _upload(client, other, "apply", data=r.content, name="x.lrc")

@@ -1,7 +1,7 @@
-"""services/capped_body.read_capped: cap, declared length, deadline, close."""
+"""lib/capped_body.read_capped: cap, declared length, deadline, close."""
 import pytest
 
-from services import capped_body
+from lib import capped_body
 
 
 class Boom(Exception):

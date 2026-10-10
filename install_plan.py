@@ -13,13 +13,13 @@ this process has loaded (Windows cannot replace those).
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 
 import diagnostics
 import install_registry
 import pending_install
+from lib.proc import run_captured
 
 PLAN_TIMEOUT_SECONDS = 300
 COMPILED_SUFFIXES = (".pyd", ".so", ".dll", ".dylib")
@@ -159,7 +159,7 @@ def _summary(changes: list) -> list:
     return lines
 
 
-def run_dry_run(keys: list, runner=subprocess.run):
+def run_dry_run(keys: list, runner=run_captured):
     """(report doc or None, why) from `pip install --dry-run --report`."""
     fd, report_path = tempfile.mkstemp(prefix="baihe-plan-", suffix=".json")
     os.close(fd)
@@ -168,9 +168,10 @@ def run_dry_run(keys: list, runner=subprocess.run):
         argv = install_registry.install_argv(keys, torch_pins_path=pins)
         argv += ["--dry-run", "--quiet", "--report", report_path]
         try:
-            proc = runner(argv, capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=PLAN_TIMEOUT_SECONDS)
-        except (OSError, subprocess.SubprocessError):
+            proc = runner(argv, PLAN_TIMEOUT_SECONDS)
+        except OSError:
+            return None, "pip could not be run to preview the change."
+        if proc.timed_out:
             return None, "pip could not be run to preview the change."
         if proc.returncode != 0:
             text = (proc.stdout or "") + (proc.stderr or "")

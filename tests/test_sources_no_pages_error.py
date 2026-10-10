@@ -33,11 +33,13 @@ def test_playwright_missing_leads_with_install_steps():
     assert msg.index("Playwright") < msg.index("Why:")
     assert err["status"] == 422 and err["details"]["reason"] == "NO_CONTENT"
     assert err["details"]["diagnostic"]
+    assert "Capture whole chapter" in msg
 
 
 def test_browser_not_found_says_chrome_or_edge():
     err = _error(BILI, raises=page_fetch.BrowserNotFound("no browser"))
     assert "no Chrome or Edge" in err["message"] and "Sign in" not in err["message"]
+    assert "Capture whole chapter" in err["message"]
 
 
 def test_rendered_tier_ran_keeps_sign_in_hint():
@@ -54,6 +56,7 @@ def test_no_browser_tried_does_not_blame_sign_in():
     exc.report = report
     msg = imp._no_pages_error(exc, BILI)["message"]
     assert "No browser was used" in msg and "Sign in" not in msg
+    assert "browser extension's 'Capture whole chapter'" in msg
 
 
 def test_non_bilibili_text_unchanged():

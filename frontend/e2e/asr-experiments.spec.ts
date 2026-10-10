@@ -7,7 +7,7 @@ import { openTranscribeOptions } from './sourceHelpers'
 
 test('transcription experiments save, and MOSS is not offered', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const card = page.getByRole('region', { name: 'Transcription experiments' })
   const batch = card.getByLabel('Qwen3-ASR batch size', { exact: true })
   await expect(batch).toHaveValue('1')
@@ -19,20 +19,20 @@ test('transcription experiments save, and MOSS is not offered', async ({ page })
   await batch.fill('4')
   await Promise.all([saved(), card.getByRole('button', { name: 'Save batch size' }).click()])
   await page.reload()
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   await expect(page.getByRole('region', { name: 'Transcription experiments' }).getByLabel('Qwen3-ASR batch size', { exact: true })).toHaveValue('4')
 
   await expect(page.getByRole('switch', { name: /MOSS/ })).toHaveCount(0)
 
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
   const backend = page.getByLabel('ASR backend', { exact: true })
   await expect(backend.locator('option', { hasText: 'MOSS' })).toHaveCount(0)
 
   // Restore the batch size.
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const card2 = page.getByRole('region', { name: 'Transcription experiments' })
   await card2.getByLabel('Qwen3-ASR batch size', { exact: true }).fill('1')
   await Promise.all([saved(), card2.getByRole('button', { name: 'Save batch size' }).click()])
@@ -48,6 +48,6 @@ test('Speakers says where the last speaker detection ran', async ({ page }) => {
     }))
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
   await expect(page.getByTestId('diarize-device')).toHaveText('Last Detect speakers run (pyannote) used the GPU.')
 })

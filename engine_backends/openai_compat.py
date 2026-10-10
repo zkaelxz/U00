@@ -2,7 +2,7 @@
 
 import json
 
-from services import capped_body
+from lib import capped_body
 
 from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_listed_extra_models
 from .prompts import build_batch_user_message, build_stable_system_text
@@ -14,6 +14,7 @@ from .shared import (
     SDK_REQUEST_TIMEOUT,
     _add_usage,
     _empty_usage,
+    make_openai_client,
     read_json_capped,
     redact_secrets,
     request_translations_with_retry,
@@ -32,9 +33,7 @@ class DeepSeekEngine:
     supports_reference = True
 
     def __init__(self, api_key: str, model: str = "deepseek-flash"):
-        from openai import OpenAI
-        self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com",
-                             timeout=SDK_REQUEST_TIMEOUT)
+        self.client = make_openai_client(api_key, base_url="https://api.deepseek.com")
         self.model = model
         self.last_usage = _empty_usage()
 
@@ -100,7 +99,7 @@ class OpenAIEngine:
         # be costed too low (or at $0) and slip past the spending caps. Only the
         # built-in list and GPT-5+ models OpenAI itself listed are taken.
         if model not in OPENAI_MODELS and model not in openai_listed_extra_models():
-            from services.service_errors import InvalidInputError
+            from lib.errors import InvalidInputError
             raise InvalidInputError("That model isn't offered for this engine.")
         self.api_key = api_key
         self.model = model

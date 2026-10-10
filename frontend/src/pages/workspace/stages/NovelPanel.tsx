@@ -168,7 +168,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
             <option value="append">Append</option>
           </select>
         </Field>
-        <Field label="Paste text" help="Paste the novel text, then attach it to this drama.">
+        <Field label="Paste text" help="Paste the novel text, then attach it to this title.">
           <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
         </Field>
         <button
@@ -210,7 +210,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
             <button type="button" onClick={() => attachNovelFromSources(dramaId, mode).then(attached, fail)}>
               Copy saved raw chapters into the translation text
             </button>
-            <p className="muted">Copies the original-language chapters saved for this drama (from Sources, or the raw source novel above) into the text used for translation, using the Mode above.</p>
+            <p className="muted">Copies the original-language chapters saved for this title (from Sources, or the raw source novel above) into the text used for translation, using the Mode above.</p>
           </div>
         )}
         <LncrawlPanel

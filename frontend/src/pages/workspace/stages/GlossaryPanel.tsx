@@ -276,7 +276,7 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       {showStart && !editing && (
         <div className="glossary-start" role="group" aria-label="Start your glossary" data-testid="glossary-start">
           <h4>Start your glossary</h4>
-          <p className="muted">Terms belong to the drama's series.</p>
+          <p className="muted">Terms belong to the title's series.</p>
           <div className="glossary-start-actions">
             <button
               type="button"

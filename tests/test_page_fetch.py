@@ -5,6 +5,7 @@ The shell fixtures below reproduce the shape of a real observed
 response: a JS-app container, many script tags, and an empty-state
 string, with none of the actual listings.
 """
+from lib import http
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -133,7 +134,7 @@ def _pinned(monkeypatch, responses, calls=None):
         if calls is not None:
             calls.append((url, ip))
         return next(it)
-    monkeypatch.setattr(metadata_service, "pinned_get", fake)
+    monkeypatch.setattr(http, "pinned_get", fake)
 
 
 class _Page:
@@ -198,7 +199,7 @@ class TestFetchStaticRedirectGuard:
         ("http://user:pass@public.example/", {}),
     ])
     def test_redirect_to_a_non_public_target_is_refused(self, monkeypatch, target, mapping):
-        from services import url_guard
+        from lib import url_guard
         mapping = {"127.0.0.1": "127.0.0.1", **mapping}
         _dns(monkeypatch, mapping)
         calls = []
@@ -210,7 +211,7 @@ class TestFetchStaticRedirectGuard:
         assert first.closed
 
     def test_a_private_first_url_is_refused_without_connecting(self, monkeypatch):
-        from services import url_guard
+        from lib import url_guard
         _dns(monkeypatch, {"127.0.0.1": "127.0.0.1"})
         calls = []
         _pinned(monkeypatch, [], calls)
@@ -221,7 +222,7 @@ class TestFetchStaticRedirectGuard:
     def test_dns_rebinding_on_a_later_hop_is_refused(self, monkeypatch):
         """The redirect target is re-resolved and re-checked, not trusted
         because an earlier hop was public."""
-        from services import url_guard
+        from lib import url_guard
         _dns(monkeypatch, {"rebind.example": "127.0.0.1"})
         _pinned(monkeypatch, [_redirect("http://rebind.example/")])
         with pytest.raises(url_guard.UnsafeURLError):
@@ -241,7 +242,7 @@ class TestFetchStaticRedirectGuard:
         assert first.closed
 
     def test_too_many_redirects_are_refused(self, monkeypatch):
-        from services import url_guard
+        from lib import url_guard
         _dns(monkeypatch)
         calls = []
         hops = [_redirect(f"https://public.example/{i}")
@@ -270,7 +271,7 @@ class TestSmartFetchRedaction:
         class HTTPErr(Exception):
             response = Resp()
 
-        from services import url_guard
+        from lib import url_guard
 
         def refused(url, timeout=20):
             raise url_guard.UnsafeURLError("That address isn't allowed.")

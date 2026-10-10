@@ -1,6 +1,6 @@
 """
 services/scanlate_pages_service.py -- Scanlate pages for the API
-(docs/specs/scanlate-api-spec.md S1 and S2): the panel's config, one page's
+(docs/archive/scanlate-api-spec.md S1 and S2): the panel's config, one page's
 detail (regions keyed by their stable id, the page rev and its run notes),
 and page import (upload or a link import, SO06) with fixed limits.
 
@@ -27,12 +27,12 @@ import json
 import os
 import re
 import shutil
-import tempfile
 import threading
 import warnings
 
 import background_jobs
 import db
+import storage
 from services import comic_view_service
 from services import page_import_limits as limits
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -450,37 +450,33 @@ def add_page_images(drama_id: int, files, slice_strips: bool = SLICE_STRIPS_DEFA
     if len(files) > limits.MAX_FILES_PER_IMPORT:
         raise InvalidInputError(f"Too many files (at most {limits.MAX_FILES_PER_IMPORT} at once).")
     exts = [_safe_extension(name) for name, _f in files]
-    with upload_claim(drama_id):
-        staging = tempfile.mkdtemp(prefix="baihe_scanlate_")
-        try:
-            staged, pdf_skipped, sliced = [], 0, 0
-            budget = [limits.MAX_IMPORT_BYTES]
-            for n, ((_name, fileobj), ext) in enumerate(zip(files, exts)):
-                is_pdf = ext == ".pdf"
-                raw = os.path.join(staging, f"in_{n:04d}{'.pdf' if is_pdf else '.img'}")
-                _copy_capped(fileobj, raw, limits.MAX_PDF_BYTES if is_pdf
-                             else limits.MAX_IMAGE_BYTES, budget)
-                with open(raw, "rb") as f:
-                    kind = _sniff(f.read(16))
-                if kind is None or (kind == "pdf") != is_pdf:
+    with upload_claim(drama_id), storage.job_workdir("scanlate_import") as staging:
+        staged, pdf_skipped, sliced = [], 0, 0
+        budget = [limits.MAX_IMPORT_BYTES]
+        for n, ((_name, fileobj), ext) in enumerate(zip(files, exts)):
+            is_pdf = ext == ".pdf"
+            raw = os.path.join(staging, f"in_{n:04d}{'.pdf' if is_pdf else '.img'}")
+            _copy_capped(fileobj, raw, limits.MAX_PDF_BYTES if is_pdf
+                         else limits.MAX_IMAGE_BYTES, budget)
+            with open(raw, "rb") as f:
+                kind = _sniff(f.read(16))
+            if kind is None or (kind == "pdf") != is_pdf:
+                raise InvalidInputError(
+                    "A file's contents don't match its type. Upload PNG, JPEG, WebP or PDF.")
+            if is_pdf:
+                outs, skipped = _stage_pdf(raw, staging, f"f{n:04d}")
+                pdf_skipped += skipped
+            else:
+                outs = _stage_image(raw, staging, f"f{n:04d}", slice_strips)
+                sliced += 1 if len(outs) > 1 else 0
+            os.remove(raw)
+            for out in outs:                      # the viewer refuses bigger files later
+                if os.path.getsize(out) > comic_view_service.MAX_IMAGE_BYTES:
                     raise InvalidInputError(
-                        "A file's contents don't match its type. Upload PNG, JPEG, WebP or PDF.")
-                if is_pdf:
-                    outs, skipped = _stage_pdf(raw, staging, f"f{n:04d}")
-                    pdf_skipped += skipped
-                else:
-                    outs = _stage_image(raw, staging, f"f{n:04d}", slice_strips)
-                    sliced += 1 if len(outs) > 1 else 0
-                os.remove(raw)
-                for out in outs:                      # the viewer refuses bigger files later
-                    if os.path.getsize(out) > comic_view_service.MAX_IMAGE_BYTES:
-                        raise InvalidInputError(
-                            "A page is too large once prepared (at most "
-                            f"{comic_view_service.MAX_IMAGE_BYTES // (1024 * 1024)} MB).")
-                staged.extend(outs)
-            page_ids = _commit_pages(drama_id, staged)
-        finally:
-            shutil.rmtree(staging, ignore_errors=True)
+                        "A page is too large once prepared (at most "
+                        f"{comic_view_service.MAX_IMAGE_BYTES // (1024 * 1024)} MB).")
+            staged.extend(outs)
+        page_ids = _commit_pages(drama_id, staged)
     return {"added": len(page_ids), "page_ids": page_ids,
             "pdf_pages_skipped": pdf_skipped, "strips_sliced": sliced}
 
