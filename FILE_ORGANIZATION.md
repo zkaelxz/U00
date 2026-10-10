@@ -11,17 +11,17 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
 | `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status) | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `cli.py`, `real_model_check_cli.py`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`) | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
-| `extension/` | browser-side JavaScript (Chrome extension), not Python | `extension/manifest.json`, bridge in `page_server.py` |
+| `extension/` | browser-side JavaScript (Chrome extension), not Python; `site_access.js` decides which origins the extension may ask the person to grant (no private or LAN hosts) | `extension/manifest.json`, bridge in `page_server.py` |
 | `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW) | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
-| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed) | `python tools/repo_map.py --help` |
+| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md` | `python tools/repo_map.py --help`, `python tools/route_table.py --write` |
 | `tests/` | pytest suite; tests enforce most rules in `CLAUDE.md` | `python -m pytest -q` |
 | `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md`, `docs/user-guide.md` |
 | `library/` | your data (gitignored, created automatically) | n/a |
@@ -46,6 +46,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `db.py`
 - `diagnostics.py`
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
+- `upgrade_check.py` (try a package upgrade in a throwaway venv and run the tests there before touching the real environment)
 - `expected_files.py`
 - `install_plan.py` (what a Diagnostics install would change, and whether to run it now or at restart)
 - `install_registry.py` (package keys an install may name, and their pip argv)
@@ -119,6 +120,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `ocr.py`
 - `reader.py`
 - `scanlate.py`
+- `scanlate_detect.py`
 - `segment.py`
 
 **Story & learning**
@@ -158,6 +160,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
+- `settings_schema.py` (the declared settings: one row per `app_settings` or `.env` key with its saved name, type, default and limits; `coerce` turns a stored value into a typed one; read through `settings_service.get`)
 
 ## services/
 
@@ -279,6 +282,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `subtitle_import_service.py`
 - `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
 - `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
+- `transcribe_pipeline.py` (the in-process transcription pipeline and its spawn-target worker: separation, model load, VAD, decode, Qwen pass, realign, split; writes no database rows)
 - `transcribe_service.py`
 - `translate_run_service.py`
 - `translate_service.py`
@@ -293,6 +297,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `web_search_service.py`
 - `workflow_service.py`
 - `workspace_job_service.py`
+- `ytdlp_child.py` (one yt-dlp download in a killable child process, for `url_media_service`)
 
 ## api/
 

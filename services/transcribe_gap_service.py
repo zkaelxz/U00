@@ -20,7 +20,7 @@ from typing import Optional
 import core as core_module
 import db
 from services import restructure_service as restructure
-from services import speech_coverage_service, transcribe_service
+from services import speech_coverage_service, transcribe_pipeline, transcribe_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
@@ -207,7 +207,7 @@ def add_gap_lines(drama_id: int, expected_line_ids, *, start, end,
     restructure._check_expected(current, expected)
     _check_free(current, _insert_pos(current, after_line_id), start, end)
     with _scan_slot(drama_id):
-        duration = transcribe_service._audio_duration_seconds(audio_path)
+        duration = transcribe_pipeline._audio_duration_seconds(audio_path)
         if duration is not None and end > duration + _DURATION_TOLERANCE_S:
             raise InvalidInputError(
                 f"This stretch ends after the audio does ({duration:.1f} s).")

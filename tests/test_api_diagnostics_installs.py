@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import diagnostics
+import upgrade_check
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -255,7 +256,7 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
         yield {"done": True, "ok": True, "verdict": "safe", "reason": "every test passed",
                "version": version, "new_failures": [], "preexisting_failures": [],
                "conflicts": []}
-    monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate", fake_check)
     url = "/api/diagnostics/dependencies/pydub/test-upgrade"
     assert client.post(url, json={"confirm": True, "target": "2.0.0"}).status_code == 409
     _cache_update()
@@ -276,7 +277,7 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
 
 
 def test_upgrade_check_refusals(client, env, monkeypatch):
-    monkeypatch.setattr(diagnostics, "check_upgrade_candidate",
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate",
                         lambda *a, **k: iter(()))
     _cache_update()
     assert client.post("/api/diagnostics/dependencies/fastapi/test-upgrade",
@@ -300,7 +301,7 @@ def test_upgrade_check_cancel_stops_the_run(client, env, monkeypatch):
                 time.sleep(0.005)
         finally:
             closed.append(True)
-    monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate", fake_check)
     _cache_update()
     client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                 json={"confirm": True, "target": "2.0.0"})

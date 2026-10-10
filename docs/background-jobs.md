@@ -250,6 +250,10 @@ does the same plus the `job_records` flag for jobs run by the API.
 
 A GPU job's worker is started through `services/gpu_process_job.py`: `run_in_child` for a thread job whose GPU stage must be killable and whose next stage needs the parent (`comparetx_`, `fixflag_`); the worker may send each finished unit as `("item", x)` so a cancel or timeout keeps what was done. It runs the body under `run_worker` (own process group, a deadline watchdog that closes the result queue before `os._exit`, scratch folder as the temp dir). The child never reads the database: the parent resolves settings and passes plain values.
 
+Every process-job worker hands its result back through `job_process_result.py`: small items go on the queue, a large final result is written to a file and only a short marker is queued, so a child killed mid-write cannot leave the parent blocked on a half-written message. A done job has already removed its result file. A thread job that waits for the pipeline lock takes it with `lib/cancellable_lock.hold(lock, cancel_check)`, which polls the cancel check between acquire attempts so Cancel works while it waits. A URL-media download runs yt-dlp in a killable child (`services/ytdlp_child.py`, started through `lib/proc.stream_tree`), so Cancel and the time cap kill extraction, challenge solving and ffmpeg post-processing together.
+
+The job store in `jobs/job_store.py` (library.db as the authority instead of the in-memory dict) is an open PR (#1058), not merged: today the in-memory dict is still the authority.
+
 A worker whose server dies is not left running: a process job started with
 `start_own_process_group()` ends itself when its parent is gone
 (`exit_if_parent_gone`, from each progress report and a watchdog thread).
@@ -375,13 +379,15 @@ Thread unless marked process.
 | `resegment_<id>`, `resegpreview_<id>` | `restructure_service` | process with Ollama, otherwise thread | with Ollama |
 | `resplit_<id>` | `restructure_service` | thread | yes |
 | `translate_<id>`, `bulk_translate_<id>` | `translate_run_service`, `workspace_job_service` | thread | with Ollama |
-| `flag_<id>`, `fixflag_<id>`, `consistency_`, `emotion_`, `notes_` and their `bulk_*` | `review_jobs_service` and others | thread | no |
+| `comparetx_<id>`, `fixflag_<id>` | `compare_transcription_service`, `fixflag_transcribe` (the hear step in `compare_hear_worker`, via `gpu_process_job.run_in_child`) | thread with a process stage | yes |
+| `flag_<id>`, `consistency_`, `emotion_`, `notes_` and their `bulk_*` | `review_jobs_service` and others | thread | no |
 | `sensevoice_<id>` | `review_extras_service` | thread | yes |
 | `narration_<id>`, `audiobook_<id>`, `burned_video_<id>`, `softsub_video_<id>`, `dubbed_video_<id>` | `narration_service`, `media_export_service` | thread | no |
 | `voiceref_<id>` | `voice_clone_service` | thread | no |
 | `ocrchapter_<id>`, `scanlate_<id>` | `novel_attach_service`, `scanlate_pages_service` | thread | yes |
 | `novel_glossary_<id>`, `lines_glossary_<id>` | `glossary_service` | thread | with Ollama |
-| `extract_audio_<id>`, `urlmedia_<id>`, `lncrawl_<id>` | media upload, URL media and lncrawl services | thread | no |
+| `extract_audio_<id>`, `lncrawl_<id>` | media upload and lncrawl services | thread | no |
+| `urlmedia_<id>` | `url_media_service` (the download itself runs in the `ytdlp_child` process) | thread | no |
 | Sources: `sources_search`, `sources_save`, `sourceimport_<id>`, `sources_series_*`, `sources_signin_*` | `sources_*_service` | thread | no |
 | Library: `library_backup`, `library_db_backup`, `library_user_backup`, `library_auto_backup`, `library_export_zip`, `bulk_series_translate` | `library_admin_service`, `auto_backup_service` | thread | no |
 | `deno_install`, `upgrade_check`, `discover_*` | diagnostics and discover services | thread | no |

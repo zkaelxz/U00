@@ -84,8 +84,8 @@ import cli_timing
 from jobs import gpu_slots, job_store
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
-                      narration_service, review_extras_service, settings_service, transcribe_service,
-                      translate_run_service, translate_service, workspace_job_service)
+                      narration_service, review_extras_service, settings_service, transcribe_pipeline,
+                      transcribe_service, translate_run_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from lib.errors import DependencyUnavailableError, ServiceError
 from services.translate_run_service import (engine_cap_applies, get_translate_config_defaults,
@@ -408,7 +408,7 @@ def cmd_diarize(args):
             release_gpu_models()
         # Same history the app's speaker-detection estimate reads.
         transcribe_service.record_diarize_speed(
-            run_info.get("device") == "cuda", transcribe_service._audio_duration_seconds(audio_path),
+            run_info.get("device") == "cuda", transcribe_pipeline._audio_duration_seconds(audio_path),
             time.monotonic() - started)
         if run_info.get("fell_back_to_cpu"):
             print(f"#{d['id']} WARNING: {diarize.fallback_done_message(run_info.get('fallback_kind'))}")
@@ -553,7 +553,7 @@ def cmd_align(args):
         elif segments and not use_groq and not fast:
             # Same history the app's estimate reads; fast mode runs at another speed.
             transcribe_service.record_transcribe_speed(
-                whisper_size, bool(use_gpu), transcribe_service._audio_duration_seconds(audio_path),
+                whisper_size, bool(use_gpu), transcribe_pipeline._audio_duration_seconds(audio_path),
                 time.monotonic() - started)
         if cfg["realign_long_segments"] and segments:
             import word_align

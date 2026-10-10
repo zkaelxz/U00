@@ -27,6 +27,19 @@ class StreamedBody:
     def ok(self, value):
         self._ok = value
 
+    def __getattr__(self, name):
+        # lib.http reads the status; a fake that only defines raise_for_status
+        # gets 200, or 500 when that raises.
+        if name == "status_code":
+            if "_ok" in self.__dict__:
+                return 200 if self._ok else 500
+            try:
+                self.raise_for_status()
+            except Exception:
+                return 500
+            return 200
+        raise AttributeError(name)
+
     def raise_for_status(self):
         pass
 
@@ -46,3 +59,15 @@ class StreamedBody:
 
     def close(self):
         self.closed = True
+
+
+def patch_post(monkeypatch, fake_post):
+    """Route a test's `requests.post`-style fake (url, headers=, json=, timeout=,
+    stream=) through lib.http's one connection call, and keep `requests.post`
+    patched too for engines that still call it directly."""
+    from lib import http
+
+    def fake(url, ip, headers, timeout=None, method="GET", **kw):
+        return fake_post(url, headers=headers, json=kw.get("json"), timeout=timeout, stream=True)
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(http, "pinned_get", fake)

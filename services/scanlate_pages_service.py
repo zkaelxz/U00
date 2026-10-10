@@ -175,7 +175,8 @@ def ocr_backend_installed(backend: str) -> bool:
 def _weights_cached():
     try:
         import scanlate
-        return scanlate.bubble_ml_weights_cached(), scanlate.lama_ml_weights_cached()
+        import scanlate_detect
+        return scanlate_detect.bubble_ml_weights_cached(), scanlate.lama_ml_weights_cached()
     except Exception:
         return False, False
 

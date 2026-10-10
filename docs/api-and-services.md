@@ -15,7 +15,8 @@ frontend/ (React)
   -> services/*_service.py         UI-free logic; raises lib/errors.py errors
   -> root domain modules           core, translate_engines, scanlate, ...
   -> db.py                         plain sqlite3
-  lib/                             shared helpers (errors, url_guard, capped_body); every layer may import it, it imports none
+  lib/                             shared helpers (errors, url_guard, capped_body, http, proc, proc_kill,
+                                   cancellable_lock, settings_schema, link_new); every layer may import it, it imports none
 ```
 
 - A router function validates input through a Pydantic model, calls one
@@ -168,7 +169,8 @@ Related helpers:
   `docs/route-permissions.md` (`| Route | Declaration |`) and
   fails if any `METHOD /path` or its declaration differs from what the app
   declares, or if a row is not one route sorted by path then method. A new
-  route therefore needs one row in that doc, in the same change.
+  route therefore needs its row regenerated in the same change
+  (`python tools/route_table.py --write`).
 
 The same file also covers CSRF, local-only, loopback and bypass cases.
 
@@ -349,9 +351,10 @@ the client to follow.
    `media.stream`; use `local_only()` for anything touching the PC; reserve
    `public_route()` and `authenticated()` for the cases above. Use
    `{drama_id}`/`{series_id}` in the path for an owned item.
-4. **Route-table row** in `docs/route-permissions.md`: add one
-   row (the route as `METHOD /path`, then its declaration) in sorted
-   position, path first and then method. There are no counts to update.
+4. **Route-table row** in `docs/route-permissions.md`: regenerate the table
+   with `python tools/route_table.py --write` (it is derived from the
+   decorators and sorted by path, then method; don't edit rows by hand).
+   There are no counts to update.
 5. **Ownership**: an item in the path is guarded automatically. An item in a
    body, or a job id, is checked in the service; list new path parameters in
    `OWNERSHIP_EXEMPT_PARAMS` (with a reason) in `tests/test_api_ownership.py`
