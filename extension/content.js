@@ -648,13 +648,19 @@
 
   // Novel readers put the chapter title in the first heading; the tab title
   // usually adds the book and site names, so it is only the fallback.
+  // Cut by code point: a UTF-16 slice can split an emoji or rare CJK
+  // character, and the lone surrogate left behind cannot be encoded as UTF-8.
+  function capHeading(text) {
+    return Array.from(text).slice(0, 200).join("");
+  }
+
   function chapterHeading() {
     for (const tag of ["h1", "h2", "h3"]) {
       const el = document.querySelector(tag);
       const text = el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
-      if (text) return text.slice(0, 200);
+      if (text) return capHeading(text);
     }
-    return (document.title || "").trim().slice(0, 200);
+    return capHeading((document.title || "").trim());
   }
 
   async function saveNovelText({ dramaId }) {

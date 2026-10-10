@@ -45,6 +45,13 @@ def _raw(drama_id):
         return f.read()
 
 
+def test_a_heading_with_a_lone_surrogate_still_saves(token, title):
+    h = _save(token, title, heading="第三章 " + "\ud83d" + "夜雨")
+    assert h.status == 200, h.payload
+    assert h.payload["saved"] is True
+    assert "\ud83d" not in _raw(title)
+
+
 def test_the_route_sits_behind_the_bridge_token_and_loopback_check(token, title):
     assert _save(None, title).status == 401
     assert _save("wrong", title).status == 401
@@ -197,6 +204,11 @@ def test_the_main_text_block_is_sent_without_a_selection():
     out = _node("novel", "main_text")
     assert out["sent"]["text"].startswith("雨下了一整夜") and out["fromSelection"] is False
     assert out["sent"]["source"] == "novel.example"
+
+
+def test_a_long_heading_is_cut_by_code_point_not_through_a_surrogate_pair():
+    heading = _node("novel", "long_heading")["heading"]
+    assert heading == "a" * 199 + "😀"
 
 
 def test_an_over_cap_page_is_refused_before_sending():

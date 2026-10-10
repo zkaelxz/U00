@@ -398,6 +398,11 @@ async function novel(scenario) {
       const r = await h.api.saveNovelText({ dramaId: 4 });
       return { sent: h.sent[0], fromSelection: r.data.fromSelection };
     }
+    case "long_heading": {
+      const h = loadNovelPage({ paragraphs: prose, heading: "a".repeat(199) + "😀" });
+      await h.api.saveNovelText({ dramaId: 4 });
+      return { heading: h.sent[0].heading };
+    }
     case "over_cap": {
       const h = loadNovelPage({ paragraphs: prose, selection: "字".repeat(200001) });
       const r = await h.api.saveNovelText({ dramaId: 4 });

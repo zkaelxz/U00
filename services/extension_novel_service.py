@@ -35,7 +35,9 @@ MAX_SOURCE_CHARS = 60       # and this much of a site name
 # local_only() route.
 _BRIDGE_PRINCIPAL = {"user_id": None, "is_local_owner": True}
 
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f‎‏‪-‮⁦-⁩]")
+# Lone surrogates (a client that cut a string mid-character) cannot be
+# encoded as UTF-8 and would fail every save of the chapter.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\ud800-\udfff‎‏‪-‮⁦-⁩]")
 _LINE_BREAKS = re.compile(r"\r\n?|[  \x85]")
 
 
