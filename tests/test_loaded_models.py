@@ -10,6 +10,7 @@ import pytest
 
 import background_jobs
 import core
+import whisper_models
 from services import loaded_models_service as svc
 from services.service_errors import ConflictError
 
@@ -22,8 +23,8 @@ class _Resp:
 @pytest.fixture(autouse=True)
 def quiet(monkeypatch):
     """Nothing loaded, no GPU, no Ollama, no llama.cpp unless a test says so."""
-    monkeypatch.setattr(core, "_whisper_model_cache", {})
-    monkeypatch.setattr(core, "_whisper_device_info", {})
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+    monkeypatch.setattr(whisper_models, "_whisper_device_info", {})
     monkeypatch.setattr(svc.settings_service, "resolve_key", lambda key, *a, **k: None)
     monkeypatch.setattr(svc.shutil, "which", lambda name: None)
     monkeypatch.setitem(sys.modules, "torch", None)
@@ -77,9 +78,9 @@ def test_ollama_error_status_is_unavailable_not_a_crash(monkeypatch):
 
 
 def test_app_models_from_caches_hide_local_paths(monkeypatch):
-    monkeypatch.setattr(core, "_whisper_model_cache",
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache",
                         {"large-v3-turbo_gpu": object(), "/home/me/models/my-whisper_cpu": object()})
-    monkeypatch.setattr(core, "_whisper_device_info", {"large-v3-turbo_gpu": {"device": "cuda"}})
+    monkeypatch.setattr(whisper_models, "_whisper_device_info", {"large-v3-turbo_gpu": {"device": "cuda"}})
     out = svc._app_rows()
     assert {(m["name"], m["device"]) for m in out["models"]} == {
         ("large-v3-turbo", "GPU"), ("my-whisper", "CPU")}
@@ -145,7 +146,7 @@ def test_llama_cpp_probe(monkeypatch):
 def test_free_refused_while_gpu_job_runs(monkeypatch):
     monkeypatch.setattr(background_jobs, "list_all_jobs",
                         lambda: {"j1": {"status": "running", "gpu_touching": True}})
-    monkeypatch.setattr(core, "release_gpu_models", lambda: pytest.fail("freed under a job"))
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: pytest.fail("freed under a job"))
     with pytest.raises(ConflictError):
         svc.free_app_models()
 
@@ -155,7 +156,7 @@ def test_free_drops_models_when_idle(monkeypatch):
                         lambda: {"j1": {"status": "done", "gpu_touching": True},
                                  "j2": {"status": "running", "gpu_touching": False}})
     calls = []
-    monkeypatch.setattr(core, "release_gpu_models", lambda: calls.append(1))
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: calls.append(1))
     assert svc.free_app_models()["gpu_job_running"] is False
     assert calls == [1]
 
@@ -171,7 +172,7 @@ def _client(auth="off"):
 
 
 def test_route_response_has_no_paths_or_urls(monkeypatch, isolated_db):
-    monkeypatch.setattr(core, "_whisper_model_cache", {"/home/me/secret dir/w_gpu": object()})
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache", {"/home/me/secret dir/w_gpu": object()})
     monkeypatch.setattr(svc, "_loopback_get", lambda url: _Resp(
         {"models": [{"name": "m:1", "size": 5, "size_vram": 5, "digest": "x",
                      "details": {"path": "/models/m"}}], "data": []}))

@@ -56,6 +56,7 @@ from typing import Optional
 
 import background_jobs
 import core as core_module
+import whisper_models
 import segment_splitting
 import db
 import diagnostics
@@ -79,7 +80,7 @@ PAID_ENGINE_FUNCTIONS = ()
 
 # The per-drama tuning values used when the drama has none stored.
 _DEFAULT_TUNING = {
-    "whisper_size": core_module.DEFAULT_WHISPER_SIZE,
+    "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
     "beam_size": 5,
     "min_silence_ms": 300,
     "vad_threshold": 0.5,
@@ -295,7 +296,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "asr_backend_choice": asr_options_service.stored_asr_backend(drama),
         "asr_backend_notice": asr_options_service.removed_asr_backend_notice(drama),
         "whisper_size": whisper_size,
-        "whisper_model_cached": core_module.is_whisper_model_cached(whisper_size),
+        "whisper_model_cached": whisper_models.is_whisper_model_cached(whisper_size),
         "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get_use_gpu()),
         "measured_speed_runs": measured_transcribe_runs(whisper_size, settings_service.get_use_gpu()),
         "measured_stage_seconds": measured_stage_seconds(whisper_size, settings_service.get_use_gpu()),
@@ -683,9 +684,9 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
 
 def _allowed_whisper_sizes() -> frozenset:
     """Whisper model names a drama may store: the Workspace picker's
-    (core.WHISPER_MODELS, plus tiny/base in the React picker) and the known
+    (whisper_models.WHISPER_MODELS, plus tiny/base in the React picker) and the known
     download sizes above. Anything else is refused by update_transcribe_config."""
-    return frozenset(core_module.WHISPER_MODELS) | frozenset(transcribe_pipeline._MODEL_DOWNLOAD_SIZES)
+    return frozenset(whisper_models.WHISPER_MODELS) | frozenset(transcribe_pipeline._MODEL_DOWNLOAD_SIZES)
 
 
 def default_whisper_size() -> str:
@@ -865,7 +866,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
         "line_count": len(lines),
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
         "device_notice": (
-            core_module.gpu_fallback_notice(outcome.get("gpu_fallback_task", "Transcription"),
+            whisper_models.gpu_fallback_notice(outcome.get("gpu_fallback_task", "Transcription"),
                                             gpu_fallback_msg[0])
             if gpu_fallback_msg else None),
         "device": (f"GPU unavailable ({gpu_fallback_msg[0]}); using CPU"
@@ -1110,7 +1111,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
                   stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),
-                  transcribe_pipeline._model_loading_message(stored_whisper_size(drama), core_module.is_whisper_model_cached(
+                  transcribe_pipeline._model_loading_message(stored_whisper_size(drama), whisper_models.is_whisper_model_cached(
                       stored_whisper_size(drama))),
                   _retranscribe_timeout_s(window), scratch_dir),
             gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})",

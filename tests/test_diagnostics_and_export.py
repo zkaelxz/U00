@@ -3,6 +3,7 @@ tests/test_diagnostics_and_export.py -- tests for diagnostics.py
 and db.py's line history (undo) functions.
 """
 
+import whisper_models
 import sys
 import os
 import json
@@ -96,7 +97,7 @@ class TestDiagnostics:
             assert deps[pip_name][2] == "feature"
 
     def test_ctranslate2_is_registered_for_gpu_detection(self):
-        """core.gpu_status imports ctranslate2 lazily; without an entry
+        """whisper_models.gpu_status imports ctranslate2 lazily; without an entry
         Diagnostics could never say it is missing."""
         assert diagnostics.OPTIONAL_DEPENDENCIES["ctranslate2"][0] == "ctranslate2"
 

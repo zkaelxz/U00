@@ -173,7 +173,7 @@ CLI run's lock therefore resumes within about that interval, not instantly.
 The guard decides when a job may start, not what device it uses. When a model cannot
 load on the GPU, the job falls back to CPU, finishes `done`, and says so in its result:
 `gpu_fallback` (a short redacted reason) and `device_notice`
-(`core.gpu_fallback_notice`: "<Task> ran on the CPU because the GPU couldn't be used
+(`whisper_models.gpu_fallback_notice`: "<Task> ran on the CPU because the GPU couldn't be used
 (...)"). `jobs_service.derive_outcome` reports such a job as `partial`, not `ok`. The
 CLI prints the same sentence.
 

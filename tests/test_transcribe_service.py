@@ -20,6 +20,7 @@ import pytest
 
 import background_jobs
 import core as core_module
+import whisper_models
 import segment_splitting
 from services import transcribe_pipeline, transcribe_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
@@ -93,8 +94,8 @@ class TestGetTranscribeConfig:
             "audio_available": False,
             "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper",
-            "whisper_size": core_module.DEFAULT_WHISPER_SIZE,
-            "whisper_model_cached": core_module.is_whisper_model_cached(core_module.DEFAULT_WHISPER_SIZE),
+            "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
+            "whisper_model_cached": whisper_models.is_whisper_model_cached(whisper_models.DEFAULT_WHISPER_SIZE),
             "measured_speed": None,
             "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
@@ -495,7 +496,7 @@ class TestStartTranscribeRun:
 def _no_real_whisper_load(monkeypatch):
     """The job body pre-loads the Whisper model to report stage/device;
     tests never load a real model."""
-    monkeypatch.setattr(core_module, "load_whisper_model", lambda *a, **k: object())
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: object())
 
 
 class TestRunTranscribeAndApplyJob:
@@ -504,8 +505,8 @@ class TestRunTranscribeAndApplyJob:
         job_id = f"transcribe_{did}"
         _seed_running_job(job_id)
         messages = []
-        monkeypatch.setattr(core_module, "is_whisper_model_cached", lambda size: False)
-        monkeypatch.setattr(core_module, "get_whisper_device_info", lambda *a, **k: {
+        monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: False)
+        monkeypatch.setattr(whisper_models, "get_whisper_device_info", lambda *a, **k: {
             "device": "cpu", "compute_type": "int8", "gpu_error": "RuntimeError: no cublas64_12.dll"})
         real_update = background_jobs.update_progress
         monkeypatch.setattr(background_jobs, "update_progress",
@@ -580,9 +581,9 @@ class TestRunTranscribeAndApplyJob:
             seen.update(min_silence=min_silence_duration_ms, repeat_guard=repeat_guard)
             return [{"start": 0.0, "end": 6.0, "text": "今天天气很好。我们出去走走吧。"}]
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", fake)
-        monkeypatch.setattr(core_module, "load_whisper_model", lambda *a, **k: None)
-        monkeypatch.setattr(core_module, "get_whisper_device_info", lambda *a, **k: {})
-        monkeypatch.setattr(core_module, "release_gpu_models", lambda: None)
+        monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: None)
+        monkeypatch.setattr(whisper_models, "get_whisper_device_info", lambda *a, **k: {})
+        monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
         out = transcribe_pipeline._transcribe_pipeline(
             transcribe_pipeline._ThreadReporter(None), str(tmp_path / "a.wav"), "whisper", None,
             "zh", "simplified", "medium", 5, 300, 0.5, False, "auto", False, False, False, None,
@@ -666,7 +667,7 @@ class TestRunTranscribeAndApplyJob:
         _seed_running_job(job_id)
 
         def raise_download_error(*a, **k):
-            raise core_module.ModelDownloadError("no network")
+            raise whisper_models.ModelDownloadError("no network")
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", raise_download_error)
 
         transcribe_service._run_transcribe_and_apply_job(
@@ -828,7 +829,7 @@ class TestRunTranscribeAndApplyJob:
         job_id = f"transcribe_{did}"
         _seed_running_job(job_id)
         seen = []
-        monkeypatch.setattr(transcribe_service.core_module, "load_whisper_model",
+        monkeypatch.setattr(whisper_models, "load_whisper_model",
                             lambda *a, **k: seen.append(background_jobs.get_status(job_id)["message"]))
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
@@ -1376,7 +1377,7 @@ class TestQwen3Backends:
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": "x"}])
         released = []
-        monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models",
+        monkeypatch.setattr(whisper_models, "release_gpu_models",
                             lambda: released.append(1))
         job_id = f"transcribe_{did}"
 
@@ -1529,7 +1530,7 @@ def _spawned_worker(scenario, *args):
     if _PARENT_ONLY_PROBE:
         raise AssertionError("the worker was forked, not spawned")
     db.configure_library_dir(library)
-    core_module.load_whisper_model = lambda *a, **k: object()
+    whisper_models.load_whisper_model = lambda *a, **k: object()
     scratch_dir = args[-2]
 
     def two_lines(*a, progress_cb=None, **k):
@@ -1606,7 +1607,7 @@ class TestTranscribeProcessJob:
         assert [r["zh"] for r in isolated_db.load_lines(did)] == ["hi", "there"]
         assert isolated_db.get_drama(did)["status"] == "aligned"
         assert os.path.exists(os.path.join(ddir, "raw_transcript.json"))
-        assert messages[0][1].startswith(f"Loading Whisper model {core_module.DEFAULT_WHISPER_SIZE}")
+        assert messages[0][1].startswith(f"Loading Whisper model {whisper_models.DEFAULT_WHISPER_SIZE}")
         assert background_jobs.stage_ticker.NOTE in messages[0][1]
         assert any(f == pytest.approx(0.5 * transcribe_pipeline.RUNNING_MAX)
                    and m.startswith("Transcribing... 50%") for f, m in messages)
@@ -1967,7 +1968,7 @@ class TestTranscribeSpeedCalibration:
 
     def test_config_reports_stage_medians_and_diarize_speed(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        model = core_module.DEFAULT_WHISPER_SIZE
+        model = whisper_models.DEFAULT_WHISPER_SIZE
         transcribe_service.record_transcribe_speed(model, False, 600, 300, stage_seconds={"load": 12})
         for work in (300, 300, 300):
             transcribe_service.record_diarize_speed(False, 600, work)
@@ -2003,10 +2004,10 @@ class TestTranscribeSpeedCalibration:
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         # An unsaved drama's model follows the GPU setting, so each device has its own default.
-        transcribe_service.record_transcribe_speed(core_module.DEFAULT_WHISPER_SIZE, False, 600, 300)
+        transcribe_service.record_transcribe_speed(whisper_models.DEFAULT_WHISPER_SIZE, False, 600, 300)
         assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 2.0
         assert transcribe_service.get_transcribe_config(did)["measured_speed_runs"] == 1
-        transcribe_service.record_transcribe_speed(core_module.DEFAULT_WHISPER_SIZE, True, 3000, 100)
+        transcribe_service.record_transcribe_speed(whisper_models.DEFAULT_WHISPER_SIZE, True, 3000, 100)
         isolated_db.set_app_setting("use_gpu", True)
         assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 30.0
 

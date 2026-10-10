@@ -102,5 +102,6 @@ EXPECTED_TOP_LEVEL_FILES = [
     "video_export.py",
     "vocab_export.py",
     "voice_id.py",
+    "whisper_models.py",
     "word_align.py",
 ]

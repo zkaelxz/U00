@@ -19,6 +19,7 @@ guard as the other Diagnostics actions; the `smoke` CLI command
 same checks. Reasons never carry paths or URLs.
 """
 
+import whisper_models
 import contextlib
 import importlib.util
 import os
@@ -156,7 +157,7 @@ def _check_asr(speech_clip=None, expected_text=None) -> str:
         size = transcribe_service.default_whisper_size()
         if not _installed("faster_whisper"):
             raise _Skip("faster-whisper is not installed.")
-        if not core.is_whisper_model_cached(size):
+        if not whisper_models.is_whisper_model_cached(size):
             raise _Skip(f"The Whisper {size} model is not downloaded.")
     else:
         if not _installed("qwen_asr"):
@@ -395,7 +396,7 @@ def run_checks(speech_clip=None, expected_text=None, before_check=None, on_resul
         # told to free for this check.
         try:
             import core
-            core.release_gpu_models()
+            whisper_models.release_gpu_models()
         except Exception:
             pass
     return results

@@ -62,15 +62,16 @@ import traceback
 
 import audio_preprocess
 import core as core_module
+import whisper_models as wm
 import segment_splitting
 import db
 import ollama_unload
 import diagnostics
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
-    chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
-    DEFAULT_WHISPER_SIZE, ModelDownloadError, line_from_row,
+    chunk_novel_text, lines_from_rows, line_from_row,
 )
+from whisper_models import release_gpu_models, WHISPER_MODELS, DEFAULT_WHISPER_SIZE, ModelDownloadError
 import subtitle_formats, glossary_io as gio
 import translate_engines
 import translation_guide as tguide
@@ -533,7 +534,7 @@ def cmd_align(args):
                 sensitivity_preset=cfg["sensitivity_preset"],
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
                 repeat_guard=cfg["whisper_repeat_guard"],
-                on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
+                on_gpu_fallback=lambda exc: gpu_fallback.append(wm.short_reason(exc)))
         if "ollama_notice" in (notice := ollama_unload.take_notice_result()):
             print(f"#{d['id']} WARNING: {notice['ollama_notice']}")
         if not segments:
@@ -543,13 +544,13 @@ def cmd_align(args):
             return
         if not use_groq:
             # The model's own load can fall back to CPU before any inference runs.
-            load_error = core_module.get_whisper_device_info(
+            load_error = wm.get_whisper_device_info(
                 whisper_size, use_gpu=use_gpu, local_model_path=local_model_path).get("gpu_error")
             if load_error:
                 gpu_fallback.insert(0, load_error)
         if gpu_fallback:
             print(f"#{d['id']} WARNING: "
-                  f"{core_module.gpu_fallback_notice('Transcription', gpu_fallback[0])}")
+                  f"{wm.gpu_fallback_notice('Transcription', gpu_fallback[0])}")
         elif segments and not use_groq and not fast:
             # Same history the app's estimate reads; fast mode runs at another speed.
             transcribe_service.record_transcribe_speed(
@@ -571,8 +572,8 @@ def cmd_align(args):
                     lines = forced_align.align_with_qwen3(
                         audio_path, user_lines, segments, language=language, use_gpu=use_gpu,
                         on_gpu_fallback=lambda exc: print(
-                            f"#{d['id']} WARNING: " + core_module.gpu_fallback_notice(
-                                "Qwen3 forced alignment", core_module.short_reason(exc))))
+                            f"#{d['id']} WARNING: " + wm.gpu_fallback_notice(
+                                "Qwen3 forced alignment", wm.short_reason(exc))))
                 except ImportError as exc:
                     raise _qwen3_missing(exc) from exc
                 except ModelDownloadError as exc:

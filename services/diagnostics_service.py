@@ -15,6 +15,7 @@ No HTTP types: takes no arguments, returns a plain
 dict, so `cli.py` or a script could call it too.
 """
 
+import whisper_models
 import os
 
 import background_jobs
@@ -57,7 +58,7 @@ def get_diagnostics_overview() -> dict:
     gpu = dict(diagnostics_torch.get_gpu_status())
     # What faster-whisper's own runtime (ctranslate2) sees -- can differ
     # from torch (missing cuBLAS/cuDNN makes Whisper silently use CPU).
-    gpu["whisper"] = core.gpu_status()
+    gpu["whisper"] = whisper_models.gpu_status()
     return {
         "dependencies": diagnostics.check_all_dependencies(),
         "file_completeness": diagnostics.check_file_completeness(PROJECT_ROOT),

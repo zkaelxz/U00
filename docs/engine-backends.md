@@ -251,7 +251,7 @@ root modules below.
 
 | Choice | Code | What it does |
 |---|---|---|
-| `whisper` (default) | `asr_backend.WhisperBackend` -> `core.transcribe_for_timing` | local faster-whisper with VAD segmentation; `core.load_whisper_model` falls back from GPU to CPU |
+| `whisper` (default) | `asr_backend.WhisperBackend` -> `core.transcribe_for_timing` | local faster-whisper with VAD segmentation; `whisper_models.load_whisper_model` falls back from GPU to CPU |
 | `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; needs `qwen-asr`; batching (`qwen_asr_batch_size`) is honoured only on the tested qwen-asr version (`effective_qwen_batch_size`) |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 
