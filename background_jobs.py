@@ -864,15 +864,17 @@ def _promote_one_queued_gpu_job(dropped):
 _exclusive_label = None
 
 
-def acquire_exclusive(label: str) -> bool:
+def acquire_exclusive(label: str, ignore_job_id: str = None) -> bool:
     """Atomically: refuse (False) if any job is running/queued in this
     process or another exclusive hold is active; otherwise take the hold,
-    so no new job can start until release_exclusive()."""
+    so no new job can start until release_exclusive(). `ignore_job_id` is
+    the caller's own job, for a job that holds the library while it runs."""
     global _exclusive_label
     import live_whisper
     with _lock:
         if _exclusive_label is not None or _maintenance_count or any(
-                j.get("status") in ("running", "queued") for j in _jobs.values()
+                j.get("status") in ("running", "queued")
+                for jid, j in _jobs.items() if jid != ignore_job_id
         ) or live_whisper.outstanding_label():
             return False
         _exclusive_label = label

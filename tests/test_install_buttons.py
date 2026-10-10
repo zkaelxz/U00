@@ -7,82 +7,10 @@ real network call or actually installs anything.
 """
 import os
 import sys
-import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diagnostics
-
-
-class _FakePopen:
-    """Just enough of subprocess.Popen's interface for the streaming
-    functions under test: an iterable `.stdout` and a `.wait()` that
-    returns the recorded return code."""
-
-    def __init__(self, lines, returncode=0):
-        self.stdout = iter(lines)
-        self._returncode = returncode
-
-    def wait(self):
-        return self._returncode
-
-
-class TestStreamPipInstall:
-    def test_streams_lines_then_a_final_done_item(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.subprocess, "Popen",
-                            lambda cmd, **kw: _FakePopen(
-                                ["Collecting foo\n", "Successfully installed foo\n"], 0))
-        items = list(diagnostics.stream_pip_install(["foo"]))
-        assert items[0] == {"line": "Collecting foo"}
-        assert items[1] == {"line": "Successfully installed foo"}
-        assert items[-1] == {"done": True, "ok": True, "returncode": 0}
-
-    def test_targets_the_running_interpreter_not_a_bare_pip(self, monkeypatch):
-        captured = {}
-
-        def fake_popen(cmd, **kw):
-            captured["cmd"] = cmd
-            return _FakePopen([], 0)
-        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
-        monkeypatch.setattr(diagnostics.sys, "executable", "/venv/bin/python3.14")
-
-        list(diagnostics.stream_pip_install(["bar"]))
-        assert captured["cmd"] == ["/venv/bin/python3.14", "-m", "pip", "install",
-                                   "--no-cache-dir", "--disable-pip-version-check", "bar"]
-
-    def test_explicit_interpreter_overrides_sys_executable(self, monkeypatch):
-        captured = {}
-
-        def fake_popen(cmd, **kw):
-            captured["cmd"] = cmd
-            return _FakePopen([], 0)
-        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
-
-        list(diagnostics.stream_pip_install(["bar"], python_executable="/other/python"))
-        assert captured["cmd"][0] == "/other/python"
-
-    def test_failure_surfaces_the_real_error_text_not_a_generic_message(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.subprocess, "Popen",
-                            lambda cmd, **kw: _FakePopen(
-                                ["ERROR: build failed for foo (diffq-fixed Cython error)\n"], 1))
-        items = list(diagnostics.stream_pip_install(["foo"]))
-        assert {"line": "ERROR: build failed for foo (diffq-fixed Cython error)"} in items
-        assert items[-1] == {"done": True, "ok": False, "returncode": 1}
-
-
-class TestStreamPipUninstall:
-    def test_passes_dash_y_and_targets_the_running_interpreter(self, monkeypatch):
-        captured = {}
-
-        def fake_popen(cmd, **kw):
-            captured["cmd"] = cmd
-            return _FakePopen([], 0)
-        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
-        monkeypatch.setattr(diagnostics.sys, "executable", "/venv/bin/python")
-
-        list(diagnostics.stream_pip_uninstall(["torch", "torchaudio"]))
-        assert captured["cmd"] == ["/venv/bin/python", "-m", "pip", "uninstall", "-y",
-                                   "torch", "torchaudio"]
 
 
 class TestParseRequirementsFile:
@@ -187,81 +115,5 @@ class TestExternalGpuLoad:
         monkeypatch.setattr(diagnostics.subprocess, "run",
                             self._fake_run("3, 500, 12288\n"))
         assert diagnostics.external_gpu_is_busy() is False
-
-
-class TestGpuTorchCudaIndex:
-    def test_python_3_14_uses_cu128(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.sys, "version_info",
-                            types.SimpleNamespace(major=3, minor=14))
-        assert diagnostics.gpu_torch_cuda_index() == "cu128"
-
-    def test_unlisted_version_falls_back_to_the_default(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.sys, "version_info",
-                            types.SimpleNamespace(major=3, minor=11))
-        assert diagnostics.gpu_torch_cuda_index() == diagnostics.GPU_TORCH_CUDA_INDEX_DEFAULT
-
-
-class TestStreamGpuTorchReinstall:
-    def test_uninstalls_then_installs_with_index_and_constraints(self, monkeypatch, tmp_path):
-        constraints_file = tmp_path / "constraints.txt"
-        constraints_file.write_text("torch<3\ntorchaudio<3\n")
-
-        calls = []
-
-        def fake_popen(cmd, **kw):
-            calls.append(cmd)
-            return _FakePopen(["ok\n"], 0)
-        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
-        monkeypatch.setattr(diagnostics, "gpu_torch_cuda_index", lambda: "cu128")
-
-        items = list(diagnostics.stream_gpu_torch_reinstall(
-            python_executable="/venv/bin/python", project_root=str(tmp_path)))
-
-        assert calls[0] == ["/venv/bin/python", "-m", "pip", "uninstall", "-y",
-                            "torch", "torchaudio"]
-        install_cmd = calls[1]
-        assert install_cmd[:4] == ["/venv/bin/python", "-m", "pip", "install"]
-        assert "--index-url" in install_cmd
-        assert "https://download.pytorch.org/whl/cu128" in install_cmd
-        assert "-c" in install_cmd
-        assert str(constraints_file) in install_cmd
-
-    def test_missing_constraints_file_is_skipped_cleanly(self, monkeypatch, tmp_path):
-        calls = []
-
-        def fake_popen(cmd, **kw):
-            calls.append(cmd)
-            return _FakePopen([], 0)
-        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
-
-        list(diagnostics.stream_gpu_torch_reinstall(
-            python_executable="/venv/bin/python", project_root=str(tmp_path)))
-        assert "-c" not in calls[1]
-
-    def test_only_the_last_yielded_item_carries_done(self, monkeypatch, tmp_path):
-        def fake_popen(cmd, **kw):
-            return _FakePopen(["a line\n"], 0)
-        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
-
-        items = list(diagnostics.stream_gpu_torch_reinstall(
-            python_executable="/venv/bin/python", project_root=str(tmp_path)))
-        done_items = [i for i in items if i.get("done")]
-        assert len(done_items) == 1
-        assert items[-1] is done_items[0]
-
-    def test_a_failed_uninstall_step_still_surfaces_its_own_lines(self, monkeypatch, tmp_path):
-        calls = []
-
-        def fake_popen(cmd, **kw):
-            calls.append(cmd)
-            if "uninstall" in cmd:
-                return _FakePopen(["nothing to uninstall\n"], 1)
-            return _FakePopen(["Successfully installed torch\n"], 0)
-        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
-
-        items = list(diagnostics.stream_gpu_torch_reinstall(
-            python_executable="/venv/bin/python", project_root=str(tmp_path)))
-        assert {"line": "nothing to uninstall"} in items
-        assert items[-1]["ok"] is True  # only the install step's result is the final "done"
 
 

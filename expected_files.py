@@ -40,6 +40,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "glossary_io.py",
     "hardsub_ocr.py",
     "job_process_kill.py",
+    "job_process_run.py",
     "known_sites.py",
     "language_packs.py",
     "line_tools.py",

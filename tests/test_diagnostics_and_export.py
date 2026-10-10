@@ -509,53 +509,6 @@ class TestGpuStatus:
         assert status["message"]
 
 
-class TestStreamDependencyInstall:
-    """Step 18 item 7: the generic per-dependency Install button must not
-    reproduce the CPU-only-torch footgun the dedicated GPU-PyTorch button
-    already exists to fix."""
-
-    def test_torch_with_gpu_present_uses_the_gpu_aware_reinstall(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which",
-                            lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
-        called = {}
-
-        def fake_gpu_reinstall(python_executable=None, project_root=None):
-            called["used"] = True
-            yield {"done": True, "ok": True, "returncode": 0}
-        monkeypatch.setattr(diagnostics, "stream_gpu_torch_reinstall", fake_gpu_reinstall)
-
-        def boom(*a, **k):
-            raise AssertionError("should not fall back to a bare pip install")
-        monkeypatch.setattr(diagnostics, "stream_pip_install", boom)
-
-        list(diagnostics.stream_dependency_install("torch"))
-        assert called.get("used") is True
-
-    def test_torch_with_no_gpu_uses_a_plain_install(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
-        captured = {}
-
-        def fake_plain_install(pip_args, python_executable=None):
-            captured["pip_args"] = pip_args
-            yield {"done": True, "ok": True, "returncode": 0}
-        monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
-
-        list(diagnostics.stream_dependency_install("torch"))
-        assert captured["pip_args"] == ["torch", *diagnostics.constraints_pip_args()]
-
-    def test_other_dependencies_always_use_a_plain_install(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        captured = {}
-
-        def fake_plain_install(pip_args, python_executable=None):
-            captured["pip_args"] = pip_args
-            yield {"done": True, "ok": True, "returncode": 0}
-        monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
-
-        list(diagnostics.stream_dependency_install("audio-separator"))
-        assert captured["pip_args"] == ["audio-separator", *diagnostics.constraints_pip_args()]
-
-
 class TestPyannoteGatedAccessCheck:
     class _FakeApi:
         def __init__(self, gated=()):

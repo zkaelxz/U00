@@ -11,6 +11,7 @@ import type {
   DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
+import type { DiagnosticsJobState } from '../../types/diagnosticsInstalls'
 import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import type { LibraryDashboard } from '../../types/library'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
@@ -28,7 +29,8 @@ export const installConfirmLabel = (name: string): string | undefined =>
 // ---- page-wide busy state ----
 
 export type AdminAction = 'install' | 'upgrade' | 'reset'
-export type AdminBusy = { kind: AdminAction; name: string } | null
+// `job`: the install job's latest state (progress and message), once it reports one.
+export type AdminBusy = { kind: AdminAction; name: string; job?: DiagnosticsJobState | null } | null
 
 /** Why Install/Update can't run now, or null. */
 export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
@@ -48,8 +50,9 @@ export function resetBlockedReason(jobsActive: boolean, busy: AdminBusy): string
 /** The aria-live line while an install or upgrade runs. */
 export function busyLine(busy: AdminBusy): string | null {
   if (!busy || busy.kind === 'reset') return null
-  const verb = busy.kind === 'install' ? 'Installing' : 'Updating'
-  return `${verb} ${busy.name}… this can take several minutes. Keep this tab open.`
+  // An install is a server job: it carries on if the tab closes, and can be cancelled.
+  if (busy.kind === 'install') return `Installing ${busy.name}… this can take several minutes. Cancel it below if needed.`
+  return `Updating ${busy.name}… this can take several minutes. Keep this tab open.`
 }
 
 export function installResultText(kind: 'install' | 'upgrade', name: string, ok: boolean): string {
