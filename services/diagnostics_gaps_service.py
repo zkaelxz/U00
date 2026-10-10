@@ -26,10 +26,11 @@ import threading
 import time
 
 import background_jobs
+import job_process_kill
 import db
 import diagnostics
-import job_process_run
-from job_process_run import stream_tree
+from lib import proc as proc_run
+from lib.proc import stream_tree
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
 
 LOG_TAIL_DEFAULT = 50
@@ -348,7 +349,9 @@ def _run_commands(cmds: list, torch_pins: list = None, sox_watch=None, job_id: s
     pip process tree is killed; raises JobCancelled), and each redacted
     output line becomes the job's message."""
     cancel = _cancel_probe(job_id)
-    stream_kwargs = {} if cancel is None else {"cancel": cancel}
+    stream_kwargs = {"warn": job_process_kill._warn_via_jobs}
+    if cancel is not None:
+        stream_kwargs["cancel"] = cancel
     tail, ok, hint, raw = [], True, None, []
     for n, (cmd, timeout) in enumerate(cmds):
         if cancel is not None and cancel():
@@ -630,7 +633,7 @@ def verify_torch(blocking: bool = True, cancel=None) -> dict:
 
 def _verify_torch_once(cancel=None) -> dict:
     try:
-        proc = job_process_run.run_captured(
+        proc = proc_run.run_captured(
             [sys.executable, "-c", diagnostics.TORCH_VERIFY_SCRIPT],
             diagnostics.TORCH_VERIFY_TIMEOUT_SECONDS, cancel=cancel)
         if proc.timed_out:

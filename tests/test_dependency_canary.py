@@ -3,10 +3,10 @@ venv/pip/pytest subprocesses mocked (no network, no real installs)."""
 
 import importlib.util
 import os
-import subprocess
-from types import SimpleNamespace
 
 import pytest
+
+from lib.proc import CapturedRun
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _spec = importlib.util.spec_from_file_location(
@@ -106,11 +106,11 @@ def test_clean_env_drops_keys(monkeypatch, tmp_path):
 
 
 def _fake_runner(calls, versions, pytest_result):
-    """Stands in for subprocess.run and records (cmd, env, timeout).
+    """Stands in for run_captured and records (cmd, env, timeout).
     pytest_result(version) -> (returncode, output)."""
     state = {"ver": versions[0]}
 
-    def fake(cmd, cwd=None, env=None, timeout=None, **kw):
+    def fake(cmd, timeout=None, cwd=None, env=None, **kw):
         calls.append((list(cmd), env, timeout))
         out, rc = "", 0
         joined = " ".join(map(str, cmd))
@@ -122,7 +122,7 @@ def _fake_runner(calls, versions, pytest_result):
             state["ver"] = next(str(t).split("==")[1] for t in cmd if "==" in str(t))
         elif " -m pytest" in joined:
             rc, out = pytest_result(state["ver"])
-        return SimpleNamespace(returncode=rc, stdout=out, stderr="")
+        return CapturedRun(rc, out, "", False, False)
     return fake
 
 
@@ -137,7 +137,7 @@ def test_run_canary_fail_when_only_new_version_breaks(monkeypatch, tmp_path):
     calls = []
     fake = _fake_runner(calls, ["2.2.3", "3.0.0"], lambda v: (
         (1, "FAILED tests/test_a.py::test_x - boom\n") if v == "3.0.0" else (0, "1 passed")))
-    monkeypatch.setattr(dc.subprocess, "run", fake)
+    monkeypatch.setattr(dc, "run_captured", fake)
     res = dc.run_canary("pandas", "latest", False, False, root=_repo(tmp_path), log=lambda *_: None)
     assert (res["verdict"], res["known_good"], res["version"]) == (dc.FAIL, "2.2.3", "3.0.0")
     assert res["failures"] == ["tests/test_a.py::test_x"]
@@ -150,7 +150,7 @@ def test_run_canary_fail_when_only_new_version_breaks(monkeypatch, tmp_path):
 
 def test_run_canary_preexisting_failure_is_not_blamed_on_package(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(dc.subprocess, "run", _fake_runner(
+    monkeypatch.setattr(dc, "run_captured", _fake_runner(
         calls, ["2.2.3", "3.0.0"], lambda v: (1, "FAILED tests/test_a.py::test_x\n")))
     res = dc.run_canary("pandas", "latest", False, False, root=_repo(tmp_path), log=lambda *_: None)
     assert res["verdict"] == dc.PREEXISTING
@@ -158,7 +158,7 @@ def test_run_canary_preexisting_failure_is_not_blamed_on_package(monkeypatch, tm
 
 def test_run_canary_pass_with_optional(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(dc.subprocess, "run",
+    monkeypatch.setattr(dc, "run_captured",
                         _fake_runner(calls, ["1.0", "1.1"], lambda v: (0, "5 passed")))
     res = dc.run_canary("requests", "1.1", True, True, root=_repo(tmp_path), log=lambda *_: None)
     assert res["verdict"] == dc.PASS
@@ -166,9 +166,8 @@ def test_run_canary_pass_with_optional(monkeypatch, tmp_path):
 
 
 def test_timeout_is_an_error_not_a_pass(monkeypatch):
-    def boom(*a, **k):
-        raise subprocess.TimeoutExpired(a[0], 1, output="partial")
-    monkeypatch.setattr(dc.subprocess, "run", boom)
+    monkeypatch.setattr(dc, "run_captured",
+                        lambda *a, **k: CapturedRun(None, "partial", "", True, False))
     rc, out = dc._run(["x"], 1, {})
     assert rc == 124 and "timed out" in out
 
@@ -195,7 +194,7 @@ def test_report_does_not_pin_when_not_newer(tmp_path):
 
 def test_without_uv_uses_venv_and_pip(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(dc.subprocess, "run",
+    monkeypatch.setattr(dc, "run_captured",
                         _fake_runner(calls, ["1.0", "1.1"], lambda v: (0, "5 passed")))
     dc.run_canary("requests", "1.1", False, False, root=_repo(tmp_path), log=lambda *_: None)
     cmds = [c for c, _, _ in calls]
@@ -212,12 +211,12 @@ def test_with_uv_builds_venv_and_installs_through_uv(monkeypatch, tmp_path):
     calls = []
     inner = _fake_runner(calls, ["1.0", "1.1"], lambda v: (0, "5 passed"))
 
-    def fake(cmd, **kw):
+    def fake(cmd, timeout=None, **kw):
         if cmd[:3] == ["/bin/uv", "cache", "dir"]:
-            calls.append((list(cmd), kw.get("env"), kw.get("timeout")))
-            return SimpleNamespace(returncode=0, stdout="/real/uv-cache\n", stderr="")
-        return inner(cmd, **kw)
-    monkeypatch.setattr(dc.subprocess, "run", fake)
+            calls.append((list(cmd), kw.get("env"), timeout))
+            return CapturedRun(0, "/real/uv-cache\n", "", False, False)
+        return inner(cmd, timeout, **kw)
+    monkeypatch.setattr(dc, "run_captured", fake)
     res = dc.run_canary("requests", "1.1", False, False, root=_repo(tmp_path), log=lambda *_: None)
     assert res["verdict"] == dc.PASS
     cmds = [c for c, _, _ in calls]
@@ -250,7 +249,7 @@ def test_every_mapped_glob_matches_a_real_test_file():
 
 def test_then_full_runs_full_suite_only_after_quick_pass(monkeypatch, tmp_path):
     calls, repo = [], _repo(tmp_path)
-    monkeypatch.setattr(dc.subprocess, "run",
+    monkeypatch.setattr(dc, "run_captured",
                         _fake_runner(calls, ["1.0", "1.1"], lambda v: (0, "5 passed")))
     dc.run_canary("requests", "1.1", True, False, root=repo, log=lambda *_: None,
                   then_full=True)
@@ -258,7 +257,7 @@ def test_then_full_runs_full_suite_only_after_quick_pass(monkeypatch, tmp_path):
     assert len(runs) == 2 and "-n" not in runs[0] and "-n" in runs[1]
 
     calls.clear()
-    monkeypatch.setattr(dc.subprocess, "run", _fake_runner(
+    monkeypatch.setattr(dc, "run_captured", _fake_runner(
         calls, ["1.0", "1.1"], lambda v: (1, "FAILED tests/test_a.py::t\n") if v == "1.1" else (0, "")))
     res = dc.run_canary("requests", "1.1", True, False, root=repo, log=lambda *_: None,
                         then_full=True)

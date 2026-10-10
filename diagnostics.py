@@ -21,7 +21,8 @@ import sys
 import tempfile
 
 import diarize
-import job_process_run
+import job_process_kill
+from lib import proc as proc_run
 import storage
 
 from expected_files import EXPECTED_TOP_LEVEL_FILES
@@ -1303,14 +1304,14 @@ def _make_throwaway_venv(base_dir: str, name: str, python_executable: str, paren
     this works even where ensurepip isn't available."""
     venv_dir = os.path.join(base_dir, name)
     try:
-        proc = job_process_run.run_captured(
+        proc = proc_run.run_captured(
             [python_executable, "-m", "venv", "--without-pip", venv_dir], 300, cancel=cancel)
         if proc.timed_out or proc.cancelled:
             return None, "cancelled" if proc.cancelled else "creating it took too long"
         if proc.returncode != 0:
             return None, (proc.stderr or proc.stdout).strip() or f"exit code {proc.returncode}"
         venv_py = _venv_python(venv_dir)
-        purelib = job_process_run.run_captured(
+        purelib = proc_run.run_captured(
             [venv_py, "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
             60, cancel=cancel).stdout.strip()
         os.makedirs(purelib, exist_ok=True)
@@ -1322,7 +1323,8 @@ def _make_throwaway_venv(base_dir: str, name: str, python_executable: str, paren
 
 
 def _stream_process(cmd: list, timeout: float, cwd: str = None, env: dict = None, cancel=None):
-    return job_process_run.stream_tree(cmd, timeout, cwd=cwd, env=env, cancel=cancel)
+    return proc_run.stream_tree(cmd, timeout, cwd=cwd, env=env, cancel=cancel,
+                                warn=job_process_kill._warn_via_jobs)
 
 
 def _parse_pytest_failures(lines: list) -> list:
@@ -1371,7 +1373,7 @@ def _parse_pip_conflicts(lines: list) -> list:
 
 def _dist_version_in(venv_py: str, pip_name: str, cancel=None):
     try:
-        out = job_process_run.run_captured(
+        out = proc_run.run_captured(
             [venv_py, "-c", "import importlib.metadata, sys; "
                             "print(importlib.metadata.version(sys.argv[1]))", pip_name],
             60, cancel=cancel)
@@ -1409,7 +1411,7 @@ def _ensure_pytest(venv_py: str, python_executable: str, timeout: float, cancel=
 
 def _can_import(venv_py: str, module: str, cancel=None) -> bool:
     try:
-        return job_process_run.run_captured([venv_py, "-c", f"import {module}"], 60,
+        return proc_run.run_captured([venv_py, "-c", f"import {module}"], 60,
                                             cancel=cancel).returncode == 0
     except OSError:
         return False

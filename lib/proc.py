@@ -1,5 +1,5 @@
 """
-job_process_run.py -- the one way to run a long external command whose
+lib/proc.py -- the one way to run a long external command whose
 output is read (pip, pytest, venv creation, winget).
 
 The child gets its own process group, so a timeout or a cancel kills the
@@ -23,7 +23,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from job_process_kill import kill_tree
+from lib.proc_kill import kill_tree
 
 KILL_DRAIN_SECONDS = 5.0
 _POLL_SECONDS = 0.5
@@ -38,22 +38,25 @@ def _group_kwargs() -> dict:
     return {"start_new_session": True}
 
 
-def _utf8_env(env: dict = None) -> dict:
+def _child_env(env: dict, utf8_env: bool) -> dict:
     """The output is always decoded as UTF-8, but a child Python on Windows
     writes piped text in the ANSI code page unless told otherwise, which
     corrupts non-ASCII paths (a user name like 张三) the parent parses."""
-    return dict(os.environ if env is None else env, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    base = dict(os.environ if env is None else env)
+    if utf8_env:
+        base.update(PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    return base
 
 
 def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stderr: bool,
-            cwd, env):
+            cwd, env, warn=None, utf8_env: bool = True):
     """Yields ("out" | "err", line) per output line, then
     ("end", {"returncode", "timed_out", "cancelled"}). returncode is None if
     the child could not be reaped."""
     proc = subprocess.Popen(
         cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE, text=True,
-        encoding="utf-8", errors="replace", bufsize=1, cwd=cwd, env=_utf8_env(env),
+        encoding="utf-8", errors="replace", bufsize=1, cwd=cwd, env=_child_env(env, utf8_env),
         **_group_kwargs())
     items = queue.Queue()
 
@@ -84,7 +87,7 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
                 elif now >= deadline:
                     timed_out = True
                 if cancelled or timed_out:
-                    kill_tree(proc)
+                    kill_tree(proc, warn)
                     stop_by = now + drain_seconds
                 elif proc.poll() is not None:
                     stop_by = now + drain_seconds     # exited; finish reading
@@ -101,8 +104,11 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
             yield tag, line
     finally:
         # Also reached when the caller stops iterating early.
-        if proc.poll() is None:
-            kill_tree(proc)
+        # A same-group grandchild can outlive the parent and still hold a pipe
+        # open; killpg reaches it after the parent is reaped, so callers that
+        # clean up afterwards (browser install) don't race with it.
+        if proc.poll() is None or open_streams:
+            kill_tree(proc, warn)
         try:
             returncode = proc.wait(timeout=drain_seconds)
         except subprocess.TimeoutExpired:
@@ -111,12 +117,13 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
 
 
 def stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS,
-                cwd: str = None, env: dict = None, cancel=None):
+                cwd: str = None, env: dict = None, cancel=None, warn=None):
     """Yields {"line"} per line of combined stdout/stderr, then
     {"returncode", "timed_out", "cancelled"}. The tree is killed when
     `timeout` passes, when `cancel()` turns true, or when the caller stops
-    iterating."""
-    events = _events(cmd, timeout, drain_seconds, cancel, True, cwd, env)
+    iterating. `warn(what, exc)` reports a swallowed kill failure (see
+    lib.proc_kill.kill_tree)."""
+    events = _events(cmd, timeout, drain_seconds, cancel, True, cwd, env, warn)
     try:
         for tag, payload in events:
             if tag == "end":
@@ -137,14 +144,17 @@ class CapturedRun:
 
 
 def run_captured(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS,
-                 cwd: str = None, env: dict = None, cancel=None) -> CapturedRun:
+                 cwd: str = None, env: dict = None, cancel=None, warn=None,
+                 utf8_env: bool = True) -> CapturedRun:
     """subprocess.run(capture_output=True, text=True) with the tree-kill and
     bounded drain of stream_tree. Does not raise on timeout; check
-    `timed_out`. Each stream keeps its newest _CAPTURE_LIMIT_CHARS."""
+    `timed_out`. Each stream keeps its newest _CAPTURE_LIMIT_CHARS.
+    `utf8_env=False` leaves the child's Python I/O encoding alone."""
     chunks = {"out": [], "err": []}
     sizes = {"out": 0, "err": 0}
     end = None
-    for tag, payload in _events(cmd, timeout, drain_seconds, cancel, False, cwd, env):
+    for tag, payload in _events(cmd, timeout, drain_seconds, cancel, False, cwd, env, warn,
+                                utf8_env):
         if tag == "end":
             end = payload
             continue

@@ -341,8 +341,8 @@ def test_test_run_env_has_no_keys_and_uses_the_guard(monkeypatch):
 
     monkeypatch.setattr(svc, "_tracked_files", lambda: None)
     monkeypatch.setattr(
-        svc.job_process_run, "run_captured",
-        lambda cmd, timeout, **kw: seen.update(cmd=cmd, **kw) or svc.job_process_run.CapturedRun(
+        svc.proc_run, "run_captured",
+        lambda cmd, timeout, **kw: seen.update(cmd=cmd, **kw) or svc.proc_run.CapturedRun(
             0, "1 passed", "", False, False))
     assert svc.run_tool("run_tests", {"path": "tests/test_maintenance_assistant.py"})["ok"]
     assert "services.assistant_pytest_guard" in seen["cmd"]

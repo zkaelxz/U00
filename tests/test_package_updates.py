@@ -191,7 +191,7 @@ def test_upgrade_installs_exactly_the_checked_target(monkeypatch):
     svc.check_package_updates()
     seen = []
 
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         seen.append(cmd)
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
@@ -265,7 +265,7 @@ def test_install_and_torch_setup_clear_the_cached_check(monkeypatch):
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
 
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
     svc.check_package_updates()
