@@ -140,6 +140,8 @@ or `series` go when the parent goes.
 | `users`, `user_permissions`, `auth_sessions`, `audit_log` | Accounts, per-user permissions, server-side sessions, audit trail | `services/auth_service.py` | `auth_*` functions; see section 4 |
 | `extension_device_tokens` | Browser-extension device tokens (SHA-256 only, revoked/expiry times, last use as an IP prefix) | `services/device_token_service.py` | `device_tokens.py` (created from `init_db`); a restore keeps the live rows |
 
+`app_settings` keys are declared in `lib/settings_schema.py`: each row names the key the value is saved under (`pref.<name>`, `bulk.auto_resume`, `assistant.<name>` or a bare key, so old saved values still read), its type, default and limits. `settings_service.get(key)` reads a row and returns the default for a missing or invalid value. Keys built at run time (`engine_test.<engine>`, `capability.<name>`, per-title language packs and shorten passes) and the backup state keys have no row; `tests/test_settings_schema.py` lists each with its reason. Secrets stay in `.env`.
+
 ### `sources.db` (separate file)
 
 `<library>/sources.db` belongs to the source-adapter system and has its own
