@@ -27,6 +27,9 @@ import { useAdminJob } from './libraryAdmin/useAdminJob'
 import { RENAME_MAX, groupHistory, showFold, validateRename } from './libraryForm'
 import { costLabel, costMeta, countsLine, sharedLine, sharedSeries } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
+import { listSavedSeries } from '../api/savedComics'
+import { SavedSeriesRows } from './SavedManga'
+import './manga/manga.css'
 import { SERIES_HELP } from '../helpText'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
@@ -169,7 +172,7 @@ function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) 
           onConfirm={run}
         />
       </div>
-      <p className="muted">Where you left off in each drama is kept.</p>
+      <p className="muted">Where you left off in each title is kept.</p>
       <ErrorBanner error={error} describe={{ pcOnly: true }} onDismiss={() => setError(null)} />
     </>
   )
@@ -186,6 +189,7 @@ export default function LibraryToolsPage() {
   const history = useLoad(getHistory, reloadKey)
   const presets = useLoad(getPresets, reloadKey)
   const voices = useLoad(getVoiceBank, reloadKey)
+  const saved = useLoad(listSavedSeries, reloadKey)
   const exporter = useAdminJob(ADMIN_JOB_IDS.export, 'export')
   const onChanged = () => setReloadKey((k) => k + 1)
   const grouped = history.data ? groupHistory(history.data.items) : undefined
@@ -197,7 +201,7 @@ export default function LibraryToolsPage() {
       <header className="page-head">
         <div className="page-head-text">
           <h2 className="page-title">Library tools</h2>
-          <p className="page-meta">Series, costs, reading history, presets, backups and disk usage. Titles and Continue stay on the Library page.</p>
+          <p className="page-meta">Series, saved manga, costs, reading history, presets, backups and disk usage. Titles and Continue stay on the Library page.</p>
         </div>
         <ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>
       </header>
@@ -212,7 +216,7 @@ export default function LibraryToolsPage() {
                 <span className="muted series-meta">{countsLine(x.types, 'mediaType')}</span>
                 <span className="muted series-meta">{sharedLine(x)}</span>
                 <SharingControl kind="series" id={x.id} title={x.name} isPrivate={x.is_private} ownedByMe={x.owned_by_me} onChanged={onChanged} />
-                <ul className="series-drama-list" aria-label={`Dramas in ${x.name}`}>
+                <ul className="series-drama-list" aria-label={`Titles in ${x.name}`}>
                   {x.dramas.map((d) => (
                     <li key={d.id} className="series-drama">
                       <span className="series-drama-text">
@@ -235,7 +239,7 @@ export default function LibraryToolsPage() {
         <ToolSection title="Presets" count={presets.data?.items.length} error={presets.error}>
           <DeletableList
             pc={pc}
-            help="Dramas that used it keep their settings."
+            help="Titles that used it keep their settings."
             items={presets.data?.items.map((p) => ({
               id: p.id, name: p.name, meta: p.translation_engine ? engineLabel(p.translation_engine) : null,
             }))}
@@ -256,9 +260,12 @@ export default function LibraryToolsPage() {
               ? <VoiceBankPlayButton entryId={id} name={name} /> : null}
           />
         </ToolSection>
+        <ToolSection title="Saved manga" count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
+          {saved.data && <SavedSeriesRows items={saved.data} />}
+        </ToolSection>
         <h3 className="tools-group-title">Activity</h3>
         <ToolSection
-          title="Cost by drama"
+          title="Cost by title"
           count={costs.data?.items.length}
           summary={totalCost !== undefined ? `$${totalCost.toFixed(2)} in all` : undefined}
           error={costs.error}

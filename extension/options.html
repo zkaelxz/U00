@@ -2,35 +2,30 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Baihe Subtitler — options</title>
+  <link rel="stylesheet" href="ui.css">
   <style>
-    :root { color-scheme: light dark; }
-    body { max-width: 560px; margin: 32px auto; padding: 0 16px;
-           font: 14px/1.6 "Segoe UI", system-ui, sans-serif; }
-    h1 { font-size: 18px; }
-    label { display: block; margin: 18px 0 4px; font-weight: 600; }
-    input { width: 100%; padding: 8px; font: inherit; box-sizing: border-box; }
-    button { margin-top: 14px; padding: 8px 16px; font: inherit; cursor: pointer; }
-    #status { margin-top: 14px; padding: 10px; border-radius: 6px;
-              background: rgba(127,127,127,0.14); }
-    #status.bad { background: rgba(200,60,60,0.18); }
-    .muted { opacity: 0.8; font-size: 13px; }
+    body { padding: 32px 16px; }
+    main { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;
+           padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    #save { align-self: flex-start; }
   </style>
 </head>
 <body>
-  <h1>Baihe Subtitler</h1>
-  <p class="muted">This extension only ever talks to Baihe running on this computer
-    (<code>127.0.0.1:8756</code>, the port Baihe always uses for it, with the Extension bridge
-    switch on in Settings → Browser extension). The token below is what stops any other page in your browser
-    from sending things to it, so treat it like a password.</p>
-
-  <label for="token">Token</label>
-  <input type="password" id="token" autocomplete="off"
-         placeholder="Paste from Baihe → Settings → Browser extension">
-
-  <button id="save">Save and test</button>
-  <div id="status">Not checked yet.</div>
-
+  <main>
+    <h1>Baihe Subtitler</h1>
+    <p class="hint">This extension only talks to Baihe on this computer
+      (<code>127.0.0.1:8756</code>, with the Extension bridge switch on in Settings → Browser extension).
+      The token stops other pages in your browser from using it, so treat it like a password.</p>
+    <div>
+      <label for="token">Token</label>
+      <input type="password" id="token" autocomplete="off"
+             placeholder="Paste from Baihe → Settings → Browser extension">
+    </div>
+    <button id="save" class="primary" type="button">Save and test</button>
+    <p id="status" class="status" role="status" aria-live="polite">Not checked yet.</p>
+  </main>
   <script src="options.js"></script>
 </body>
 </html>

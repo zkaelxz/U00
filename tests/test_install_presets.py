@@ -19,9 +19,10 @@ CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")
 # against pypi.org. Static on purpose: a new package must be added here
 # after checking its real distribution name.
 KNOWN_PYPI_DISTS = {
-    "faster-whisper", "ctranslate2", "opencv-python", "anthropic", "openai", "requests",
+    "onnxruntime", "faster-whisper", "ctranslate2", "opencv-python", "anthropic", "openai", "requests",
     "beautifulsoup4", "pyannote-audio", "soundfile", "pydub",
     "omnivoice", "pytesseract", "pillow", "paddleocr",
+    "paddlepaddle",
     "manga-ocr", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
     "transformers", "torch", "torchaudio", "uroman", "sentencepiece", "yt-dlp",
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",
@@ -41,25 +42,7 @@ def _offered():
     return names | {e["package"] for e in diagnostics.MODEL_ENGINE_REGISTRY if e.get("package")}
 
 
-class _FakePopen:
-    def __init__(self, lines, returncode=0):
-        self.stdout = iter(lines)
-        self._rc = returncode
-
-    def wait(self):
-        return self._rc
-
-
 # ---- A: pip flags and the cache hint ----
-
-def test_stream_pip_install_disables_cache_and_version_check(monkeypatch):
-    seen = []
-    monkeypatch.setattr(diagnostics.subprocess, "Popen",
-                        lambda cmd, **kw: seen.append(cmd) or _FakePopen([]))
-    monkeypatch.setattr(diagnostics.sys, "executable", "/py")
-    list(diagnostics.stream_pip_install(["jieba"]))
-    assert seen == [["/py", "-m", "pip", "install", *FLAGS, "jieba"]]
-
 
 def test_service_install_and_upgrade_commands_carry_the_flags(monkeypatch):
     import shutil
@@ -89,7 +72,7 @@ def test_pip_cache_permission_hint(lines, hinted):
 
 
 def test_failed_install_returns_the_hint_even_though_output_is_redacted(monkeypatch):
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         yield {"line": WIN_LINE}
         yield {"returncode": 1, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
@@ -99,7 +82,7 @@ def test_failed_install_returns_the_hint_even_though_output_is_redacted(monkeypa
 
 
 def test_success_has_no_hint(monkeypatch):
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         yield {"line": WIN_LINE}
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
@@ -126,14 +109,6 @@ def test_service_installs_opencv_python_for_cv2(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: None)
     ((cmd, _t),) = svc._install_commands("cv2")
     assert cmd[-3:] == ["opencv-python", *CONSTRAINTS]
-
-
-def test_dependency_install_uses_the_dist_name(monkeypatch):
-    seen = []
-    monkeypatch.setattr(diagnostics, "stream_pip_install",
-                        lambda args, py=None: seen.append(args) or iter(()))
-    list(diagnostics.stream_dependency_install("PIL"))
-    assert seen == [["pillow", *CONSTRAINTS]]
 
 
 # ---- C: task map ----
@@ -163,12 +138,17 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
     out = svc.get_install_presets()
     t = next(t for t in out["tasks"] if t["id"] == "transcribe")
-    assert t["installed_count"] == 2 and t["to_install"] == ["faster_whisper", "ctranslate2"]
+    assert t["installed_count"] == 2 and t["to_install"] == [
+        "faster_whisper", "ctranslate2"]
     assert t["approx_mb"] == (diagnostics.APPROX_DOWNLOAD_MB["faster-whisper"]
                               + diagnostics.APPROX_DOWNLOAD_MB["ctranslate2"])
     scan = next(t for t in out["tasks"] if t["id"] == "scanlate")
     assert "pypdf" in scan["packages"]
     assert "pypdf" in scan["to_install"]
+    # paddleocr 3.x doesn't pull in paddlepaddle, and zh/ko pages default to paddle.
+    assert {"paddleocr", "paddlepaddle"} <= set(scan["to_install"])
+    assert scan["roles"]["paddleocr"] == scan["roles"]["paddlepaddle"] == "recommended"
+    assert scan["approx_mb"] == sum(diagnostics.approx_download_mb(n) for n in scan["to_install"])
     cv2 = out["packages"]["cv2"]
     assert cv2["dist"] == "opencv-python" and cv2["installable"] is True
     assert cv2["source_url"] == "https://pypi.org/project/opencv-python/"
@@ -216,14 +196,6 @@ def test_qwen_asr_warns_before_downgrading_transformers(monkeypatch, have, warne
     assert diagnostics.install_downgrade_warning("jieba") is None
 
 
-def test_dependency_install_refuses_a_not_offered_package(monkeypatch):
-    monkeypatch.setattr(diagnostics, "stream_pip_install",
-                        lambda *a, **k: pytest.fail("must not run pip"))
-    items = list(diagnostics.stream_dependency_install("lightnovel-crawler"))
-    assert items[-1]["done"] is True and items[-1]["ok"] is False
-    assert "not offered" in items[0]["line"]
-
-
 def test_python_version_limitation_is_a_warning_not_a_refusal(monkeypatch):
     monkeypatch.setattr(diagnostics, "known_install_limitation_reason",
                         lambda n: "known not to install on Python 3.14" if n == "audio-separator"
@@ -252,8 +224,10 @@ def test_install_for_a_task_skips_optional_packages(monkeypatch):
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
     t = next(t for t in svc.get_install_presets()["tasks"] if t["id"] == "hardsub_ocr")
     assert t["roles"] == {"cv2": "required", "numpy": "required", "PIL": "required",
-                          "pytesseract": "recommended", "paddleocr": "optional"}
-    assert "paddleocr" not in t["to_install"] and t["optional_missing"] == ["paddleocr"]
+                          "pytesseract": "recommended", "paddleocr": "optional",
+                          "paddlepaddle": "optional"}
+    assert not {"paddleocr", "paddlepaddle"} & set(t["to_install"])
+    assert t["optional_missing"] == ["paddleocr", "paddlepaddle"]
     assert set(t["required_missing"]) == {"cv2", "numpy", "PIL"}
     assert t["approx_mb"] == sum(diagnostics.approx_download_mb(n) for n in t["to_install"])
 

@@ -8,6 +8,8 @@ import {
   allSelected,
   canTakeMedia,
   chapterImportDramas,
+  hiddenDramaCount,
+  hiddenDramasNote,
   chapterMarks,
   checkUrl,
   comicNote,
@@ -92,11 +94,21 @@ describe('preview card', () => {
   })
 })
 
-describe('drama pickers', () => {
+describe('title pickers', () => {
   const list = [drama(1, 'audio_drama'), drama(2, 'novel'), drama(3, 'manhua'), drama(4, 'novel', 'novel_narration'), drama(5, 'streamer_vod', 'streamer_vod')]
-  it('keeps only dramas the chapter import accepts', () => {
+  it('keeps only titles the chapter import accepts', () => {
     expect(chapterImportDramas(list, true).map((d) => d.id)).toEqual([3])
     expect(chapterImportDramas(list, false).map((d) => d.id)).toEqual([2, 4])
+  })
+  it('counts the titles left out and says why', () => {
+    expect(hiddenDramaCount(list, true)).toBe(4)
+    expect(hiddenDramaCount(list, false)).toBe(3)
+    expect(hiddenDramasNote(12, true)).toBe(
+      'Showing comic titles only. 12 other titles aren’t listed because manga pages can’t go into a novel or audio title. Choose “New title…” to make a comic title.',
+    )
+    expect(hiddenDramasNote(1, false)).toBe(
+      'Showing novel titles only. 1 other title isn’t listed because chapter text can only go into a novel title. Choose “New title…” to make a novel title.',
+    )
   })
   it('video goes only into audio drama or streamer VOD modes', () => {
     expect(videoDramas(list).map((d) => d.id)).toEqual([1, 2, 3, 5])
@@ -106,11 +118,11 @@ describe('drama pickers', () => {
     expect(defaultAudioOnly('audio_drama')).toBe(true)
     expect(defaultAudioOnly(null)).toBe(true)
   })
-  it('labels a drama by title', () => {
+  it('labels a title by title', () => {
     expect(dramaLabel({ id: 9, title_en: '', title_zh: '天官' })).toBe('天官')
-    expect(dramaLabel({ id: 9, title_en: null, title_zh: null })).toBe('Drama 9')
+    expect(dramaLabel({ id: 9, title_en: null, title_zh: null })).toBe('Title 9')
   })
-  it('builds a New drama body the import accepts', () => {
+  it('builds a New title body the import accepts', () => {
     expect(newDramaRequest('天官赐福', 'zh', false)).toEqual({ source_language: 'zh', title_zh: '天官赐福', media_type: 'novel' })
     expect(newDramaRequest(' Solo ', 'ko', true)).toEqual({ source_language: 'ko', title_en: 'Solo', media_type: 'manhwa' })
     expect(newDramaRequest('X', 'ja-JP', true).media_type).toBe('manga')
@@ -136,7 +148,7 @@ describe('chapter selection', () => {
     expect(importLabel(3)).toBe('Import 3 chapters')
     expect(importReason(0, 1)).toBe('Still needed: at least one chapter.')
     expect(importReason(MAX_CHAPTERS + 1, 1)).toBe('Import at most 200 chapters at a time.')
-    expect(importReason(2, null)).toBe('Still needed: a drama to import into.')
+    expect(importReason(2, null)).toBe('Still needed: a title to import into.')
     expect(importReason(2, 4)).toBeNull()
   })
 })
@@ -189,7 +201,7 @@ describe('outcomes', () => {
     expect(comicNote({ ...result, chapters: [{ chapter_id: 'a', title: '', outcome: 'imported', chars: 10 }] })).toBeNull()
   })
   it('url import copy', () => {
-    expect(urlImportText({ kind: 'url_import', needs_review: false, char_count: 5120 })).toBe('Added 5,120 characters to the drama’s novel text.')
+    expect(urlImportText({ kind: 'url_import', needs_review: false, char_count: 5120 })).toBe('Added 5,120 characters to the title’s novel text.')
     expect(urlImportText({ kind: 'url_import', needs_review: true, char_count: 0 })).toMatch(/nothing was saved/)
   })
   it('url import copy after following next chapters', () => {
@@ -266,11 +278,11 @@ describe('import state (Step 107)', () => {
     const partly = state({
       retry: [
         ...state().retry,
-        { chapter_id: 'c6', title: 'Six', status: 'partial', error: 'It may be partly imported -- check the drama before retrying it.' },
+        { chapter_id: 'c6', title: 'Six', status: 'partial', error: 'It may be partly imported -- check the title before retrying it.' },
       ],
     })
     expect(chapterMarks(partly).get('c6')).toEqual({
-      label: 'Check first', tone: 'bad', note: 'It may be partly imported -- check the drama before retrying it.',
+      label: 'Check first', tone: 'bad', note: 'It may be partly imported -- check the title before retrying it.',
     })
     expect(retryIds(partly, done)).toEqual(['c3', 'c4', 'c5'])
   })

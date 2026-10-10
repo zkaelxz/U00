@@ -10,7 +10,9 @@ import { RegressionTestButton } from './RegressionTestButton'
 import { Field } from '../../../../components/Field'
 import { buttonClass } from '../../../../components/uiClasses'
 import { languageLabel } from '../../../../labels'
-import { JOB_RUNNING_MESSAGE, LINE_LANGUAGES, titleDefaultLabel, type LanguageScope, type ToolMode } from './reviewLogic'
+import { LINE_LANGUAGES, titleDefaultLabel, type LanguageScope } from './reviewDraft'
+import { type ToolMode } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { SplitDialog, type SplitChoice } from './SplitDialog'
 import { lineNumber } from '../../../../lineNumber'
 import { retranscribeMenuState } from './retranscribeLogic'
@@ -54,6 +56,7 @@ interface Props {
   onSplit: (choice: SplitChoice) => void
   onMerge: (ids: number[]) => void
   onAdd: (line: NewLine) => void
+  onAddAndTranscribe?: (line: NewLine) => void
   onDelete: () => void
   sourceLanguage: string | null
   onSetLanguage: (lang: string, scope: LanguageScope) => void
@@ -180,6 +183,7 @@ export function LineActionsSheet(p: Props) {
               busy={p.busy}
               blocked={blocked}
               onAdd={p.onAdd}
+              onAddAndTranscribe={p.canRetranscribe ? p.onAddAndTranscribe : undefined}
               onCancel={line ? back : undefined}
             />
           )}

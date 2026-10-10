@@ -1,6 +1,13 @@
 """
-services/diagnostics_installs_service.py -- the two long-running
-Diagnostics actions the React page runs as background jobs:
+services/diagnostics_installs_service.py -- the long-running Diagnostics
+actions the React page runs as background jobs:
+
+- Q06 "Install" for an optional package and the GPU PyTorch setup: pip runs
+  for minutes (a CUDA torch is ~2.5 GB), so each is a job that holds the
+  library exclusively while it runs (no other job, restore or cleanup can
+  start) and can be cancelled: Cancel kills pip's whole process tree and
+  releases the hold. The package name and torch variant come from the
+  service's whitelists, never a URL or command from the request.
 
 - Q02 "Install Deno": the JavaScript runtime yt-dlp needs for YouTube (and
   other sites') formats. A system tool, not a pip package. On Windows with
@@ -11,7 +18,7 @@ Diagnostics actions the React page runs as background jobs:
   allowlisted host, with timeout= on every request and a byte cap, checks
   it against the release's own .sha256sum file and unpacks only the deno
   binary into ~/.deno/bin, where Deno's own installer puts it.
-- Q06 "Test first": diagnostics.check_upgrade_candidate for one package's
+- Q06 "Test first": upgrade_check.check_upgrade_candidate for one package's
   update target (a throwaway environment plus this app's test suite, so
   minutes, not seconds). The version comes only from the last "Check for
   updates" (the same cached target the Upgrade route installs).
@@ -24,6 +31,7 @@ and final result are read back from GET routes here (nothing is returned
 as a path; every output line goes through diagnostics.redact_for_support).
 """
 
+import contextlib
 import hashlib
 import os
 import platform
@@ -37,12 +45,19 @@ import zipfile
 from urllib.parse import urljoin, urlsplit
 
 import background_jobs
+import job_process_kill
+import db
 import diagnostics
+import diagnostics_torch
+import upgrade_check
+from lib import proc as proc_run
 from services import diagnostics_gaps_service as gaps
+from services import drama_service
 from services.service_errors import ConflictError
 
 DENO_JOB_ID = "deno_install"
 UPGRADE_CHECK_JOB_ID = "upgrade_check"
+DEPENDENCY_JOB_ID = "dependency_install"
 _OUTPUT_TAIL = 40
 
 # Static download table: (OS, CPU) -> the official release asset. Only
@@ -78,6 +93,7 @@ _CPU = {"amd64": "x86_64", "x86_64": "x86_64", "x64": "x86_64",
 _STATE_LOCK = threading.Lock()
 _DENO_RESULT = {"last": None}
 _UPGRADE_CHECK = {"package": None, "target": None, "tail": [], "last": None}
+_DEPENDENCY = {"kind": None, "package": None, "last": None}
 
 
 class DenoInstallFailed(Exception):
@@ -86,6 +102,10 @@ class DenoInstallFailed(Exception):
 
 class AlreadyInstalled(gaps.AdminActionRefused, ConflictError):
     pass
+
+
+class DependencyInstallFailed(Exception):
+    """Ends the install job as an error; the details are in the stored result."""
 
 
 def _redact(text) -> str:
@@ -207,12 +227,15 @@ def _deno_job():
 
 def _run_winget(say) -> bool:
     returncode, timed_out = None, False
-    for item in gaps.stream_tree(list(_WINGET_CMD), WINGET_TIMEOUT_SECONDS):
+    for item in proc_run.stream_tree(
+            list(_WINGET_CMD), WINGET_TIMEOUT_SECONDS,
+            cancel=lambda: background_jobs.is_cancel_requested(DENO_JOB_ID),
+            warn=job_process_kill._warn_via_jobs):
         if "line" in item:
             if item["line"].strip():
                 say(0.5, item["line"])
-            if background_jobs.is_cancel_requested(DENO_JOB_ID):
-                raise background_jobs.JobCancelled()
+        elif item.get("cancelled"):
+            raise background_jobs.JobCancelled()
         else:
             returncode, timed_out = item.get("returncode"), item.get("timed_out")
     if timed_out:
@@ -363,6 +386,117 @@ def _unpack_binary(zip_path: str):
 
 
 # ---------------------------------------------------------------------------
+# Q06: package install and GPU PyTorch setup
+# ---------------------------------------------------------------------------
+
+_CANCELLED_HINT = ("Cancelled. If pip was part-way through replacing files, run the install "
+                   "again to finish it.")
+
+
+def get_dependency_install() -> dict:
+    """The latest install job's package, state and result (kind is
+    "package" or "gpu_torch"); nothing here is a path or a key."""
+    with _STATE_LOCK:
+        state = {"kind": _DEPENDENCY["kind"], "package": _DEPENDENCY["package"],
+                 "result": dict(_DEPENDENCY["last"]) if _DEPENDENCY["last"] else None}
+    return {**state, "job_id": DEPENDENCY_JOB_ID, "job": _job_view(DEPENDENCY_JOB_ID)}
+
+
+def start_dependency_install(name: str, confirm: bool = False) -> dict:
+    """PC only (the route is local_only()). 422 unconfirmed, 404 for a name
+    that is not an installable package, 409 while any job, restore, reset,
+    cleanup or install runs."""
+    gaps.guard(confirm)
+    if name not in gaps.installable_packages():
+        raise gaps.AdminActionUnknownPackage("Unknown or non-installable package.")
+    return _start_install_job("package", name, f"Installing {name}", name)
+
+
+def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
+    """PC only. The refusals of gaps.prepare_gpu_torch_setup (422/409), then
+    the setup runs as a job."""
+    variant = gaps.prepare_gpu_torch_setup(variant, confirm)
+    return _start_install_job("gpu_torch", "torch", f"Setting up PyTorch ({variant})", variant)
+
+
+def _start_install_job(kind: str, package: str, description: str, arg: str) -> dict:
+    # Started and labelled under one lock, as for the update test: the state
+    # names a package only once its job really started.
+    with _STATE_LOCK:
+        if not background_jobs.start_job(DEPENDENCY_JOB_ID, _dependency_job, kind, arg,
+                                         description=description):
+            raise gaps.AdminActionJobsRunning(
+                "An install or a library restore is already running; try again when it ends.")
+        _DEPENDENCY.update(kind=kind, package=package, last=None)
+    return {"job_id": DEPENDENCY_JOB_ID, "started": True}
+
+
+def _other_job_running(own_job_id: str) -> bool:
+    """library_admin_service.any_job_running's rule (jobs here, plus fresh
+    job_records rows from another process), without counting this install's
+    own running job against itself."""
+    if any(j.get("status") in ("running", "queued")
+           for jid, j in background_jobs.list_all_jobs().items() if jid != own_job_id):
+        return True
+    cutoff = time.time() - drama_service.STALE_JOB_RECORD_SECONDS
+    return any(r.get("status") in ("running", "queued") and (r.get("updated_at") or 0) >= cutoff
+               for r in db.list_job_records() if r.get("job_id") != own_job_id)
+
+
+@contextlib.contextmanager
+def _job_hold(job_id: str):
+    """The library, exclusively, for the life of the install job: nothing
+    else can start (409) until the install ends or is cancelled, and the
+    hold is released on every exit."""
+    if not background_jobs.acquire_exclusive("Dependency install", ignore_job_id=job_id):
+        raise gaps.AdminActionJobsRunning(
+            "A job, restore, cleanup or another install is in progress; try again when it ends.")
+    try:
+        if _other_job_running(job_id):      # re-check under the hold, as reset does
+            raise gaps.AdminActionJobsRunning(
+                "A background job is running or queued; wait for it to finish.")
+        yield
+    finally:
+        background_jobs.release_exclusive()
+
+
+def _store_dependency_result(result: dict, status: str):
+    with _STATE_LOCK:
+        _DEPENDENCY["last"] = result
+    background_jobs.set_result(DEPENDENCY_JOB_ID, {"status": status, "detail": result.get("hint")
+                                                   or ("Done." if result.get("ok") else "")})
+
+
+def _dependency_job(kind: str, arg: str):
+    with _STATE_LOCK:
+        package = _DEPENDENCY["package"]
+    failure = {"package": package, "ok": False, "output_tail": [], "hint": None}
+    try:
+        with _job_hold(DEPENDENCY_JOB_ID):
+            background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.02, "Starting pip...")
+            if kind == "gpu_torch":
+                result = gaps.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
+            else:
+                result = gaps.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)
+    except background_jobs.JobCancelled:
+        _store_dependency_result({**failure, "cancelled": True, "hint": _CANCELLED_HINT},
+                                 "cancelled")
+        raise
+    except gaps.AdminActionRefused as exc:      # lost the race for the hold
+        _store_dependency_result({**failure, "hint": str(exc)}, "failed")
+        raise DependencyInstallFailed(str(exc)) from None
+    except Exception as exc:     # noqa: BLE001 -- never echo an exception (paths, keys)
+        _store_dependency_result(
+            {**failure, "hint": f"The install stopped unexpectedly ({type(exc).__name__})."},
+            "failed")
+        raise DependencyInstallFailed("The install stopped unexpectedly.") from None
+    result = {**result, "cancelled": False}
+    _store_dependency_result(result, "ok" if result["ok"] else "failed")
+    if not result["ok"]:
+        raise DependencyInstallFailed("The install did not finish; see its output.")
+
+
+# ---------------------------------------------------------------------------
 # Q06: "Test first" for an update
 # ---------------------------------------------------------------------------
 
@@ -379,7 +513,7 @@ def start_upgrade_check(name: str, target: str = None, confirm: bool = False) ->
     `name` (409 otherwise, as for Upgrade); the job installs exactly that
     version (with constraints.txt) into a throwaway environment and runs
     this app's tests against it. Your real install is not touched."""
-    if name in diagnostics.TORCH_FAMILY:
+    if name in diagnostics_torch.TORCH_FAMILY:
         gaps.guard(confirm)
         raise gaps.AdminActionNotPossible(
             "torch, torchvision and torchaudio are set up together under GPU PyTorch.")
@@ -411,11 +545,15 @@ _RESULT_KEYS = ("ok", "verdict", "reason", "version", "new_failures",
 
 
 def _upgrade_check_job(name: str, dist: str, version: str):
-    gen = diagnostics.check_upgrade_candidate(dist, version, project_root=gaps.default_project_root())
+    def cancelled():
+        return background_jobs.is_cancel_requested(UPGRADE_CHECK_JOB_ID)
+    # The runner polls `cancelled`, so Cancel kills a quiet pip/pytest tree too.
+    gen = upgrade_check.check_upgrade_candidate(dist, version, project_root=gaps.default_project_root(),
+                                              cancel=cancelled)
     frac, final = 0.0, None
     try:
         for item in gen:
-            if background_jobs.is_cancel_requested(UPGRADE_CHECK_JOB_ID):
+            if cancelled():
                 gen.close()          # kills the running pip/pytest
                 raise background_jobs.JobCancelled()
             if item.get("done"):
@@ -431,6 +569,8 @@ def _upgrade_check_job(name: str, dist: str, version: str):
                 background_jobs.update_progress(UPGRADE_CHECK_JOB_ID, frac, line[:200])
     finally:
         gen.close()
+    if cancelled():
+        raise background_jobs.JobCancelled()     # the generator ended early because of Cancel
     final = final or {"ok": False, "verdict": "incomplete", "reason": "the test run stopped"}
     result = {}
     for k in _RESULT_KEYS:

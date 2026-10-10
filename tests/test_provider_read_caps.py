@@ -1,5 +1,7 @@
 """Byte caps on the raw HTTP replies of the LLM engines, Q&A, bulk Gemini
 batches and Groq transcription. No network: requests is faked."""
+from lib import http
+from tests.http_fakes import patch_post
 import pytest
 import requests
 import urllib3
@@ -48,7 +50,7 @@ def posts(monkeypatch):
         def fake(*args, **kwargs):
             calls.append(kwargs)
             return resp
-        monkeypatch.setattr(requests, "post", fake)
+        patch_post(monkeypatch, fake)
         monkeypatch.setattr(requests, "get", fake)
         return resp
     install.calls = calls
@@ -135,12 +137,12 @@ class TestEngines:
             local._ollama_chat("http://localhost:11434", {"model": "m"})
         assert exc.value.reason == "ollama_model_missing" and r.closed
 
-    def test_ollama_health_check_never_reads_the_model_list(self, posts):
+    def test_ollama_health_check_never_reads_the_model_list(self, monkeypatch):
         local._ollama_reachability_cache.clear()
-        r = posts(StreamResp(b"x" * 10_000))
+        r = StreamResp(b"x" * 10_000)
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: r)
         assert local.check_ollama_reachable("http://cap-test:11434") is True
-        assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True
+        assert r.chunks_read <= 1 and r.closed  # lib.http reads one byte of a truncated body
 
     def test_call_llm_json_gemini(self, posts):
         r = posts(_oversized())
@@ -170,22 +172,43 @@ class TestQa:
 
 
 class TestBulkGemini:
+    @pytest.fixture
+    def posts(self, monkeypatch):
+        calls = []
+
+        def install(resp):
+            def fake(url, ip, headers, timeout=None, method="GET", **kwargs):
+                calls.append({"url": url, "ip": ip, "headers": headers, "timeout": timeout})
+                return resp
+            monkeypatch.setattr(http, "pinned_get", fake)
+            return resp
+        install.calls = calls
+        return install
+
     def _provider(self):
         return bulk_translate.GeminiBatchProvider(gemini.GeminiEngine(SECRET))
 
     def test_poll_reply_over_cap(self, posts):
         r = posts(StreamResp(headers={
             "Content-Length": str(bulk_translate.BATCH_RESPONSE_MAX_BYTES + 1)}))
-        with pytest.raises(shared.ProviderResponseTooLarge):
+        with pytest.raises(RuntimeError, match="Gemini batch request failed: The response is larger"):
             self._provider().poll("batches/1")
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True
+        assert posts.calls[0]["timeout"] and posts.calls[0]["ip"] is None
+        assert posts.calls[0]["headers"] == {"x-goog-api-key": SECRET}
 
-    def test_auth_error_closes_without_reading(self, posts):
-        r = posts(StreamResp(b"x" * 100, status=401))
-        with pytest.raises(bulk_translate.BulkAuthError):
+    def test_auth_error_reads_only_a_small_error_body(self, posts):
+        r = posts(StreamResp(b"x" * 100_000, status=401))
+        with pytest.raises(bulk_translate.BulkAuthError) as exc:
             self._provider().poll("batches/1")
-        assert r.chunks_read == 0 and r.closed
+        assert r.chunks_read <= 1 and r.closed
+        assert SECRET not in str(exc.value)
+
+    def test_a_redirect_is_not_followed_so_the_key_stays_home(self, posts):
+        r = posts(StreamResp(b"", status=302, headers={"Location": "https://evil.example/"}))
+        with pytest.raises(RuntimeError) as exc:
+            self._provider().poll("batches/1")
+        assert "302" in str(exc.value) and len(posts.calls) == 1
 
     def test_a_batch_bigger_than_one_llm_reply_is_allowed(self, posts):
         body = b'{"done": true, "pad": "' + b"x" * (shared.PROVIDER_RESPONSE_MAX_BYTES + 1) + b'"}'
@@ -194,6 +217,19 @@ class TestBulkGemini:
 
 
 class TestGroq:
+    @pytest.fixture
+    def posts(self, monkeypatch):
+        calls = []
+
+        def install(resp):
+            def fake(url, ip, headers, timeout=None, method="GET", **kwargs):
+                calls.append({"timeout": timeout, **kwargs})
+                return resp
+            monkeypatch.setattr(http, "pinned_get", fake)
+            return resp
+        install.calls = calls
+        return install
+
     def _transcribe(self, tmp_path):
         audio = tmp_path / "a.wav"
         audio.write_bytes(b"RIFF")
@@ -205,14 +241,16 @@ class TestGroq:
             self._transcribe(tmp_path)
         assert SECRET not in str(exc.value) and "http" not in str(exc.value).lower()
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True and posts.calls[0]["timeout"] == 600
+        assert posts.calls[0]["timeout"] == 600
 
     def test_error_detail_is_capped_and_redacted(self, posts, tmp_path):
         posts(StreamResp(f"bad key {SECRET}".encode() + b"y" * (core.GROQ_ERROR_MAX_BYTES + 1),
                          status=401))
         with pytest.raises(core.GroqTranscriptionError) as exc:
             self._transcribe(tmp_path)
-        assert str(exc.value) == "Groq API returned 401: "
+        # Over the error cap the body is cut, not dropped: the status and a redacted head stay.
+        assert str(exc.value).startswith("Groq API returned 401: ") and SECRET not in str(exc.value)
+        assert len(str(exc.value)) < 400
 
     def test_error_detail_kept_and_redacted(self, posts, tmp_path):
         posts(StreamResp(f"bad key {SECRET}".encode(), status=401))
@@ -223,3 +261,86 @@ class TestGroq:
     def test_segments_still_parsed(self, posts, tmp_path):
         posts(StreamResp(b'{"segments": [{"start": 0, "end": 1, "text": " hi "}]}'))
         assert self._transcribe(tmp_path) == [{"start": 0, "end": 1, "text": "hi"}]
+
+
+class TestEngineTransport:
+    """The plain-POST engines go through lib.http inside call_with_backoff; the
+    exception types must keep driving its retry decisions."""
+
+    GEMINI_OK = b'{"candidates": [{"content": {"parts": [{"text": "{\\"1\\": \\"Hi\\"}"}]}}]}'
+    OPENAI_OK = b'{"choices": [{"message": {"content": "hi"}}]}'
+    OLLAMA_OK = b'{"message": {"content": "hi"}}'
+
+    CALLERS = {
+        "openai": (lambda: shared.call_with_backoff(lambda: openai_compat.OpenAIEngine(SECRET).chat(
+            [{"role": "user", "content": "hi"}])), OPENAI_OK),
+        "gemini_batch": (lambda: shared.call_with_backoff(lambda: gemini.GeminiEngine(SECRET).translate_batch(
+            ["你好"], {"line_ids": [1]})), GEMINI_OK),
+        "gemini_task": (lambda: llm_tasks.call_llm_json(gemini.GeminiEngine(SECRET), "p"), GEMINI_OK),
+        "qa_gemini": (lambda: qa.dispatch_chat("s", [{"role": "user", "content": "q"}],
+                                               gemini.GeminiEngine(SECRET)), GEMINI_OK),
+        "qa_ollama": (lambda: qa.dispatch_chat("s", [{"role": "user", "content": "q"}],
+                                               local.OllamaEngine()), OLLAMA_OK),
+    }
+
+    @pytest.fixture
+    def wire(self, monkeypatch):
+        """Each call to lib.http's connection function pops the next step: an
+        exception to raise or a response to return."""
+        steps, calls = [], []
+        monkeypatch.setattr(shared, "_cancellable_sleep", lambda s: None)
+
+        def fake(url, ip, headers, timeout=None, method="GET", **kw):
+            calls.append((url, headers))
+            step = steps.pop(0)
+            if isinstance(step, Exception):
+                raise step
+            return step
+        monkeypatch.setattr(http, "pinned_get", fake)
+        return steps, calls
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_transport_error_is_retried_once(self, wire, name):
+        steps, calls = wire
+        call, ok = self.CALLERS[name]
+        steps[:] = [requests.ConnectionError("boom"), StreamResp(ok)]
+        call()
+        assert len(calls) == 2
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_persistent_transport_error_surfaces_without_the_url_or_key(self, wire, name):
+        steps, calls = wire
+        call, _ = self.CALLERS[name]
+        steps[:] = [requests.ConnectionError(f"https://x/?key={SECRET}")] * 5
+        with pytest.raises(http.FetchError) as exc:
+            call()
+        assert len(calls) == 2 and SECRET not in str(exc.value)
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_401_is_not_backed_off(self, wire, name):
+        steps, calls = wire
+        call, _ = self.CALLERS[name]
+        steps[:] = [StreamResp(b'{"error": {"message": "bad key"}}', status=401)] * 5
+        with pytest.raises(requests.HTTPError) as exc:
+            call()
+        assert exc.value.response.status_code == 401
+        assert len(calls) == 2  # the one quick retry, not the rate-limit ladder
+        assert SECRET not in str(exc.value)
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_429_backs_off_until_it_succeeds(self, wire, name):
+        steps, calls = wire
+        call, ok = self.CALLERS[name]
+        steps[:] = [StreamResp(b"{}", status=429)] * 3 + [StreamResp(ok)]
+        call()
+        assert len(calls) == 4
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_redirect_is_not_followed_and_the_key_goes_nowhere_else(self, wire, name):
+        steps, calls = wire
+        call, _ = self.CALLERS[name]
+        steps[:] = [StreamResp(b"", status=302, headers={"Location": "http://elsewhere.example/x"})] * 5
+        with pytest.raises(Exception):
+            call()
+        assert all(not u.startswith("http://elsewhere") for u, _ in calls)
+        assert len(calls) == 2  # each attempt is one request, never a second hop

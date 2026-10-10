@@ -8,6 +8,7 @@ sizes and booleans only -- never a path or a URL.
 """
 
 import ipaddress
+import json
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,8 @@ from urllib.parse import urlsplit
 
 import background_jobs
 import core
+import memory_headroom
+from lib import http
 from services import settings_service
 from services.service_errors import ConflictError
 
@@ -23,7 +26,11 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 # llama.cpp's server default; one fixed probe rather than another setting.
 LLAMA_CPP_PORT = 8080
 PROBE_TIMEOUT_SECONDS = 2
+PROBE_MAX_BYTES = 1_000_000
 NVIDIA_SMI_TIMEOUT_SECONDS = 5
+
+_UNKNOWN_MEMORY = {"state": "unknown", "total_bytes": None, "free_bytes": None,
+                   "reserved_bytes": 0}
 
 BUSY_MESSAGE = ("A transcription or other GPU job is running. Free the models "
                 "when it has finished.")
@@ -43,12 +50,11 @@ def is_loopback_url(url: str) -> bool:
 
 
 def _loopback_get(url: str):
-    import requests
+    # guard=None: the caller has already checked the address is loopback.
     # trust_env off: a configured proxy must never see (or be asked to
     # reach) a loopback probe.
-    with requests.Session() as session:
-        session.trust_env = False
-        return session.get(url, timeout=PROBE_TIMEOUT_SECONDS)
+    return http.get(url, timeout=PROBE_TIMEOUT_SECONDS, max_bytes=PROBE_MAX_BYTES, guard=None,
+                    trust_env=False, max_error_bytes=1)
 
 
 def _ollama_rows() -> dict:
@@ -61,7 +67,7 @@ def _ollama_rows() -> dict:
         resp = _loopback_get(f"{base}/api/ps")
         if not resp.ok:
             return {"state": "unavailable", "models": []}
-        loaded = resp.json().get("models") or []
+        loaded = json.loads(resp.body).get("models") or []
     except Exception:
         return {"state": "not_running", "models": []}
     models = []
@@ -150,7 +156,7 @@ def _gpu_row() -> dict:
 def _llama_cpp_running() -> bool:
     try:
         resp = _loopback_get(f"http://127.0.0.1:{LLAMA_CPP_PORT}/v1/models")
-        return bool(resp.ok and isinstance(resp.json().get("data"), list))
+        return bool(resp.ok and isinstance(json.loads(resp.body).get("data"), list))
     except Exception:
         return False
 
@@ -158,6 +164,12 @@ def _llama_cpp_running() -> bool:
 def _gpu_job_running() -> bool:
     return any(job.get("gpu_touching") and job.get("status") in ("running", "queued")
                for job in background_jobs.list_all_jobs().values())
+
+
+def _memory_row() -> dict:
+    # Reads the same source the loaders' keep-free check uses, so the panel
+    # shows what that check will see.
+    return memory_headroom.status()
 
 
 def _guarded(source, fallback):
@@ -173,6 +185,7 @@ def get_loaded_models() -> dict:
         "ollama": _guarded(_ollama_rows, {"state": "unavailable", "models": []}),
         "app": _guarded(_app_rows, {"state": "unavailable", "models": []}),
         "gpu": _guarded(_gpu_row, {"state": "unknown"}),
+        "memory": _guarded(_memory_row, {"vram": _UNKNOWN_MEMORY, "ram": _UNKNOWN_MEMORY}),
         "llama_cpp_running": _guarded(_llama_cpp_running, False),
         # Unknown job state must not read as "idle" for the free action.
         "gpu_job_running": _guarded(_gpu_job_running, True),

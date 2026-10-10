@@ -160,13 +160,17 @@ test.describe('desktop', () => {
     const run = page.getByRole('region', { name: 'Translate run' })
     await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
     await expect(run.getByRole('switch', { name: 'Review glossary before translating' })).toHaveAttribute('aria-checked', 'true')
-    await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
+    // The choice survives a reload of the tab.
+    await page.reload()
+    await expect(run.getByRole('switch', { name: 'Review glossary before translating' })).toHaveAttribute('aria-checked', 'true')
+    await expect(run.getByTestId('review-glossary-note')).toContainText('first scan the transcript')
+    await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
     await expect(review).toContainText('the attached novel')
     await expect(review.getByTestId('glossary-review-proposals').locator('tbody tr')).toHaveCount(2)
     expect(starts).toEqual(['novel'])
     expect(runs).toHaveLength(0)
-    await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeDisabled()
+    await expect(run.getByRole('button', { name: 'Scan glossary, then translate' })).toBeDisabled()
     await review.getByLabel('Select 蓝湛').uncheck()
     await shot(page, 'glossary-review-desktop')
     await review.getByRole('button', { name: 'Add 1 term and start translation' }).click()
@@ -174,6 +178,50 @@ test.describe('desktop', () => {
     expect(JSON.parse(applyBody)).toEqual({ terms: ['魏婴'], run_id: 'run-1' })
     expect(runs).toHaveLength(1)
     await expect(run.getByText('Glossary: Added 1.')).toBeVisible()
+    await expect(page.getByTestId('glossary-review')).toHaveCount(0)
+  })
+
+  // The server holds a scan the owner left behind: the stage reopens it.
+  async function openWithHeldScan(page: Page, held: object) {
+    await base(page, { novel: false })
+    await page.route('**/api/glossary/dramas/1/from-lines', (route) => {
+      if (route.request().method() === 'POST') throw new Error('must not start a new scan')
+      return route.fulfill({ json: { job_id: 'lines_glossary_1', run_id: 'run-3', message: '', ...held } })
+    })
+    await mockTranslateRun(page)
+    await page.goto('/#/drama/1/translate')
+    const run = page.getByRole('region', { name: 'Translate run' })
+    const toggle = run.getByRole('switch', { name: 'Review glossary before translating' })
+    await toggle.click()
+    await page.reload()
+    return page.getByTestId('glossary-review')
+  }
+
+  test('Review glossary resumes a running scan on return', async ({ page }) => {
+    const review = await openWithHeldScan(page, { status: 'running', progress: 0.1, proposals: null })
+    await expect(review.getByTestId('glossary-review-running')).toContainText('Scanning the transcript')
+  })
+
+  test('Review glossary resumes a finished scan with its proposals', async ({ page }) => {
+    const review = await openWithHeldScan(page, { status: 'done', progress: 1, proposals: [prop('魏婴', 'Wei Ying'), prop('蓝湛', 'Lan Zhan')] })
+    await expect(review.getByTestId('glossary-review-resumed')).toContainText('Found 2 terms from your last scan')
+    await expect(review.getByTestId('glossary-review-proposals').locator('tbody tr')).toHaveCount(2)
+    await expect(review.getByRole('button', { name: 'Add 2 terms and start translation' })).toBeVisible()
+  })
+
+  test('Review glossary shows a failed scan on return', async ({ page }) => {
+    const review = await openWithHeldScan(page, { status: 'error', progress: 0, message: 'engine unreachable', proposals: null })
+    await expect(review.getByRole('alert')).toBeVisible()
+  })
+
+  test('Review glossary stays closed when no scan is held', async ({ page }) => {
+    await base(page, { novel: false })
+    await page.route('**/api/glossary/dramas/1/from-lines', idle)
+    await page.goto('/#/drama/1/translate')
+    const run = page.getByRole('region', { name: 'Translate run' })
+    await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
+    await page.reload()
+    await expect(run.getByRole('button', { name: 'Scan glossary, then translate' })).toBeVisible()
     await expect(page.getByTestId('glossary-review')).toHaveCount(0)
   })
 
@@ -191,9 +239,9 @@ test.describe('desktop', () => {
     await page.goto('/#/drama/1/translate')
     const run = page.getByRole('region', { name: 'Translate run' })
     await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
-    await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
+    await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
-    await expect(review).toContainText("this drama's source lines")
+    await expect(review).toContainText("this title's source lines")
     await expect(review.getByRole('button', { name: 'Add 1 term and start translation' })).toBeVisible()
     expect(starts).toEqual(['lines'])
     await review.getByRole('button', { name: 'Cancel' }).click()
@@ -228,7 +276,7 @@ test.describe('desktop', () => {
     await page.goto('/#/drama/1/translate')
     const run = page.getByRole('region', { name: 'Translate run' })
     await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
-    await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
+    await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
     await expect(review).toBeVisible()
     await expect.poll(() => started).toBe(true)
@@ -249,7 +297,7 @@ test.describe('desktop', () => {
     await page.goto('/#/drama/1/translate')
     const run = page.getByRole('region', { name: 'Translate run' })
     await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
-    await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
+    await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
     await expect(review.getByRole('alert').filter({ hasText: "This engine is paid and this account can't use it." })).toBeVisible()
     await review.getByRole('button', { name: 'Start translation' }).click()
@@ -280,7 +328,7 @@ test.describe('desktop', () => {
     })
     const run = page.getByRole('region', { name: 'Translate run' })
     await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
-    await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
+    await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
     await expect(review.getByTestId('glossary-review-proposals').locator('tbody tr')).toHaveCount(1)
     await expect(review).toContainText('魏婴')
@@ -317,7 +365,7 @@ test.describe('desktop', () => {
     // The review before translating starts run-2 while the panel stays mounted.
     const run = page.getByRole('region', { name: 'Translate run' })
     await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
-    await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
+    await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     await expect(page.getByTestId('glossary-review-proposals').locator('tbody tr')).toHaveCount(3)
     expect(starts).toEqual(['lines', 'lines'])
 

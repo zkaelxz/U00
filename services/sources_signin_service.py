@@ -22,8 +22,8 @@ every job they show in GET /api/jobs (status, description, message, scrubbed
 error; `library.read`), and a tier test's outcome is saved in the source's
 capability record (GET /api/sources/{name}). Text is scrubbed either way.
 - `sources_signin_<name>`: `adapter.login(url)` opens a visible window and
-  waits, with no timeout, until the person closes it; it cannot be
-  cancelled from the API (the window is the way out). Then the page is read
+  waits until the person closes it, giving up after
+  page_fetch.LOGIN_MAX_WAIT_SECONDS; it cannot be cancelled from the API. Then the page is read
   through the profile to confirm the content is visible.
 - `sources_tiertest_<name>`: `ladder.test_tier` for one tier, which updates
   only that tier's line in the source's capability record.
@@ -37,7 +37,8 @@ from urllib.parse import urlsplit
 
 import background_jobs
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, UnsupportedOperationError)
+                                     InvalidInputError, ServiceError,
+                                     UnsupportedOperationError)
 from services.sources_registry_service import require_source, scrub
 from services.sources_search_service import error_view, JobFailed, start_job
 from services.sources_url_service import check_public_url, without_urls
@@ -86,7 +87,7 @@ def _site_url(cls, adapter, url) -> str:
 
 
 def _job_error(e) -> dict:
-    from page_fetch import ProfileBusy, ProxyBypassed
+    from page_fetch import LoginWindowTimeout, ProfileBusy, ProxyBypassed
     if isinstance(e, ProfileBusy):
         return {"status": 409, "code": ConflictError.code, "message": scrub(str(e)),
                 "details": {"reason": "PROFILE_BUSY"}}
@@ -94,6 +95,11 @@ def _job_error(e) -> dict:
         return {"status": 503, "code": DependencyUnavailableError.code,
                 "message": "The browser add-on (Playwright) isn't installed on this PC.",
                 "details": {"reason": "NOT_INSTALLED"}}
+    if isinstance(e, LoginWindowTimeout):
+        return {"status": 408, "code": ServiceError.code,
+                "message": "The sign-in window was left open too long, so it was closed. "
+                           "Start the sign-in again when you're ready.",
+                "details": {"reason": "SIGNIN_TIMED_OUT"}}
     if isinstance(e, ProxyBypassed):
         return {"status": 503, "code": DependencyUnavailableError.code,
                 "message": scrub(str(e)), "details": {"reason": "PROXY_BYPASSED"}}

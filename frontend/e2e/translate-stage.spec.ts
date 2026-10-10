@@ -47,7 +47,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await run.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(page.getByTestId('estimate').or(page.getByRole('alert'))).toBeVisible()
 
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
 
   // Out-of-range values are caught before any request.
   await run.getByLabel('Batch size', { exact: true }).fill('500')
@@ -76,7 +76,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   })
   expect('line_ids' in bodies[0]).toBe(false)
 
-  await page.getByRole('button', { name: 'Cancel job' }).click()
+  await page.getByRole('button', { name: /^Cancel / }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
@@ -92,7 +92,7 @@ test('fallback engines: the rule is shown, only same-kind engines are offered, R
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   const group = run.getByTestId('fallback-engines')
   await expect(group).toContainText('Up to 2, tried in order only after the main engine keeps failing (it retries first).')
   await expect(group).toContainText('Not with Reflect or Bulk.')
@@ -127,7 +127,7 @@ test('a 409 on start says a translate job is already running', async ({ page }) 
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   await page.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
-  await expect(page.getByText('A translate job is already running for this drama.')).toBeVisible()
+  await expect(page.getByText('A translate job is already running for this title.')).toBeVisible()
 })
 
 test('with no lines, Translate is disabled and links to Source (rule 22)', async ({ page }) => {
@@ -136,7 +136,7 @@ test('with no lines, Translate is disabled and links to Source (rule 22)', async
   await expect(run.getByRole('button', { name: 'Translate 0 lines' })).toBeDisabled()
   const blocker = run.getByTestId('translate-blocker')
   await expect(blocker).toContainText('Still needed: lines to translate.')
-  await blocker.getByRole('link', { name: 'Go to Source' }).click()
+  await blocker.getByRole('link', { name: 'Go to Media' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/source$/)
 })
 
@@ -152,7 +152,7 @@ test('with every line translated, the reason offers Re-translate in one tap', as
   await expect(run.getByTestId('translate-blocker')).toHaveCount(0)
 })
 
-test('glossary and characters panels load; a drama without a series is told it cannot hold terms (X09)', async ({ page }) => {
+test('glossary and characters panels load; a title without a series is told it cannot hold terms (X09)', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   // Glossary starts open; Characters is a collapsed Section, open it to reach the body.
   await page.locator('details.section', { hasText: 'Characters' }).first().locator(':scope > summary').click()

@@ -23,6 +23,7 @@ __all__ = [
     "LiveSessionStatus",
     "LiveSessionSummary",
     "LiveSessionStopped",
+    "LiveOllamaCheck",
     "AutotuneCandidateMs",
     "AutotuneRunRequest",
     "AutotuneRunResult",
@@ -232,7 +233,7 @@ class TranscribeRunResult(BaseModel):
 # ---------------------------------------------------------------------------
 class LiveSessionStart(BaseModel):
     """Keys are resolved server-side; no browser cookies over the API.
-    Numbers are clamped to the service's ranges (segment 10-60 s, overlap
+    Numbers are clamped to the service's ranges (segment 3-60 s, overlap
     0-8 s and at most half the segment, max_minutes 1-240)."""
     model_config = ConfigDict(extra="forbid")
     url: str = Field(min_length=1, max_length=2000)
@@ -241,10 +242,18 @@ class LiveSessionStart(BaseModel):
     segment_seconds: float = 20
     overlap_seconds: float = 3
     engine: Optional[str] = Field(None, max_length=40,
-                                  description="None = the Settings default engine (checked as paid).")
+                                  description="None = Ollama on this PC, never the Settings default engine.")
     model: Optional[str] = Field(None, max_length=100)
     max_minutes: float = 60
     use_gpu: StrictBool = False
+    reply_without_thinking: StrictBool = Field(
+        True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
+
+
+class LiveOllamaCheck(BaseModel):
+    ok: bool
+    model: str
+    message: Optional[str] = None
 
 
 class LiveSessionStarted(BaseModel):
@@ -252,10 +261,12 @@ class LiveSessionStarted(BaseModel):
 
 
 class LiveCue(BaseModel):
+    id: int
     start: float
     end: float
     text: str
     translated: str
+    translation: str   # pending | done | failed | cancelled
 
 
 class LiveSessionStatus(BaseModel):
@@ -265,6 +276,7 @@ class LiveSessionStatus(BaseModel):
     engine: Optional[str] = None
     model: Optional[str] = None
     progress: float
+    notes: List[str] = []   # newest last: skipped chunks, catching up
     cues: List[LiveCue]
     next_index: int
 

@@ -1498,17 +1498,20 @@ class TestImportTimeSafety:
 
     @staticmethod
     def _copy_db_and_deps(temp_dir):
-        # db.py imports core.py (for LINE_FIELDS); both are self-contained
-        # (stdlib-only), so copying just the two is enough to import db.py
-        # with a real, separate interpreter, in a directory with nothing
-        # else in it -- the only way to observe a genuinely fresh module
-        # import rather than the already-imported module every other test
-        # in this process shares.
+        # db.py imports core.py (for LINE_FIELDS), and core.py imports
+        # segment_splitting.py; all three are self-contained (stdlib-only), so
+        # copying them is enough to import db.py with a real, separate
+        # interpreter, in a directory with nothing else in it -- the only way
+        # to observe a genuinely fresh module import rather than the
+        # already-imported module every other test in this process shares.
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        shutil.copy(os.path.join(project_root, "db.py"), os.path.join(temp_dir, "db.py"))
-        shutil.copy(os.path.join(project_root, "core.py"), os.path.join(temp_dir, "core.py"))
+        for name in ("db.py", "core.py", "segment_splitting.py"):
+            shutil.copy(os.path.join(project_root, name), os.path.join(temp_dir, name))
         # db.py takes its library location from portable.data_dir() (Step 80b).
         shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
+        # init_db creates the extension device-token table from its own module.
+        shutil.copy(os.path.join(project_root, "device_tokens.py"),
+                    os.path.join(temp_dir, "device_tokens.py"))
 
     def test_bare_import_does_not_touch_any_library_dir(self):
         temp_dir = tempfile.mkdtemp(prefix="baihe_import_check_")
@@ -1954,7 +1957,8 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
 # db.py, add the column here too, or that migration is never run by a test
 # (test_every_added_column_is_listed fails otherwise).
 _INIT_DB_MIGRATED_COLUMNS = {
-    "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id"),
+    "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id", "kind",
+                    "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
               "word_timings"),
     "dramas": (
@@ -1969,7 +1973,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
         "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
-        "split_by_sentences"),
+        "split_by_sentences", "translate_thinking"),
     "series": ("instructions", "owner_user_id", "is_private"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
@@ -2115,7 +2119,8 @@ class TestInitDbSchema:
         assert not missing, (
             f"db.py adds these columns to existing tables but _INIT_DB_MIGRATED_COLUMNS in "
             f"tests/test_db.py doesn't list them, so no test upgrades an old database "
-            f"through them: {missing}")
+            f"through them: {missing}. Add each (table, column) to _INIT_DB_MIGRATED_COLUMNS: "
+            f"{{table: [columns]}}.")
 
     def test_old_database_upgrades_to_the_fresh_schema(self, isolated_db):
         fresh = _schema_shape(isolated_db.DB_PATH)

@@ -12,6 +12,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+import dub
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -29,8 +30,10 @@ def started(monkeypatch):
     monkeypatch.setattr(dub_service, "_missing_engine_dependency", lambda e: None)
     monkeypatch.setattr(background_jobs, "get_status", lambda j: None)
 
-    def fake_start(job_id, target, args=(), gpu_touching=False, description=None, on_done=None):
-        calls.append(dict(job_id=job_id, args=args, gpu=gpu_touching, on_done=on_done))
+    def fake_start(job_id, target, args=(), gpu_touching=False, description=None, on_done=None,
+                   **launch):
+        calls.append(dict(job_id=job_id, target=target, args=args, gpu=gpu_touching,
+                          on_done=on_done, launch=launch))
         return True
     monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
     return calls
@@ -52,8 +55,9 @@ def test_start_ok_and_args(client, isolated_db, started):
     assert r.status_code == 200
     assert r.json() == {"job_id": f"dub_{did}"}
     call = started[0]
-    lines, _, clone_map, is_narration, max_speedup, _ = call["args"]
-    assert max_speedup == 1.5 and is_narration is False
+    lines, _, clone_map, max_speedup, _ = call["args"]
+    assert max_speedup == 1.5
+    assert call["target"].func is dub.build_track_subprocess_worker
     # No clip or description anywhere: each speaker gets its own designed
     # voice from the default engine (OmniVoice), never a stock voice.
     assert {k: v["engine"] for k, v in clone_map.items()} == {"S1": "omnivoice", "S2": "omnivoice"}

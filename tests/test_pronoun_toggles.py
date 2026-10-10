@@ -174,6 +174,21 @@ def test_the_chosen_toggles_are_baked_into_the_persisted_bulk_args(isolated_db, 
                         lambda drama_id, lines, name, model, args, **kw: captured.update(args) or 1)
     submit = translate_run_service._bulk_submitter(
         did, drama, type("E", (), {"model": "m"})(), "deepseek", False, None, None, guidelines,
-        "", "en-US", "audio_drama", 6, 3, 20, False, None, None)
+        "", "en-US", "audio_drama", 6, 3, 20, False, None, None, True)
     submit()
     assert FEMALE in captured["style_guidelines"] and GENRE not in captured["style_guidelines"]
+    assert captured["thinking"] is True
+
+
+def test_library_bulk_translate_rows_carry_their_own_run_settings(isolated_db, monkeypatch):
+    did = _drama(isolated_db, SAVED_FEMALE_NO_GENRE, status="aligned", translation_engine="claude")
+    wjs = workspace_job_service
+    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
+    monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
+    seen = []
+    monkeypatch.setattr(wjs.background_jobs, "start_job",
+                        lambda job_id, *a, **k: seen.append((job_id, k["run_settings"])) or False)
+    wjs.run_bulk_series_translate_job("bulk_rs", [did], {"claude": "k"})
+    assert seen[0][0] == f"translate_{did}"
+    assert seen[0][1]["engine"] == "claude"
+    assert seen[0][1]["pronoun_hint"] is True and seen[0][1]["genre_notes"] is False

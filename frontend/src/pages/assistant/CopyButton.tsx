@@ -2,19 +2,14 @@
 // failure in words; a blocked clipboard asks the viewer to copy by hand.
 import { useState } from 'react'
 
+import { copyText } from '../../components/clipboard'
 import { buttonClass } from '../../components/uiClasses'
 
 export function CopyButton({ text, label }: { text: string; label: string }) {
   const [note, setNote] = useState<string | null>(null)
 
   const copy = async () => {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('no clipboard')
-      await navigator.clipboard.writeText(text)
-      setNote('Copied.')
-    } catch {
-      setNote("Couldn't copy. Select the text and copy it by hand.")
-    }
+    setNote((await copyText(text)) ? 'Copied.' : "Couldn't copy. Select the text and copy it by hand.")
   }
 
   return (

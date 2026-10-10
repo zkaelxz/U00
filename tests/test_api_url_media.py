@@ -1,6 +1,7 @@
 """Workspace video-URL download: POST /api/media/dramas/{id}/download-url
 (local_only). yt_dlp is a fake module in sys.modules, ffmpeg is a fake
 run_cancellable and DNS is patched: no network, no real yt-dlp or ffmpeg."""
+from lib import http
 import importlib.machinery
 import os
 import sys
@@ -22,8 +23,10 @@ import video_export
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, jobs_service, media_upload_service, url_guard
+from services import auth_service, jobs_service, media_upload_service
+from lib import url_guard
 from services import url_media_service as svc
+from services import ytdlp_child
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 URL = f"https://video.example/watch?v=abc&sig={SECRET}"
@@ -66,14 +69,7 @@ class FakeYDL:
                                        "total_bytes": 100},
                                       {"status": "finished", "downloaded_bytes": 100}]):
             for hook in self.opts["progress_hooks"]:
-                try:
-                    hook(event)
-                except Exception:
-                    if s.get("wrap"):   # yt-dlp style: DownloadError(exc_info=...)
-                        err = RuntimeError("ERROR: wrapped")
-                        err.exc_info = sys.exc_info()
-                        raise err
-                    raise
+                hook(event)
         path = self.prepare_filename(info)
         if self.opts.get("postprocessors"):
             path = os.path.splitext(path)[0] + ".wav"
@@ -99,6 +95,23 @@ def env(isolated_db, monkeypatch):
         with open(cmd[-1], "wb") as f:
             f.write(b"RIFFwav")
     monkeypatch.setattr(background_jobs, "run_cancellable", fake_run)
+
+    def fake_child(tmp_dir, spec, timeout, cancel):
+        """ytdlp_child.run_download without the process: the real worker runs
+        in-process against FakeYDL and its events are replayed. The real
+        process is covered by tests/test_ytdlp_child.py."""
+        if timeout <= 0:
+            yield {"returncode": None, "timed_out": True, "cancelled": False}
+            return
+        events = []
+        ytdlp_child.run_worker(dict(spec, tmp=tmp_dir), events.append)
+        for event in events:
+            if cancel():
+                yield {"returncode": None, "timed_out": False, "cancelled": True}
+                return
+            yield {"event": event}
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+    monkeypatch.setattr(ytdlp_child, "run_download", fake_child)
     writes = []
     real_update = db.update_drama
     monkeypatch.setattr(db, "update_drama",
@@ -226,11 +239,10 @@ def test_a_large_download_is_not_stopped_for_its_size(client, env, monkeypatch):
     _no_tmp(did)
 
 
-@pytest.mark.parametrize("wrap", [False, True])
-def test_download_stops_before_filling_the_drive(client, env, monkeypatch, wrap):
+def test_download_stops_before_filling_the_drive(client, env, monkeypatch):
     monkeypatch.setattr(svc.shutil, "disk_usage",
                         lambda path: types.SimpleNamespace(total=10**12, used=0, free=svc.MIN_FREE_BYTES - 1))
-    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 10}], "wrap": wrap}
+    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 10}]}
     did = _drama()
     st = _run(client, did)
     assert st["status"] == "error" and "drive is almost full" in st["error"]
@@ -395,7 +407,7 @@ def direct(env, monkeypatch):
         hops.append((url, ip))
         sent.append(dict(headers))
         return script.get(url) or _Resp()
-    monkeypatch.setattr(metadata_service, "pinned_get", fake_get)
+    monkeypatch.setattr(http, "pinned_get", fake_get)
     return types.SimpleNamespace(hops=hops, script=script, sent=sent)
 
 

@@ -6,7 +6,7 @@ Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engin
 
 ## What the app is
 
-- **Pages.** Library, Library tools, Saved manga, Translate text, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
+- **Pages.** Library, Library tools (with Saved manga), Translate text, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
 - **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). **Audit log** and **Users** are on the Admin page.
 - **Background services.** `python -m api` also starts the scheduled chapter check and other schedulers (`api/background.py`), and the browser-extension bridge (`page_server.py`) when the extension setting is on.
 - **Three content modes**: audio drama (your audio or video plus a transcript, aligned to real timing), novel narration (paste the text; the app chunks it, tags speakers with the LLM, translates, and can generate a narration/dub) and streamer VOD (see [Streamer VODs and series](#streamer-vods-and-series)).
@@ -149,7 +149,10 @@ Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and acc
 ### Live (experimental)
 
 The Live page pulls a running stream, cuts it into short chunks (your choice of length), transcribes and translates each in the background, and shows a growing feed. Needs `yt-dlp` and `ffmpeg`.
-- Latency is at least one chunk; shorter chunks lower it but give Whisper less context.
+- Latency is at least one chunk; shorter chunks lower it but give Whisper less context. **Fast captions** (Advanced) sets a 4 s chunk, 1 s overlap, Whisper small and no thinking for sooner, rougher lines. It replaces the current values of those four options, which the browser then remembers; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).
+- Whisper loads before capture starts, so the first chunk is not behind the stream. The status names each step and how fast the last chunk was (audio seconds, time taken, times real time).
+- If Whisper is slower than the stream, the oldest waiting audio is skipped ("Skipped N s to catch up") instead of falling further behind. A chunk Whisper cannot finish in max(30 s, 6 x chunk length) is skipped ("Skipped chunk N") and the run goes on; while an abandoned Whisper call is still running, further chunks are skipped ("Whisper is still busy") instead of starting a second one. Skips are counted in one line per reason and stay listed under the status.
+- Stop returns within a couple of seconds, even in the middle of a Whisper call.
 - Accuracy is lower than the normal pipeline: each chunk is transcribed alone with a few seconds of overlap and no glossary priming.
 - The feed is not saved to the Library; copy what you want before you stop.
 - A resolved stream URL can expire after a few hours; stop and start again.
@@ -192,7 +195,7 @@ Raw and translated text side by side, for proofing and language learning.
 - **Dashboard**: totals, translated lines, API calls, estimated spend, cache-hit rate, per-drama costs.
 - **Series**: dramas sharing a glossary or characters get a consolidated view.
 - **Search and bulk actions**: a global search over every drama's original and translated lines; bulk status, delete (typed confirm) and translate (skips dramas without a key, lines, or already running).
-- **Library tools** (page): export all as a zip, per-drama export package (with a manifest of what was included), backup and restore, presets, voice bank, storage scan with quality presets (Archival, Balanced, Minimal; only regenerable files are removed), and a disk usage view with a Trash folder.
+- **Library tools** (page): export all as a zip, per-drama export package (with a manifest of what was included), backup and restore, presets, voice bank, storage scan with quality presets (Archival, Balanced, Minimal; only regenerable files are removed), and a disk usage view with a Trash folder. Disk usage never follows a link or junction when it counts a folder: the folder's size is what is inside it, and the folders the links lead to are shown apart as "Linked folder, stored elsewhere" with their own size, and as "plus N in linked folders" next to the total. Those are not counted in the folder's size or percentage, and a link, or a folder holding one, can't be moved to Trash from here.
 - **Backup and restore**: a database-only snapshot or a full zip with media, streamed to disk; restore validates the zip first and needs a typed confirm. Signed-in browser sessions from Sources are not included. Automatic backups are opt-in (Settings). See `docs/runbook.md` section 3.
 - **Translation versions**: every translation run is saved with its engine and model; compare versions side by side and activate one (the current one is snapshotted first).
 - **Undo**: line snapshots are taken before risky edits (a force re-translate, an applied merge, a re-transcribe, a shorten, a cleanup, activating a version); restore from Review > "Versions and history" > "Line history" (the 10 most recent are kept).
@@ -230,7 +233,7 @@ Credits keep the original script and gain a romanized companion: 一半山川 di
 
 ### Fetching from JS-heavy sites
 
-Some sites (baihehub, Fanjiao) build pages with JavaScript, so a plain fetch returns an empty shell. `page_fetch.py` handles it in three layers: it detects an unrendered shell and says so; with `playwright` installed (`pip install playwright`, then `playwright install chromium`) it re-fetches with a real browser (falling back to an installed Chrome or Edge, or the program named by the `BAIHE_BROWSER_PATH` system environment variable; Diagnostics > Setup shows whether one was found); and manual paste (copy the page text into the app) always works.
+Some sites (baihehub, Fanjiao) build pages with JavaScript, so a plain fetch returns an empty shell. `page_fetch.py` handles it in three layers: it detects an unrendered shell and says so; with the `playwright` package installed (Diagnostics > Packages, or `pip install playwright`) it re-fetches with a real browser: an installed Chrome or Edge, Playwright's own Chromium, or the program named by the `BAIHE_BROWSER_PATH` system environment variable. No browser download is needed when Chrome or Edge is installed; Diagnostics > Setup shows the package and the browser separately; and manual paste (copy the page text into the app) always works.
 
 ## Reliability
 
@@ -260,6 +263,10 @@ Fully offline: download a `faster-whisper` model elsewhere and point Settings > 
 ### GPU transcription failures ("cublas64_12.dll is not found")
 
 The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctranslate2 wheel or a CUDA version that doesn't match the driver. Turn "Use the GPU for transcription" off (Settings > Jobs > Performance) to silence it. Background: `docs/technical-notes.md`.
+
+### Sharing the PC with other programs (Keep free memory)
+
+If this PC also runs something else that needs the GPU or RAM (a media server doing hardware transcoding, say), set Settings > Advanced > Offline and performance > "Keep free graphics memory" and "Keep free RAM". Before a local model loads (Whisper, Qwen3-ASR, the aligner, vocal separation, a local Ollama translation model, the dub voices), Baihe compares the model's estimated size and the memory that is free right now with that reserve. If loading would break it, the job stops at once with a message saying what is needed, what is free and what is kept free, instead of running out of memory halfway. Then unload another model (Settings > Loaded now, once no job is running), pick a smaller model or int8, or lower the setting. The default is 0 (off). Sizes are estimates, so leave a little slack. Cloud engines and an Ollama on another machine use none of this PC's memory and are not checked. If the memory can't be read (no NVIDIA GPU, or an OS Baihe can't query for RAM), the check is skipped and Loaded now says so. The app and the command line use the same check; on the command line a refusal is reported as that drama's failure (the batch summary lists it) and, like every other per-drama failure there, the exit code stays 0. A refused Ollama translation stops the run after the first batch rather than retrying every batch. A Whisper model folder is sized by its folder name when it is a known model; otherwise no estimate is made and the check is skipped. Not yet covered: diarization, OCR other than the manga model, and a llama.cpp server.
 
 ### GPU PyTorch (NVIDIA)
 

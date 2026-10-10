@@ -62,6 +62,7 @@ import traceback
 
 import audio_preprocess
 import core as core_module
+import segment_splitting
 import db
 import ollama_unload
 import diagnostics
@@ -70,19 +71,23 @@ from core import (
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
     DEFAULT_WHISPER_SIZE, ModelDownloadError, line_from_row,
 )
-import subtitle_formats
+import subtitle_formats, glossary_io as gio
 import translate_engines
 import translation_guide as tguide
-import bulk_translate
-import raw_transcript
+import bulk_translate, raw_transcript
 import dub as dub_module
+import dub_narration as dn
+import real_model_check_cli
 import background_jobs
+import cli_subtitle
+import cli_timing
+from jobs import job_store
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
-                      narration_service, review_extras_service, settings_service, transcribe_service,
-                      translate_run_service, translate_service, workspace_job_service)
+                      narration_service, review_extras_service, settings_service, transcribe_pipeline,
+                      transcribe_service, translate_run_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
-from services.service_errors import DependencyUnavailableError, ServiceError
+from lib.errors import DependencyUnavailableError, ServiceError
 from services.translate_run_service import (engine_cap_applies, get_translate_config_defaults,
                                             validate_run_options)
 
@@ -117,7 +122,7 @@ def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
     # cross-process job_records rows too, so an API job running
     # on this drama notices the cancel. (Only queued/running rows change.)
     for prefix in background_jobs.LINE_WRITING_JOB_PREFIXES:
-        db.request_job_record_cancel(f"{prefix}{drama_id}")
+        job_store.request_cancel(f"{prefix}{drama_id}")
     if existing:
         db.save_line_history_snapshot(drama_id, existing, snapshot_label)
     db.save_lines(drama_id, lines)
@@ -404,7 +409,7 @@ def cmd_diarize(args):
             release_gpu_models()
         # Same history the app's speaker-detection estimate reads.
         transcribe_service.record_diarize_speed(
-            run_info.get("device") == "cuda", transcribe_service._audio_duration_seconds(audio_path),
+            run_info.get("device") == "cuda", transcribe_pipeline._audio_duration_seconds(audio_path),
             time.monotonic() - started)
         if run_info.get("fell_back_to_cpu"):
             print(f"#{d['id']} WARNING: {diarize.fallback_done_message(run_info.get('fallback_kind'))}")
@@ -549,7 +554,7 @@ def cmd_align(args):
         elif segments and not use_groq and not fast:
             # Same history the app's estimate reads; fast mode runs at another speed.
             transcribe_service.record_transcribe_speed(
-                whisper_size, bool(use_gpu), transcribe_service._audio_duration_seconds(audio_path),
+                whisper_size, bool(use_gpu), transcribe_pipeline._audio_duration_seconds(audio_path),
                 time.monotonic() - started)
         if cfg["realign_long_segments"] and segments:
             import word_align
@@ -746,7 +751,7 @@ def cmd_translate(args):
         if missing:
             print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
             return
-        # Same defaults the service/React use (10/6/30 for novel narration).
+        # Same defaults the service/React use.
         tdefaults = get_translate_config_defaults(d.get("content_mode") == "novel_narration")
         style_preset = args.style_preset or (
             "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
@@ -789,8 +794,6 @@ def cmd_translate(args):
                 d["id"], d, lines, style_preset,
                 include_genre_notes=include_genre_notes,
                 default_female_pronouns=default_female_pronouns)
-        translate_run_service.save_style_toggles(
-            d["id"], include_genre_notes, default_female_pronouns)
         target_ids = None
         if glossary_affected:
             # Same selection as the app's "Re-translate lines affected by the
@@ -836,6 +839,7 @@ def cmd_translate(args):
             if refusal:
                 raise RuntimeError(refusal)
             caps.append(cap)
+        translate_run_service.save_style_toggles(d["id"], include_genre_notes, default_female_pronouns, getattr(args, "thinking", None))
         if fallback_names:
             engine = translate_engines.FallbackEngine(
                 [engine] + [_engine_for(n) for n in fallback_names], chain_names, caps,
@@ -981,7 +985,7 @@ def cmd_dub(args):
             chars, ddir, default_engine=tts_engine,
             speaker_labels={ln.speaker or None for ln in lines})
 
-        build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
+        build_fn = dub_service.track_builder(is_narration)
         stretch = {} if is_narration else dict(
             max_speedup=max_speedup, max_slowdown=max_slowdown)
         narration_kwargs = (dict(narrate_original=narrate_original, source_language=source_lang)
@@ -1029,7 +1033,7 @@ def cmd_dub(args):
                       fields=("dub_filename", "start", "end") if is_narration else ("dub_filename",))
         db.update_drama(d["id"], status="dubbed")
         if is_narration and getattr(args, "m4b", False):
-            m4b_path = dub_module.export_narration_m4b(
+            m4b_path = dn.export_narration_m4b(
                 lines, ddir, title=d.get("title_en") or d.get("title_zh"),
                 narrate_original=narrate_original)
             print(f"\n#{d['id']} audiobook: {m4b_path}")
@@ -1188,6 +1192,7 @@ def cmd_transcribe(args):
                   f"{translate_engines.redact_secrets(d_message or '')}", file=sys.stderr)
             sys.exit(1)
         print(f"{label} speaker detection done.")
+    cli_timing.wait_after_transcribe(args.id, label, _wait_for_job)
 
 
 def cmd_qc(args):
@@ -1372,9 +1377,9 @@ def main():
                            help="Also replace speakers you corrected by hand")
     p_diarize.set_defaults(func=cmd_diarize)
 
-    p_translate = sub.add_parser("translate")
-    p_translate.add_argument("--id", type=int, default=None)
-    p_translate.add_argument("--status", default=None)
+    p_translate = translate_engines.think_flag(sub.add_parser("translate"))
+    p_translate.add_argument("--id", type=int)
+    p_translate.add_argument("--status")
     # No argparse choices: a removed engine name gets the same plain refusal
     # as the API instead of a generic "invalid choice" error.
     p_translate.add_argument("--engine", default=None,
@@ -1442,24 +1447,21 @@ def main():
     p_translate.add_argument("--cost-cap", type=float, default=None,
                            help="Stop a drama's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")
-    p_translate.add_argument("--monthly-cap", type=float,
-                           default=None,
+    p_translate.add_argument("--monthly-cap", type=float, default=None,
                            help="Refuse to start / stop once this calendar month's logged spend "
                                 "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     # Matches the Workspace tab's own three sliders. Unset means
     # the service's per-drama defaults (translate_run_service.
-    # get_translate_config_defaults): 6/3/20, or 10/6/30 for novel narration.
+    # get_translate_config_defaults): 10/6/30.
     p_translate.add_argument("--context-window", type=int, default=None,
                            help="Lines of already-translated context shown from before each "
-                                "batch (default 6, 10 for novel narration). 0 turns this off.")
+                                "batch (default 10). 0 turns this off.")
     p_translate.add_argument("--context-window-ahead", type=int, default=None,
                            help="Lines of source text shown from after each batch, to resolve "
-                                "a reference that's only disambiguated later (default 3, 6 for "
-                                "novel narration). 0 "
+                                "a reference that's only disambiguated later (default 6). 0 "
                                 "turns this off.")
     p_translate.add_argument("--batch-size", type=int, default=None,
-                           help="Lines translated per request (default 20, 30 for novel "
-                                "narration). More lines per "
+                           help="Lines translated per request (default 30). More lines per "
                                 "request is cheaper/faster overall but a bigger single point "
                                 "of failure.")
     p_translate.add_argument("--fallback", default=None, metavar="ENGINE[,ENGINE]",
@@ -1509,8 +1511,8 @@ def main():
                               help="VAD: silence that splits speech (300-3000).")
     p_transcribe.add_argument("--min-pause", type=float, default=None,
                               help="Pause (seconds) a long line may be cut at, "
-                                   f"{core_module.MIN_WORD_GAP_SECONDS_MIN:g}-"
-                                   f"{core_module.MIN_WORD_GAP_SECONDS_MAX:g}; saved on the title.")
+                                   f"{segment_splitting.MIN_WORD_GAP_SECONDS_MIN:g}-"
+                                   f"{segment_splitting.MIN_WORD_GAP_SECONDS_MAX:g}; saved on the title.")
     p_transcribe.add_argument("--vad-threshold", type=float, default=None,
                               help="VAD speech threshold (0.1-0.9).")
     p_transcribe.add_argument("--sensitivity", choices=("normal", "sensitive"), default=None,
@@ -1536,6 +1538,8 @@ def main():
     p_qc = sub.add_parser("qc", help="Run Auto QC (numbers, names, banned terms) and flag lines")
     p_qc.add_argument("--id", type=int, default=None, help="One title (default: the whole library).")
     p_qc.set_defaults(func=cmd_qc)
+    cli_subtitle.register(sub)
+    cli_timing.register(sub, _wait_for_job)
 
     p_gloss = sub.add_parser("glossary", help="List, add, remove, import or export a title's series glossary")
     gsub = p_gloss.add_subparsers(dest="glossary_action", required=True)
@@ -1544,8 +1548,8 @@ def main():
     g_add.add_argument("--original", required=True)
     g_add.add_argument("--translation", required=True)
     g_add.add_argument("--notes", default=None)
-    g_add.add_argument("--category", default=None, choices=list(tguide.TERM_CATEGORIES))
-    g_add.add_argument("--policy", default=None, choices=list(tguide.TERM_POLICIES))
+    g_add.add_argument("--category", default=None, choices=gio.TERM_CATEGORIES)
+    g_add.add_argument("--policy", default=None, choices=gio.TERM_POLICIES)
     g_add.add_argument("--alias", action="append", default=None)
     g_add.add_argument("--banned", action="append", default=None, help="A translation never to use.")
     g_add.add_argument("--enforce-exact", action="store_true")
@@ -1603,12 +1607,11 @@ def main():
     p_run.add_argument("--context-window-ahead", type=int, default=None)
     p_run.add_argument("--batch-size", type=int, default=None)
     p_run.add_argument("--cost-cap", type=float, default=None,
-                           help="Stop a drama's translation once its estimated spend reaches this "
-                                "many USD (finished lines are kept).")
-    p_run.add_argument("--monthly-cap", type=float,
-                           default=None,
-                           help="Refuse to start / stop once this calendar month's logged spend "
-                                "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
+                       help="Stop a drama's translation once its estimated spend reaches this "
+                            "many USD (finished lines are kept).")
+    p_run.add_argument("--monthly-cap", type=float, default=None,
+                       help="Refuse to start / stop once this calendar month's logged spend "
+                            "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")
@@ -1635,6 +1638,7 @@ def main():
                           help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_doctor.set_defaults(func=cmd_doctor)
 
+    real_model_check_cli.register(sub)
     args = p.parse_args()
     args.func(args)
 
