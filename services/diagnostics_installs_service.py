@@ -18,7 +18,7 @@ actions the React page runs as background jobs:
   allowlisted host, with timeout= on every request and a byte cap, checks
   it against the release's own .sha256sum file and unpacks only the deno
   binary into ~/.deno/bin, where Deno's own installer puts it.
-- Q06 "Test first": diagnostics.check_upgrade_candidate for one package's
+- Q06 "Test first": upgrade_check.check_upgrade_candidate for one package's
   update target (a throwaway environment plus this app's test suite, so
   minutes, not seconds). The version comes only from the last "Check for
   updates" (the same cached target the Upgrade route installs).
@@ -49,6 +49,7 @@ import job_process_kill
 import db
 import diagnostics
 import diagnostics_torch
+import upgrade_check
 from lib import proc as proc_run
 from services import diagnostics_gaps_service as gaps
 from services import drama_service
@@ -547,7 +548,7 @@ def _upgrade_check_job(name: str, dist: str, version: str):
     def cancelled():
         return background_jobs.is_cancel_requested(UPGRADE_CHECK_JOB_ID)
     # The runner polls `cancelled`, so Cancel kills a quiet pip/pytest tree too.
-    gen = diagnostics.check_upgrade_candidate(dist, version, project_root=gaps.default_project_root(),
+    gen = upgrade_check.check_upgrade_candidate(dist, version, project_root=gaps.default_project_root(),
                                               cancel=cancelled)
     frac, final = 0.0, None
     try:
