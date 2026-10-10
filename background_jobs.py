@@ -672,6 +672,7 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
     if result_queue is not None:
         try:
             result_queue.close()
+            result_queue.discard()
         except Exception:
             pass
     with _lock:
@@ -944,6 +945,10 @@ def refuse_new_jobs() -> None:
     global _stopping
     with _lock:
         _stopping = True
+
+
+def is_stopping() -> bool:
+    return _stopping
 
 
 def _refuse_if_stopping_locked(job_id):
@@ -1506,6 +1511,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             reap_worker(proc, kill_whole_tree)
         try:
             result_queue.close()
+            result_queue.discard()
         except Exception:
             pass
         _timing_finish(job_id, _timing, thread_job=False)

@@ -1054,7 +1054,8 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
         assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
         _clear(job_id)
 
-    def _run_with_refusing_chain_start(self, isolated_db, monkeypatch, cancel, seen):
+    def _run_with_refusing_chain_start(self, isolated_db, monkeypatch, cancel, seen,
+                                       stopping=False):
         """Runs the apply step with a chain start that raises; `seen` gets
         the launch kwargs and the saved line count."""
         hardsub_ocr = pytest.importorskip("hardsub_ocr")
@@ -1066,6 +1067,9 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
 
         def refuse(_diarize_id, target, args=(), **k):
             seen["launch"] = k
+            if stopping:
+                # The stop refuses new jobs before it cancels existing ones.
+                background_jobs._stopping = True
             if cancel:
                 # The clean stop cancels every job, after the lines were saved.
                 background_jobs._jobs[job_id]["cancel_requested"] = True
@@ -1086,6 +1090,14 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
         seen = {}
         with pytest.raises(background_jobs.JobCancelled):
             self._run_with_refusing_chain_start(isolated_db, monkeypatch, True, seen)
+        assert seen["line_count"] == 1
+
+    def test_a_refusal_between_the_stop_and_the_cancel_cancels_too(
+            self, isolated_db, monkeypatch):
+        seen = {}
+        with pytest.raises(background_jobs.JobCancelled):
+            self._run_with_refusing_chain_start(
+                isolated_db, monkeypatch, False, seen, stopping=True)
         assert seen["line_count"] == 1
 
     def test_a_refused_chain_start_without_a_stop_is_still_an_error(

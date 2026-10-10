@@ -1469,7 +1469,10 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
             # that began after the lines were saved refuses the follow-up
             # job. The saved lines stay and the job ends cancelled, not
             # error; diarization can be run again from the Speakers step.
-            if not background_jobs.is_cancel_requested(job_id):
+            # The stop sets the refusal before it cancels jobs, so a refusal
+            # in that gap sees no cancel request yet.
+            if not (background_jobs.is_cancel_requested(job_id)
+                    or background_jobs.is_stopping()):
                 raise
             raise background_jobs.JobCancelled(job_id) from None
 
