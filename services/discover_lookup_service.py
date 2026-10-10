@@ -447,8 +447,8 @@ def _url_is_detail(url: str, prepared: list) -> bool:
 
 
 def _labels_from_text(text: str) -> list:
-    """Static stand-in for navigator.fetch_visible_labels: short visible
-    lines of the page text (menu items, buttons, headings), deduped."""
+    """Short visible lines of the already-fetched page text (menu items,
+    buttons, headings), deduped."""
     labels, seen = [], set()
     for ln in text.splitlines():
         ln = ln.strip()
