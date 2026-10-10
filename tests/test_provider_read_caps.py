@@ -6,7 +6,7 @@ import pytest
 import requests
 import urllib3
 
-import bulk_translate
+import bulk_providers
 import core
 import qa
 from engine_backends import gemini, llm_tasks, local, openai_compat, shared
@@ -186,11 +186,11 @@ class TestBulkGemini:
         return install
 
     def _provider(self):
-        return bulk_translate.GeminiBatchProvider(gemini.GeminiEngine(SECRET))
+        return bulk_providers.GeminiBatchProvider(gemini.GeminiEngine(SECRET))
 
     def test_poll_reply_over_cap(self, posts):
         r = posts(StreamResp(headers={
-            "Content-Length": str(bulk_translate.BATCH_RESPONSE_MAX_BYTES + 1)}))
+            "Content-Length": str(bulk_providers.BATCH_RESPONSE_MAX_BYTES + 1)}))
         with pytest.raises(RuntimeError, match="Gemini batch request failed: The response is larger"):
             self._provider().poll("batches/1")
         assert r.chunks_read == 0 and r.closed
@@ -199,7 +199,7 @@ class TestBulkGemini:
 
     def test_auth_error_reads_only_a_small_error_body(self, posts):
         r = posts(StreamResp(b"x" * 100_000, status=401))
-        with pytest.raises(bulk_translate.BulkAuthError) as exc:
+        with pytest.raises(bulk_providers.BulkAuthError) as exc:
             self._provider().poll("batches/1")
         assert r.chunks_read <= 1 and r.closed
         assert SECRET not in str(exc.value)

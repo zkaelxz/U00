@@ -32,6 +32,7 @@ import os
 from typing import Optional
 
 import background_jobs
+import bulk_providers
 import bulk_translate
 import core
 import db
@@ -76,7 +77,7 @@ def submit_bulk_review(kind: str, drama_id: int, engine, engine_choice: str,
     the bulk_translate kind) with the drama's lines fresh from the database,
     so each carries its permanent id. Returns (bulk_job_id, provider)."""
     lines = db.load_line_objects(drama_id)
-    provider = bulk_translate.make_provider(engine_choice, engine)
+    provider = bulk_providers.make_provider(engine_choice, engine)
     bulk_id = _BULK_SUBMIT[kind](drama_id, lines, engine, engine_choice,
                                  provider=provider, **submit_kwargs)
     return bulk_id, provider

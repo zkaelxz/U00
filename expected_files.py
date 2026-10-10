@@ -16,6 +16,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "benchmark.py",
     "browser_support.py",
     "bulk_import.py",
+    "bulk_providers.py",
     "bulk_translate.py",
     "check_setup.py",
     "cli.py",

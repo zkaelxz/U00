@@ -85,6 +85,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**
 
 - `auto_qc.py`
+- `bulk_providers.py`
 - `bulk_translate.py`
 - `emotion.py`
 - `en_cleanup.py`
