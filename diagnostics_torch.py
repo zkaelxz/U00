@@ -6,10 +6,14 @@ verify helpers behind Diagnostics > "GPU PyTorch".
 """
 
 import json
+import os
 import platform
 import re
 import shutil
 import subprocess
+import sys
+import threading
+import time
 
 import diagnostics
 
@@ -59,6 +63,53 @@ def get_gpu_status() -> dict:
     except Exception:
         return {"available": False, "torch_cuda_version": torch_cuda_version,
                 "message": "GPU info unavailable."}
+
+
+# Importing torch or ctranslate2 in the server opens a CUDA context that keeps
+# their DLLs locked until the process exits, so GPU PyTorch setup can't replace
+# them (WinError 5). The overview asks a short-lived child instead.
+_GPU_STATUS_SCRIPT = (
+    "import json, diagnostics_torch, whisper_models\n"
+    "out = dict(diagnostics_torch.get_gpu_status())\n"
+    "out['whisper'] = whisper_models.gpu_status()\n"
+    "print(json.dumps(out))\n")
+GPU_STATUS_CHILD_TIMEOUT_SECONDS = 60
+# Diagnostics re-polls; a cold `import torch` takes seconds, so reuse a recent answer.
+GPU_STATUS_CACHE_SECONDS = 30
+_gpu_status_lock = threading.Lock()
+_gpu_status_cache = {"at": None, "value": None}
+
+
+def _gpu_status_from_child() -> dict:
+    from lib import proc as proc_run
+    unavailable = {"available": False, "message": "GPU info unavailable.",
+                   "whisper": {"ctranslate2_cuda_devices": None, "torch_cuda_available": None,
+                               "errors": []}}
+    try:
+        proc = proc_run.run_captured(
+            [sys.executable, "-c", _GPU_STATUS_SCRIPT], GPU_STATUS_CHILD_TIMEOUT_SECONDS,
+            cwd=os.path.dirname(os.path.abspath(__file__)))
+    except OSError:
+        return unavailable
+    if proc.timed_out:
+        return dict(unavailable, message="GPU info unavailable -- the GPU check took too long.")
+    data = parse_torch_verify_output(proc.stdout)
+    if "error" in data or not isinstance(data.get("whisper"), dict):
+        return unavailable
+    return data
+
+
+def get_gpu_status_isolated() -> dict:
+    """get_gpu_status() plus whisper_models.gpu_status() under "whisper",
+    measured in a child process so this process never loads torch or
+    ctranslate2. Cached for GPU_STATUS_CACHE_SECONDS; one child at a time."""
+    with _gpu_status_lock:
+        at = _gpu_status_cache["at"]
+        if at is None or time.monotonic() - at > GPU_STATUS_CACHE_SECONDS:
+            _gpu_status_cache["value"] = _gpu_status_from_child()
+            _gpu_status_cache["at"] = time.monotonic()
+        value = _gpu_status_cache["value"]
+    return json.loads(json.dumps(value))
 
 
 def gpu_torch_mismatch() -> bool:

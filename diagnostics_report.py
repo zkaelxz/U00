@@ -5,6 +5,7 @@ the plain-text "copy diagnostics for support" report with its redaction.
 
 import getpass
 import importlib.metadata
+import os
 import re
 
 import diagnostics
@@ -202,21 +203,61 @@ PATH_PATTERN = re.compile(
 _ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
+_URL_PATTERN = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
+# Signed-link parameters that also turn up outside a URL (a header dump, a
+# query string logged on its own); redact_secrets doesn't know these names.
+_SIGNED_PARAM_PATTERN = re.compile(
+    r"(?<![\w-])(X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|sig|token|access_token)"
+    r"=[^\s&\"'<>]+", re.IGNORECASE)
+# A name counts only as a whole path segment or word: matching inside words
+# would turn a short name like "li" into "[USER]brary".
+_SEGMENT_BEFORE = r"(?<![^\s\\/\"'=:(\[])"
+_SEGMENT_AFTER = r"(?![^\s\\/\"'.,;:)\]])"
+# A placeholder the path pattern can't match (no slash), so URLs survive it.
+_URL_SLOT = "\x00URL{}\x00"
+
+
+def _account_names() -> set:
+    """The OS login name plus the profile folder names, which can differ
+    from it (a renamed account keeps its old C:\\Users\\<name> folder)."""
+    names = set()
+    try:
+        names.add(getpass.getuser())
+    except Exception:
+        pass  # no login name (a service account with no USER/USERNAME set)
+    for home in (os.path.expanduser("~"), os.environ.get("USERPROFILE", "")):
+        names.add(re.split(r"[\\/]", (home or "").rstrip("\\/"))[-1])
+    return {n for n in names if n and n not in (".", "~")}
+
+
 def redact_for_support(text: str) -> str:
     """Same secret redaction the rest of the app already uses for stored
-    errors (translate_engines.redact_secrets), plus: the current OS
-    username replaced with [USER], and every absolute filesystem path
-    (POSIX or Windows) collapsed to just its last path segment prefixed
-    with ".../" -- enough to stay readable without exposing the folder
-    structure (or a username embedded in it) underneath. ANSI colour
-    codes are stripped first."""
+    errors (translate_engines.redact_secrets), plus: signed-link query
+    parameters, every URL cut to scheme, host and path, the OS username
+    and profile folder name replaced with [USER], and every absolute
+    filesystem path (POSIX or Windows) collapsed to just its last path
+    segment prefixed with ".../" -- enough to stay readable without
+    exposing the folder structure (or a username embedded in it)
+    underneath. ANSI colour codes are stripped first."""
     import translate_engines
     text = _ANSI_PATTERN.sub("", text or "")
+    urls = []
+
+    def _park(m):
+        # Before redact_secrets: its "[REDACTED]" would end the URL match early
+        # and leave the rest of the query string behind.
+        url = translate_engines.display_url(m.group(0))
+        urls.append(translate_engines.redact_secrets(url) or "[URL]")
+        return _URL_SLOT.format(len(urls) - 1)
+
+    text = _URL_PATTERN.sub(_park, text)
     text = translate_engines.redact_secrets(text)
-    username = getpass.getuser()
-    if username:
-        text = re.sub(re.escape(username), "[USER]", text, flags=re.IGNORECASE)
+    text = _SIGNED_PARAM_PATTERN.sub(lambda m: m.group(1) + "=[REDACTED]", text)
     text = PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+    text = re.sub("\x00URL(\\d+)\x00", lambda m: urls[int(m.group(1))], text)
+    for name in sorted(_account_names(), key=len, reverse=True):
+        text = re.sub(_SEGMENT_BEFORE + re.escape(name) + _SEGMENT_AFTER, "[USER]", text,
+                      flags=re.IGNORECASE)
     return text
 
 

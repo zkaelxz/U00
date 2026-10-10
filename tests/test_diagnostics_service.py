@@ -60,3 +60,46 @@ def test_result_field_is_never_exposed(isolated_db, monkeypatch):
     monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {"j1": fake_job})
     overview = diagnostics_service.get_diagnostics_overview()
     assert "result" not in overview["running_jobs"][0]
+
+
+def test_overview_reads_the_gpu_without_loading_torch_or_ctranslate2(
+        isolated_db, monkeypatch, tmp_path):
+    """Loading either in the server keeps CUDA DLLs locked, so GPU PyTorch
+    setup can't replace them. Fakes on PYTHONPATH reach the child too, which
+    proves the GPU block came from there."""
+    import os
+    import sys
+    import diagnostics_torch
+    (tmp_path / "torch").mkdir()
+    (tmp_path / "torch" / "__init__.py").write_text(
+        "import types\n"
+        "version = types.SimpleNamespace(cuda='12.8')\n"
+        "_props = types.SimpleNamespace(name='Fake GPU', total_memory=8 * 1024 ** 3)\n"
+        "cuda = types.SimpleNamespace(is_available=lambda: True, current_device=lambda: 0,\n"
+        "                             get_device_properties=lambda i: _props,\n"
+        "                             memory_allocated=lambda i: 0)\n")
+    (tmp_path / "ctranslate2.py").write_text("def get_cuda_device_count():\n    return 1\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(
+        [str(tmp_path)] + [p for p in [os.environ.get("PYTHONPATH")] if p]))
+    for name in ("torch", "ctranslate2"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.setattr(diagnostics_torch, "_gpu_status_cache", {"at": None, "value": None})
+
+    gpu = diagnostics_service.get_diagnostics_overview()["gpu"]
+
+    assert "torch" not in sys.modules and "ctranslate2" not in sys.modules
+    assert gpu["available"] is True and gpu["name"] == "Fake GPU"
+    assert gpu["whisper"]["ctranslate2_cuda_devices"] == 1
+
+
+def test_gpu_status_is_cached_briefly(monkeypatch):
+    import diagnostics_torch
+    calls = []
+    monkeypatch.setattr(diagnostics_torch, "_gpu_status_cache", {"at": None, "value": None})
+    monkeypatch.setattr(diagnostics_torch, "_gpu_status_from_child",
+                        lambda: calls.append(1) or {"available": False, "whisper": {}})
+    diagnostics_torch.get_gpu_status_isolated()
+    diagnostics_torch.get_gpu_status_isolated()["available"] = True
+    assert diagnostics_torch.get_gpu_status_isolated()["available"] is False
+    assert len(calls) == 1
