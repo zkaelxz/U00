@@ -103,7 +103,7 @@ test('the menu is keyboard operable and closes with Escape', async ({ page }) =>
 
 test('Settings has no theme select; the header button is the only control', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Preferences')
+  await openSettingsGroups(page, 'Translation and keys')
   await expect(page.getByRole('region', { name: 'Translation style', exact: true })).toBeVisible()
   await expect(page.getByLabel('Theme', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)

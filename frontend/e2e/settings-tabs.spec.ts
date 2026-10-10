@@ -24,7 +24,7 @@ test('searching "ollama" shows the Advanced card with Server addresses open, cou
   const advanced = page.getByRole('region', { name: 'Advanced' })
   await expect(advanced).toBeVisible()
   await expect(advanced.locator('details.section:has(> summary > .section-title:text-is("Server addresses"))')).toHaveAttribute('open', '')
-  await expect(page.getByLabel('Ollama URL')).toBeVisible()
+  await expect(advanced.getByLabel('Ollama URL', { exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Developer Mode' })).toBeHidden()
   await expect(page.getByRole('status').filter({ hasText: /results?$/ })).toHaveText(/^\d+ results?$/)
 

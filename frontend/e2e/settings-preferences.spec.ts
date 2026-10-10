@@ -145,6 +145,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await spend.getByRole('button', { name: 'Save' }).click()
   await expect(spend.getByTestId('cap-effective')).toHaveText('Cap in effect: $12.50 a month.')
 
+  await openSettingsGroups(page, 'System')
   const offline = await open(page, 'Offline and performance')
   await offline.getByLabel('Ollama context window', { exact: true }).fill('1.5')
   await offline.getByRole('button', { name: 'Save' }).click()
@@ -179,7 +180,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 test('server addresses: a URL with a password is refused client-side; save and clear', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'System')
   const s = await open(page, 'Server addresses')
   const ollama = s.getByTestId('endpoint-ollama_url')
   await ollama.getByLabel('Ollama URL', { exact: true }).fill('http://me:hunter2@192.168.1.5:11434')
