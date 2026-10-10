@@ -1110,7 +1110,7 @@ class TestTranscribeWithGroq:
             core.transcribe_with_groq(str(audio), "en", "fake-key")
             assert False, "expected GroqTranscriptionError"
         except core.GroqTranscriptionError as exc:
-            assert str(exc) == "The page could not be fetched."
+            assert str(exc) == "Couldn't reach Groq's API."
 
     def test_a_key_leaked_into_the_error_message_is_redacted(self, monkeypatch, tmp_path):
         """Never put an API key in a shown/stored/logged error -- see
