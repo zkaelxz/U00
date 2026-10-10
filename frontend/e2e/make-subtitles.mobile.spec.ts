@@ -35,3 +35,22 @@ test('the card is one column with 44px controls and a full-width primary', async
   await expect(c.getByRole('button', { name: 'Download SRT' })).toBeVisible()
   await noSidewaysScroll(page)
 })
+
+test('a 130-character file name with no spaces keeps the Options line short at 360px', async ({ page }) => {
+  await mockMakeSubtitles(page)
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/')
+  const c = page.getByRole('region', { name: 'Make subtitles' })
+  const summary = c.locator('summary', { hasText: 'Options' })
+  const pick = (stem: string) =>
+    c.getByLabel('Audio or video file').setInputFiles({ name: `${stem}.mp3`, mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  await pick('Episode 1')
+  const short = (await summary.boundingBox())!.height
+  for (const stem of ['x'.repeat(130), '魔'.repeat(130)]) {
+    await pick(stem)
+    await expect(summary).toContainText('…')
+    // At most one line more than a short name: the file name never turns the summary into a paragraph.
+    expect((await summary.boundingBox())!.height).toBeLessThanOrEqual(short + 20)
+    await noSidewaysScroll(page)
+  }
+})
