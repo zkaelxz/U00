@@ -25,6 +25,7 @@ import db
 from services import job_stage_service, ownership_service, run_settings_service
 import diagnostics
 import background_jobs
+import job_force_stop
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
@@ -404,6 +405,7 @@ def _with_live_progress(record: dict) -> dict:
     if not live or live.get("status") != "running":
         return record
     out = dict(record)
+    out["can_force_stop"] = job_force_stop.can_force_stop(live)
     progress = live.get("progress")
     if isinstance(progress, (int, float)) and not isinstance(progress, bool):
         out["progress"] = progress
@@ -438,6 +440,7 @@ def _redact(record: dict) -> dict:
                               if message else None)
     out["stale"] = is_stale(record)
     out["stalled"] = bool(record.get("stalled"))
+    out["can_force_stop"] = bool(record.get("can_force_stop"))
     return out
 
 
@@ -649,6 +652,20 @@ def cancel_job(job_id: str, principal=None) -> dict:
     # "Cancelling..." until its worker stops.
     status = live["status"] if live else record["status"]
     return {"job_id": job_id, "cancel_requested": True, "status": status}
+
+
+def force_stop_job(job_id: str, principal=None) -> dict:
+    """Closes the record of a thread job that ignored Cancel for over a
+    minute; same visibility and ownership rules as cancel_job. Unknown/invisible -> NotFoundError; not eligible ->
+    ConflictError. The worker thread itself cannot be killed (see
+    job_force_stop), so `worker_still_running` says whether it is still alive."""
+    record = db.get_job_record(job_id)
+    if record is None or not _visible(principal, record):
+        raise NotFoundError(f"No job with id {job_id!r}.")
+    ownership_service.require_job_changeable(principal, record.get("job_id"),
+                                             record.get("owner_user_id"))
+    result = job_force_stop.force_stop(job_id)
+    return {"job_id": job_id, "force_stopped": True, **result}
 
 
 # job_records / background_jobs status names of a job that has ended.
