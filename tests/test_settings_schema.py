@@ -24,6 +24,7 @@ STATE_KEYS = {
     "auto_backup.state": "run bookkeeping for auto_backup_service, rewritten on every run",
     "auto_backup.identity": "library identity, copied across a restore by workspace_job_service",
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
+    "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
 }
 
 # Keys built at run time, matched by (file, argument as written) so a new

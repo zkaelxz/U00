@@ -332,6 +332,16 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/novel/dramas/{drama_id}/reference/text` | local_only() |
 | `GET /api/novel/dramas/{drama_id}/status` | library.read |
 | `GET /api/novel/lncrawl` | local_only() |
+| `GET /api/queue` | jobs.start |
+| `POST /api/queue/clear-finished` | jobs.start |
+| `POST /api/queue/items` | jobs.start |
+| `POST /api/queue/items/{item_id}/move` | jobs.start |
+| `POST /api/queue/items/{item_id}/remove` | jobs.start |
+| `POST /api/queue/items/{item_id}/retry` | jobs.start |
+| `POST /api/queue/pause` | jobs.start |
+| `POST /api/queue/policy` | jobs.start |
+| `POST /api/queue/schedule` | jobs.start |
+| `POST /api/queue/start` | jobs.start |
 | `POST /api/reader/dramas/{drama_id}/ask` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |

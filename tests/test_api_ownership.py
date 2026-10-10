@@ -51,6 +51,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "engine": "an engine name (PC-only key routes, engine Test)",
     "capability": "a Step 36 task capability id, not an item (settings)",
     "package": "a Python package name (PC-only)",
+    "item_id": "a job-queue item; queue_service shows and changes only items for the "
+               "caller's own titles (_sees, _may_change)",
     "preset_id": "presets: household-wide (decision 6)",
     "entry_id": "voice bank: household-wide (decision 6)",
     "report_id": "bug report (admin.diagnostics / PC-only)",

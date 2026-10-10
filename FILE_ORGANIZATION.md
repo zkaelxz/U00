@@ -257,6 +257,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `oidc_service.py`
 - `ownership_service.py`
 - `page_import_limits.py`
+- `queue_service.py` (the Jobs page queue: items, run controls, the one-at-a-time runner thread)
 - `reader_service.py`
 - `real_model_check_service.py`
 - `remote_health_service.py`
@@ -320,7 +321,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `benchmark.py`, `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `benchmark.py`, `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `queue.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
@@ -376,6 +377,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `notification_routes.py`
 - `novel_files_routes.py`
 - `novel_routes.py`
+- `queue_routes.py`
 - `reader_routes.py`
 - `real_model_check_routes.py`
 - `restructure_routes.py`
