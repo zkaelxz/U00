@@ -23,6 +23,7 @@ import { routeHref } from '../router'
 import { FORCE_STOP_HINT, jobName, offersCancel, offersForceStop, jobOutcomeText, type JobRecord } from '../types/jobs'
 import { formatDuration, isActive, isFinished, jobDetail, statusLabel } from './diagnosticsFormat'
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
+import { JobQueue } from './jobs/JobQueue'
 import { RunSettings } from './jobs/RunSettings'
 import {
   KIND_OPTIONS, NO_FILTERS, RANGE_OPTIONS, STATUS_CHIPS, effectiveStatus, filterJobs, hasActiveFilters, jobLinks,
@@ -112,6 +113,8 @@ export default function JobsPage() {
         <h2>Jobs</h2>
         {jobs && <p className="page-meta">{counts.active} active · {counts.all} in all</p>}
       </header>
+
+      <JobQueue titles={titles} />
 
       {refused !== null ? (
         <p className="muted" role="status" data-testid="jobs-refused">{REFUSED_TEXT[refused]}</p>

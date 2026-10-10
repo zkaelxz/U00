@@ -39,3 +39,25 @@
 @media (pointer: coarse), (max-width: 640px) {
   .jobs-card-title, .jobs-cards .jobs-actions a { display: inline-flex; align-items: center; min-height: 44px; }
 }
+
+/* The Queue card (JobQueue.tsx). */
+.queue-card { margin-bottom: var(--space-4); }
+.queue-card p { margin: 0; }
+.queue-card .card-body { display: grid; gap: var(--space-3); min-width: 0; }
+.queue-notice { color: var(--warn); }
+.queue-missed { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--warn); border-radius: var(--radius-sm); background: var(--warn-soft); }
+.queue-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); }
+.queue-items { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; counter-reset: queue; }
+.queue-item { display: grid; gap: var(--space-1); min-width: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow-wrap: anywhere; counter-increment: queue; }
+.queue-item-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.queue-item-head::before { content: counter(queue) "."; color: var(--muted); font-variant-numeric: tabular-nums; }
+.queue-item-actions { align-items: center; }
+.queue-add, .queue-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.queue-controls { flex-direction: column; align-items: stretch; }
+.queue-add .field-item { flex: 1 1 12rem; min-width: 0; }
+.queue-add select { width: 100%; }
+
+@media (pointer: coarse), (max-width: 640px) {
+  .queue-item-head a, .queue-item a[download] { display: inline-flex; align-items: center; min-height: 44px; }
+  .queue-card input[type="time"], .queue-card select { min-height: 44px; }
+}

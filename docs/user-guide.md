@@ -235,6 +235,17 @@ Credits keep the original script and gain a romanized companion: 一半山川 di
 
 Some sites (baihehub, Fanjiao) build pages with JavaScript, so a plain fetch returns an empty shell. `page_fetch.py` handles it in three layers: it detects an unrendered shell and says so; with the `playwright` package installed (Diagnostics > Packages, or `pip install playwright`) it re-fetches with a real browser: an installed Chrome or Edge, Playwright's own Chromium, or the program named by the `BAIHE_BROWSER_PATH` system environment variable. No browser download is needed when Chrome or Edge is installed; Diagnostics > Setup shows the package and the browser separately; and manual paste (copy the page text into the app) always works.
 
+## The job queue
+
+The Jobs page has a Queue card for lining up work and letting it run hands-off, for example overnight. Pick a title and a step (Transcribe, Translate or Export subtitles) and add it; reorder with Move up and Move down, remove an item, or press Retry on one that failed, was skipped or was interrupted.
+
+- Items run one at a time, in order, through the same path as the stage's Run button, with the title's saved options. Transcribe replaces the title's lines (the old ones stay in line History); a title that transcribes from a pasted transcript can't be queued. Export subtitles saves English SRT as the title's subtitle download.
+- **Translate items spend money.** On a paid engine a Translate item uses your API key and costs money; the card says which engine before you add it. The queue respects the Spending caps in Settings: before each Translate item it checks this month's cap and skips the item ("Skipped: ...") when the cap is used up or the estimate is above what is left, and the run itself still stops at the cap. With no monthly cap set, nothing limits the spend.
+- "Start queue now" runs it; "Start at" runs it once at that time on the PC's clock, then the schedule clears. Pause starts no new item; the running one finishes, or cancel its job in the jobs list. "Stop the queue when an item fails" is off by default, so a failed item is marked and the next one starts.
+- An item that can't start (the spending cap, a job already running on that title, a deleted title, a missing key) is marked "Skipped" with the reason, and the queue moves on.
+- After a restart nothing runs on its own: an item that was running shows "Interrupted", and a start time that passed while Baihe was off shows "Missed: start now?" until you start or dismiss it.
+- With sign-in on, each account sees and changes only the items for its own titles; only the PC owner starts, pauses or schedules the queue.
+
 ## Reliability
 
 - One failure breaks only that thing: each React page has an error boundary, database connections are reclaimed after errors, destructive writes (`save_lines`, `save_bubbles`, history snapshots) run in transactions with rollback, and optional packages are imported lazily so a missing one disables only its feature.
