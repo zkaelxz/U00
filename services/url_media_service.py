@@ -15,7 +15,7 @@ drama, and no other URL download runs in this process.
 
 Job `urlmedia_<drama_id>` downloads into a fresh `.urldl_*` temp folder in
 the drama folder (removed in `finally`) with capped yt-dlp options (see
-`ydl_options`): one item, no live streams, at most 6 h long, at most the
+`services.ytdlp_child.ydl_options`): one item, no live streams, at most 6 h long, at most the
 upload cap in bytes and 2 h of wall clock, native downloader only, no
 cookie option in those caps (the saved Settings yt-dlp cookies, a browser
 or a cookies.txt path, are passed separately: the route is PC-only), and

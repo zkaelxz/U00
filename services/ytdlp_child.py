@@ -14,12 +14,15 @@ through lib.proc.stream_tree (own process group, whole tree killed on cancel,
 timeout or an early stop) and yields the child's events. The job's own folder
 holds the spec, because the link and any cookie path must not appear in the
 child's command line. Child side: `run_worker` (a plain function, so tests can
-run it in-process) prints one `@@ytdlp {json}` line per event; any other output
-line is noise from yt-dlp or ffmpeg and is ignored.
+run it in-process) prints one `@@ytdlp-<nonce> {json}` line per event; any other
+output line is noise from yt-dlp or ffmpeg and is ignored. The nonce is random
+per run and travels only in the spec file: yt-dlp's own error output shares the
+stream and can carry site-controlled text, so a fixed prefix could be forged.
 """
 
 import json
 import os
+import secrets
 import sys
 import time
 
@@ -28,7 +31,7 @@ from lib import proc
 MAX_DURATION_SECONDS = 6 * 60 * 60
 SOCKET_TIMEOUT = 30
 PROGRESS_SECONDS = 0.5
-_PREFIX = "@@ytdlp "
+_PREFIX = "@@ytdlp-"
 _SPEC_NAME = "ytdlp_spec.json"
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -106,37 +109,64 @@ def run_worker(spec: dict, emit) -> None:
         emit({"path": path})
 
 
-def _emit_line(event: dict) -> None:
-    sys.stdout.write(_PREFIX + json.dumps(event) + "\n")
-    sys.stdout.flush()
-
-
 def main(argv=None) -> int:
     with open((argv or sys.argv)[1], encoding="utf-8") as f:
         spec = json.load(f)
-    run_worker(spec, _emit_line)
+    prefix = f"{_PREFIX}{spec['nonce']} "
+
+    def emit_line(event: dict) -> None:
+        # Leading newline: a half-written yt-dlp line must not swallow the prefix.
+        sys.stdout.write("\n" + prefix + json.dumps(event) + "\n")
+        sys.stdout.flush()
+
+    run_worker(spec, emit_line)
     return 0
+
+
+def _valid_event(event) -> bool:
+    """Shape check on a nonce-authenticated event, so a malformed one is
+    dropped instead of reaching code that would raise with its content."""
+    if not isinstance(event, dict):
+        return False
+    progress, path = event.get("progress"), event.get("path")
+    if "progress" in event and (isinstance(progress, bool)
+                                or not isinstance(progress, (int, float))):
+        return False
+    if "path" in event:
+        # Only the media file video_download names; never the spec or a partial.
+        if not isinstance(path, str):
+            return False
+        name = os.path.basename(path)
+        if not name.startswith("downloaded_") or name.endswith(".part"):
+            return False
+    return True
 
 
 def run_download(tmp_dir: str, spec: dict, timeout: float, cancel):
     """Parent side. Yields {"event": {...}} per event the child
     emits, then {"returncode", "timed_out", "cancelled"}.
-    Stopping the iteration early kills the child tree."""
+    Stopping the iteration early kills the child tree. Events that fail the
+    nonce or shape check are dropped and counted in the final item's "dropped"."""
+    nonce = secrets.token_hex(16)
+    prefix = f"{_PREFIX}{nonce} "
+    dropped = 0
     spec_path = os.path.join(tmp_dir, _SPEC_NAME)
     with open(spec_path, "w", encoding="utf-8") as f:
-        json.dump(dict(spec, tmp=tmp_dir), f)
+        json.dump(dict(spec, tmp=tmp_dir, nonce=nonce), f)
     cmd = [sys.executable, "-m", "services.ytdlp_child", spec_path]
     for item in proc.stream_tree(cmd, timeout, cwd=_ROOT, cancel=cancel):
         line = item.get("line")
         if line is None:
-            yield item
-        elif line.startswith(_PREFIX):
+            yield dict(item, dropped=dropped)
+        elif line.startswith(prefix):
             try:
-                event = json.loads(line[len(_PREFIX):])
+                event = json.loads(line[len(prefix):])
             except ValueError:
-                continue
-            if isinstance(event, dict):
+                event = None
+            if _valid_event(event):
                 yield {"event": event}
+            else:
+                dropped += 1
 
 
 if __name__ == "__main__":

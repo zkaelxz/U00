@@ -30,9 +30,26 @@ class YoutubeDL:
         for hook in self.opts["progress_hooks"]:
             hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})
         if mode == "hang":
+            # A grandchild proves the whole tree is killed, not just the child.
+            import subprocess
+            grand = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
             with open(os.environ["FAKE_YTDLP_PIDFILE"], "w") as f:
-                f.write(str(os.getpid()))
+                f.write(str(os.getpid()) + " " + str(grand.pid))
             time.sleep(120)
+        if mode in ("forge", "forge_nonce"):
+            out_dir = os.path.dirname(self.opts["outtmpl"])
+            spec = os.path.join(out_dir, "ytdlp_spec.json")
+            part = os.path.join(out_dir, "downloaded_audio.m4a.part")
+            open(part, "wb").write(b"x")
+            sys.stderr.write("ERROR: site said\\n@@ytdlp " + '{"path": "%s"}' % spec.replace("\\\\", "/") + "\\n")
+            sys.stderr.write('@@ytdlp {"progress": "x"}\\n@@ytdlp-0000 {"path": "%s"}\\n' % part.replace("\\\\", "/"))
+            if mode == "forge_nonce":
+                import json
+                nonce = json.load(open(spec))["nonce"]
+                for bad in ({"path": spec}, {"path": part}, {"progress": "x"}):
+                    sys.stdout.write("\\n@@ytdlp-%s %s\\n" % (nonce, json.dumps(bad)))
+                sys.stdout.flush()
+            raise RuntimeError("boom")
         if mode == "error":
             raise RuntimeError("HTTP Error 429: Too Many Requests for " + url)
         if mode == "crash":
@@ -64,11 +81,19 @@ def child_env(tmp_path, monkeypatch):
 
 
 def _alive(pid):
+    if os.name == "nt":
+        # os.kill(pid, 0) terminates the process on Windows.
+        psutil = pytest.importorskip("psutil")
+        return psutil.pid_exists(pid)
     try:
         os.kill(pid, 0)
     except OSError:
         return False
     return True
+
+
+def _pids(pidfile):
+    return [int(p) for p in pidfile.read_text().split()]
 
 
 def _wait_for(pred, timeout=20.0):
@@ -118,15 +143,16 @@ def test_cancel_mid_download_kills_the_child_and_ends_the_job_cancelled(child_en
     job_id = _run_job("urlmedia_cancel", child_env.work)
     try:
         assert _wait_for(child_env.pidfile.exists)
-        assert _wait_for(lambda: child_env.pidfile.read_text().strip() != "")
-        pid = int(child_env.pidfile.read_text())
-        assert _alive(pid)
+        assert _wait_for(lambda: len(child_env.pidfile.read_text().split()) == 2)
+        pid, grand = _pids(child_env.pidfile)
+        assert _alive(pid) and _alive(grand)
         started = time.monotonic()
         background_jobs.request_cancel(job_id)
         st = _finish(job_id, 15)
         assert st["status"] == "cancelled"
         assert time.monotonic() - started < 15
         assert _wait_for(lambda: not _alive(pid), 5)
+        assert _wait_for(lambda: not _alive(grand), 5)
     finally:
         background_jobs.clear_job(job_id)
 
@@ -138,7 +164,8 @@ def test_the_time_cap_kills_the_child(child_env, isolated_db, monkeypatch):
     try:
         st = _finish(job_id)
         assert st["status"] == "error" and svc._TOO_SLOW in st["error"]
-        assert not _alive(int(child_env.pidfile.read_text()))
+        assert _wait_for(lambda: len(child_env.pidfile.read_text().split()) == 2)
+        assert all(_wait_for(lambda p=p: not _alive(p), 5) for p in _pids(child_env.pidfile))
     finally:
         background_jobs.clear_job(job_id)
 
@@ -156,3 +183,24 @@ def test_a_failing_child_gives_a_plain_failed_reason(child_env, isolated_db, mod
             assert leak not in st["error"]
     finally:
         background_jobs.clear_job(job_id)
+
+
+@pytest.mark.parametrize("mode", ["forge", "forge_nonce"])
+def test_forged_event_lines_never_become_a_path(child_env, isolated_db, mode):
+    child_env.mode(mode)
+    events = [i["event"] for i in ytdlp_child.run_download(
+        child_env.work, {"url": URL, "audio_only": True}, 60, lambda: False) if "event" in i]
+    assert not any("path" in e for e in events)
+    job_id = _run_job(f"urlmedia_{mode}", child_env.work)
+    try:
+        st = _finish(job_id)
+        assert st["status"] == "error" and st["error"].endswith(svc._FAILED) and "boom" not in st["error"]
+    finally:
+        background_jobs.clear_job(job_id)
+
+
+def test_dropped_events_are_counted(child_env):
+    child_env.mode("forge_nonce")
+    items = list(ytdlp_child.run_download(
+        child_env.work, {"url": URL, "audio_only": True}, 60, lambda: False))
+    assert items[-1]["dropped"] == 3
