@@ -62,7 +62,7 @@ test('the form survives a reload, and Reset to defaults clears it', async ({ pag
   await beam.fill('7')
   await card.getByLabel('Extra names to expect', { exact: true }).fill('沈清疑')
   // The override sits in a plain <details> that is not remembered: open it each time.
-  const openOverride = () => card.locator('summary', { hasText: 'Advanced: replace the automatic prompt' }).click()
+  const openOverride = () => card.locator('summary', { hasText: 'More: replace the automatic prompt' }).click()
   await openOverride()
   await card.getByLabel('Replacement prompt', { exact: true }).fill('full prompt')
   await expect
@@ -158,4 +158,20 @@ test('a running auto-tune shows elapsed time and an estimate', async ({ page }) 
   await page.locator('.section-title', { hasText: /^Auto-tune min silence$/ }).click()
   await expect(page.getByTestId('autotune-elapsed')).toContainText(/0:0\d elapsed/)
   await expect(page.getByTestId('autotune-elapsed')).toContainText(/0:0[2-9] elapsed/)
+})
+
+test('the setup checklist sits above Transcribe so its reason is read first', async ({ page }) => {
+  await page.route('**/api/transcribe/dramas/1/config', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const real = await route.fetch()
+    await route.fulfill({ response: real, json: { ...(await real.json()), whisper_installed: false } })
+  })
+  await page.goto('/#/drama/1/source')
+  const button = page.getByRole('button', { name: 'Transcribe', exact: true })
+  await expect(button).toBeDisabled()
+  const checklist = page.locator('#transcribe-not-installed')
+  await expect(checklist).toBeVisible()
+  await expect(button).toHaveAttribute('aria-describedby', /transcribe-not-installed/)
+  const [c, b] = [(await checklist.boundingBox())!, (await button.boundingBox())!]
+  expect(c.y + c.height, 'checklist ends above the button').toBeLessThanOrEqual(b.y)
 })

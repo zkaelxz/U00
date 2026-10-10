@@ -136,7 +136,7 @@ export default function SettingsPage() {
     }
   }
 
-  // No aria-label on the three Jobs cards: Notifications and Spending are also card names below.
+  // No aria-label on the three Jobs cards: the card names below stay distinct from the Preferences and Translation cards.
   const toggleField = (key: SettingsToggleKey) => {
     const label = TOGGLES.find((t) => t.key === key)!.label
     return (
@@ -217,7 +217,7 @@ export default function SettingsPage() {
             {settings && prefProps && (
               <>
                 <SettingsCard id="notify-toggle">
-                  <Card title="Notifications">
+                  <Card title="Notify me">
                     <div className="setting-list">{toggleField('notify_on_completion')}</div>
                   </Card>
                 </SettingsCard>
@@ -266,7 +266,7 @@ export default function SettingsPage() {
             </SettingsCard>
             <SettingsCard id="loaded-models"><LoadedModelsCard /></SettingsCard>
             <SettingsCard id="auto-resume">
-              <Card title="Spending">
+              <Card title="Batch resume">
                 <div className="setting-list">{toggleField('bulk_auto_resume')}</div>
               </Card>
             </SettingsCard>

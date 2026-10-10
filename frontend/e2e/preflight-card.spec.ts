@@ -62,7 +62,7 @@ test('a key is added inline in Make subtitles', async ({ page }) => {
   })
   await page.route('**/api/diagnostics/**', (r) => r.fulfill({ status: 403, json: { code: 'forbidden', message: 'no' } }))
   await page.goto('/')
-  await expect(page.getByRole('region', { name: 'Make subtitles' }).getByText('No key saved')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Make subtitles' }).getByTestId('preflight-key')).toContainText('Missing')
   await card(page).getByRole('button', { name: 'Add key' }).click()
   await card(page).getByRole('textbox', { name: 'Claude key' }).fill('not-a-real-key')
   await card(page).getByRole('button', { name: 'Save key' }).click()

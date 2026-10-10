@@ -62,7 +62,7 @@ test('a failure names its step and links to that stage', async ({ page }) => {
   await c.getByRole('button', { name: 'Make subtitles' }).click()
   await expect(c.getByRole('alert')).toBeVisible()
   await expect(c.getByText('Failed at Translate.')).toBeVisible()
-  await expect(c.getByRole('link', { name: 'Fix in translate' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}/translate`)
+  await expect(c.getByRole('link', { name: 'Fix in Translate' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}/translate`)
 })
 
 test('a video file creates a video drama and the title can be changed', async ({ page }) => {
@@ -77,4 +77,59 @@ test('a video file creates a video drama and the title can be changed', async ({
   await expect(c.getByRole('button', { name: 'Download SRT' })).toBeVisible()
   expect(m.created).toEqual([{ source_language: 'zh', media_type: 'video_drama', title_en: 'Episode One' }])
   expect(m.translateRuns[0]).toMatchObject({ locale: 'en-GB' })
+})
+
+test('Make another clears the typed title but keeps the file-independent choices', async ({ page }) => {
+  const m = await mockMakeSubtitles(page)
+  await page.goto('/')
+  const c = card(page)
+  await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await c.getByText('Options').click()
+  await c.getByLabel('Title').fill('Typed Title')
+  await c.getByLabel('English variant').selectOption('en-GB')
+  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make another' }).click()
+
+  await expect(c.getByLabel('Title')).toHaveValue('')
+  await expect(c.getByLabel('English variant')).toHaveValue('en-GB')
+  await c.getByLabel('Audio or video file').setInputFiles({ name: 'Second.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await expect(c.getByRole('button', { name: 'Download SRT' })).toBeVisible()
+  expect(m.created.map((x) => (x as { title_en: string }).title_en)).toEqual(['Typed Title', 'Second'])
+})
+
+test('Cancel during the upload aborts it and says the title was kept', async ({ page }) => {
+  const m = await mockMakeSubtitles(page, { holdUpload: true })
+  await page.goto('/')
+  const c = card(page)
+  await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await expect(c.getByRole('status').locator('[aria-current="step"]')).toHaveText(/Upload/)
+  await c.getByRole('button', { name: 'Cancel' }).click()
+
+  await expect(c.getByText('Cancelled. The title was kept.')).toBeVisible()
+  await expect(c.getByRole('link', { name: 'Open title' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}`)
+  await expect(c.getByRole('alert')).toHaveCount(0)
+  expect(m.translateRuns).toHaveLength(0)
+})
+
+test('a job cancelled elsewhere shows the same note instead of resetting silently', async ({ page }) => {
+  await mockMakeSubtitles(page, { cancelledJob: true })
+  await page.goto('/')
+  const c = card(page)
+  await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await expect(c.getByText('Cancelled. The title was kept.')).toBeVisible()
+  await expect(c.getByRole('link', { name: 'Open title' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}`)
+})
+
+test('a run saved at the upload step shows a note with a link to the title on reload', async ({ page }) => {
+  await mockMakeSubtitles(page)
+  await page.addInitScript((id) => {
+    if (!localStorage.getItem('baihe.pref.makeSubtitles.run')) localStorage.setItem('baihe.pref.makeSubtitles.run', JSON.stringify({ dramaId: id, step: 'upload' }))
+  }, DRAMA_ID)
+  await page.goto('/')
+  const c = card(page)
+  await expect(c.getByText('The last run stopped before the upload finished.')).toBeVisible()
+  await expect(c.getByRole('link', { name: 'Open title' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}`)
 })

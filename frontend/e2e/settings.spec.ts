@@ -132,3 +132,16 @@ test('a collapsible section shows a summary and starts closed on every visit', a
   await expect(details()).not.toHaveAttribute('open', '')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
+
+test('no two cards across the settings tabs share a title', async ({ page }) => {
+  await page.goto('/#/settings')
+  const titles: string[] = []
+  for (const tab of ['Translation and keys', 'Preferences', 'System'] as const) {
+    await openSettingsGroups(page, tab)
+    titles.push(...(await page.locator('.settings-panel:not([hidden]) .card-title').allTextContents()))
+  }
+  expect(titles).toContain('Notify me')
+  expect(titles).toContain('Batch resume')
+  const dupes = titles.filter((t, i) => titles.indexOf(t) !== i)
+  expect(dupes).toEqual([])
+})
