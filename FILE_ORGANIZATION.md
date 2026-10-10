@@ -131,6 +131,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `navigator.py`
 - `page_fetch.py`
 - `page_scroll.py` (scroll-through-then-settle step shared by the rendered and signed-in fetches)
+- `page_capture_checks.py` (blank-page probe, re-capture lookup and fixed failure messages for the extension bridge)
 - `page_server.py`
 - `title_library.py`
 

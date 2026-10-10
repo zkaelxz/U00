@@ -61,6 +61,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "ollama_unload.py",
     "page_fetch.py",
     "page_scroll.py",
+    "page_capture_checks.py",
     "page_server.py",
     "portable.py",
     "process_guard.py",
