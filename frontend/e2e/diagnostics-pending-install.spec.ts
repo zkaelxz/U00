@@ -45,10 +45,12 @@ const RESTART_PLAN = planFor(['paddleocr', 'paddlepaddle'], {
   note: "Baihe is using numpy right now, and Windows can't replace files in use.",
 })
 
-async function mockPage(page: Page, plan: unknown) {
+async function mockPage(page: Page, plan: unknown, planReply?: { status: number; json: unknown }) {
   const unmocked: string[] = []
   const calls: { url: string; body: unknown }[] = []
   let status: unknown = EMPTY_STATUS
+  let slowQueue = false
+  let cancelFails = false
   await page.route('**/api/**', (route) => {
     const r = route.request()
     if (r.method() === 'GET') return route.continue()
@@ -61,14 +63,16 @@ async function mockPage(page: Page, plan: unknown) {
   await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: presets }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
   await page.route((u) => u.pathname === PENDING_BASE, (r) => r.fulfill({ json: status }))
-  await page.route((u) => u.pathname === `${PENDING_BASE}/plan`, (r) => r.fulfill({ json: plan }))
-  await page.route((u) => u.pathname === `${PENDING_BASE}/queue`, (r) => {
+  await page.route((u) => u.pathname === `${PENDING_BASE}/plan`, (r) => r.fulfill(planReply ?? { json: plan }))
+  await page.route((u) => u.pathname === `${PENDING_BASE}/queue`, async (r) => {
     calls.push({ url: r.request().url(), body: r.request().postDataJSON() })
+    if (slowQueue) await new Promise((done) => setTimeout(done, 300))
     status = { ...EMPTY_STATUS, packages: ['paddleocr', 'paddlepaddle'], before: { numpy: '2.5.3' } }
     return r.fulfill({ json: { queued: true, install_now: false, plan } })
   })
   await page.route((u) => u.pathname === `${PENDING_BASE}/cancel`, (r) => {
     calls.push({ url: r.request().url(), body: null })
+    if (cancelFails) return r.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'boom' } } })
     status = EMPTY_STATUS
     return r.fulfill({ json: { cancelled: true } })
   })
@@ -76,13 +80,20 @@ async function mockPage(page: Page, plan: unknown) {
     calls.push({ url: r.request().url(), body: null })
     return r.fulfill({ json: { package: 'x', ok: true, output_tail: [], hint: null } })
   })
-  return { unmocked, calls, setStatus: (s: unknown) => { status = s } }
+  return {
+    unmocked, calls,
+    setStatus: (s: unknown) => { status = s },
+    slowQueue: () => { slowQueue = true },
+    failCancel: () => { cancelFails = true },
+  }
 }
 
 const openPackages = async (page: Page) => {
   await page.goto('/#/diagnostics')
   const summary = page.locator('summary', { hasText: /^Packages/ }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+  // locator.all() doesn't wait: without this the groups can be listed before the presets arrive.
+  await expect(page.getByTestId('install-tasks').locator('summary').first()).toBeVisible()
   for (const s of await page.getByTestId('install-tasks').locator('summary').all()) await s.click()
 }
 
@@ -149,4 +160,63 @@ test("last start's outcome is shown in plain words and can be dismissed", async 
   })
   await openPackages(page)
   await expect(page.getByTestId('pending-install-result')).toContainText('Your earlier packages were put back.')
+})
+
+const errorJson = (status: number, code: string, message: string) => ({ status, json: { error: { code, message } } })
+
+test('an older server without the plan endpoint still installs as before', async ({ page }) => {
+  const { unmocked, calls } = await mockPage(page, RESTART_PLAN, errorJson(404, 'not_found', 'Not found'))
+  await openPackages(page)
+  await startTaskInstall(page)
+  await expect.poll(() => calls.length).toBeGreaterThan(0)
+  expect(calls[0].url).toContain('/api/diagnostics/dependencies/')
+  expect(unmocked).toEqual([])
+})
+
+for (const [status, code] of [[409, 'conflict'], [504, 'timeout'], [403, 'forbidden'], [500, 'internal_error']] as const) {
+  test(`a failed preview (${status}) shows the error and installs nothing`, async ({ page }) => {
+    const { unmocked, calls } = await mockPage(page, RESTART_PLAN, errorJson(status, code, 'The check did not finish.'))
+    await openPackages(page)
+    await startTaskInstall(page)
+    await expect(page.getByRole('alert').filter({ hasText: /\S/ }).first()).toBeVisible()
+    await expect(page.getByTestId('install-plan')).toHaveCount(0)
+    expect(calls).toEqual([])
+    expect(unmocked).toEqual([])
+  })
+}
+
+test('an open plan holds the install buttons, and a new plan starts unticked', async ({ page }) => {
+  await mockPage(page, RESTART_PLAN)
+  await openPackages(page)
+  await startTaskInstall(page)
+  const panel = page.getByTestId('install-plan')
+  await panel.getByLabel('I understand, install anyway').check()
+  await expect(page.getByRole('button', { name: 'Install for Read burned-in captions (OCR)' })).toBeDisabled()
+  await expect(page.getByText('Close the install preview above first.')).toBeVisible()
+  await panel.getByRole('button', { name: 'Cancel' }).click()
+  await startTaskInstall(page)
+  await expect(page.getByTestId('install-plan').getByLabel('I understand, install anyway')).not.toBeChecked()
+})
+
+test('the queue request is sent once however often the button is pressed', async ({ page }) => {
+  const { calls, slowQueue } = await mockPage(page, RESTART_PLAN)
+  slowQueue()
+  await openPackages(page)
+  await startTaskInstall(page)
+  const panel = page.getByTestId('install-plan')
+  await panel.getByLabel('I understand, install anyway').check()
+  const queueButton = panel.getByRole('button', { name: 'Install when I restart Baihe' })
+  await queueButton.dblclick()
+  await expect(page.getByTestId('pending-install')).toBeVisible()
+  expect(calls).toHaveLength(1)
+})
+
+test('a failed cancel is shown and the queued install stays listed', async ({ page }) => {
+  const { setStatus, failCancel } = await mockPage(page, RESTART_PLAN)
+  setStatus({ ...EMPTY_STATUS, packages: ['paddleocr'] })
+  failCancel()
+  await openPackages(page)
+  await page.getByRole('button', { name: 'Cancel the queued install' }).click()
+  await expect(page.locator('.error-banner')).toBeVisible()
+  await expect(page.getByTestId('pending-install')).toBeVisible()
 })
