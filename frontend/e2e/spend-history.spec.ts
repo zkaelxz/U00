@@ -6,7 +6,7 @@ import { mockSpendHistory } from './spendHistoryMocks'
 test('spend history: months, a month tap, breakdowns and the estimate note', async ({ page }) => {
   await mockSpendHistory(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   const card = page.getByRole('region', { name: 'Spend history' })
   await expect(card).toContainText('Estimates, priced from the app')
   const months = card.getByRole('table', { name: 'Spend by month' })
@@ -24,6 +24,6 @@ test('spend history: months, a month tap, breakdowns and the estimate note', asy
 test('spend history: no calls yet', async ({ page }) => {
   await mockSpendHistory(page, { months: [], selected_month: null, cap_reset_at: null, max_months: 36, by_operation: [], by_engine_model: [], by_title: [] })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   await expect(page.getByRole('region', { name: 'Spend history' }).getByTestId('spend-empty')).toBeVisible()
 })

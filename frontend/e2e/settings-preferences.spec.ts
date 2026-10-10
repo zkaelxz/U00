@@ -115,7 +115,7 @@ async function open(page: Page, title: string) {
 test('defaults for new dramas save only what changed', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   const s = await open(page, 'Translation style')
   const save = s.getByRole('button', { name: 'Save' })
   await expect(save).toBeDisabled()
@@ -134,7 +134,7 @@ test('defaults for new dramas save only what changed', async ({ page }) => {
 test('spending, offline and OCR fields check input before saving', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
 
   const spend = await open(page, 'Spending')
   await spend.getByLabel('Monthly cap', { exact: true }).fill('lots')
@@ -145,6 +145,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await spend.getByRole('button', { name: 'Save' }).click()
   await expect(spend.getByTestId('cap-effective')).toHaveText('Cap in effect: $12.50 a month.')
 
+  await openSettingsGroups(page, 'System')
   const offline = await open(page, 'Offline and performance')
   await offline.getByLabel('Ollama context window', { exact: true }).fill('1.5')
   await offline.getByRole('button', { name: 'Save' }).click()
@@ -179,7 +180,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 test('server addresses: a URL with a password is refused client-side; save and clear', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const s = await open(page, 'Server addresses')
   const ollama = s.getByTestId('endpoint-ollama_url')
   await ollama.getByLabel('Ollama URL', { exact: true }).fill('http://me:hunter2@192.168.1.5:11434')
@@ -202,7 +203,7 @@ test('server addresses: a URL with a password is refused client-side; save and c
 test('the theme is changed from the header button, not from Settings', async ({ page }) => {
   await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   await expect(block(page, 'Translation style')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Theme', { exact: true })).toHaveCount(0)
@@ -215,7 +216,7 @@ test('away from the PC the preference blocks say PC only', async ({ page }) => {
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   for (const title of ['Translation style', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
     // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
     await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(

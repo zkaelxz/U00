@@ -10,7 +10,7 @@ const SHOTS = '/tmp/claude-0/-home-user-U00/780be93c-8b60-5332-b9fb-fd0d9036666f
 test('nav link is hidden with Developer Mode off and appears once it is turned on in Settings', async ({ page }) => {
   const s = await mockAssistant(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   await openMenu(page)
   await expect(navLink(page, 'Settings')).toBeVisible()
   const toggle = page.getByRole('region', { name: 'Developer Mode' }).getByRole('switch', { name: 'Developer Mode' })
@@ -34,9 +34,9 @@ test('reached by URL with the mode off: a link that lands on the Developer Mode 
   await expect(page.getByRole('switch', { name: 'Developer Mode' })).toHaveCount(0)
   await page.getByRole('link', { name: 'Turn on in Settings' }).click()
   await expect(page).toHaveURL(/#\/settings\?section=developer-mode$/)
-  // The fold starts closed; the link opens it.
+  // The link lands on the System tab.
   const toggle = page.getByRole('region', { name: 'Developer Mode' }).getByRole('switch', { name: 'Developer Mode' })
-  await expect(page.locator('#settings-experimental > details')).toHaveJSProperty('open', true)
+  await expect(page.getByRole('tab', { name: 'System' })).toHaveAttribute('aria-selected', 'true')
   await expect(toggle).toBeInViewport()
   await toggle.click()
   await expect(toggle).toBeChecked()
@@ -51,8 +51,8 @@ test('from another device: PC only, no nav link, no Settings card', async ({ pag
   await expect(page.getByText('The maintenance assistant is available on the PC only.')).toBeVisible()
   await expect(navLink(page, 'Assistant')).toHaveCount(0)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
-  await expect(page.locator('#settings-jobs')).toBeVisible()
+  await openSettingsGroups(page, 'System')
+  await expect(page.locator('#settings-panel-system')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Developer Mode' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
