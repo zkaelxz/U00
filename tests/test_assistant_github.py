@@ -15,6 +15,7 @@ import action_tiers
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
+from lib import http
 from services import assistant_github_service as gh, auth_service, settings_service
 
 TOKEN = "ghp_" + "Z" * 36
@@ -81,6 +82,13 @@ class FakeGitHub:
         return Resp(500, {"message": f"unexpected {method} {path} token={TOKEN}"})
 
 
+def _serve(monkeypatch, fn):
+    """Route lib.http's connection step to `fn(method, url, **requests_kwargs)`."""
+    monkeypatch.setattr(http, "pinned_get", lambda url, ip, headers, timeout=None, method="GET", **kw:
+                        fn(method, url, headers=headers, timeout=timeout,
+                           allow_redirects=False, stream=True, **kw))
+
+
 @pytest.fixture
 def env(isolated_db, tmp_path, monkeypatch):
     path = tmp_path / ".env"
@@ -92,7 +100,7 @@ def env(isolated_db, tmp_path, monkeypatch):
 @pytest.fixture
 def fake(monkeypatch):
     f = FakeGitHub()
-    monkeypatch.setattr(gh.requests, "request", f.request)
+    _serve(monkeypatch, f.request)
     return f
 
 
@@ -180,7 +188,7 @@ def test_a_stale_patch_is_refused_before_any_write(ready):
 def test_errors_never_carry_the_token(ready, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError(f"connection reset for Authorization: Bearer {TOKEN}")
-    monkeypatch.setattr(gh.requests, "request", boom)
+    _serve(monkeypatch, boom)
     with pytest.raises(gh.ServiceError) as e:
         gh.test_connection()
     assert TOKEN not in e.value.message
@@ -416,7 +424,7 @@ def test_failed_pr_names_the_branch_it_left(ready, monkeypatch):
             return Resp(422, {"message": "Draft pull requests are not supported"})
         return real(method, url, **kw)
 
-    monkeypatch.setattr(gh.requests, "request", no_draft)
+    _serve(monkeypatch, no_draft)
     prev = gh.preview(PATCH, "Fix")
     with pytest.raises(gh.ServiceError) as e:
         gh.deliver(PATCH, "Fix", sha256=prev["sha256"], confirm=True)
@@ -425,7 +433,6 @@ def test_failed_pr_names_the_branch_it_left(ready, monkeypatch):
 
 
 def test_an_oversized_github_response_is_refused(monkeypatch):
-    import requests
     from services.service_errors import ServiceError
 
     class Endless:
@@ -440,7 +447,7 @@ def test_an_oversized_github_response_is_refused(monkeypatch):
         def close(self):
             Endless.closed = True
     monkeypatch.setattr(gh, "MAX_RESPONSE_BYTES", 1000)
-    monkeypatch.setattr(requests, "request", lambda *a, **k: Endless())
+    _serve(monkeypatch, lambda *a, **k: Endless())
     with pytest.raises(ServiceError, match="more data than expected"):
         gh._call("tok", "GET", "/user")
     assert Endless.closed
