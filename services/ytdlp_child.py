@@ -123,10 +123,14 @@ def main(argv=None) -> int:
     return 0
 
 
+_EVENT_KEYS = frozenset({"progress", "path", "title", "error", "missing", "rejected"})
+
+
 def _valid_event(event) -> bool:
     """Shape check on a nonce-authenticated event, so a malformed one is
     dropped instead of reaching code that would raise with its content."""
-    if not isinstance(event, dict):
+    # Unknown keys mean the line was not written by emit_line.
+    if not isinstance(event, dict) or not event or not set(event) <= _EVENT_KEYS:
         return False
     progress, path = event.get("progress"), event.get("path")
     if "progress" in event and (isinstance(progress, bool)
