@@ -66,7 +66,8 @@ class Response:
     ok: bool = field(init=False)
 
     def __post_init__(self):
-        # A 3xx that reaches here was not followed (guard=None), so its body is empty.
+        # HTTP errors are returned, not raised, so 4xx/5xx reach here; so does a 3xx
+        # that was not followed (guard=None, or no redirects asked for). Only 2xx is ok.
         self.ok = 200 <= self.status < 300
 
     def text(self) -> str:
@@ -140,10 +141,10 @@ def _is_credential_header(name: str) -> bool:
         k in n for k in ("api-key", "apikey", "token", "secret"))
 
 
-def _headers_for_hop(headers: Optional[dict], origin, target: str) -> Optional[dict]:
+def _headers_for_hop(headers: Optional[dict], strip: bool) -> Optional[dict]:
     # A key meant for one vendor must not follow a redirect elsewhere (requests'
     # rebuild_auth did this before the manual redirect loop replaced it).
-    if not headers or _origin(target) == origin:
+    if not headers or not strip:
         return headers
     return {k: v for k, v in headers.items() if not _is_credential_header(k)}
 
@@ -192,13 +193,17 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
         allow_redirects = guard is not None
     session_kw = {} if trust_env else {"trust_env": False}
     hop_method, hop_kwargs = method, kwargs
+    # Sticky: once a hop left the first origin, a later hop back to it (A -> B -> A)
+    # still must not get the credentials B could have read or redirected.
+    left_origin = False
     for hop in range(max_redirects + 1):
         remaining = deadline - (clock() - started)
         if remaining <= 0:
             raise ResponseTooSlow()
         ip = guard(current) if guard else None
+        left_origin = left_origin or _origin(current) != origin
         try:
-            resp = pinned_get(current, ip, _headers_for_hop(headers, origin, current), _clamp(timeout, remaining),
+            resp = pinned_get(current, ip, _headers_for_hop(headers, left_origin), _clamp(timeout, remaining),
                               hop_method, **session_kw, **hop_kwargs)
         except requests.RequestException:
             raise FetchError() from None
@@ -209,6 +214,11 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
                 raise FetchError()
             current = urljoin(current, location)
             if resp.status_code in (307, 308):
+                # A stream or file object was consumed by the first send and cannot be resent.
+                data = hop_kwargs.get("data")
+                if hop_kwargs.get("files") or (
+                        data is not None and not isinstance(data, (bytes, str, dict))):
+                    raise FetchError()
                 # Location already carries the query; resending params would double it.
                 hop_kwargs = {k: v for k, v in hop_kwargs.items() if k != "params"}
             else:
