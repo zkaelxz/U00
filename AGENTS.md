@@ -13,7 +13,7 @@ OpenCode loads this file, not `CLAUDE.md`. You must still read the project rules
 - Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Before pushing, run the area's tests plus
   the quick guards: `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`.
   CI runs the full suite; don't run it locally as well.
-- Never skip, delete or loosen a test.
+- Never skip or loosen a test. A test is deleted only together with the feature it proves, in the PR that removes the feature.
 - Skip `docs/archive/` (history only), `docs/specs/`, `docs/design/` and `.claude/` unless the task is about them.
 
 ## Rules that bite
