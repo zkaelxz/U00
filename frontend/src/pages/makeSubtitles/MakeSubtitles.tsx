@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
-import { ApiError } from '../../api/client'
+import { ApiError, withSignal } from '../../api/client'
 import { getSubtitleText, markExported } from '../../api/export'
 import { cancelJob, getJob } from '../../api/jobs'
 import { createDrama } from '../../api/library'
@@ -24,6 +24,7 @@ import type { JobRecord } from '../../types/jobs'
 import { PreflightCard } from '../preflight/PreflightCard'
 import type { PreflightRow } from '../preflight/preflightModel'
 import { UPLOAD_EXTENSIONS } from '../workspace/sourceForm'
+import { STAGE_LABELS, type StageId } from '../workspace/stages'
 import { buildRunBody, initialForm } from '../workspace/translateForm'
 import { exportFilename } from '../workspace/exportForm'
 import {
@@ -58,6 +59,9 @@ export function MakeSubtitles() {
   const [resuming, setResuming] = useState(false)
   const [downloadError, setDownloadError] = useState<unknown>(null)
   const [cancelError, setCancelError] = useState<unknown>(null)
+  // Why the form is showing again with a title already in the Library (null dramaId: nothing was created).
+  const [note, setNote] = useState<{ kind: 'cancelled' | 'upload-lost'; dramaId: number | null } | null>(null)
+  const uploadAbort = useRef<AbortController | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const status = useRef<HTMLDivElement>(null)
 
@@ -65,13 +69,11 @@ export function MakeSubtitles() {
   const list = engines.data?.items ?? []
   const defaultEngine = list.find((e) => e.name === engines.data?.default_engine)?.name ?? list[0]?.name ?? ''
   const engine = pickedEngine ?? defaultEngine
-  const chosen = list.find((e) => e.name === engine)
 
   // Read inside job callbacks, which outlive the render that created them.
-  const run = useRef({ title: '', engine: '', variant: '' })
-  useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, engine, variant } })
-
+  const run = useRef<{ title: string; engine: string; variant: string; dramaId: number | null }>({ title: '', engine: '', variant: '', dramaId: null })
   const dramaId = flow.phase === 'idle' ? null : flow.dramaId
+  useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, engine, variant, dramaId } })
   const stepNow = flow.phase === 'running' ? flow.step : null
 
   useEffect(() => { setSaved(savedFor(flow)) }, [flow]) // setSaved is a fresh function each render
@@ -82,6 +84,7 @@ export function MakeSubtitles() {
     const s = parseSaved(saved)
     // A run that died before the upload finished has nothing to follow.
     if (s && s.step !== 'upload') { setResuming(true); dispatch({ type: 'resume', saved: s }) }
+    else if (s) setNote({ kind: 'upload-lost', dramaId: s.dramaId })
   }, [saved])
 
   useEffect(() => { if (stepNow) status.current?.focus() }, [stepNow === null])
@@ -108,7 +111,7 @@ export function MakeSubtitles() {
   }, [fail, setJobId])
 
   const onJobDone = useCallback((job: JobRecord) => {
-    if (job.status === 'cancelled' || job.outcome === 'cancelled') { setJobId(null); dispatch({ type: 'reset' }); return }
+    if (job.status === 'cancelled' || job.outcome === 'cancelled') { setJobId(null); setNote({ kind: 'cancelled', dramaId: run.current.dramaId }); dispatch({ type: 'reset' }); return }
     if (failed(job)) { fail(new ApiError(0, { code: 'application_error', message: job.error ?? job.message })); return }
     const step = stepForJob(job.job_id)
     const id = Number(job.job_id.split('_').pop())
@@ -145,6 +148,10 @@ export function MakeSubtitles() {
     if (!file) return
     setSrt(null)
     setDownloadError(null)
+    setNote(null)
+    const abort = new AbortController()
+    uploadAbort.current = abort
+    let created: number | null = null
     seen.current = { settled: 0, live: false }
     setResuming(false)
     dispatch({ type: 'start' })
@@ -152,15 +159,24 @@ export function MakeSubtitles() {
       const d = await createDrama({
         source_language: language, media_type: mediaTypeFor(file.name), title_en: titleFor(file.name, title),
       })
+      created = d.id
       dispatch({ type: 'created', dramaId: d.id })
-      const r = await uploadAndTranscribe(d.id, file, { source_language: language }, false)
+      if (abort.signal.aborted) throw new DOMException('Cancelled', 'AbortError')
+      const r = await uploadAndTranscribe(d.id, file, { source_language: language }, false, withSignal(abort.signal))
       dispatch({ type: 'advance' })
       setJobId(r.job_id)
-    } catch (e) { fail(e) }
+    } catch (e) {
+      // Aborting makes fetch reject; that is the user's choice, not a failure.
+      if (!abort.signal.aborted) { fail(e); return }
+      setResuming(false)
+      setNote({ kind: 'cancelled', dramaId: created })
+      dispatch({ type: 'reset' })
+    } finally { if (uploadAbort.current === abort) uploadAbort.current = null }
   }
 
   const cancel = () => {
     if (jobId) cancelJob(jobId).then(() => setCancelError(null), setCancelError)
+    else uploadAbort.current?.abort()
   }
 
   const download = async () => {
@@ -173,7 +189,7 @@ export function MakeSubtitles() {
     } catch (e) { setDownloadError(e) }
   }
 
-  const reset = () => { setJobId(null); setFile(null); setSrt(null); dispatch({ type: 'reset' }) }
+  const reset = () => { setJobId(null); setFile(null); setTitle(''); setSrt(null); setNote(null); dispatch({ type: 'reset' }) }
 
   const blocker = blockerText(!!file, blockers, engine)
   const busy = flow.phase === 'running'
@@ -198,8 +214,17 @@ export function MakeSubtitles() {
                 {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
               </select>
             </Field>
-            {chosen && <p className="muted make-subtitles-key">{chosen.key_configured ? 'Key saved' : 'No key saved'}</p>}
           </div>
+          {note && (
+            <p className="muted make-subtitles-note" role="status">
+              {note.kind === 'cancelled'
+                ? (note.dramaId !== null ? 'Cancelled. The title was kept.' : 'Cancelled.')
+                : 'The last run stopped before the upload finished.'}{' '}
+              {note.dramaId !== null && (
+                <ButtonLink size="sm" variant="ghost" href={routeHref({ name: 'drama', id: note.dramaId, stage: null })}>Open title</ButtonLink>
+              )}
+            </p>
+          )}
           {engine && (
             <PreflightCard needs={['whisper', 'ffmpeg', 'key']} engine={engine}
               onReady={(ok, rows) => { setPreflightOk(ok); setBlockers(rows) }}
@@ -237,7 +262,7 @@ export function MakeSubtitles() {
                 <strong>Failed at {STEP_LABEL[flow.step]}.</strong>{' '}
                 {flow.dramaId !== null && (
                   <ButtonLink size="sm" href={routeHref({ name: 'drama', id: flow.dramaId, stage: STEP_STAGE[flow.step] })}>
-                    Fix in {STEP_STAGE[flow.step]}
+                    Fix in {STAGE_LABELS[STEP_STAGE[flow.step] as StageId]}
                   </ButtonLink>
                 )}
               </p>
@@ -265,7 +290,7 @@ export function MakeSubtitles() {
           </div>
           <ErrorBanner error={cancelError ?? downloadError} />
           {busy ? (
-            jobId && <div className="actions"><button type="button" className={buttonClass('secondary')} onClick={cancel}>Cancel</button></div>
+            (jobId || stepNow === 'upload') && <div className="actions"><button type="button" className={buttonClass('secondary')} onClick={cancel}>Cancel</button></div>
           ) : (
             <div className="make-subtitles-go">
               <button type="button" className={buttonClass('primary')} onClick={() => void download()}>Download SRT</button>
