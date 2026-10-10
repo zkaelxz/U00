@@ -21,8 +21,8 @@ import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
-from services import (auth_service, fixflag_transcribe, job_timing_service, language_pack_service,
-                      library_restore_sql, line_provenance_service,
+from services import (auth_service, fixflag_transcribe, job_timing_service,
+                      language_pack_service, library_restore_sql, line_provenance_service,
                       run_settings_service, settings_service)
 
 
@@ -566,30 +566,35 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     # (the cost-cap break below is a clean, expected stop, not a
     # failure, but the same `finally` covers it too).
     errors = []
+    # Lines heard before a timeout are fixed and saved; after a Cancel their
+    # text is saved but not translated (no paid calls), so they stay flagged.
+    total_flagged = len(flagged)
+    heard_entries, cancelled, hearing_error = [], False, None
+    if flagged and audio_path and os.path.exists(audio_path):
+        heard_entries, cancelled, hearing_error = fixflag_transcribe.hear_flagged(
+            job_id, flagged, audio_path, fixflag_transcribe.hearing_settings(
+                drama_id, drama, whisper_size, source_language, use_gpu))
+        if hearing_error:
+            errors.append(hearing_error)
+    heard_by_idx = {entry["idx"]: entry for entry in heard_entries}
+    if cancelled or hearing_error:
+        flagged = [ln for ln in flagged if ln.idx in heard_by_idx]
     try:
         for i, ln in enumerate(flagged):
-            # Per line, so a cancel lands within one re-transcribe/translate call;
-            # the finally below still saves the lines already fixed.
-            _raise_if_cancelled(job_id)
-            if audio_path and os.path.exists(audio_path):
-                slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
-                try:
-                    core_module.extract_audio_slice(audio_path, ln.start, ln.end, slice_path)
-                    new_zh = fixflag_transcribe.text_for_slice(
-                        slice_path, drama_id, drama, whisper_size, source_language, use_gpu)
-                    if new_zh:
-                        ln.zh = new_zh
-                except Exception as e:
-                    errors.append(translate_engines.redact_secrets(
-                        f"line {ln.idx + 1} re-transcription: {e}"))
-                finally:
-                    if os.path.exists(slice_path):
-                        os.remove(slice_path)
+            # A cancel seen while hearing is not re-read: lines heard are fixed first.
+            if not cancelled:
+                _raise_if_cancelled(job_id)
+            heard = heard_by_idx.get(ln.idx)
+            if heard is not None:
+                if heard.get("error"):
+                    errors.append(heard["error"])
+                elif heard["text"]:
+                    ln.zh = heard["text"]
             if ln.zh.strip() and translate_engines.is_english_line(ln):
                 ln.en = ln.zh
                 ln.flag, ln.flag_note = None, ""
                 fixed_count += 1
-            elif ln.zh.strip():
+            elif ln.zh.strip() and not cancelled:
                 try:
                     translated = engine.translate_batch(
                         [ln.zh], {**base_context,
@@ -621,7 +626,9 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
         if audio_path and os.path.exists(audio_path):
             core_module.release_gpu_models()  # re-transcription stage done
         db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
-    background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged),
+    if cancelled:
+        raise background_jobs.JobCancelled(job_id)
+    background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": total_flagged,
                                         "errors": errors[:20], "cap_reached": cap_reached})
 
 
