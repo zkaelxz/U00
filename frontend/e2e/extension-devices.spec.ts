@@ -14,7 +14,7 @@ test('adds a device, shows its token once with a copy button, then hides it for 
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   const s = await mockExtensionDevices(page, member)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: TITLE })
   await expect(card).toContainText('Home desktop')
   await expect(card).toContainText('Last used 2 hours ago · network 198.51.100.x')
@@ -48,7 +48,7 @@ test('adds a device, shows its token once with a copy button, then hides it for 
 test('revokes a device after a confirm step', async ({ page }) => {
   const s = await mockExtensionDevices(page, member)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: TITLE })
   await card.getByRole('button', { name: 'Revoke Home desktop' }).click()
   expect(s.sent).toHaveLength(0)
@@ -62,7 +62,7 @@ test('revokes a device after a confirm step', async ({ page }) => {
 test('without extension.send the list shows but adding explains why', async ({ page }) => {
   const s = await mockExtensionDevices(page, ME.signedIn)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: TITLE })
   await expect(card).toContainText('Home desktop')
   await expect(card).toContainText('extension.send')
@@ -75,7 +75,7 @@ test("the owner at the PC sees everyone's devices and can revoke any", async ({ 
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: TITLE })
   const all = card.getByTestId('all-extension-devices')
   await expect(all).toContainText('Home desktop (Jane)')
@@ -92,7 +92,7 @@ test("hidden from the owner's account away from the main PC", async ({ page }) =
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   await expect(page.getByRole('region', { name: 'Sharing' })).toBeVisible()
   await expect(page.getByRole('region', { name: TITLE })).toHaveCount(0)
 })

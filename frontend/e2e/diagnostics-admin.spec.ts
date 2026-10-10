@@ -265,7 +265,7 @@ test('away from the PC: no install, reset or extension controls and no extension
   await expect(page.locator('.danger-zone')).toContainText('Run this on the main PC.')
 
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('PC only')
   await expect(ext).toContainText('Run this on the main PC.')
@@ -319,7 +319,7 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
 
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext).toContainText("Couldn't confirm this is the main PC.")
   // Proving a non-event: an extension call would come from a mount effect, so give it a window.
@@ -401,7 +401,7 @@ test('extension: summary, two-step token reveal, never stored, Hide clears it', 
     return r.fulfill({ json: { enabled: true, running: true, restart_needed: false } })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('Off · still running until Baihe restarts')
   // The status is the Card's meta line, next to the switch.
@@ -449,7 +449,7 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
     return r.fulfill({ json: current })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   const picker = ext.getByRole('combobox', { name: 'Translation engine' })
   await expect(picker).toHaveValue('')

@@ -6,7 +6,7 @@ import { mockSpendHistory } from './spendHistoryMocks'
 test('spend history fits a phone with 44px targets', async ({ page }) => {
   await mockSpendHistory(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   const card = page.getByRole('region', { name: 'Spend history' })
   await expect(card.getByTestId('spend-breakdown')).toBeVisible()
   const targets = [...(await card.getByRole('button').all()), card.getByRole('link', { name: 'Download CSV' })]

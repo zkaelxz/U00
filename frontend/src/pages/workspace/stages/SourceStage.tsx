@@ -268,7 +268,7 @@ export default function SourceStage() {
           {isUploadLimitProblem(fileProblem) && (
             <>
               {' '}
-              <a href={UPLOAD_LIMIT_SETTINGS_HREF}>Change it in Settings &gt; Advanced &gt; Uploads</a>.
+              <a href={UPLOAD_LIMIT_SETTINGS_HREF}>Change it in Settings &gt; System &gt; Uploads</a>.
             </>
           )}
         </p>

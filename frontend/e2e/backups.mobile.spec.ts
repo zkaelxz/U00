@@ -28,7 +28,7 @@ async function tallEnough(scope: Locator, selector: string) {
 test('Settings card fits a phone with 44px targets', async ({ page }) => {
   await mockBackups(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Automatic backups', exact: true })
   await expect(card.getByTestId('auto-backup-snapshot')).toContainText('Database only')
   await card.scrollIntoViewIfNeeded()

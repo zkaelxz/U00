@@ -7,7 +7,7 @@ import { navLink, openMenu, openSettingsGroups } from './settingsNav'
 test('save folder card in Settings and Saved manga in Library tools fit a phone', async ({ page }) => {
   await mockSavedComics(page, newState())
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Save folder' })
   await expect(card.getByTestId('save-folder')).toBeVisible()
   // Dense .btn-sm buttons are 32px with a 44px+ touch area (index.css), the same as elsewhere.
