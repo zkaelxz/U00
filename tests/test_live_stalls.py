@@ -333,6 +333,33 @@ class TestWhisperRunner:
         with pytest.raises(ValueError):
             self._runner().run(lambda cb: (_ for _ in ()).throw(ValueError("x")), 5, "chunk 0")
 
+    def test_the_limit_counts_from_before_the_call_starts(self):
+        """A call that moves the clock before run() has read it once must still
+        time out: the limit is fixed when the call is handed over."""
+        clock, moved = FakeClock(), threading.Event()
+        reads = []
+        real_now = clock.__call__
+
+        def slow_first_read():
+            if not reads:
+                moved.wait(0.3)   # gives the worker the chance to run first
+            reads.append(1)
+            return real_now()
+        release = threading.Event()
+
+        def call(progress_cb):
+            clock.advance(1000)
+            moved.set()
+            release.wait(5)
+            return "late"
+        runner = self._runner(clock=slow_first_read)
+        try:
+            with pytest.raises(live_whisper.ChunkTimeout):
+                runner.run(call, 60, "chunk 0")
+        finally:
+            release.set()
+            assert _wait(lambda: runner.busy_with() is None)
+
     def test_the_worker_ends_at_its_next_segment_once_abandoned(self):
         reached = []
 
@@ -461,9 +488,9 @@ class TestWhisperRunner:
 
 
 class TestAbandonedWorkerBlocksAdminActions:
-    def _abandon(self, release):
+    def _abandon(self, release, gpu=True):
         runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
-                                            clock=TickingClock(), poll=0.005, grace=0.05)
+                                            clock=TickingClock(), poll=0.005, grace=0.05, gpu=gpu)
         with pytest.raises(live_whisper.ChunkTimeout):
             runner.run(lambda cb: release.wait(20), 3, "chunk 4")
 
@@ -500,6 +527,44 @@ class TestAbandonedWorkerBlocksAdminActions:
         with contextlib.closing(db.get_conn()) as conn:
             holders = [r["holder"] for r in conn.execute("SELECT holder FROM gpu_lock")]
         assert holders == ["cli:123"]
+
+    def test_startup_keeps_a_live_process_claim_and_drops_a_dead_one(self, isolated_db, monkeypatch):
+        import contextlib
+        import db
+        alive, dead = f"{live_whisper.CLAIM_PREFIX}4242", f"{live_whisper.CLAIM_PREFIX}4343"
+        for holder in (alive, dead):
+            assert db.try_acquire_gpu_lock(holder, "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
+        monkeypatch.setattr(background_jobs, "owner_process_alive", lambda pid: pid == 4242)
+        assert live_whisper.release_stale_claims() == 1
+        with contextlib.closing(db.get_conn()) as conn:
+            holders = [r["holder"] for r in conn.execute("SELECT holder FROM gpu_lock")]
+        assert holders == [alive]
+
+    def test_a_failed_thread_start_leaves_nothing_outstanding(self, isolated_db, monkeypatch):
+        def refuse(self):
+            raise RuntimeError("can't start new thread")
+        monkeypatch.setattr(threading.Thread, "start", refuse)
+        runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None)
+        with pytest.raises(RuntimeError):
+            runner.run(lambda cb: None, 3, "chunk 1")
+        assert live_whisper.outstanding_label() is None
+        assert live_whisper.wait_for_outstanding(0.05)
+
+    def test_cpu_call_does_not_show_the_gpu_wait_message(self, isolated_db):
+        release = threading.Event()
+        runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
+                                            clock=TickingClock(), poll=0.005, grace=0.05, gpu=False)
+        with pytest.raises(live_whisper.ChunkTimeout):
+            runner.run(lambda cb: release.wait(20), 3, "chunk 4")
+        try:
+            assert not live_whisper.gpu_claim_held()
+            with background_jobs._lock:
+                background_jobs._jobs["q2"] = {"status": "queued"}
+                background_jobs._note_gpu_wait_reason_locked("q2")
+                assert background_jobs._jobs["q2"]["gpu_wait_external"] != live_whisper.WAIT_MESSAGE
+                del background_jobs._jobs["q2"]
+        finally:
+            release.set()
 
     def test_queued_job_wait_text_names_the_live_call(self, isolated_db):
         release = threading.Event()
