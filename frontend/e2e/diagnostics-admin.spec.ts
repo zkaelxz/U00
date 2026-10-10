@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSettingsGroups } from './settingsNav'
 
 // Diagnostics admin sections and Settings > Browser extension (desktop).
@@ -36,7 +37,8 @@ const setup = (o: Record<string, unknown> = {}) => ({
   ...o,
 })
 
-// A held install is always answered by its mock, never left pending:
+
+// A held request is always answered by its mock, never left pending:
 // Chromium lets a pending intercepted request through to the server when
 // the page closes. afterEach releases it and waits for the answer to go out.
 let releaseInstall: () => void = () => undefined
@@ -96,19 +98,12 @@ test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', a
 test('install: two presses, PC-only header, every admin button waits, then the result', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, { stats: { total_dramas: 3, total_lines: 10, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} } })
-  const sent: Request[] = []
-  // Held until release() (or afterEach); always fulfilled, never continued.
-  const gate = new Promise<void>((res) => (releaseInstall = res))
-  const release = () => releaseInstall()
-  await page.route('**/api/diagnostics/dependencies/**', async (r) => {
-    sent.push(r.request())
-    const ok = r.request().url().includes('yt-dlp')
-    const answer = gate.then(() => r.fulfill({
-      json: { package: ok ? 'yt-dlp' : 'torch', ok, output_tail: ok ? ['Successfully installed'] : ['ERROR: no space'] },
-    }))
-    pendingFulfils.push(answer)
-    await answer
-  })
+  // The job stays "running" (progress, Cancel) until release().
+  let release: () => void = () => undefined
+  const gate = new Promise<void>((res) => (release = res))
+  const { started: sent } = await mockDependencyInstall(page, (pkg) => pkg === 'yt-dlp'
+    ? { ok: true, output_tail: ['Successfully installed'] }
+    : { ok: false, output_tail: ['ERROR: no space'] }, { hold: gate })
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
   await openSection(page, /^Danger zone/)
@@ -117,7 +112,7 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   expect(sent).toHaveLength(0) // first press only arms
   await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
   await expect(page.getByTestId('install-running')).toHaveText(
-    'Installing yt-dlp… this can take several minutes. Keep this tab open.')
+    'Installing yt-dlp… this can take several minutes. Cancel it below if needed.')
   expect(sent).toHaveLength(1)
   expect(sent[0].postDataJSON()).toEqual({ confirm: true })
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
@@ -132,8 +127,12 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   await expect(page.getByRole('button', { name: 'Reset library' })).toBeDisabled()
   await expect(page.locator('.danger-zone')).toContainText('Wait for the install to finish.')
 
+  // The job shows its progress and a Cancel button while it runs.
+  await expect(page.getByTestId('install-progress')).toContainText('30% · Downloading wheel')
+  await expect(page.getByRole('button', { name: 'Cancel installing yt-dlp' })).toBeEnabled()
+
   release()
-  await expect(page.getByTestId('install-result')).toContainText('Installed yt-dlp.')
+  await expect(page.getByTestId('install-result')).toContainText('Installed yt-dlp.', { timeout: 10_000 })
   await expect(page.getByText('Installed yt-dlp.')).toBeFocused()
   await expect(page.getByTestId('install-result').locator('details')).not.toHaveAttribute('open', '')
   await expect(page.getByTestId('install-running')).toHaveText('')
@@ -141,9 +140,34 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   // torch gets its size in the confirm step; a failed install opens Output.
   await page.getByRole('button', { name: 'Install torch' }).click()
   await page.getByRole('button', { name: 'Confirm install torch (about 2.5 GB)' }).click()
-  await expect(page.getByTestId('install-result')).toContainText('Install failed for torch.')
+  await expect(page.getByTestId('install-result')).toContainText('Install failed for torch.', { timeout: 10_000 })
   await expect(page.getByTestId('install-result').locator('details')).toHaveAttribute('open', '')
   await expect(page.getByTestId('install-result').locator('pre')).toHaveText('ERROR: no space')
+  expect(unmocked).toEqual([])
+})
+
+test('Cancel stops a running install, says so, and frees the page', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page)
+  // Never released: only Cancel ends this job.
+  const { started, cancelled } = await mockDependencyInstall(
+    page, () => ({ ok: true, output_tail: [] }), { hold: new Promise<void>(() => undefined) })
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Packages/)
+  await page.getByRole('button', { name: 'Install yt-dlp' }).click()
+  await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
+  const cancel = page.getByRole('button', { name: 'Cancel installing yt-dlp' })
+  await expect(cancel).toBeEnabled()
+  expect(started).toHaveLength(1)
+  expect(cancelled).toHaveLength(0)
+
+  await cancel.click()
+  await expect(page.getByTestId('install-result')).toContainText('Cancelled installing yt-dlp.', { timeout: 10_000 })
+  await expect(page.getByTestId('install-result')).toContainText('run the install again')
+  expect(cancelled).toHaveLength(1)
+  await expect(page.getByTestId('install-progress')).toHaveCount(0)
+  await expect(page.getByTestId('install-running')).toHaveText('')
+  await expect(page.getByRole('button', { name: 'Install torch' })).toBeEnabled()
   expect(unmocked).toEqual([])
 })
 

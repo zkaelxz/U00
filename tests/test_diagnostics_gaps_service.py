@@ -587,7 +587,7 @@ def test_stream_tree_returns_when_pip_exits_but_a_child_holds_the_pipe(tmp_path)
         items = list(svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
                                       timeout=60.0, drain_seconds=1.0))
         assert _t.monotonic() - t0 < 15
-        assert items[-1] == {"returncode": 0, "timed_out": False}
+        assert items[-1] == {"returncode": 0, "timed_out": False, "cancelled": False}
     finally:
         _kill_pid_from(marker)
 

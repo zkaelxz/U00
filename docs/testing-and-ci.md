@@ -7,7 +7,7 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
 2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
-3. **At the integration boundary** (before handing work back or merging): run the full suite, `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, on the integrated result; for the frontend also `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
+3. **Before pushing:** the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`; for the frontend also `npx tsc --noEmit` and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the full suite (`python run_tests.py -q -n auto`, about 17 minutes) and the full frontend and e2e jobs on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
    `npm run e2e` runs two Playwright projects: `desktop` (every spec except `e2e/mobile.spec.ts`) and `phone` (390x844, touch, only `e2e/mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
 5. A failure is not "environmental" or "flaky" until the mechanism is confirmed (a real background thread left running by an earlier test was the cause of the "database is locked" errors fixed in PR #259).
@@ -15,8 +15,15 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 
 ## Current merge gate
 
-CI is the merge gate while the repo is public. If the repo becomes private or Actions minutes run out, the gate is the full local suite
+CI is the merge gate while the repo is public. Only if the repo becomes private or Actions minutes run out does the gate become the full local suite
 (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands (tier 3 above). Never skip or weaken a test.
+
+## CI layout
+
+`.github/workflows/tests.yml` runs four jobs on every PR: `guards` (the quick guard files, about a minute, so a broken rule is
+red first), `test` (the full mocked suite with xdist; tests that failed on the branch's previous run go first through `--ff`
+and a restored `.pytest_cache`, so a repeat failure shows in the first minute), `frontend` (build, vitest, lint) and
+`e2e` (Playwright in four shards). `windows-bootstrap.yml` and `windows-installer.yml` cover the installer.
 
 ## Focused checks per area
 
@@ -118,7 +125,7 @@ no version a floor allows. Its output lists each package to bump. By hand:
 1. Edit the `==` pin (or loosen the cap) in `constraints.txt` to a version the requirements allow.
 2. Regenerate the installer lock (`python installer/build_installer.py --update-lock`, see
    `docs/windows-installer-design.md`) so `tests/test_constraints_lock_parity.py` still passes.
-3. Run `python scripts/check_constraints.py` and the full suite.
+3. Run `python scripts/check_constraints.py` and `tests/test_constraints_lock_parity.py`; CI runs the full suite on the PR.
 
 The weekly `dependency-canary.yml` workflow installs the newest versions the requirements and the caps in
 `constraints.txt` allow (exact pins dropped) into a clean venv, runs the mocked suite and
