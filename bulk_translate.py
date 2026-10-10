@@ -19,6 +19,7 @@ whose English hasn't changed since -- a merged/deleted line's result is
 dropped, a line whose source changed is flagged for review instead, and
 an edit made meanwhile is kept.
 """
+import dataclasses
 import datetime
 import hashlib
 import json
@@ -31,6 +32,7 @@ import background_jobs
 from bulk_providers import BulkAuthError, make_provider
 import db
 import emotion
+import source_change
 import translate_engines
 import translation_guide as tguide
 
@@ -110,7 +112,8 @@ def _copy_english_lines(drama_id: int, targets: list) -> list:
     if english:
         for ln in english:
             ln.en = ln.zh
-        db.save_lines(drama_id, english, fields=("en",))
+            source_change.clear_for_new_english(ln)
+        db.save_lines(drama_id, english, fields=("en", "flag", "flag_note"))
     return [ln for ln in targets if not translate_engines.is_english_line(ln)]
 
 
@@ -538,6 +541,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
             if enforced:
                 translation = tguide.apply_hard_term_substitutions(translation, enforced)
             ln.en = translation
+            source_change.clear_for_new_english(ln)
             counts["applied"] += 1
 
     if counts["applied"]:
@@ -854,6 +858,7 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
             if enforced:
                 translation = tguide.apply_hard_term_substitutions(translation, enforced)
             ln.en = translation
+            source_change.clear_for_new_english(ln)
             counts["applied"] += 1
             critique = critique_by_id.get(lid)
             if critique:
@@ -1213,6 +1218,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
             cache_read_tokens=cache_read),
         thinking=args.get("thinking"),
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
+    save_cleared_source_flags(did, lines)
     summary = {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
                "batch_errors": len(errors), "cap_reached": cap.get("spent")}
     # Same gate as apply_bulk_results above: a run with batch failures or
@@ -1387,6 +1393,27 @@ def _summary_engine_is_paid(summary_engine, summary_engine_choice) -> bool:
             and not getattr(summary_engine, "free_tier", False))
 
 
+def save_cleared_source_flags(drama_id: int, lines) -> None:
+    """Saves the `source_changed` flags a translate run's new English
+    cleared on its own copies (source_change.clear_for_new_english). Each is
+    a compare-and-set on the flag, the source the run translated and the
+    English it wrote, so a line whose source changed again or whose English
+    the user edited meanwhile isn't touched; that copy gets the flag back, so
+    the run's later flag save can't clear it either."""
+    cleared = [ln for ln in lines if getattr(ln, "id", None) is not None and ln.flag is None
+               and (ln.orig or {}).get("flag") == source_change.SOURCE_CHANGED_FLAG]
+    if not cleared:
+        return
+    copies = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in cleared]
+    kept = set(db.save_lines(drama_id, copies, fields=("flag", "flag_note"),
+                             only_if_unchanged=True, guard_fields=("zh", "en")) or ())
+    for ln in cleared:
+        if ln.id in kept:
+            ln.flag, ln.flag_note = ln.orig["flag"], ln.orig.get("flag_note") or ""
+        else:
+            ln.orig.update(flag=None, flag_note="")
+
+
 def own_lines_callbacks(drama_id: int, lines, on_saved):
     """(save_cb, notes_cb) for translate_lines_with_engine in a run that may
     write only its own lines' English, shared by the Workspace job and
@@ -1461,6 +1488,9 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     are still what it was computed from (the flag can be a reading-speed
     or a content-blocked one); the ids of lines that changed during the
     run are added to flags_needing_recheck (a set, if given)."""
+    # First: the exact-term substitution below changes `en` in the database,
+    # which the compare-and-set on this run's English would then refuse.
+    save_cleared_source_flags(drama_id, lines)
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
     landed = own_fresh = None
     if enforce_ids is not None:

@@ -68,9 +68,9 @@ def _spy_save_lines(monkeypatch):
     calls = []
     real = db.save_lines
 
-    def spy(d, ls, fields=None):
+    def spy(d, ls, fields=None, **kw):
         calls.append(fields)
-        return real(d, ls, fields=fields)
+        return real(d, ls, fields=fields, **kw)
     monkeypatch.setattr(db, "save_lines", spy)
     return calls
 

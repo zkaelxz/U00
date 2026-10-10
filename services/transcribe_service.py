@@ -53,6 +53,7 @@ import db
 import diagnostics
 import raw_transcript
 import sensitivity_preset as presets
+import source_change
 import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES
@@ -1001,7 +1002,8 @@ def get_retranscribe_result(drama_id: int, line_id: int) -> dict:
 def apply_retranscribe_line(drama_id: int, line_id: int, job_id, expected_zh,
                             expected_proposed) -> dict:
     """Writes a finished re-transcription's
-    proposed_zh to that line's `zh` and nothing else. expected_zh and
+    proposed_zh to that line's `zh`, keeping its English (a translated line
+    whose text changes is flagged `source_changed`). expected_zh and
     expected_proposed must equal the raw base_zh and proposed_zh held for this
     run (what get_retranscribe_result showed), so what was shown is exactly
     what is written and an apply is tied to the run the user saw. The write
@@ -1034,6 +1036,8 @@ def apply_retranscribe_line(drama_id: int, line_id: int, job_id, expected_zh,
         raise ConflictError("This line changed since it was re-transcribed; your edit was kept.")
     db.save_line_history_snapshot(drama_id, db.load_line_objects(drama_id),
                                   f"before re-transcribing line {line.idx + 1}")
-    if not db.update_line_fields_if(drama_id, line_id, {"zh": proposed}, unchanged):
+    values = {"zh": proposed, **source_change.flag_values(base, proposed, line.en)}
+    # The flag was decided from this English, so it must still be there.
+    if not db.update_line_fields_if(drama_id, line_id, values, {**unchanged, "en": line.en or ""}):
         raise ConflictError("This line changed since it was re-transcribed; your edit was kept.")
     return {"drama_id": drama_id, "line_id": line_id, "zh": proposed}

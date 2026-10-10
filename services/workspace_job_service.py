@@ -590,7 +590,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 if heard.get("error"):
                     errors.append(heard["error"])
                 elif heard["text"]:
-                    ln.zh = heard["text"]
+                    fixflag_transcribe.use_heard_text(ln, heard["text"])
             if ln.zh.strip() and translate_engines.is_english_line(ln):
                 ln.en = ln.zh
                 ln.flag, ln.flag_note = None, ""
@@ -626,11 +626,11 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     finally:
         if audio_path and os.path.exists(audio_path):
             whisper_models.release_gpu_models()  # re-transcription stage done
-        db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
+        kept = fixflag_transcribe.save_fixed(drama_id, lines)
     if cancelled:
         raise background_jobs.JobCancelled(job_id)
     background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": total_flagged,
-                                        "errors": errors[:20], "cap_reached": cap_reached})
+                                        "errors": errors[:20], "cap_reached": cap_reached, **kept})
 
 
 # Restore-a-backup guardrails -- generous, not tight, since a
