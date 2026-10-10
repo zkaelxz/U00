@@ -324,13 +324,38 @@ def safe_url(url) -> str:
 # A path segment that looks like a credential (a long random run, or a
 # Telegram-style bot<id>:<key>), e.g. a path-signed CDN or bot file link.
 _TOKEN_SEGMENT = re.compile(r"^(?:bot\d+:.+|[A-Za-z0-9_\-.~:=]{32,})$")
+_SEGMENT_PART = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _looks_random(segment: str) -> bool:
+    """True when a part of the segment is a long run mixing digits and
+    letters (or both cases). A hyphenated slug splits into short words and
+    plain numbers, so it never qualifies, however long it is."""
+    for part in _SEGMENT_PART.split(segment):
+        if len(part) < 16:
+            continue
+        has_digit = any(c.isdigit() for c in part)
+        has_lower = any(c.islower() for c in part)
+        has_upper = any(c.isupper() for c in part)
+        if (has_digit and (has_lower or has_upper)) or (has_lower and has_upper):
+            return True
+    return False
+
+
+def _segment_holds_secret(segment: str) -> bool:
+    if segment.startswith("bot") and _TOKEN_SEGMENT.match(segment):
+        return True
+    # Length alone or a key-like prefix (sk-ii-skincare-review) also matches
+    # ordinary slugs, so either signal must come with a random-looking part.
+    flagged = bool(_TOKEN_SEGMENT.match(segment)) or redact_secrets(segment) != segment
+    return flagged and _looks_random(segment)
 
 
 def display_url(url) -> str:
     """A stored link as the API may show it: http(s) only, scheme + host +
     path, no query, fragment, userinfo or ;params. A pasted link can carry
-    a signed token; a path that looks like it holds one is dropped, leaving
-    only the host. Anything else (unparsable, scheme-less, file://) gives ""."""
+    a signed token; a path segment that looks like one is dropped and the
+    rest of the path kept. Anything else (unparsable, scheme-less, file://) gives ""."""
     from urllib.parse import urlsplit
     try:
         parts = urlsplit(str(url or "").strip())
@@ -343,9 +368,8 @@ def display_url(url) -> str:
     if ":" in host:
         host = f"[{host}]"          # IPv6 keeps its brackets
     path = parts.path.split(";", 1)[0]
-    if (redact_secrets(path) != path
-            or any(_TOKEN_SEGMENT.match(seg) for seg in path.split("/") if seg)):
-        path = "/"
+    kept = [seg for seg in path.split("/") if not _segment_holds_secret(seg)]
+    path = "/".join(kept) or "/"
     return f"{parts.scheme.lower()}://{host}{port}{path}"
 
 

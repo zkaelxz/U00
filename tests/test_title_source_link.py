@@ -71,7 +71,7 @@ def _source_url(did):
 
 @pytest.mark.parametrize("given,stored", [
     ("https://user:pw@novel.example/book/7?token=abc#frag", "https://novel.example/book/7"),
-    ("https://novel.example/dl/" + "a" * 40, "https://novel.example/"),
+    ("https://novel.example/dl/" + "aB3dE5fG7h" * 4, "https://novel.example/dl"),
     ("ftp://novel.example/book", ""),
     ("javascript:alert(1)", ""),
     ("not a url", ""),
@@ -163,9 +163,27 @@ def test_review_import_sets_the_link_and_chapter_link(client, env):
     ("https://site.example/", ""),
     ("ftp://site.example/a", ""),
     ("https://site.example/%00ch%1b%7f-1", "ch 1"),
+    ("https://site.example/b/reincarnation-of-the-strongest-sword-god/",
+     "reincarnation of the strongest sword god"),
+    ("https://site.example/sk-ii-skincare-review", "sk ii skincare review"),
+    ("https://site.example/dl/aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3x/chapter-2", "chapter 2"),
 ])
 def test_title_from_url(url, label):
     assert adaptive.title_from_url(url) == label
+
+
+@pytest.mark.parametrize("url,shown", [
+    ("https://site.example/b/reincarnation-of-the-strongest-sword-god/",
+     "https://site.example/b/reincarnation-of-the-strongest-sword-god/"),
+    ("https://site.example/sk-ii-skincare-review", "https://site.example/sk-ii-skincare-review"),
+    ("https://site.example/dl/aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3x/chapter-2",
+     "https://site.example/dl/chapter-2"),
+    ("https://site.example/sk-ant-api03-AbC123dEf456GhI789jKl/ch-1", "https://site.example/ch-1"),
+    ("https://site.example/file/bot123456:AAEhBP0av28/a.jpg", "https://site.example/file/a.jpg"),
+])
+def test_display_url_drops_only_the_token_segment(url, shown):
+    from translate_engines import display_url
+    assert display_url(url) == shown
 
 
 # ----- per-chapter links ----------------------------------------------------
