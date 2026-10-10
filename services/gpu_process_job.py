@@ -24,9 +24,9 @@ import storage
 from translate_engines import redact_secrets
 
 TIMEOUT_MESSAGE = "This job took too long and was stopped."
-# The child's own watchdog normally reports the deadline first; the parent
-# waits this much longer so a child that hangs before the watchdog starts
-# (a stuck import) still frees the GPU slot without a Cancel.
+STOPPING_MESSAGE = "Waiting for the worker to stop"
+# The child's watchdog is the deadline; the parent's, this much later, is
+# only a backstop for a child stuck before its watchdog starts (a hung import).
 PARENT_GRACE_S = 30
 
 
@@ -88,7 +88,13 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
 
     A body that puts ("item", x) for each unit of work it finishes has
     on_item(x) called in the parent as they arrive, so a caller keeps what was
-    done when the run ends early by cancel or timeout."""
+    done when the run ends early by cancel or timeout.
+
+    timeout_s is enforced by the child's own watchdog, which reports it. The
+    parent gives up only PARENT_GRACE_S later, as a backstop for a child stuck
+    before its watchdog starts, so the GPU slot can stay held up to that much
+    past timeout_s; once timeout_s passes the job's progress text says it is
+    waiting for the worker to stop."""
     context = multiprocessing.get_context("spawn")
     channel = job_process_result.wrap_queue(context.Queue(), job_id)
     scratch_dir = storage.new_workdir(job_id)
@@ -100,8 +106,9 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
         # Spawn, not Linux's default fork: a forked child of a process that
         # has already initialised CUDA cannot use the GPU.
         proc.start()
-        result = _await_child(job_id, proc, channel, poll_s,
-                              time.monotonic() + timeout_s + PARENT_GRACE_S, on_item)
+        worker_deadline = time.monotonic() + timeout_s
+        result = _await_child(job_id, proc, channel, poll_s, worker_deadline,
+                              worker_deadline + PARENT_GRACE_S, on_item)
         clean = True
         return result
     finally:
@@ -113,13 +120,20 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
         shutil.rmtree(scratch_dir, ignore_errors=True)
 
 
-def _await_child(job_id, proc, channel, poll_s, deadline, on_item):
+def _await_child(job_id, proc, channel, poll_s, worker_deadline, deadline, on_item):
     gone = False
+    told_stopping = False
     while True:
         if background_jobs.is_cancel_requested(job_id):
             raise background_jobs.JobCancelled(job_id)
-        if time.monotonic() > deadline:
+        now = time.monotonic()
+        if now > deadline:
             raise ChildFailed(TIMEOUT_MESSAGE)
+        if now > worker_deadline and not told_stopping:
+            told_stopping = True
+            status = background_jobs.get_status(job_id) or {}
+            background_jobs.update_progress(job_id, status.get("progress") or 0.0,
+                                            STOPPING_MESSAGE)
         try:
             item = channel.get(timeout=poll_s)
         except queue.Empty:
