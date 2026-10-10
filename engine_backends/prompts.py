@@ -419,15 +419,19 @@ def build_stable_system_text(context: dict) -> str:
 
 
 def build_claude_system_blocks(context: dict) -> list:
-    """The stable prefix as Claude system blocks, with cache_control on
-    the last one so the whole stable part is cached, not just the
-    reference novel. A prefix under the model's minimum cacheable length
-    simply isn't cached -- no error."""
+    """The prompt prefix as Claude system blocks, with cache_control on
+    the last block that is the same for every batch. A prefix under the
+    model's minimum cacheable length simply isn't cached -- no error."""
     instructions, novel_block = build_stable_prompt(context)
     blocks = [{"type": "text", "text": instructions}]
     if novel_block:
         blocks.append({"type": "text", "text": novel_block})
-    blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    # A reference longer than the budget is cut to this batch's passages, so
+    # its block changes every batch: a breakpoint after it would pay the cache
+    # write each time and never read it back.
+    whole_novel = (context.get("novel_reference_excerpt_used")
+                   == (context.get("novel_reference") or "").strip())
+    blocks[-1 if whole_novel else 0]["cache_control"] = {"type": "ephemeral"}
     return blocks
 
 
