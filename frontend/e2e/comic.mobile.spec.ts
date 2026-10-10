@@ -215,3 +215,13 @@ test('phone: moving to another title drops the previous title\'s original-page l
   await page.evaluate(() => { window.location.hash = '#/comic/8' })
   await expect(link).toHaveCount(0)
 })
+
+test('phone: a long vertical chapter keeps only the pages around the reader loaded', async ({ page }) => {
+  const s = await mockComic(page, { mediaType: 'manhwa', pageCount: 150, lastPage: 75 })
+  await page.goto('/#/comic/7')
+  await expect(label(page)).toHaveText('75 / 150')
+  await expect(page.getByTestId('comic-page')).toHaveCount(150)
+  await expect(page.locator('[data-testid=comic-page] img')).toHaveCount(11)
+  await expect(page.getByTestId('comic-page').nth(0).locator('img')).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
