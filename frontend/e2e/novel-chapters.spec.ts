@@ -30,6 +30,10 @@ test('shows the empty state', async ({ page }) => {
   await expect(page.getByTestId('chapters-headline')).toHaveText(
     'No chapters saved yet. Import from Sources or paste text.',
   )
+  // The one action that fills the panel, one tap away.
+  const panel = page.getByRole('region', { name: 'Saved chapters' })
+  await expect(panel.getByRole('link', { name: 'Import from Sources' })).toHaveAttribute('href', '#/sources')
+  await expect(panel.getByRole('button', { name: 'Refresh' })).toHaveClass(/btn-ghost/)
 })
 
 test('shows text with no chapter markers as one Unsplit text block', async ({ page }) => {
@@ -98,4 +102,17 @@ test('the chapter selector steps through chapters and each chapter links to its 
   expect(slices.map((s) => s.number)).toEqual([1, 2, 3, 2])
   // Only the row with a real http(s) address gets a link.
   await expect(panel.getByRole('list', { name: 'Saved chapters' }).getByRole('link', { name: 'Open chapter page' })).toHaveCount(1)
+})
+
+test('each chapter source link sits beside its row and names its chapter', async ({ page }) => {
+  const rows = [row(1, { url: 'https://novel.example/b/1.html' }), row(2, { url: 'https://novel.example/b/2.html' })]
+  await mockChapters(page, listBody(rows))
+  await page.goto('/#/drama/2/source')
+  const list = page.getByRole('region', { name: 'Saved chapters' }).getByRole('list', { name: 'Saved chapters' })
+  const link = list.getByRole('link', { name: 'Open chapter page: 2. 第2章 标题' })
+  await expect(link).toHaveAttribute('href', 'https://novel.example/b/2.html')
+  const rowBox = (await list.getByRole('button', { name: /第2章 标题/ }).boundingBox())!
+  const linkBox = (await link.boundingBox())!
+  expect(linkBox.x).toBeGreaterThanOrEqual(rowBox.x + rowBox.width)
+  expect(linkBox.y).toBeLessThan(rowBox.y + rowBox.height)
 })

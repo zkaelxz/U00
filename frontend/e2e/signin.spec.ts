@@ -96,12 +96,82 @@ test('signed in: header menu shows the email; Sign out posts with CSRF and retur
   expect(s.unmocked).toEqual([])
 })
 
-test('a 401 from any call swaps in the Login page', async ({ page }) => {
+test('a 401 mid-visit shows a sign-in overlay above the still-mounted app', async ({ page }) => {
   const s = await mockAuth(page, ME.signedIn)
   s.unauthorizedPaths.add('/api/library/dramas')
   await page.goto('/#/library')
+  const overlay = page.getByRole('dialog', { name: "You've been signed out" })
+  await expect(overlay).toBeVisible()
+  const link = overlay.getByRole('link', { name: 'Sign in with Google (new tab)' })
+  await expect(link).toHaveAttribute('target', '_blank')
+  await expect(link).toHaveAttribute('href', '/api/auth/login?return_to=%2F%23%2Flibrary')
+  await expect(page.locator('.app-shell')).toHaveCount(1)
+  // Escape doesn't dismiss it.
+  await page.keyboard.press('Escape')
+  await expect(overlay).toBeVisible()
+  expect(s.unmocked).toEqual([])
+})
+
+test('a 401 with a draft open keeps the draft; signing in from another tab brings it back', async ({ page }) => {
+  const s = await mockAuth(page, ME.signedIn)
+  await page.goto('/#/library')
+  await page.getByRole('button', { name: 'New title', exact: true }).click()
+  const title = page.getByRole('dialog', { name: 'New title' }).getByLabel('English title')
+  await title.fill('Unsaved draft title')
+  // The session ends on the server; the next jobs read (on focus) gets the 401.
+  s.unauthorizedPaths.add('/api/jobs')
+  s.me = ME.signedOut
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  const overlay = page.getByRole('dialog', { name: "You've been signed out" })
+  await expect(overlay).toBeVisible()
+  await maybeScreenshot(page, 'desktop-signin-overlay')
+  await expect(title).toHaveValue('Unsaved draft title')
+  // Still signed out: the overlay stays, the Login page doesn't replace it.
+  await overlay.getByRole('button', { name: "I've signed in" }).click()
+  await expect(overlay).toBeVisible()
+  // Signed in in the other tab.
+  s.unauthorizedPaths.delete('/api/jobs')
+  s.me = ME.signedIn
+  await overlay.getByRole('button', { name: "I've signed in" }).click()
+  await expect(overlay).toHaveCount(0)
+  await expect(title).toHaveValue('Unsaved draft title')
+  await title.fill('Unsaved draft title, still editable')
+  expect(s.loginUrls).toEqual([])
+  expect(s.unmocked).toEqual([])
+})
+
+test('/me failing (502) then answering: the app at once, then the signed-in user', async ({ page }) => {
+  const s = await mockAuth(page, ME.signedIn)
+  let meCalls = 0
+  await page.route((u) => u.pathname === '/api/auth/me', async (route) => {
+    meCalls += 1
+    if (meCalls === 1) return route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' })
+    return route.fallback()
+  })
+  await page.goto('/#/library')
+  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
+  // The retry lands about a second later and the account appears.
+  await expect(page.locator('details.user-menu summary')).toContainText(USER.email!, { timeout: 10_000 })
+  expect(meCalls).toBe(2)
+  expect(s.unmocked).toEqual([])
+})
+
+test('/me unavailable: no Admin, and Sign out is still offered', async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-token-123', url: baseURL! }])
+  const s = await mockAuth(page, ME.signedIn)
+  await page.route((u) => u.pathname === '/api/auth/me', (route) =>
+    route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' }),
+  )
+  await page.goto('/#/library')
+  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Admin' })).toHaveCount(0)
+  const menu = page.locator('details.user-menu')
+  await expect(menu.locator('summary')).toContainText('Account')
+  await menu.locator('summary').click()
+  await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(page.getByRole('link', { name: 'Sign in with Google' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
+  expect(s.logoutHeaders).toHaveLength(1)
   expect(s.unmocked).toEqual([])
 })
 

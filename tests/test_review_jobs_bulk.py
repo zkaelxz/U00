@@ -12,6 +12,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+import bulk_providers
 import bulk_translate
 import db
 import translate_engines
@@ -66,7 +67,7 @@ def _env(isolated_db, monkeypatch):
 
 def _provider(monkeypatch, reply):
     prov = FakeProvider(reply)
-    monkeypatch.setattr(bulk_translate, "make_provider", lambda choice, engine: prov)
+    monkeypatch.setattr(bulk_providers, "make_provider", lambda choice, engine: prov)
     return prov
 
 

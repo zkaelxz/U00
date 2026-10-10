@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { getLanguagePack, getTitleLanguagePacks, setLanguagePackDefault, setTitleLanguagePacks } from '../../../api/languagePacks'
 import { saveGlossaryTerm } from '../../../api/translateStage'
@@ -94,10 +94,42 @@ export function LanguagePacks({ glossarySources, hasSeries, onAdded }: {
     }
   }, [dramaId])
 
+  // Saves run one at a time and each is built from the packs as already toggled, not from the
+  // last rendered `data`: a fast A-then-B toggle would otherwise send B without A and turn A back off.
+  const latest = useRef<TitleLanguagePacks | null>(null)
+  const queue = useRef<Promise<unknown>>(Promise.resolve())
+  const pendingSaves = useRef(0)
+  useEffect(() => {
+    latest.current = data
+  }, [data])
+
   const change = (id: string, patch: { enabled?: boolean; style?: string }) => {
-    if (!data) return
+    const base = latest.current
+    if (!base) return
     setSaved(null)
-    setTitleLanguagePacks(dramaId, { packs: choiceAfter(data.packs, { id, ...patch }) }).then(setData, setError)
+    const next: TitleLanguagePacks = {
+      ...base,
+      packs: base.packs.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+    }
+    latest.current = next
+    setData(next)
+    pendingSaves.current += 1
+    queue.current = queue.current.then(() =>
+      setTitleLanguagePacks(dramaId, { packs: choiceAfter(next.packs, { id: '' }) }).then(
+        (saved) => {
+          pendingSaves.current -= 1
+          // Only the last answer reflects every toggle; an earlier one would flip a newer switch back.
+          if (pendingSaves.current === 0) setData(saved)
+        },
+        (e: unknown) => {
+          pendingSaves.current -= 1
+          setError(e)
+          if (pendingSaves.current === 0) {
+            getTitleLanguagePacks(dramaId).then(setData, () => undefined)
+          }
+        },
+      ),
+    )
   }
   const makeDefault = () => {
     if (!data) return

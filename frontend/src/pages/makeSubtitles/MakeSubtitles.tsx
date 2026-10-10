@@ -28,7 +28,7 @@ import { STAGE_LABELS, type StageId } from '../workspace/stages'
 import { buildRunBody, initialForm } from '../workspace/translateForm'
 import { exportFilename } from '../workspace/exportForm'
 import {
-  IDLE, STEPS, STEP_LABEL, STEP_STAGE, blockerText, flowReducer, mediaTypeFor, parseSaved, percentText,
+  IDLE, STEPS, STEP_LABEL, STEP_STAGE, blockerText, flowReducer, mediaTypeFor, optionsSummary, parseSaved, percentText,
   reattachIds, savedFor, stepForJob, titleFor, type FlowStep,
 } from './makeSubtitlesFlow'
 import './makeSubtitles.css'
@@ -199,6 +199,30 @@ export function MakeSubtitles() {
     <Card title="Make subtitles" meta="File to English SRT in one go." className="make-subtitles" aria-label="Make subtitles">
       {flow.phase === 'idle' || flow.phase === 'error' ? (
         <form className="stack" onSubmit={(e) => { e.preventDefault(); if (!blocker) void start() }}>
+          {/* What went wrong comes before the form it asks the viewer to fix. */}
+          {flow.phase === 'error' && (
+            <div className="stack">
+              <ErrorBanner error={flow.error} />
+              <p className="make-subtitles-failed">
+                <strong>Failed at {STEP_LABEL[flow.step]}.</strong>{' '}
+                {flow.dramaId !== null && (
+                  <ButtonLink size="sm" href={routeHref({ name: 'drama', id: flow.dramaId, stage: STEP_STAGE[flow.step] })}>
+                    Fix in {STAGE_LABELS[STEP_STAGE[flow.step] as StageId]}
+                  </ButtonLink>
+                )}
+              </p>
+            </div>
+          )}
+          {note && (
+            <p className="muted make-subtitles-note" role="status">
+              {note.kind === 'cancelled'
+                ? (note.dramaId !== null ? 'Cancelled. The title was kept.' : 'Cancelled.')
+                : 'The last run stopped before the upload finished.'}{' '}
+              {note.dramaId !== null && (
+                <ButtonLink size="sm" variant="ghost" href={routeHref({ name: 'drama', id: note.dramaId, stage: null })}>Open title</ButtonLink>
+              )}
+            </p>
+          )}
           <div className="make-subtitles-fields">
             <Field label="Audio or video file">
               <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
@@ -215,23 +239,13 @@ export function MakeSubtitles() {
               </select>
             </Field>
           </div>
-          {note && (
-            <p className="muted make-subtitles-note" role="status">
-              {note.kind === 'cancelled'
-                ? (note.dramaId !== null ? 'Cancelled. The title was kept.' : 'Cancelled.')
-                : 'The last run stopped before the upload finished.'}{' '}
-              {note.dramaId !== null && (
-                <ButtonLink size="sm" variant="ghost" href={routeHref({ name: 'drama', id: note.dramaId, stage: null })}>Open title</ButtonLink>
-              )}
-            </p>
-          )}
           {engine && (
             <PreflightCard needs={['whisper', 'ffmpeg', 'key']} engine={engine}
               onReady={(ok, rows) => { setPreflightOk(ok); setBlockers(rows) }}
               onUseEngine={(name) => setPickedEngine(name)} />
           )}
           {preflightOk && <p className="muted">Ready</p>}
-          <Section title="Options" summary={`title ${file ? titleFor(file.name, title) : 'from the file name'}, ${variant || 'default'} English`}>
+          <Section title="Options" summary={optionsSummary(file ? titleFor(file.name, title) : null, variant)}>
             <div className="make-subtitles-fields">
               <Field label="Title">
                 <input value={title} placeholder={file ? titleFor(file.name, '') : ''} onChange={(e) => setTitle(e.target.value)} />
@@ -255,19 +269,6 @@ export function MakeSubtitles() {
               </p>
             )}
           </div>
-          {flow.phase === 'error' && (
-            <div className="stack">
-              <ErrorBanner error={flow.error} />
-              <p className="make-subtitles-failed">
-                <strong>Failed at {STEP_LABEL[flow.step]}.</strong>{' '}
-                {flow.dramaId !== null && (
-                  <ButtonLink size="sm" href={routeHref({ name: 'drama', id: flow.dramaId, stage: STEP_STAGE[flow.step] })}>
-                    Fix in {STAGE_LABELS[STEP_STAGE[flow.step] as StageId]}
-                  </ButtonLink>
-                )}
-              </p>
-            </div>
-          )}
         </form>
       ) : (
         <div className="stack">

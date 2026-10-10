@@ -1875,9 +1875,9 @@ class TestSplitPiecesGetOwnSpeaker:
         from services import diarization_service
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
         isolated_db.save_lines(did, [
-            transcribe_service.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X"),
-            transcribe_service.Line(idx=1, start=5.0, end=10.0, zh="b", speaker="X"),
-            transcribe_service.Line(idx=2, start=10.0, end=15.0, zh="c", speaker="X",
+            core_module.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X"),
+            core_module.Line(idx=1, start=5.0, end=10.0, zh="b", speaker="X"),
+            core_module.Line(idx=2, start=10.0, end=15.0, zh="c", speaker="X",
                                     speaker_manual=True)])
         with pytest.raises(Exception):
             diarization_service.reassign_speakers_from_saved_turns(did)
@@ -1893,7 +1893,7 @@ class TestSplitPiecesGetOwnSpeaker:
         from services.service_errors import ConflictError
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
         isolated_db.save_lines(did, [
-            transcribe_service.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X")])
+            core_module.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X")])
         diarize.save_turns(ddir, [{"start": 0.0, "end": 6.0, "speaker": "S1"}])
         monkeypatch.setattr(transcribe_service.background_jobs, "any_job_running_for_drama",
                             lambda drama_id: True)
