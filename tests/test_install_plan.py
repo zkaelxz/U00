@@ -219,6 +219,12 @@ def test_a_dll_folder_marks_its_package_as_in_use_when_that_package_is_imported(
     assert check(files, {"onnxruntime": module("x")}) is True
 
 
+def test_a_compiled_dist_counts_when_only_its_top_level_is_imported_even_if_no_listed_file_is_loaded():
+    # Conservative on purpose: a loaded helper DLL never shows up in sys.modules.
+    files = ["scipy/__init__.py", "scipy/linalg/_flapack.pyd"]
+    assert check(files, {"scipy": module("c:\\elsewhere\\scipy\\__init__.py")}) is True
+
+
 def test_compiled_dist_that_was_never_imported_is_free_to_replace():
     assert check(["cv2/cv2.pyd", "cv2/__init__.py"], {"os": module("c:\\py\\os.py")}) is False
 

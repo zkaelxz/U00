@@ -42,6 +42,9 @@ OVERALL_SECONDS = 60 * 60       # the server starts anyway after this
 CHILD_SECONDS = 120
 WATCHDOG_MARGIN = 90
 TAIL_LINES = 40
+# Redaction runs on the capture, and a secret can span lines, so it needs more
+# context than the tail it finally stores.
+CAPTURE_LINES = TAIL_LINES * 5
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 _VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.!_-]{0,63}$")      # no "+": local builds aren't on PyPI
 _FILES = {"pending": "pending.json", "result": "result.json", "lock": "apply.lock"}
@@ -174,7 +177,7 @@ def run_capture(argv: list, timeout: float, echo: bool = False):
     for event in stream_tree(argv, timeout=max(1.0, timeout), cancel=lambda: _CURRENT["stop"]):
         if "line" in event:
             lines.append(event["line"])
-            del lines[:-200]
+            del lines[:-CAPTURE_LINES]
             if echo:
                 print(event["line"], flush=True)
         else:
