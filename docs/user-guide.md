@@ -225,7 +225,7 @@ Limits: the CV detector misses borderless or irregular bubbles; inpainting is Op
 
 ### Browser extension
 
-A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Integrations > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Details: [`browser-extension.md`](browser-extension.md).
+A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Integrations > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Pages of one title are translated one at a time, each with the context of the page that finished just before it: that follows the order captures get their turn, not page order, so a page sent out of order (or racing another) reads the wrong neighbour's context, and one that waits over 30 seconds behind a slow engine is translated without context. Details: [`browser-extension.md`](browser-extension.md).
 
 ### Metadata romanization
 

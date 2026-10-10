@@ -400,7 +400,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 if store and drama is None:
                     notes.append(["warning", "no drama chosen, so this page was not saved"])
 
-            if reuse_saved is None:
+            if reuse_saved is None and busy is None:
                 try:
                     lang = _page_source_language(drama, source_language)
                     bubbles, detect_notes = scanlate.detect_and_ocr_page(
@@ -427,14 +427,16 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         # Only detection and OCR touch the shared model caches; an LLM call
         # under the lock would stall every other page and a Cancel. From here
         # on a failure keeps the page: a re-capture fills what is missing.
+        if busy is not None:
+            # Byte-identical, so the other capture's read stands for this one
+            # even when it found no text.
+            reuse_saved, mine = page_turns.await_other_capture(page["id"], busy)
+            if mine is None:
+                return page_capture_checks.reused_page_response(
+                    data, reuse_saved, [page_turns.STILL_TRANSLATING_NOTE],
+                    int(drama_id), page["id"])
+            claim = (page["id"], mine)
         if reuse_saved is not None:
-            if busy is not None:
-                reuse_saved, mine = page_turns.await_other_capture(page["id"], busy)
-                if mine is None:
-                    return page_capture_checks.reused_page_response(
-                        data, reuse_saved, [page_turns.STILL_TRANSLATING_NOTE],
-                        int(drama_id), page["id"])
-                claim = (page["id"], mine)
             reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, int(drama_id), page["id"])

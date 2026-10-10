@@ -153,6 +153,10 @@ def _reset_module_state():
                                        free_tier=False)
     with page_turns._context_lock:
         page_turns._contexts.clear()
+        page_turns._chain_locks.clear()
+        page_turns._chain_users.clear()
+    with page_turns._inflight_lock:
+        page_turns._inflight.clear()
     yield
 
 
@@ -1218,6 +1222,7 @@ class TestConcurrentCapturesOfOneTitle:
         state["release"].set()
         first.join(self.WAIT)
         second.join(self.WAIT)
+        assert not first.is_alive() and not second.is_alive()
         assert len(state["calls"]) == 1
         again = second_out["handler"].payload
         assert again["failed"] == [] and again["already_stored"] == 1
@@ -1236,6 +1241,7 @@ class TestConcurrentCapturesOfOneTitle:
         again = _post(token, body).payload
         state["release"].set()
         first.join(self.WAIT)
+        assert not first.is_alive()
         assert len(state["calls"]) == 1
         assert again["failed"] == [] and again["already_stored"] == 1
         assert "still being translated" in again["pages"][0]["notes"][0][1]
@@ -1250,13 +1256,17 @@ class TestConcurrentCapturesOfOneTitle:
             def __init__(self):
                 self._lock = threading.Lock()
 
-            def __enter__(self):
+            def acquire(self, timeout=-1):
                 if not self._lock.acquire(blocking=False):
                     contended.set()
-                    self._lock.acquire()
+                    return self._lock.acquire(timeout=timeout)
+                return True
 
-            def __exit__(self, *exc):
+            def release(self):
                 self._lock.release()
+
+            def locked(self):
+                return self._lock.locked()
         monkeypatch.setitem(page_turns._chain_locks, str(drama_id), SpyLock())
         first, _ = self._in_thread(token, {"images": [_distinct_page(0)],
                                            "drama_id": drama_id, "store": True})
@@ -1267,6 +1277,7 @@ class TestConcurrentCapturesOfOneTitle:
         state["release"].set()
         first.join(self.WAIT)
         second.join(self.WAIT)
+        assert not first.is_alive() and not second.is_alive()
         assert state["calls"] == ["", "context after call 1"]
         assert page_turns._contexts[str(drama_id)] == "context after call 2"
 
@@ -1289,6 +1300,7 @@ class TestConcurrentCapturesOfOneTitle:
         seen = _post(token, body).payload["pages"][0]["page_id"]
         state["release"].set()
         first.join(self.WAIT)
+        assert not first.is_alive()
         assert len(first_out["handler"].payload["failed"]) == 1
         assert [p["id"] for p in db.list_pages(drama_id)] == [seen]
 
@@ -1297,3 +1309,179 @@ class TestConcurrentCapturesOfOneTitle:
         assert retry["already_stored"] == 1
         assert [b["translated_text"] for b in db.load_bubbles(seen)] == ["the translation"]
         assert [p["id"] for p in db.list_pages(drama_id)] == [seen]
+
+    def test_a_failed_load_after_the_wait_still_frees_the_page(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import sqlite3
+
+        import db
+        drama_id = self._drama(monkeypatch)
+        state = self._blocking_translate(monkeypatch)
+        monkeypatch.setattr(page_turns, "INFLIGHT_WAIT_SECONDS", 0.5)
+        saw_busy = threading.Event()
+        armed = set()
+        real_claim = page_turns.claim_page
+        real_load = db.load_bubbles
+
+        def claim(page_id):
+            theirs, mine = real_claim(page_id)
+            if theirs is not None:
+                armed.add(threading.get_ident())
+                saw_busy.set()
+            return theirs, mine
+
+        def load(page_id):
+            # A busy claim's thread next loads only after its wait.
+            ident = threading.get_ident()
+            if ident in armed:
+                armed.discard(ident)
+                raise sqlite3.OperationalError("database is locked")
+            return real_load(page_id)
+        monkeypatch.setattr(page_turns, "claim_page", claim)
+        monkeypatch.setattr(db, "load_bubbles", load)
+        body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
+        first, _ = self._in_thread(token, body)
+        assert state["entered"].wait(self.WAIT)
+        second, second_out = self._in_thread(token, body)
+        assert saw_busy.wait(self.WAIT)
+        state["release"].set()
+        first.join(self.WAIT)
+        second.join(self.WAIT)
+        assert not first.is_alive() and not second.is_alive()
+        assert len(second_out["handler"].payload["failed"]) == 1
+        page_id = db.list_pages(drama_id)[0]["id"]
+        assert page_id not in page_turns._inflight
+
+        monkeypatch.setattr(page_turns, "claim_page", real_claim)
+        bubbles = real_load(page_id)
+        bubbles[0]["translated_text"] = ""
+        db.save_bubbles(page_id, bubbles)
+        third = _post(token, body).payload
+        assert len(state["calls"]) == 2
+        assert third["pages"][0]["notes"] == []
+        assert [b["translated_text"] for b in real_load(page_id)] == ["the translation"]
+
+    def _page_read_empty(self, token, monkeypatch):
+        import db
+        drama_id = self._drama(monkeypatch)
+        body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
+        _post(token, body)
+        page_id = db.list_pages(drama_id)[0]["id"]
+        db.save_bubbles(page_id, [])
+        return page_id, body
+
+    def test_an_empty_page_held_by_another_capture_is_not_read_twice(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        page_id, body = self._page_read_empty(token, monkeypatch)
+        monkeypatch.setattr(page_turns, "INFLIGHT_WAIT_SECONDS", 0.05)
+        reads, calls = len(fake_pipeline["detect"]), len(fake_pipeline["translate"])
+        busy, mine = page_turns.claim_page(page_id)
+        assert busy is None
+        try:
+            again = _post(token, body).payload
+        finally:
+            page_turns.release_page(page_id, mine)
+        assert len(fake_pipeline["detect"]) == reads
+        assert len(fake_pipeline["translate"]) == calls
+        assert again["failed"] == [] and again["already_stored"] == 1
+        assert "still being translated" in again["pages"][0]["notes"][0][1]
+
+    def test_an_empty_page_answers_with_the_other_captures_read(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        page_id, body = self._page_read_empty(token, monkeypatch)
+        reads, calls = len(fake_pipeline["detect"]), len(fake_pipeline["translate"])
+        saw_busy = threading.Event()
+        real_claim = page_turns.claim_page
+
+        def claim(pid):
+            theirs, mine = real_claim(pid)
+            if theirs is not None:
+                saw_busy.set()
+            return theirs, mine
+        _, held = real_claim(page_id)
+        monkeypatch.setattr(page_turns, "claim_page", claim)
+        worker, out = self._in_thread(token, body)
+        assert saw_busy.wait(self.WAIT)
+        db.save_bubbles(page_id, [{"x": 1, "y": 2, "w": 3, "h": 4, "source_text": "原文",
+                                   "translated_text": "theirs", "kind": "bubble",
+                                   "font_category": "regular", "reading_order": 0}])
+        page_turns.release_page(page_id, held)
+        worker.join(self.WAIT)
+        assert not worker.is_alive()
+        again = out["handler"].payload
+        assert len(fake_pipeline["detect"]) == reads
+        assert len(fake_pipeline["translate"]) == calls
+        assert again["pages"][0]["regions"][0]["translated_text"] == "theirs"
+        assert page_id not in page_turns._inflight
+
+    def test_a_held_chain_translates_without_context_after_the_bound(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        drama_id = self._drama(monkeypatch)
+        monkeypatch.setattr(page_turns, "CHAIN_WAIT_SECONDS", 0.05)
+        key = page_turns._chain_key(drama_id, "")
+        held = threading.Lock()
+        held.acquire()
+        page_turns._chain_locks[key] = held
+        page_turns._contexts[key] = "context of the page being translated"
+        try:
+            result = _post(token, {"images": [_distinct_page(0)], "drama_id": drama_id,
+                                   "store": True}).payload
+        finally:
+            held.release()
+        assert result["failed"] == []
+        assert result["pages"][0]["regions"][0]["translated_text"] == "the translation"
+        assert fake_pipeline["translate"][-1]["kwargs"]["previous_context"] == ""
+        assert page_turns._contexts[key] == "context of the page being translated"
+
+    def test_titles_kept_in_memory_are_capped_and_keyed_by_a_hash(self, monkeypatch):
+        import scanlate
+        monkeypatch.setattr(scanlate, "translate_page_bubbles",
+                            lambda *a, **kw: "context")
+
+        def capture(url):
+            page_turns.translate_in_chain(None, url, [], object(), None, None, None)
+        capture("https://site.invalid/held")
+        held_key = page_turns._chain_key(None, "https://site.invalid/held")
+        assert page_turns._chain_locks[held_key].acquire(timeout=0)
+        capture("https://site.invalid/idle")
+        idle_key = page_turns._chain_key(None, "https://site.invalid/idle")
+        try:
+            for i in range(page_turns.MAX_CHAINS + 40):
+                capture(f"https://site.invalid/title/{i}")
+            assert len(page_turns._chain_locks) <= page_turns.MAX_CHAINS
+            assert len(page_turns._contexts) <= page_turns.MAX_CHAINS
+            assert held_key in page_turns._chain_locks
+            assert idle_key not in page_turns._chain_locks
+            assert idle_key not in page_turns._contexts
+            assert not any("site.invalid" in k for k in page_turns._chain_locks)
+            assert not any("site.invalid" in k for k in page_turns._contexts)
+        finally:
+            page_turns._chain_locks[held_key].release()
+
+    def test_captures_with_no_title_and_no_url_never_share_context(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+        for i in range(2):
+            result = _post(token, {"images": [_distinct_page(i)], "store": False}).payload
+            assert result["failed"] == []
+        assert [c["kwargs"]["previous_context"] for c in fake_pipeline["translate"]] == ["", ""]
+        assert dict(page_turns._contexts) == {}
+        assert dict(page_turns._chain_locks) == {}
+
+    def test_context_follows_the_page_finished_last_not_page_order(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import scanlate
+        drama_id = self._drama(monkeypatch)
+        n = {"calls": 0}
+
+        def translate(bubbles, engine, drama_meta, **kwargs):
+            n["calls"] += 1
+            fake_pipeline["translate"].append({"kwargs": kwargs})
+            return f"context after call {n['calls']}"
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate)
+        for i in (1, 0):
+            _post(token, {"images": [_distinct_page(i)], "drama_id": drama_id, "store": True})
+        # Page 0 was captured after page 1, so it reads page 1's context.
+        assert [c["kwargs"]["previous_context"] for c in fake_pipeline["translate"]] == [
+            "", "context after call 1"]
