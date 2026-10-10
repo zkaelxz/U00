@@ -407,6 +407,8 @@ def resegment_subprocess_worker(lines, language, engine, segments, chinese_scrip
     connection in the real caller) -- each call's (input, output) token
     counts are collected here instead and hand back for the caller to
     log once the job completes."""
+    import background_jobs
+    background_jobs.start_own_process_group()
     usage_calls = []
     try:
         new_lines, changed = resegment_lines(

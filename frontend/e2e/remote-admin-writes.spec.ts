@@ -57,7 +57,7 @@ test('PC admin still gets Cancel', async ({ page }) => {
 test('remote admin: no per-item sharing switches in Settings, with a note', async ({ page }) => {
   await mock(page, ['library.read', 'admin.users.read'])
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   await expect(page.getByTestId('remote-admin-sharing-note')).toBeVisible()
   await expect(page.getByTestId('sharing-drama:5')).toHaveCount(0)
 })
@@ -65,7 +65,7 @@ test('remote admin: no per-item sharing switches in Settings, with a note', asyn
 test('PC admin still gets every item with its switch', async ({ page }) => {
   await mock(page, ['library.read', 'admin.library'])
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   await expect(page.getByTestId('sharing-drama:5')).toBeVisible()
   await expect(page.getByTestId('remote-admin-sharing-note')).toHaveCount(0)
 })

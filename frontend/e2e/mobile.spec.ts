@@ -109,7 +109,7 @@ test('Jellyfin: the settings card fits a phone (labels on one line, full-width f
   await page.route('**/api/jellyfin/config', (route) =>
     route.fulfill({ json: { enabled: true, server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media\\Dramas', key_configured: true } }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Jellyfin' })
   await expect(card.getByTestId('jellyfin-key')).toHaveText('Set')
   await expectNoHorizontalOverflow(page)

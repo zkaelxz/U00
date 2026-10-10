@@ -5,6 +5,7 @@ import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { downloadText } from '../../../components/downloadText'
 import { Toggle } from '../../../components/Toggle'
 import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
@@ -74,12 +75,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         setError(null)
         setResult({ text, filename, fmt })
         if (!text.trim()) return
-        const url = URL.createObjectURL(new Blob([text], { type: `${MIME[fmt]};charset=utf-8` }))
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        a.click()
-        URL.revokeObjectURL(url)
+        downloadText(text, filename, MIME[fmt])
       },
       (e: unknown) => {
         setResult(null)

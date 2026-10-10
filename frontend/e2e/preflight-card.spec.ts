@@ -53,7 +53,7 @@ test('remote viewers see the state but no action buttons', async ({ page }) => {
   await expect(card(page).getByRole('button')).toHaveCount(0)
 })
 
-test('a key is added inline in Get started', async ({ page }) => {
+test('a key is added inline in Make subtitles', async ({ page }) => {
   await mockFirstRun(page)
   const posts: unknown[] = []
   await page.route('**/api/settings/keys/claude', (r) => {
@@ -62,8 +62,7 @@ test('a key is added inline in Get started', async ({ page }) => {
   })
   await page.route('**/api/diagnostics/**', (r) => r.fulfill({ status: 403, json: { code: 'forbidden', message: 'no' } }))
   await page.goto('/')
-  const started = page.getByRole('region', { name: 'Get started' })
-  await expect(started.getByTestId('translator-needs-key')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Make subtitles' }).getByText('No key saved')).toBeVisible()
   await card(page).getByRole('button', { name: 'Add key' }).click()
   await card(page).getByRole('textbox', { name: 'Claude key' }).fill('not-a-real-key')
   await card(page).getByRole('button', { name: 'Save key' }).click()
