@@ -208,11 +208,13 @@ def redact_for_support(text: str) -> str:
     username replaced with [USER], and every absolute filesystem path
     (POSIX or Windows) collapsed to just its last path segment prefixed
     with ".../" -- enough to stay readable without exposing the folder
-    structure (or a username embedded in it) underneath. ANSI colour
-    codes are stripped first."""
+    structure (or a username embedded in it) underneath. Every http(s)
+    link loses its query, fragment and userinfo (a source link can carry a
+    signed token). ANSI colour codes are stripped first."""
     import translate_engines
     text = _ANSI_PATTERN.sub("", text or "")
     text = translate_engines.redact_secrets(text)
+    text = translate_engines.strip_url_queries(text)
     username = getpass.getuser()
     if username:
         text = re.sub(re.escape(username), "[USER]", text, flags=re.IGNORECASE)

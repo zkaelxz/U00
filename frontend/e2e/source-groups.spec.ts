@@ -107,3 +107,25 @@ test('Details hide the fields another content type owns, and Add credits reveals
   await page.getByRole('button', { name: 'Add credits' }).click()
   await expect(page.getByLabel('Author', { exact: true })).toBeFocused()
 })
+
+test('"Keep original files" in Media saves through the metadata update and explains itself', async ({ page }) => {
+  const drama = await (await page.request.get('/api/library/dramas/2')).json()
+  let kept = false
+  const sent: unknown[] = []
+  await page.route('**/api/library/dramas/2', (r) => r.fulfill({ json: { ...drama, keep_original: kept } }))
+  await page.route('**/api/dramas/2/metadata', (r) => {
+    sent.push(r.request().postDataJSON())
+    kept = true
+    return r.fulfill({ json: { ...drama, keep_original: true } })
+  })
+  await stubNovel(page, false)
+  await page.goto('/#/drama/2/source')
+  const block = page.getByTestId('keep-original')
+  const toggle = block.getByRole('switch', { name: 'Keep original files' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await block.getByRole('button', { name: 'Help: Keep original files' }).hover()
+  await expect(page.getByText(/never removes this title's source media.*disk space/)).toBeVisible()
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  expect(sent).toEqual([{ keep_original: true }])
+})

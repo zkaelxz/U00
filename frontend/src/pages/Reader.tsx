@@ -363,13 +363,13 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         <header className="reader-phone-head">
           <a href={routeHref({ name: 'library' })} className="reader-back" aria-label="Back to Library">‹</a>
           <span className="reader-title">{title ?? 'Loading…'}</span>
-          <SourceLink href={sourceUrl} />
+          <SourceLink href={sourceUrl} dramaId={id} />
           {aa}
         </header>
       ) : (
         <div className="reader-top">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'read', id, page: null }, { title })} />
-          <SourceLink href={sourceUrl} />
+          <SourceLink href={sourceUrl} dramaId={id} />
           {aa}
         </div>
       )}

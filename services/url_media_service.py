@@ -31,9 +31,11 @@ audio is extracted with ffmpeg inside the temp folder first, then the
 video becomes `source<ext>` and the audio `audio.wav`. Files go in place
 through media_upload_service.install_media, as an upload does: never over
 an existing file (`-2`... while the old one is there), one field-scoped DB
-write as the commit point (audio_filename, [source_video_filename],
-source_url and, only when both titles are empty (re-read just before
-writing), title_zh), then the replaced files move to kept_media/.
+write as the commit point (audio_filename, [source_video_filename] and,
+only when both titles are empty (re-read just before writing), title_zh),
+then the replaced files move to kept_media/. The link is recorded after
+that like any import's (drama_service.set_source_url_once: cleaned form,
+raw form kept apart, never over a link the title already has).
 Audio-only clears an older source_video_filename and moves that video there too.
 
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
@@ -348,7 +350,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
             _extract_audio(job_id, path, wav, tmp)
             new_files = {"source_video_filename": (path, "source", ext),
                          "audio_filename": (wav, "audio", ".wav")}
-        fields = {"source_url": url}
+        fields = {}
         drama = db.get_drama(drama_id) or {}  # re-read just before writing
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
@@ -356,6 +358,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
             media_upload_service.install_media(drama_id, new_files, **fields)
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
+        drama_service.set_source_url_once(drama_id, url)
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
                                             "title_filled": "title_zh" in fields})
         background_jobs.update_progress(job_id, 1.0, "Downloaded.")

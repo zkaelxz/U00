@@ -45,7 +45,7 @@ export const TREE: Record<string, Node[]> = {
 
 const join = (a: string, b: string) => (a ? `${a}/${b}` : b)
 
-export interface TrashEntry { id: string; parent: string; node: Node; trashed_at: string; restorable: boolean }
+export interface TrashEntry { id: string; parent: string; node: Node; trashed_at: string; restorable: boolean; kept?: boolean }
 
 export interface MockClip { id: string; type: string; size: number; used?: boolean }
 
@@ -58,13 +58,13 @@ export interface DiskUsageMock {
   setPartial(on: boolean): void
 }
 
-export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; slowScan?: number; trash?: { path: string; size: number; files: number; restorable?: boolean }[]; clips?: { title: string; clips: MockClip[] }[]; clipsInUse?: number; clipsFailPost?: number } = {}): Promise<DiskUsageMock> {
+export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; slowScan?: number; trash?: { path: string; size: number; files: number; restorable?: boolean; kept?: boolean }[]; clips?: { title: string; clips: MockClip[] }[]; clipsInUse?: number; clipsFailPost?: number } = {}): Promise<DiskUsageMock> {
   const tree: Record<string, Node[]> = JSON.parse(JSON.stringify(TREE))
   const state = { busy: null as string | null, partial: false }
   const trash: TrashEntry[] = (opts.trash ?? []).map((t, i) => {
     const parent = t.path.includes('/') ? t.path.slice(0, t.path.lastIndexOf('/')) : ''
     const name = t.path.split('/').pop()!
-    return { id: `20261001-10000${i}-abcdef0${i}`, parent, trashed_at: '2026-10-01T10:00:00+00:00', restorable: t.restorable ?? true,
+    return { id: `20261001-10000${i}-abcdef0${i}`, parent, trashed_at: '2026-10-01T10:00:00+00:00', restorable: t.restorable ?? true, kept: t.kept,
       node: { name, kind: 'folder', size: t.size, files: t.files } }
   })
   const mock: DiskUsageMock = {
@@ -137,7 +137,7 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
       return route.fulfill({ json: {
         items: trash.map((t) => ({
           id: t.id, original_path_relative: join(t.parent, t.node.name), kind: t.node.kind, size_bytes: t.node.size,
-          file_count: t.node.files, trashed_at: t.trashed_at, restorable: t.restorable,
+          file_count: t.node.files, trashed_at: t.trashed_at, restorable: t.restorable, from_kept_title: !!t.kept,
         })),
         size_bytes: trashBytes(), item_count: trash.length, partial: false, busy_reason: state.busy,
       } })

@@ -4,7 +4,7 @@ import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
   CLIP_BATCH_SIZE, clipBatches, clipsDoneBeforeError, describeClipsStopped, sumClipResults,
-  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
+  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, keptTitlesLine, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
@@ -182,5 +182,13 @@ describe('clip batches and partial failures', () => {
   it('says "Moved N of M" and why it stopped', () => {
     expect(describeClipsStopped({ moved_count: 502, moved_bytes: 2000, skipped: [{ id: 'a', reason: 'changed' }] }, 1001, 'A job is running.'))
       .toBe('Moved 502 of 1,001 clips (2.0 KB) to Trash; stopped because A job is running. 1 clip skipped. You can restore them from Trash.')
+  })
+})
+
+describe('keptTitlesLine', () => {
+  it('names the "Keep original files" pin only when an item came from a pinned title', () => {
+    expect(keptTitlesLine([{ from_kept_title: false }, {}])).toBeNull()
+    expect(keptTitlesLine([{ from_kept_title: true }, {}])).toContain('1 item came from titles with "Keep original files" on')
+    expect(keptTitlesLine([{ from_kept_title: true }, { from_kept_title: true }])).toMatch(/^2 items came from/)
   })
 })

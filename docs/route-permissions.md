@@ -161,6 +161,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/dramas/{drama_id}/cover` | library.read |
 | `POST /api/dramas/{drama_id}/cover` | local_only() |
 | `POST /api/dramas/{drama_id}/metadata` | admin.library |
+| `GET /api/dramas/{drama_id}/source-link` | local_only() |
 | `GET /api/dub/dramas/{drama_id}/config` | library.read |
 | `GET /api/dub/dramas/{drama_id}/pacing` | library.read |
 | `POST /api/dub/dramas/{drama_id}/run` | jobs.start |

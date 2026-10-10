@@ -13,7 +13,7 @@ import { TypedConfirm } from '../../components/TypedConfirm'
 import { buttonClass } from '../../components/uiClasses'
 import type { DiskUsageTrashItem, DiskUsageTrashList } from '../../types/diskUsage'
 import {
-  TRASH_WORD, describeEmptied, formatBytes, describePurged, describeRestored, trashItemName, trashLine, trashSizeLine, trashedOn,
+  FROM_KEPT_TITLE, TRASH_WORD, describeEmptied, keptTitlesLine, formatBytes, describePurged, describeRestored, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const SERVER = { pcOnly: true, serverText: true } as const
@@ -91,6 +91,7 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
                 above ({formatBytes(trash.size_bytes)}) and frees that space. If anything in Trash changed since this
                 list loaded, nothing is deleted. This can&apos;t be undone.
               </p>
+              {keptTitlesLine(trash.items) && <p className="du-warn" data-testid="trash-kept-titles">{keptTitlesLine(trash.items)}</p>}
             </TypedConfirm>
           )}
         </>
@@ -142,6 +143,7 @@ function TrashRow({ item, blocked, onChanged, onStale }: {
         <span className="du-size num">{trashSizeLine(item)}</span>
       </div>
       {trashedOn(item) && <p className="muted du-why">{`Moved to Trash on ${trashedOn(item)}`}</p>}
+      {item.from_kept_title && <p className="muted du-why">From a title with &quot;Keep original files&quot; on.</p>}
       {!item.restorable && (
         <p className="muted du-why">
           Restore may not work right now: its old folder is gone, its name is taken, or its record is damaged.
@@ -184,6 +186,7 @@ function TrashRow({ item, blocked, onChanged, onStale }: {
           <p className="du-warn">
             Permanently deletes {name} ({trashSizeLine(item)}) from this PC. This frees the space and can&apos;t be undone.
           </p>
+          {item.from_kept_title && <p className="du-warn" data-testid="trash-kept-title">{FROM_KEPT_TITLE}</p>}
         </TypedConfirm>
       )}
       <ErrorBanner error={error} describe={SERVER} onDismiss={() => setError(null)} />

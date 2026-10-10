@@ -219,6 +219,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_service.py`
 - `gpu_lock_recovery_service.py` (frees GPU slots a killed server left behind; wait message for them)
 - `jellyfin_service.py`
+- `keep_original_service.py` (the per-title "Keep original files" pin: which files are originals, storage cleanup, Trash and export)
 - `job_checkpoint_service.py`
 - `job_stage_service.py`
 - `job_timing_service.py`
@@ -275,6 +276,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `settings_service.py`
 - `shutdown_service.py`
 - `source_domains_service.py`
+- `source_link_service.py` (a title's cleaned and full source link; the full one only for the PC-only route)
 - `source_service.py`
 - `sources_extension_service.py`
 - `sources_extraction_service.py`

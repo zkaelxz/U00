@@ -276,3 +276,45 @@ test('the top bar does not move when the pages finish loading', async ({ page })
   expect(after).toEqual(before)
   await noSideways(page)
 })
+
+test('on the PC, "Open original page" opens the link as imported, query kept', async ({ page, context }) => {
+  const s = await mockComic(page, { sourceUrl: 'https://example.org/watch' })
+  const full = 'https://example.org/watch?v=abc123&list=PL1'
+  await page.route(/\/api\/dramas\/7\/source-link$/, (route) => route.fulfill({ json: { url: full } }))
+  await context.route('https://example.org/**', (route) => route.fulfill({ contentType: 'text/html', body: '<p>original</p>' }))
+  await page.goto('/#/comic/7')
+  const link = page.locator('.comic-head').getByRole('link', { name: 'Open original page' })
+  // The page holds only the cleaned link; the full one is fetched on the click.
+  await expect(link).toHaveAttribute('href', 'https://example.org/watch')
+  const popup = page.waitForEvent('popup')
+  await link.click()
+  await (await popup).waitForURL(full)
+  expect(s.unmocked).toEqual([])
+})
+
+test('off the PC, "Open original page" opens the cleaned link and never asks for the full one', async ({ page, context }) => {
+  const s = await mockComic(page, { sourceUrl: 'https://example.org/watch' })
+  const asked: string[] = []
+  page.on('request', (r) => { if (r.url().includes('source-link')) asked.push(r.url()) })
+  await page.route(/\/api\/meta$/, (route) =>
+    route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: false } }))
+  await context.route('https://example.org/**', (route) => route.fulfill({ contentType: 'text/html', body: '<p>original</p>' }))
+  await page.goto('/#/comic/7')
+  const popup = page.waitForEvent('popup')
+  await page.locator('.comic-head').getByRole('link', { name: 'Open original page' }).click()
+  await (await popup).waitForURL('https://example.org/watch')
+  expect(asked).toEqual([])
+  expect(s.unmocked.filter((u) => !u.includes('/api/diagnostics/remote-health'))).toEqual([])
+})
+
+test('on the PC, a refused source-link request still opens the cleaned link', async ({ page, context }) => {
+  const s = await mockComic(page, { sourceUrl: 'https://example.org/watch' })
+  await page.route(/\/api\/dramas\/7\/source-link$/, (route) =>
+    route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }))
+  await context.route('https://example.org/**', (route) => route.fulfill({ contentType: 'text/html', body: '<p>original</p>' }))
+  await page.goto('/#/comic/7')
+  const popup = page.waitForEvent('popup')
+  await page.locator('.comic-head').getByRole('link', { name: 'Open original page' }).click()
+  await (await popup).waitForURL('https://example.org/watch')
+  expect(s.unmocked).toEqual([])
+})

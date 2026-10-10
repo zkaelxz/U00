@@ -50,8 +50,8 @@ import storage
 import subtitle_formats
 import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import (auth_service, drama_service, ownership_service, settings_service,
-                      translate_run_service, translate_service)
+from services import (auth_service, drama_service, keep_original_service, ownership_service,
+                      settings_service, translate_run_service, translate_service)
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -425,9 +425,7 @@ def _export_job(job_id, drama_ids):
                 zf.writestr(f"{folder}/english.srt", lines_to_srt(lns, "en"))
                 zf.writestr(f"{folder}/chinese.srt", lines_to_srt(lns, "zh"))
                 zf.writestr(f"{folder}/bilingual.srt", lines_to_bilingual_srt(lns))
-                dub_path = os.path.join(db.DRAMAS_DIR, str(did), "dub_track.wav")
-                if os.path.isfile(dub_path) and not os.path.islink(dub_path):
-                    zf.write(dub_path, f"{folder}/dub_track.wav")
+                keep_original_service.export_title_files(zf, did, d, folder)
                 exported += 1
 
     name, _ = _write_artifact("export", ".zip", "The export could not be written.", write)
@@ -436,7 +434,8 @@ def _export_job(job_id, drama_ids):
 
 
 def start_export_zip(drama_ids=None) -> dict:
-    """Job: zips english/chinese/bilingual SRT (+ dub track) for each
+    """Job: zips english/chinese/bilingual SRT (+ dub track, + a pinned
+    title's originals: keep_original_service) for each
     translated/dubbed/exported drama -- the picked ones, or all of them.
     Returns {job_id, drama_ids}; with explicit ids also `results`, one per
     requested id ({drama_id, ok, error: not_found|not_translated})."""
@@ -1095,7 +1094,7 @@ def storage_scan(preset: str = "balanced") -> dict:
     """Dry run: what `storage_cleanup(preset, ...)` would remove, with
     sizes, per category and per drama (no paths, nothing removed)."""
     cats = _check_preset(preset)
-    scan = storage.scan_library_storage(db.LIBRARY_DIR, [d["id"] for d in db.list_dramas()])
+    scan = keep_original_service.scan_library()
     per_drama = []
     for d in scan["per_drama"]:
         would = sum(d["categories"].get(k, 0) for k in cats)
@@ -1126,7 +1125,7 @@ def storage_cleanup(preset: str, confirm=False, confirm_text="") -> dict:
             if drama_service.job_running_for_drama(did):
                 results.append({"drama_id": did, "ok": False, "error": "job_running"})
                 continue
-            r = storage.clean_drama_storage(os.path.join(db.DRAMAS_DIR, str(did)), cats)
+            r = keep_original_service.clean_title_storage(did, cats)
             freed += r["freed_bytes"]
             results.append({"drama_id": did, "ok": True, "freed_bytes": r["freed_bytes"]})
         return {"preset": preset, "freed_bytes": freed, "results": results}

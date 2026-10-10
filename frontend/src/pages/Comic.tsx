@@ -526,7 +526,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         <header className="reader-phone-head comic-head">
           <a href={libraryHref} className="reader-back" aria-label="Back to Library">‹</a>
           <span className="reader-title">{title ?? 'Loading…'}</span>
-          <SourceLink href={sourceUrl} />
+          <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
           {view}
@@ -535,7 +535,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       ) : (
         <div className="comic-top comic-head">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'comic', id, page: null }, { title })} />
-          <SourceLink href={sourceUrl} />
+          <SourceLink href={sourceUrl} dramaId={id} />
           {current !== null && count > 0 ? (
             <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} />
           ) : (

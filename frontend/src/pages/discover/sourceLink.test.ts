@@ -37,3 +37,10 @@ describe('SourceLink', () => {
     expect(html).not.toContain('<script>')
   })
 })
+
+describe('SourceLink with a drama id', () => {
+  it('still renders only the cleaned link, so the full one is never in the page', () => {
+    const html = renderToStaticMarkup(createElement(SourceLink, { href: 'https://v.example/watch', dramaId: 3 }))
+    expect(html).toContain('href="https://v.example/watch"')
+  })
+})

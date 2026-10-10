@@ -9,7 +9,8 @@ only reads them and holds the library for the change. Purge and empty are the
 ONLY permanent deletes in the feature: they touch only <data>/baihe_trash/<id>
 (id matched by a strict pattern, real path checked, no link at the root or at
 the entry), need the typed word DELETE, and walk the entry without following
-links (_remove_tree).
+links (_remove_tree). The list flags an entry from a title pinned with "Keep
+original files" so the delete confirmation can name the pin.
 """
 
 import os
@@ -21,6 +22,7 @@ from services.disk_usage_service import (TRASH_DELETE_FAILED, TRASH_MANIFEST, TR
                                          _protection, _read_manifest, _rename_no_overwrite,
                                          _require_confirm, _resolve, _same_volume, _too_deep,
                                          _trash_entries, _trash_root, _within, busy_reason)
+from services import keep_original_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -83,6 +85,8 @@ def trash_list() -> dict:
             "kind": kind, "size_bytes": size, "file_count": files,
             "trashed_at": manifest["trashed_at"] if manifest else None,
             "restorable": restorable,
+            "from_kept_title": bool(manifest)
+                               and keep_original_service.trashed_from_pinned_title(manifest["parts"]),
         })
     return {"items": items, "size_bytes": total, "item_count": len(items),
             "partial": bool(budget.hit), "busy_reason": busy_reason()}

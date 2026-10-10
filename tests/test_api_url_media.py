@@ -167,7 +167,11 @@ def test_audio_only_download(client, env):
     ddir = db.drama_dir(did)
     assert os.path.exists(os.path.join(ddir, "source.wav"))
     assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
-                           "source_url": URL, "title_zh": "Clip Title"}]
+                           "title_zh": "Clip Title"}]
+    # The link is stored cleaned; the raw one (it needs ?v=) only in the PC-only column.
+    stored = db.get_drama(did)
+    assert stored["source_url"] == "https://video.example/watch"
+    assert stored["source_url_full"] == URL
     assert env.ffmpeg == []
     _no_tmp(did)
     # the job view carries no URL, title or path
@@ -184,8 +188,8 @@ def test_video_download_extracts_audio_and_keeps_title(client, env):
     ddir = db.drama_dir(did)
     assert os.path.exists(os.path.join(ddir, "source.mp4"))
     assert os.path.exists(os.path.join(ddir, "audio.wav"))
-    assert env.writes == [{"audio_filename": "audio.wav", "source_video_filename": "source.mp4",
-                           "source_url": URL}]
+    assert env.writes == [{"audio_filename": "audio.wav", "source_video_filename": "source.mp4"}]
+    assert db.get_drama(did)["source_url"] == "https://video.example/watch"
     assert db.get_drama(did)["title_en"] == "Mine" and not db.get_drama(did)["title_zh"]
     cmd = env.ffmpeg[0]
     assert cmd[0] == "ffmpeg" and os.path.dirname(os.path.dirname(cmd[-1])) == storage.temp_root()
@@ -425,8 +429,9 @@ def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     i = cmd.index("-i")
     assert cmd[i - 4:i] == video_export.local_input()
     assert os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
-    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
-                           "source_url": DIRECT}]
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None}]
+    assert db.get_drama(did)["source_url"] == "https://cdn.example/media/ep1.mp3"
+    assert db.get_drama(did)["source_url_full"] == DIRECT
     _no_tmp(did)
 
 
@@ -436,8 +441,8 @@ def test_direct_audio_link_with_audio_only_off_still_installs_audio_only(client,
                     json={"url": DIRECT, "audio_only": False})
     assert r.status_code == 200, r.text
     assert _wait(f"urlmedia_{did}")["status"] == "done"
-    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
-                           "source_url": DIRECT}]
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None}]
+    assert db.get_drama(did)["source_url"] == "https://cdn.example/media/ep1.mp3"
 
 
 def test_direct_video_link_keeps_video(client, env, direct):

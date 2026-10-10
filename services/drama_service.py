@@ -36,7 +36,7 @@ import uuid
 import background_jobs
 import db
 from core import SOURCE_LANGUAGES
-from services import library_service, ownership_service, settings_service
+from services import library_service, ownership_service, settings_service, source_link_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -50,8 +50,9 @@ _TEXT_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_a
                 "summary", "genre", "custom_tags", "source_url", "episode_summary",
                 "project_instructions")
 _INT_FIELDS = ("chapter_count", "episode_number")
-# The Translate stage's two toggles, stored 0/1 (translate_run_service.save_style_toggles).
-_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes")
+# Stored 0/1: the Translate stage's two toggles (translate_run_service.save_style_toggles)
+# and the Media stage's "Keep original files" pin (keep_original_service).
+_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes", "keep_original")
 
 # Hardening H1: sqlite ints are 64-bit and a Python int above that raises
 # OverflowError (a 500), so every id/count the client sends is capped well
@@ -264,6 +265,9 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
         ownership_service.unassign_drama_series(principal, drama_id)
     elif series_id is not None:
         ownership_service.assign_drama_series(principal, drama_id, series_id)
+    if "source_url" in fields:
+        fields["source_url"], fields["source_url_full"] = \
+            source_link_service.split_source_url(fields["source_url"])
     if fields:
         db.update_drama(drama_id, **fields)
     return library_service.get_library_drama(drama_id)
@@ -272,20 +276,23 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
 def set_source_url_once(drama_id, url) -> bool:
     """Records where an import came from, only while the title has no link,
     so what the owner typed is never overwritten. Stores the display-safe
-    form (no query, userinfo or token-like path); a link that leaves
-    nothing usable is ignored. Never raises: a link is a convenience and
-    must not fail the import that called it."""
-    safe = library_service.display_source_url(url)
+    form (no query, userinfo or token-like path), plus the raw link in
+    source_url_full when cleaning changed it (source_link_service); a link
+    that leaves nothing usable is ignored. Never raises: a link is a
+    convenience and must not fail the import that called it."""
+    safe, full = source_link_service.split_source_url(url)
     if not safe or len(safe) > MAX_URL_LEN:
         return False
+    if len(full) > MAX_URL_LEN:
+        full = ""
     try:
         # One conditional statement: a link the owner saves between a read
         # and a write would otherwise be overwritten by the import.
         with contextlib.closing(db.get_conn()) as conn:
             cur = conn.execute(
-                "UPDATE dramas SET source_url = ?, updated_at = ? "
+                "UPDATE dramas SET source_url = ?, source_url_full = ?, updated_at = ? "
                 "WHERE id = ? AND TRIM(COALESCE(source_url, '')) = ''",
-                (safe, datetime.datetime.utcnow().isoformat(), drama_id))
+                (safe, full, datetime.datetime.utcnow().isoformat(), drama_id))
             conn.commit()
             return cur.rowcount > 0
     except Exception:
