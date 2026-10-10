@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import bulk_translate
-import cli
+import cli_translate
 import db
 import subtitle_formats
 import translate_engines
@@ -646,16 +646,16 @@ class TestCli:
                             lambda name, *a, **k: fake_engine.FakeEngine())
         did, _sid, _ = _seed([("林晚一", "old"), ("林晚二", "my edit"), ("天气", "Weather")],
                              terms=[LIN], machine={0, 2})
-        cli.cmd_translate(self._args(did))
+        cli_translate.cmd_translate(self._args(did))
         assert [r["en"] for r in db.load_lines(did)] == ["[TEST] 林晚一", "my edit", "Weather"]
-        cli.cmd_translate(self._args(did, include_hand_edited=True))
+        cli_translate.cmd_translate(self._args(did, include_hand_edited=True))
         assert [r["en"] for r in db.load_lines(did)] == ["[TEST] 林晚一", "[TEST] 林晚二", "Weather"]
 
     def test_glossary_affected_needs_id(self, isolated_db):
         with pytest.raises(SystemExit):
-            cli.cmd_translate(self._args(None))
+            cli_translate.cmd_translate(self._args(None))
         with pytest.raises(SystemExit):
-            cli.cmd_translate(self._args(1, glossary_affected=False, include_hand_edited=True))
+            cli_translate.cmd_translate(self._args(1, glossary_affected=False, include_hand_edited=True))
 
 
     def _two_terms(self):
@@ -668,7 +668,7 @@ class TestCli:
     def _run(self, monkeypatch, did, **kw):
         monkeypatch.setattr(translate_engines, "get_engine",
                             lambda name, *a, **k: fake_engine.FakeEngine())
-        cli.cmd_translate(self._args(did, **kw))
+        cli_translate.cmd_translate(self._args(did, **kw))
         return [r["en"] for r in db.load_lines(did)]
 
     def test_term_by_text_selects_only_its_lines(self, isolated_db, monkeypatch, capsys):
@@ -699,7 +699,7 @@ class TestCli:
 
     def test_term_requires_glossary_affected(self, isolated_db):
         with pytest.raises(SystemExit, match="--term only applies"):
-            cli.cmd_translate(self._args(1, glossary_affected=False, term=["林晚"]))
+            cli_translate.cmd_translate(self._args(1, glossary_affected=False, term=["林晚"]))
 
     def test_matches_service_selection(self, isolated_db, monkeypatch):
         did, ids = self._two_terms()
