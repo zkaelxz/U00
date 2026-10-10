@@ -28,7 +28,7 @@ import {
   thinkingEngines,
   thinkingHelp,
   restoreRunOptions,
-  saveRunOptions,
+  runOptionsDraft,
   savePresetStart,
   splitLines,
   translateButtonLabel,
@@ -487,21 +487,23 @@ describe('cloud model notice', () => {
 })
 
 describe('remembered run options', () => {
-  const memory = () => {
-    const m = new Map<string, string>()
-    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }
-  }
+  // The per-drama draft store (hooks/useStageDraft) as the Translate stage sees it.
+  let drafts: Record<number, Record<string, unknown>> = {}
   const cfg = {
     ...config,
     translation_engine: 'deepseek',
     bulk_supported_engines: ['claude'],
     engines: [{ name: 'deepseek', models: ['d1'] }, { name: 'claude', models: ['c1', 'c2'] }],
   } as unknown as TranslateRunConfig
-  const save = (id: number, patch: object, extra: object = {}) =>
-    saveRunOptions(id, { form: { ...initialForm(cfg), ...patch }, baseEngine: 'deepseek', reviewFirst: false, tier: '', ...extra })
-  const restore = (id: number, c = cfg) => restoreRunOptions(id, initialForm(c), c)
+  const save = (id: number, patch: object, extra: object = {}) => {
+    const out = runOptionsDraft({ form: { ...initialForm(cfg), ...patch }, baseEngine: 'deepseek', reviewFirst: false, tier: '', ...extra })
+    drafts[id] = JSON.parse(JSON.stringify(out)) as Record<string, unknown>
+  }
+  const restore = (id: number, c = cfg) => restoreRunOptions(drafts[id] ?? null, initialForm(c), c)
 
-  beforeEach(() => void vi.stubGlobal('localStorage', memory()))
+  beforeEach(() => {
+    drafts = {}
+  })
 
   it('saves and restores the choices, including the glossary toggle and tier', () => {
     save(1, {
@@ -520,8 +522,8 @@ describe('remembered run options', () => {
   it('never restores a pending re-translate or stores anything but plain choices', () => {
     save(1, { force: true, forceConfirmed: true })
     expect(restore(1).form).toMatchObject({ force: false, forceConfirmed: false })
-    const raw = JSON.stringify(Object.entries(localStorage as unknown as object))
-    expect(raw).not.toMatch(/key|secret|force/i)
+    const raw = JSON.stringify(drafts)
+    expect(raw).not.toMatch(/key|secret|force|pronouns|genre/i)
   })
 
   it('falls back to the defaults for values that are no longer valid', () => {
@@ -554,15 +556,10 @@ describe('remembered run options', () => {
     expect(restore(3).form).toEqual(initialForm(cfg))
   })
 
-  it('ignores corrupt data and survives throwing storage', () => {
-    localStorage.setItem('baihe.translateRun.v1.1', '{nope')
-    expect(restore(1).form).toEqual(initialForm(cfg))
-    const boom = () => {
-      throw new Error('blocked')
-    }
-    vi.stubGlobal('localStorage', { getItem: boom, setItem: boom, removeItem: boom })
-    expect(restore(1).form).toEqual(initialForm(cfg))
-    expect(() => save(1, {})).not.toThrow()
+  it('ignores a draft without a form or with the wrong shapes', () => {
+    expect(restoreRunOptions(null, initialForm(cfg), cfg).form).toEqual(initialForm(cfg))
+    expect(restoreRunOptions({ reviewFirst: true }, initialForm(cfg), cfg)).toEqual({ form: initialForm(cfg), reviewFirst: false, tier: null })
+    expect(restoreRunOptions({ form: 'nope', tier: 3, reviewFirst: 'yes' }, initialForm(cfg), cfg)).toEqual({ form: initialForm(cfg), reviewFirst: false, tier: null })
   })
 })
 

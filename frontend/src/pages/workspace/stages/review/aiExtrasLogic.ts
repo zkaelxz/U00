@@ -20,6 +20,9 @@ const MERGE_LIMITS: Record<keyof MergeShortOptions, [number, number]> = {
 
 export type MergeForm = Record<keyof MergeShortOptions, string>
 
+// The Merge short lines form's draft (hooks/useStageDraft, stage "review.merge"); its shape is mergeFormDefaults().
+export const MERGE_DRAFT_STAGE = 'review.merge'
+
 export const mergeFormDefaults = (): MergeForm => ({
   min_duration: String(MERGE_DEFAULTS.min_duration),
   max_gap: String(MERGE_DEFAULTS.max_gap),

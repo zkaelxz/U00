@@ -9,6 +9,7 @@ import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
+import { useStageDraft } from '../../../../hooks/useStageDraft'
 import { jobSucceeded, type JobRecord } from '../../../../types/jobs'
 import type { ResplitResult, ResplitSensitivity } from '../../../../types/restructure'
 import { useStage } from '../../StageContext'
@@ -16,7 +17,7 @@ import { resplitJobId } from '../../stageJobIds'
 import { JobPanel } from '../JobPanel'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import { speakerTimeFooter, speakerTimeLines, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
-import { JOB_RUNNING_MESSAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary } from './reviewResegment'
+import { JOB_RUNNING_MESSAGE, RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary } from './reviewResegment'
 import { UndoNotice } from './UndoNotice'
 import { retireUndoOffer, useUndoOffer } from './undoOffer'
 
@@ -36,9 +37,16 @@ interface Props {
 // transcribed or detected again. A snapshot is taken first (Records -> Line history).
 export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   const { onJobDone } = useStage()
-  const [align, setAlign] = useState(false)
-  const [sensitivity, setSensitivity] = useState<ResplitSensitivity>('normal')
-  const [cap, setCap] = useState<number | null>(null)
+  // The options as last left here; a cap of 0 means the preset's own limit.
+  const { draft, save: saveDraft } = useStageDraft(dramaId, RESPLIT_DRAFT_STAGE, RESPLIT_DRAFT_SHAPE)
+  const [align, setAlign] = useState(draft.align ?? false)
+  const [sensitivity, setSensitivity] = useState<ResplitSensitivity>(
+    RESPLIT_SENSITIVITIES.some((o) => o.value === draft.sensitivity) ? (draft.sensitivity as ResplitSensitivity) : 'normal',
+  )
+  const [cap, setCap] = useState<number | null>(RESPLIT_DURATION_CAPS.includes(draft.capSec ?? 0) ? (draft.capSec as number) : null)
+  useEffect(() => {
+    saveDraft({ align, sensitivity, capSec: cap ?? 0 })
+  }, [saveDraft, align, sensitivity, cap])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [needsConfirm, setNeedsConfirm] = useState(false)

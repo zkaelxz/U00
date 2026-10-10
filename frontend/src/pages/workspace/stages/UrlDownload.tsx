@@ -8,7 +8,7 @@
  *
  * Remote viewers get one muted line instead ("PC only for now").
  */
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { startUrlDownload } from '../../../api/sourcesImport'
@@ -16,8 +16,9 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { usePcOnly } from '../../../hooks/usePcOnly'
+import { useStageDraft } from '../../../hooks/useStageDraft'
 import { MAX_URL_LEN, defaultAudioOnly, downloadReason } from '../../sources/urlImportFormat'
-import { SWITCHES_FROM_BURNED_IN, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl } from '../sourceForm'
+import { SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl } from '../sourceForm'
 import './urlDownload.css'
 
 export const URL_PC_ONLY = 'Downloading from a link is PC only for now.'
@@ -39,8 +40,13 @@ const needsConfirm = (e: unknown) =>
 
 export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, readsBurnedInSubtitles, url: fixedUrl, busy, onStarted }: Props) {
   const pc = usePcOnly()
-  const [typed, setTyped] = useState('')
-  const [audioOnly, setAudioOnly] = useState(() => defaultAudioOnly(contentMode))
+  // The link and Audio only as last left for this title; Replace is never kept.
+  const { draft, save: saveDraft } = useStageDraft(dramaId, URL_DRAFT_STAGE, URL_DRAFT_SHAPE)
+  const [typed, setTyped] = useState(draft.url ?? '')
+  const [audioOnly, setAudioOnly] = useState(() => draft.audioOnly ?? defaultAudioOnly(contentMode))
+  useEffect(() => {
+    saveDraft({ url: typed, audioOnly })
+  }, [saveDraft, typed, audioOnly])
   const [replace, setReplace] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<unknown>(null)

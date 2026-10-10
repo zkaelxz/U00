@@ -1,3 +1,4 @@
+import { pickDraft } from '../../../hooks/useStageDraft'
 import type { DubConfig, DubPacingLine, DubRunRequest } from '../../../types/dub'
 
 export interface DubForm {
@@ -21,6 +22,24 @@ export function initialDubForm(cfg: DubConfig): DubForm {
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
+
+// The Dub form's draft (hooks/useStageDraft, stage "dub"): the pacing limits,
+// narration language and background toggle. The engine is the server's choice.
+export const DUB_DRAFT_STAGE = 'dub'
+export const DUB_DRAFT_SHAPE = { maxSpeedup: 0, maxSlowdown: 0, language: '', keepBackground: false }
+
+/** The defaults for `cfg` with the draft's values on top, kept only where this server still offers them. */
+export function dubFormFromDraft(cfg: DubConfig, raw: Record<string, unknown> | null): DubForm {
+  const base = initialDubForm(cfg)
+  const d = pickDraft(raw, DUB_DRAFT_SHAPE)
+  return {
+    ...base,
+    maxSpeedup: Number.isFinite(d.maxSpeedup) ? clamp(d.maxSpeedup as number, 1.0, 2.0) : base.maxSpeedup,
+    maxSlowdown: Number.isFinite(d.maxSlowdown) ? clamp(d.maxSlowdown as number, 0.5, 1.0) : base.maxSlowdown,
+    language: d.language && cfg.narration_language_options.includes(d.language) ? d.language : base.language,
+    keepBackground: d.keepBackground ?? base.keepBackground,
+  }
+}
 
 // Pacing limits only apply to timed (non-narration) dubs; keep_background is
 // only ever sent when the server said it can be honoured.

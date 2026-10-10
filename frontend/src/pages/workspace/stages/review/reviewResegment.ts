@@ -35,6 +35,11 @@ export const RESPLIT_SENSITIVITIES: { value: ResplitSensitivity; label: string }
 /** Seconds offered for "Also split by duration"; null keeps the preset's own limit. */
 export const RESPLIT_DURATION_CAPS = [5, 10, 15, 20]
 
+// The Re-split options' draft (hooks/useStageDraft, stage "review.resplit");
+// capSec 0 means the preset's own duration limit.
+export const RESPLIT_DRAFT_STAGE = 'review.resplit'
+export const RESPLIT_DRAFT_SHAPE = { align: false, sensitivity: '', capSec: 0 }
+
 /** "Preview: 31 lines would be split into 118." from a dry-run result. */
 export function resplitPreviewSummary(r: ResplitResult): string {
   const n = r.split_lines ?? 0

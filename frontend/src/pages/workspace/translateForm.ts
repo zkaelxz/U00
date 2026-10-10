@@ -169,12 +169,12 @@ export function translateButtonLabel(scanFirst: boolean, lineCount: number): str
   return scanFirst ? 'Scan glossary, then translate' : `Translate ${lineCount} line${lineCount === 1 ? '' : 's'}`
 }
 
-// The run options the owner last chose for a title, so a discarded or
+// The run options the owner last chose for a title, kept in the per-drama
+// draft store (hooks/useStageDraft, stage "translate") so a discarded or
 // reloaded tab doesn't reset them. Only plain choices are stored (never keys),
 // and the transient ones (re-translate existing and its confirmation) are
 // left out so a reload can't arm a destructive run.
-const RUN_OPTIONS_VERSION = 1
-const runOptionsKey = (dramaId: number) => `baihe.translateRun.v${RUN_OPTIONS_VERSION}.${dramaId}`
+export const TRANSLATE_DRAFT_STAGE = 'translate'
 
 type SavedForm = Omit<RunForm, 'force' | 'forceConfirmed' | 'female_pronouns' | 'genre_notes'>
 
@@ -187,14 +187,10 @@ export interface RunOptions {
   tier: string
 }
 
-export function saveRunOptions(dramaId: number, o: { form: RunForm; baseEngine: string; reviewFirst: boolean; tier: string }): void {
+/** What the draft keeps of the form: the plain choices, never the destructive switches. */
+export function runOptionsDraft(o: { form: RunForm; baseEngine: string; reviewFirst: boolean; tier: string }): RunOptions {
   const { force: _force, forceConfirmed: _confirmed, female_pronouns: _fp, genre_notes: _gn, ...form } = o.form
-  const out: RunOptions = { form, baseEngine: o.baseEngine, reviewFirst: o.reviewFirst, tier: o.tier }
-  try {
-    localStorage.setItem(runOptionsKey(dramaId), JSON.stringify(out))
-  } catch {
-    // storage unavailable: the options just aren't remembered
-  }
+  return { form, baseEngine: o.baseEngine, reviewFirst: o.reviewFirst, tier: o.tier }
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
@@ -208,24 +204,17 @@ function clampInt(raw: unknown, min: number, max: number, fallback: string): str
   return String(Math.min(max, Math.max(min, Number(t))))
 }
 
-// Overlay the saved options on `base` (the form initialForm built), keeping
-// only values this server still offers. The toggles the title saves on the
-// server (she/her, genre notes) always come from `base`.
+// Overlay the draft's options (`o`, the stored record or null) on `base` (the
+// form initialForm built), keeping only values this server still offers. The
+// toggles the title saves on the server (she/her, genre notes) always come
+// from `base`.
 export function restoreRunOptions(
-  dramaId: number,
+  o: Record<string, unknown> | null,
   base: RunForm,
   c: TranslateRunConfig,
 ): { form: RunForm; reviewFirst: boolean; tier: string | null } {
   const none = { form: base, reviewFirst: false, tier: null }
-  let o: Record<string, unknown>
-  try {
-    const raw = localStorage.getItem(runOptionsKey(dramaId))
-    const v: unknown = raw ? JSON.parse(raw) : null
-    if (!v || typeof v !== 'object' || !('form' in v)) return none
-    o = v as Record<string, unknown>
-  } catch {
-    return none
-  }
+  if (!o || !('form' in o)) return none
   const s = (o.form && typeof o.form === 'object' ? o.form : {}) as Record<string, unknown>
   const f: RunForm = { ...base }
   const engines = c.engines ?? []

@@ -46,6 +46,44 @@ test('a refused option is highlighted on its field, with the reason beside it', 
   await expect(field).not.toHaveAttribute('aria-invalid', 'true')
 })
 
+test('the form survives a reload, and Reset to defaults clears it', async ({ page }) => {
+  // A fresh context: no draft and every fold closed.
+  await page.goto('/#/drama/1/source')
+  const card = page.getByRole('region', { name: 'Transcribe' })
+  const beam = card.getByLabel('Beam size', { exact: true })
+  await openTranscribeOptions(page)
+  // Fresh storage: Advanced starts folded, and stays open across the reload below.
+  await card.locator('.section-title', { hasText: /^Advanced$/ }).first().click()
+  await expect(beam).toBeVisible()
+  const savedBeam = await beam.inputValue()
+  await card.getByLabel('Source language').selectOption('ja')
+  await card.getByLabel('Transcript text').fill('kept across a reload')
+  await beam.fill('7')
+  await card.getByLabel('Extra names to expect', { exact: true }).fill('沈清疑')
+  // The override sits in a plain <details> that is not remembered: open it each time.
+  const openOverride = () => card.locator('summary', { hasText: 'Advanced: replace the automatic prompt' }).click()
+  await openOverride()
+  await card.getByLabel('Replacement prompt', { exact: true }).fill('full prompt')
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('baihe.draft.1.transcribe')))
+    .toContain('"beam_size":"7"')
+
+  await page.reload()
+  await expect(card.getByLabel('Source language')).toHaveValue('ja')
+  await expect(card.getByLabel('Transcript text')).toHaveValue('kept across a reload')
+  await expect(beam).toHaveValue('7')
+  await expect(card.getByLabel('Extra names to expect', { exact: true })).toHaveValue('沈清疑')
+  await openOverride()
+  await expect(card.getByLabel('Replacement prompt', { exact: true })).toHaveValue('full prompt')
+
+  await card.getByRole('button', { name: 'Reset to defaults' }).click()
+  await expect(card.getByLabel('Source language')).toHaveValue('zh')
+  await expect(card.getByLabel('Transcript text')).toHaveValue('')
+  await expect(beam).toHaveValue(savedBeam)
+  await expect(card.getByLabel('Extra names to expect', { exact: true })).toHaveValue('')
+  await expect(card.getByLabel('Replacement prompt', { exact: true })).toHaveValue('')
+})
+
 test('forced alignment is disabled with a reason when there is no supplied transcript', async ({ page }) => {
   await page.route('**/api/transcribe/dramas/1/config', async (route) => {
     const resp = await route.fetch()

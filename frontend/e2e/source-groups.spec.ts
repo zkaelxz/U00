@@ -28,6 +28,15 @@ test('an audio drama leads with Transcribe, open', async ({ page }) => {
   expect(await isOpen(page, 'Details and credits')).toBe(false)
 })
 
+test('a video drama leads with Transcribe, open', async ({ page }) => {
+  await stubType(page, 'video_drama')
+  await page.goto('/#/drama/2/source')
+  await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  expect((await titles(page)).slice(0, 2)).toEqual(['Transcribe audio or video', 'Novel text'])
+  expect(await isOpen(page, 'Transcribe audio or video')).toBe(true)
+  expect(await isOpen(page, 'Novel text')).toBe(false)
+})
+
 test('a novel leads with Novel text, open, with raw and translation text labelled apart', async ({ page }) => {
   await stubType(page, 'novel')
   await page.goto('/#/drama/2/source')

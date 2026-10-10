@@ -1,4 +1,5 @@
 import { safeDetail } from '../../components/errorMessages'
+import { draftStorage, pickDraft, readDraft } from '../../hooks/useStageDraft'
 import type { TranscribeConfigUpdate } from '../../types/workspace'
 
 // Pure client-side checks for the Source/Transcribe stage. The server
@@ -169,46 +170,37 @@ export function whisperModelWarning(size: string, language: string): string {
   return ''
 }
 
-// Source-stage run options kept for the browser session, per drama, so a
-// stage-tab switch or navigation does not wipe them.
-interface SourceFormState {
-  language: string
-  script: string
-  transcriptText: string
-  runDiarize: boolean
-  speakers: string
+// The Transcribe form's draft (hooks/useStageDraft, stage "transcribe"): the
+// run options, the prompt override and, under `advanced`, only the Advanced
+// values that differ from the saved options, so unchanged ones keep following
+// the server.
+export const TRANSCRIBE_DRAFT_STAGE = 'transcribe'
+export const TRANSCRIBE_DRAFT_SHAPE = {
+  language: '',
+  script: '',
+  transcriptText: '',
+  runDiarize: false,
+  speakers: '',
   // Speaker-count range for "Detect speakers only".
-  minSpeakers?: string
-  maxSpeakers?: string
-  // Extra names added to the automatic Whisper prompt.
-  extraNames: string
+  minSpeakers: '',
+  maxSpeakers: '',
+  // Extra names added to the automatic Whisper prompt, and its full replacement.
+  extraNames: '',
+  override: '',
 }
+export type TranscribeDraft = typeof TRANSCRIBE_DRAFT_SHAPE
 
-const formKey = (dramaId: number) => `baihe.sourceForm.${dramaId}`
+// The media picker's draft (stage "source"): which way the file comes in.
+export const SOURCE_DRAFT_STAGE = 'source'
+export const SOURCE_DRAFT_SHAPE = { from: 'file' }
 
-export function loadSourceForm(dramaId: number): Partial<SourceFormState> {
-  try {
-    const raw = sessionStorage.getItem(formKey(dramaId))
-    const v: unknown = raw ? JSON.parse(raw) : null
-    if (!v || typeof v !== 'object') return {}
-    const o = v as Record<string, unknown>
-    const out: Partial<SourceFormState> = {}
-    for (const k of ['language', 'script', 'transcriptText', 'speakers', 'minSpeakers', 'maxSpeakers', 'extraNames'] as const) {
-      if (typeof o[k] === 'string') out[k] = o[k]
-    }
-    if (typeof o.runDiarize === 'boolean') out.runDiarize = o.runDiarize
-    return out
-  } catch {
-    return {}
-  }
-}
+// The "From a URL" form's draft (stage "source.url"); Replace is never kept.
+export const URL_DRAFT_STAGE = 'source.url'
+export const URL_DRAFT_SHAPE = { url: '', audioOnly: false }
 
-export function saveSourceForm(dramaId: number, state: SourceFormState): void {
-  try {
-    sessionStorage.setItem(formKey(dramaId), JSON.stringify(state))
-  } catch {
-    // storage unavailable: the form just will not persist
-  }
+/** The names kept on the Transcribe stage, which other prompts (Compare transcription) start from. */
+export function transcribeExtraNames(dramaId: number): string {
+  return pickDraft(readDraft(draftStorage(), dramaId, TRANSCRIBE_DRAFT_STAGE), TRANSCRIBE_DRAFT_SHAPE).extraNames ?? ''
 }
 
 // Values the API falls back to (services/transcribe_service.py _DEFAULT_TUNING);

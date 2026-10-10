@@ -44,32 +44,20 @@ export const emptyAssForm = (preset: string): AssForm => ({
 
 const HEX = /^#[0-9A-Fa-f]{6}$/
 
-const formKey = (dramaId: number) => `baihe.export.style.${dramaId}`
+// The Export stage's draft (hooks/useStageDraft, stage "export") holds the
+// format and the style form, which the Review burn preview renders with too.
+export const EXPORT_DRAFT_STAGE = 'export'
 
-// The Export stage's style form is kept per viewer so the Review burn preview
-// can render with the same style. Storage may be missing or throw.
-export function saveAssForm(dramaId: number, form: AssForm): void {
-  try {
-    window.localStorage.setItem(formKey(dramaId), JSON.stringify(form))
-  } catch {
-    // ignore
+/** The style form kept in the Export draft, or null when the draft has none; wrong-typed values fall back. */
+export function assFormFromDraft(raw: Record<string, unknown> | null): AssForm | null {
+  const parsed = raw?.form
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const stored = parsed as Record<string, unknown>
+  const out: Record<string, unknown> = { ...emptyAssForm('') }
+  for (const [k, v] of Object.entries(out)) {
+    if (typeof stored[k] === typeof v) out[k] = stored[k]
   }
-}
-
-export function loadAssForm(dramaId: number): AssForm | null {
-  try {
-    const raw = window.localStorage.getItem(formKey(dramaId))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Record<string, unknown> | null
-    if (!parsed || typeof parsed !== 'object') return null
-    const out: Record<string, unknown> = { ...emptyAssForm('') }
-    for (const [k, v] of Object.entries(out)) {
-      if (typeof parsed[k] === typeof v) out[k] = parsed[k]
-    }
-    return out as unknown as AssForm
-  } catch {
-    return null
-  }
+  return out as unknown as AssForm
 }
 
 // Blank means "not set"; otherwise an integer from min to max.
