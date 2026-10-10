@@ -361,9 +361,9 @@ def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
 
 
 def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
-    import diagnostics
+    import diagnostics_torch
     monkeypatch.delitem(sys.modules, "torch", raising=False)
-    monkeypatch.setattr(diagnostics, "external_gpu_load",
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load",
                         lambda: {"memory_free_mb": 1024.0, "memory_used_mb": 0,
                                  "memory_total_mb": 1024.0, "utilization_percent": 0})
     assert vram_service.free_vram_mb() == 1024.0

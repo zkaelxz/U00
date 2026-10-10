@@ -9,7 +9,7 @@ import time
 import pytest
 
 import background_jobs
-import diagnostics
+import diagnostics_torch
 from services import diagnostics_gaps_service as gaps
 from services import diagnostics_installs_service as svc
 
@@ -37,7 +37,7 @@ def _finished():
 def env(isolated_db, monkeypatch):
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
-    monkeypatch.setattr(diagnostics, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(diagnostics_torch, "torch_pin_lines", lambda: [])
     background_jobs.clear_job(JOB)
     svc._DEPENDENCY.update(kind=None, package=None, last=None)
     yield
@@ -190,7 +190,7 @@ def test_other_job_check_ignores_the_install_itself(env, monkeypatch):
 
 
 def test_gpu_torch_setup_runs_as_a_job_and_cancel_skips_the_check(env, monkeypatch):
-    monkeypatch.setattr(diagnostics, "nvidia_driver_info", lambda: None)
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     monkeypatch.setattr(svc.gaps, "_python_supported", lambda: True)
     monkeypatch.setattr(gaps, "_torch_setup_commands",
                         lambda variant: [([sys.executable, "-c", "import time; print('x', flush=True); time.sleep(60)"], 60)])
