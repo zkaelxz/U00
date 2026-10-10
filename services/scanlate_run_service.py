@@ -133,12 +133,12 @@ def _predecessor_context(drama_id: int, page_id: int) -> str:
 
 
 def _detector_note(detect_backend: str, notes: list) -> tuple:
-    import scanlate
+    import scanlate_detect
     fell_back = any(n[0] == "warning" for n in notes)
     if detect_backend == "cv" or fell_back:
         why = " (the ML detector could not run)" if fell_back else ""
         return ("info", f"Detector: OpenCV heuristic{why}.")
-    if detect_backend == "ml" or scanlate.bubble_ml_weights_cached():
+    if detect_backend == "ml" or scanlate_detect.bubble_ml_weights_cached():
         return ("info", "Detector: ML model.")
     return ("info", "Detector: OpenCV heuristic (the ML model is not downloaded).")
 

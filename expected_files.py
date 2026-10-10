@@ -80,6 +80,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "resegment.py",
     "run_tests.py",
     "scanlate.py",
+    "scanlate_detect.py",
     "segment.py",
     "segment_splitting.py",
     "sensevoice_tags.py",
