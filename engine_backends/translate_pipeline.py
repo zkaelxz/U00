@@ -2,13 +2,17 @@
 
 import inspect
 from .fallback import FallbackEngine
-from .llm_tasks import call_llm_json
+from .llm_tasks import (bounded_llm_calls, call_batch_bounded, call_llm_json,
+                        llm_tasks_scope_active, request_deadline_for)
 from .pricing import estimate_cost_for_engine
-from .prompts import build_batch_context, build_stable_prompt
+from .prompts import (MALE_PRONOUN_WORD, batch_context_for, build_stable_prompt, is_male_speaker_label,
+                      known_male_names, pronoun_batch_note, pronoun_default_active,
+                      pronoun_neutral_texts)
 from .thinking import title_thinking
 from .shared import (
     ContentModerationBlocked,
     FreeTierDailyLimitReached,
+    LLMTaskTimeout,
     _backoff_wait_var,
     _cancel_check_var,
     _id_keyed_batch_request,
@@ -18,6 +22,7 @@ from .shared import (
     spoken_language_tag,
     tagged_line_languages,
     redact_secrets,
+    TranslationCancelled,
 )
 from memory_headroom import HeadroomError
 
@@ -167,8 +172,10 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     instructions, novel_block = build_stable_prompt(context)
     if novel_block:
         instructions = instructions + "\n\n" + novel_block
-    batch_ctx = build_batch_context(context.get("recent_context"), context.get("upcoming_lines"))
+    batch_ctx = batch_context_for(context)
     batch_ctx = batch_ctx + "\n" if batch_ctx else ""
+    batch_ctx = pronoun_batch_note(context.get("style_guidelines"),
+                                   context.get("source_language", "zh")) + batch_ctx
 
     def call(prompt):
         return call_llm_json(engine, prompt, max_tokens=4000, fallback="{}", usage_cb=usage_cb)
@@ -284,6 +291,75 @@ def plan_batches(lines, max_size: int, min_gap: float = SCENE_BREAK_GAP_SECONDS,
         batches.append(lines[start:end])
         start = end
     return batches
+
+
+PRONOUN_CHECK_FLAG = "pronoun_check"
+
+
+def _record_engine_usage(engine, record_usage):
+    if hasattr(engine, "last_usage"):
+        u = engine.last_usage
+        record_usage(u.get("input_tokens", 0), u.get("output_tokens", 0),
+                     u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
+
+
+def _recheck_male_pronouns(engine, lines, translated, context, character_names, batch_size,
+                           save_cb, record_usage, cap_reached, cancel_check_cb):
+    """With the she/her default on, asks once more for the lines it was meant to
+    prevent: an English line saying he/him/his for a speaker with no he/him
+    character. Only those ids go back, with a stricter instruction; a line still
+    male afterwards is flagged for Review (flag/flag_note, which the finishing
+    step saves on its own) rather than rewritten blind. The retry is bounded by
+    the run's cost cap and cancel, and a failed retry just leaves the flag."""
+    guidelines = context.get("style_guidelines") or ""
+    if (not pronoun_default_active(guidelines) or context.get("source_language", "zh") != "zh"
+            or not getattr(engine, "supports_reference", False)):
+        return
+    known_male = [n.casefold() for n in known_male_names(guidelines)]
+
+    def suspect(ln):
+        if not MALE_PRONOUN_WORD.search(ln.en or "") or is_male_speaker_label(character_names.get(ln.speaker)):
+            return False
+        # A line naming a known male character may be about him, not a slip.
+        text = f"{ln.zh}\n{ln.en}".casefold()
+        return not any(name in text for name in known_male)
+
+    suspects = [ln for ln in translated if suspect(ln)]
+    strict = dict(context, pronoun_strict=True)
+    retried = []
+    for start in range(0, len(suspects), batch_size):
+        if cap_reached() or (cancel_check_cb and cancel_check_cb()):
+            break
+        chunk = suspects[start:start + batch_size]
+        chunk_context = dict(strict)
+        chunk_context["speaker_labels"] = [character_names.get(ln.speaker) for ln in chunk]
+        chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
+        chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
+        chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
+        sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
+        try:
+            redone = call_with_backoff(
+                lambda: call_batch_bounded(
+                    engine, lambda: engine.translate_batch(sources, chunk_context),
+                    on_late_result=lambda: _record_engine_usage(engine, record_usage)))
+            _record_engine_usage(engine, record_usage)
+        except Exception as e:
+            import applog
+            applog.get_logger().warning(f"pronoun re-check skipped a batch: {redact_secrets(str(e))}")
+            continue
+        if len(redone) != len(chunk):
+            continue
+        for ln, tr in zip(chunk, redone):
+            if (tr or "").strip():
+                ln.en = tr
+                retried.append(ln)
+    if retried and save_cb:
+        save_cb(lines)
+    for ln in suspects:
+        if suspect(ln) and not ln.flag:
+            ln.flag = PRONOUN_CHECK_FLAG
+            ln.flag_note = ("Says he/him but no he/him character is set for this speaker; "
+                            "check the pronoun")
 
 
 def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = 20,
@@ -428,6 +504,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
         ollama_num_ctx_override=ollama_num_ctx_override, thinking=thinking)
     errors = []
     stop_run = []
+    translated = []
     spent = 0.0
 
     def record_usage(inp, out, cache_read=0, cache_write=0):
@@ -496,16 +573,18 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
             chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
             chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
+            sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
             if reflect:
                 return call_with_backoff(
-                    lambda: reflect_translate_batch(engine, [ln.zh for ln in chunk], chunk_context,
+                    lambda: reflect_translate_batch(engine, sources, chunk_context,
                                                     usage_cb=record_usage, pass_cb=_on_pass))
+            # A batch abandoned on Cancel or at the deadline was still billed, so
+            # its usage is logged when the request finally returns.
             translations = call_with_backoff(
-                lambda: engine.translate_batch([ln.zh for ln in chunk], chunk_context))
-            if hasattr(engine, "last_usage"):
-                u = engine.last_usage
-                record_usage(u.get("input_tokens", 0), u.get("output_tokens", 0),
-                             u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
+                lambda: call_batch_bounded(
+                    engine, lambda: engine.translate_batch(sources, chunk_context),
+                    on_late_result=lambda: _record_engine_usage(engine, record_usage)))
+            _record_engine_usage(engine, record_usage)
             return translations, None
 
         def _process_chunk(chunk, allow_bisect):
@@ -522,6 +601,10 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 if allow_bisect and len(chunk) > 1:
                     mid = len(chunk) // 2
                     _process_chunk(chunk[:mid], allow_bisect=False)
+                    # The first half may have ended on Cancel or a deadline, which
+                    # it swallows; the second half must not send another request.
+                    if stop_run or (cancel_check_cb and cancel_check_cb()):
+                        return
                     _process_chunk(chunk[mid:], allow_bisect=False)
                 else:
                     for ln in chunk:
@@ -531,11 +614,16 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                    "error": f"blocked by {blocked.engine}'s content filter: "
                                             f"{blocked.reason}"})
                 return
+            except TranslationCancelled:
+                # Not a failure of the batch; the loop's cancel check ends the run.
+                return
             except Exception as e:
                 redacted = redact_secrets(str(e))
                 errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
                                "error": redacted})
-                if isinstance(e, (FreeTierDailyLimitReached, HeadroomError)):
+                # After a timeout the abandoned request may still be running, so
+                # the next batch would be refused or double-billed.
+                if isinstance(e, (FreeTierDailyLimitReached, HeadroomError, LLMTaskTimeout)):
                     stop_run.append(True)
                 import applog
                 applog.get_logger().error(f"translate batch {bi} failed: {redacted}")
@@ -559,6 +647,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 for ln, tr in zip(chunk, translations):
                     if (tr or "").strip():
                         ln.en = tr
+                        translated.append(ln)
                     else:
                         empty.append(ln)
                 if empty:
@@ -590,6 +679,12 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             if cap_cb:
                 cap_cb(spent)
             break
+    else:
+        if not stop_run and not (cancel_check_cb and cancel_check_cb()):
+            _recheck_male_pronouns(
+                engine, lines, translated, context, character_names, batch_size, save_cb,
+                record_usage, lambda: cost_cap_usd is not None and spent >= cost_cap_usd,
+                cancel_check_cb)
     return lines, errors
 
 
@@ -600,8 +695,21 @@ def translate_lines_with_engine(*args, **kwargs):
     # the caller passed it positionally or by keyword; the context var lets
     # sleeps deep in shared.py see it without threading it through every call.
     bound = inspect.signature(_translate_lines_with_engine).bind(*args, **kwargs)
-    token = _cancel_check_var.set(bound.arguments.get("cancel_check_cb"))
+    cancel_check = bound.arguments.get("cancel_check_cb")
+    token = _cancel_check_var.set(cancel_check)
     try:
-        return _translate_lines_with_engine(*args, **kwargs)
+        if llm_tasks_scope_active():
+            return _translate_lines_with_engine(*args, **kwargs)
+        # One run per drama at a time, so the drama keys the rule that an
+        # abandoned request blocks a new one; without an id the global cap applies.
+        drama_id = (bound.arguments.get("drama_meta") or {}).get("id")
+        engine = bound.arguments["engine"]
+        # Reflect passes go through call_llm_json one request at a time, and
+        # with thinking on DeepSeek's reply can legitimately take the whole
+        # client timeout; the default DeepSeek deadline would cut it short.
+        with bounded_llm_calls(f"translate:{drama_id}" if drama_id else None,
+                               cancel_check or (lambda: False), lenient_empty=True,
+                               deadline=request_deadline_for(engine)):
+            return _translate_lines_with_engine(*args, **kwargs)
     finally:
         _cancel_check_var.reset(token)

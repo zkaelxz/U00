@@ -5,6 +5,8 @@ import {
   NARRATION_RESUME_NOTE,
   dubAdvancedSummary,
   dubBlocker,
+  DUB_DRAFT_SHAPE,
+  dubFormFromDraft,
   dubSettingsLine,
   initialDubForm,
   narrationResumeNote,
@@ -38,6 +40,25 @@ describe('dub summaries', () => {
     const form = { ...initialDubForm(noBgm), keepBackground: true }
     expect(dubAdvancedSummary(noBgm, form)).toBe('defaults')
     expect(dubSettingsLine(noBgm, form)).toBe('OmniVoice · speed 0.85x to 1.3x · no background music')
+  })
+})
+
+describe('dub draft', () => {
+  const narration = { ...cfg, is_narration: true, narration_language: 'translation', narration_language_options: ['translation', 'original'] } as unknown as DubConfig
+
+  it('starts from the defaults when there is no draft', () => {
+    expect(dubFormFromDraft(cfg, null)).toEqual(initialDubForm(cfg))
+    expect(Object.keys(DUB_DRAFT_SHAPE).sort()).toEqual(['keepBackground', 'language', 'maxSlowdown', 'maxSpeedup'])
+  })
+
+  it('restores the pacing limits, language and background toggle, clamped and only where offered', () => {
+    expect(dubFormFromDraft(cfg, { maxSpeedup: 1.6, maxSlowdown: 0.7, keepBackground: true })).toMatchObject({
+      engine: 'omnivoice', maxSpeedup: 1.6, maxSlowdown: 0.7, keepBackground: true,
+    })
+    expect(dubFormFromDraft(cfg, { maxSpeedup: 9, maxSlowdown: 0.1 })).toMatchObject({ maxSpeedup: 2, maxSlowdown: 0.5 })
+    expect(dubFormFromDraft(cfg, { maxSpeedup: '1.6', keepBackground: 'yes', engine: 'other' })).toEqual(initialDubForm(cfg))
+    expect(dubFormFromDraft(narration, { language: 'original' }).language).toBe('original')
+    expect(dubFormFromDraft(narration, { language: 'fr' }).language).toBe('translation')
   })
 })
 

@@ -293,6 +293,13 @@ The per-title "Split lines by sentences" option (`split_by_sentences`) does the
 same for Whisper and Qwen3 ASR: Whisper's speech detection splits only at 2 s
 pauses (`asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS`, faster-whisper's default) and the
 lines are cut by `asr_backend.SENTENCE_SPLIT_RULES` using Whisper's word timings.
+New Chinese and Japanese titles start with it on; existing titles keep their value.
+It has no effect on other backends (the Transcribe toggle says so).
+
+Every line cut goes through `long_line_split.split_long_segments`: sentence ends,
+then commas and spaces, then real word pauses, and last equal runs of characters
+with proportional times, flagged `timing_uncertain` ("times are approximate").
+Review's Re-split, Resegment and the transcribe-time split share that order.
 
 `mixed_language.py` backs the "mixed languages" option (`mixed_languages` in
 the ASR options): language is detected per speech span, the text's script is

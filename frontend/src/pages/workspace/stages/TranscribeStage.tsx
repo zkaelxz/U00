@@ -18,6 +18,7 @@ import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { changedKeys, isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
 import type {
   DiarizationConfig,
   MediaStatus,
@@ -27,7 +28,6 @@ import type {
 } from '../../../types/workspace'
 import {
   advancedSummary,
-  loadSourceForm,
   MIN_SILENCE_MS_MAX,
   MIN_PAUSE_SEC_MAX,
   MIN_PAUSE_SEC_MIN,
@@ -36,7 +36,8 @@ import {
   parseSpeakerHints,
   runOptionProblem,
   runProblemFromError,
-  saveSourceForm,
+  TRANSCRIBE_DRAFT_SHAPE,
+  TRANSCRIBE_DRAFT_STAGE,
   validateConfig,
   type RunField,
   type RunFieldProblem,
@@ -170,18 +171,18 @@ export default function TranscribeStage({
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
-  // Restored from sessionStorage (per drama) so switching stage tabs keeps the form.
-  const [restored] = useState(() => loadSourceForm(dramaId))
-  const [language, setLanguage] = useState(restored.language ?? drama.source_language ?? 'zh')
+  // The form as last left for this drama, so a stage-tab switch or a reload keeps it.
+  const { draft: restored, raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSCRIBE_DRAFT_STAGE, TRANSCRIBE_DRAFT_SHAPE)
+  const defaultLanguage = drama.source_language ?? 'zh'
+  const [language, setLanguage] = useState(restored.language ?? defaultLanguage)
   const [script, setScript] = useState(restored.script ?? '')
   const [transcriptText, setTranscriptText] = useState(restored.transcriptText ?? '')
   const [runDiarize, setRunDiarize] = useState(restored.runDiarize ?? false)
   const [speakers, setSpeakers] = useState(restored.speakers ?? '')
   const [minSpeakers, setMinSpeakers] = useState(restored.minSpeakers ?? '')
   const [maxSpeakers, setMaxSpeakers] = useState(restored.maxSpeakers ?? '')
-  // Names added to the automatic prompt (kept per drama); the full override is not kept.
   const [extraNames, setExtraNames] = useState(restored.extraNames ?? '')
-  const [override, setOverride] = useState('')
+  const [override, setOverride] = useState(restored.override ?? '')
   const [useGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -207,14 +208,17 @@ export default function TranscribeStage({
       (c) => {
         if (cancelled) return
         setConfig(c)
-        setCf(formFromConfig(c))
+        // The Advanced values changed here and not run yet sit on top of the saved options.
+        const saved = formFromConfig(c)
+        const advanced = rawDraft?.advanced
+        setCf({ ...saved, ...pickDraft(isRecord(advanced) ? advanced : null, saved) })
       },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, rawDraft])
 
   useEffect(() => {
     let cancelled = false
@@ -243,8 +247,27 @@ export default function TranscribeStage({
   }, [busy])
 
   useEffect(() => {
-    saveSourceForm(dramaId, { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames })
-  }, [dramaId, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames])
+    // Until the saved options arrive the stored Advanced changes are kept as they are.
+    const advanced = cf && config ? changedKeys(cf, formFromConfig(config)) : rawDraft?.advanced
+    saveDraft({ language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, advanced })
+  }, [saveDraft, rawDraft, cf, config, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
+
+  // Back to the drama's language and the saved options; the draft for this title is dropped.
+  const resetToDefaults = () => {
+    clearDraft()
+    setLanguage(defaultLanguage)
+    setScript('')
+    setTranscriptText('')
+    setRunDiarize(false)
+    setSpeakers(diar?.expected_speakers ? String(diar.expected_speakers) : '')
+    setMinSpeakers('')
+    setMaxSpeakers('')
+    setExtraNames('')
+    setOverride('')
+    setProblem(null)
+    setFieldProblem(null)
+    if (config) setCf(formFromConfig(config))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -723,7 +746,10 @@ export default function TranscribeStage({
             {toggle(
               'Split lines by sentences',
               'split_by_sentences',
-              'Whisper hears longer stretches of speech, then lines are cut at sentence ends and, for long ones, at pauses between words. Min silence is not used. Whisper and Qwen3 ASR only; the speech-detection backends already cut their own lines.',
+              'Whisper hears longer stretches of speech, then lines are cut at sentence ends and, for long ones, at pauses between words. Min silence is not used. Whisper and Qwen3 ASR only; the speech-detection backends already cut their own lines.'
+              + (cf && !['whisper', 'qwen3_asr'].includes(cf.asr_backend_choice)
+                ? ' Not used with the selected ASR backend: choose Whisper or Qwen3 ASR for this to apply. Long lines can still be cut afterwards in Review.'
+                : ''),
             )}
             {toggle(
               'Whisper repeat guard',
@@ -734,6 +760,7 @@ export default function TranscribeStage({
           </div>
           <div className="actions">
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={saveOptions}>Save options</button>
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={resetToDefaults}>Reset to defaults</button>
             {saved && <span role="status" className="muted">Saved.</span>}
           </div>
           <AutoTune

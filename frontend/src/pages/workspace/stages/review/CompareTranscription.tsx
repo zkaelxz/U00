@@ -12,13 +12,17 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
+import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useStageDraft } from '../../../../hooks/useStageDraft'
 import { useLineSelectionContext } from './LineSelectionContext'
-import { loadSourceForm } from '../../sourceForm'
+import { transcribeExtraNames } from '../../sourceForm'
 import { promptFields } from '../transcribePrompt'
 import { TERMINAL_STATUSES } from '../../../../types/jobs'
 import type { CompareEstimate, CompareOptions, CompareProposal, CompareResult } from '../../../../types/workspace'
 import {
+  COMPARE_DRAFT_SHAPE,
+  COMPARE_DRAFT_STAGE,
   EMPTY_SELECTION_FORM,
   buildSelection,
   capProblem,
@@ -85,13 +89,17 @@ export function CompareTranscription({
   const [sectionSignal, setSectionSignal] = useState(0)
   const [options, setOptions] = useState<CompareOptions | null>(null)
   const [form, setForm] = useState<SelectionForm>(EMPTY_SELECTION_FORM)
+  // The run options as last left here; the names start from the Transcribe stage's.
+  const { draft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, COMPARE_DRAFT_STAGE, COMPARE_DRAFT_SHAPE)
   const [size, setSize] = useState('')
   const [backend, setBackend] = useState('')
-  const [translate, setTranslate] = useState(false)
-  const [retranslate, setRetranslate] = useState(false)
-  // Prefilled with the names saved for this title on the Transcribe stage; the hint is per run.
-  const [extraNames, setExtraNames] = useState(() => loadSourceForm(dramaId).extraNames ?? '')
-  const [hint, setHint] = useState('')
+  const [translate, setTranslate] = useState(draft.translate ?? false)
+  const [retranslate, setRetranslate] = useState(draft.retranslate ?? false)
+  const [extraNames, setExtraNames] = useState(() => draft.extraNames ?? transcribeExtraNames(dramaId))
+  const [hint, setHint] = useState(draft.hint ?? '')
+  useEffect(() => {
+    if (options) saveDraft({ size, backend, translate, retranslate, extraNames, hint })
+  }, [saveDraft, options, size, backend, translate, retranslate, extraNames, hint])
   const [usedPrompt, setUsedPrompt] = useState<{ hint: string; names: string } | null>(null)
   const [estimate, setEstimate] = useState<CompareEstimate | null>(null)
   const [estimateError, setEstimateError] = useState<string | null>(null)
@@ -110,14 +118,16 @@ export function CompareTranscription({
       (o) => {
         if (cancelled) return
         setOptions(o)
-        setSize(o.saved_whisper_size)
-        setBackend(o.saved_asr_backend)
+        setSize(draft.size && o.whisper_sizes.includes(draft.size) ? draft.size : o.saved_whisper_size)
+        setBackend(draft.backend && o.backends.some((b) => b.id === draft.backend) ? draft.backend : o.saved_asr_backend)
       },
       (e) => !cancelled && setError(e),
     )
     return () => {
       cancelled = true
     }
+    // draft is read once per drama with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dramaId])
 
   useEffect(() => {
@@ -362,6 +372,22 @@ export function CompareTranscription({
           {active && job && (
             <button type="button" onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>
           )}
+          <button
+            type="button"
+            className={buttonClass('ghost')}
+            disabled={busy}
+            onClick={() => {
+              clearDraft()
+              setSize(options.saved_whisper_size)
+              setBackend(options.saved_asr_backend)
+              setTranslate(false)
+              setRetranslate(false)
+              setHint('')
+              setExtraNames(transcribeExtraNames(dramaId))
+            }}
+          >
+            Reset to defaults
+          </button>
         </div>
         {blockedMessage && !busy && <p className="muted" data-testid="compare-blocked">{blockedMessage}</p>}
         <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />

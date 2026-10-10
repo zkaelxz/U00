@@ -148,6 +148,97 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
     return instructions
 
 
+# Starts the she/her default in the style text. The engines see only that text
+# (live, bulk and a resumed off-peak job all carry it), so it doubles as the
+# switch for the per-batch pronoun reminder, the source neutralising and the
+# post-translation check, with no second flag to keep in step.
+PRONOUN_DEFAULT_MARKER = "Pronoun default:"
+
+PRONOUN_BATCH_NOTE = (
+    "PRONOUN NOTE: in the source lines below, a written 他, 她, 它, 他们 or 她们 (or a bare "
+    "TA) is the same spoken \"tā\" and says nothing about gender, so never translate 他 as "
+    "\"he\" just because it is written that way. Default to she/her (they/them for a group or "
+    "when no one is meant) unless a listed character's pronouns or a clearly male "
+    "honorific or kinship term (先生, 哥, 父, 爸, 男...) says male.\n")
+
+PRONOUN_STRICT_NOTE = (
+    "PRONOUN CORRECTION: your earlier translation of each line below used he/him/his, but "
+    "nothing says these speakers are male. Redo them with she/her/hers (they/them for a group or "
+    "when no one is meant); use he/him/his only for a listed male character or a clearly "
+    "male honorific or kinship term.{known}\n")
+
+_MALE_PRONOUNS = r"(?:he/\w+|male)"
+_KNOWN_MALE_ENTRY = re.compile(rf"^[ \t]+([^:\n]+):[ \t]*{_MALE_PRONOUNS}\b", re.MULTILINE | re.IGNORECASE)
+_MALE_SPEAKER_LABEL = re.compile(rf"\({_MALE_PRONOUNS}\)\s*$", re.IGNORECASE)
+MALE_PRONOUN_WORD = re.compile(r"\b(?:he|him|his|himself)\b", re.IGNORECASE)
+
+# Words that contain 他 without being the pronoun ("other", "guitar", ...), kept
+# whole so neutralising never rewrites them.
+_TA_COMPOUNDS = ("其他|其它|他人|他乡|他国|他杀|他处|他日|他方|他山|他者|他物|他事|他用|他项|"
+                 "他妈|利他|排他|自他|吉他")
+_TA_PRONOUN = re.compile(rf"({_TA_COMPOUNDS})|(他们|她们|他|她)")
+
+
+def pronoun_default_active(style_guidelines: str) -> bool:
+    return PRONOUN_DEFAULT_MARKER in (style_guidelines or "")
+
+
+def known_male_names(style_guidelines: str) -> list:
+    """Names the KNOWN CHARACTER PRONOUNS block gives he/him."""
+    return [m.group(1).strip() for m in _KNOWN_MALE_ENTRY.finditer(style_guidelines or "")]
+
+
+def is_male_speaker_label(label) -> bool:
+    return bool(label and _MALE_SPEAKER_LABEL.search(label))
+
+
+def pronoun_batch_note(style_guidelines: str, source_language: str = "zh", strict: bool = False) -> str:
+    """The reminder that opens each batch while the she/her default is on.
+    Chinese sources only: 他/她 homophony is a Mandarin problem."""
+    if source_language != "zh" or not pronoun_default_active(style_guidelines):
+        return ""
+    if not strict:
+        return PRONOUN_BATCH_NOTE + "\n"
+    names = known_male_names(style_guidelines)
+    return PRONOUN_STRICT_NOTE.format(
+        known=f" Listed male characters: {', '.join(names)}." if names else "") + "\n"
+
+
+def neutralise_ta(text: str) -> str:
+    """Written 他/她 -> TA (他们/她们 -> TA-PL), compounds untouched. 它 is left
+    alone: it names a thing, which the model already renders as "it"."""
+    def swap(m):
+        if m.group(1):
+            return m.group(1)
+        return "TA-PL" if len(m.group(2)) == 2 else "TA"
+    return _TA_PRONOUN.sub(swap, text or "")
+
+
+def pronoun_neutral_texts(context: dict, texts: list) -> list:
+    """Source texts as the model should read them while the she/her default is
+    on. The written character is what makes the model say "he", so it is hidden
+    -- but only when no character has he/him: with a male in the cast, a 他 may be
+    him, and the speaker/addressee isn't known here to tell which. Never stored."""
+    guidelines = context.get("style_guidelines") or ""
+    if (context.get("source_language", "zh") != "zh" or not pronoun_default_active(guidelines)
+            or known_male_names(guidelines)):
+        return list(texts)
+    return [neutralise_ta(t) for t in texts]
+
+
+def batch_context_for(context: dict) -> str:
+    """build_batch_context for one translate request, with the she/her default's
+    source hiding applied to the lines it quotes."""
+    recent = context.get("recent_context")
+    if recent:
+        recent = list(zip(pronoun_neutral_texts(context, [zh for zh, _ in recent]),
+                          [en for _, en in recent]))
+    upcoming = context.get("upcoming_lines")
+    if upcoming:
+        upcoming = pronoun_neutral_texts(context, upcoming)
+    return build_batch_context(recent, upcoming, context.get("recent_as_data", False))
+
+
 def build_batch_context(recent_context=None, upcoming_lines=None, recent_as_data=False) -> str:
     """The per-batch part of a translation prompt: how the lines just
     before this batch were translated, and the raw source of the lines
@@ -341,6 +432,10 @@ def build_claude_system_blocks(context: dict) -> list:
 
 
 def build_batch_user_message(context: dict, numbered: str) -> str:
-    batch_ctx = build_batch_context(context.get("recent_context"), context.get("upcoming_lines"),
-                                    context.get("recent_as_data", False))
-    return (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered
+    batch_ctx = batch_context_for(context)
+    note = pronoun_batch_note(context.get("style_guidelines"), context.get("source_language", "zh"),
+                              strict=bool(context.get("pronoun_strict")))
+    # Idempotent for lines the live loop already neutralised; it is what covers a
+    # bulk request, which numbers the raw source before it gets here.
+    numbered = pronoun_neutral_texts(context, [numbered])[0]
+    return note + (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered

@@ -3,7 +3,6 @@
 // model-cache deletes are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403 marks the tab remote).
 import type {
   DiagnosticsCacheDeleteResult,
-  DiagnosticsGpuTorchSetupResult,
   DiagnosticsGpuTorchStatus,
   DiagnosticsInstallPresets,
   DiagnosticsInstallResult,
@@ -21,6 +20,7 @@ import type {
   RemoteIpCheckStatus,
   RemoteIpCheckTestResult,
 } from '../types/diagnostics'
+import type { DiagnosticsJobStarted } from '../types/diagnosticsInstalls'
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -61,9 +61,10 @@ export function getLog(n: number, keyword = '', f?: Fetch) {
 
 export const getSupportReport = (f?: Fetch) => getJson<DiagnosticsSupportReport>(`${BASE}/support-report`, f)
 
-// Synchronous: the request stays open for the whole pip run (up to an hour for torch).
+// Starts a background job (answers at once); follow it with getDependencyInstall
+// (api/diagnosticsInstalls.ts) and stop it with cancelDependencyInstall.
 export const installDependency = (name: string, f?: Fetch) =>
-  postJson<DiagnosticsInstallResult>(
+  postJson<DiagnosticsJobStarted>(
     `${BASE}/dependencies/${encodeURIComponent(name)}/install`, { confirm: true }, pcOnlyFetch(f),
   )
 
@@ -84,9 +85,9 @@ export const getGpuTorch = (f?: Fetch) => getJson<DiagnosticsGpuTorchStatus>(`${
 // (a few seconds; 409 while a job or another check runs).
 export const checkGpuTorch = (f?: Fetch) => postJson<DiagnosticsGpuTorchStatus>(`${BASE}/gpu-torch/check`, {}, f)
 
-// Synchronous like installDependency: ~2.5 GB for the CUDA build.
+// A job like installDependency: ~2.5 GB for the CUDA build.
 export const setupGpuTorch = (variant: 'cu128' | 'cpu', f?: Fetch) =>
-  postJson<DiagnosticsGpuTorchSetupResult>(`${BASE}/gpu-torch/setup`, { confirm: true, variant }, pcOnlyFetch(f))
+  postJson<DiagnosticsJobStarted>(`${BASE}/gpu-torch/setup`, { confirm: true, variant }, pcOnlyFetch(f))
 
 export const resetLibrary = (f?: Fetch) =>
   postJson<DiagnosticsResetResult>(

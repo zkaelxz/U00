@@ -198,8 +198,8 @@ class Response:
     # Cookies the response actually set, read via requests' own cookiejar
     # rather than a plain `headers` lookup: a response can carry several
     # Set-Cookie lines, and plain-dict header merging (below) only keeps
-    # the last one -- mangaz.com's own login-ticket exchange
-    # needs a specific cookie by name regardless of Set-Cookie order.
+    # the last one, so a caller that needs one cookie by name would miss
+    # it whenever it isn't the final Set-Cookie line.
     cookies: dict = field(default_factory=dict)
 
     @property
@@ -556,8 +556,8 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
     # any adapter makes on this thread for the app's whole runtime, and
     # flattening it with dict()/.update() raises a real
     # requests.cookies.CookieConflictError the moment two different hosts
-    # have ever set a same-named cookie (confirmed: mangaz.com's own two
-    # hosts, www.mangaz.com/vw.mangaz.com, share this session). Iterate each
+    # have ever set a same-named cookie; a site's www and reader hosts
+    # sharing this session is enough to trigger it. Iterate each
     # jar's own Cookie objects directly rather than `dict.update(jar)`: a
     # plain dict.update() against a RequestsCookieJar calls its __getitem__
     # per key, and RequestsCookieJar._find_no_duplicates treats a falsy
@@ -920,7 +920,7 @@ class SourceClient:
         attempt_no = 0
         slowed = False
         while True:
-            with st["sem"].at(self.policy.max_concurrent):
+            with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
                 self._wait_turn(host, st)
                 self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
@@ -1053,7 +1053,7 @@ class SourceClient:
         if poll is not None:
             poll.other_requests += 1
         st = _state(self.source)
-        with st["sem"].at(self.policy.max_concurrent):
+        with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
             self._wait_turn(_host_key(url), st)
             self.stats["access_method"] = access_method
             self.stats["requests"] += 1

@@ -103,3 +103,32 @@ def test_single_client_never_deadlocks():
         with gate.at(1):
             assert gate.active == 1
     assert gate.active == 0 and gate._waiting == []
+
+
+def test_a_waiting_client_gives_up_when_its_cancel_check_raises():
+    gate = Limiter()
+    cancelled = threading.Event()
+    outcome = []
+
+    def check():
+        if cancelled.is_set():
+            raise RuntimeError("cancelled")
+
+    def waiter():
+        try:
+            with gate.at(1, check):
+                outcome.append("entered")
+        except RuntimeError:
+            outcome.append("cancelled")
+
+    with gate.at(1):
+        t = threading.Thread(target=waiter)
+        t.start()
+        time.sleep(0.3)
+        assert outcome == []
+        cancelled.set()
+        t.join(2)
+    assert outcome == ["cancelled"]
+    assert gate.active == 0
+    with gate.at(1):   # the cancelled waiter left the queue clean
+        pass

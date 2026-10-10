@@ -334,6 +334,27 @@ test('unused voice clips list per title with a total and no file names', async (
   await expect(clips).not.toContainText(/clone_|voice_refs|\.wav|\.mp3/)
 })
 
+test('Clean temp files now needs the second press and shows counts and MB only', async ({ page }) => {
+  const mock = await mockDiskUsage(page)
+  const sec = await openSection(page)
+  const temp = sec.getByRole('region', { name: 'Temp files' })
+  await temp.getByRole('button', { name: 'Clean temp files now' }).click()
+  expect(mock.posts.filter((p) => p.path === 'clean-temp')).toHaveLength(0)
+  await temp.getByRole('button', { name: 'Confirm: delete all temp files' }).click()
+  await expect(temp.getByRole('status')).toHaveText('Removed 3 temp items and freed 12.5 MB.')
+  expect(mock.posts.filter((p) => p.path === 'clean-temp')).toHaveLength(1)
+})
+
+test('Clean temp files now says why when a job is running', async ({ page }) => {
+  const mock = await mockDiskUsage(page)
+  mock.setBusy('Finish or cancel the running jobs first, then clean temp files.')
+  const sec = await openSection(page)
+  const temp = sec.getByRole('region', { name: 'Temp files' })
+  await temp.getByRole('button', { name: 'Clean temp files now' }).click()
+  await temp.getByRole('button', { name: 'Confirm: delete all temp files' }).click()
+  await expect(temp).toContainText('Finish or cancel the running jobs first')
+})
+
 test('moving one unused clip needs the second press and sends its id and shown size', async ({ page }) => {
   const mock = await mockDiskUsage(page, { clips: CLIPS })
   const sec = await openSection(page)
