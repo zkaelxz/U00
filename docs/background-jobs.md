@@ -6,7 +6,8 @@ CLI fit around it. The code is the authority: this page cites modules and functi
 so re-check against them before relying on a detail.
 
 Modules: `background_jobs.py` (the runner), `services/jobs_service.py` (what a client
-sees), `db.py` (`job_records`, `gpu_lock`), `services/shutdown_service.py`,
+sees), `jobs/job_store.py` (every write and close of a `job_records` row), `db.py`
+(`job_records`, `gpu_lock`), `services/shutdown_service.py`,
 `api/background.py`, `services/job_timing_service.py`, `cli.py`.
 
 One machine, one process owning each job. This is not a distributed queue.
@@ -35,26 +36,59 @@ must be a top-level picklable function whose last parameter is a
 
 - The in-memory `_jobs` dict is the authority for jobs this process owns. The API polls
   it through `get_status()`.
-- Every status change is also written to the `job_records` table by `_mirror_locked`
-  (`db.save_job_record`). The mirror is best-effort: a failed write is logged and never
-  breaks the job. Other processes and a restarted server see the row; they never see
-  the dict.
+- Every status change is also written to the `job_records` table by `_mirror_locked`,
+  which hands the job to `jobs/job_store.write_transition`: one write per transition. Other
+  processes and a restarted server see the row; they never see the dict.
 - Only status transitions are mirrored. `update_progress` changes the dict only, so
   `jobs_service._with_live_progress` overlays the live progress and message from
   `background_jobs.get_status` while the job runs in this process.
-- Text going into `job_records` (it lands in backups) passes `_storage_text`
+- Text going into `job_records` (it lands in backups) passes `job_store._storage_text`
   (`translate_engines.redact_for_storage`); the result is stored as the allow-listed
   projection (`jobs_service.project_result_json`).
-- A mirror write also notifies change listeners (`add_change_listener`), which is how
+- A write also notifies change listeners (`add_change_listener`), which is how
   the SSE stream (`services/event_stream_service.py`) learns a job changed.
+
+### The store (`jobs/job_store.py`)
+
+The row is the cross-process record of a job; the dict stays the authority for a job
+this process runs. Besides the public fields the row carries `kind` (`thread`,
+`process`), `owner_pid` and `owner_instance` (`job_store.INSTANCE_ID`, random per process,
+so a restarted server that reuses a pid is never the live owner of an old row),
+`cancel_requested_at` (the requester's time, which the owner adopts when it hears the
+cancel, so Force stop is judged from the moment the user asked),
+`detail_state` (why a final state was reached by someone other than the worker:
+`interrupted`, `abandoned` by Force stop, `lost` worker) and `sync_error`. None of these
+reach a client (`jobs_service._redact`).
+
+- **No swallowed writes.** A transition write runs under `background_jobs._lock`, so
+  it gets one try. One that fails never breaks the job: the job gets `sync_error`
+  (redacted) and `detail_state = "unknown"`, the failure is logged once, and
+  `job_store.heartbeat_tick` retries it until it lands. A retry writes a copy of the job
+  outside the lock (three tries on "database is locked") and applies the outcome only
+  if no newer transition wrote meanwhile; otherwise it writes again.
+- **One transaction per write.** The status columns and `owner_instance` are written
+  in one `BEGIN IMMEDIATE` transaction, so a sweep keyed on the old owner never closes
+  a new run. Meanwhile the row keeps its last written status and the
+  job's message in the Jobs API ends with "Job state could not be saved (...); showing
+  the in-memory state".
+- **Closing someone else's row** is only ever one conditional `UPDATE ... WHERE status
+  IN ('queued', 'running') AND owner_instance = ?` (or `owner_pid = ?` for a row from
+  before `owner_instance`), so a live owner's write, heartbeat or new run always wins.
+- **Exit.** `job_store.flush_at_exit` (registered with `atexit`, and called by
+  `shutdown_service.stop_services` after the jobs' grace wait) retries failed writes,
+  closes this instance's still-active rows as `interrupted` and deletes the
+  `ui:<job id>` `gpu_lock` rows of its running jobs, all within
+  `EXIT_FLUSH_SECONDS` (each wait and busy timeout gets only the time left). A hard kill skips it; the next start's sweep closes
+  those rows instead.
 
 ### States
 
 `queued`, `running`, `done`, `error`, `cancelled`. There is no `interrupted` state:
 
 - **Interrupted after a restart** is a `job_records` row left `queued`/`running` by a
-  dead process. `jobs_service.sweep_stale_job_records` closes it as `cancelled` with
-  `error = background_jobs.INTERRUPTED_MESSAGE`. It runs at startup (`api/server.py`)
+  dead process. `jobs_service.sweep_stale_job_records` (`job_store.sweep_dead_owners`)
+  closes it as `cancelled` with `error = background_jobs.INTERRUPTED_MESSAGE` and
+  `detail_state = "interrupted"`. It runs at startup (`api/server.py`)
   and on every `jobs_service.list_jobs`. The in-memory dict is empty after a restart,
   so nothing resumes: records have no resume.
 - A worker that died without reporting back (thread gone, status still `running`) is
@@ -97,15 +131,15 @@ same id starts. The protections:
 ### Heartbeat and the stale sweep
 
 - While this process has queued/running jobs, the daemon `job-heartbeat` thread
-  (`_ensure_heartbeat`, started by the first mirror write) calls
-  `db.touch_job_records` every `HEARTBEAT_INTERVAL` (60 s) and also runs
-  `reconcile_dead_workers`.
+  (`_ensure_heartbeat`, started by the first write) runs `job_store.heartbeat_tick` every
+  `HEARTBEAT_INTERVAL` (60 s): `db.touch_job_records`, `reconcile_dead_workers`, and
+  the retry of failed writes.
 - A GPU job also refreshes its `gpu_lock` row on every `update_progress`
   (`db.heartbeat_gpu_lock`).
 - A `queued`/`running` row is stale when its owner pid is gone (`owner_pid`, via
   `owner_process_alive`) or `updated_at` is older than `STALE_JOB_SECONDS` (15 min).
   `jobs_service.is_stale` and the sweep skip any job live in this process. Each close
-  is one conditional `UPDATE` (`close_orphaned_job_record`, `close_stale_job_record`),
+  is one conditional `UPDATE` (`job_store.close_if_owner_gone`, `job_store.close_stale`),
   so a live owner's heartbeat, `done` or new run always wins.
 
 ### Threads that outlive the status
@@ -193,7 +227,8 @@ CLI prints the same sentence.
   arrives after the child already returned its result also ends `cancelled` and applies
   nothing.
 - **Another process:** `jobs_service.cancel_job` calls `request_cancel` and also sets
-  `job_records.cancel_requested` (`db.request_job_record_cancel`). The owning process
+  `job_records.cancel_requested` and `cancel_requested_at` (`job_store.request_cancel`).
+  The owning process
   reads the flag in `is_cancel_requested` (and the watcher), at most every
   `_DB_CANCEL_CHECK_INTERVAL` (2 s) per job, so a cross-process cancel takes up to
   about that long. If no live owner exists (pid gone or no heartbeat for
@@ -372,7 +407,7 @@ The client reads the `job_records` row, never the in-memory dict, with these cha
   to `RESULT_ALLOWED_KEYS`.
 - **Redaction.** `message`, `error` and the outcome text go through
   `diagnostics.redact_for_support` (secrets removed, absolute paths collapsed to
-  `.../name`). `owner_pid` is dropped, and the response carries `owned_by_me`, never an
+  `.../name`). `owner_pid` and the store's own columns are dropped, and the response carries `owned_by_me`, never an
   owner id.
 - **Normalised outcome.** `derive_outcome` adds `outcome` (`ok`, `failed`, `cancelled`,
   `partial`, `kept_existing`) and `outcome_message`, so a client does not need each job's

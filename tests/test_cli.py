@@ -1564,7 +1564,8 @@ class TestCliServiceParity:
         isolated_db.save_job_record(f"translate_{did}", "running")
         with contextlib.redirect_stdout(io.StringIO()):
             cli._replace_drama_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="新")], "x")
-        assert isolated_db.is_job_record_cancel_requested(f"translate_{did}")
+        row = isolated_db.get_job_record(f"translate_{did}")
+        assert row["cancel_requested"] == 1 and row["cancel_requested_at"]
 
     def _translate(self, isolated_db, monkeypatch, drama_kw, **arg_overrides):
         did = isolated_db.create_drama(title_en="T", status="aligned", **drama_kw)

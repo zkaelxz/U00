@@ -1957,7 +1957,8 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
 # db.py, add the column here too, or that migration is never run by a test
 # (test_every_added_column_is_listed fails otherwise).
 _INIT_DB_MIGRATED_COLUMNS = {
-    "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id"),
+    "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id", "kind",
+                    "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
               "word_timings"),
     "dramas": (

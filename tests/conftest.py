@@ -247,12 +247,15 @@ def _reset_background_jobs_memory():
     the maintenance count and the per-job cancel-check cache. In memory only -- clear_all_jobs() would
     also wipe job_records in whatever library db.LIBRARY_DIR points at."""
     import background_jobs as bg
+    from jobs import job_store
     with bg._lock:
         bg._jobs.clear()
         bg._gpu_queue.clear()
         bg._last_db_cancel_check.clear()
         bg._db_cancel_check_failed.clear()
         bg.job_force_stop._abandoned.clear()
+        job_store._pending.clear()
+        job_store._last_write.clear()
     bg.release_exclusive()
     bg._stopping = False
     while bg._maintenance_count:
