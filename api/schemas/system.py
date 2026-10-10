@@ -2,9 +2,10 @@
 and setup, jobs, updates, notifications, extension, ports and bug reports.
 """
 
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic import (BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr,
+                      StringConstraints)
 
 from api.schemas.common import TranslateEngine
 
@@ -700,11 +701,15 @@ class DiagnosticsGpuTorchSetupRequest(BaseModel):
 
 
 class DiagnosticsDependencyInstallRequest(BaseModel):
-    """confirm=true; accept_risk=true when the install plan downgrades a
-    package Baihe needs (409 without it)."""
+    """confirm=true; accept_risk=true with accepted_risks (the plan's
+    needs_confirm sentences the owner was shown) when the install plan
+    downgrades a package Baihe needs or could not be previewed. 409 without
+    them, or when the server's plan has a risk the list lacks."""
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
     accept_risk: StrictBool = False
+    accepted_risks: List[Annotated[StrictStr, StringConstraints(max_length=500)]] = Field(
+        default_factory=list, max_length=20)
 
 
 class DiagnosticsResetRequest(BaseModel):

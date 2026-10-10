@@ -438,3 +438,34 @@ def test_test_first_is_unavailable_without_a_test_suite(client, env, monkeypatch
     assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
     (tmp_path / "tests").mkdir()
     assert client.get("/api/diagnostics/upgrade-check").json()["unavailable_reason"] is None
+
+
+def test_unpack_replaces_a_deno_that_does_not_run_but_never_a_working_one(env, tmp_path, monkeypatch):
+    """The start reports a stub that won't run as missing, so the job must be
+    able to replace it, or the owner downloads 45 MB to be refused forever."""
+    z = tmp_path / "d.zip"
+    z.write_bytes(_zip())
+    env["dest"].parent.mkdir(parents=True)
+    env["dest"].write_bytes(b"\x7fELF stub left by a hard kill")
+    monkeypatch.setattr(svc, "_deno_runs", lambda path: False)
+    svc._unpack_binary(str(z))
+    assert env["dest"].read_bytes() == b"#!deno-binary"
+    assert not (env["dest"].parent / (env["dest"].name + ".partial")).exists()
+    env["dest"].write_bytes(b"#!working deno")
+    monkeypatch.setattr(svc, "_deno_runs", lambda path: True)
+    with pytest.raises(svc.DenoInstallFailed, match="already installed"):
+        svc._unpack_binary(str(z))
+    assert env["dest"].read_bytes() == b"#!working deno"
+
+
+def test_unpack_without_hard_links_still_never_replaces_a_working_deno(env, tmp_path, monkeypatch):
+    z = tmp_path / "d.zip"
+    z.write_bytes(_zip())
+
+    def no_links(src, dst):
+        raise OSError(1, "Operation not permitted")
+    monkeypatch.setattr(svc.os, "link", no_links)
+    svc._unpack_binary(str(z))
+    assert env["dest"].read_bytes() == b"#!deno-binary"
+    with pytest.raises(svc.DenoInstallFailed, match="already installed"):
+        svc._unpack_binary(str(z))

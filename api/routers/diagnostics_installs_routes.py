@@ -6,8 +6,10 @@ services/diagnostics_installs_service.py):
 - Package install and the GPU PyTorch setup: `local_only()` + confirm=true,
   package names and the torch variant from the service's whitelists only.
   The install plan is rebuilt here, not trusted from the client: a clash or
-  a read-only install folder is 422; an unaccepted downgrade (accept_risk)
-  or an install that must wait for the next start is 409. Each
+  a read-only install folder is 422; a downgrade or an unpreviewed install
+  the owner did not accept (accept_risk plus the accepted_risks they were
+  shown), a second plan in flight, or an install that must wait for the
+  next start is 409. Each
   returns the job id at once (409 while any job, restore, reset, cleanup or
   install runs); the job holds the library exclusively until it ends or is
   cancelled, and puts the earlier packages back if pip fails or is cancelled. The latest state is `admin.diagnostics`.
@@ -59,7 +61,8 @@ def get_dependency_install():
 def post_install(body: DiagnosticsDependencyInstallRequest,
                  package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
     return svc.start_dependency_install(package, confirm=body.confirm,
-                                        accept_risk=body.accept_risk)
+                                        accept_risk=body.accept_risk,
+                                        accepted_risks=body.accepted_risks)
 
 
 @router.post("/gpu-torch/setup", dependencies=[local_only()],

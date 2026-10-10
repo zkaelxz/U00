@@ -9,7 +9,8 @@ export interface PlannedInstall {
   keys: string[]
   plan: PendingInstallPlan
   // The installer as it ran before queuing existed: used when nothing is in use.
-  installNow: () => void
+  // acceptedRisks: the needs_confirm lines the owner accepted (else empty).
+  installNow: (acceptedRisks: string[]) => void
 }
 
 // A plain preview is only worth a click when something is replaced, risky,
@@ -61,7 +62,7 @@ export function InstallPlanPanel({ planned, onQueue, onCancel }: {
       <div className="actions">
         {!refused && (
           <button type="button" className={buttonClass('primary', 'sm')} disabled={gated}
-            onClick={() => (restart ? onQueue(understood) : planned.installNow())}>
+            onClick={() => (restart ? onQueue(understood) : planned.installNow(understood ? plan.needs_confirm : []))}>
             {restart ? 'Install when I restart Baihe' : 'Install now'}
           </button>
         )}
