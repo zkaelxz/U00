@@ -3,8 +3,9 @@
  * modal <dialog>, so the page behind is inert, Esc closes it and the browser
  * returns focus to the button; the same NavGroups as the wide rail fill it.
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { trapTabWithin, useModalDialog } from '../hooks/useModalDialog'
 import type { Route } from '../router'
 import { routeHref } from '../router'
 import type { NavContext } from './navItems'
@@ -15,34 +16,12 @@ const DRAWER_ID = 'nav-drawer'
 const LOCK_CLASS = 'nav-locked'
 const FOCUSABLE = 'a[href], button:not([disabled])'
 
-// A modal dialog lets Tab leave through the browser's own UI; wrap instead so focus cycles inside the drawer.
-function trapTab(e: KeyboardEvent<HTMLDialogElement>) {
-  if (e.key !== 'Tab') return
-  const items = [...e.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)]
-  if (items.length === 0) return
-  const first = items[0]
-  const last = items[items.length - 1]
-  const at = document.activeElement
-  if (e.shiftKey && (at === first || at === e.currentTarget)) {
-    e.preventDefault()
-    last.focus()
-  } else if (!e.shiftKey && at === last) {
-    e.preventDefault()
-    first.focus()
-  }
-}
+const trapTab = trapTabWithin(FOCUSABLE)
 
 export function NavDrawer({ route, context }: { route: Route; context: NavContext }) {
   const [open, setOpen] = useState(false)
-  const dialog = useRef<HTMLDialogElement>(null)
+  const dialog = useModalDialog(open)
   const button = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    const d = dialog.current
-    if (!d) return
-    if (open && !d.open) d.showModal()
-    else if (!open && d.open) d.close()
-  }, [open])
 
   // A modal dialog does not stop the page behind it from scrolling.
   useEffect(() => {
