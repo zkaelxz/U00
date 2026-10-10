@@ -17,7 +17,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`) | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
-| `extension/` | browser-side JavaScript (Chrome extension), not Python; `site_access.js` decides which origins the extension may ask the person to grant (no private or LAN hosts) | `extension/manifest.json`, bridge in `page_server.py` |
+| `extension/` | browser-side JavaScript (Chrome extension), not Python; `site_access.js` decides which origins the extension may ask the person to grant (no private or LAN hosts); `shared.js` holds the status-line and error-wording helpers the popup and options pages share | `extension/manifest.json`, bridge in `page_server.py` |
 | `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW) | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
