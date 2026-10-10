@@ -201,3 +201,20 @@ class TestNarrationCancel:
             background_jobs._jobs.pop(job_id, None)
         assert [ln.zh for ln in isolated_db.load_line_objects(did)] == ["旧"]
         assert isolated_db.get_drama(did)["status"] != "aligned"
+
+
+class TestGpuSlot:
+    def _start(self, isolated_db, key, monkeypatch, engine, model=None):
+        did = _drama(isolated_db)
+        seen = {}
+        monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: "k")
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **k: seen.update(k) or True)
+        narration_service.start_narration_run(did, engine, model)
+        return seen
+
+    def test_an_ollama_run_takes_the_gpu_slot(self, isolated_db, key, monkeypatch):
+        assert self._start(isolated_db, key, monkeypatch, "ollama")["gpu_touching"] is True
+
+    def test_a_cloud_engine_does_not(self, isolated_db, key, monkeypatch):
+        assert self._start(isolated_db, key, monkeypatch, "claude")["gpu_touching"] is False

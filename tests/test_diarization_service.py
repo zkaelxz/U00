@@ -123,7 +123,7 @@ class TestStartDiarizationRun:
         calls = []
 
         def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
-                                   on_done=None, run_settings=None):
+                                   on_done=None, run_settings=None, **launch):
             calls.append({"job_id": job_id, "target": target, "args": args,
                           "gpu_touching": gpu_touching, "description": description})
             return True
@@ -146,7 +146,7 @@ class TestStartDiarizationRun:
         calls = []
 
         def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
-                                   on_done=None, run_settings=None):
+                                   on_done=None, run_settings=None, **launch):
             calls.append(args)
             return True
         monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)

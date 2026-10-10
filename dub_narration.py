@@ -322,6 +322,8 @@ def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, res
     rewrites .start/.end and .dub_filename. Must stay a plain top-level
     picklable function; callers bind the options by keyword so
     background_jobs' trailing result_queue lands in the right slot."""
+    import background_jobs
+    background_jobs.start_own_process_group()
     try:
         out_path, errors = build_narration_track(
             lines, drama_dir, character_clone_map,

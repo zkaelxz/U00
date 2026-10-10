@@ -857,3 +857,33 @@ class TestAuthOn:
         r = c.get(_path(did, ids[0]), headers=h)
         assert r.status_code == 200, r.text
         assert r.json()["proposed_zh"] == "新的文字"
+
+
+def test_the_timeout_give_up_works_with_a_real_result_channel(tmp_path, monkeypatch):
+    """The watchdog's give-up closes and joins the queue it was handed; the
+    job's real queue is a ResultChannel, not a plain mp.Queue."""
+    import multiprocessing as mp
+    import threading
+    import job_process_result
+    from services import retranscribe_worker as rw
+
+    ended = threading.Event()
+    monkeypatch.setattr(rw.os, "_exit", lambda code: ended.set())
+    monkeypatch.setattr(rw.background_jobs, "start_own_process_group", lambda: None)
+    release = threading.Event()
+
+    def hang_until_released(*a, **k):
+        release.wait(10)
+        return {"failed_reason": "released"}
+    monkeypatch.setattr(rw, "hear_window", hang_until_released)
+    channel = job_process_result.ResultChannel(mp.Queue(), str(tmp_path / "tmp"), "job")
+    sent = []
+    real_put = channel.put
+    channel.put = lambda item: (sent.append(item), real_put(item))
+
+    worker = threading.Thread(target=rw.retranscribe_worker, args=(
+        "a.wav", 0, 1, "zh", "tiny", 1, 100, 0.5, False, None, None, False, "auto", "", 0.05,
+        str(tmp_path / "scratch"), channel), daemon=True)
+    worker.start()
+    assert ended.wait(5), "give_up never reached os._exit"
+    assert ("ok", {"failed_reason": "timeout"}) in sent

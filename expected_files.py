@@ -42,6 +42,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "hardsub_ocr.py",
     "job_force_stop.py",
     "job_process_kill.py",
+    "job_process_result.py",
     "known_sites.py",
     "language_packs.py",
     "line_tools.py",

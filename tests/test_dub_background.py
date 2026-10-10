@@ -22,8 +22,9 @@ def started(monkeypatch):
     monkeypatch.setattr(dub_service, "_missing_separation_dependency", lambda b: None)
     monkeypatch.setattr(background_jobs, "get_status", lambda j: None)
 
-    def fake_start(job_id, target, args=(), gpu_touching=False, description=None, on_done=None):
-        calls.append(dict(target=target, args=args))
+    def fake_start(job_id, target, args=(), gpu_touching=False, description=None, on_done=None,
+                   **launch):
+        calls.append(dict(target=target, args=args, launch=launch))
         return True
     monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
     return calls
@@ -201,3 +202,24 @@ def test_legacy_background_without_sidecar_is_reseparated(tmp_path, fake_mix):
     os.utime(tmp_path / dub.BACKGROUND_FILENAME, None)
     dub.mix_original_background("t.wav", src, str(tmp_path), backend="demucs")
     assert fake_mix == ["demucs"]
+
+
+def test_dub_runs_spawned_and_is_killed_as_a_tree(isolated_db, started):
+    did = _seed(isolated_db)
+    dub_service.start_dub_run(did)
+    assert started[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn"}
+
+
+def test_narration_runs_spawned_and_is_killed_as_a_tree(isolated_db, started):
+    did = _seed(isolated_db, content_mode="novel_narration")
+    dub_service.start_dub_run(did)
+    assert started[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn"}
+
+
+def test_dub_workers_leave_the_parents_process_group(monkeypatch, tmp_path):
+    import queue
+    left = []
+    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
+    dub.build_track_subprocess_worker([], str(tmp_path), {}, 1.3, 0.9, queue.Queue())
+    dub_narration.build_narration_subprocess_worker([], str(tmp_path), {}, queue.Queue())
+    assert left == [True, True]

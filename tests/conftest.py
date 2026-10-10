@@ -350,6 +350,26 @@ def _testclient_defaults_to_loopback():
 
 
 @pytest.fixture(autouse=True)
+def _workers_do_not_leave_the_test_session(request):
+    """Process-job workers call background_jobs.start_own_process_group()
+    first. Tests that run one in the pytest process would otherwise start a
+    new session for it and a watchdog that can end it; only
+    test_background_jobs.py, which exercises that function in real child
+    processes, keeps the real one.
+
+    Patched and restored by hand for the reason given on
+    _testclient_defaults_to_loopback."""
+    import background_jobs
+    original = background_jobs.start_own_process_group
+    if not request.module.__name__.endswith("test_background_jobs"):
+        background_jobs.start_own_process_group = lambda: None
+    try:
+        yield
+    finally:
+        background_jobs.start_own_process_group = original
+
+
+@pytest.fixture(autouse=True)
 def _no_ollama_unload_requests(request):
     """A GPU model load asks a local Ollama to free its memory; no test but
     test_ollama_unload.py (which fakes the HTTP calls) may reach one.

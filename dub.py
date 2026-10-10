@@ -585,6 +585,8 @@ def build_track_subprocess_worker(lines, drama_dir, character_clone_map,
     background is mixed back under the finished track. A failed/missing
     separation never loses the dub -- the plain track is kept and the result
     carries background_mixed False plus a fixed background_error text."""
+    import background_jobs
+    background_jobs.start_own_process_group()
     try:
         out_path, errors = build_dub_track(
             lines, drama_dir, character_clone_map,

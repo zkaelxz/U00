@@ -467,7 +467,7 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
         started = background_jobs.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
-            description=desc, on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
+            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
     else:
         started = background_jobs.start_job(
             job_id, _run_resegment_job, job_id, drama_id, lines, expected_line_ids, language,
@@ -562,7 +562,7 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
         started = background_jobs.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
-            description=desc, on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
+            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
     else:
         started = background_jobs.start_job(
             job_id, _run_llm_preview_job, job_id, drama_id, lines, language, eng, engine_name,

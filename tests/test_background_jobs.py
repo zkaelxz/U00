@@ -1678,6 +1678,77 @@ class TestProcessWatcherLargeResult:
         bg.clear_job(job_id)
 
 
+def _child_dies_mid_result_worker(result_queue):
+    """Real worker: starts writing a large result, then exits before it is
+    complete or announced -- a kill or crash mid-write."""
+    with open(result_queue._path + ".part", "wb") as f:
+        f.write(b"x" * 1000)
+    os._exit(1)
+
+
+def _large_result_worker_with_path(size_bytes, result_queue):
+    result_queue.put(("ok", {"payload": "x" * size_bytes}))
+
+
+class TestProcessWatcherChildDiesMidResult:
+    def test_a_child_that_dies_after_a_partial_write_ends_the_job_in_error(self, isolated_db):
+        import storage
+        job_id = "test_process_dies_mid_result"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, _child_dies_mid_result_worker) is True
+
+        status = _wait_for_status(job_id, "running", timeout=15.0)
+        assert status["status"] == "error", status
+        assert "exited unexpectedly" in status["error"]
+        assert [n for n in os.listdir(storage.temp_root()) if "result-" in n] == []
+        bg.clear_job(job_id)
+
+    def test_the_result_file_is_removed_once_the_job_is_done(self, isolated_db):
+        import storage
+        job_id = "test_process_result_file_removed"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, _large_result_worker_with_path,
+                                    args=(200_000,)) is True
+        status = _wait_for_status(job_id, "running", timeout=15.0)
+        assert status["status"] == "done"
+        assert [n for n in os.listdir(storage.temp_root()) if "result-" in n] == []
+        bg.clear_job(job_id)
+
+
+class TestProcessJobHookCancelled:
+    def test_on_done_raising_job_cancelled_ends_the_job_cancelled(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        job_id = "test_ondone_job_cancelled"
+
+        def on_done(jid, result):
+            bg.request_cancel(jid)
+            raise bg.JobCancelled(jid)
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {"v": 1})), args=(), on_done=on_done)
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "cancelled"
+        assert status["message"] == bg.CANCELLED_MESSAGE
+        bg.clear_job(job_id)
+
+
+class TestHeartbeatRefreshesRunningGpuRows:
+    def test_a_running_gpu_job_that_reports_no_progress_keeps_its_row_fresh(self, monkeypatch):
+        refreshed = []
+        monkeypatch.setattr(db, "heartbeat_gpu_lock", lambda holder: refreshed.append(holder))
+        monkeypatch.setattr(db, "touch_job_records", lambda ids: None)
+        release = threading.Event()
+        assert bg.start_job("hb_gpu", lambda: release.wait(timeout=5.0), gpu_touching=True)
+        assert bg.start_job("hb_cpu", lambda: release.wait(timeout=5.0))
+        try:
+            bg._heartbeat_once()
+            assert refreshed == ["ui:hb_gpu"]
+        finally:
+            release.set()
+            assert bg.wait_for_job_threads(5.0)
+            bg.clear_job("hb_gpu")
+            bg.clear_job("hb_cpu")
+
+
 class TestNotifyOnCompletion:
     """Step 23c item 4: an optional desktop notification when a
     background job finishes, gated behind set_notify_on_completion()
@@ -2565,7 +2636,7 @@ class TestCancelIsVisibleAndQueuedJobsStopAtOnce:
         assert db.get_job_record("cr_a")["message"] == bg.CANCELLING_MESSAGE
         release.set()
         assert _wait_for(lambda: bg.get_status("cr_a")["status"] == "cancelled")
-        assert bg.get_status("cr_a")["message"] == bg.CANCELLING_MESSAGE
+        assert bg.get_status("cr_a")["message"] == bg.CANCELLED_MESSAGE
         assert bg.wait_for_job_threads(5.0)
         bg.clear_job("cr_a")
 
