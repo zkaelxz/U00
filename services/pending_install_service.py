@@ -11,6 +11,7 @@ install.
 import threading
 import time
 
+import background_jobs
 import install_plan
 import install_registry
 import pending_install
@@ -19,6 +20,7 @@ from services.service_errors import ConflictError, InvalidInputError
 
 PLAN_CACHE_SECONDS = 600
 _LOCK = threading.Lock()
+_PREVIEW_LOCK = threading.Lock()     # one pip dry-run at a time
 _CACHE = {"keys": None, "plan": None, "at": 0.0}
 
 _PROBLEMS = {
@@ -65,7 +67,19 @@ def _view(plan: dict) -> dict:
 
 
 def preview(packages) -> dict:
-    return _view(_plan(_keys(packages), fresh=True))
+    keys = _keys(packages)
+    # The dry-run reads the installed set and the package index; during an
+    # install (or a restore) that answer would be wrong and the extra pip a burden.
+    if background_jobs.exclusive_held() or not _PREVIEW_LOCK.acquire(blocking=False):
+        raise ConflictError("An install, restore or another preview is in progress; "
+                            "try again in a moment.")
+    try:
+        if background_jobs.exclusive_held():
+            raise ConflictError("An install, restore or another preview is in progress; "
+                                "try again in a moment.")
+        return _view(_plan(keys, fresh=True))
+    finally:
+        _PREVIEW_LOCK.release()
 
 
 def queue(packages, confirm: bool = False, accept_risk: bool = False) -> dict:
@@ -74,19 +88,21 @@ def queue(packages, confirm: bool = False, accept_risk: bool = False) -> dict:
     install; a plan with a hard block, or a risk not accepted, is refused."""
     if confirm is not True:
         raise gaps.AdminActionUnconfirmed("Confirmation required.")
-    keys = _keys(packages)
-    plan = _plan(keys, fresh=False)
+    current, _problem = pending_install.read_pending()
+    queued = (current or {}).get("packages", [])
+    # The queue runs as one pip command, so it is planned (clash check, risks)
+    # as a whole: a package that is fine alone can clash with one already queued.
+    keys = _keys(queued + list(packages))
+    plan = _plan(keys, fresh=bool(queued))
     if plan["blocked"]:
         raise gaps.AdminActionNotPossible(plan["blocked"][0])
     if plan["needs_confirm"] and accept_risk is not True:
         raise PlanNeedsConfirm(" ".join(plan["needs_confirm"])
                                + " Confirm again to go ahead anyway.")
-    if plan["mode"] != "restart":
+    if plan["mode"] != "restart" and not queued:
         return {"queued": False, "install_now": True, "plan": _view(plan)}
-    current, _problem = pending_install.read_pending()
-    merged = list(dict.fromkeys((current or {}).get("packages", []) + keys))
     before = {**(current or {}).get("before", {}), **plan["before"]}
-    pending_install.write_pending(merged, before)
+    pending_install.write_pending(keys, before)
     return {"queued": True, "install_now": False, "plan": _view(plan)}
 
 

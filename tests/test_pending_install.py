@@ -308,3 +308,72 @@ def test_launcher_applies_only_when_something_is_queued(data, monkeypatch):
         raise OSError("gone")
     monkeypatch.setattr(launcher.subprocess, "run", boom)
     launcher.apply_pending_install("python.exe", {}, headless=True)      # never raises
+
+
+def test_second_start_waits_while_an_apply_runs_with_nothing_queued(data, monkeypatch):
+    lock = data / "pending_install" / "apply.lock"
+    os.makedirs(lock.parent)
+    lock.write_text("{}")
+    assert pi.apply(wait_seconds=0) == {"ran": False, "locked": True}
+    ticks = []
+
+    def sleeper(_s):
+        ticks.append(1)
+        lock.unlink()
+    assert pi.wait_while_running(time.time() + 30, sleep=sleeper) is True and ticks == [1]
+    lock.write_text("{}")
+    assert pi.wait_while_running(time.time() - 1) is False
+
+
+def test_a_waiting_apply_keeps_the_real_outcome(data, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    pi._write_json("result", {"status": "ok", "packages": ["paddleocr"]})
+    Fake(monkeypatch, [])
+
+    def first_start_took_it(_wait_until, sleep=None):
+        pi._remove("pending")
+        return True
+    monkeypatch.setattr(pi, "_acquire_lock", first_start_took_it)
+    assert pi.apply() == {"ran": False}
+    assert pi.read_result()["status"] == "ok"
+
+
+def test_the_watchdog_stop_is_never_cleared_and_skips_the_restore(data, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    fake = Fake(monkeypatch, [{"numpy": "1"}, {"numpy": "2"}], rcs=(1,))
+    pi._CURRENT["stop"] = True
+    try:
+        out = pi.apply()
+    finally:
+        pi._CURRENT["stop"] = False
+    assert out["ran"] and len(fake.runs) == 1          # no restore pip
+    assert pi.read_result()["status"] == "failed"
+
+
+def test_run_capture_does_not_reset_stop(monkeypatch):
+    seen = []
+    monkeypatch.setattr(pi, "stream_tree", lambda argv, timeout, cancel: iter(
+        [seen.append(cancel()) or {"returncode": 0, "timed_out": False}]))
+    pi._CURRENT["stop"] = True
+    try:
+        pi.run_capture(["x"], 5)
+    finally:
+        pi._CURRENT["stop"] = False
+    assert seen == [True]
+
+
+@pytest.mark.parametrize("edit", [
+    lambda p: p.update(created="soon"),
+    lambda p: p.update(created=True),
+    lambda p: p.update(before=["numpy"]),
+    lambda p: p.update(before={"numpy": 2}),
+])
+def test_a_rehashed_file_with_bad_types_reads_as_invalid(data, edit):
+    pi.write_pending(["paddleocr"])
+    path = data / "pending_install" / "pending.json"
+    doc = json.loads(path.read_text())
+    edit(doc["payload"])
+    doc["sha256"] = pi.digest(doc["payload"])
+    path.write_text(json.dumps(doc))
+    assert pi.read_pending() == (None, "invalid")
+    assert pi.status()["problem"] == "invalid"

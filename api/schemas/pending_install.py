@@ -1,6 +1,6 @@
 """Pydantic models for api/routers/pending_install_routes.py."""
 
-from typing import Dict, List, Optional
+from typing import Annotated, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
@@ -14,13 +14,13 @@ __all__ = [
     "PendingInstallStatus",
 ]
 
-_KEY = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
+_KEY = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"     # the shape pending_install accepts
 
 
 class PendingInstallPlanRequest(BaseModel):
     """Registry package keys only; the server derives everything else."""
     model_config = ConfigDict(extra="forbid")
-    packages: List[str] = Field(min_length=1, max_length=30)
+    packages: List[Annotated[str, Field(pattern=_KEY)]] = Field(min_length=1, max_length=30)
 
 
 class PendingInstallQueueRequest(PendingInstallPlanRequest):

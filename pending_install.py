@@ -112,8 +112,14 @@ def read_pending():
     if not isinstance(payload, dict) or doc.get("sha256") != digest(payload):
         return None, "modified"
     keys = payload.get("packages")
+    before = payload.get("before")
+    # A re-hashed file can carry any types; the status page must read it as
+    # "invalid" rather than fail on them.
     if (payload.get("schema") != SCHEMA or not isinstance(keys, list) or not keys
-            or not all(isinstance(k, str) and _NAME_RE.match(k) for k in keys)):
+            or not all(isinstance(k, str) and _NAME_RE.match(k) for k in keys)
+            or not isinstance(payload.get("created"), int) or isinstance(payload.get("created"), bool)
+            or not isinstance(before, dict)
+            or not all(isinstance(n, str) and isinstance(v, str) for n, v in before.items())):
         return None, "invalid"
     return payload, None
 
@@ -156,13 +162,14 @@ def status() -> dict:
 # --- running things -------------------------------------------------------
 
 # The watchdog sets "stop" so run_capture's cancel poll kills pip's whole tree.
+# It is never cleared: a later pip (the restore) would be abandoned by the
+# watchdog's os._exit half-way, which is the state this module exists to avoid.
 _CURRENT = {"stop": False}
 
 
 def run_capture(argv: list, timeout: float, echo: bool = False):
     """(returncode, last lines, timed_out). No shell; the tree is killed on
     timeout so pip's own children can't outlive the budget."""
-    _CURRENT["stop"] = False
     lines, end = [], {"returncode": None, "timed_out": False}
     for event in stream_tree(argv, timeout=max(1.0, timeout), cancel=lambda: _CURRENT["stop"]):
         if "line" in event:
@@ -247,6 +254,21 @@ def _acquire_lock(wait_until: float, sleep=time.sleep) -> bool:
             sleep(1.0)
 
 
+def wait_while_running(until: float, echo: bool = False, sleep=time.sleep) -> bool:
+    """Waits for a live apply (another start's) to finish. True when none is
+    running, False when `until` came first. The pending file is removed before
+    pip starts, so "nothing queued" does not mean "nothing happening"."""
+    if not apply_running():
+        return True
+    if echo:
+        print("Another start is installing packages. Waiting for it to finish...", flush=True)
+    while apply_running():
+        if time.time() >= until:
+            return False
+        sleep(1.0)
+    return True
+
+
 def _restore(before: dict, now_versions: dict, budget: float, echo: bool):
     """Puts back every package whose version changed or that went missing.
     Returns (restored, failed) dist names."""
@@ -276,15 +298,19 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
     """Runs the queued install, if any. Never raises and never leaves the
     pending file behind; the outcome is in result.json. Returns a short
     summary dict for the caller and tests."""
-    if not os.path.exists(_path("pending")):
-        return {"ran": False}
     started = time.time()
-    deadline = started + OVERALL_SECONDS
+    if not os.path.exists(_path("pending")):
+        if not wait_while_running(started + wait_seconds, echo):
+            return {"ran": False, "locked": True}
+        return {"ran": False}
     if not _acquire_lock(started + wait_seconds):
         return {"ran": False, "locked": True}
+    deadline = time.time() + OVERALL_SECONDS     # the lock wait is not part of the install's budget
     try:
         payload, problem = read_pending()
         if payload is None:
+            if problem is None:
+                return {"ran": False}      # the apply we waited for ran it; keep its outcome
             _remove("pending")
             return {"ran": True, **_finish({
                 "status": "refused", "packages": [], "restored": [], "restore_failed": [],
@@ -319,8 +345,11 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
             return {"ran": True, **_finish({
                 "status": "ok", "packages": keys, "restored": [], "restore_failed": [],
                 "message": "Installed " + ", ".join(keys) + " when Baihe started."}, lines)}
-        restored, failed = _restore(before, snapshot(),
-                                    min(RESTORE_SECONDS, max(60.0, deadline - time.time())), echo)
+        if _CURRENT["stop"]:
+            restored, failed = [], []        # the watchdog is about to exit; a restore would be cut off
+        else:
+            restored, failed = _restore(before, snapshot(),
+                                        min(RESTORE_SECONDS, max(60.0, deadline - time.time())), echo)
         if timed_out:
             head = "The install did not finish in time and was stopped. "
         else:

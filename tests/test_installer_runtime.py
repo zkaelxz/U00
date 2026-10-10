@@ -84,6 +84,27 @@ class TestLaunch:
         with pytest.raises(launcher.LaunchError, match="install is incomplete"):
             launcher.launch()
 
+    def test_a_queued_install_does_not_run_while_something_holds_the_port(self, data_dir, monkeypatch):
+        monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
+        monkeypatch.setattr(launcher, "port_open", lambda port: True)
+        monkeypatch.setattr(launcher, "apply_pending_install",
+                            lambda *a: pytest.fail("ran pip while a server held the port"))
+        with pytest.raises(launcher.LaunchError, match="already using port"):
+            launcher.launch()
+
+    def test_a_running_apply_is_waited_for_even_with_nothing_queued(self, data_dir, monkeypatch):
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text("{}")
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran and ran[0][-1] == "pending_install"
+        lock.unlink()
+        ran.clear()
+        launcher.apply_pending_install("python", {}, True)
+        assert ran == []
+
     def test_port_taken_by_something_else(self, data_dir, monkeypatch):
         monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
         monkeypatch.setattr(launcher, "port_open", lambda port: True)

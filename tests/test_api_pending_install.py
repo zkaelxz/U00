@@ -191,3 +191,50 @@ def test_household_users_and_remote_admins_can_neither_see_nor_cancel_it(env):
                                    **({"json": body} if body is not None else {}))
         assert r.status_code == 403, path
     assert pending_install.read_pending() == (None, None)
+
+
+def test_the_merged_queue_is_planned_as_a_whole(client, env, monkeypatch):
+    clash = "This would put two OpenCV packages side by side."
+    seen = []
+
+    def build_plan(keys, jobs_running=False):
+        seen.append(list(keys))
+        blocked = [clash] if {"paddleocr", "cv2"} <= set(keys) else []
+        return make_plan(keys, blocked=blocked, confirm=("x",) if len(keys) > 1 else ())
+    monkeypatch.setattr(svc.install_plan, "build_plan", build_plan)
+    assert queue(client, ["paddleocr"]).status_code == 200
+    r = queue(client, ["cv2"], accept_risk=True)
+    assert r.status_code == 422 or r.status_code == 409
+    assert ["paddleocr", "cv2"] in seen
+    assert client.get(BASE).json()["packages"] == ["paddleocr"]
+
+
+def test_accepting_a_risk_is_required_against_the_merged_plan(client, env, monkeypatch):
+    monkeypatch.setattr(svc.install_plan, "build_plan", lambda keys, jobs_running=False: make_plan(
+        keys, confirm=("numpy goes down.",) if len(keys) > 1 else ()))
+    assert queue(client, ["paddleocr"]).status_code == 200
+    assert queue(client, ["paddlepaddle"]).status_code == 409
+    assert queue(client, ["paddlepaddle"], accept_risk=True).status_code == 200
+
+
+def test_a_preview_is_refused_while_the_install_hold_is_taken(client, env):
+    import background_jobs
+    assert background_jobs.acquire_exclusive("Dependency install")
+    try:
+        r = client.post(f"{BASE}/plan", json={"packages": ["paddleocr"]})
+    finally:
+        background_jobs.release_exclusive()
+    assert r.status_code == 409 and env["calls"] == 0
+
+
+def test_a_second_preview_is_refused_while_one_runs(client, env):
+    assert svc._PREVIEW_LOCK.acquire(blocking=False)
+    try:
+        assert client.post(f"{BASE}/plan", json={"packages": ["paddleocr"]}).status_code == 409
+    finally:
+        svc._PREVIEW_LOCK.release()
+
+
+@pytest.mark.parametrize("bad", ["--pre", "a b", "x" * 81, ""])
+def test_package_keys_are_shape_checked(client, bad):
+    assert client.post(f"{BASE}/plan", json={"packages": [bad]}).status_code == 422
