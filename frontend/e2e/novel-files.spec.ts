@@ -175,3 +175,34 @@ test('raw novel saved from the optional novel row shows the glossary link', asyn
   await expect(page.getByTestId('novel-file-status-raw')).toHaveText('Nothing saved yet.')
   await expect(link).toHaveCount(0)
 })
+
+test('Attach text and Attach EPUB send one request per attach, and the EPUB choice clears', async ({ page }) => {
+  const attaches: string[] = []
+  const pending: (() => void)[] = []
+  await page.route('**/api/novel/dramas/1/attach-*', async (route) => {
+    attaches.push(new URL(route.request().url()).pathname.split('/').pop() ?? '')
+    await new Promise<void>((r) => pending.push(r))
+    await route.fulfill({ json: { char_count: 12 } })
+  })
+  await page.goto('/#/drama/1/source')
+  await page.locator('.section-title', { hasText: /^Attach novel text \(optional\)$/ }).click()
+
+  await page.getByRole('textbox', { name: 'Paste text' }).fill('第一章')
+  const attachText = page.getByRole('button', { name: 'Attach text' })
+  const attachEpub = page.getByRole('button', { name: 'Attach EPUB' })
+  await attachText.dblclick()
+  await expect(attachText).toBeDisabled()
+  await expect.poll(() => attaches).toEqual(['attach-text'])
+  pending.shift()?.()
+  await expect(page.getByText('Attached 12 characters.')).toBeVisible()
+
+  const epubInput = page.locator('input[type="file"][accept=".epub"]')
+  await epubInput.setInputFiles({ name: 'book.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('PK') })
+  await attachEpub.dblclick()
+  await expect(attachEpub).toBeDisabled()
+  await expect.poll(() => attaches).toEqual(['attach-text', 'attach-epub'])
+  pending.shift()?.()
+  await expect(epubInput).toHaveValue('')
+  await expect(attachEpub).toBeDisabled()
+  expect(attaches).toEqual(['attach-text', 'attach-epub'])
+})

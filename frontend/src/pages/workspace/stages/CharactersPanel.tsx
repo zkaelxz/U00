@@ -30,6 +30,8 @@ import './characters.css'
 
 const COLUMNS = 6
 
+const formKey = (e: CharacterEntry) => JSON.stringify(toCharacterForm(e))
+
 function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged }: {
   entry: CharacterEntry
   engines: CloneEngines | null
@@ -46,11 +48,13 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
   const { dramaId } = useStage()
   const [form, setForm] = useState<CharacterForm>(() => toCharacterForm(entry))
   // A change from outside the row (an accepted voice suggestion) resets
-  // the form to the saved values.
+  // the form to the saved values. Rename, merge and undo hand every row a
+  // new object, so only a change to what the form shows resets it; otherwise
+  // typing in another row would be wiped.
   const [shown, setShown] = useState(entry)
   if (shown !== entry) {
     setShown(entry)
-    setForm(toCharacterForm(entry))
+    if (formKey(shown) !== formKey(entry)) setForm(toCharacterForm(entry))
   }
   const [bankId, setBankId] = useState('')
   const [busy, setBusy] = useState(false)
@@ -375,9 +379,12 @@ export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
       (e: unknown) => {
         setUndoBusy(false)
         setError(e)
-        // A refused undo (renamed again, label reused) won't work later either.
-        setUndo(null)
-        saveRenameUndo(dramaId, null)
+        // A refused undo (renamed again, label reused) won't work later either;
+        // a busy job or a lost connection leaves it valid, so the button stays.
+        if (!undoIdSurvives(e)) {
+          setUndo(null)
+          saveRenameUndo(dramaId, null)
+        }
       },
     )
   }
