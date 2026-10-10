@@ -40,7 +40,8 @@ import time
 
 import db
 import translate_engines
-from services import capped_body, settings_service, translate_service
+from services import settings_service, translate_service
+from lib import http
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      RateLimitedError)
 
@@ -355,20 +356,14 @@ def _registry_updated():
 # ---------------------------------------------------------------------------
 
 def _fetch_models(engine: str, key: str) -> list:
-    import requests
     spec = _PROVIDER_LISTS[engine]
-    # No redirects: a custom key header (x-api-key, x-goog-api-key) would
-    # otherwise follow one to another host.
-    resp = requests.get(spec["url"], headers=spec["headers"](key), timeout=HTTP_TIMEOUT,
-                        allow_redirects=False, stream=True)
-    try:
-        resp.raise_for_status()
-    except Exception:
-        resp.close()
-        raise
-    body = json.loads(capped_body.read_capped(
-        resp, MAX_RESPONSE_BYTES, HTTP_TIMEOUT * 3,
-        lambda: ValueError("the provider's model list was too large")))
+    # guard=None: a fixed vendor URL. lib.http follows no redirect then, which
+    # keeps a custom key header (x-api-key, x-goog-api-key) from reaching another host.
+    resp = http.get(spec["url"], headers=spec["headers"](key), timeout=HTTP_TIMEOUT,
+                    max_bytes=MAX_RESPONSE_BYTES, deadline=HTTP_TIMEOUT * 3, guard=None)
+    if resp.status >= 400:
+        raise ValueError(f"HTTP {resp.status}")
+    body = json.loads(resp.body)
     if not isinstance(body, dict):
         raise ValueError("unexpected response shape")
     models = [m for m in spec["extract"](body) if isinstance(m, str) and m]

@@ -2,7 +2,7 @@
 
 The route -> permission table `tests/test_api_permissions.py` checks against the app. The permission model and the reasoning behind each row are in [`remote-access-decision.md`](remote-access-decision.md).
 
-One row per route (`METHOD /path`), sorted by path and then method, and no counts or totals: the test derives them from the app, so a new route adds one row and touches no shared line. Declarations: a permission name, `public()`, `authenticated()` or `local_only()`. Rows are for the auth-on app with the frontend built.
+One row per route (`METHOD /path`), sorted by path and then method, and no counts or totals: the test derives them from the app, so a new route adds one row and touches no shared line. Declarations: a permission name, `public()`, `authenticated()` or `local_only()`. Rows are for the auth-on app with the frontend built. The table is generated from the decorators: after adding or changing a route run `python tools/route_table.py --write`, never edit rows by hand; the prose above the table is the only part to edit.
 
 | Route | Declaration |
 |---|---|
@@ -88,6 +88,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/characters/series/{series_id}/characters/{character_id}/delete` | local_only() |
 | `GET /api/characters/voice-bank` | library.read |
 | `GET /api/data-usage` | local_only() |
+| `POST /api/data-usage/clean-temp` | local_only() |
 | `POST /api/data-usage/move` | local_only() |
 | `POST /api/data-usage/to-trash` | local_only() |
 | `GET /api/data-usage/trash` | local_only() |
@@ -97,6 +98,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/data-usage/unused-voice-clips` | local_only() |
 | `POST /api/data-usage/unused-voice-clips/to-trash` | local_only() |
 | `GET /api/diagnostics` | admin.diagnostics |
+| `GET /api/diagnostics/browser` | admin.diagnostics |
+| `POST /api/diagnostics/browser/install` | local_only() |
 | `GET /api/diagnostics/bug-reports` | admin.diagnostics |
 | `POST /api/diagnostics/bug-reports` | library.read |
 | `GET /api/diagnostics/bug-reports/{report_id}` | admin.diagnostics |
@@ -106,6 +109,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/dependencies/{package}/install` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/test-upgrade` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/upgrade` | local_only() |
+| `GET /api/diagnostics/dependency-install` | admin.diagnostics |
 | `GET /api/diagnostics/gpu-torch` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/check` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/setup` | local_only() |
@@ -115,6 +119,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/model-cache/files/{kind}/{name}/delete` | local_only() |
 | `POST /api/diagnostics/model-cache/hf/{revision}/delete` | local_only() |
 | `POST /api/diagnostics/package-updates/check` | admin.diagnostics |
+| `GET /api/diagnostics/pending-install` | local_only() |
+| `POST /api/diagnostics/pending-install/cancel` | local_only() |
+| `POST /api/diagnostics/pending-install/dismiss` | local_only() |
+| `POST /api/diagnostics/pending-install/plan` | local_only() |
+| `POST /api/diagnostics/pending-install/queue` | local_only() |
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
 | `GET /api/diagnostics/real-model-check` | admin.diagnostics |
@@ -213,6 +222,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/jobs/{job_id}` | library.read |
 | `POST /api/jobs/{job_id}/cancel` | jobs.cancel |
 | `POST /api/jobs/{job_id}/delete` | local_only() |
+| `POST /api/jobs/{job_id}/force-stop` | jobs.cancel |
 | `GET /api/jobs/{job_id}/stages` | library.read |
 | `GET /api/language-packs` | library.read |
 | `POST /api/language-packs/defaults/{language}` | admin.settings |
@@ -416,6 +426,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/settings` | local_only() |
 | `GET /api/settings/asr-options` | admin.settings |
 | `POST /api/settings/asr-options` | local_only() |
+| `POST /api/settings/asr-options/voice-detector/download` | local_only() |
 | `POST /api/settings/endpoints/{name}` | local_only() |
 | `POST /api/settings/endpoints/{name}/clear` | local_only() |
 | `GET /api/settings/engine-routing` | admin.settings |
@@ -509,6 +520,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/system/update/download` | local_only() |
 | `POST /api/system/update/install` | local_only() |
 | `POST /api/system/update/settings` | local_only() |
+| `GET /api/timing-check/dramas/{drama_id}` | lines.read |
+| `POST /api/timing-check/dramas/{drama_id}/run` | jobs.start |
+| `POST /api/timing-check/dramas/{drama_id}/snap` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/autotune` | library.read |
 | `POST /api/transcribe/dramas/{drama_id}/autotune` | jobs.start |
 | `POST /api/transcribe/dramas/{drama_id}/autotune/apply` | lines.edit |
@@ -519,12 +533,17 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/transcribe/dramas/{drama_id}/compare-transcription/run` | jobs.start |
 | `GET /api/transcribe/dramas/{drama_id}/config` | library.read |
 | `POST /api/transcribe/dramas/{drama_id}/config` | lines.edit |
+| `GET /api/transcribe/dramas/{drama_id}/gaps` | lines.read |
+| `POST /api/transcribe/dramas/{drama_id}/gaps/add-lines` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/lines/{line_id}/retranscribe` | lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/lines/{line_id}/retranscribe` | jobs.start |
 | `POST /api/transcribe/dramas/{drama_id}/lines/{line_id}/retranscribe/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/retime/apply` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/retime/result` | lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/retime/run` | jobs.start |
+| `GET /api/transcribe/dramas/{drama_id}/retranscribe-lines` | lines.read |
+| `POST /api/transcribe/dramas/{drama_id}/retranscribe-lines` | jobs.start |
+| `POST /api/transcribe/dramas/{drama_id}/retranscribe-lines/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/run` | jobs.start |
 | `GET /api/transcribe/dramas/{drama_id}/speech-coverage` | library.read |
 | `POST /api/transcribe/dramas/{drama_id}/speech-coverage` | jobs.start |

@@ -55,9 +55,9 @@ export const exportableIds = (items: readonly Pick<DramaSummary, 'id' | 'status'
 export const exportableCount = (byStatus: Record<string, number> | undefined) =>
   EXPORTABLE.reduce((n, s) => n + (byStatus?.[s] ?? 0), 0)
 
-export const TRANSLATE_NEEDS = "Still needed: a selected drama with status 'aligned'."
+export const TRANSLATE_NEEDS = "Still needed: a selected title with status 'aligned'."
 export const EXPORT_NEEDS =
-  "Still needed: a selected drama with status 'translated', 'dubbed' or 'exported'."
+  "Still needed: a selected title with status 'translated', 'dubbed' or 'exported'."
 
 const ERROR_WORDS: Record<string, string> = {
   not_found: 'not found',
@@ -130,8 +130,8 @@ export function describeClean(r: LibraryStorageCleanResult): string {
   const other = skipped.length - running
   return [
     `Freed ${formatBytes(r.freed_bytes)}.`,
-    running ? `${running} drama${running === 1 ? '' : 's'} skipped (job running).` : '',
-    other ? `${other} drama${other === 1 ? '' : 's'} could not be cleaned.` : '',
+    running ? `${running} title${running === 1 ? '' : 's'} skipped (job running).` : '',
+    other ? `${other} title${other === 1 ? '' : 's'} could not be cleaned.` : '',
   ].filter(Boolean).join(' ')
 }
 

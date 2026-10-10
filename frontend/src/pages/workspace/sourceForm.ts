@@ -1,4 +1,5 @@
 import { safeDetail } from '../../components/errorMessages'
+import { draftStorage, pickDraft, readDraft } from '../../hooks/useStageDraft'
 import type { TranscribeConfigUpdate } from '../../types/workspace'
 
 // Pure client-side checks for the Source/Transcribe stage. The server
@@ -56,7 +57,7 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
 export const MIN_SILENCE_MS_MIN = 100
 export const MIN_SILENCE_MS_MAX = 3000
 
-// Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in core.py.
+// Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in segment_splitting.py.
 export const MIN_PAUSE_SEC_DEFAULT = 0.35
 export const MIN_PAUSE_SEC_MIN = 0.1
 export const MIN_PAUSE_SEC_MAX = 2.0
@@ -138,7 +139,7 @@ export function runOptionProblem(
   if (mode === 'whisper' && alignment === 'qwen3_forced_align') {
     return {
       field: 'alignment_method',
-      message: 'Qwen3 forced alignment needs a transcript to align, but this drama transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
+      message: 'Qwen3 forced alignment needs a transcript to align, but this title transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
     }
   }
   return null
@@ -164,51 +165,42 @@ export function whisperModelWarning(size: string, language: string): string {
     return 'On Korean speech in our tests, large-v3 made about half a point fewer character errors than turbo, and was about twice as slow.'
   }
   if (language === 'zh') {
-    return 'On Chinese our tests disagree: large-v3 was more accurate on clean speech, turbo on one drama clip.'
+    return 'On Chinese our tests disagree: large-v3 was more accurate on clean speech, turbo on one title clip.'
   }
   return ''
 }
 
-// Source-stage run options kept for the browser session, per drama, so a
-// stage-tab switch or navigation does not wipe them.
-interface SourceFormState {
-  language: string
-  script: string
-  transcriptText: string
-  runDiarize: boolean
-  speakers: string
+// The Transcribe form's draft (hooks/useStageDraft, stage "transcribe"): the
+// run options, the prompt override and, under `advanced`, only the Advanced
+// values that differ from the saved options, so unchanged ones keep following
+// the server.
+export const TRANSCRIBE_DRAFT_STAGE = 'transcribe'
+export const TRANSCRIBE_DRAFT_SHAPE = {
+  language: '',
+  script: '',
+  transcriptText: '',
+  runDiarize: false,
+  speakers: '',
   // Speaker-count range for "Detect speakers only".
-  minSpeakers?: string
-  maxSpeakers?: string
-  // Extra names added to the automatic Whisper prompt.
-  extraNames: string
+  minSpeakers: '',
+  maxSpeakers: '',
+  // Extra names added to the automatic Whisper prompt, and its full replacement.
+  extraNames: '',
+  override: '',
 }
+export type TranscribeDraft = typeof TRANSCRIBE_DRAFT_SHAPE
 
-const formKey = (dramaId: number) => `baihe.sourceForm.${dramaId}`
+// The media picker's draft (stage "source"): which way the file comes in.
+export const SOURCE_DRAFT_STAGE = 'source'
+export const SOURCE_DRAFT_SHAPE = { from: 'file' }
 
-export function loadSourceForm(dramaId: number): Partial<SourceFormState> {
-  try {
-    const raw = sessionStorage.getItem(formKey(dramaId))
-    const v: unknown = raw ? JSON.parse(raw) : null
-    if (!v || typeof v !== 'object') return {}
-    const o = v as Record<string, unknown>
-    const out: Partial<SourceFormState> = {}
-    for (const k of ['language', 'script', 'transcriptText', 'speakers', 'minSpeakers', 'maxSpeakers', 'extraNames'] as const) {
-      if (typeof o[k] === 'string') out[k] = o[k]
-    }
-    if (typeof o.runDiarize === 'boolean') out.runDiarize = o.runDiarize
-    return out
-  } catch {
-    return {}
-  }
-}
+// The "From a URL" form's draft (stage "source.url"); Replace is never kept.
+export const URL_DRAFT_STAGE = 'source.url'
+export const URL_DRAFT_SHAPE = { url: '', audioOnly: false }
 
-export function saveSourceForm(dramaId: number, state: SourceFormState): void {
-  try {
-    sessionStorage.setItem(formKey(dramaId), JSON.stringify(state))
-  } catch {
-    // storage unavailable: the form just will not persist
-  }
+/** The names kept on the Transcribe stage, which other prompts (Compare transcription) start from. */
+export function transcribeExtraNames(dramaId: number): string {
+  return pickDraft(readDraft(draftStorage(), dramaId, TRANSCRIBE_DRAFT_STAGE), TRANSCRIBE_DRAFT_SHAPE).extraNames ?? ''
 }
 
 // Values the API falls back to (services/transcribe_service.py _DEFAULT_TUNING);
@@ -233,30 +225,58 @@ export interface AdvancedValues {
   vocabulary_hint: boolean
   use_groq: boolean
   prompt: string
+  // Absent from older callers: reads as the default.
+  hardsub_ocr_backend?: string
+  // Picks the hardsub OCR default; absent reads as a non-Chinese language.
+  source_language?: string
 }
 
-export function advancedSummary(v: AdvancedValues): string {
+// ocr.default_hardsub_backend: PaddleOCR for Chinese, Tesseract otherwise.
+const defaultHardsubBackend = (language?: string) => (language === 'zh' ? 'paddle' : 'tesseract')
+const hardsubChanged = (v: AdvancedValues) => (v.hardsub_ocr_backend ?? defaultHardsubBackend(v.source_language)) !== defaultHardsubBackend(v.source_language)
+
+// The knobs only Developer Mode shows. Their values still ride along in every save and run.
+export function developerOptionsChanged(v: AdvancedValues): number {
+  return [
+    Number(v.beam_size) !== 5,
+    Number(v.vad_threshold) !== 0.5,
+    Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC,
+    v.separation_backend !== 'auto',
+    hardsubChanged(v),
+    Number(v.hardsub_interval_sec) !== 1,
+    v.whisper_repeat_guard,
+  ].filter(Boolean).length
+}
+
+// With developerMode off the hidden knobs are not listed one by one: they collapse into a count.
+export function advancedSummary(v: AdvancedValues, developerMode = true): string {
   const parts: string[] = []
-  if (Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
+  if (developerMode && Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
   if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
   if (Number(v.min_pause_sec) !== MIN_PAUSE_SEC_DEFAULT) parts.push(`split pause ${v.min_pause_sec} s`)
-  if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
+  if (developerMode && Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
   if (v.sensitivity_preset === 'sensitive') parts.push('more sensitive')
-  if (Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
+  if (developerMode && Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
     parts.push(`hallucination guard ${v.hallucination_silence_sec} s`)
   }
-  if (Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
+  if (developerMode && Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
   if (v.alignment_method !== 'whisper_diff') parts.push(v.alignment_method)
   if (v.asr_backend_choice !== 'whisper') parts.push(v.asr_backend_choice)
-  if (v.separation_backend !== 'auto') parts.push(`separation ${v.separation_backend}`)
+  if (developerMode && v.separation_backend !== 'auto') parts.push(`separation ${v.separation_backend}`)
   if (v.separate_vocals_first) parts.push('separate vocals')
   if (v.realign_long_segments) parts.push('realign')
   if (v.whisper_fast_mode) parts.push('fast mode')
-  if (v.whisper_repeat_guard) parts.push('repeat guard')
+  if (developerMode && v.whisper_repeat_guard) parts.push('repeat guard')
   if (v.split_by_sentences) parts.push('lines by sentence')
   if (v.vocabulary_hint) parts.push('name hint')
   if (v.use_groq) parts.push('Groq')
   if (v.prompt.trim()) parts.push('replacement prompt')
+  if (developerMode) {
+    if (hardsubChanged(v)) parts.push(`hardsub OCR ${v.hardsub_ocr_backend}`)
+  } else {
+    const hidden = developerOptionsChanged(v)
+    if (hidden) parts.push(`${hidden} developer option${hidden === 1 ? '' : 's'} changed`)
+  }
   return parts.length ? parts.join(' · ') : 'defaults'
 }
 

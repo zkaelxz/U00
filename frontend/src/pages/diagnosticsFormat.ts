@@ -11,18 +11,6 @@ export function orderJobs(jobs: JobRecord[]): JobRecord[] {
   return [...jobs.filter((j) => isActive(j.status)), ...jobs.filter((j) => !isActive(j.status))]
 }
 
-// "2 running, 1 failed" / "None running" (+ queued and failed when present).
-export function jobsSummary(jobs: JobRecord[]): string {
-  const count = (pred: (j: JobRecord) => boolean) => jobs.filter(pred).length
-  const running = count((j) => j.status === 'running')
-  const queued = count((j) => j.status === 'queued')
-  const failed = count((j) => j.status === 'error')
-  const parts = [running ? `${running} running` : 'None running']
-  if (queued) parts.push(`${queued} queued`)
-  if (failed) parts.push(`${failed} failed`)
-  return parts.join(', ')
-}
-
 export const hasActiveJobs = (jobs: JobRecord[]) => jobs.some((j) => isActive(j.status))
 
 export function splitDependencies(deps: Record<string, DependencyStatus>) {

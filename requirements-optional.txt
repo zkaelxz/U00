@@ -18,6 +18,11 @@ yt-dlp>=2026.7.4          # YouTube and many other sites. Update often
                           # (pip install -U yt-dlp) -- sites change and
                           # break older versions regularly.
 
+# --- ASMR voice detector (asmr_vad.py) ---
+# Runs the optional ~119 MB ASMR speech-detection model on the CPU. The model
+# itself is downloaded from Settings > Transcription experiments, never by pip.
+onnxruntime>=1.16
+
 # --- speaker diarization ---
 pyannote.audio>=3.1
 soundfile>=0.12         # diarize.py reads the normalized audio.wav through

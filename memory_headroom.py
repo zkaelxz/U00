@@ -19,9 +19,12 @@ not measurements; the error text says so. Cloud engines and a remote Ollama
 use none of this machine's memory and are never checked.
 """
 
+import json
 import os
 import sys
 from urllib.parse import urlsplit
+
+from lib import http
 
 MB = 1024 * 1024
 KEEP_FREE_KEYS = {"vram": "keep_free_vram_gb", "ram": "keep_free_ram_gb"}
@@ -82,8 +85,8 @@ def _read_vram_mb(at_load: bool = False):
         except Exception:
             pass
     try:
-        import diagnostics
-        load = diagnostics.external_gpu_load()
+        import diagnostics_torch
+        load = diagnostics_torch.external_gpu_load()
     except Exception:
         load = None
     if load and load.get("memory_total_mb") is not None and load.get("memory_free_mb") is not None:
@@ -242,20 +245,26 @@ def _is_loopback(base_url: str) -> bool:
     return host in ("localhost", "127.0.0.1", "::1")
 
 
+def _ollama_json(url: str) -> dict:
+    # engine_backends.shared imports this module, so it can only be imported late.
+    from engine_backends.shared import PROVIDER_RESPONSE_MAX_BYTES
+    # guard=None: base_url is the Ollama address the user configured (loopback here).
+    resp = http.get(url, timeout=3, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None)
+    if resp.status >= 400:
+        raise ValueError(f"HTTP {resp.status}")
+    return json.loads(resp.body)
+
+
 def _ollama_size_mb_if_not_loaded(base_url: str, model: str):
-    import requests
-    from engine_backends.shared import read_json_capped
     wanted = model if ":" in model else f"{model}:latest"
 
     def names(entries):
         return {str(e.get(k)) for e in entries or [] if isinstance(e, dict) for k in ("name", "model") if e.get(k)}
 
     try:
-        resp = requests.get(f"{base_url}/api/ps", timeout=3, stream=True)
-        if wanted in names(read_json_capped(resp, 3).get("models")):
+        if wanted in names(_ollama_json(f"{base_url}/api/ps").get("models")):
             return None  # already resident: it takes no more memory
-        resp = requests.get(f"{base_url}/api/tags", timeout=3, stream=True)
-        for entry in read_json_capped(resp, 3).get("models") or []:
+        for entry in _ollama_json(f"{base_url}/api/tags").get("models") or []:
             if isinstance(entry, dict) and wanted in names([entry]):
                 return float(entry.get("size") or 0) / MB or None
     except Exception:

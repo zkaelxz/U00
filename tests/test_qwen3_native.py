@@ -611,16 +611,16 @@ def test_a_run_gets_the_hint_only_when_on_for_a_qwen3_backend_with_names(
 def test_the_worker_forwards_the_hint_to_the_pipeline(monkeypatch, tmp_path):
     import queue
     import background_jobs
-    from services import transcribe_service
+    from services import transcribe_pipeline
     seen = {}
-    monkeypatch.setattr(transcribe_service, "_transcribe_pipeline",
+    monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline",
                         lambda *a, **k: seen.update(k) or {"failed_reason": "empty"})
     monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
     q = queue.Queue()
-    transcribe_service._transcribe_worker(
+    transcribe_pipeline._transcribe_worker(
         "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
         False, False, False, "", False, "qwen3_asr", "whisper_diff", None, 1, False, False,
-        2.0, 0.35, False, False, "normal", "Vocabulary: 龙", str(tmp_path / "scratch"), q)
+        2.0, 0.35, False, False, "normal", "standard", "Vocabulary: 龙", str(tmp_path / "scratch"), q)
     assert seen["qwen_prompt"] == "Vocabulary: 龙"
 
 
@@ -628,11 +628,11 @@ def test_the_pipeline_passes_the_hint_to_both_qwen3_backends(monkeypatch, isolat
     import background_jobs
     import core as core_module
     monkeypatch.setattr(core_module, "load_whisper_model", lambda *a, **k: object())
-    from services import transcribe_service
+    from services import transcribe_pipeline
     sys.path.insert(0, os.path.dirname(__file__))
     from test_transcribe_service import _drama_with_audio, _seed_running_job
     did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
-    monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+    monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "w"}])
     prompts = []
 
@@ -645,8 +645,8 @@ def test_the_pipeline_passes_the_hint_to_both_qwen3_backends(monkeypatch, isolat
     for choice in ("qwen3_asr", "qwen3_asr_vad"):
         job_id = f"transcribe_{did}"
         _seed_running_job(job_id)
-        transcribe_service._transcribe_pipeline(
-            transcribe_service._ThreadReporter(job_id), os.path.join(ddir, "audio.wav"), "whisper",
+        transcribe_pipeline._transcribe_pipeline(
+            transcribe_pipeline._ThreadReporter(job_id), os.path.join(ddir, "audio.wav"), "whisper",
             None, "zh", "simplified", "medium", 5, 300, 0.5, False, "auto", False, False, False,
             None, "", False, choice, "whisper_diff", qwen_prompt="Vocabulary: 龙")
         background_jobs._jobs.pop(job_id, None)

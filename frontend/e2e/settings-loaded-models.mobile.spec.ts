@@ -19,7 +19,7 @@ test('Loaded now fits a phone: no sideways page scroll, 44px buttons', async ({ 
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: true } }),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const card = page.getByRole('region', { name: 'Loaded now', exact: true })
   await expect(card.getByTestId('loaded-table')).toBeVisible()
   for (const b of await card.getByRole('button').all()) {

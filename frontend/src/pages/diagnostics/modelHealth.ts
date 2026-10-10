@@ -93,8 +93,8 @@ export function kindHelp(item: Pick<ModelStatusItem, 'kind' | 'can_switch' | 're
   if (item.kind === 'extension') return 'Change it in Settings, under the browser extension.'
   if (item.kind === 'preset' && !item.can_switch) {
     return item.replacement
-      ? `${item.replacement} isn't offered for this engine yet. To pick another model, change the preset in a drama's Translate step.`
-      : "To pick another model, change the preset in a drama's Translate step."
+      ? `${item.replacement} isn't offered for this engine yet. To pick another model, change the preset in a title's Translate step.`
+      : "To pick another model, change the preset in a title's Translate step."
   }
   return null
 }

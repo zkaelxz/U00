@@ -10,6 +10,7 @@ export interface MockRow {
   imported_at: string
   unsplit: boolean
   in_translation: boolean
+  url?: string
 }
 
 export const row = (n: number, over: Partial<MockRow> = {}): MockRow => ({

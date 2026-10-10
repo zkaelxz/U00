@@ -140,6 +140,8 @@ or `series` go when the parent goes.
 | `users`, `user_permissions`, `auth_sessions`, `audit_log` | Accounts, per-user permissions, server-side sessions, audit trail | `services/auth_service.py` | `auth_*` functions; see section 4 |
 | `extension_device_tokens` | Browser-extension device tokens (SHA-256 only, revoked/expiry times, last use as an IP prefix) | `services/device_token_service.py` | `device_tokens.py` (created from `init_db`); a restore keeps the live rows |
 
+`app_settings` keys are declared in `lib/settings_schema.py`: each row names the key the value is saved under (`pref.<name>`, `bulk.auto_resume`, `assistant.<name>` or a bare key, so old saved values still read), its type, default and limits. `settings_service.get(key)` reads a row and returns the default for a missing or invalid value. Keys built at run time (`engine_test.<engine>`, `capability.<name>`, per-title language packs and shorten passes) and the backup state keys have no row; `tests/test_settings_schema.py` lists each with its reason. Secrets stay in `.env`.
+
 ### `sources.db` (separate file)
 
 `<library>/sources.db` belongs to the source-adapter system and has its own
@@ -207,7 +209,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 
 - *Redact at write time.* Error text passes through
   `translate_engines.redact_secrets` (or `redact_for_storage`, which also strips
-  URL query strings) before it is stored, shown or logged: `background_jobs`
+  URL query strings) before it is stored, shown or logged: `jobs/job_store.py`
   (`_storage_text`, because `job_records` lands in backups), `auth_service`
   (`_scrub_detail` for `audit_log.detail_redacted`), `translate_run_service`
   (`last_translate_errors`), `sources/store.py`. API keys go in headers, never
@@ -220,7 +222,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 - *Atomic writes.* `core.atomic_write(path, data)` writes a temp file in the same
   folder and `os.replace`s it, so a crash never leaves a truncated file. Backups
   are written to a hidden partial file, verified, flushed and linked into place
-  (`auto_backup_service._place_copy`, `_link_new`); the Trash uses one same-volume
+  (`auto_backup_service._place_copy`, `lib.link_new.link_new`); the Trash uses one same-volume
   rename (`disk_usage_service._rename`). New drama media goes through a staging
   folder with a journal (`db.new_media_staging`, `move_staged_folder`,
   `recover_media_imports`) so a crash between the database insert and the folder
@@ -238,11 +240,12 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 `db.save_job_record` so another process (the CLI, a restarted server) can see the
 last known state.
 
-- A failed mirror write is logged and never breaks the job.
+- A failed write never breaks the job; `jobs/job_store.py` shows it on the job
+  (`sync_error`) and retries it on the heartbeat.
 - A row is the *last written* state. A `running` row whose `updated_at` is old is
   suspect: the live process heartbeats its rows (`touch_job_records`), and
-  stale ones are closed by `close_stale_job_record` /
-  `close_orphaned_job_record` (`owner_pid`), driven by
+  stale ones are closed by `jobs/job_store.py` (`close_stale` /
+  `close_if_owner_gone`, by `owner_instance` or `owner_pid`), driven by
   `jobs_service.sweep_stale_job_records`.
 - `cancel_requested` lets another process ask a job to stop;
   `result_json` holds the redacted, allow-listed result.

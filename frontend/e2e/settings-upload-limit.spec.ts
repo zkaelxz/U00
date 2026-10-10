@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { mockUploadSettings } from './uploadLimitMocks'
 import { openSettingsGroups } from './settingsNav'
 
-// Settings > Advanced > Uploads: the saved upload size limit. The settings
+// Settings > System > Uploads: the saved upload size limit. The settings
 // call is mocked (reads of everything else go to the seeded API); any other
 // write is aborted and recorded.
 
@@ -10,7 +10,7 @@ const uploads = (page: Page) => page.locator('details.section:has(> summary > .s
 
 async function openUploads(page: Page) {
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const s = uploads(page)
   await s.locator('summary').click()
   await expect(s).toHaveAttribute('open', '')
@@ -47,7 +47,7 @@ test('the limit is read-only when the environment sets it', async ({ page }) => 
 test('the jump link opens Advanced at the Uploads block', async ({ page }) => {
   const { unmocked } = await mockUploadSettings(page)
   await page.goto('/#/settings?section=uploads')
-  await expect(page.locator('#settings-advanced > details.section')).toHaveAttribute('open', '')
+  await expect(page.getByRole('tab', { name: 'System' })).toHaveAttribute('aria-selected', 'true')
   await expect(uploads(page)).toBeVisible()
   expect(unmocked).toEqual([])
 })

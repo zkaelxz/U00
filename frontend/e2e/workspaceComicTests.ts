@@ -34,16 +34,17 @@ export function defineComicWorkspaceTests() {
       await expect(page.getByText('Comics are translated bubble by bubble in Scanlate, not as text lines.')).toBeVisible()
       await expect(open).toHaveAttribute('href', /#\/comic\/1$/)
       expect((await open.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-      await expect(page.getByText('Go to Source')).toHaveCount(0)
+      await expect(page.getByText('Go to Media')).toHaveCount(0)
     })
   }
 
   test('comic title: the header link is Open in Scanlate, the unused tabs are dimmed, Source stays', async ({ page }) => {
     await openAs(page, 'manhua', 'source')
     const header = page.locator('.workspace-header')
-    const link = header.getByRole('link', { name: 'Open in Scanlate' })
+    const link = page.locator('.ws-actions').getByRole('link', { name: 'Open in Scanlate' })
     await expect(link).toBeVisible()
     await expect(link).toHaveAttribute('href', /#\/comic\/1$/)
+    await expect(link).toHaveClass(/btn-primary/)
     await expect(header.getByRole('link', { name: 'Read', exact: true })).toHaveCount(0)
     const nav = page.getByRole('navigation', { name: 'Stages' })
     await expect(nav.locator('a[href$="/drama/1/translate"]')).toHaveAttribute('data-comic-skipped', 'true')
@@ -62,8 +63,6 @@ export function defineComicWorkspaceTests() {
     await expect(page.getByRole('navigation', { name: 'Stages' }).locator('[data-comic-skipped]')).toHaveCount(0)
     await expect(page.getByTestId('open-in-scanlate')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: /Translate/ }).first()).toBeVisible()
-    if ((page.viewportSize()?.width ?? 1000) > 640) {
-      await expect(page.locator('.workspace-header').getByRole('link', { name: 'Read', exact: true })).toHaveAttribute('href', /#\/read\/1/)
-    }
+    await expect(page.locator('.ws-actions').getByRole('link', { name: 'Read', exact: true })).toHaveAttribute('href', /#\/read\/1/)
   })
 }

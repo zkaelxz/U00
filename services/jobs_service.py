@@ -16,15 +16,16 @@ dicts, so `cli.py` or a script could call it too.
 """
 
 import json
-import os
 import re
 import time
 from typing import Optional
 
 import db
-from services import job_stage_service, ownership_service
+from services import job_stage_service, ownership_service, run_settings_service
 import diagnostics
 import background_jobs
+import job_force_stop
+from jobs import job_store
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
@@ -46,6 +47,8 @@ RESULT_ALLOWED_KEYS = (
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
+    # Review timing check: counts and the no-speech notice.
+    "checked", "flagged", "cleared", "skipped_flagged", "notice",
     # Sources chapter import (S-4): int counts only, never text.
     "imported_count", "skipped_count", "failed_count",
     # lightnovel-crawler import: the EPUB's reading-order count.
@@ -236,6 +239,9 @@ def project_result(result):
         out["bulk"] = _reproject_bulk(result["bulk"])  # stored row, on read
     if result.get("fallbacks"):
         out["fallbacks"] = _project_fallbacks(result["fallbacks"])
+    run_settings = run_settings_service.sanitise(result.get("run_settings"))
+    if run_settings:
+        out["run_settings"] = run_settings
     for key in RESULT_ALLOWED_KEYS:
         if key not in result or (key == "errors" and "bulk" in out):
             continue
@@ -265,8 +271,13 @@ def project_result(result):
     return out
 
 
-def project_result_json(result):
-    """project_result, JSON-encoded for db.job_records.result_json."""
+def project_result_json(result, run_settings=None):
+    """project_result, JSON-encoded for db.job_records.result_json. The
+    job's run settings ride along even when the result isn't a dict
+    (live-translate's cue list)."""
+    settings = run_settings_service.sanitise(run_settings)
+    if settings:
+        result = {**(result if isinstance(result, dict) else {}), "run_settings": settings}
     projected = project_result(result)
     return json.dumps(projected) if projected is not None else None
 
@@ -384,25 +395,30 @@ def _with_live_progress(record: dict) -> dict:
     """job_records is written on status changes only, so while a job this
     process runs is running, its progress and message come from
     background_jobs' in-memory state (what update_progress set), so polls
-    and the event stream both see the bar move."""
-    if record.get("status") != "running":
-        return record
+    and the event stream both see the bar move. A job whose last write
+    failed keeps its last written status, with a message saying so."""
     try:
         live = job_stage_service.annotate(background_jobs.get_status(record.get("job_id")))
     except Exception:
         return record
-    if not live or live.get("status") != "running":
+    if not live:
+        # No can_force_stop: Force stop reaches only jobs live in this process.
         return record
     out = dict(record)
-    progress = live.get("progress")
-    if isinstance(progress, (int, float)) and not isinstance(progress, bool):
-        out["progress"] = progress
-    if live.get("message"):
-        out["message"] = live.get("message")
-    if background_jobs.job_may_be_stalled(live):
-        out["stalled"] = True
-        out["message"] = ((out.get("message") or "").rstrip()
-                          + " No update for a while: this job may be stalled.")
+    if record.get("status") == "running" and live.get("status") == "running":
+        out["can_force_stop"] = job_force_stop.can_force_stop(live)
+        progress = live.get("progress")
+        if isinstance(progress, (int, float)) and not isinstance(progress, bool):
+            out["progress"] = progress
+        if live.get("message"):
+            out["message"] = live.get("message")
+        if background_jobs.job_may_be_stalled(live):
+            out["stalled"] = True
+            out["message"] = ((out.get("message") or "").rstrip()
+                              + " No update for a while: this job may be stalled.")
+    if live.get("sync_error"):
+        out["message"] = " ".join(filter(None, [(out.get("message") or "").rstrip(),
+                                                job_store.sync_error_suffix(live["sync_error"])]))
     return out
 
 
@@ -412,7 +428,9 @@ def _redact(record: dict) -> dict:
     record = _with_live_progress(record)
     out = dict(record)
     raw = out.pop("result_json", None)
-    out.pop("owner_pid", None)
+    for internal in ("owner_pid", "owner_instance", "detail_state", "sync_error",
+                     "cancel_requested_at", "kind"):
+        out.pop(internal, None)
     try:
         stored = json.loads(raw) if raw else None
     except ValueError:
@@ -428,6 +446,7 @@ def _redact(record: dict) -> dict:
                               if message else None)
     out["stale"] = is_stale(record)
     out["stalled"] = bool(record.get("stalled"))
+    out["can_force_stop"] = bool(record.get("can_force_stop"))
     return out
 
 
@@ -440,29 +459,10 @@ def is_stale(record: dict, now: Optional[float] = None) -> bool:
         return False
     if background_jobs.get_status(record.get("job_id")) is not None:
         return False
-    if _owner_gone(record):
+    if job_store.owner_gone(record):
         return True
     updated = record.get("updated_at") or 0
     return (time.time() if now is None else now) - updated > STALE_JOB_SECONDS
-
-
-def _owner_gone(record: dict) -> bool:
-    """True when the row names an owner process that no longer runs it: an
-    exited pid, or this process's own pid with no such job live here (an
-    earlier run of the server had the same pid). Rows written before
-    owner_pid existed fall back to the heartbeat cutoff. Callers have
-    already checked the job isn't live in this process."""
-    pid = record.get("owner_pid")
-    if pid is None:
-        return False
-    if pid == os.getpid():
-        return True
-    return not background_jobs.owner_process_alive(pid)
-
-
-def _close_if_owner_gone(record: dict) -> bool:
-    return _owner_gone(record) and db.close_orphaned_job_record(
-        record.get("job_id"), record.get("owner_pid"), error=background_jobs.INTERRUPTED_MESSAGE)
 
 
 # One entry per background_jobs.DRAMA_JOB_PREFIXES prefix (a test fails when
@@ -470,7 +470,7 @@ def _close_if_owner_gone(record: dict) -> bool:
 JOB_KIND_BY_PREFIX = {
     "translate_": "translate", "bulk_translate_": "translate",
     "novel_glossary_": "translate", "lines_glossary_": "translate",
-    "flag_": "review", "fixflag_": "review", "consistency_": "review",
+    "flag_": "review", "fixflag_": "review", "timingchk_": "review", "consistency_": "review",
     "emotion_": "review", "notes_": "review", "bulk_consistency_": "review",
     "bulk_emotion_": "review", "bulk_notes_": "review", "bulk_flag_": "review",
     "transcribe_": "transcribe", "retranscribe_": "transcribe",
@@ -507,7 +507,8 @@ JOB_PAGE_BY_ID = {
     "discover_bulk_extract": "discover", "discover_navigation_help": "discover",
     "library_backup": "settings", "library_db_backup": "settings",
     "library_user_backup": "settings", "library_auto_backup": "settings",
-    "deno_install": "diagnostics", "upgrade_check": "diagnostics",
+    "deno_install": "diagnostics", "dependency_install": "diagnostics",
+    "browser_install": "diagnostics", "upgrade_check": "diagnostics",
 }
 JOB_PAGE_BY_PREFIX = {
     "sources_series_": "sources", "sources_signin_": "sources", "sources_tiertest_": "sources",
@@ -549,27 +550,9 @@ def _for_caller(principal, record) -> dict:
 
 
 def sweep_stale_job_records() -> int:
-    """Closes (as cancelled, with INTERRUPTED_MESSAGE) every queued/running
-    job_records row that is not live in this process and whose owner
-    process has exited (owner_pid) or has not heartbeated for
-    STALE_JOB_SECONDS -- left behind by a crashed, killed or restarted
-    process. Each close is one conditional UPDATE, so a live owner's
-    heartbeat, "done" or new run always wins. Also marks this process's own
-    running jobs whose worker thread is gone
-    (background_jobs.reconcile_dead_workers). Returns how many it closed."""
-    background_jobs.reconcile_dead_workers()
-    cutoff = time.time() - STALE_JOB_SECONDS
-    closed = 0
-    for rec in db.list_job_records():
-        job_id = rec.get("job_id")
-        if rec.get("status") not in ("queued", "running") or background_jobs.get_status(job_id):
-            continue
-        if _close_if_owner_gone(rec) or (
-                (rec.get("updated_at") or 0) < cutoff
-                and db.close_stale_job_record(job_id, cutoff,
-                                              error=background_jobs.INTERRUPTED_MESSAGE)):
-            closed += 1
-    return closed
+    """Closes every queued/running row left behind by a crashed, killed or
+    restarted process (jobs/job_store.sweep_dead_owners). Returns how many."""
+    return job_store.sweep_dead_owners(STALE_JOB_SECONDS)
 
 
 def list_jobs(principal=None) -> list:
@@ -626,10 +609,10 @@ def cancel_job(job_id: str, principal=None) -> dict:
     if record.get("status") not in ("queued", "running"):
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
     background_jobs.request_cancel(job_id)
-    db.request_job_record_cancel(job_id)
+    job_store.request_cancel(job_id)
     live = background_jobs.get_status(job_id)
-    if live is None and (_close_if_owner_gone(record) or db.close_stale_job_record(
-            job_id, time.time() - STALE_JOB_SECONDS, error=background_jobs.INTERRUPTED_MESSAGE)):
+    if live is None and (job_store.close_if_owner_gone(record) or job_store.close_stale(
+            job_id, time.time() - STALE_JOB_SECONDS)):
         # The owner process has exited, or sent no heartbeat for
         # STALE_JOB_SECONDS: nobody will read the flag. Each close is
         # conditional, so a live owner's heartbeat, "done" or new run wins.
@@ -638,6 +621,20 @@ def cancel_job(job_id: str, principal=None) -> dict:
     # "Cancelling..." until its worker stops.
     status = live["status"] if live else record["status"]
     return {"job_id": job_id, "cancel_requested": True, "status": status}
+
+
+def force_stop_job(job_id: str, principal=None) -> dict:
+    """Closes the record of a thread job that ignored Cancel for over a
+    minute; same visibility and ownership rules as cancel_job. Unknown/invisible -> NotFoundError; not eligible ->
+    ConflictError. The worker thread itself cannot be killed (see
+    job_force_stop), so `worker_still_running` says whether it is still alive."""
+    record = db.get_job_record(job_id)
+    if record is None or not _visible(principal, record):
+        raise NotFoundError(f"No job with id {job_id!r}.")
+    ownership_service.require_job_changeable(principal, record.get("job_id"),
+                                             record.get("owner_user_id"))
+    result = job_force_stop.force_stop(job_id)
+    return {"job_id": job_id, "force_stopped": True, **result}
 
 
 # job_records / background_jobs status names of a job that has ended.

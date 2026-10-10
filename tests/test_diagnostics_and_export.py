@@ -12,10 +12,13 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
+import requests
 import db
 import diagnostics
+import diagnostics_torch
 import expected_files
 from core import Line, lines_to_srt, lines_to_bilingual_srt
+from lib import http
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -432,6 +435,7 @@ class TestModelEngineVersions:
             raise AssertionError("should not touch the network")
         monkeypatch.setattr("requests.get", boom)
         monkeypatch.setattr("requests.post", boom)
+        monkeypatch.setattr(http, "pinned_get", boom)
         diagnostics.get_model_engine_versions("qwen3:8b")  # must not raise
 
     def test_installed_is_a_real_boolean_not_a_string_match(self):
@@ -457,31 +461,31 @@ class TestGpuStatus:
 
     def test_unavailable_when_torch_not_installed(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert "PyTorch isn't installed" in status["message"]
 
     def test_unavailable_no_error_when_no_gpu_present(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: None)
         fake_torch = types.SimpleNamespace(
             version=types.SimpleNamespace(cuda=None),
             cuda=types.SimpleNamespace(is_available=lambda: False))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert "unavailable" in status["message"]
         assert "GPU" not in status["message"] or "no CUDA-capable GPU" in status["message"]
 
     def test_names_the_real_mismatch_when_gpu_present_but_torch_is_cpu_only(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
-        monkeypatch.setattr(diagnostics.shutil, "which",
+        monkeypatch.setattr(diagnostics_torch.shutil, "which",
                             lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
         fake_torch = types.SimpleNamespace(
             version=types.SimpleNamespace(cuda=None),
             cuda=types.SimpleNamespace(is_available=lambda: False))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert "CPU-only" in status["message"]
 
@@ -496,7 +500,7 @@ class TestGpuStatus:
                 get_device_properties=lambda idx: props,
                 memory_allocated=lambda idx: 2 * 1024 ** 3))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is True
         assert status["name"] == "NVIDIA GeForce RTX 3080 Ti"
         assert status["vram_used_gb"] == pytest.approx(2.0)
@@ -506,56 +510,9 @@ class TestGpuStatus:
     def test_broken_torch_import_does_not_crash(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
         monkeypatch.setitem(sys.modules, "torch", None)  # forces ImportError on `import torch`
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert status["message"]
-
-
-class TestStreamDependencyInstall:
-    """Step 18 item 7: the generic per-dependency Install button must not
-    reproduce the CPU-only-torch footgun the dedicated GPU-PyTorch button
-    already exists to fix."""
-
-    def test_torch_with_gpu_present_uses_the_gpu_aware_reinstall(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which",
-                            lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
-        called = {}
-
-        def fake_gpu_reinstall(python_executable=None, project_root=None):
-            called["used"] = True
-            yield {"done": True, "ok": True, "returncode": 0}
-        monkeypatch.setattr(diagnostics, "stream_gpu_torch_reinstall", fake_gpu_reinstall)
-
-        def boom(*a, **k):
-            raise AssertionError("should not fall back to a bare pip install")
-        monkeypatch.setattr(diagnostics, "stream_pip_install", boom)
-
-        list(diagnostics.stream_dependency_install("torch"))
-        assert called.get("used") is True
-
-    def test_torch_with_no_gpu_uses_a_plain_install(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
-        captured = {}
-
-        def fake_plain_install(pip_args, python_executable=None):
-            captured["pip_args"] = pip_args
-            yield {"done": True, "ok": True, "returncode": 0}
-        monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
-
-        list(diagnostics.stream_dependency_install("torch"))
-        assert captured["pip_args"] == ["torch", *diagnostics.constraints_pip_args()]
-
-    def test_other_dependencies_always_use_a_plain_install(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        captured = {}
-
-        def fake_plain_install(pip_args, python_executable=None):
-            captured["pip_args"] = pip_args
-            yield {"done": True, "ok": True, "returncode": 0}
-        monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
-
-        list(diagnostics.stream_dependency_install("audio-separator"))
-        assert captured["pip_args"] == ["audio-separator", *diagnostics.constraints_pip_args()]
 
 
 class TestPyannoteGatedAccessCheck:
@@ -641,7 +598,7 @@ class TestCheckEngineReachable:
 class TestDependencyVersionCheck:
     """Step 27: 'is this outdated' + Upgrade. Like the pyannote check
     above, this reaches the network -- every test here mocks
-    requests.get so no test ever makes a real call to PyPI."""
+    lib.http.pinned_get so no test ever makes a real call to PyPI."""
 
     def test_get_installed_version_returns_none_for_unknown_distribution(self):
         assert diagnostics.get_installed_version("definitely-not-a-real-package-xyz") is None
@@ -660,20 +617,35 @@ class TestDependencyVersionCheck:
             def close(self):
                 pass
         captured = {}
-        def fake_get(url, timeout=None, stream=False, allow_redirects=True):
-            captured["url"], captured["timeout"] = url, timeout
+        def fake_get(url, ip, headers, timeout=None, method="GET", **kw):
+            captured["url"], captured["timeout"], captured["ip"] = url, timeout, ip
             return FakeResp()
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         assert diagnostics.get_latest_pypi_version("somepkg", timeout=3.5) == "9.9.9"
         assert captured["url"] == "https://pypi.org/pypi/somepkg/json"
         assert captured["timeout"] == 3.5
+        assert captured["ip"] is None  # a fixed vendor URL: no pinning, no redirects
+
+    def test_get_latest_pypi_version_does_not_follow_a_redirect(self, monkeypatch):
+        calls = []
+
+        class FakeResp:
+            status_code = 302
+            headers = {"Location": "https://elsewhere.example/json"}
+            def close(self):
+                pass
+        monkeypatch.setattr(http, "pinned_get",
+                            lambda url, *a, **kw: calls.append(url) or FakeResp())
+        assert diagnostics.get_latest_pypi_version("somepkg") is None
+        assert calls == ["https://pypi.org/pypi/somepkg/json"]
 
     def test_get_latest_pypi_version_returns_none_on_404(self, monkeypatch):
         class FakeResp:
             status_code = 404
+            headers = {}
             def close(self):
                 pass
-        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: FakeResp())
         assert diagnostics.get_latest_pypi_version("no-such-package") is None
 
     def test_get_latest_pypi_version_gives_up_on_an_oversized_body(self, monkeypatch):
@@ -688,14 +660,14 @@ class TestDependencyVersionCheck:
             def close(self):
                 closed.append(True)
         monkeypatch.setattr(diagnostics, "PYPI_JSON_MAX_BYTES", 1000)
-        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: FakeResp())
         assert diagnostics.get_latest_pypi_version("somepkg") is None
         assert closed
 
     def test_get_latest_pypi_version_returns_none_on_network_error(self, monkeypatch):
-        def boom(url, timeout=None, **kw):
-            raise ConnectionError("no network")
-        monkeypatch.setattr("requests.get", boom)
+        def boom(*a, **kw):
+            raise requests.ConnectionError("no network")
+        monkeypatch.setattr(http, "pinned_get", boom)
         assert diagnostics.get_latest_pypi_version("somepkg") is None
 
     def test_check_dependency_versions_flags_an_outdated_package(self, monkeypatch):
@@ -741,6 +713,7 @@ class TestDependencyVersionCheck:
             raise AssertionError("should not touch the network")
         monkeypatch.setattr("requests.get", boom)
         monkeypatch.setattr("requests.post", boom)
+        monkeypatch.setattr(http, "pinned_get", boom)
         # Everything else on this page must stay network-free by default.
         diagnostics.check_all_dependencies()
         diagnostics.run_full_diagnostics(PROJECT_ROOT, str(tmp_path), {})

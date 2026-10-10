@@ -179,9 +179,11 @@ def _as_written(text: str) -> bytes:
     return text.replace("\n", os.linesep).encode("utf-8")
 
 
-def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "") -> str:
+def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "",
+                    url: str = "") -> str:
     """Writes fetched novel text into the drama's raw-novel file, through
-    the same loader an uploaded .txt goes through. Returns the path."""
+    the same loader an uploaded .txt goes through. `url` is the page the
+    text came from, kept in the chapter manifest. Returns the path."""
     import core
     loaded = core.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
     if heading:
@@ -193,7 +195,7 @@ def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str
         if mode == "a":
             f.write("\n\n")
         f.write(loaded)
-    _note_block(drama_id, offset, loaded, heading, "")
+    _note_block(drama_id, offset, loaded, heading, "", url)
     return path
 
 
@@ -272,7 +274,8 @@ def _record_imported(source: str, ch, drama_id: int) -> bool:
         return False
 
 
-def _note_block(drama_id: int, offset: int, loaded: str, title: str, source: str) -> None:
+def _note_block(drama_id: int, offset: int, loaded: str, title: str, source: str,
+                url: str = "") -> None:
     """Records the block `_append_chapter_text` / `save_novel_text` put at
     `offset` (-1: it started the file) in the chapter manifest."""
     sep = len(_as_written("\n\n")) if offset >= 0 else 0
@@ -281,7 +284,7 @@ def _note_block(drama_id: int, offset: int, loaded: str, title: str, source: str
     chapter_manifest.record(drama_id, pre_size=pre, post_size=pre + sep + body,
                             content_start=pre + sep, content_length=body,
                             content_chars=chapter_manifest.chars_of(loaded),
-                            title=title, source=source)
+                            title=title, source=source, url=url)
 
 
 def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
@@ -321,7 +324,7 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
                     f.seek(max(earlier, 0))
                     tail = f.read(len(want) + 1)
                 if tail[:len(want)] == want:
-                    _note_block(drama_id, earlier, loaded, ch.title, source)
+                    _note_block(drama_id, earlier, loaded, ch.title, source, ch.url)
                     return ""   # the interrupted attempt wrote all of it
                 if len(tail) < len(want) and want.startswith(tail):
                     os.truncate(path, max(earlier, 0))
@@ -349,7 +352,7 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
             else:
                 os.truncate(path, offset)
             return _NOT_SAVED
-        _note_block(drama_id, offset, loaded, ch.title, source)
+        _note_block(drama_id, offset, loaded, ch.title, source, ch.url)
     return ""
 
 
@@ -370,7 +373,7 @@ def append_recovered_chapter(source: str, ch, drama_id: int, text: str) -> str:
 
 
 def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=None,
-                   skip_ids=None, on_layout_changed=None):
+                   skip_ids=None, on_layout_changed=None, series_url: str = ""):
     """Background-job body. `chapters` are ChapterInfo (or their dicts) --
     only the ones the person ticked. Stores a result dict with per-chapter
     outcomes, the final Source Access stats, and a hand-off record if a
@@ -385,9 +388,15 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
     (LAYOUT_CHANGED) is recorded as "needs_ai" and ends the run: the rest
     are not attempted. `on_layout_changed(ch, url, html)` is told the page
     the adapter read (both None when it is not known). This job never
-    holds an engine."""
+    holds an engine.
+
+    `series_url` is the series' page; it becomes the title's source link
+    only while the title has none."""
     if db.get_drama(drama_id) is None:
         raise SourceError("The drama to import into no longer exists.")
+    if series_url:
+        from services import drama_service
+        drama_service.set_source_url_once(drama_id, series_url)
     skip_ids = {str(i) for i in (skip_ids or ())}
     chapters = [c if isinstance(c, ChapterInfo) else ChapterInfo(**c) for c in chapters]
     total = len(chapters)
@@ -451,7 +460,7 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                     try:
                         outcome = {"pages": add_page_images(
                             drama_id, images, ids_out=page_ids,
-                            chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, source))}
+                            chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, source, ch.url))}
                     except Exception:
                         _warn("Could not add a chapter's pages")
                         # If this raises, pages may remain: the chapter stays "partial".
@@ -534,7 +543,8 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                                             "finished_at": time.time()})
 
 
-def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=None) -> bool:
+def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=None,
+                 series_url: str = "") -> bool:
     """Claims `sourceimport_<drama_id>`. False, starting nothing, while any
     job for the drama runs here or (per job_records) in the other process.
     Chapters already imported into the drama are skipped unless `skip_ids`
@@ -550,4 +560,5 @@ def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=
     job_id = import_job_id(drama_id)
     return background_jobs.start_job(
         job_id, run_import_job, job_id, source, chapters, drama_id, skip_ids=skip_ids,
+        series_url=series_url,
         description=f"Import {len(chapters)} chapter(s) from {source}")

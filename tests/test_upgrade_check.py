@@ -18,6 +18,7 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diagnostics
+import upgrade_check
 
 PKG = "baihe-probe"
 MOD = "baihe_probe"
@@ -70,9 +71,9 @@ SUITE = (f"import {MOD}\n"
 
 
 def _run(tmp_path, parent, wheels, suite, version):
-    items = list(diagnostics.check_upgrade_candidate(
+    items = list(upgrade_check.check_upgrade_candidate(
         PKG, version, project_root=str(tmp_path), test_args=[str(suite)],
-        parent_dirs=[str(parent)] + diagnostics._env_package_dirs(),
+        parent_dirs=[str(parent)] + upgrade_check._env_package_dirs(),
         pip_extra_args=["--no-index", "--find-links", str(wheels)],
         pip_timeout=120, test_timeout=120))
     return items[-1], [i["line"] for i in items if "line" in i]
@@ -122,7 +123,7 @@ class TestCheckUpgradeCandidate:
         parent, wheels, suite = _setup(tmp_path, SUITE, {"1.1": 1})
         work = tmp_path / "work"
         work.mkdir()
-        monkeypatch.setattr(diagnostics.tempfile, "mkdtemp", lambda prefix="": str(work))
+        monkeypatch.setattr(upgrade_check.tempfile, "mkdtemp", lambda prefix="": str(work))
         _run(tmp_path, parent, wheels, suite, "1.1")
         assert not work.exists()
 
@@ -131,18 +132,18 @@ class TestEnsurePytest:
     def _run(self, monkeypatch, importable, pip_returncode=0):
         calls = []
 
-        class Proc:
-            returncode = 0 if importable else 1
-
-        monkeypatch.setattr(diagnostics.subprocess, "run", lambda *a, **k: Proc())
+        monkeypatch.setattr(
+            upgrade_check.proc_run, "run_captured",
+            lambda *a, **k: upgrade_check.proc_run.CapturedRun(
+                0 if importable else 1, "", "", False, False))
 
         def fake_stream(cmd, timeout, **kw):
             calls.append(cmd)
             yield {"line": "Successfully installed pytest"}
             yield {"returncode": pip_returncode, "timed_out": False}
 
-        monkeypatch.setattr(diagnostics, "_stream_process", fake_stream)
-        items = list(diagnostics._ensure_pytest("/venv/python", "/real/python", 60))
+        monkeypatch.setattr(upgrade_check, "_stream_process", fake_stream)
+        items = list(upgrade_check._ensure_pytest("/venv/python", "/real/python", 60))
         return items, calls
 
     def test_nothing_is_installed_when_pytest_is_already_importable(self, monkeypatch):
@@ -172,8 +173,8 @@ class TestEnsurePytest:
             state["n"] += 1
             yield {"returncode": 0 if state["n"] == 1 else 1, "timed_out": False}
 
-        monkeypatch.setattr(diagnostics, "_stream_process", fake_stream)
-        items = list(diagnostics._ensure_pytest("/venv/python", "/real/python", 60))
+        monkeypatch.setattr(upgrade_check, "_stream_process", fake_stream)
+        items = list(upgrade_check._ensure_pytest("/venv/python", "/real/python", 60))
         assert items[-1] == {"ok": True} and state["n"] == 2
 
 
@@ -210,17 +211,17 @@ class TestPipConflicts:
             "tokenizers 0.23.2 requires huggingface-hub<2.0,>=0.16.4, but you have "
             "huggingface-hub 2.0.0 which is incompatible.",
         ]
-        conflicts = diagnostics._parse_pip_conflicts(lines)
+        conflicts = upgrade_check._parse_pip_conflicts(lines)
         assert [c.split()[0] for c in conflicts] == ["transformers", "tokenizers"]
 
     def test_underscore_and_dash_names_match(self):
         lines = ["Successfully installed Foo_Bar-1.0",
                  "baz 1.0 requires foo-bar<1, but you have foo-bar 1.0 which is incompatible."]
-        assert len(diagnostics._parse_pip_conflicts(lines)) == 1
+        assert len(upgrade_check._parse_pip_conflicts(lines)) == 1
 
     def test_no_install_line_means_no_attributable_conflicts(self):
         lines = ["baz 1.0 requires foo<1, but you have foo 1.0 which is incompatible."]
-        assert diagnostics._parse_pip_conflicts(lines) == []
+        assert upgrade_check._parse_pip_conflicts(lines) == []
 
 
 class TestKnownHuggingFaceHubLimitation:
@@ -266,16 +267,16 @@ class TestParsePytestFailures:
                  "ERROR tests/test_b.py - ModuleNotFoundError: No module named 'x'",
                  "FAILED tests/test_a.py::test_p[a b] - ValueError",
                  "1 failed, 1 error"]
-        assert diagnostics._parse_pytest_failures(lines) == [
+        assert upgrade_check._parse_pytest_failures(lines) == [
             "tests/test_a.py::TestX::test_y", "tests/test_b.py", "tests/test_a.py::test_p[a b]"]
 
     def test_no_summary_lines_means_no_failures(self):
-        assert diagnostics._parse_pytest_failures(["....", "4 passed in 0.1s"]) == []
+        assert upgrade_check._parse_pytest_failures(["....", "4 passed in 0.1s"]) == []
 
 
 class TestStreamProcessTimeout:
     def test_a_hung_process_is_killed_and_reported_as_timed_out(self):
-        items = list(diagnostics._stream_process(
+        items = list(upgrade_check._stream_process(
             [sys.executable, "-c", "import time; time.sleep(30)"], timeout=1))
         assert items[-1]["timed_out"] is True
         assert items[-1]["returncode"] != 0

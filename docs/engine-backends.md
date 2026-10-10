@@ -93,7 +93,7 @@ engine in the app: the key-free `FakeEngine` lives in `tests/fake_engine.py`
 Every `requests`-based provider call (OpenAI, Gemini, Ollama, the `llm_tasks`
 Gemini path, bulk batch polling, Groq transcription, `qa.py`) is made with
 `stream=True` and read through `engine_backends.shared.read_json_capped`. It
-streams the body through `services/capped_body.read_capped` (default 16 MB,
+streams the body through `lib/capped_body.read_capped` (default 16 MB,
 `PROVIDER_RESPONSE_MAX_BYTES`, plus a total deadline) and raises
 `ProviderResponseTooLarge` with no URL or header in the message; a non-2xx
 status raises `requests.HTTPError` without reading the body. The Anthropic and
@@ -291,6 +291,13 @@ The per-title "Split lines by sentences" option (`split_by_sentences`) does the
 same for Whisper and Qwen3 ASR: Whisper's speech detection splits only at 2 s
 pauses (`asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS`, faster-whisper's default) and the
 lines are cut by `asr_backend.SENTENCE_SPLIT_RULES` using Whisper's word timings.
+New Chinese and Japanese titles start with it on; existing titles keep their value.
+It has no effect on other backends (the Transcribe toggle says so).
+
+Every line cut goes through `long_line_split.split_long_segments`: sentence ends,
+then commas and spaces, then real word pauses, and last equal runs of characters
+with proportional times, flagged `timing_uncertain` ("times are approximate").
+Review's Re-split, Resegment and the transcribe-time split share that order.
 
 `mixed_language.py` backs the "mixed languages" option (`mixed_languages` in
 the ASR options): language is detected per speech span, the text's script is

@@ -21,8 +21,9 @@ import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
-from services import (auth_service, fixflag_transcribe, job_timing_service, language_pack_service,
-                      line_provenance_service, settings_service)
+from services import (auth_service, fixflag_transcribe, job_timing_service,
+                      language_pack_service, library_restore_sql, line_provenance_service,
+                      run_settings_service, settings_service)
 
 
 def _id_by_idx(lines):
@@ -565,30 +566,35 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     # (the cost-cap break below is a clean, expected stop, not a
     # failure, but the same `finally` covers it too).
     errors = []
+    # Lines heard before a timeout are fixed and saved; after a Cancel their
+    # text is saved but not translated (no paid calls), so they stay flagged.
+    total_flagged = len(flagged)
+    heard_entries, cancelled, hearing_error = [], False, None
+    if flagged and audio_path and os.path.exists(audio_path):
+        heard_entries, cancelled, hearing_error = fixflag_transcribe.hear_flagged(
+            job_id, flagged, audio_path, fixflag_transcribe.hearing_settings(
+                drama_id, drama, whisper_size, source_language, use_gpu))
+        if hearing_error:
+            errors.append(hearing_error)
+    heard_by_idx = {entry["idx"]: entry for entry in heard_entries}
+    if cancelled or hearing_error:
+        flagged = [ln for ln in flagged if ln.idx in heard_by_idx]
     try:
         for i, ln in enumerate(flagged):
-            # Per line, so a cancel lands within one re-transcribe/translate call;
-            # the finally below still saves the lines already fixed.
-            _raise_if_cancelled(job_id)
-            if audio_path and os.path.exists(audio_path):
-                slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
-                try:
-                    core_module.extract_audio_slice(audio_path, ln.start, ln.end, slice_path)
-                    new_zh = fixflag_transcribe.text_for_slice(
-                        slice_path, drama_id, drama, whisper_size, source_language, use_gpu)
-                    if new_zh:
-                        ln.zh = new_zh
-                except Exception as e:
-                    errors.append(translate_engines.redact_secrets(
-                        f"line {ln.idx + 1} re-transcription: {e}"))
-                finally:
-                    if os.path.exists(slice_path):
-                        os.remove(slice_path)
+            # A cancel seen while hearing is not re-read: lines heard are fixed first.
+            if not cancelled:
+                _raise_if_cancelled(job_id)
+            heard = heard_by_idx.get(ln.idx)
+            if heard is not None:
+                if heard.get("error"):
+                    errors.append(heard["error"])
+                elif heard["text"]:
+                    ln.zh = heard["text"]
             if ln.zh.strip() and translate_engines.is_english_line(ln):
                 ln.en = ln.zh
                 ln.flag, ln.flag_note = None, ""
                 fixed_count += 1
-            elif ln.zh.strip():
+            elif ln.zh.strip() and not cancelled:
                 try:
                     translated = engine.translate_batch(
                         [ln.zh], {**base_context,
@@ -620,7 +626,9 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
         if audio_path and os.path.exists(audio_path):
             core_module.release_gpu_models()  # re-transcription stage done
         db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
-    background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged),
+    if cancelled:
+        raise background_jobs.JobCancelled(job_id)
+    background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": total_flagged,
                                         "errors": errors[:20], "cap_reached": cap_reached})
 
 
@@ -680,19 +688,6 @@ def _table_names(conn, schema: str) -> list:
     return [r[0] for r in conn.execute(
         f"SELECT name FROM {schema}.sqlite_master WHERE type = 'table' "
         "AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
-
-
-def _copy_rows(conn, src: str, table: str):
-    """Replaces main.table's rows with src.table's, for the columns both
-    sides have (a column only the app's schema has gets its default)."""
-    main_cols = [r[1] for r in conn.execute(f'PRAGMA main.table_info("{table}")').fetchall()]
-    src_cols = {r[1] for r in conn.execute(f'PRAGMA {src}.table_info("{table}")').fetchall()}
-    cols = [c for c in main_cols if c in src_cols]
-    if not cols:
-        return
-    col_sql = ", ".join(f'"{c}"' for c in cols)
-    conn.execute(f'DELETE FROM main."{table}"')   # rows init_db seeded (e.g. profiles)
-    conn.execute(f'INSERT INTO main."{table}" ({col_sql}) SELECT {col_sql} FROM {src}."{table}"')
 
 
 def _current_state_marker(library_dir: str):
@@ -811,9 +806,9 @@ def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
             for t in _table_names(conn, "main"):
                 if t in live_tables:
                     if t in cur_tables:
-                        _copy_rows(conn, "cur", t)
+                        library_restore_sql.copy_rows(conn, "cur", t)
                 elif t not in skip_tables and t in up_tables:
-                    _copy_rows(conn, "up", t)
+                    library_restore_sql.copy_rows(conn, "up", t)
             conn.execute("COMMIT")
         finally:
             conn.close()
@@ -1208,13 +1203,17 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             batch_size=defaults["batch_size"],
             summary_engine=summary_engine, summary_engine_choice=summary_choice,
             summary_monthly_cap_usd=monthly_cap,
-            # An Ollama-engine run touches the local GPU
-            # like every other Ollama translation job in the app, and
-            # needs the same GPU-job guard so it can't run
-            # alongside another GPU-touching job.
+            # Only a local Ollama model loads onto this PC's GPU; an Ollama
+            # cloud tag is remote and must not queue behind GPU jobs. The
+            # guard stops a local one running alongside another GPU job.
             gpu_touching=translate_engines.ollama_touches_local_gpu(
                 engine_choice, getattr(engine, "model", None)),
-            description=f"Ollama translation ({title})" if engine_choice == "ollama" else None)
+            description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
+            run_settings=run_settings_service.for_translate(
+                drama, include_genre_notes, default_female_pronouns, glossary_terms,
+                style_guidelines, style_note, engine=engine_choice,
+                model=getattr(engine, "model", None), locale=default_locale,
+                style_preset=style_preset, force_retranslate=False, **defaults))
         if not started:
             results["skipped_running"].append(did)
             continue

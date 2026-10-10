@@ -24,12 +24,25 @@ first. **FREE-TIER-OK** = bigger but well bounded; a free Claude/Codex session w
 | 10 | ASMR preset on top of the optional ASMR voice detector (draft #942) | `services/transcribe_service.py`, tuning defaults, one UI preset | ~60 | low-medium | FREE-TIER-OK after #942 merges | Depends on #942; preset values come from a real-audio check the owner runs |
 | 11 | Translation-context measuring (does more context help?) | `benchmark_lab_service.py` and a doc | n/a | medium | FREE-TIER-OK after Benchmark Lab phase 3 | Blocked on phase 3 (row 12); needs real engines the owner runs |
 | 12 | Benchmark Lab phases 2-6 (scope from the owner; no phase plan is in the repo; related drafts #910 and #840 chrF merged) | `benchmark_lab_service.py`, routes, schemas, frontend | 500+ | medium | NEEDS-SUBSCRIPTION | Routes, schemas and UI across many files; brief B1 |
-| 13 | Live streaming recognition PRs B-F (A is queued separately): LocalAgreement-2 in `live_agreement.py`, ring buffer in `live_audio.py`, `live_streaming.py` | new `live_*.py`, `live_service.py`, `live_fetch.py`, routes, UI | 600+ | high | NEEDS-SUBSCRIPTION | Threads, audio buffering, GPU slot, new routes; brief B2 |
+| 13 | Live streaming recognition PRs B-F (A is queued separately): LocalAgreement-2 in `live_agreement.py`, ring buffer in `live_audio.py`, `live_streaming.py` (planned, not yet in the repo) | new `live_*.py`, `live_service.py`, `live_fetch.py`, routes, UI | 600+ | high | NEEDS-SUBSCRIPTION | Threads, audio buffering, GPU slot, new routes; brief B2 |
 | 14 | Stereo tracks A1, A2, B (B1 DSP library is draft #947; A1/A2 not started) | audio/dub modules, routes, UI | 400+ | medium | NEEDS-SUBSCRIPTION | Many files, ffmpeg/DSP needing listening checks and review; brief B3 |
 | 15 | `db.py` split DB-1 to DB-8 (open drafts #917, #919, #920, #943 are the neighbouring splits and the DB-0 guard/rename) | `db.py` to `db/` package | 1000+ | high | NEEDS-SUBSCRIPTION | Data integrity, every caller, size guards; brief B4 |
 | 16 | Thinking toggle for bulk translation (live translation already has reply-without-thinking, draft #985) | `engine_backends/local.py`, `bulk_translate.py`, settings, `cli.py`, UI | ~150 | medium | NEEDS-SUBSCRIPTION | App and CLI parity, engines, settings across more than four files; brief B5 |
 | 17 | Jellyfin-aware GPU headroom (extends "Keep free" settings, draft #984) | GPU slot code, `services/`, settings | ~120 | medium-high | NEEDS-SUBSCRIPTION | GPU slots and concurrency; brief B6 |
 | 18 | Hardening PR for live capture's `media.import_url` before household users get it (owner decision 2026-10-06; its scope isn't recorded) | `services/egress_proxy.py`, `services/live_fetch.py`, `docs/remote-access-decision.md` | unknown | high | NEEDS-SUBSCRIPTION | SSRF and remote access; Opus security review; brief B7 |
+| 19 | Bound the AI calls #1026 left unbounded: wrap each direct `engine.translate_batch` / client call in `llm_tasks.call_batch_bounded` or run it under `bounded_llm_calls` (no retries added) | `services/workspace_job_service.py`, `services/blocked_retry_service.py`, `services/compare_transcription_service.py`, `services/benchmark_lab_service.py`, `navigator.py`, `title_library.py`, `benchmark.py`, `live_cue_translation.py`, `qa.py` | ~40 | low-medium | FREE-TIER-OK | One call site per commit; each gets a hung-engine test like `tests/test_bounded_by_default.py` |
+| 20 | Move the remaining in-thread GPU calls onto `services/gpu_process_job.py` so Cancel kills a process. Done: `comparetx_`, `fixflag_` (both thread jobs whose Whisper stage runs under `run_in_child`, because translation needs the parent). Left, one per commit, each with a real-process "Cancel ends the job, worker gone" test like `tests/test_gpu_process_job.py`: `resplit_` (`services/restructure_service.py`), `retime_` (`services/retime_service.py` Qwen3 aligner), `sensevoice_`, the hardsub transcribe path (`services/transcribe_service.py` ~624), `real_model_check`, Benchmark Lab runs (`services/benchmark_lab_service.py`). Every such job uses `run_in_child` (a pure-GPU job just has no stage after it). The child must not read the database: resolve prompts and settings in the parent | `services/*_service.py` per job | ~80-150 each | medium (concurrency) | NEEDS-SUBSCRIPTION | Cancel and GPU-slot semantics; Opus review |
+
+## Open compliance items
+
+Found while recording the 2026-10-09 pacing vetting (`docs/source-status.json`). Not fixed; each is for the owner to decide.
+
+- `ranobes`: the adapter fetches `/chapters/*/page/*` for pages 2 and later, which robots.txt disallows.
+- `guazimanhua`: the adapter's search uses `/category.php?*keyword=`, which robots.txt disallows.
+- `syosetu`: the adapter scrapes HTML, while the terms (Art. 14 item 23) allow automated access only through the official なろうデベロッパー API.
+- `toonkor`: `toonkor0.org` now redirects to `toonkor3.org`, so `BASE_URL` is stale.
+- `mangak`: the adapter ships although the site's terms of service (section 4) forbid bots.
+- `manhuagui`: the site footer prohibits downloading.
 
 ## Briefs for NEEDS-SUBSCRIPTION rows
 
@@ -91,3 +104,9 @@ otherwise (CLAUDE.md "How to work").
 - Rules: every redirect hop checked; capped reads; error text through `redact_secrets`; API responses carry no URLs.
 - Tests: SSRF cases (private ranges, redirects to loopback, DNS rebinding), `tests/test_api_permissions.py`.
 - Done: Opus security review run on the diff; residual risks written down.
+
+### B8 One subprocess runner, next wave
+- Why: `lib/proc.py` is the runner; these callers still have their own capture or tree-kill code.
+- Scope: `services/lncrawl_service.py::_run_process` (needs runner options for an on-start hook, a per-tick stop check for workdir size and output cap, and a custom kill for its Windows job object; 49 tests), `background_jobs.run_cancellable`, the ffmpeg callers (`video_export.py` 6, `core.py`, `dub.py`, `dub_narration.py`, `hardsub_ocr.py`, two `services/*_decode*`), the probes in `diagnostics.py` (10 raw calls) and `installer/smoke_child.py` (7), and `installer/postinstall.py::_run` (stdlib-only, writes to a log file; check that `lib/` ships in the installer first).
+- Rules: shrink `_CAPTURE_ALLOWED` by every site moved, never add; every child keeps a timeout; UTF-8 with `errors="replace"`.
+- Done: zero call sites outside `lib/proc.py`, then retire the guard.

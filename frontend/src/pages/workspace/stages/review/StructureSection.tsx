@@ -216,7 +216,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
                   defaultEngine={defaultEngine}
                   engine={pick.engine}
                   model={pick.model}
-                  help={`Which service suggests split points. The default is the drama's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines can't do this and are not listed.`}
+                  help={`Which service suggests split points. The default is the title's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines can't do this and are not listed.`}
                   onChange={setPick}
                 />
               </div>
@@ -268,7 +268,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
               <div className="stack" data-testid="resegment-preview">
                 <p>{resegmentSummary(preview)}</p>
                 {preview.changed.length === 0 ? (
-                  <p className="muted">Nothing to re-segment. Turn on Use AI to split lines the rules can't.</p>
+                  <p className="muted">{preview.reason || "Nothing to re-segment. Turn on Use AI to split lines the rules can't."}</p>
                 ) : (
                   <>
                     <ul className="review-matches">
@@ -293,7 +293,13 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
           </>
         )}
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        // The rules re-segment needs a fresh preview first; the AI preview can always be run again.
+        lastRun={{ dramaId, ids: resegmentJobIds(dramaId), retryFor: (j) => (isResegmentPreviewJob(j.job_id) ? startAiPreview : preview ? start : null) }}
+      />
     </div>
   )
 }

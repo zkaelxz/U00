@@ -14,6 +14,8 @@ def clean(monkeypatch, tmp_path):
     monkeypatch.setattr(page_fetch, "_system_browser_candidates", lambda: [])
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path / "none"))
     monkeypatch.setenv("HOME", str(tmp_path))
+    # Else an app-folder browser from the Install button on this PC counts.
+    monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
 
 
@@ -218,3 +220,27 @@ def test_package_and_browser_are_reported_separately(monkeypatch, tmp_path, pack
         assert "\n" not in msg and "playwright install" not in msg
         assert "Diagnostics > Packages" in msg and "pip install playwright" in msg
         assert "no browser download is needed" in msg
+
+
+def test_package_installed_sees_a_package_added_after_the_first_check(monkeypatch, tmp_path):
+    import os
+    import sys
+    import browser_support
+    monkeypatch.delitem(sys.modules, "playwright", raising=False)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert browser_support.package_installed() is False
+    before = os.stat(tmp_path).st_mtime_ns
+    (tmp_path / "playwright").mkdir()
+    (tmp_path / "playwright" / "__init__.py").write_text("")
+    # An install landing within the filesystem's mtime granularity leaves the
+    # directory looking unchanged, so the finder keeps its stale listing.
+    os.utime(tmp_path, ns=(before, before))
+    assert browser_support.package_installed() is True
+
+
+def test_package_installed_stays_false_when_missing(monkeypatch, tmp_path):
+    import sys
+    import browser_support
+    monkeypatch.delitem(sys.modules, "playwright", raising=False)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert browser_support.package_installed() is False

@@ -144,7 +144,7 @@ export function GlossaryRetranslate({ f, busy, onStarted }: { f: RunForm; busy: 
         </p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {preview && !preview.has_glossary && <p className="muted">This drama's series has no glossary terms yet.</p>}
+      {preview && !preview.has_glossary && <p className="muted">This title's series has no glossary terms yet.</p>}
       {preview && preview.has_glossary && !preview.lines.length && (
         <p className="muted">No translated line uses {termIds.length ? 'these terms' : 'the glossary'}.</p>
       )}

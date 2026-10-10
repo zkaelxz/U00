@@ -20,6 +20,9 @@ test('translate all pages, follow the job, then read the typeset pages', async (
   const engine = panel.getByLabel('AI engine', { exact: true })
   await expect(engine).toHaveValue('ollama')
   await expect(engine.locator('option')).toHaveCount(1)
+  // The closed select shows the engine's name; its description is in the field help.
+  await expect(engine.locator('option')).toHaveText('Ollama (local)')
+  await expect(panel.locator('.field-help-text', { hasText: 'Keys stay on the PC' })).toContainText('Ollama (local): Ollama (free, local)')
 
   await panel.getByRole('button', { name: 'Translate all pages' }).click()
   await expect(panel.getByTestId('job-status')).toHaveText(/Done · Pages: 3 translated\./)
@@ -62,7 +65,7 @@ test('redo this page, redo all needs a second press, export gives a download', a
   expect(s.unmocked).toEqual([])
 })
 
-test('an empty drama shows the upload panel; picking files uploads them', async ({ page }) => {
+test('an empty title shows the upload panel; picking files uploads them', async ({ page }) => {
   const s = await mockScanlate(page, { pageCount: 0, lastPage: 1 })
   await page.goto('/#/comic/7')
   const panel = page.getByRole('region', { name: 'Translate pages' })

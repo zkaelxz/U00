@@ -44,6 +44,20 @@ describe('advancedSummary', () => {
     expect(advancedSummary({ ...base, whisper_repeat_guard: true, split_by_sentences: true }))
       .toBe('repeat guard · lines by sentence')
   })
+  it('collapses hidden developer knobs into a count when Developer Mode is off', () => {
+    const v = { ...base, beam_size: '8', vad_threshold: '0.6', whisper_repeat_guard: true, hardsub_ocr_backend: 'paddle', use_groq: true }
+    expect(advancedSummary(v, false)).toBe('Groq · 4 developer options changed')
+    expect(advancedSummary({ ...base, separation_backend: 'demucs' }, false)).toBe('1 developer option changed')
+    expect(advancedSummary({ ...base, hardsub_interval_sec: '2' }, true)).toBe('hardsub every 2 s')
+    expect(advancedSummary(v, true)).toBe('beam 8 · VAD 0.6 · repeat guard · Groq · hardsub OCR paddle')
+  })
+  it('does not count knobs at their defaults', () => {
+    expect(advancedSummary({ ...base, hardsub_ocr_backend: 'tesseract' }, false)).toBe('defaults')
+  })
+  it('takes the hardsub OCR default from the language', () => {
+    expect(advancedSummary({ ...base, source_language: 'zh', hardsub_ocr_backend: 'paddle' }, false)).toBe('defaults')
+    expect(advancedSummary({ ...base, source_language: 'zh', hardsub_ocr_backend: 'tesseract' }, false)).toBe('1 developer option changed')
+  })
 })
 
 describe('chapter OCR helpers', () => {
@@ -69,11 +83,11 @@ describe('chapter OCR helpers', () => {
 })
 
 describe('runOptionProblem', () => {
-  it('flags forced alignment on a Whisper-only drama', () => {
+  it('flags forced alignment on a Whisper-only title', () => {
     expect(runOptionProblem('whisper', 'qwen3_forced_align')?.field).toBe('alignment_method')
     expect(runOptionProblem('have_transcript', 'qwen3_forced_align')).toBeNull()
   })
-  it('has nothing to flag for Whisper-diff on a Whisper-only drama', () => {
+  it('has nothing to flag for Whisper-diff on a Whisper-only title', () => {
     expect(runOptionProblem('whisper', 'whisper_diff')).toBeNull()
   })
 })
@@ -81,7 +95,7 @@ describe('runOptionProblem', () => {
 describe('runProblemFromError', () => {
   const err = (code: string, message: string) => new ApiError(422, { code, message })
   it('maps the server sentence to the field it names', () => {
-    const msg = "Qwen3 forced alignment needs a transcript to align, but this drama is in Whisper-text-only mode."
+    const msg = "Qwen3 forced alignment needs a transcript to align, but this title is in Whisper-text-only mode."
     expect(runProblemFromError(err('validation_error', msg))).toEqual({ field: 'alignment_method', message: msg })
     expect(runProblemFromError(err('validation_error', 'Use either an exact speaker count or a min/max range, not both.'))?.field).toBe('speakers')
   })

@@ -21,6 +21,7 @@ import {
 } from './autotuneGlossary'
 import { useRunStatus } from './useRunStatus'
 import './autotuneGlossary.css'
+import { buttonClass } from '../../../components/uiClasses'
 
 interface Props {
   hasAudio: boolean
@@ -139,7 +140,7 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
                 {status.status === 'running' && fromStart && autotuneEta(elapsed, status.message) && ` · ${autotuneEta(elapsed, status.message)}`}
               </span>
             </span>
-            <button type="button" disabled={cancelSentFor === status} onClick={cancel}>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status} onClick={cancel}>
               Cancel
             </button>
           </p>

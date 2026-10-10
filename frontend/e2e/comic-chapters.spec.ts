@@ -32,6 +32,23 @@ test('chapter selector lists counts, jumps, and shows the relative and overall p
   expect(s.unmocked).toEqual([])
 })
 
+test('the original page and chapter page links open the source in a new tab', async ({ page }) => {
+  const s = await mockScanlate(page, {
+    mediaType: 'manhwa',
+    sourceUrl: 'https://comic.example/series/9',
+    chapters: [{ title: 'Chapter 1', pages: 3, url: 'https://comic.example/read/1' }, { title: 'Chapter 2', pages: 2, url: 'javascript:alert(1)' }, { title: 'Chapter 3', pages: 3 }],
+  })
+  await page.goto('/#/comic/7?page=1')
+  const original = page.getByRole('link', { name: 'Open original page' })
+  await expect(original).toHaveAttribute('href', 'https://comic.example/series/9')
+  await expect(original).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(original).toHaveAttribute('target', '_blank')
+  await expect(bar(page).getByRole('link', { name: 'Open chapter page' })).toHaveAttribute('href', 'https://comic.example/read/1')
+  await bar(page).getByRole('button', { name: 'Next chapter' }).click()
+  await expect(bar(page).getByRole('link', { name: 'Open chapter page' })).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
 test('reading continues across chapters with a divider between them', async ({ page }) => {
   const s = await mockScanlate(page, { mediaType: 'manhwa', chapters: CHAPTERS })
   await page.goto('/#/comic/7?page=1')

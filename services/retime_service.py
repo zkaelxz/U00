@@ -16,7 +16,7 @@ import core as core_module
 import db
 import forced_align
 from services import (compare_transcription_service as compare, jobs_service,
-                      settings_service, transcribe_service)
+                      settings_service, transcribe_pipeline, transcribe_service)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 
@@ -236,7 +236,7 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                     "uncertain": seg.get("flag_note") == forced_align.TIMING_REPAIRED_NOTE})
     finally:
         core_module.release_gpu_models()
-    proposals = _make_consistent(proposals, lines, transcribe_service._audio_duration_seconds(audio_path))
+    proposals = _make_consistent(proposals, lines, transcribe_pipeline._audio_duration_seconds(audio_path))
     result = {"proposals": proposals, "line_count": len(line_ids),
               "candidate_count": len(proposals), "errors": errors[:20],
               "partial": cancelled, "alignment_method": "qwen3_forced_align"}

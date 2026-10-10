@@ -21,7 +21,7 @@ export function LinesEmpty({ dramaId, filter, term, searching, jobRunning, onAdd
       {filter === 'all' && !searching ? (
         <div className="actions">
           <ButtonLink variant="primary" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-            Go to Source
+            Go to Media
           </ButtonLink>
           <button type="button" className={buttonClass('secondary')} disabled={jobRunning} onClick={onAddFirst}>
             Add first line

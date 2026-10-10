@@ -56,7 +56,7 @@ const fullscreenAvailable = () => document.fullscreenEnabled || !!(document as F
 
 const fullscreenElementOf = (doc: Document) => doc.fullscreenElement ?? (doc as FsDoc).webkitFullscreenElement ?? null
 
-const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Source.'
+const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Media.'
 const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   English: 'No English subtitles yet: nothing is translated.',
   Source: 'No original subtitles yet: nothing is transcribed.',

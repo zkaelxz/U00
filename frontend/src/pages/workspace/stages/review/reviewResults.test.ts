@@ -37,7 +37,7 @@ describe('AI check bodies (R50/R33)', () => {
     expect(checkJobBody('flag', EMPTY_CHECK_FORM, false)).toEqual({})
     expect(checkJobBody('fix-flagged', EMPTY_CHECK_FORM, true)).toEqual({})
   })
-  it('summarises the choices, with the audio default following the drama', () => {
+  it('summarises the choices, with the audio default following the title', () => {
     expect(checkFormSummary(EMPTY_CHECK_FORM, 'gemini', true)).toBe('Gemini engine · audio cues')
     expect(checkFormSummary(EMPTY_CHECK_FORM, '', false)).toBe('Default engine')
     expect(checkFormSummary({ engine: 'claude', model: 'm1', audioCues: false }, 'gemini', true)).toBe('Claude · m1')

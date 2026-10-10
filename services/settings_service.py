@@ -480,6 +480,39 @@ def get_preference(name: str):
         return default
 
 
+def _voice_detector_choices() -> tuple:
+    from services import asr_options_service
+    return asr_options_service.VOICE_DETECTOR_CHOICES
+
+
+_SCHEMA_CHOICES = {
+    "engines": _engine_choices,
+    "locales": lambda: LOCALE_CHOICES,
+    "summary_engines": lambda: SUMMARY_ENGINE_CHOICES,
+    "ocr_backends": _ocr_choices,
+    "cookie_browsers": _cookie_browser_choices,
+    "voice_detectors": _voice_detector_choices,
+}
+
+
+def get(key: str):
+    """The declared setting `key` (lib/settings_schema.py) as a typed value.
+    A missing, unreadable or invalid stored value reads as the schema default,
+    like get_preference. Keys held in .env are secrets and go through
+    resolve_key instead."""
+    import db
+    from lib import settings_schema
+    setting = settings_schema.BY_KEY[key]
+    if setting.store != "db":
+        raise ValueError(f"'{key}' is not stored in app_settings.")
+    try:
+        choices = _SCHEMA_CHOICES[setting.choices]() if setting.choices else None
+        raw = db.get_app_setting(setting.store_key)
+        return settings_schema.coerce(key, raw, choices)
+    except Exception:
+        return settings_schema.default_of(setting)
+
+
 def get_preferences() -> dict:
     return {name: get_preference(name) for name in _PREFERENCES}
 

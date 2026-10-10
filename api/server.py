@@ -50,12 +50,15 @@ from api.routers import (
     comic_routes,
     delete_routes,
     device_token_routes,
+    diagnostics_browser_routes,
     diagnostics_gaps_routes,
     disk_usage_routes,
     diagnostics_installs_routes,
+    pending_install_routes,
     diagnostics_routes,
     real_model_check_routes,
     diarization_routes,
+    timing_check_routes,
     discover_lookup_routes,
     discover_routes,
     drama_routes,
@@ -150,6 +153,16 @@ async def _lifespan(app: FastAPI):
         jobs_service.sweep_stale_job_records()
     except Exception:
         logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
+    from services import gpu_lock_recovery_service
+    try:
+        gpu_lock_recovery_service.release_orphaned_server_holders()
+    except Exception:
+        logging.getLogger(__name__).warning("Orphaned GPU slot release failed", exc_info=True)
+    import live_whisper
+    try:
+        live_whisper.release_stale_claims()
+    except Exception:
+        logging.getLogger(__name__).warning("Live Whisper GPU claim release failed", exc_info=True)
     from services import auth_service
     try:
         auth_service.sweep_stale_sessions()
@@ -248,6 +261,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(translate_routes.router)
     app.include_router(export_routes.router)
     app.include_router(diarization_routes.router)
+    app.include_router(timing_check_routes.router)
     app.include_router(source_routes.router)
     app.include_router(transcribe_routes.router)
     app.include_router(subtitle_import_routes.router)
@@ -312,6 +326,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(model_reeval_routes.router)
 
     app.include_router(diagnostics_installs_routes.router)
+    app.include_router(pending_install_routes.router)
+    app.include_router(diagnostics_browser_routes.router)
     app.include_router(real_model_check_routes.router)
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)

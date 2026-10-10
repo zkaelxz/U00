@@ -19,6 +19,7 @@ const els = {
   translateText: document.getElementById("translateText"),
   dramaTitle: document.getElementById("dramaTitle"),
   openLink: document.getElementById("openInBaihe"),
+  allowSites: document.getElementById("allowSites"),
   notice: document.getElementById("notice"),
   noticeText: document.getElementById("noticeText"),
   noticeAction: document.getElementById("noticeAction"),
@@ -48,8 +49,50 @@ function showNotice(text, actionLabel, handler) {
   setControlsEnabled(false);
 }
 
+// Set while the "Allow <site>" buttons are showing: the action to repeat once one is granted.
+let pendingRetry = null;
+
+// One button per origin, never one request for all of them: the origins come from the page, so a
+// hostile page could otherwise bundle a real CDN with names it wants the person to approve unseen.
+function offerSiteAccess(result, retry) {
+  pendingRetry = retry;
+  els.allowSites.replaceChildren();
+  const origins = [...new Set(result.origins || [])].filter(sitePattern);
+  for (const origin of origins) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary";
+    button.textContent = `Allow ${origin}`;
+    button.addEventListener("click", () => allowSite(origin));
+    els.allowSites.append(button);
+  }
+  els.allowSites.hidden = !origins.length;
+}
+
+// chrome.permissions.request needs the click that happens here, which is why the worker only reports
+// the need and never asks itself. The optional permission is per origin, so nothing broader is granted.
+async function allowSite(origin) {
+  const retry = pendingRetry;
+  const pattern = sitePattern(origin);
+  if (!retry || !pattern) return;
+  try {
+    const granted = await chrome.permissions.request({ origins: [pattern] });
+    if (!granted) {
+      say("Not allowed, so the page's images still can't be read.", true);
+      return;
+    }
+  } catch (e) {
+    say(`Couldn't ask for that permission (${e.message}).`, true);
+    return;
+  }
+  pendingRetry = null;
+  els.allowSites.hidden = true;
+  retry();
+}
+
 function say(message, bad = false) {
   els.status.textContent = message;
+  els.allowSites.hidden = true;
   els.status.classList.toggle("bad", !!bad);
   // A new message replaces the result it described, so its link goes too.
   els.openLink.hidden = true;
@@ -106,6 +149,65 @@ async function ensureContentScript(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
 }
 
+// Names the exact place, because "Settings" alone sent people to the wrong
+// section; Ollama is the one engine that needs no account or key.
+const NO_ENGINE_NOTE =
+  "Connected, but no translation engine is chosen yet, so pages come back with their " +
+  "original text only. In Baihe, open Settings → Browser extension and pick one under " +
+  "“Translation engine”. For a free option that runs on your PC, install Ollama and pick " +
+  "Ollama there.";
+
+const MAX_NAMED_PROBLEMS = 3;
+
+// One line that accounts for every page, so a shortfall shows up as a
+// mismatch between the counts instead of a quietly smaller total.
+function summarizeCapture(data, { store, dramaId }) {
+  const pages = (data.pages || []).length;
+  const cached = data.cached || 0;
+  const skipped = data.skipped || [];
+  const failed = data.failed || [];
+  const unreadable = data.unreadable || [];
+  const saving = !!(store && dramaId);
+  const notes = (data.pages || []).flatMap((p) => p.notes || []);
+
+  const parts = [];
+  if (data.captured !== undefined) {
+    parts.push(`${data.captured} captured`);
+    if (data.sent !== undefined) parts.push(`${data.sent} sent`);
+    if (data.received !== undefined) parts.push(`${data.received} received`);
+  }
+  const reused = data.alreadyStored || 0;
+  parts.push(`${pages - reused} translated`);
+  if (saving && data.stored !== undefined) {
+    parts.push(`${data.stored} stored in ${dramaTitles.get(String(dramaId)) || "the drama"}`);
+  }
+  if (cached) parts.push(`${cached} already done`);
+  if (reused) parts.push(`${reused} already in library`);
+  if (skipped.length) parts.push(`${skipped.length} skipped as not a page`);
+
+  const problems = [
+    ...unreadable.map((u) => `page ${u.position}: ${u.error}`),
+    ...failed.map((f) => `page ${f.position || "?"}: ${f.error}`),
+  ];
+  if (problems.length) {
+    const shown = problems.slice(0, MAX_NAMED_PROBLEMS).join("; ");
+    const more = problems.length > MAX_NAMED_PROBLEMS
+      ? `; and ${problems.length - MAX_NAMED_PROBLEMS} more` : "";
+    parts.push(`${problems.length} not delivered (${shown}${more})`);
+  }
+
+  const short = (data.sent !== undefined && data.received !== undefined &&
+                 data.received < data.sent) ||
+                (saving && data.stored !== undefined && data.stored < pages);
+  const stopped = data.stopped && data.stopped.message;
+  if (stopped) parts.push(stopped);
+  const bad = problems.length > 0 || short || !!stopped || notes.some((n) => n[0] === "error");
+  return {
+    text: parts.join(" · ") + (notes.length ? ` — ${notes[0][1]}` : ""),
+    bad,
+  };
+}
+
 async function load() {
   els.notice.hidden = true;
   say("Checking the app…");
@@ -149,10 +251,7 @@ async function load() {
     els.textDirection.value = directionValue;
   }
 
-  say(data.engine_configured
-    ? "Connected. Ready to translate."
-    : "Connected, but no translation engine is set in Baihe's Settings — pages will come " +
-      "back with their original text only.");
+  say(data.engine_configured ? "Connected. Ready to translate." : NO_ENGINE_NOTE);
 }
 
 let pageRunInFlight = false;
@@ -192,26 +291,14 @@ async function run(all) {
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: "translateVisible", dramaId, store: els.store.checked, all });
     if (!result || !result.ok) {
-      return say((result && result.error) || "That didn't work.", true);
+      say((result && result.error) || "That didn't work.", true);
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, () => run(all));
+      return;
     }
-    const pageList = result.data.pages || [];
-    const cached = result.data.cached || 0;
-    const skipped = (result.data.skipped || []).length;
-    const notes = pageList.flatMap((p) => p.notes || []);
-    // The server reports per page whether it was really saved (no drama, or store off, means not).
-    const saved = pageList.filter((p) => p.stored).length;
-    const store = els.store.checked;
-    const parts = describeDestination({
-      sent: store ? saved : pageList.length, cached, store, dramaId });
-    if (store && pageList.length > saved) {
-      parts.push(`${pageList.length - saved} drawn only, not saved`);
-    }
-    if (skipped) parts.push(`${skipped} skipped as not a page`);
-    const failed = result.data.failed;
-    if (failed) parts.push(failed.message);
-    say(parts.join(", ") + (notes.length ? ` — ${notes[0][1]}` : ""),
-        !!failed || notes.some((n) => n[0] === "error"));
-    if (store && dramaId && saved) showOpenLink(dramaId);
+    const summary = summarizeCapture(result.data, { store: els.store.checked, dramaId });
+    const saved = (result.data.pages || []).filter((p) => p.stored).length;
+    say(summary.text, summary.bad);
+    if (els.store.checked && dramaId && saved) showOpenLink(dramaId);
   } catch (e) {
     // The usual cause is a page the browser won't let an extension into
     // (the Chrome Web Store, a PDF viewer, chrome:// pages).
@@ -272,12 +359,16 @@ async function startCapture(fromHere) {
     await chrome.storage.local.set({ overlay: els.overlay.checked });
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: "captureChapter", dramaId, store: els.store.checked, fromHere });
-    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    if (!result || !result.ok) {
+      say((result && result.error) || "That didn't work.", true);
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, () => runCapture(fromHere));
+      return;
+    }
     const { message, translated = 0, stored = 0 } = result.data;
     const store = els.store.checked;
     const destination = describeDestination({
       sent: store ? stored : translated, cached: 0, store, dramaId }).join(", ");
-    say(destination ? `${message} ${destination}.` : message, result.data.reason === "error");
+    say(destination ? `${message} ${destination}.` : message, result.data.reason === "error" || result.data.failed > 0);
     if (store && dramaId && stored) showOpenLink(dramaId);
   } catch (e) {
     say(`Couldn't run on this page (${e.message}).`, true);

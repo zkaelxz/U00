@@ -6,11 +6,11 @@ import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RemoteHealthLine } from '../components/RemoteHealthBanner'
 import { useJobs } from '../hooks/useJobs'
-import type { JobRecord } from '../types/jobs'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
 import type { DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks } from '../types/diagnostics'
 import { DangerZone } from './diagnostics/DangerZone'
+import { BrowserInstall } from './diagnostics/BrowserInstall'
 import { DenoInstall } from './diagnostics/DenoInstall'
 import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
@@ -20,7 +20,7 @@ import { RealModelCheck } from './diagnostics/RealModelCheck'
 import { SetupSection } from './diagnostics/SetupSection'
 import { headerBadges, installableEngines, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
-import { isActive, jobsSummary, splitDependencies } from './diagnosticsFormat'
+import { isActive, splitDependencies } from './diagnosticsFormat'
 
 const POLL_MS = 3000
 
@@ -85,8 +85,6 @@ export default function DiagnosticsPage() {
   const installable = new Set(overview
     ? installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies)).map((m) => m.name)
     : [])
-  // Running or failed jobs put the summary at the top as a banner; otherwise it sits with the other folds.
-  const jobsUrgent = !!jobs && jobs.some((j) => isActive(j.status) || j.status === 'error')
   const badges = headerBadges(setupProblems, deps?.installed.length ?? null,
     overview ? Object.keys(overview.dependencies).length : null, jobs ? running : null, adminBusy)
 
@@ -106,8 +104,6 @@ export default function DiagnosticsPage() {
         <RemoteHealthLine />
       </header>
       <ErrorBanner error={error ?? jobsError} onDismiss={() => setError(null)} />
-
-      {jobs && jobsUrgent && <JobsSummary jobs={jobs} urgent />}
 
       {setup ? (
         <SetupSection
@@ -131,6 +127,8 @@ export default function DiagnosticsPage() {
         >
           <DenoInstall pc={pc} jobsActive={active} busy={adminBusy}
             onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          <BrowserInstall pc={pc} jobsActive={active} busy={adminBusy}
+            onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
         </SetupSection>
       ) : (
         !error && <p className="muted">Loading…</p>
@@ -139,7 +137,6 @@ export default function DiagnosticsPage() {
       <ModelHealthCard pc={pc} onShowEngines={showEngines} />
 
       <div className="diag-folds">
-        {jobs && jobs.length > 0 && !jobsUrgent && <JobsSummary jobs={jobs} urgent={false} />}
         {overview && (
           <PackagesSection
             overview={overview}
@@ -160,15 +157,5 @@ export default function DiagnosticsPage() {
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />
     </section>
-  )
-}
-
-/** One line about jobs and a link to the Jobs page, which holds the table, Cancel, Delete and each job's stage times. */
-function JobsSummary({ jobs, urgent }: { jobs: JobRecord[]; urgent: boolean }) {
-  return (
-    <div className={urgent ? 'banner diag-jobs-summary' : 'diag-jobs-summary'} data-testid="jobs-summary">
-      <p>Jobs: {jobsSummary(jobs)}.</p>
-      <ButtonLink href={routeHref({ name: 'jobs' })} size="sm">Open Jobs</ButtonLink>
-    </div>
   )
 }

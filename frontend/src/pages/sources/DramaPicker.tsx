@@ -77,21 +77,21 @@ export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, hidd
           disabled={disabled || !dramas}
           onChange={(e) => choose(e.target.value)}
         >
-          <option value="">{dramas ? 'Choose a drama…' : 'Loading…'}</option>
+          <option value="">{dramas ? 'Choose a title…' : 'Loading…'}</option>
           {(dramas ?? []).map((d) => (
             <option key={d.id} value={d.id}>
               {dramaLabel(d)}
             </option>
           ))}
-          {newDrama && <option value={NEW}>New drama…</option>}
+          {newDrama && <option value={NEW}>New title…</option>}
         </select>
       </Field>
       {dramas && dramas.length === 0 && !creating && (
-        <p className="muted">{newDrama ? `No ${kind} dramas yet. Choose “New drama…” to make one.` : 'No dramas can take this yet.'}</p>
+        <p className="muted">{newDrama ? `No ${kind} titles yet. Choose “New title…” to make one.` : 'No titles can take this yet.'}</p>
       )}
       {newDrama && hiddenCount > 0 && !creating && <p className="muted">{hiddenDramasNote(hiddenCount, newDrama.comic)}</p>}
       {creating && newDrama && (
-        <div className="drama-new" role="group" aria-label="New drama">
+        <div className="drama-new" role="group" aria-label="New title">
           <Field label="Title">
             <input type="text" value={title} maxLength={300} onChange={(e) => setTitle(e.target.value)} />
           </Field>
@@ -105,11 +105,11 @@ export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, hidd
             </select>
           </Field>
           <p className="muted">
-            Made as a {humanize('mediaType', newDramaRequest('', language, newDrama.comic).media_type).toLowerCase()} drama.
+            Made as a {humanize('mediaType', newDramaRequest('', language, newDrama.comic).media_type).toLowerCase()} title.
           </p>
           <div className="actions">
             <button type="button" className={buttonClass('secondary')} disabled={busy || !title.trim()} onClick={create}>
-              {busy ? 'Creating…' : 'Create drama'}
+              {busy ? 'Creating…' : 'Create title'}
             </button>
             <button type="button" className={buttonClass('ghost')} onClick={() => setCreating(false)}>
               Cancel

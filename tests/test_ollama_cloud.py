@@ -6,6 +6,7 @@ import pytest
 import requests
 
 import translate_engines as te
+from lib import http
 from services import model_registry_service, translate_service
 from services.service_errors import InvalidInputError  # noqa: F401
 
@@ -145,7 +146,7 @@ def test_missing_local_model_message_unchanged(monkeypatch):
 
 
 def test_installed_check_does_not_require_cloud_tag_in_local_list(monkeypatch):
-    monkeypatch.setattr("requests.get", lambda *a, **k: Resp({"models": []}))
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Resp({"models": []}))
     te.check_ollama_model_installed("http://localhost:11434", CLOUD)
     with pytest.raises(te.OllamaUnavailableError):
         te.check_ollama_model_installed("http://localhost:11434", "gemma4:12b")
