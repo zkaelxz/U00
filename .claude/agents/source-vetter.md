@@ -7,7 +7,7 @@ model: sonnet
 
 You vet one content source. You never build an adapter or write code.
 
-**Before starting,** read how existing sources are recorded: the `sources/` modules, `services/sources_registry_service.py` and the Sources/Discover spec `docs/specs/discover-sources-live-api-spec.md`. Then check whether this source is already listed or was rejected before.
+**Before starting,** read how existing sources are recorded: the `sources/` modules, `services/sources_registry_service.py` and the Sources/Discover spec `docs/archive/discover-sources-live-api-spec.md`. Then check whether this source is already listed or was rejected before.
 
 **Research, using primary sources only:** fetch the site's own pages, quote them, and give each quote's URL and the date you fetched it. If you can't fetch a page, say so. Never guess and never rely on memory.
 1. **Terms of service:**

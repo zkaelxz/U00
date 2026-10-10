@@ -70,6 +70,9 @@ def test_list_engines_models_match_translate_engines_dicts(tmp_path):
 
 
 def test_list_engines_does_not_offer_the_removed_engines(tmp_path):
+    """Stale keys for the removed DeepL, Google and LibreTranslate engines can
+    still sit in an old .env; they must neither revive the engine nor leak
+    through the key status or settings overview."""
     env_path = _write_env(tmp_path, "BAIHE_DEEPL_KEY=stale\nBAIHE_GOOGLE_KEY=stale\n"
                           "BAIHE_LIBRETRANSLATE_URL=http://stale.example:5000\n")
     names = {e["name"] for e in translate_service.list_engines(env_path)}

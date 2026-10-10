@@ -7,7 +7,7 @@ they fetch a chapter, track new ones, and build an offline library. This
 is the other half -- "translate the page I am looking at right now" --
 and it reaches content the adapters structurally can't, *without this app
 ever touching a protection mechanism*. On a site whose pages are
-tile-scrambled (mangaz), delivered as `blob:` objects that only exist
+tile-scrambled, delivered as `blob:` objects that only exist
 inside the rendering tab (manhuaku), or gated behind a signed-in session
 (Bilibili Manga), the person's own browser has **already** done the
 decrypting, descrambling and authenticating, because they are reading the
