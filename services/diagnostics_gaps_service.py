@@ -28,8 +28,8 @@ import time
 import background_jobs
 import db
 import diagnostics
-import job_process_run
-from job_process_run import stream_tree
+from lib import proc as proc_run
+from lib.proc import stream_tree
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
 
 LOG_TAIL_DEFAULT = 50
@@ -631,7 +631,7 @@ def verify_torch(blocking: bool = True, cancel=None) -> dict:
 
 def _verify_torch_once(cancel=None) -> dict:
     try:
-        proc = job_process_run.run_captured(
+        proc = proc_run.run_captured(
             [sys.executable, "-c", diagnostics.TORCH_VERIFY_SCRIPT],
             diagnostics.TORCH_VERIFY_TIMEOUT_SECONDS, cancel=cancel)
         if proc.timed_out:

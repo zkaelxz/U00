@@ -228,7 +228,7 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
         ran.append((cmd, timeout))
         yield {"line": f"Found Deno at {ABS_PATH} {SECRET}"}
         yield {"returncode": 0, "timed_out": False, "cancelled": False}
-    monkeypatch.setattr(svc.job_process_run, "stream_tree", fake_tree)
+    monkeypatch.setattr(svc.proc_run, "stream_tree", fake_tree)
     assert client.post("/api/diagnostics/deno/install", json={"confirm": True}).status_code == 200
     assert _wait(svc.DENO_JOB_ID)["status"] == "done"
     assert ran and ran[0][0][:5] == ["winget", "install", "-e", "--id", "DenoLand.Deno"]

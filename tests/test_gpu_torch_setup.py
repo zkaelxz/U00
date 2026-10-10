@@ -11,7 +11,7 @@ import subprocess
 import pytest
 
 import diagnostics
-import job_process_run
+from lib import proc as proc_run
 from services import diagnostics_gaps_service as svc
 
 FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
@@ -295,7 +295,7 @@ def test_status_states(monkeypatch, have, gpu, state):
 
 
 def _captured(stdout="", timed_out=False, cancelled=False):
-    return job_process_run.CapturedRun(0, stdout, "", timed_out, cancelled)
+    return proc_run.CapturedRun(0, stdout, "", timed_out, cancelled)
 
 
 def test_verify_runs_in_a_subprocess_and_redacts(monkeypatch):
@@ -305,7 +305,7 @@ def test_verify_runs_in_a_subprocess_and_redacts(monkeypatch):
         seen.update(kw, cmd=cmd, timeout=timeout)
         return _captured('{"torch": "2.11.0+cu128", "cuda_available": false, '
                          '"error": "RuntimeError: at /home/someone/venv/torch"}\n')
-    monkeypatch.setattr(job_process_run, "run_captured", run)
+    monkeypatch.setattr(proc_run, "run_captured", run)
     out = svc.verify_torch()
     assert seen["timeout"] == diagnostics.TORCH_VERIFY_TIMEOUT_SECONDS
     assert seen["cmd"][1:3] == ["-c", diagnostics.TORCH_VERIFY_SCRIPT]
@@ -314,7 +314,7 @@ def test_verify_runs_in_a_subprocess_and_redacts(monkeypatch):
 
 
 def test_verify_timeout(monkeypatch):
-    monkeypatch.setattr(job_process_run, "run_captured",
+    monkeypatch.setattr(proc_run, "run_captured",
                         lambda cmd, timeout, **kw: _captured(timed_out=True))
     assert "too long" in svc.verify_torch()["error"]
 
@@ -325,7 +325,7 @@ def test_verify_passes_the_cancel_probe_to_the_runner(monkeypatch):
     def run(cmd, timeout, cancel=None, **kw):
         seen["cancel"] = cancel
         return _captured(cancelled=True)
-    monkeypatch.setattr(job_process_run, "run_captured", run)
+    monkeypatch.setattr(proc_run, "run_captured", run)
     probe = lambda: True      # noqa: E731
     assert svc.verify_torch(cancel=probe)["error"] == "cancelled" and seen["cancel"] is probe
 

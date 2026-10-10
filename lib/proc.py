@@ -1,5 +1,5 @@
 """
-job_process_run.py -- the one way to run a long external command whose
+lib/proc.py -- the one way to run a long external command whose
 output is read (pip, pytest, venv creation, winget).
 
 The child gets its own process group, so a timeout or a cancel kills the
@@ -23,7 +23,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from job_process_kill import kill_tree
+from lib.proc_kill import kill_tree
 
 KILL_DRAIN_SECONDS = 5.0
 _POLL_SECONDS = 0.5
