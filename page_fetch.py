@@ -28,6 +28,7 @@ from contextlib import contextmanager
 import browser_support
 from browser_support import BROWSER_MISSING, PACKAGE_MISSING
 from page_scroll import scroll_through_and_settle
+import storage
 
 # Root containers common to SPA frameworks. Their presence alongside
 # very little text is a strong signal the content hasn't rendered.
@@ -107,7 +108,7 @@ def make_request_guard(resolver=None):
     `data:`/`blob:` or an http(s) URL whose host resolves only to public
     addresses. Resolutions are cached per host for this handler's life."""
     from urllib.parse import urlsplit
-    from services import url_guard
+    from lib import url_guard
     resolve = resolver or (lambda u: url_guard.resolve_public(u))
     cache = {}
 
@@ -232,7 +233,7 @@ class _PinningProxy:
 
     @staticmethod
     def _pinned(url):
-        from services import url_guard
+        from lib import url_guard
         return url_guard.resolve_public(url)
 
     def _handle(self, client):
@@ -383,7 +384,7 @@ def fetch_static(url: str, timeout: int = 20):
     public http(s) address."""
     from urllib.parse import urljoin
     from bs4 import BeautifulSoup
-    from services import metadata_service, url_guard
+    from lib import http, url_guard
 
     headers = {"User-Agent": _UA}
     current = url
@@ -391,7 +392,7 @@ def fetch_static(url: str, timeout: int = 20):
     # connection pinned to the validated IP (no DNS-rebinding window).
     for _ in range(STATIC_FETCH_MAX_REDIRECTS + 1):
         ip = url_guard.resolve_public(current)
-        resp = metadata_service.pinned_get(current, ip, headers, timeout=timeout)
+        resp = http.pinned_get(current, ip, headers, timeout=timeout)
         location = resp.headers.get("Location")
         if resp.status_code in _REDIRECT_CODES and location:
             resp.close()
@@ -406,7 +407,7 @@ def fetch_static(url: str, timeout: int = 20):
     except Exception:
         resp.close()
         raise
-    from services import capped_body
+    from lib import capped_body
 
     def too_big():
         return ValueError("The page is too large to fetch.")
@@ -501,7 +502,7 @@ def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500):
     site's rendering itself.
     """
     sync_playwright = _require_playwright()
-    with sync_playwright() as p:
+    with storage.playwright_session(sync_playwright) as p:
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
@@ -585,7 +586,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
                                        response.headers.get("content-type", ""),
                                        body, max_body_bytes))
 
-    with sync_playwright() as p:
+    with storage.playwright_session(sync_playwright) as p:
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             page.on("response", on_response)
@@ -610,7 +611,7 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     responsive-redirect script reacting to the resulting resize event) --
     that isn't fatal, just settled with another wait."""
     sync_playwright = _require_playwright()
-    with sync_playwright() as p:
+    with storage.playwright_session(sync_playwright) as p:
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="networkidle")
@@ -640,6 +641,8 @@ def request_shutdown() -> None:
 def _require_playwright():
     if _SHUTDOWN.is_set():
         raise RuntimeError("Baihe Studio is shutting down; no new browser is started.")
+    import importlib
+    importlib.invalidate_caches()  # a just-installed package must import without a restart
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -800,7 +803,7 @@ def _launch_persistent(profile_dir: str, headless: bool):
     browser's own user agent is kept -- the same browser the person signed
     in with, not a disguised one."""
     sync_playwright = _require_playwright()
-    pw = sync_playwright().start()
+    pw, release = storage.playwright_start(sync_playwright)
     proxy = None
     try:
         proxy = _PinningProxy()
@@ -810,10 +813,18 @@ def _launch_persistent(profile_dir: str, headless: bool):
     except Exception:
         if proxy is not None:
             proxy.stop()
-        pw.stop()
+        try:
+            pw.stop()
+        finally:
+            release()
         raise
     _PROXIES[id(context)] = proxy
+    _TEMP_RELEASES[id(context)] = release
     return pw, context
+
+
+# id(persistent context) -> removes the driver's temp folder (run in _shut)
+_TEMP_RELEASES = {}
 
 
 def _shut(pw, context):
@@ -823,6 +834,9 @@ def _shut(pw, context):
                 fn()
         except Exception:
             pass
+    release = _TEMP_RELEASES.pop(id(context), None)
+    if release is not None:
+        release()
     proxy = _PROXIES.pop(id(context), None)
     if proxy is not None:
         proxy.stop()
@@ -925,7 +939,7 @@ def _redact(exc) -> str:
     redact_secrets does not mask. Only the guard's own fixed messages and
     the install hint for a missing browser are passed through."""
     from engine_backends.shared import redact_secrets
-    from services import url_guard
+    from lib import url_guard
     if isinstance(exc, (url_guard.UnsafeURLError, url_guard.URLResolveError, ImportError)):
         return redact_secrets(str(exc))
     status = getattr(getattr(exc, "response", None), "status_code", None)

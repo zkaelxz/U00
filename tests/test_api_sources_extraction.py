@@ -19,7 +19,8 @@ import translate_engines
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, settings_service, url_guard
+from services import auth_service, settings_service
+from lib import url_guard
 from sources import generic_import, registry
 from sources.ladder import LadderResult
 from sources.models import AccessTier, AttemptRecord

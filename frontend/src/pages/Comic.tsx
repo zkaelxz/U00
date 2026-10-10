@@ -133,7 +133,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   useEffect(() => {
     api.getDrama(id).then(
       (d) => {
-        setTitle(d.title_en || d.title_zh || `Drama #${d.id}`)
+        setTitle(d.title_en || d.title_zh || `Title #${d.id}`)
         setSourceUrl(d.source_url ?? null)
       },
       () => setTitle(null),

@@ -1,4 +1,6 @@
-// Mirrors api/diagnostics_install_schemas.py (Deno install, "Test first").
+// Mirrors api/diagnostics_install_schemas.py (package install and GPU PyTorch
+// setup, Deno install, "Test first").
+import type { DiagnosticsTorchVerify } from './diagnostics'
 
 export interface DiagnosticsJobState {
   status: string | null
@@ -49,6 +51,26 @@ export interface DiagnosticsUpgradeCheckState {
   target: string | null
   output_tail: string[]
   result: DiagnosticsUpgradeCheckResult | null
+  job_id: string
+  job: DiagnosticsJobState | null
+}
+
+export interface DiagnosticsDependencyInstallResult {
+  package: string
+  ok: boolean
+  output_tail: string[]
+  // Plain-English next step for a known failure (pip's cache unwritable), or the cancel note.
+  hint: string | null
+  cancelled: boolean
+  // GPU PyTorch setup only.
+  variant: string | null
+  verify: DiagnosticsTorchVerify | null
+}
+
+export interface DiagnosticsDependencyInstallState {
+  kind: 'package' | 'gpu_torch' | null
+  package: string | null
+  result: DiagnosticsDependencyInstallResult | null
   job_id: string
   job: DiagnosticsJobState | null
 }

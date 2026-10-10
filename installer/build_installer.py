@@ -283,7 +283,7 @@ def download(url: str, dest: Path, max_bytes: int = DOWNLOAD_MAX_BYTES,
              deadline_seconds: float = DOWNLOAD_DEADLINE_SECONDS, clock=time.monotonic) -> Path:
     """Fetches `url` to `dest`, refusing more than `max_bytes` (declared or
     actual) or a transfer slower than `deadline_seconds` in all. Standard
-    library only, like the rest of installer/, so services.capped_body isn't
+    library only, like the rest of installer/, so lib.capped_body isn't
     used; the caller checks the pinned hash afterwards."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")

@@ -80,7 +80,7 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
         newDrama={{ title, language, comic: false }}
         onCreated={dramas.add}
         hiddenCount={dramas.items ? hiddenDramaCount(dramas.items, false) : 0}
-        help="The chapter text is added to the end of the drama’s novel text."
+        help="The chapter text is added to the end of the title’s novel text."
       />
       <ErrorBanner error={dramas.error} />
       {!html && (
@@ -118,7 +118,7 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
             Cancel
           </button>
         )}
-        {!dramaId && !running && <span className="muted">Still needed: a drama to import into.</span>}
+        {!dramaId && !running && <span className="muted">Still needed: a title to import into.</span>}
       </div>
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
       <div aria-live="polite">

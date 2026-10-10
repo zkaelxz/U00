@@ -1,10 +1,11 @@
 import { useState } from 'react'
 
-import { getAssText, getSubtitleText } from '../../../api/export'
+import { getAssText, getSubtitleText, type SubtitleFile } from '../../../api/export'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { downloadText } from '../../../components/downloadText'
 import { Toggle } from '../../../components/Toggle'
 import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
@@ -46,7 +47,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
   const [result, setResult] = useState<{ text: string; filename: string; fmt: ExportFormat } | null>(null)
   const set = <K extends keyof AssForm>(k: K, v: AssForm[K]) => setForm({ ...form, [k]: v })
 
-  const fetchText = (): Promise<string> | null => {
+  const fetchText = (): Promise<SubtitleFile> | null => {
     if (fmt === 'ass') {
       if (!options) {
         setProblem('The style options have not loaded yet.')
@@ -69,17 +70,12 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
     const p = fetchText()
     if (!p) return
     p.then(
-      (text) => {
-        const filename = exportFilename(form.baseName, dramaId, form.field, fmt)
+      ({ text, filename: serverName }) => {
+        const filename = exportFilename(form.baseName, dramaId, form.field, fmt, serverName)
         setError(null)
         setResult({ text, filename, fmt })
         if (!text.trim()) return
-        const url = URL.createObjectURL(new Blob([text], { type: `${MIME[fmt]};charset=utf-8` }))
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        a.click()
-        URL.revokeObjectURL(url)
+        downloadText(text, filename, MIME[fmt])
       },
       (e: unknown) => {
         setResult(null)
@@ -120,7 +116,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         <p className="stage-blocker" id="export-blocker" data-testid="export-blocker">
           <span>No lines to export yet.</span>
           <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-            Go to Source
+            Go to Media
           </ButtonLink>
         </p>
       )}

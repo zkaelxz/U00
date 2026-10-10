@@ -84,7 +84,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     return () => ro.disconnect()
   }, [])
 
-  const title = drama ? drama.title_en || drama.title_zh || `Drama #${id}` : `Drama #${id}`
+  const title = drama ? drama.title_en || drama.title_zh || `Title #${id}` : `Title #${id}`
 
   // On a phone the sticky strip has no room for a second row, so the buttons sit just below it and scroll away.
   const actions = (
@@ -104,7 +104,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     </div>
   )
   return (
-    <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Drama ${id} workspace`}>
+    <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
       <Breadcrumbs crumbs={routeCrumbs({ name: 'drama', id, stage }, { title, stage: active })} />
       <div className="ws-strip" ref={stripRef}>
       <header className="workspace-header">

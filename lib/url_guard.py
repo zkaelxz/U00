@@ -1,5 +1,5 @@
 """
-services/url_guard.py -- the one public-address check for server-side
+lib/url_guard.py -- the one public-address check for server-side
 fetches of a user- or site-supplied URL.
 
 `resolve_public(url)` accepts http(s) URLs only (no userinfo) whose host
@@ -8,8 +8,8 @@ link-local, reserved, multicast and v4-mapped non-global addresses are
 refused before any connection. It returns the first validated address so
 the caller can pin its connection to it.
 
-Callers: `services.metadata_service._check_public_url` (and through it
-`services.safe_fetch`), `sources.http._requests_transport` and
+Callers: `lib.http` (and through it `services.safe_fetch`,
+`services.metadata_service`), `services.metadata_service.check_public_url`, `sources.http._requests_transport` and
 `page_fetch.fetch_static`, which re-validate every redirect hop, and
 `services.egress_proxy`, which checks every connection ffmpeg and yt-dlp
 make during live capture. Error

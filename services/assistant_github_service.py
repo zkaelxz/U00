@@ -41,7 +41,7 @@ import requests
 
 import action_tiers
 import db
-from services import capped_body
+from lib import capped_body
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, ServiceError)
 

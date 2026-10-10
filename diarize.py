@@ -310,6 +310,7 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
     options = rest[0] if len(rest) > 1 and isinstance(rest[0], dict) else {}
     try:
         import background_jobs
+        background_jobs.start_own_process_group()
         run_info = {}
         started = time.monotonic()
         segments, model, embeddings = diarize(

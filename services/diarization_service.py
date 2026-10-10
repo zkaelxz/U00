@@ -17,7 +17,7 @@ from typing import Optional
 import background_jobs
 import db
 import diarize
-from services import drama_service, settings_service
+from services import drama_service, run_settings_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
@@ -220,6 +220,19 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
     return _on_done
 
 
+def speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None):
+    """(min_speakers, max_speakers) for the chained speaker
+    detection, each None when unset. Raises InvalidInputError for a bad
+    range, or a range combined with an exact count (diarize.validate_speaker_hints)."""
+    import diarize as diarize_module
+    try:
+        _num, lo, hi = diarize_module.validate_speaker_hints(
+            expected_speakers, min_speakers, max_speakers)
+    except ValueError as exc:
+        raise InvalidInputError(str(exc)) from exc
+    return lo, hi
+
+
 def worker_options(min_speakers: Optional[int] = None,
                    max_speakers: Optional[int] = None) -> dict:
     """The options dict diarize.diarize_subprocess_worker takes: the
@@ -280,8 +293,12 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         args=(audio_path, hf_token, expected_speakers or None,
               worker_options(min_speakers, max_speakers)),
         gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+        kill_whole_tree=True, start_method="spawn",
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
-                                   min_speakers, max_speakers))
+                                   min_speakers, max_speakers),
+        run_settings=run_settings_service.for_diarize(
+            expected_speakers, min_speakers, max_speakers, settings_service.get_use_gpu(),
+            overwrite_manual=overwrite_manual))
     if not started:
         raise ConflictError(f"A diarization job is already running for drama {drama_id}.")
     return {"job_id": job_id}

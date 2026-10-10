@@ -183,9 +183,9 @@ class TestCmdTranslateParity:
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_translate(args)
 
-        assert seen["context_window"] == 6
-        assert seen["context_window_ahead"] == 3
-        assert seen["batch_size"] == 20
+        assert seen["context_window"] == 10
+        assert seen["context_window_ahead"] == 6
+        assert seen["batch_size"] == 30
 
     def test_context_window_ahead_and_batch_size_flags_reach_the_engine(
             self, isolated_db, monkeypatch):
@@ -392,7 +392,7 @@ class TestCmdTranslateSpendingCaps:
         did = self._drama(isolated_db)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(_translate_args(id=did, cost_cap=3.0, monthly_cap=None))
+            cli.cmd_translate(_translate_args(id=did, cost_cap=3.0, monthly_cap=None, batch_size=20))
         assert engine.calls == 2
         assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 40
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(4.0)
@@ -416,11 +416,12 @@ class TestCmdTranslateSpendingCaps:
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: self._Engine())
         did = self._drama(isolated_db, n=2)
         isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 50.0)
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            try:
-                cli.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0, thinking=True))
-            except (SystemExit, RuntimeError):
-                pass
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0, thinking=True))
+        # The run is refused (reported as that drama's failure), so the choice was never saved.
+        assert "spending cap" in err.getvalue() and "already used up" in err.getvalue()
+        assert "0 succeeded, 1 failed" in out.getvalue()
         assert isolated_db.get_drama(did)["translate_thinking"] is None
 
 
@@ -443,7 +444,7 @@ class TestCmdTranslateRetryAndWorkspaceParity:
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(_translate_args(cost_cap=3.0, monthly_cap=None))
+            cli.cmd_translate(_translate_args(cost_cap=3.0, monthly_cap=None, batch_size=20))
         assert "stopped at the spending cap" in out.getvalue()
         assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 40
         assert isolated_db.get_drama(did)["status"] == "aligned"
@@ -1677,9 +1678,9 @@ class TestCliServiceParity:
         _, seen = self._translate(isolated_db, monkeypatch, {"content_mode": "novel_narration"})
         assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (10, 6, 30)
 
-    def test_translate_non_novel_drama_keeps_6_3_20(self, isolated_db, monkeypatch):
+    def test_translate_non_novel_drama_gets_10_6_30(self, isolated_db, monkeypatch):
         _, seen = self._translate(isolated_db, monkeypatch, {})
-        assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (6, 3, 20)
+        assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (10, 6, 30)
 
     def test_run_parser_leaves_engine_and_sizes_unset(self, monkeypatch):
         captured = {}

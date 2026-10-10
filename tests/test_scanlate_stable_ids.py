@@ -1,4 +1,4 @@
-"""Scanlate S0: id-preserving region writes in db.py (docs/specs/scanlate-api-spec.md §2, §6)."""
+"""Scanlate S0: id-preserving region writes in db.py (docs/archive/scanlate-api-spec.md §2, §6)."""
 import sqlite3
 
 import pytest

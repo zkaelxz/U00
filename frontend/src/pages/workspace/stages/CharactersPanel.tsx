@@ -163,7 +163,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
               {samples && <p className="muted character-samples">{samples}</p>}
               {entry.series_character_id ? (
                 <p className="muted character-shared">
-                  Shared with other dramas in this series: pronoun and voice defaults can come from there.
+                  Shared with other titles in this series: pronoun and voice defaults can come from there.
                 </p>
               ) : null}
               {canRemember(entry, hasSeries) && (
@@ -171,7 +171,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                   type="button"
                   className={buttonClass('ghost', 'sm')}
                   disabled={busy || nameEdited}
-                  title={nameEdited ? 'Save the name first.' : 'Adds this name to the series cast so later dramas can pick it.'}
+                  title={nameEdited ? 'Save the name first.' : 'Adds this name to the series cast so later titles can pick it.'}
                   onClick={remember}
                 >
                   Remember {entry.character_name.trim()} in this series
@@ -195,7 +195,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                 <button type="submit" disabled={busy || renameProblemText !== null} title={renameProblemText ?? undefined}>
                   {entry.line_count ? `Rename on all ${entry.line_count} lines` : 'Rename'}
                 </button>
-                <button type="button" disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
               </form>
             )}
             {mergeInto === null ? (
@@ -220,7 +220,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                 <button type="submit" disabled={busy || !mergeInto}>
                   {mergeInto ? `Merge ${entry.line_count} ${entry.line_count === 1 ? 'line' : 'lines'}` : 'Merge'}
                 </button>
-                <button type="button" disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
               </form>
             )}
           </div>

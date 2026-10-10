@@ -2,7 +2,7 @@
 // every call, the scan included, goes through pcOnlyFetch.
 import type {
   DiskUsageClearDone, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashList,
-  DiskUsageTrashPurgeDone, DiskUsageTrashRestoreDone, UnusedVoiceClip, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
+  DiskUsageTrashPurgeDone, DiskUsageTrashRestoreDone, TempCleanDone, UnusedVoiceClip, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
 } from '../types/diskUsage'
 import { getJson, postJson, withSignal } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -73,3 +73,6 @@ export const trashUnusedVoiceClips = (clips: Pick<UnusedVoiceClip, 'id' | 'size_
     { clips: clips.map((c) => ({ id: c.id, expected_size_bytes: c.size_bytes })), confirm: true },
     pcOnlyFetch(f),
   )
+
+/** Deletes everything in Baihe's own temp folder (409 while a job runs). */
+export const cleanTempFiles = (f?: Fetch) => postJson<TempCleanDone>(`${BASE}/clean-temp`, { confirm: true }, pcOnlyFetch(f))

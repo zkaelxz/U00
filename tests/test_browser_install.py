@@ -20,6 +20,7 @@ import page_fetch
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
+from lib import proc as proc_run
 from services import auth_service
 from services import browser_install_service as svc
 
@@ -159,12 +160,12 @@ def test_secret_and_path_are_redacted_in_every_line():
 
 def test_the_subprocess_is_not_a_shell_and_decodes_utf8(client, env, monkeypatch):
     seen = {}
-    real = svc.subprocess.Popen
+    real = proc_run.subprocess.Popen
 
     def spy(cmd, **kw):
         seen.update(cmd=cmd, **kw)
         return real(cmd, **kw)
-    monkeypatch.setattr(svc.subprocess, "Popen", spy)
+    monkeypatch.setattr(proc_run.subprocess, "Popen", spy)
     _install(client)
     _wait()
     assert isinstance(seen["cmd"], list) and not seen.get("shell")

@@ -7,7 +7,7 @@ import { reflectAvailable } from '../../translateForm'
 import { spendText } from './reviewResults'
 
 
-export const JOB_RUNNING_MESSAGE = 'A job is running on this drama. Structure edits wait until it finishes.'
+export const JOB_RUNNING_MESSAGE = 'A job is running on this title. Structure edits wait until it finishes.'
 
 export function resegmentSummary(p: ResegmentPreview): string {
   const notes = `${p.notes} note${p.notes === 1 ? '' : 's'}`
@@ -34,6 +34,11 @@ export const RESPLIT_SENSITIVITIES: { value: ResplitSensitivity; label: string }
 
 /** Seconds offered for "Also split by duration"; null keeps the preset's own limit. */
 export const RESPLIT_DURATION_CAPS = [5, 10, 15, 20]
+
+// The Re-split options' draft (hooks/useStageDraft, stage "review.resplit");
+// capSec 0 means the preset's own duration limit.
+export const RESPLIT_DRAFT_STAGE = 'review.resplit'
+export const RESPLIT_DRAFT_SHAPE = { align: false, sensitivity: '', capSec: 0 }
 
 /** "Preview: 31 lines would be split into 118." from a dry-run result. */
 export function resplitPreviewSummary(r: ResplitResult): string {
@@ -76,7 +81,7 @@ export function resegmentCostNote(
 }
 
 // The preview carries no cost figure; the call is logged with the drama's usage.
-export const RESEGMENT_COST_RECORDED = 'The AI cost is logged with this drama’s usage (Library → Cost by drama).'
+export const RESEGMENT_COST_RECORDED = 'The AI cost is logged with this title’s usage (Library → Cost by title).'
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 

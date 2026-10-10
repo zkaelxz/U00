@@ -11,7 +11,7 @@ export type BulkChoice = Partial<Record<BulkKind, boolean>>
 export const BULK_HELP =
   "Half price through Claude's or Gemini's batch service, but slow: most results arrive within an hour, some take up to 24 hours. " +
   'They are applied to each line by its id when they arrive. Until then, adding, deleting, merging, splitting or re-segmenting lines, ' +
-  'restoring a version and deleting the drama are refused.'
+  'restoring a version and deleting the title are refused.'
 
 /** The engine the job runs on: the one picked, else the drama's. */
 export function effectiveEngine(f: Pick<CheckForm, 'engine'>, defaultEngine: string): string {
@@ -52,6 +52,6 @@ export function bulkStartedText(label: string, lineCount: number): string {
   const lines = `${lineCount} line${lineCount === 1 ? '' : 's'}`
   return (
     `${label}: sent as a bulk batch at half price (${lines}). Results arrive later, usually within an hour and at most 24 hours. ` +
-    'Until they are applied or the batch is cancelled, structural edits (add, delete, merge, split, re-segment, restore a version, delete the drama) are paused.'
+    'Until they are applied or the batch is cancelled, structural edits (add, delete, merge, split, re-segment, restore a version, delete the title) are paused.'
   )
 }

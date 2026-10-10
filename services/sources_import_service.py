@@ -598,7 +598,8 @@ _BILIBILI_MANGA_HINT = (
 
 
 _BILIBILI_NEEDS_BROWSER = (
-    " Bilibili Manga builds its pages with scripts, so the images only appear in a real browser.")
+    " Bilibili Manga builds its pages with scripts, so the images only appear in a real browser. "
+    "The browser extension's 'Capture whole chapter' works from your own browser.")
 _PLAYWRIGHT_MISSING = (
     " The browser step could not run because the Playwright package is not installed. "
     "Install it in Diagnostics > Packages (group 'Novels & reader', 'Novel sources from "

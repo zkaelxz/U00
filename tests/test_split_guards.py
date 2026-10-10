@@ -36,7 +36,7 @@ def _walk_files(top, suffixes, skip=_SKIP_DIRS):
 
 # --- 1. HTTP timeouts by folder -------------------------------------------
 
-_TIMEOUT_FOLDERS = ("sources", "installer", "engine_backends", "scripts", "tools", "extension")
+_TIMEOUT_FOLDERS = ("sources", "installer", "engine_backends", "scripts", "tools", "extension", "lib")
 
 
 def _timeout_scan_files():
@@ -245,3 +245,16 @@ class TestDbPackageRule:
                         and node.func.id in public and node.func.id not in own:
                     problems.append(f"{_rel(f)}:{node.lineno} bare call {node.func.id}(); use db.{node.func.id}()")
         assert problems == [], "db/ submodules must call public functions as db.<name>:\n" + "\n".join(problems)
+
+
+def test_even_split_cuts_unpunctuated_text_and_flags_it():
+    import core
+    import long_line_split
+    text = "".join(chr(0x4e00 + i) for i in range(100))
+    seg = {"start": 146.69, "end": 243.46, "text": text}
+    assert len(core.split_long_segments([seg])) == 1  # the core splitter still leaves it whole
+    out = long_line_split.split_long_segments([seg])
+    assert "".join(p["text"] for p in out) == text and len(out) >= 3
+    assert all(len(p["text"]) <= core.SPLIT_MAX_CJK_CHARS for p in out)
+    assert {p["flag"] for p in out} == {"timing_uncertain"}
+    assert out[0]["start"] == seg["start"] and out[-1]["end"] == seg["end"]

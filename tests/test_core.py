@@ -357,6 +357,7 @@ class TestModelSelection:
         import translate_engines as te
         fake = types.ModuleType("anthropic")
         fake.Anthropic = lambda api_key, **kw: types.SimpleNamespace(api_key=api_key, **kw)
+        fake.Timeout = lambda **kw: kw
         monkeypatch.setitem(sys.modules, "anthropic", fake)
         for model in te.CLAUDE_MODELS:
             eng = te.get_engine("claude", "fake-key", model)
@@ -1039,14 +1040,14 @@ class TestTranscribeWithGroq:
         audio.write_bytes(b"x")
         captured = {}
 
-        def fake_post(url, headers=None, files=None, data=None, timeout=None, stream=None):
+        def fake_post(url, ip, headers, timeout=None, method="GET", files=None, data=None):
             captured["url"], captured["headers"] = url, headers
             captured["data"], captured["timeout"] = data, timeout
             return self._FakeResponse(segments=[
                 {"start": 0.0, "end": 1.5, "text": " Hello there. "},
                 {"start": 1.5, "end": 3.0, "text": "Goodbye."},
             ])
-        monkeypatch.setattr("requests.post", fake_post)
+        monkeypatch.setattr("lib.http.pinned_get", fake_post)
 
         result = core.transcribe_with_groq(str(audio), "en", "fake-groq-key")
 
@@ -1061,7 +1062,7 @@ class TestTranscribeWithGroq:
         import core
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
-        monkeypatch.setattr("requests.post", lambda *a, **k: self._FakeResponse(
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
             segments=[{"start": 0.0, "end": 1.0, "text": "   "},
                       {"start": 1.0, "end": 2.0, "text": "Real text."}]))
 
@@ -1073,7 +1074,7 @@ class TestTranscribeWithGroq:
         import core
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
-        monkeypatch.setattr("requests.post", lambda *a, **k: self._FakeResponse(segments=[]))
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(segments=[]))
         seen = []
 
         core.transcribe_with_groq(str(audio), "en", "fake-key", progress_cb=seen.append)
@@ -1084,7 +1085,7 @@ class TestTranscribeWithGroq:
         import core
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
-        monkeypatch.setattr("requests.post", lambda *a, **k: self._FakeResponse(
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
             status_code=401, text="invalid api key"))
 
         try:
@@ -1101,13 +1102,13 @@ class TestTranscribeWithGroq:
 
         def fake_post(*a, **k):
             raise requests.ConnectionError("could not connect")
-        monkeypatch.setattr("requests.post", fake_post)
+        monkeypatch.setattr("lib.http.pinned_get", fake_post)
 
         try:
             core.transcribe_with_groq(str(audio), "en", "fake-key")
             assert False, "expected GroqTranscriptionError"
         except core.GroqTranscriptionError as exc:
-            assert "could not connect" in str(exc)
+            assert str(exc) == "The page could not be fetched."
 
     def test_a_key_leaked_into_the_error_message_is_redacted(self, monkeypatch, tmp_path):
         """Never put an API key in a shown/stored/logged error -- see
@@ -1121,14 +1122,13 @@ class TestTranscribeWithGroq:
         def fake_post(*a, **k):
             raise requests.ConnectionError(
                 "failed sending header Authorization: Bearer gsk_realsecretkey1234567890")
-        monkeypatch.setattr("requests.post", fake_post)
+        monkeypatch.setattr("lib.http.pinned_get", fake_post)
 
         try:
             core.transcribe_with_groq(str(audio), "en", "gsk_realsecretkey1234567890")
             assert False, "expected GroqTranscriptionError"
         except core.GroqTranscriptionError as exc:
             assert "gsk_realsecretkey1234567890" not in str(exc)
-            assert "[REDACTED]" in str(exc)
 
     def test_needs_a_timeout_so_a_hung_server_cannot_stick_a_job_at_running_forever(self):
         """Statically enforced too by

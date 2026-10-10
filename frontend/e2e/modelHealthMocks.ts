@@ -21,7 +21,7 @@ export const RETIRED_PRESET = item({
 })
 
 export const OLDER_PRESET = item({
-  model: 'claude-sonnet-4-6', kind: 'preset', where: 'Preset: Drama A', preset_id: 7, status: 'legacy',
+  model: 'claude-sonnet-4-6', kind: 'preset', where: 'Preset: Title A', preset_id: 7, status: 'legacy',
   message: 'claude-sonnet-4-6 (claude) is an older model that is still offered. Suggested replacement: claude-sonnet-5.',
   replacement: 'claude-sonnet-5', note: 'Previous generation, still offered.', severity: 1, can_switch: true,
 })

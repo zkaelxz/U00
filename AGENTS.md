@@ -10,9 +10,10 @@ OpenCode loads this file, not `CLAUDE.md`. You must still read the project rules
   (`python tools/repo_map.py <module>`), then read by line range.
 - Files listed in `OVERSIZED_MODULE_BYTES` (`tests/test_static_analysis.py`): use `--part N`, never open whole.
 - A task brief's allowed files are binding. More than about four files: stop and say how to split the task.
-- Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Run the full suite once at the
-  end: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`.
-- Never skip, delete or loosen a test.
+- Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Before pushing, run the area's tests plus
+  the quick guards: `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`.
+  CI runs the full suite; don't run it locally as well.
+- Never skip or loosen a test. A test is deleted only together with the feature it proves, in the PR that removes the feature.
 - Skip `docs/archive/` (history only), `docs/specs/`, `docs/design/` and `.claude/` unless the task is about them.
 
 ## Rules that bite
@@ -35,8 +36,9 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - db: `configure_library_dir` rebinds `LIBRARY_DIR`, `DB_PATH` and friends, so read them as `db.X`
   when used and never copy them. A read-then-write transaction starts with `BEGIN IMMEDIATE`. See `docs/database.md`.
 - Process-job workers (`diarize.py`, `resegment.py`, `dub.py`, `dub_narration.py`, `services/transcribe_service.py`) stay
-  top-level and picklable: Windows starts them in a fresh interpreter. Only transcribe forces spawn, so a bad
-  worker passes Linux CI and fails on Windows. See `docs/background-jobs.md`.
+  top-level and picklable: Windows starts them in a fresh interpreter. Every process job starts with spawn,
+  its own process group (`start_own_process_group()` first in the worker) and `kill_whole_tree=True`, so a bad
+  worker fails on Linux CI too. See `docs/background-jobs.md`.
 - `background_jobs`: the `_jobs` dict under `_lock` is the authority. Never start a thread or process while holding `_lock`.
 - Tests patch the module that uses a name, not a front door that re-exports it.
 
@@ -53,7 +55,7 @@ Done means:
    expected-files list (`expected_files.EXPECTED_TOP_LEVEL_FILES`: one sorted line per name; check the current location first).
 6. Split PRs do not edit `OVERSIZED_MODULE_BYTES`: stale entries only warn, and one ratchet PR after each wave removes them.
 7. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
-   `tests/test_diagnostics_and_export.py`, then the full suite, and report counts.
+   `tests/test_diagnostics_and_export.py`, and report counts; CI runs the full suite.
 
 ## Where to look
 
