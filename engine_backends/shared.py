@@ -143,8 +143,9 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             # A refused local load repeats identically; retrying only delays the message.
             # A deadline has already waited as long as the call may; a retry would
             # bill a second request while the abandoned one may still be running.
+            # An over-cap or too-slow reply was already billed; a quick retry bills it twice.
             if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached, HeadroomError,
-                              LLMTaskTimeout)):
+                              LLMTaskTimeout, ProviderResponseTooLarge)):
                 raise
             if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
                 # FallbackEngine already retried and tried every engine.
@@ -198,11 +199,17 @@ class _ErrorResponse:
         from requests.structures import CaseInsensitiveDict
         self.status_code = resp.status
         self.headers = CaseInsensitiveDict(resp.headers)
-        self.text = resp.text()
+        self.text = redact_secrets(resp.text())
         self.ok = False
 
 
 PROVIDER_UNREACHABLE = "The provider could not be reached."
+PROVIDER_REDIRECTED = "The provider answered with a redirect, which is not followed."
+
+
+class ProviderRedirected(http.FetchError):
+    """A vendor endpoint answered 3xx. Unlike a transport blip it repeats
+    identically, so the fallback chain switches engines instead of retrying."""
 
 
 def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict] = None,
@@ -214,9 +221,9 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
     origin). The exception types are the ones `call_with_backoff` keys on: a
     non-2xx reply is a requests.HTTPError carrying the status (429/503/529
     back off, anything else gets one quick retry), a reply over the cap or
-    past the deadline is ProviderResponseTooLarge, and a transport failure or
-    redirect is a lib.http.FetchError with fixed text; fallback.py recognises
-    it as transient.
+    past the deadline is ProviderResponseTooLarge, and a transport failure
+    is a lib.http.FetchError with fixed text (transient for
+    fallback.py); a redirect is the ProviderRedirected subclass (not transient).
     Every message is fixed text, so the key in `headers` cannot reach one.
     """
     import requests
@@ -239,7 +246,7 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
                                                 + (f": {detail}" if detail else "")),
                                  response=_ErrorResponse(resp))
     if resp.status >= 300:  # redirects are not followed, so there is no reply to read
-        raise http.FetchError(PROVIDER_UNREACHABLE)
+        raise ProviderRedirected(PROVIDER_REDIRECTED)
     from requests.structures import CaseInsensitiveDict
     return json.loads(resp.body), CaseInsensitiveDict(resp.headers)
 
@@ -323,7 +330,7 @@ def safe_url(url) -> str:
 
 # A path segment that looks like a credential (a long random run, or a
 # Telegram-style bot<id>:<key>), e.g. a path-signed CDN or bot file link.
-_TOKEN_SEGMENT = re.compile(r"^(?:bot\d+:.+|[A-Za-z0-9_\-.~:=]{32,})$")
+_TOKEN_SEGMENT = re.compile(r"^(?:bot\d+:.+|[A-Za-z0-9_\-.~:=+]{32,})$")
 
 
 def display_url(url) -> str:
@@ -331,7 +338,7 @@ def display_url(url) -> str:
     path, no query, fragment, userinfo or ;params. A pasted link can carry
     a signed token; a path that looks like it holds one is dropped, leaving
     only the host. Anything else (unparsable, scheme-less, file://) gives ""."""
-    from urllib.parse import urlsplit
+    from urllib.parse import unquote, urlsplit
     try:
         parts = urlsplit(str(url or "").strip())
         host = parts.hostname or ""
@@ -344,7 +351,8 @@ def display_url(url) -> str:
         host = f"[{host}]"          # IPv6 keeps its brackets
     path = parts.path.split(";", 1)[0]
     if (redact_secrets(path) != path
-            or any(_TOKEN_SEGMENT.match(seg) for seg in path.split("/") if seg)):
+            or any(_TOKEN_SEGMENT.match(s) for seg in path.split("/") if seg
+                for s in (seg, unquote(seg)))):
         path = "/"
     return f"{parts.scheme.lower()}://{host}{port}{path}"
 
