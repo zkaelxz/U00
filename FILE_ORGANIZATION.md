@@ -159,6 +159,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
+- `settings_schema.py` (the declared settings: one row per `app_settings` or `.env` key with its saved name, type, default and limits; `coerce` turns a stored value into a typed one; read through `settings_service.get`)
 
 ## services/
 
