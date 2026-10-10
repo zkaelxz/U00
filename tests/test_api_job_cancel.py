@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import db
+from jobs import job_store
 from api.api_config import ApiSettings
 from api.server import create_app
 
@@ -45,23 +46,22 @@ def test_cross_process_cancel_sets_flag(client):
     r = client.post("/api/jobs/j2/cancel")
     assert r.status_code == 200
     assert r.json() == {"job_id": "j2", "cancel_requested": True, "status": "running"}
-    assert db.is_job_record_cancel_requested("j2")
+    assert job_store.row_cancel_time("j2")
     db.save_job_record("j2", "done")
-    assert not db.is_job_record_cancel_requested("j2")
+    assert job_store.row_cancel_time("j2") is None
 
 
 def test_owner_notices_db_flag_throttled(isolated_db, monkeypatch):
     _own("j3")
     calls = []
-    real = db.is_job_record_cancel_requested
-    monkeypatch.setattr(db, "is_job_record_cancel_requested",
-                        lambda j: calls.append(j) or real(j))
+    real = job_store.row_cancel_time
+    monkeypatch.setattr(job_store, "row_cancel_time", lambda j: calls.append(j) or real(j))
     db.save_job_record("j3", "running")
     try:
         for _ in range(20):
             assert not background_jobs.is_cancel_requested("j3")
         assert len(calls) == 1
-        db.request_job_record_cancel("j3")
+        job_store.request_cancel("j3")
         assert not background_jobs.is_cancel_requested("j3")  # throttled
         background_jobs._last_db_cancel_check.clear()
         assert background_jobs.is_cancel_requested("j3")
@@ -121,7 +121,7 @@ def test_cancel_request_does_not_refresh_staleness(client):
     db.save_job_record("orphan2", "running")
     _age("orphan2", 3600)
     before = db.get_job_record("orphan2")["updated_at"]
-    db.request_job_record_cancel("orphan2")
+    job_store.request_cancel("orphan2")
     assert db.get_job_record("orphan2")["updated_at"] == before
 
 
@@ -133,11 +133,11 @@ def test_stale_close_loses_to_a_late_heartbeat_or_done(isolated_db):
     _age("race", 3600)
     cutoff = time.time() - 900
     db.touch_job_records(["race"])                 # owner heartbeats in between
-    assert not db.close_stale_job_record("race", cutoff)
+    assert not job_store.close_stale("race", cutoff)
     assert db.get_job_record("race")["status"] == "running"
     db.save_job_record("race", "done")
     _age("race", 3600)
-    assert not db.close_stale_job_record("race", cutoff)
+    assert not job_store.close_stale("race", cutoff)
     assert db.get_job_record("race")["status"] == "done"
 
 

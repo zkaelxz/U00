@@ -2567,7 +2567,8 @@ class TestSwallowedFailuresAreVisible:
             calls.append(job_id)
             raise sqlite3.OperationalError(f"database is locked key={_FAKE_KEY}")
 
-        monkeypatch.setattr(db, "is_job_record_cancel_requested", failing)
+        from jobs import job_store
+        monkeypatch.setattr(job_store, "row_cancel_time", failing)
         # Set the log handler up before the job thread logs: two threads
         # doing it at once can attach it twice and write every line twice.
         import applog
