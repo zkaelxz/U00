@@ -133,7 +133,10 @@ A GPU job is queued instead of started when an earlier GPU job is already waitin
 2. **Cross-process slots.** `try_take_gpu_slot(holder, description)` claims a row in
    `db.gpu_lock` via `db.try_acquire_gpu_lock` (`BEGIN IMMEDIATE`, so the read-then-write
    is atomic across processes). Holders are `ui:<job_id>` and `cli:<pid>`. A row not
-   heartbeated for `db.GPU_LOCK_STALE_SECONDS` (10 min) is abandoned and ignored. The
+   heartbeated for `db.GPU_LOCK_STALE_SECONDS` (10 min) is abandoned and ignored. At
+   startup a `ui:` row is also released at once when its job record was written after the
+   row was taken and names a dead owner pid (`gpu_lock_recovery_service`); a record older
+   than the row is a previous run's, so the row is left to expire. The
    table has at most `GPU_LOCK_MAX_SLOTS` (4) rows.
 3. **External load.** For the first holder (`check_external_load=True`, which UI jobs
    pass), `diagnostics.external_gpu_is_busy` reads nvidia-smi totals. A program Baihe
@@ -322,7 +325,7 @@ Thread unless marked process.
 | `transcribe_<id>` | `transcribe_service` | process; thread for hardsub OCR | yes |
 | `diarize_<id>` | `diarization_service` (also chained from transcribe) | process | yes |
 | `autotune_<id>` | `transcribe_service` | process | yes |
-| `retranscribe_<id>` | `transcribe_service` | thread | yes |
+| `retranscribe_<id>` | `transcribe_service` (one line), `retranscribe_many_service` (the ticked lines or a gap's added lines, one model load) | process | yes |
 | `dub_<id>` | `dub_service` | process | when a local clone/TTS model is used |
 | `resegment_<id>`, `resegpreview_<id>` | `restructure_service` | process with Ollama, otherwise thread | with Ollama |
 | `resplit_<id>` | `restructure_service` | thread | yes |
@@ -349,6 +352,7 @@ Routes in `api/routers/jobs_routes.py`, logic in `services/jobs_service.py`:
 | `GET /api/jobs` | `library.read` | every visible `job_records` row, newest started first (sweeps stale rows first) |
 | `GET /api/jobs/{id}` | `library.read` | one record |
 | `POST /api/jobs/{id}/cancel` | `jobs.cancel` | `cancel_job`: 404 unknown or not visible, 409 already finished, else `{cancel_requested, status}`; asynchronous |
+| `POST /api/jobs/{id}/force-stop` | `jobs.cancel` | `force_stop_job`: 404 unknown or not visible, 409 unless a thread job has been Cancelling for over a minute, else closes the record as `cancelled` and returns `{force_stopped, status, worker_still_running}`; the thread itself cannot be killed |
 | `POST /api/jobs/{id}/delete` | `local_only()` | removes one finished record (needs `confirm=true`; 409 if still active) |
 | `POST /api/jobs/clear-finished` | `local_only()` | removes every finished record (needs `confirm=true`) |
 

@@ -40,8 +40,8 @@ import db
 import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
-from services import (engine_routing_service, library_service, settings_service,
-                      translate_service, workspace_job_service)
+from services import (bulk_job_view, engine_routing_service, library_service,
+                      run_settings_service, settings_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -97,9 +97,8 @@ def _parse_errors(raw) -> Optional[list]:
 
 
 def get_translate_config_defaults(is_novel: bool) -> dict:
-    return {"context_window": 10 if is_novel else 6,
-            "context_window_ahead": 6 if is_novel else 3,
-            "batch_size": 30 if is_novel else 20}
+    # Per-sentence lines carry little each; batch 30 keeps context cost flat.
+    return {"context_window": 10, "context_window_ahead": 6, "batch_size": 30}
 
 
 def get_translate_config(drama_id: int) -> dict:
@@ -499,6 +498,14 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     if force_retranslate and any(ln.en for ln in lines):
         db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
     novel_reference = load_novel_reference(drama_id, drama)
+    resp = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
+            "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
+            "fallback_engines": [c["engine"] for c in chain[1:]], "reflect": reflect, "bulk": bulk}
+    run_settings = run_settings_service.for_translate(
+        drama, include_genre_notes, default_female_pronouns, glossary_terms, style_guidelines,
+        style_note, resp, locale=locale, style_preset=style_preset, context_window=context_window,
+        context_window_ahead=context_window_ahead, batch_size=batch_size,
+        force_retranslate=force_retranslate, thinking=thinking, own_lines_only=own_lines_only)
     if bulk:
         submit = _bulk_submitter(drama_id, drama, engines[0], engine_name, reflect,
                                  novel_reference, glossary_terms, style_guidelines,
@@ -508,14 +515,12 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         started = background_jobs.start_job(
             job_id, run_bulk_translate_job, job_id, engines[0], engine_name, submit,
             monthly_cap or None,
-            description=f"Bulk {'Reflect ' if reflect else ''}translation (drama #{drama_id})")
+            description=f"Bulk {'Reflect ' if reflect else ''}translation (drama #{drama_id})",
+            run_settings=run_settings)
         if not started:
             raise ConflictError("A translation is already running for this drama.")
         save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
-        return {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
-                "model": getattr(engines[0], "model", model),
-                "target_line_count": len(eligible), "fallback_engines": [],
-                "reflect": reflect, "bulk": True}
+        return {**resp, "fallback_engines": []}
 
     summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
 
@@ -531,18 +536,15 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         summary_monthly_cap_usd=month_cap_usd() or None,
         target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
         gpu_touching=translate_engines.chain_touches_local_gpu(chain),
-        description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
+        description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})",
+        run_settings=run_settings)
     if not started:
         raise ConflictError("A translation is already running for this drama.")
     save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
-    started = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
-               "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
-               "fallback_engines": [c["engine"] for c in chain[1:]],
-               "reflect": reflect, "bulk": False}
     if target_ids is not None:
         # expected_en may have dropped some of the caller's ids.
-        started["line_ids"] = sorted(ln.id for ln in eligible)
-    return started
+        resp["line_ids"] = sorted(ln.id for ln in eligible)
+    return resp
 
 
 def save_style_toggles(drama_id: int, include_genre_notes=None,
@@ -720,35 +722,13 @@ def _notify_bulk_resume_skipped(reason: str) -> None:
         "Resume them from the drama's Translate page.")
 
 
-_BULK_CANCELLABLE = ("submitting",) + db.BULK_PENDING_STATUSES
-
-
-def _bulk_entry(job: dict) -> dict:
-    """Public view of one bulk_jobs row: no prompts, no translate_args, no
-    provider batch id, no raw error text beyond the redacted last_error."""
-    summary = job.get("result_summary")
-    err = job.get("last_error")
-    return {
-        "bulk_job_id": job["id"], "engine": job["engine"], "model": job.get("model"),
-        "kind": job.get("kind") or "translate", "stage": job.get("stage"),
-        "pipeline_id": job.get("pipeline_id"), "status": job["status"],
-        "pending": job["status"] in db.BULK_PENDING_STATUSES + ("submitting", "running"),
-        "cancellable": job["status"] in _BULK_CANCELLABLE,
-        "line_count": db.count_bulk_job_lines(job["id"]),
-        "scheduled_for": job.get("scheduled_for"),
-        "result_summary": summary if isinstance(summary, dict) else None,
-        "last_error": translate_engines.redact_secrets(err) if err else None,
-        "submitted_at": job.get("submitted_at"), "updated_at": job.get("updated_at"),
-    }
-
-
 def list_bulk_translations(drama_id: int) -> dict:
     """Read-only: this drama's bulk jobs (newest first) with the status
     last recorded in the database. Never contacts a provider; polling stays
     with resume_bulk_translations."""
     require_drama(drama_id)
     return {"drama_id": drama_id,
-            "jobs": [_bulk_entry(j) for j in db.list_bulk_jobs(drama_id)]}
+            "jobs": [bulk_job_view.bulk_entry(j) for j in db.list_bulk_jobs(drama_id)]}
 
 
 def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
@@ -759,13 +739,13 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
     job = db.get_bulk_job(bulk_job_id)
     if not job or job["drama_id"] != drama_id:
         raise NotFoundError(f"Bulk job {bulk_job_id} not found for drama {drama_id}.")
-    if job["status"] not in _BULK_CANCELLABLE:
+    if job["status"] not in bulk_job_view.CANCELLABLE:
         raise ConflictError(f"Bulk job {bulk_job_id} is {job['status']} and cannot be cancelled.")
     key = translate_service.resolve_api_key(job["engine"])
     engine = translate_engines.get_engine(job["engine"], key, job.get("model") or None) if key else None
     provider = bulk_translate.make_provider(job["engine"], engine) if engine else None
     note = bulk_translate.cancel_bulk_job(bulk_job_id, provider)
-    return {"drama_id": drama_id, "bulk_job": _bulk_entry(db.get_bulk_job(bulk_job_id)),
+    return {"drama_id": drama_id, "bulk_job": bulk_job_view.bulk_entry(db.get_bulk_job(bulk_job_id)),
             "message": note}
 
 

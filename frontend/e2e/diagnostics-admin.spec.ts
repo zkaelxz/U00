@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSettingsGroups } from './settingsNav'
 
 // Diagnostics admin sections and Settings > Browser extension (desktop).
@@ -36,7 +37,8 @@ const setup = (o: Record<string, unknown> = {}) => ({
   ...o,
 })
 
-// A held install is always answered by its mock, never left pending:
+
+// A held request is always answered by its mock, never left pending:
 // Chromium lets a pending intercepted request through to the server when
 // the page closes. afterEach releases it and waits for the answer to go out.
 let releaseInstall: () => void = () => undefined
@@ -96,19 +98,12 @@ test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', a
 test('install: two presses, PC-only header, every admin button waits, then the result', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, { stats: { total_dramas: 3, total_lines: 10, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} } })
-  const sent: Request[] = []
-  // Held until release() (or afterEach); always fulfilled, never continued.
-  const gate = new Promise<void>((res) => (releaseInstall = res))
-  const release = () => releaseInstall()
-  await page.route('**/api/diagnostics/dependencies/**', async (r) => {
-    sent.push(r.request())
-    const ok = r.request().url().includes('yt-dlp')
-    const answer = gate.then(() => r.fulfill({
-      json: { package: ok ? 'yt-dlp' : 'torch', ok, output_tail: ok ? ['Successfully installed'] : ['ERROR: no space'] },
-    }))
-    pendingFulfils.push(answer)
-    await answer
-  })
+  // The job stays "running" (progress, Cancel) until release().
+  let release: () => void = () => undefined
+  const gate = new Promise<void>((res) => (release = res))
+  const { started: sent } = await mockDependencyInstall(page, (pkg) => pkg === 'yt-dlp'
+    ? { ok: true, output_tail: ['Successfully installed'] }
+    : { ok: false, output_tail: ['ERROR: no space'] }, { hold: gate })
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
   await openSection(page, /^Danger zone/)
@@ -117,7 +112,7 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   expect(sent).toHaveLength(0) // first press only arms
   await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
   await expect(page.getByTestId('install-running')).toHaveText(
-    'Installing yt-dlp… this can take several minutes. Keep this tab open.')
+    'Installing yt-dlp… this can take several minutes. Cancel it below if needed.')
   expect(sent).toHaveLength(1)
   expect(sent[0].postDataJSON()).toEqual({ confirm: true })
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
@@ -132,8 +127,12 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   await expect(page.getByRole('button', { name: 'Reset library' })).toBeDisabled()
   await expect(page.locator('.danger-zone')).toContainText('Wait for the install to finish.')
 
+  // The job shows its progress and a Cancel button while it runs.
+  await expect(page.getByTestId('install-progress')).toContainText('30% · Downloading wheel')
+  await expect(page.getByRole('button', { name: 'Cancel installing yt-dlp' })).toBeEnabled()
+
   release()
-  await expect(page.getByTestId('install-result')).toContainText('Installed yt-dlp.')
+  await expect(page.getByTestId('install-result')).toContainText('Installed yt-dlp.', { timeout: 10_000 })
   await expect(page.getByText('Installed yt-dlp.')).toBeFocused()
   await expect(page.getByTestId('install-result').locator('details')).not.toHaveAttribute('open', '')
   await expect(page.getByTestId('install-running')).toHaveText('')
@@ -141,9 +140,34 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   // torch gets its size in the confirm step; a failed install opens Output.
   await page.getByRole('button', { name: 'Install torch' }).click()
   await page.getByRole('button', { name: 'Confirm install torch (about 2.5 GB)' }).click()
-  await expect(page.getByTestId('install-result')).toContainText('Install failed for torch.')
+  await expect(page.getByTestId('install-result')).toContainText('Install failed for torch.', { timeout: 10_000 })
   await expect(page.getByTestId('install-result').locator('details')).toHaveAttribute('open', '')
   await expect(page.getByTestId('install-result').locator('pre')).toHaveText('ERROR: no space')
+  expect(unmocked).toEqual([])
+})
+
+test('Cancel stops a running install, says so, and frees the page', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page)
+  // Never released: only Cancel ends this job.
+  const { started, cancelled } = await mockDependencyInstall(
+    page, () => ({ ok: true, output_tail: [] }), { hold: new Promise<void>(() => undefined) })
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Packages/)
+  await page.getByRole('button', { name: 'Install yt-dlp' }).click()
+  await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
+  const cancel = page.getByRole('button', { name: 'Cancel installing yt-dlp' })
+  await expect(cancel).toBeEnabled()
+  expect(started).toHaveLength(1)
+  expect(cancelled).toHaveLength(0)
+
+  await cancel.click()
+  await expect(page.getByTestId('install-result')).toContainText('Cancelled installing yt-dlp.', { timeout: 10_000 })
+  await expect(page.getByTestId('install-result')).toContainText('run the install again')
+  expect(cancelled).toHaveLength(1)
+  await expect(page.getByTestId('install-progress')).toHaveCount(0)
+  await expect(page.getByTestId('install-running')).toHaveText('')
+  await expect(page.getByRole('button', { name: 'Install torch' })).toBeEnabled()
   expect(unmocked).toEqual([])
 })
 
@@ -167,7 +191,7 @@ test('install errors: 409 shows the server sentence, 404 the unknown-package lin
   expect(unmocked).toEqual([])
 })
 
-test('a running job blocks install and reset with a reason, and a banner links to Jobs', async ({ page }) => {
+test('a running job blocks install and reset with a reason, and the reset reason links to Jobs', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, {
     jobs: [job()],
@@ -175,29 +199,17 @@ test('a running job blocks install and reset with a reason, and a banner links t
   })
   await page.goto('/#/diagnostics')
   await expect(page.getByTestId('diagnostics-summary')).toContainText('1 job running')
-  const banner = page.getByTestId('jobs-summary')
-  await expect(banner).toContainText('1 running')
-  await expect(banner.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
-  // The table, Cancel and Delete moved to the Jobs page.
+  await expect(page.getByTestId('jobs-summary')).toHaveCount(0)
+  // The table, Cancel and Delete live on the Jobs page.
   await expect(page.getByTestId('job-list')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Cancel Translate/ })).toHaveCount(0)
   await openSection(page, /^Packages/)
   await expect(page.getByTestId('dependency-panel')).toContainText('Wait for running jobs to finish.')
   await openSection(page, /^Danger zone/)
-  await expect(page.locator('.danger-zone')).toContainText('Stop running jobs first (see Jobs above).')
+  await expect(page.locator('.danger-zone')).toContainText('Stop running jobs first.')
+  await expect(page.locator('.danger-zone').getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')
   await expect(page.getByRole('button', { name: 'Reset library' })).toBeDisabled()
-  expect(unmocked).toEqual([])
-})
-
-test('without jobs the summary is hidden; with finished ones it is a quiet line and a link', async ({ page }) => {
-  const unmocked = await guard(page)
-  await mockPage(page, { jobs: [job({ status: 'done', finished_at: 2, progress: 1 })] })
-  await page.goto('/#/diagnostics')
-  const summary = page.getByTestId('jobs-summary')
-  await expect(summary).toContainText('None running')
-  await expect(summary).not.toHaveClass(/banner/)
-  await expect(summary.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
   expect(unmocked).toEqual([])
 })
 
@@ -212,7 +224,7 @@ test('reset: exact RESET, sends the confirm word, then says so with a link', asy
   await page.goto('/#/diagnostics')
   await openSection(page, /^Danger zone/)
   const zone = page.locator('.danger-zone')
-  await expect(zone).toContainText('Currently 12 dramas, 48,210 lines.')
+  await expect(zone).toContainText('Currently 12 titles, 48,210 lines.')
   const button = zone.getByRole('button', { name: 'Reset library' })
   await zone.getByLabel(/Type RESET to confirm/).fill('reset')
   await expect(button).toBeDisabled()
@@ -253,7 +265,7 @@ test('away from the PC: no install, reset or extension controls and no extension
   await expect(page.locator('.danger-zone')).toContainText('Run this on the main PC.')
 
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('PC only')
   await expect(ext).toContainText('Run this on the main PC.')
@@ -307,7 +319,7 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
 
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext).toContainText("Couldn't confirm this is the main PC.")
   // Proving a non-event: an extension call would come from a mount effect, so give it a window.
@@ -389,7 +401,7 @@ test('extension: summary, two-step token reveal, never stored, Hide clears it', 
     return r.fulfill({ json: { enabled: true, running: true, restart_needed: false } })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('Off · still running until Baihe restarts')
   // The status is the Card's meta line, next to the switch.
@@ -437,7 +449,7 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
     return r.fulfill({ json: current })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   const picker = ext.getByRole('combobox', { name: 'Translation engine' })
   await expect(picker).toHaveValue('')

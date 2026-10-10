@@ -9,6 +9,7 @@ import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
+import { useStageDraft } from '../../../../hooks/useStageDraft'
 import { jobSucceeded, type JobRecord } from '../../../../types/jobs'
 import type { ResplitResult, ResplitSensitivity } from '../../../../types/restructure'
 import { useStage } from '../../StageContext'
@@ -16,9 +17,14 @@ import { resplitJobId } from '../../stageJobIds'
 import { JobPanel } from '../JobPanel'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import { speakerTimeFooter, speakerTimeLines, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
-import { JOB_RUNNING_MESSAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary } from './reviewResegment'
+import { JOB_RUNNING_MESSAGE, RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary } from './reviewResegment'
 import { UndoNotice } from './UndoNotice'
 import { retireUndoOffer, useUndoOffer } from './undoOffer'
+
+// Lines over ~12 s or ~40 characters, cut at sentence ends, then commas, then
+// pauses, then evenly, and timed from the audio when the aligner is available.
+const QUICK_SPLIT = { align_to_audio: true, sensitivity: 'normal' as ResplitSensitivity, max_seconds: 12 }
+const QUICK_SPLIT_HELP = 'Splits every line over about 12 seconds or 40 characters at sentence ends, then commas, then the longest pauses (evenly by length, flagged approximate, if there is nothing else), and re-times the pieces from the audio.'
 
 interface Props {
   dramaId: number
@@ -31,9 +37,16 @@ interface Props {
 // transcribed or detected again. A snapshot is taken first (Records -> Line history).
 export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   const { onJobDone } = useStage()
-  const [align, setAlign] = useState(false)
-  const [sensitivity, setSensitivity] = useState<ResplitSensitivity>('normal')
-  const [cap, setCap] = useState<number | null>(null)
+  // The options as last left here; a cap of 0 means the preset's own limit.
+  const { draft, save: saveDraft } = useStageDraft(dramaId, RESPLIT_DRAFT_STAGE, RESPLIT_DRAFT_SHAPE)
+  const [align, setAlign] = useState(draft.align ?? false)
+  const [sensitivity, setSensitivity] = useState<ResplitSensitivity>(
+    RESPLIT_SENSITIVITIES.some((o) => o.value === draft.sensitivity) ? (draft.sensitivity as ResplitSensitivity) : 'normal',
+  )
+  const [cap, setCap] = useState<number | null>(RESPLIT_DURATION_CAPS.includes(draft.capSec ?? 0) ? (draft.capSec as number) : null)
+  useEffect(() => {
+    saveDraft({ align, sensitivity, capSec: cap ?? 0 })
+  }, [saveDraft, align, sensitivity, cap])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [needsConfirm, setNeedsConfirm] = useState(false)
@@ -80,7 +93,11 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
     void loadSpeakers()
   }
 
-  const run = async (confirm: boolean, dryRun = false) => {
+  // The one-click "Split long lines" run, remembered so "Split anyway" repeats it.
+  const quick = useRef(false)
+
+  const run = async (confirm: boolean, dryRun = false, oneClick = quick.current) => {
+    quick.current = oneClick
     setBusy(true)
     setError(null)
     setSummary(null)
@@ -89,8 +106,8 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
     try {
       const lines = await listAllLines(dramaId)
       const r = await resplitLines(dramaId, {
-        expected_line_ids: lines.map((l) => l.id), align_to_audio: align, confirm,
-        sensitivity, max_seconds: cap, dry_run: dryRun,
+        expected_line_ids: lines.map((l) => l.id), confirm, dry_run: dryRun,
+        ...(oneClick ? QUICK_SPLIT : { align_to_audio: align, sensitivity, max_seconds: cap }),
       })
       if (dryRun) setSummary(resplitPreviewSummary(r))
       else if (r.job_id) {
@@ -194,10 +211,14 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
           </Field>
         </div>
         <div className="actions">
-          <button type="button" disabled={blocked} onClick={() => run(false, true)}>
+          <button type="button" className="primary" disabled={blocked} onClick={() => run(false, false, true)}
+            title={QUICK_SPLIT_HELP}>
+            Split long lines
+          </button>
+          <button type="button" disabled={blocked} onClick={() => run(false, true, false)}>
             Preview split
           </button>
-          <button type="button" disabled={blocked} onClick={() => run(false)}>
+          <button type="button" disabled={blocked} onClick={() => run(false, false, false)}>
             {busy || running ? 'Splitting…' : 'Re-split long lines'}
           </button>
           <button type="button" disabled={blocked} onClick={reassign}>
@@ -233,7 +254,8 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         )}
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      {/* No Retry: a re-split needs its own confirm step. */}
+      <JobPanel jobId={jobId} job={job} pollError={pollError} lastRun={{ dramaId, ids: [resplitJobId(dramaId)] }} />
     </div>
   )
 }

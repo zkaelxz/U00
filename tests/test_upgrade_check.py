@@ -131,10 +131,10 @@ class TestEnsurePytest:
     def _run(self, monkeypatch, importable, pip_returncode=0):
         calls = []
 
-        class Proc:
-            returncode = 0 if importable else 1
-
-        monkeypatch.setattr(diagnostics.subprocess, "run", lambda *a, **k: Proc())
+        monkeypatch.setattr(
+            diagnostics.proc_run, "run_captured",
+            lambda *a, **k: diagnostics.proc_run.CapturedRun(
+                0 if importable else 1, "", "", False, False))
 
         def fake_stream(cmd, timeout, **kw):
             calls.append(cmd)

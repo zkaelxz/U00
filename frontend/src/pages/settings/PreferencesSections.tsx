@@ -43,6 +43,9 @@ import {
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
 
 type Props = { settings: SettingsOverview; onSettings: (s: SettingsOverview) => void }
+// Bumping a signal opens the Advanced card's Sections: `openSignal` all of them (a search hit),
+// `uploadsSignal` only Uploads (the Source stage's link). Section reacts to any change of its number.
+type AdvancedProps = Props & { openSignal?: number; uploadsSignal?: number }
 
 function useCommon({ settings, onSettings }: Props) {
   const remote = usePcOnly() === 'remote'
@@ -179,15 +182,16 @@ function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolea
   )
 }
 
-export function AdvancedCard(props: Props) {
+export function AdvancedCard(props: AdvancedProps) {
   const common = useCommon(props)
-  const { settings, onSettings } = props
+  const { settings, onSettings, openSignal = 0, uploadsSignal = 0 } = props
   const p = settings.preferences
   const c = settings.choices
   return (
-    <Card title="Advanced" meta="OCR, offline models, downloads, uploads, server addresses" aria-label="Advanced">
+    <Card title="Advanced" meta="OCR, offline models, memory to keep free, downloads, uploads, server addresses" aria-label="Advanced">
       <PrefsSection
         {...common}
+        openSignal={openSignal}
         title="OCR"
         summary={OCR_LABELS[p.ocr_backend] ?? humanizeValue(p.ocr_backend)}
         fromPrefs={(x) => ({
@@ -219,6 +223,7 @@ export function AdvancedCard(props: Props) {
       </PrefsSection>
       <PrefsSection
         {...common}
+        openSignal={openSignal}
         title="Offline and performance"
         summary={[
           p.whisper_model_path ? 'Whisper folder set' : 'Whisper downloads',
@@ -263,6 +268,7 @@ export function AdvancedCard(props: Props) {
       </PrefsSection>
       <PrefsSection
         {...common}
+        openSignal={openSignal}
         title="Downloads"
         summary={`Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`}
         fromPrefs={(x) => ({ cookies_browser: x.cookies_browser ?? '', cookies_file: x.cookies_file, lncrawl_cmd: x.lncrawl_cmd })}
@@ -299,6 +305,7 @@ export function AdvancedCard(props: Props) {
       </PrefsSection>
       <PrefsSection
         {...common}
+        openSignal={openSignal + uploadsSignal}
         title="Uploads"
         summary={`Limit ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`}
         fromPrefs={(x) => ({ max_upload_mb: String(x.max_upload_mb) })}
@@ -332,7 +339,7 @@ export function AdvancedCard(props: Props) {
           </>
         )}
       </PrefsSection>
-      <EndpointsSection settings={settings} remote={common.remote} onSettings={onSettings} />
+      <EndpointsSection settings={settings} remote={common.remote} onSettings={onSettings} openSignal={openSignal} />
     </Card>
   )
 }
@@ -352,6 +359,7 @@ type Draft = Record<string, string | boolean | number | null>
 
 type PrefsSectionProps = {
   as?: 'card' | 'section'
+  openSignal?: number
   title: string
   summary: string
   prefs: SettingsPreferences
@@ -362,7 +370,7 @@ type PrefsSectionProps = {
   children: (d: Draft, set: (key: string, value: string | boolean) => void) => ReactNode
 }
 
-function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
+function PrefsSection({ as = 'section', openSignal, title, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
   const [draft, setDraft] = useState<Draft>(() => fromPrefs(prefs))
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -371,7 +379,7 @@ function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs
 
   if (remote) {
     return (
-      <Block as={as} title={title} summary={PC_ONLY_SUMMARY}>
+      <Block as={as} openSignal={openSignal} title={title} summary={PC_ONLY_SUMMARY}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Block>
     )
@@ -413,7 +421,7 @@ function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs
   }
 
   return (
-    <Block as={as} title={title} summary={summary}>
+    <Block as={as} openSignal={openSignal} title={title} summary={summary}>
       <div style={grid}>
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
         {children(draft, set)}
@@ -436,7 +444,7 @@ function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs
 }
 
 // A Card (always open; the summary is its meta line) or a Section fold.
-function Block({ as, title, summary, children }: { as: 'card' | 'section'; title: string; summary: string; children: ReactNode }) {
+function Block({ as, openSignal, title, summary, children }: { as: 'card' | 'section'; openSignal?: number; title: string; summary: string; children: ReactNode }) {
   if (as === 'card')
     return (
       <Card title={title} meta={summary} aria-label={title}>
@@ -444,26 +452,26 @@ function Block({ as, title, summary, children }: { as: 'card' | 'section'; title
       </Card>
     )
   return (
-    <Section title={title} summary={summary}>
+    <Section title={title} summary={summary} openSignal={openSignal}>
       {children}
     </Section>
   )
 }
 
-function EndpointsSection({ settings, remote, onSettings }: { settings: SettingsOverview; remote: boolean; onSettings: (s: SettingsOverview) => void }) {
+function EndpointsSection({ settings, remote, onSettings, openSignal }: { settings: SettingsOverview; remote: boolean; onSettings: (s: SettingsOverview) => void; openSignal: number }) {
   const set = ENDPOINTS.filter((e) => settings.endpoints[e.name]).length
   const title = 'Server addresses'
   if (remote) {
     // Away from the PC the addresses aren't sent, but whether each is set is (engine_keys).
     const configured = ENDPOINTS.filter((e) => settings.engine_keys[e.name]).length
     return (
-      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`}>
+      <Section title={title} openSignal={openSignal} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
   }
   return (
-    <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`}>
+    <Section title={title} openSignal={openSignal} summary={`${set} of ${ENDPOINTS.length} set`}>
       <div style={grid}>
         <p className="settings-note">
           Addresses of local servers Baihe talks to. {SAVED_ON_PC_NOTE}

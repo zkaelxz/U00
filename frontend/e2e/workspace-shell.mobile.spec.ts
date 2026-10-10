@@ -21,7 +21,7 @@ test('the header is one slim row and the drawer lists the pages, each link 44px 
   const links = page.getByRole('dialog', { name: 'Main menu' }).getByRole('navigation', { name: 'Main' }).getByRole('link')
   await expect(links.first()).toBeVisible()
   const texts = (await links.allTextContents()).map((t) => t.trim())
-  expect(texts).toEqual(expect.arrayContaining(['Library', 'Translate text', 'Sources', 'Discover', 'Live', 'Settings']))
+  expect(texts).toEqual(expect.arrayContaining(['Library', 'Quick translate', 'Sources', 'Discover', 'Live', 'Settings']))
   const boxes = await links.evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, h: r.height } }))
   for (const b of boxes) {
     expect(b.h).toBeGreaterThanOrEqual(44)

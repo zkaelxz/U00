@@ -528,6 +528,8 @@ class ResegmentPreview(BaseModel):
     flagged: int
     notes: int
     needs_confirm: bool
+    # Why nothing would change, in plain words; empty when something would.
+    reason: str = ""
 
 
 class ResegmentStart(_RestructureBase):

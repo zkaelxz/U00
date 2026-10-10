@@ -391,6 +391,71 @@ class TestLinkChains:
         assert _item(dus.scan("library/backups"), "auto")["linked_bytes"] == 100_000
 
 
+class TestLinkBudget:
+    """The link time budget starts at the first link looked at, and a spent
+    budget only turns a folder that would have been measured into incomplete."""
+
+    @pytest.fixture
+    def parts(self, tmp_path, big):
+        from services import disk_usage_links as links
+        from types import SimpleNamespace
+        root = tmp_path / "root"
+        root.mkdir()
+        measured = []
+
+        def measure(real, parts_, budget):
+            measured.append(real)
+            return SimpleNamespace(size=100_000, files=2, unreadable=False)
+
+        sizes = links.LinkedSizes(str(root), [], dus._within, measure)
+        folder_link = root / "folder"
+        _link(big, folder_link)
+        return sizes, measured, str(folder_link), root
+
+    def test_clock_starts_on_the_first_lookup_not_at_construction(self, parts, monkeypatch):
+        from types import SimpleNamespace
+        from services import disk_usage_links as links
+        sizes, measured, folder_link, _ = parts
+        assert sizes._deadline is None
+        sizes.of([folder_link], SimpleNamespace(hit=False))
+        assert sizes._deadline is not None and measured
+
+    def test_spent_deadline_marks_a_folder_incomplete_without_measuring(self, parts):
+        from types import SimpleNamespace
+        import time
+        sizes, measured, folder_link, _ = parts
+        sizes._deadline = time.monotonic() - 1
+        assert sizes.of([folder_link], SimpleNamespace(hit=False)) == (0, 0, False)
+        assert measured == []
+
+    def test_walk_budget_hit_marks_a_folder_incomplete_without_measuring(self, parts):
+        from types import SimpleNamespace
+        sizes, measured, folder_link, _ = parts
+        assert sizes.of([folder_link], SimpleNamespace(hit=True)) == (0, 0, False)
+        assert measured == []
+
+    def test_spent_budget_leaves_file_links_unmeasured_and_folder_links_incomplete(self, parts, tmp_path):
+        from types import SimpleNamespace
+        import time
+        sizes, measured, _, root = parts
+        plain = tmp_path / "plain.txt"
+        plain.write_text("x")
+        file_link = root / "file"
+        _link(plain, file_link)
+        inside = root / "inside"
+        inside.mkdir()
+        in_root_link = root / "to_inside"
+        _link(inside, in_root_link)
+        sizes._deadline = time.monotonic() - 1
+        for budget in (SimpleNamespace(hit=False), SimpleNamespace(hit=True)):
+            # Only Windows says "file" in the link's own entry; elsewhere
+            # telling needs the target, which a spent budget no longer opens.
+            expected = None if hasattr(os.lstat(file_link), "st_file_attributes") else (0, 0, False)
+            assert sizes.of([str(file_link)], budget) == expected
+            assert sizes.of([str(in_root_link)], budget) == (0, 0, False)
+        assert measured == []
+
+
 class TestOverlappingTargets:
     def test_two_links_to_one_target_report_the_second_as_incomplete(self, tree, big):
         base = os.path.join(tree, "library", "backups")
@@ -440,12 +505,57 @@ class TestMoveRefusesLinks:
 
 
 def test_linked_sizes_stop_starting_targets_past_their_time_budget(tmp_path, monkeypatch):
+    import time
     from services import disk_usage_links as links
     measured = []
-    sizes = links.LinkedSizes(str(tmp_path), [], dus._within, lambda *a: measured.append(a))
+    root = tmp_path / "root"
+    root.mkdir()
+    sizes = links.LinkedSizes(str(root), [], dus._within, lambda *a: measured.append(a))
     target = tmp_path / "t"
     target.mkdir()
     monkeypatch.setattr(links, "_local_target", lambda p: str(target))
-    monkeypatch.setattr(links.time, "monotonic", lambda: sizes._deadline + 1)
-    assert sizes.of(["a", "b"], budget=None) == (0, 0, False)
+    for name in ("a", "b"):
+        _link(target, root / name)
+    sizes._deadline = time.monotonic() - 1
+    assert sizes.of([str(root / "a"), str(root / "b")], budget=None) == (0, 0, False)
     assert measured == []
+
+
+def test_nothing_on_a_link_target_is_touched_past_the_deadline(tmp_path, monkeypatch):
+    import time
+    from types import SimpleNamespace
+    from services import disk_usage_links as links
+    root = tmp_path / "root"
+    root.mkdir()
+    target = tmp_path / "t"
+    target.mkdir()
+    touched = []
+    monkeypatch.setattr(links, "_local_target", lambda p: touched.append(p))
+    real_stat = os.stat
+    monkeypatch.setattr(links.os, "stat", lambda p, *a, **k: touched.append(p) or real_stat(p, *a, **k))
+    link = root / "folder"
+    _link(target, link)
+    sizes = links.LinkedSizes(str(root), [], dus._within, lambda *a: None)
+    sizes._deadline = time.monotonic() - 1
+    assert sizes.of([str(link)] * 5, SimpleNamespace(hit=False)) == (0, 0, False)
+    assert touched == []
+
+
+def test_windows_directory_attribute_decides_without_stat_of_the_target(tmp_path, monkeypatch):
+    import stat
+    from services import disk_usage_links as links
+    fake = type("S", (), {"st_mode": stat.S_IFLNK, "st_file_attributes": 0x10})()
+    monkeypatch.setattr(links.os, "lstat", lambda p: fake)
+    monkeypatch.setattr(links.os, "stat", lambda p: (_ for _ in ()).throw(AssertionError("target touched")))
+    assert links._may_be_folder("X:\\gone") is True
+    fake.st_file_attributes = 0
+    assert links._may_be_folder("X:\\gone") is False
+
+
+def test_without_windows_attributes_a_link_is_assumed_a_folder_and_never_stated(monkeypatch):
+    import stat
+    from services import disk_usage_links as links
+    fake = type("S", (), {"st_mode": stat.S_IFLNK})()
+    monkeypatch.setattr(links.os, "lstat", lambda p: fake)
+    monkeypatch.setattr(links.os, "stat", lambda p, *a, **k: (_ for _ in ()).throw(AssertionError("target touched")))
+    assert links._may_be_folder("/Volumes/gone") is True

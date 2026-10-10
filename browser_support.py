@@ -9,6 +9,7 @@ page_fetch points Playwright at this folder when the build it wants is
 there (use_app_browsers); services/browser_install_service.py fills it.
 """
 
+import importlib
 import importlib.util
 import json
 import os
@@ -92,6 +93,9 @@ BROWSER_MISSING = ("No browser found for JavaScript-only sites: install Google C
 
 
 def package_installed() -> bool:
+    # A package installed while the server runs stays invisible to find_spec
+    # until the finders' cached directory listings are dropped.
+    importlib.invalidate_caches()
     try:
         return importlib.util.find_spec("playwright") is not None
     except (ImportError, ValueError):

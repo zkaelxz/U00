@@ -52,6 +52,7 @@ describe('retranscribeOutcome', () => {
     ['line_gone', /merged, split or deleted/],
     ['model_download', /could not be downloaded/],
     ['audio_slice', /could not be cut/],
+    ['timeout', /took too long/],
     ['something_else', /failed/],
   ])('explains failed_reason %s', (reason, text) => {
     const r = retranscribeOutcome(done({ line_id: 1, failed_reason: reason }, 'failed'))

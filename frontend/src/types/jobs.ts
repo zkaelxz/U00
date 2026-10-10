@@ -25,6 +25,9 @@ export interface JobRecord {
   stale?: boolean
   // Running here, but no progress update for a while (advisory only).
   stalled?: boolean
+  // Cancel was heard over a minute ago and the worker still runs: when Force
+  // stop is offered. Judged on the server's clock; missing counts as false.
+  can_force_stop?: boolean
   // The caller started this job or owns its drama, judged by the server from
   // the session. Missing (an older server) counts as false.
   owned_by_me?: boolean
@@ -45,6 +48,9 @@ export type JobKind =
 
 // A remote household admin may cancel only their own jobs; everyone else
 // gets Cancel as before (the server still refuses what they may not stop).
+/** The one label for a job in the header menu, the Jobs page and the stage panel. */
+export const jobName = (j: Pick<JobRecord, 'description' | 'job_id'>) => j.description || j.job_id
+
 export function offersCancel(job: Pick<JobRecord, 'owned_by_me'>, remoteAdmin: boolean): boolean {
   return !remoteAdmin || job.owned_by_me === true
 }
@@ -80,6 +86,21 @@ export function jobOutcomeText(job: Pick<JobRecord, 'outcome' | 'outcome_message
 export interface JobListResponse {
   items: JobRecord[]
   count: number
+}
+
+export interface JobForceStopResult {
+  job_id: string
+  force_stopped: boolean
+  status: string
+  worker_still_running: boolean
+}
+
+export const FORCE_STOP_HINT =
+  'Cancel was sent but the job has not stopped. Force stop ends it here; its worker may keep running in the background until it finishes.'
+
+// Force stop shares Cancel's permission, so it follows the same rule.
+export function offersForceStop(job: Pick<JobRecord, 'status' | 'can_force_stop' | 'owned_by_me'>, remoteAdmin: boolean): boolean {
+  return job.status === 'running' && job.can_force_stop === true && offersCancel(job, remoteAdmin)
 }
 
 export interface JobCancelResult {

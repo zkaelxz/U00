@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test'
+import { expect, type Locator, type Page, type Route } from '@playwright/test'
 import { REMOTE_HEALTH_OFF } from './authMocks'
 
 // Shared page.route mocks for the Live specs. A real session would run
@@ -40,6 +40,7 @@ interface LiveMocks {
     cues: ReturnType<typeof cue>[]
     startStatus: number
     model: string | null
+    notes: string[]
   }
 }
 
@@ -48,7 +49,7 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({ stat
 export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
-    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null },
+    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null, notes: [] },
   }
   // Registered first, so it only answers what nothing below handles.
   await page.route('**/api/**', (route) => {
@@ -99,7 +100,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     m.polls.push(`after=${after}`)
     const { status, message, cues } = m.state
     return json(route, {
-      session_id: SID, status, message, model: m.state.model, progress: 0, cues: cues.slice(after), next_index: Math.max(after, cues.length),
+      session_id: SID, status, message, model: m.state.model, progress: 0, notes: m.state.notes, cues: cues.slice(after), next_index: Math.max(after, cues.length),
     })
   })
   await page.route(`**/api/live/sessions/${SID}/stop`, (route) => {
@@ -115,4 +116,16 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
 export async function openLive(page: Page) {
   await page.goto('/#/live')
   return page.getByRole('region', { name: 'Live' })
+}
+
+// A switch inside a Field must keep its own 44x24 track with the knob at the right end when on.
+export async function expectSwitchKeepsItsSize(live: Locator) {
+  const toggle = live.getByRole('switch', { name: 'Reply without thinking' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  const track = await toggle.boundingBox()
+  const thumb = await toggle.locator('.toggle-thumb').boundingBox()
+  expect(track!.width).toBeCloseTo(44, 0)
+  expect(track!.height).toBeCloseTo(24, 0)
+  expect(thumb!.x + thumb!.width).toBeLessThanOrEqual(track!.x + track!.width)
+  expect(track!.x + track!.width - (thumb!.x + thumb!.width)).toBeLessThanOrEqual(4)
 }

@@ -30,7 +30,7 @@ async function tallTargets(page: Page, root: string) {
   expect(small).toEqual([])
 }
 
-test('phone: check now and the auto-import drama fit, 44 px targets', async ({ page }) => {
+test('phone: check now and the auto-import title fit, 44 px targets', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED })
   await mockAccess(page, s)
   await page.goto('/#/sources')

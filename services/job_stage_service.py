@@ -75,7 +75,8 @@ def annotate(job):
         return job
     if job.get("cancel_requested"):
         if stage.get("cancel_message"):
-            job["message"] = stage["cancel_message"]
+            job["message"] = stage["cancel_message"].replace(
+                "{secs}", str(int(time.time() - stage["since"])))
         return job
     elapsed = time.time() - stage["since"]
     if stage.get("slow_note") and stage.get("slow_after") is not None and elapsed >= stage["slow_after"]:

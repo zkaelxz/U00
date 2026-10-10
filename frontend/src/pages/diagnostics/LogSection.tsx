@@ -59,7 +59,7 @@ export function LogSection() {
     <Section title="Log" storageKey="diagnostics.log" summary="Recent lines from the app log">
       <div ref={openRef} className="diag-stack">
         <div className="field-row">
-          <Field label="Filter" help="A drama title, or ERROR.">
+          <Field label="Filter" help="A title name, or ERROR.">
             <input
               type="search"
               value={text}

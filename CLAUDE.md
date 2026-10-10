@@ -5,7 +5,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 ## Layout
 - `start.bat` runs `python -m api`: FastAPI on 127.0.0.1:8600, which also serves the built React app from `frontend/dist`.
 - Dev: `BAIHE_API_ENV=development python -m api`, and `cd frontend && npm ci && npm run dev` (Vite on :5173, proxies `/api`).
-- Layers, top to bottom: `frontend/` (React) -> `api/` (routers in `api/routers/*_routes.py`, Pydantic models in `api/schemas/` (one module per domain; `from api.schemas import X` works for all; a shape shared by several domains lives in `common`) plus the `api/*_schemas.py` modules beside it, which routers import directly; new models go in `api/schemas/`, auth in `api/auth.py`) -> `services/*_service.py` (UI-free logic; raise the errors in `services/service_errors.py`) -> root domain modules -> `db.py`.
+- Layers, top to bottom: `frontend/` (React) -> `api/` (routers in `api/routers/*_routes.py`, Pydantic models in `api/schemas/` (one module per domain; `from api.schemas import X` works for all; a shape shared by several domains lives in `common`) plus the `api/*_schemas.py` modules beside it, which routers import directly; new models go in `api/schemas/`, auth in `api/auth.py`) -> `services/*_service.py` (UI-free logic; raise the errors in `lib/errors.py`) -> root domain modules -> `db.py`. `lib/` (shared helpers with no domain knowledge: errors, `url_guard`, `capped_body`) sits below every layer and imports none of them.
 - `db.py`: plain sqlite3, no ORM. Schema changes to `library.db` go through `ALTER TABLE ... ADD COLUMN` in `init_db` (a change that can't be an ADD COLUMN is a table rebuild in one transaction, as the line-id migration does); list each new column in `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py` so the upgrade test covers it (a guard test fails if you forget). `sources.db` is a separate file with its own `_ADDED_COLUMNS` in `sources/store.py`, which that guard test does not cover.
 - `translate_engines.py`: front door that re-exports `engine_backends/` (engines by provider, plus the id-keyed request, retry and redaction helpers in `engine_backends/shared.py`). Tests patch the module that uses a name, not the front door.
 - `background_jobs.py`: thread-based jobs. The in-memory dict is the authority, with a best-effort mirror in the `job_records` table.
@@ -14,11 +14,11 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Small context window? Follow `docs/small-model-checklist.md`; `python tools/repo_map.py` prints the symbol map on demand. Local models (OpenCode) read `AGENTS.md`, not this file: when you change a rule AGENTS.md repeats, change it there too.
 
 ## Tests
-- While iterating: `python -m pytest -q tests/test_<area>.py`. Full suite: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`.
+- While iterating: `python -m pytest -q tests/test_<area>.py`. Before pushing: the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`. CI runs the full suite on every PR (about 17 minutes); don't run it locally as well.
 - Frontend: `cd frontend && npx tsc --noEmit && npx vitest run`; Playwright in `frontend/e2e/` (use the preinstalled Chromium; never `playwright install`).
 - Tests are mocked: no network, GPU, real models or real keys. Use the `isolated_db` fixture for anything touching the database, and `pytest.importorskip` for optional libraries.
 - Wait for background job threads before asserting. Poll a background process with `kill -0 <pid>`, never `pgrep -f` on a pattern that also matches your own command line.
-- CI is the merge gate while the repo is public; if it becomes private or Actions minutes run out, the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands is the gate. Never skip or weaken a test.
+- CI is the merge gate while the repo is public. Only if it becomes private or Actions minutes run out does the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands become the gate. Never skip or weaken a test.
 
 ## Rules learned from real bugs
 - Match LLM results back to lines by explicit id, never by list position (`translate_engines.request_translations_with_retry`, `parse_id_keyed_json`).
@@ -54,6 +54,9 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - One task per branch, off the latest `baihe-subtitler`. Roadmap steps use `step-<id>-<short-name>`.
 - Re-check any claim from a doc or old note against the code before acting on it. If the code has moved on, say so.
 - Keep changes to what the task needs. No new files, docs, settings or abstractions unless the task asks for them. If your change makes something unused, delete it. Pre-existing problems you notice go in your summary, not your diff.
+- Removing a feature removes all of it in one PR: routes and their `docs/route-permissions.md` rows, service, domain code, settings, tests, docs and the menu entry. Deleting a test whose behaviour is gone is not weakening a test.
+- Prefer a helper to a guard test. A rule that one shared function can make impossible (a timeout, a capped read, a decoded child process) gets the function; a static-analysis test is for what code structure can't enforce, and its docstring names what would retire it.
+- A new setting needs a sentence in the PR saying who asked for it and what the default fails to do; developer knobs go behind Developer Mode, not into Settings.
 - A new code comment states the constraint or the reason, never a Step, Slice, B- or PR id. Don't rewrite old comments in passing; fix them only in a dedicated comments-only PR (one area at a time, behaviour unchanged) under Commenting Standards.
 - Screenshots go on the PR as attachments, not in committed files.
 - A new top-level module, `services/*.py` or `api/routers/*.py` file gets a line in `FILE_ORGANIZATION.md` (a hook warns).

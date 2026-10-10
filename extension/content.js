@@ -170,6 +170,31 @@
     }
   }
 
+  // True when the element currently paints a single colour. A canvas the
+  // reader has sized but not drawn yet looks exactly like this, and sending
+  // it would store an empty page. An unreadable (tainted) element is not
+  // called blank: the real read below reports that itself.
+  function looksUnpainted(el) {
+    const signature = sampleSignature(el);
+    if (signature === null) return false;
+    const values = signature.split(",");
+    for (let i = 4; i < values.length; i += 4) {
+      if (values[i] !== values[0] || values[i + 1] !== values[1] || values[i + 2] !== values[2]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Gives a late-painting page time to appear before calling it blank.
+  async function waitUntilPainted(el, attempts = 6, delayMs = 400) {
+    for (let i = 0; i < attempts; i += 1) {
+      if (!looksUnpainted(el)) return true;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+    return !looksUnpainted(el);
+  }
+
   // Draws the element at its own full resolution and reads the pixels
   // back. This is the step that reaches content an adapter can't: a
   // `blob:` image, or a page the site's own reader has already
@@ -179,6 +204,9 @@
     const { width, height } = elementSize(el);
     if (!width || !height) throw new Error("that image hasn't finished loading");
     await waitForStableSignature(el);
+    if (!(await waitUntilPainted(el))) {
+      throw new Error("the page was still blank after waiting for it to draw");
+    }
     let source = el;
     if (el.tagName !== "CANVAS") {
       const canvas = document.createElement("canvas");
@@ -704,7 +732,8 @@
   // batches also keep saved pages (store=true) in chapter order, since
   // the app appends pages in request order. `send(batch, range)` returns
   // the background's {ok, data|error, status}; `onBatch(batch, data)`
-  // handles each successful reply. Stops at the first hard error.
+  // handles each successful reply and may return true to stop the run.
+  // Stops at the first hard error.
   async function sendInBatches(items, send, onBatch, limit = MAX_IMAGES_PER_REQUEST) {
     let done = 0;
     let sentAny = false;
@@ -717,8 +746,11 @@
         { ok: false, error: "No answer from the extension's background worker." };
       if (response.ok) {
         sentAny = true;
-        await onBatch(batch, response.data || {});
+        const halt = await onBatch(batch, response.data || {});
         done += batch.length;
+        // The app stopped the whole request (every later page would fail
+        // the same way); sending the rest would only repeat that.
+        if (halt === true) return { sentAny, limit: size, failure: null, halted: true };
         continue;
       }
       const match = response.status === 413 && /at most (\d+) images/.exec(response.error || "");
@@ -778,7 +810,7 @@
     const unreadable = [];
     const needAccess = new Set();
     const fromCache = [];
-    for (const el of chosen) {
+    for (const [position, el] of chosen.entries()) {
       try {
         const extracted = await extractBytes(el);
         const cached = state.cache.get(extracted.hash);
@@ -791,11 +823,12 @@
         if (entry) {
           entry.elements.push(el);
         } else {
-          pending.set(extracted.hash, { extracted, elements: [el] });
+          pending.set(extracted.hash, { extracted, elements: [el], position: position + 1 });
         }
       } catch (e) {
         if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
-        unreadable.push(String(e && e.message ? e.message : e));
+        unreadable.push({ position: position + 1,
+                          error: String(e && e.message ? e.message : e) });
       }
     }
     const images = [...pending.values()];
@@ -803,16 +836,23 @@
     if (!images.length) {
       if (fromCache.length) {
         watchForPageChanges();
-        return { ok: true, data: { pages: [], cached: fromCache.length } };
+        return { ok: true, data: { pages: [], cached: fromCache.length,
+                                   captured: chosen.length, unreadable } };
       }
       return unreadable.length
-        ? unreadableResult(unreadable[0], needAccess)
+        ? unreadableResult(unreadable[0].error, needAccess)
         : { ok: false, error: "Nothing on this page could be read as an image." };
     }
 
     const pages = [];
     const skipped = [];
+    const failedPages = [];
+    const totals = { sent: 0, received: 0, stored: 0, alreadyStored: 0 };
+    // Name a problem page by where it sits in the chapter, which is what a
+    // person can check, not by its content hash.
+    const positionByKey = new Map(images.map((i) => [i.extracted.hash, i.position]));
     let drawn = 0;
+    let serverStop = "";
     const outcome = await sendInBatches(images, async (batch, range) => {
       reportProgress(`Translating ${range.from}-${range.to} of ${range.total}...`);
       return chrome.runtime.sendMessage({
@@ -848,20 +888,36 @@
       }
       pages.push(...(data.pages || []));
       skipped.push(...(data.skipped || []));
+      for (const item of [...(data.failed || []), ...(data.skipped || [])]) {
+        item.position = positionByKey.get(item.key);
+      }
+      failedPages.push(...(data.failed || []));
+      totals.sent += Number.isFinite(data.sent) ? data.sent : batch.length;
+      totals.received += Number.isFinite(data.received) ? data.received : batch.length;
+      totals.stored += Number.isFinite(data.stored) ? data.stored : 0;
+      totals.alreadyStored += Number.isFinite(data.alreadyStored) ? data.alreadyStored : 0;
+      if (data.stopped) serverStop = String(data.stopped);
+      return !!data.stopped;
     });
 
     if (outcome.sentAny) watchForPageChanges();
-    const data = { pages, skipped, drawn, cached: fromCache.length };
+    const data = { pages, skipped, failed: failedPages, ...totals, drawn,
+                   cached: fromCache.length, captured: chosen.length, unreadable };
     if (outcome.failure) {
       const f = outcome.failure;
       if (!pages.length && !skipped.length) {
         return { ok: false, error: f.reason, ...(f.status ? { status: f.status } : {}) };
       }
-      data.failed = {
+      data.stopped = {
         done: f.done, total: images.length, at: f.done + 1, reason: f.reason,
+        // The reason can be a raw network error, so the message names the
+        // place only.
         message: `Translated ${f.done} of ${images.length} pages; stopped at page ` +
-                 `${f.done + 1}: ${f.reason}`,
+                 `${f.done + 1} because the app stopped answering`,
       };
+    }
+    if (serverStop) {
+      data.stopped = { reason: serverStop, message: `Stopped early: ${serverStop}` };
     }
     return { ok: true, data };
   }
@@ -1027,6 +1083,29 @@
     }
   }
 
+  // Unreadable pages are counted once per element and what it held: a
+  // virtualised reader recycles elements, so the element alone would drop a
+  // later miss, while re-reading the same failure every step would repeat it.
+  // elementKey is null for a canvas, and a virtualised reader recycles
+  // same-sized canvases, so the page's place in the chapter must be part of
+  // the signature or a second failed page on one canvas is never counted.
+  function canvasSignature(el, place) {
+    const { width, height } = elementSize(el);
+    return `canvas|${width}x${height}|${place}`;
+  }
+
+  function unreadableLog() {
+    const last = new WeakMap();
+    return {
+      isNew(el, signature) {
+        if (last.get(el) === signature) return false;
+        last.set(el, signature);
+        return true;
+      },
+      read(el) { last.delete(el); },
+    };
+  }
+
   function elementKey(el) {
     if (el.tagName === "CANVAS") return null;
     const { width, height } = elementSize(el);
@@ -1082,18 +1161,42 @@
     }
   }
 
+  // The closing line of a chapter capture: every page found is either
+  // counted in it or named as unreadable, so a shortfall is never silent.
+  function captureTally(found, counts, firstFailure, unreadablePages) {
+    const tally = [`${found} page${found === 1 ? "" : "s"} found`];
+    if (counts.translated) tally.push(`${counts.translated} translated`);
+    if (counts.cached) tally.push(`${counts.cached} already done`);
+    if (counts.alreadyStored) tally.push(`${counts.alreadyStored} already in library`);
+    if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
+    if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
+    if (unreadablePages.length) {
+      const named = unreadablePages.slice(0, 3)
+        .map((u) => `page ${u.position}: ${u.error}`).join("; ");
+      const more = unreadablePages.length > 3 ? `; and ${unreadablePages.length - 3} more` : "";
+      tally.push(`${unreadablePages.length} unreadable (${named}${more})`);
+    }
+    return tally.join(", ");
+  }
+
   async function runCapture(run, ui, scroller, { dramaId, store, fromHere }) {
     // Hashes already handled this run (sent, cached, skipped or duplicate).
     // Distinct pages seen is also what the cap counts.
     const seen = new Set();
     const handled = new WeakMap();
     const queue = [];
-    const counts = { translated: 0, stored: 0, cached: 0, skipped: 0, drawn: 0 };
+    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0 };
+    let firstFailure = "";
+    let serverStop = "";
     let seq = 0;
     let limit = MAX_IMAGES_PER_REQUEST;
     let capHit = false;
     let unreadable = "";
     const needAccess = new Set();
+    // Pages that could not be read, numbered in the order they were met, so
+    // the closing summary can name them like Translate-visible does.
+    const unreadablePages = [];
+    const unreadableAs = unreadableLog();
     let failure = "";
 
     const report = (suffix = "") => {
@@ -1121,9 +1224,16 @@
         } catch (e) {
           unreadable = String(e && e.message ? e.message : e);
           if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
+          const signature = key !== null ? key
+            : canvasSignature(el, readerIndexOf(el) ?? Math.round(scroller.positionOf(el)));
+          if (unreadableAs.isNew(el, signature)) {
+            unreadablePages.push({ position: seen.size + unreadablePages.length + 1,
+                                   error: unreadable });
+          }
           if (key !== null) handled.set(el, key);
           continue;
         }
+        unreadableAs.read(el);
         if (key !== null) handled.set(el, key);
         const cached = state.cache.get(extracted.hash);
         if (seen.has(extracted.hash)) {
@@ -1179,13 +1289,20 @@
               }
             }
           }
-          counts.translated += (data.pages || []).length;
+          const reused = (data.pages || []).filter((p) => p.already_stored).length;
+          counts.translated += (data.pages || []).length - reused;
+          counts.alreadyStored += reused;
           counts.stored += (data.pages || []).filter((p) => p.stored).length;
           counts.skipped += (data.skipped || []).length;
+          counts.failed += (data.failed || []).length;
+          if (!firstFailure && (data.failed || []).length) firstFailure = data.failed[0].error;
+          if (data.stopped) serverStop = String(data.stopped);
+          return !!data.stopped;
         }, limit);
         limit = outcome.limit || limit;
         if (outcome.sentAny) watchForPageChanges();
         if (outcome.failure) return outcome.failure.reason;
+        if (serverStop) return serverStop;
       }
       return "";
     }
@@ -1247,14 +1364,12 @@
         ? unreadableResult(unreadable, needAccess)
         : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
-    const tally = [`${seen.size} page${seen.size === 1 ? "" : "s"} found`];
-    if (counts.translated) tally.push(`${counts.translated} translated`);
-    if (counts.cached) tally.push(`${counts.cached} already done`);
-    if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
-    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally.join(", ")}.`;
+    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages);
+    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}.`;
     reportProgress(message);
     toast(message, 8000);
-    return { ok: true, data: { reason, message, found: seen.size, ...counts, pages: [] } };
+    return { ok: true, data: { reason, message, found: seen.size, ...counts,
+                               unreadable: unreadablePages, pages: [] } };
   }
 
   function cancelCapture() {
@@ -1310,8 +1425,8 @@
   });
 
   // Exposed for the popup's injected checks and for tests.
-  window.__baihe = { translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
+  window.__baihe = { canvasSignature, translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture };
+                     captureChapter, cancelCapture, captureTally, unreadableLog };
 })();
