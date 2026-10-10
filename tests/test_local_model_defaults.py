@@ -9,6 +9,7 @@ import types
 import pytest
 
 import core
+import whisper_models
 import translate_engines as te
 from tests.http_fakes import StreamedBody
 
@@ -65,7 +66,7 @@ def loaded_models(monkeypatch):
     import asr_backend
     import forced_align
     import translate_engines
-    monkeypatch.setitem(core._whisper_model_cache, ("medium", "cuda"), object())
+    monkeypatch.setitem(whisper_models._whisper_model_cache, ("medium", "cuda"), object())
     monkeypatch.setitem(asr_backend._asr_model_cache, "qwen3-asr", object())
     monkeypatch.setitem(forced_align._aligner_model_cache, "aligner", object())
     emptied = []
@@ -79,14 +80,14 @@ def loaded_models(monkeypatch):
 
 class TestReleaseGpuModels:
     def test_clears_every_cache_and_empties_cuda(self, loaded_models):
-        core.release_gpu_models()
-        assert core._whisper_model_cache == {}
+        whisper_models.release_gpu_models()
+        assert whisper_models._whisper_model_cache == {}
         assert loaded_models["asr"] == {} and loaded_models["aligner"] == {}
         assert loaded_models["emptied"] == [True]
 
     def test_does_not_import_torch_just_to_clear_it(self, monkeypatch):
         monkeypatch.delitem(sys.modules, "torch", raising=False)
-        core.release_gpu_models()
+        whisper_models.release_gpu_models()
         assert "torch" not in sys.modules
 
     def test_a_broken_cuda_doesnt_fail_the_stage(self, monkeypatch):
@@ -95,7 +96,7 @@ class TestReleaseGpuModels:
             raise RuntimeError("CUDA driver mismatch")
         torch.cuda = types.SimpleNamespace(is_available=boom, empty_cache=boom)
         monkeypatch.setitem(sys.modules, "torch", torch)
-        core.release_gpu_models()  # must not raise
+        whisper_models.release_gpu_models()  # must not raise
 
 
 def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models, monkeypatch):
@@ -104,7 +105,7 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
     import background_jobs
 
     def fake_transcribe(audio_path, whisper_size, **kw):
-        core._whisper_model_cache[(whisper_size, "cuda")] = object()  # what loading does
+        whisper_models._whisper_model_cache[(whisper_size, "cuda")] = object()  # what loading does
         return [{"start": 0.0, "end": 1.0, "text": "你好"}]
     # Migration Slice 2: run_transcribe_job now lives in and resolves
     # transcribe_for_timing from services.workspace_job_service's own
@@ -117,7 +118,7 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
     # Repointed from the Workspace tab's run_transcribe_job (a re-export of this).
     workspace_job_service.run_transcribe_job(job_id, "a.wav", "medium", "zh", True, None, None, None, 5, 2000)
     assert background_jobs.get_status(job_id)["result"]["segments"]
-    assert core._whisper_model_cache == {}
+    assert whisper_models._whisper_model_cache == {}
     assert loaded_models["asr"] == {} and loaded_models["aligner"] == {}
     assert loaded_models["emptied"]
     background_jobs._jobs.pop(job_id, None)
@@ -138,13 +139,13 @@ def test_cli_diarize_releases_models_even_when_detection_fails(isolated_db, monk
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a")])
 
     def failing(*a, **k):
-        core._whisper_model_cache["pyannote"] = object()
+        whisper_models._whisper_model_cache["pyannote"] = object()
         raise RuntimeError("out of memory")
     monkeypatch.setattr(diarize, "diarize", failing)
     args = argparse.Namespace(id=did, hf_token="hf", num_speakers=0, overwrite_manual=False)
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         cli.cmd_diarize(args)
-    assert core._whisper_model_cache == {}
+    assert whisper_models._whisper_model_cache == {}
 
 
 GEMMA_TAGS = ["gemma4:12b", "gemma4:26b", "gemma4:31b"]
@@ -185,7 +186,7 @@ class TestGemma4Models:
     def test_cli_passes_the_tag_to_the_engine(self, isolated_db, monkeypatch, tag):
         import contextlib
         import io
-        import cli
+        import cli_translate
         from core import Line
         from tests.test_cli import _translate_args
         seen = {}
@@ -203,7 +204,7 @@ class TestGemma4Models:
         did = isolated_db.create_drama(title_en="T", status="aligned")
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did, engine="ollama", model=tag,
+            cli_translate.cmd_translate(_translate_args(id=did, engine="ollama", model=tag,
                                               cost_cap=None, monthly_cap=None))
         assert seen["model"] == tag
 

@@ -20,6 +20,7 @@ from typing import Optional
 import asr_backend
 import background_jobs
 import core as core_module
+import whisper_models
 import long_line_split
 import ollama_unload
 import segment_splitting
@@ -277,7 +278,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     vad_stage = {"ticker": None, "percent": False}
 
     def _qwen_on_fallback(task, exc):
-        gpu_fallback_msg.append(core_module.short_reason(exc))
+        gpu_fallback_msg.append(whisper_models.short_reason(exc))
         fallback_tasks.append(task)
 
     def _qwen_on_device(task, label):
@@ -408,12 +409,12 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             except ImportError:
                 return {"failed_reason": "dependency_missing",
                         "detail": _MISSING_QWEN_MESSAGE}
-            except core_module.ModelDownloadError as exc:
+            except whisper_models.ModelDownloadError as exc:
                 return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
             except ValueError as exc:
                 return {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))}
             except background_jobs.JobCancelled:
-                core_module.release_gpu_models()
+                whisper_models.release_gpu_models()
                 raise
             finally:
                 if vad_stage["ticker"]:
@@ -434,20 +435,20 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 return {"failed_reason": "groq", "detail": str(exc)}
         else:
             try:
-                model_cached = bool(local_model_path) or core_module.is_whisper_model_cached(
+                model_cached = bool(local_model_path) or whisper_models.is_whisper_model_cached(
                     whisper_size)
                 # Loaded here (cached in core, so transcribe_for_timing reuses
                 # it) so the download/load phase and the device actually
                 # chosen are visible instead of "Starting..." for minutes.
                 load_started = time.monotonic()
                 with rep.stage(_model_loading_message(whisper_size, model_cached)):
-                    core_module.load_whisper_model(whisper_size, use_gpu=use_gpu,
+                    whisper_models.load_whisper_model(whisper_size, use_gpu=use_gpu,
                                                    local_model_path=local_model_path)
                 stage_seconds["load"] = time.monotonic() - load_started
                 rep.raise_if_cancelled()
-                device_info = core_module.get_whisper_device_info(
+                device_info = whisper_models.get_whisper_device_info(
                     whisper_size, use_gpu=use_gpu, local_model_path=local_model_path)
-                device_msg = core_module.describe_whisper_device(device_info)
+                device_msg = whisper_models.describe_whisper_device(device_info)
                 # The model fell back to CPU while loading, before any
                 # inference could fail: say so in the result too.
                 if device_info.get("gpu_error"):
@@ -475,7 +476,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         local_model_path=local_model_path, initial_prompt=initial_prompt,
                         beam_size=beam_size,
                         on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
-                            core_module.short_reason(exc)),
+                            whisper_models.short_reason(exc)),
                         progress_cb=_whisper_progress, cancel_check=rep.raise_if_cancelled,
                         repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset)
                 else:
@@ -488,7 +489,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                                                  if sentence_lines else min_silence_ms),
                         vad_threshold=vad_threshold,
                         on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
-                            core_module.short_reason(exc)),
+                            whisper_models.short_reason(exc)),
                         progress_cb=_whisper_progress,
                         fast_mode=whisper_fast_mode,
                         hallucination_silence_sec=hallucination_silence_sec,
@@ -497,10 +498,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 if "t" in whisper_clock and not mixed_whisper_run:
                     whisper_clock["work"] = time.monotonic() - whisper_clock["t"]
                     stage_seconds["transcribe"] = whisper_clock["work"]
-            except core_module.ModelDownloadError as exc:
+            except whisper_models.ModelDownloadError as exc:
                 return {"failed_reason": "model_download", "detail": str(exc)}
             except background_jobs.JobCancelled:
-                core_module.release_gpu_models()   # hand the VRAM back on a cancel too
+                whisper_models.release_gpu_models()   # hand the VRAM back on a cancel too
                 raise
 
         if not segments:
@@ -534,7 +535,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             # The segments already split are kept in `segments`; the job as a
             # whole still ends cancelled, like a cancel in any other stage.
             if rep.cancelled():
-                core_module.release_gpu_models()
+                whisper_models.release_gpu_models()
                 return {"failed_reason": "cancelled"}
 
         if transcript_mode == "whisper":
@@ -569,7 +570,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 except ImportError:
                     return {"failed_reason": "dependency_missing",
                             "detail": _MISSING_QWEN_MESSAGE}
-                except core_module.ModelDownloadError as exc:
+                except whisper_models.ModelDownloadError as exc:
                     return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
                 except ValueError as exc:
                     return {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))}
@@ -610,12 +611,12 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         on_gpu_fallback=lambda exc: _qwen_on_fallback(
                             "Qwen3 forced alignment", exc))
                 except background_jobs.JobCancelled:
-                    core_module.release_gpu_models()
+                    whisper_models.release_gpu_models()
                     raise
                 except ImportError:
                     return {"failed_reason": "dependency_missing",
                             "detail": _MISSING_QWEN_MESSAGE}
-                except core_module.ModelDownloadError as exc:
+                except whisper_models.ModelDownloadError as exc:
                     return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
                 except ValueError as exc:
                     # Fall back to the diff alignment, but say so in the
@@ -628,7 +629,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
 
     if qwen_device and not device_msg:
         device_msg = ", ".join(f"{task} on {label}" for task, label in qwen_device.items())
-    core_module.release_gpu_models()
+    whisper_models.release_gpu_models()
     return {"lines": lines, "segments": segments, "raw_backend": raw_backend,
             "raw_model": raw_model, "raw_mode": raw_mode, "audio_path": audio_path,
             "gpu_fallback_msgs": gpu_fallback_msg, "device_msg": device_msg,

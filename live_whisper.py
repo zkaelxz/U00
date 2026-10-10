@@ -9,6 +9,7 @@ skipped instead. The cached model is never dropped to get rid of a stuck call:
 the thread still holds it, so dropping frees no memory and only makes the next
 call load a second copy.
 """
+import whisper_models
 import os
 import sys
 import threading
@@ -332,7 +333,7 @@ def unload_scope_for(engine, use_gpu: bool, whisper_size: str) -> "ollama_unload
 def model_cached() -> bool:
     """Whether a Whisper model is already cached, so a chunk's time holds no load."""
     import core
-    return bool(core._whisper_model_cache)
+    return bool(whisper_models._whisper_model_cache)
 
 
 def chunk_age(path: str) -> float:
@@ -359,7 +360,7 @@ def warm_up(whisper_size: str, use_gpu: bool, progress_cb=None) -> None:
     produces no speech, so the encoder never runs and nothing is initialised."""
     import core
     import numpy
-    model = core.load_whisper_model(whisper_size, use_gpu=use_gpu)
+    model = whisper_models.load_whisper_model(whisper_size, use_gpu=use_gpu)
     noise = numpy.random.default_rng(0).standard_normal(16000 * WARM_UP_SECONDS)
     audio = (noise * WARM_UP_NOISE_LEVEL).astype("float32")
     segments, _info = model.transcribe(audio, language="en", vad_filter=False, beam_size=1,
