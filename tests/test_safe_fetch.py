@@ -235,4 +235,4 @@ def test_metadata_page_fetch_hits_the_wall_clock_deadline(monkeypatch):
     with pytest.raises(DependencyUnavailableError):
         metadata_service._fetch_page_text("http://ok.example/")
     assert resp.closed
-    assert resp.raw.reads <= safe_fetch.FETCH_DEADLINE // 5 + 2
+    assert resp.raw.reads <= metadata_service.FETCH_DEADLINE // 5 + 2

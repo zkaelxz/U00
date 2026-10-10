@@ -58,7 +58,7 @@ def fetch_public_text(url: str, max_bytes: int = MAX_FETCH_BYTES) -> FetchResult
         raise
     except http.FetchError:
         raise DependencyUnavailableError(FETCH_FAILED) from None
-    soup = BeautifulSoup(resp.body.decode(resp.encoding, errors="replace"),
+    soup = BeautifulSoup(resp.text(),
                          "html.parser")
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()

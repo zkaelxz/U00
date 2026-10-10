@@ -58,3 +58,15 @@ def test_a_slow_drip_download_is_stopped_by_the_total_deadline(monkeypatch, tmp_
     with pytest.raises(RuntimeError, match="took too long"):
         dictionary._ensure_cedict()
     assert not (tmp_path / "cedict.txt").exists()
+
+
+def test_an_error_page_is_not_treated_as_the_archive(monkeypatch, tmp_path):
+    _install(monkeypatch, tmp_path, b"<html>404</html>")
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: _ErrResp(b"<html>404</html>"))
+    with pytest.raises(RuntimeError, match="^CEDICT download failed$"):
+        dictionary._ensure_cedict()
+    assert not (tmp_path / "cedict.txt").exists()
+
+
+class _ErrResp(_Resp):
+    status_code = 404

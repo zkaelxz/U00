@@ -12,8 +12,9 @@ come back in a message.
 
 `guard` is `check_public` (the SSRF rule from `lib.url_guard`) for any URL a
 person or a site supplied. Pass `guard=None` only for a URL the code itself
-fixes (a vendor API); redirects are then followed unguarded and the
-connection is not pinned.
+fixes (a vendor API); the connection is then not pinned and redirects are
+not followed unless `allow_redirects=True` is passed. A redirect to another
+origin never carries the caller's credential headers.
 
 Standard library plus `requests`.
 """
@@ -63,7 +64,10 @@ class Response:
         self.ok = 200 <= self.status < 400
 
     def text(self) -> str:
-        return self.body.decode(self.encoding or "utf-8", errors="replace")
+        try:
+            return self.body.decode(self.encoding or "utf-8", errors="replace")
+        except LookupError:  # a site's Content-Type can name a charset Python lacks
+            return self.body.decode("utf-8", errors="replace")
 
 
 def check_public(url: str) -> str:
@@ -110,6 +114,25 @@ def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
                            allow_redirects=False, stream=True, **kwargs)
 
 
+def _origin(url: str):
+    p = urlsplit(url)
+    return p.scheme, p.hostname, p.port or (443 if p.scheme == "https" else 80)
+
+
+def _is_credential_header(name: str) -> bool:
+    n = name.lower()
+    return n in ("authorization", "proxy-authorization", "cookie") or any(
+        k in n for k in ("api-key", "apikey", "token", "secret"))
+
+
+def _headers_for_hop(headers: Optional[dict], origin, target: str) -> Optional[dict]:
+    # A key meant for one vendor must not follow a redirect elsewhere (requests'
+    # rebuild_auth did this before the manual redirect loop replaced it).
+    if not headers or _origin(target) == origin:
+        return headers
+    return {k: v for k, v in headers.items() if not _is_credential_header(k)}
+
+
 def _read_truncated(resp, cap_bytes, deadline_seconds, clock) -> bytes:
     """The first `cap_bytes` of the body: a page longer than the cap is cut,
     not refused (text extraction only needs the start of it)."""
@@ -129,27 +152,33 @@ def _read_truncated(resp, cap_bytes, deadline_seconds, clock) -> bytes:
 
 def request(method: str, url: str, *, timeout: float, max_bytes: int,
             deadline: Optional[float] = None, headers: Optional[dict] = None,
-            allow_redirects: bool = True, max_redirects: int = MAX_REDIRECTS,
+            allow_redirects: Optional[bool] = None, max_redirects: int = MAX_REDIRECTS,
             guard: Optional[Callable[[str], Optional[str]]] = check_public,
-            truncate: bool = False, clock=None, **kwargs) -> Response:
+            truncate: bool = False, max_error_bytes: Optional[int] = None,
+            clock=None, **kwargs) -> Response:
     """`deadline` is the total seconds for all hops and the body (default
     3 x `timeout`). Extra `kwargs` (params, json, data, files) go to requests
     and are sent on the first hop only; a redirect is followed as a GET.
+    `allow_redirects` defaults to True with a guard and False without one.
     A body over `max_bytes` raises ResponseTooLarge, or is cut when
-    `truncate` is set."""
+    `truncate` is set; with `max_error_bytes`, a 4xx/5xx body is cut to that
+    instead of refused, so a vendor's error text stays small and keeps its status."""
     import requests
 
     clock = clock or time.monotonic
     deadline = 3 * timeout if deadline is None else deadline
     started = clock()
     current = url
+    origin = _origin(url)
+    if allow_redirects is None:
+        allow_redirects = guard is not None
     for hop in range(max_redirects + 1):
         remaining = deadline - (clock() - started)
         if remaining <= 0:
             raise ResponseTooSlow()
         ip = guard(current) if guard else None
         try:
-            resp = pinned_get(current, ip, headers, min(timeout, remaining),
+            resp = pinned_get(current, ip, _headers_for_hop(headers, origin, current), min(timeout, remaining),
                               method if hop == 0 else "GET", **(kwargs if hop == 0 else {}))
         except requests.RequestException:
             raise FetchError() from None
@@ -162,9 +191,12 @@ def request(method: str, url: str, *, timeout: float, max_bytes: int,
             continue
         try:
             left = max(deadline - (clock() - started), 0)
-            body = (_read_truncated(resp, max_bytes, left, clock) if truncate else
-                    capped_body.read_capped(resp, max_bytes, left, ResponseTooLarge,
-                                            make_deadline_error=ResponseTooSlow, clock=clock))
+            if max_error_bytes is not None and resp.status_code >= 400:
+                body = _read_truncated(resp, max_error_bytes, left, clock)
+            else:
+                body = (_read_truncated(resp, max_bytes, left, clock) if truncate else
+                        capped_body.read_capped(resp, max_bytes, left, ResponseTooLarge,
+                                                make_deadline_error=ResponseTooSlow, clock=clock))
         except (FetchError, InvalidInputError):
             raise
         except Exception:

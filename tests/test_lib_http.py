@@ -99,3 +99,50 @@ def test_check_public_refuses_private_hosts(monkeypatch):
                         lambda host, port, **kw: [(2, 1, 6, "", ("10.0.0.1", port))])
     with pytest.raises(InvalidInputError):
         http.check_public("http://a.example/")
+
+
+def _serve_headers(monkeypatch, *responses):
+    it, seen = iter(responses), []
+
+    def fake(url, ip, headers, timeout=None, method="GET", **kw):
+        seen.append((url, headers))
+        return next(it)
+    monkeypatch.setattr(http, "pinned_get", fake)
+    return seen
+
+
+@pytest.mark.parametrize("target", [
+    "http://attacker.example/", "https://other.example/", "https://a.example:8443/",
+    "http://a.example/"])  # https -> http on the same host
+def test_credentials_are_dropped_when_a_redirect_changes_origin(monkeypatch, target):
+    seen = _serve_headers(monkeypatch, Resp(307, headers={"Location": target}), Resp(200, b"ok"))
+    http.get("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+             allow_redirects=True,
+             headers={"Authorization": "Bearer k", "x-goog-api-key": "k", "Accept": "a/b"})
+    assert seen[0][1]["Authorization"] == "Bearer k"
+    assert seen[1][1] == {"Accept": "a/b"}
+
+
+def test_credentials_stay_on_a_same_origin_redirect(monkeypatch):
+    seen = _serve_headers(monkeypatch, Resp(302, headers={"Location": "/b"}), Resp(200, b"ok"))
+    http.get("https://a.example/", timeout=5, max_bytes=100, headers={"Authorization": "k"},
+             guard=lambda u: None)
+    assert seen[1][1] == {"Authorization": "k"}
+
+
+def test_redirects_are_not_followed_without_a_guard(monkeypatch):
+    seen = _serve_headers(monkeypatch, Resp(307, headers={"Location": "http://127.0.0.1/"}))
+    resp = http.post("https://api.example/", timeout=5, max_bytes=100, guard=None,
+                     headers={"Authorization": "Bearer k"})
+    assert resp.status == 307 and len(seen) == 1
+
+
+def test_an_error_body_is_cut_to_max_error_bytes_and_keeps_its_status(monkeypatch):
+    _serve(monkeypatch, Resp(401, b"x" * 500))
+    resp = _get(max_error_bytes=10)
+    assert resp.status == 401 and resp.body == b"x" * 10
+
+
+def test_an_unknown_charset_falls_back_to_utf8():
+    r = http.Response(200, {}, "é".encode(), "http://a/", encoding="bogus-charset")
+    assert r.text() == "é"

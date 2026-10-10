@@ -226,7 +226,9 @@ class TestGroq:
                          status=401))
         with pytest.raises(core.GroqTranscriptionError) as exc:
             self._transcribe(tmp_path)
-        assert str(exc.value) == "Groq API returned 401: "
+        # Over the error cap the body is cut, not dropped: the status and a redacted head stay.
+        assert str(exc.value).startswith("Groq API returned 401: ") and SECRET not in str(exc.value)
+        assert len(str(exc.value)) < 400
 
     def test_error_detail_kept_and_redacted(self, posts, tmp_path):
         posts(StreamResp(f"bad key {SECRET}".encode(), status=401))

@@ -79,7 +79,8 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
         params["pagination[limit]"] = limit
         try:
             resp = http.get(f"{BAIHEHUB_API}/{collection}", params=params, headers=headers,
-                            timeout=timeout, max_bytes=BAIHEHUB_MAX_BYTES, guard=None)
+                            timeout=timeout, max_bytes=BAIHEHUB_MAX_BYTES, guard=None,
+                            allow_redirects=True)
             if resp.status != 200:
                 continue
             items = _baihehub_items(json.loads(resp.body))

@@ -1460,9 +1460,9 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     too_big = "Groq's reply was too large or too slow to read."
     try:
         with open(audio_path, "rb") as f:
-            # One cap for both outcomes: an error body over the error cap is dropped below.
             resp = http.post(
                 GROQ_TRANSCRIBE_URL, timeout=600, max_bytes=GROQ_RESPONSE_MAX_BYTES,
+                max_error_bytes=GROQ_ERROR_MAX_BYTES,
                 guard=None, headers={"Authorization": f"Bearer {api_key}"},
                 files={"file": (_os.path.basename(audio_path), f)},
                 data={"model": model, "language": language,
@@ -1472,10 +1472,9 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     except http.FetchError as exc:
         raise GroqTranscriptionError(exc.message) from None
     if resp.status != 200:
-        detail = resp.body if len(resp.body) <= GROQ_ERROR_MAX_BYTES else b""
         raise GroqTranscriptionError(translate_engines.redact_secrets(
             f"Groq API returned {resp.status}: "
-            f"{detail.decode('utf-8', 'replace')[:300]}"))
+            f"{resp.body.decode('utf-8', 'replace')[:300]}"))
     try:
         data = json.loads(resp.body)
     except ValueError:

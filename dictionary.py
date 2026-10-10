@@ -41,11 +41,14 @@ def _ensure_cedict():
     try:
         # The URL is a constant of ours, not user input, so no SSRF guard.
         resp = http.get(CEDICT_URL, timeout=30, max_bytes=CEDICT_MAX_DOWNLOAD_BYTES,
-                        deadline=CEDICT_DOWNLOAD_DEADLINE_SECONDS, guard=None)
+                        deadline=CEDICT_DOWNLOAD_DEADLINE_SECONDS, guard=None,
+                        allow_redirects=True)
     except http.ResponseTooLarge:
         raise RuntimeError("The CC-CEDICT download is larger than expected.") from None
     except http.ResponseTooSlow:
         raise RuntimeError("The CC-CEDICT download took too long.") from None
+    if resp.status != 200:
+        raise RuntimeError("CEDICT download failed")
     packed = resp.body
     with gzip.GzipFile(fileobj=io.BytesIO(packed)) as gz:
         raw = gz.read(CEDICT_MAX_UNPACKED_BYTES + 1)
