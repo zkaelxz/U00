@@ -147,7 +147,7 @@ def test_run_captured_keeps_only_the_newest_output(monkeypatch):
 
 @pytest.mark.skipif(os.name == "nt", reason="uses a shebang script as the fake venv python")
 def test_throwaway_venv_probe_survives_a_non_utf8_child_locale(tmp_path, monkeypatch):
-    import diagnostics
+    import upgrade_check
 
     wanted = tmp_path / "张三" / "site-packages"
     fake = tmp_path / "fake_python"
@@ -159,9 +159,9 @@ def test_throwaway_venv_probe_survives_a_non_utf8_child_locale(tmp_path, monkeyp
         "sys.stdout.buffer.write(p.encode('utf-8') if utf8 else p.encode('cp936'))\n"
     )
     fake.chmod(0o755)
-    monkeypatch.setattr(diagnostics, "_venv_python", lambda venv_dir: str(fake))
+    monkeypatch.setattr(upgrade_check, "_venv_python", lambda venv_dir: str(fake))
 
-    venv_py, err = diagnostics._make_throwaway_venv(
+    venv_py, err = upgrade_check._make_throwaway_venv(
         str(tmp_path), "trial", sys.executable, ["/parent/site"])
 
     assert err is None

@@ -45,6 +45,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `db.py`
 - `diagnostics.py`
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
+- `upgrade_check.py` (try a package upgrade in a throwaway venv and run the tests there before touching the real environment)
 - `expected_files.py`
 - `install_plan.py` (what a Diagnostics install would change, and whether to run it now or at restart)
 - `install_registry.py` (package keys an install may name, and their pip argv)

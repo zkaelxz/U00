@@ -31,6 +31,7 @@ import db
 import diagnostics
 import diagnostics_torch as gpu_torch
 import install_registry
+import upgrade_check
 from lib import proc as proc_run
 from lib.proc import stream_tree
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
@@ -259,7 +260,7 @@ class AdminActionNotPossible(AdminActionRefused, InvalidInputError):
     (torch's Upgrade is the GPU PyTorch setup)."""
 
 
-PIP_TIMEOUT_SECONDS = diagnostics.UPGRADE_CHECK_PIP_TIMEOUT       # 900 s
+PIP_TIMEOUT_SECONDS = upgrade_check.UPGRADE_CHECK_PIP_TIMEOUT       # 900 s
 # The CUDA torch wheels are about 2.5 GB; allow a slow link far longer.
 GPU_TORCH_TIMEOUT_SECONDS = 3600
 
