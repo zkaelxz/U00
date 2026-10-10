@@ -18,7 +18,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Frontend: `cd frontend && npx tsc --noEmit && npx vitest run`; Playwright in `frontend/e2e/` (use the preinstalled Chromium; never `playwright install`).
 - Tests are mocked: no network, GPU, real models or real keys. Use the `isolated_db` fixture for anything touching the database, and `pytest.importorskip` for optional libraries.
 - Wait for background job threads before asserting. Poll a background process with `kill -0 <pid>`, never `pgrep -f` on a pattern that also matches your own command line.
-- CI is the merge gate while the repo is public. Only if it becomes private or Actions minutes run out does the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands become the gate. Never skip or weaken a test.
+- CI is the merge gate while the repo is public. Only if it becomes private or Actions minutes run out does the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands become the gate. A test is never skipped, loosened or deleted to get CI green. Removing or rewriting one is fine when its behaviour is gone, when another test (named in the PR) pins the same behaviour, when it pinned an implementation detail (a patch target, a call shape) and a behaviour test replaces it, or when it could not fail. The only test of a behaviour that still exists stays. The PR summary lists each removed test and which of these applies.
 
 ## Rules learned from real bugs
 - Match LLM results back to lines by explicit id, never by list position (`translate_engines.request_translations_with_retry`, `parse_id_keyed_json`).
