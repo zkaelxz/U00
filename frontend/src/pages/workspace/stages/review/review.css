@@ -429,6 +429,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-wave-canvas { position: absolute; inset: 0; display: block; }
 .review-wave-cue { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--info) 14%, transparent); border-left: 1px solid var(--info); border-right: 1px solid var(--info); pointer-events: none; overflow: hidden; }
 .review-wave-cue.is-active { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+.review-wave-gap { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--warning) 16%, transparent) 0 6px, transparent 6px 12px); border-left: 1px dashed var(--warning); border-right: 1px dashed var(--warning); overflow: hidden; }
+.review-wave-gap-btn { max-width: 100%; padding: 2px var(--space-2); font-size: var(--text-xs); line-height: 1.4; cursor: pointer; white-space: nowrap; }
 .review-wave-cue-label { font-size: var(--text-xs); padding: 0 var(--space-1); color: var(--text); }
 /* A wide hit area around a 2px line: easy to grab with a finger or a mouse. */
 .review-wave-handle { position: absolute; top: 0; bottom: 0; width: 18px; margin-left: -9px; cursor: ew-resize; touch-action: none; z-index: 1; }

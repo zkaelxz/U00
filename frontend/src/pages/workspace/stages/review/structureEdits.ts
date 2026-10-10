@@ -49,6 +49,8 @@ export interface StructureEditsDeps {
   setStatus: Dispatch<SetStateAction<string | null>>
   setUndo: (offer: UndoOffer | null) => void
   onChanged: () => void
+  // Hands new line ids to the Re-transcribe section, which starts on them.
+  onTranscribeLines?: (lineIds: number[]) => void
 }
 
 // The "⋯" sheet's structure edits (split, merge, add, delete, language) and the
@@ -188,6 +190,16 @@ export function buildStructureEdits(deps: StructureEditsDeps) {
       (r) => ({ id: r.lines[0]?.id ?? null, message: r.lines[0] ? `Added line #${lineNumber(r.lines[0].idx)}.` : 'Line added.' }),
     )
   }
+  const doAddAndTranscribe = (nl: NewLine) => {
+    const after = sheetLine
+    void runStructure(
+      (ids) => addLine(dramaId, { expected_line_ids: ids, after_line_id: after?.id ?? null, ...nl, zh: '' }),
+      (r) => {
+        if (r.lines[0]) deps.onTranscribeLines?.([r.lines[0].id])
+        return { id: r.lines[0]?.id ?? null, message: r.lines[0] ? `Added line #${lineNumber(r.lines[0].idx)}; transcribing it.` : 'Line added.' }
+      },
+    )
+  }
   const doDelete = () => {
     const line = sheetLine
     if (!line) return
@@ -222,5 +234,5 @@ export function buildStructureEdits(deps: StructureEditsDeps) {
       setBusy(false)
     }
   }
-  return { doUndo, doSplit, doMerge, doAdd, doDelete, doSetLanguage }
+  return { doUndo, doSplit, doMerge, doAdd, doAddAndTranscribe, doDelete, doSetLanguage }
 }

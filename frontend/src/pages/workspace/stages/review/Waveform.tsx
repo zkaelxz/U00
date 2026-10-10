@@ -5,7 +5,9 @@ import { getPeaks } from '../../../../api/media'
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import type { ReviewLine } from '../../../../types/review'
+import type { TranscribeGap } from '../../../../types/workspace'
 import type { PlayerHandle } from './Player'
+import { gapLabel, gapsInView } from './retranscribeLinesLogic'
 import { formatTime } from './reviewLogic'
 import {
   bucketsFor, clampEdge, clampSpan, DEFAULT_SPAN, edgeBounds, NUDGE_SECONDS, panView, peakColumns, round3, timeToX, viewAround,
@@ -23,10 +25,17 @@ interface Props {
   onRetime: (lineId: number, edge: Edge, value: number) => Promise<boolean>
   // The active line is open in the row editor: its draft would go stale.
   editingActive: boolean
+  // Stretches no line covers, each with a "Transcribe this gap" button. gapBlocked
+  // is the plain-words reason the buttons are off, or null.
+  gaps?: TranscribeGap[]
+  gapBlocked?: string | null
+  onTranscribeGap?: (gap: TranscribeGap) => void
 }
 
 const HEIGHT = 96
 const PEAK_CACHE = 24
+// A gap narrower than this on screen shows a compact button.
+const GAP_WIDE_PX = 150
 const BUSY_RETRY_MS = 400
 const BUSY_RETRIES = 5
 const UNAVAILABLE = 'The waveform isn’t available for this audio.'
@@ -37,7 +46,7 @@ const RETIME_FAILED = 'Couldn’t move that edge. The line may have changed: rel
 // cues. Dragging the active line's edges (or arrow keys on a focused edge)
 // saves start/end through the same line-edit route as the row editor, and an
 // edge stops at its neighbour instead of overlapping it.
-export default function Waveform({ dramaId, lines, active, player, onRetime, editingActive }: Props) {
+export default function Waveform({ dramaId, lines, active, player, onRetime, editingActive, gaps = [], gapBlocked = null, onTranscribeGap }: Props) {
   const box = useRef<HTMLDivElement | null>(null)
   const canvas = useRef<HTMLCanvasElement | null>(null)
   const head = useRef<HTMLDivElement | null>(null)
@@ -275,6 +284,27 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
             </div>
           )
         })}
+        {gapsInView(gaps, view).map((g) => {
+          const left = timeToX(Math.max(g.start, view.start), view, width)
+          const right = timeToX(Math.min(g.end, view.start + view.span), view, width)
+          const wide = right - left >= GAP_WIDE_PX
+          return (
+            <div key={`${g.start}-${g.end}`} className="review-wave-gap" data-testid="wave-gap" style={{ left, width: Math.max(1, right - left) }}>
+              <button
+                type="button"
+                className="review-wave-gap-btn"
+                data-testid="wave-gap-button"
+                disabled={!!gapBlocked || !onTranscribeGap}
+                title={gapBlocked ?? `Add lines for this stretch and transcribe them: ${gapLabel(g)}`}
+                aria-label={`Transcribe this gap ${gapLabel(g)}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => onTranscribeGap?.(g)}
+              >
+                {wide ? 'Transcribe this gap' : '＋'}
+              </button>
+            </div>
+          )
+        })}
         {active && bounds && (['start', 'end'] as const).map((edge) => {
           const t = edgeTime(edge)
           return (
@@ -302,6 +332,9 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
         <div className="review-wave-head" ref={head} data-testid="wave-playhead" />
         {unavailable && <p className="review-wave-note muted">{UNAVAILABLE}</p>}
       </div>
+      {gapBlocked && gapsInView(gaps, view).length > 0 && (
+        <p className="muted" data-testid="wave-gap-note">{gapBlocked}</p>
+      )}
       {message && (
         <p className="error" role="alert">
           {message}

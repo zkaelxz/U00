@@ -20,11 +20,19 @@ import type {
   NovelAttachResult,
   NovelMode,
   NovelStatus,
+  GapAddLinesRequest,
+  GapAddLinesResult,
   RetranscribeApplyRequest,
   RetranscribeApplyResult,
   RetranscribeLineRequest,
   RetranscribeLineResult,
+  RetranscribeManyApplyItem,
+  RetranscribeManyApplyResult,
+  RetranscribeManyRequest,
+  RetranscribeManyResult,
+  RetranscribeManyStarted,
   RetranscribeResult,
+  TranscribeGaps,
   TranscribeConfig,
   TranscribeConfigUpdate,
   TranscribeRunRequest,
@@ -169,6 +177,29 @@ export const getRetranscribeResult = (id: number, lineId: number, f?: Fetch) =>
 // expected_zh and the run is the one shown (409 otherwise).
 export const applyRetranscribeLine = (id: number, lineId: number, req: RetranscribeApplyRequest, f?: Fetch) =>
   postJson<RetranscribeApplyResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe/apply`, req, f)
+
+// Review > Re-transcribe selected: one job re-hears the ticked lines' windows and
+// proposes text (GET result, raw); apply writes the chosen ones and clears their English.
+const retranscribeLinesBase = (id: number) => `/api/transcribe/dramas/${id}/retranscribe-lines`
+
+export const startRetranscribeLines = (id: number, req: RetranscribeManyRequest, f?: Fetch) =>
+  postJson<RetranscribeManyStarted>(retranscribeLinesBase(id), req, f)
+
+export const getRetranscribeLinesResult = (id: number, f?: Fetch) =>
+  getJson<RetranscribeManyResult>(retranscribeLinesBase(id), f)
+
+export const applyRetranscribeLines = (
+  id: number,
+  req: { job_id: string; items: RetranscribeManyApplyItem[] },
+  f?: Fetch,
+) => postJson<RetranscribeManyApplyResult>(`${retranscribeLinesBase(id)}/apply`, req, f)
+
+// Stretches no line covers (from the saved lines; speech marked when the coverage check ran).
+export const getTranscribeGaps = (id: number, signal?: AbortSignal, f: Fetch = fetch) =>
+  getJson<TranscribeGaps>(`/api/transcribe/dramas/${id}/gaps`, (input, init) => f(input, { ...init, signal }))
+
+export const addGapLines = (id: number, req: GapAddLinesRequest, f?: Fetch) =>
+  postJson<GapAddLinesResult>(`/api/transcribe/dramas/${id}/gaps/add-lines`, req, f)
 
 // Review > Compare transcription: re-hear chosen lines with other settings,
 // proposals only (GET result), written per line by apply.
