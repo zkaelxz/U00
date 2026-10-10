@@ -49,6 +49,10 @@ DYNAMIC_KEYS = {
         "title-scoped: the language pack chosen for one title",
     ("services/language_pack_service.py", "_DEFAULT_KEY.format(language)"):
         "per language: the default language pack",
+    ("services/benchmark_judge_service.py", "_setting_key(sid)"):
+        "benchmark_judge.<session>: blind-judge pass state for one benchmark session",
+    ("services/benchmark_judge_service.py", "_setting_key(session_id)"):
+        "benchmark_judge.<session>: blind-judge pass state for one benchmark session",
     ("services/line_tools_service.py", "_shorten_pass_key(drama_id)"):
         "title-scoped: the auto-shorten pass for one drama",
     ("services/maintenance_assistant_service.py", "_SETTINGS_PREFIX + key"):
