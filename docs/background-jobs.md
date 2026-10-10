@@ -325,7 +325,7 @@ Thread unless marked process.
 | `transcribe_<id>` | `transcribe_service` | process; thread for hardsub OCR | yes |
 | `diarize_<id>` | `diarization_service` (also chained from transcribe) | process | yes |
 | `autotune_<id>` | `transcribe_service` | process | yes |
-| `retranscribe_<id>` | `transcribe_service` | thread | yes |
+| `retranscribe_<id>` | `transcribe_service` (one line), `retranscribe_many_service` (the ticked lines or a gap's added lines, one model load) | process | yes |
 | `dub_<id>` | `dub_service` | process | when a local clone/TTS model is used |
 | `resegment_<id>`, `resegpreview_<id>` | `restructure_service` | process with Ollama, otherwise thread | with Ollama |
 | `resplit_<id>` | `restructure_service` | thread | yes |
