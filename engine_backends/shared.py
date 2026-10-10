@@ -211,17 +211,20 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
     origin). The exception types are the ones `call_with_backoff` keys on: a
     non-2xx reply is a requests.HTTPError carrying the status (429/503/529
     back off, anything else gets one quick retry), a reply over the cap or
-    past the deadline is ProviderResponseTooLarge, and a transport failure is
-    lib.http's FetchError, which gets the one quick retry too. Every message
-    is fixed text, so the key in `headers` cannot reach one.
+    past the deadline is ProviderResponseTooLarge, and a transport failure or
+    redirect is a requests.ConnectionError: fallback.py classifies transient
+    errors by class name, and lib.http's FetchError would read as fatal there.
+    Every message is fixed text, so the key in `headers` cannot reach one.
     """
     import requests
     try:
         resp = http.post(url, timeout=timeout, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None,
-                         headers=headers, json=payload,
+                         deadline=2 * timeout, headers=headers, json=payload,
                          max_error_bytes=error_detail_bytes or _ERROR_BODY_DEFAULT_BYTES)
     except (http.ResponseTooLarge, http.ResponseTooSlow):
         raise ProviderResponseTooLarge("The provider's reply was too large or too slow to read.") from None
+    except http.FetchError:
+        raise requests.ConnectionError("The provider could not be reached.") from None
     if resp.status >= 400:
         detail = ""
         if error_detail_bytes:
@@ -233,8 +236,9 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
                                                 + (f": {detail}" if detail else "")),
                                  response=_ErrorResponse(resp))
     if resp.status >= 300:  # redirects are not followed, so there is no reply to read
-        raise http.FetchError()
-    return json.loads(resp.body), resp.headers
+        raise requests.ConnectionError("The provider could not be reached.")
+    from requests.structures import CaseInsensitiveDict
+    return json.loads(resp.body), CaseInsensitiveDict(resp.headers)
 
 
 # Matches a raw API key/token sitting in an error string -- a query

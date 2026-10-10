@@ -222,3 +222,53 @@ def test_a_failed_check_adds_nothing(isolated_db):
     db.set_app_setting(te.PROVIDER_CHECK_CACHE_KEY, json.dumps(
         {"engines": {"openai": {"ok": False, "models": ["gpt-6-luna"]}}}))
     assert te.openai_listed_extra_models() == []
+
+
+def _post_json_with(monkeypatch, outcome):
+    from engine_backends import shared
+    seen = {}
+
+    def fake(url, **kw):
+        seen.update(kw)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(shared.http, "post", fake)
+    return seen
+
+
+def test_transport_failure_through_post_json_is_transient_for_the_fallback_chain(monkeypatch):
+    from engine_backends import fallback, shared
+    from lib import http
+    _post_json_with(monkeypatch, http.FetchError())
+    with pytest.raises(Exception) as exc:
+        shared.post_json("https://x.test", {}, timeout=5, headers={"Authorization": KEY})
+    assert fallback.is_fallback_error(exc.value)
+    assert fallback.is_transient_fallback_error(exc.value)
+    assert KEY not in str(exc.value)
+
+
+def test_redirect_through_post_json_is_transient_but_401_is_not(monkeypatch):
+    from types import SimpleNamespace
+    from engine_backends import fallback, shared
+    _post_json_with(monkeypatch, SimpleNamespace(status=302, body=b"", headers={}))
+    with pytest.raises(Exception) as redirect:
+        shared.post_json("https://x.test", {}, timeout=5)
+    assert fallback.is_transient_fallback_error(redirect.value)
+
+    resp = SimpleNamespace(status=401, body=b"{}", headers={}, text=lambda: "{}")
+    _post_json_with(monkeypatch, resp)
+    with pytest.raises(requests.HTTPError) as auth:
+        shared.post_json("https://x.test", {}, timeout=5)
+    assert not fallback.is_transient_fallback_error(auth.value)
+
+
+def test_post_json_headers_are_case_insensitive_and_deadline_is_twice_the_timeout(monkeypatch):
+    from types import SimpleNamespace
+    from engine_backends import shared
+    resp = SimpleNamespace(status=200, body=b"{}", headers={"X-RateLimit-Limit-Requests": "20"})
+    seen = _post_json_with(monkeypatch, resp)
+    _, headers = shared.post_json("https://x.test", {}, timeout=120)
+    assert headers.get("x-ratelimit-limit-requests") == "20"
+    assert seen["deadline"] == 240
