@@ -11,6 +11,7 @@ import subprocess
 import pytest
 
 import diagnostics
+import diagnostics_torch
 from lib import proc as proc_run
 from services import diagnostics_gaps_service as svc
 
@@ -43,15 +44,15 @@ def _fake_pip(monkeypatch, seen, lines=(), returncode=0, read_pins=None):
 # ---- the static table ----
 
 def test_variants_are_matched_triples_from_fixed_pytorch_indexes():
-    for variant, spec in diagnostics.TORCH_VARIANTS.items():
+    for variant, spec in diagnostics_torch.TORCH_VARIANTS.items():
         v = spec["versions"]
-        assert set(v) == set(diagnostics.TORCH_FAMILY)
+        assert set(v) == set(diagnostics_torch.TORCH_FAMILY)
         assert spec["index_url"] == f"https://download.pytorch.org/whl/{variant}"
-        torch_mm = diagnostics._mm(v["torch"])
-        assert diagnostics._mm(v["torchvision"]) == diagnostics.TORCHVISION_FOR_TORCH[torch_mm]
-        assert diagnostics._mm(v["torchaudio"]) == torch_mm
+        torch_mm = diagnostics_torch._mm(v["torch"])
+        assert diagnostics_torch._mm(v["torchvision"]) == diagnostics_torch.TORCHVISION_FOR_TORCH[torch_mm]
+        assert diagnostics_torch._mm(v["torchaudio"]) == torch_mm
         assert all(x.endswith("+" + variant) for x in v.values())
-    assert diagnostics.TORCH_VARIANTS["cu128"]["versions"] == {
+    assert diagnostics_torch.TORCH_VARIANTS["cu128"]["versions"] == {
         "torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128", "torchaudio": "2.11.0+cu128"}
 
 
@@ -59,33 +60,33 @@ def test_constraints_caps_allow_the_recommended_triple():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for name in ("torch", "torchaudio"):
         cap = diagnostics._constraints_cap(name, root)
-        assert cap is None or int(diagnostics.TORCH_VARIANTS["cu128"]["versions"][name][0]) < cap[1]
+        assert cap is None or int(diagnostics_torch.TORCH_VARIANTS["cu128"]["versions"][name][0]) < cap[1]
 
 
 # ---- NVIDIA driver ----
 
 def test_nvidia_driver_info_parses_and_bounds_the_call(monkeypatch):
-    monkeypatch.setattr(diagnostics.shutil, "which", lambda n: "/usr/bin/nvidia-smi")
+    monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda n: "/usr/bin/nvidia-smi")
     seen = {}
 
     def run(cmd, **kw):
         seen.update(kw, cmd=cmd)
         return subprocess.CompletedProcess(cmd, 0, "NVIDIA GeForce RTX 3080 Ti, 581.42\n", "")
-    monkeypatch.setattr(diagnostics.subprocess, "run", run)
-    assert diagnostics.nvidia_driver_info() == {"gpu_name": "NVIDIA GeForce RTX 3080 Ti",
+    monkeypatch.setattr(diagnostics_torch.subprocess, "run", run)
+    assert diagnostics_torch.nvidia_driver_info() == {"gpu_name": "NVIDIA GeForce RTX 3080 Ti",
                                                 "driver_version": "581.42"}
     assert seen["timeout"] == 5 and seen["cmd"][0] == "nvidia-smi"
 
 
 def test_nvidia_driver_info_none_without_or_with_a_failing_nvidia_smi(monkeypatch):
-    monkeypatch.setattr(diagnostics.shutil, "which", lambda n: None)
-    assert diagnostics.nvidia_driver_info() is None
-    monkeypatch.setattr(diagnostics.shutil, "which", lambda n: "/usr/bin/nvidia-smi")
+    monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda n: None)
+    assert diagnostics_torch.nvidia_driver_info() is None
+    monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda n: "/usr/bin/nvidia-smi")
 
     def boom(cmd, **kw):
         raise subprocess.TimeoutExpired(cmd, 5)
-    monkeypatch.setattr(diagnostics.subprocess, "run", boom)
-    assert diagnostics.nvidia_driver_info() is None
+    monkeypatch.setattr(diagnostics_torch.subprocess, "run", boom)
+    assert diagnostics_torch.nvidia_driver_info() is None
 
 
 @pytest.mark.parametrize("system,driver,status", [
@@ -95,52 +96,52 @@ def test_nvidia_driver_info_none_without_or_with_a_failing_nvidia_smi(monkeypatc
     ("Windows", None, "unknown"),
 ])
 def test_driver_check(system, driver, status):
-    assert diagnostics.driver_check(driver, system)["status"] == status
+    assert diagnostics_torch.driver_check(driver, system)["status"] == status
 
 
 # ---- installed family ----
 
 def test_build_tags():
-    assert diagnostics._build_of("2.11.0+cu128") == "cuda"
-    assert diagnostics._build_of("2.11.0+cpu") == "cpu"
-    assert diagnostics._build_of("2.11.0") is None and diagnostics._build_of(None) is None
+    assert diagnostics_torch._build_of("2.11.0+cu128") == "cuda"
+    assert diagnostics_torch._build_of("2.11.0+cpu") == "cpu"
+    assert diagnostics_torch._build_of("2.11.0") is None and diagnostics_torch._build_of(None) is None
 
 
 def test_problems_name_the_users_torchvision_mismatch():
     fam = {"torch": {"version": "2.11.0+cu128", "build": "cuda"},
            "torchvision": {"version": "0.29.0", "build": None},
            "torchaudio": {"version": "2.11.0+cu128", "build": "cuda"}}
-    (p,) = diagnostics.torch_family_problems(fam)
+    (p,) = diagnostics_torch.torch_family_problems(fam)
     assert "torchvision 0.29.0" in p and "0.26" in p
     fam["torchvision"] = {"version": "0.26.0+cu128", "build": "cuda"}
-    assert diagnostics.torch_family_problems(fam) == []
+    assert diagnostics_torch.torch_family_problems(fam) == []
     fam["torchaudio"] = {"version": "2.11.0+cpu", "build": "cpu"}
-    assert any("mixed" in p for p in diagnostics.torch_family_problems(fam))
+    assert any("mixed" in p for p in diagnostics_torch.torch_family_problems(fam))
 
 
 def test_pin_lines_only_for_installed_and_well_formed_versions(monkeypatch):
     _versions(monkeypatch, torch="2.11.0+cu128", torchaudio="2.11.0+cu128")
-    assert diagnostics.torch_pin_lines() == ["torch==2.11.0+cu128", "torchaudio==2.11.0+cu128"]
+    assert diagnostics_torch.torch_pin_lines() == ["torch==2.11.0+cu128", "torchaudio==2.11.0+cu128"]
     _versions(monkeypatch, torch="2.11.0 --index-url http://x")
-    assert diagnostics.torch_pin_lines() == []
+    assert diagnostics_torch.torch_pin_lines() == []
 
 
 def test_setup_args_pin_all_three_together(tmp_path):
     (tmp_path / "constraints.txt").write_text("torch<3\n")
-    first, second = diagnostics.torch_setup_pip_args("cu128", str(tmp_path))
+    first, second = diagnostics_torch.torch_setup_pip_args("cu128", str(tmp_path))
     pins = ["torch==2.11.0+cu128", "torchvision==0.26.0+cu128", "torchaudio==2.11.0+cu128"]
     tail = ["--index-url", "https://download.pytorch.org/whl/cu128", "-c",
             str(tmp_path / "constraints.txt")]
     assert first == ["--force-reinstall", "--no-deps", *pins, *tail]
     assert second == [*pins, *tail]
     with pytest.raises(KeyError):
-        diagnostics.torch_setup_pip_args("https://evil.example/simple")
+        diagnostics_torch.torch_setup_pip_args("https://evil.example/simple")
 
 
 def test_parse_verify_output():
-    assert diagnostics.parse_torch_verify_output('noise\n{"torch": "2.11.0+cu128"}\n') == {
+    assert diagnostics_torch.parse_torch_verify_output('noise\n{"torch": "2.11.0+cu128"}\n') == {
         "torch": "2.11.0+cu128"}
-    assert "error" in diagnostics.parse_torch_verify_output("Traceback ...")
+    assert "error" in diagnostics_torch.parse_torch_verify_output("Traceback ...")
 
 
 # ---- every other install pins the torch family ----
@@ -205,7 +206,7 @@ GOOD_VERIFY = {"torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128",
 
 
 def _gpu(monkeypatch, driver="581.42"):
-    monkeypatch.setattr(diagnostics, "nvidia_driver_info", lambda: driver and {
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: driver and {
         "gpu_name": "NVIDIA GeForce RTX 3080 Ti", "driver_version": driver})
 
 
@@ -260,7 +261,7 @@ def test_setup_refusals(monkeypatch, driver, variant, msg):
 def test_setup_refuses_an_unsupported_python(monkeypatch):
     _no_jobs(monkeypatch)
     _gpu(monkeypatch)
-    monkeypatch.setattr(diagnostics, "TORCH_SUPPORTED_PYTHON", ((3, 99), (3, 99)))
+    monkeypatch.setattr(diagnostics_torch, "TORCH_SUPPORTED_PYTHON", ((3, 99), (3, 99)))
     with pytest.raises(svc.AdminActionNotPossible, match="Python"):
         svc.setup_gpu_torch(confirm=True)
 
@@ -307,8 +308,8 @@ def test_verify_runs_in_a_subprocess_and_redacts(monkeypatch):
                          '"error": "RuntimeError: at /home/someone/venv/torch"}\n')
     monkeypatch.setattr(proc_run, "run_captured", run)
     out = svc.verify_torch()
-    assert seen["timeout"] == diagnostics.TORCH_VERIFY_TIMEOUT_SECONDS
-    assert seen["cmd"][1:3] == ["-c", diagnostics.TORCH_VERIFY_SCRIPT]
+    assert seen["timeout"] == diagnostics_torch.TORCH_VERIFY_TIMEOUT_SECONDS
+    assert seen["cmd"][1:3] == ["-c", diagnostics_torch.TORCH_VERIFY_SCRIPT]
     assert out["torch"] == "2.11.0+cu128" and out["cuda_available"] is False
     assert "/home/someone" not in out["error"]
 

@@ -462,8 +462,8 @@ def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: 
     # whose chunk was slow, when the VRAM reading explains why.
     if use_gpu and slow:
         try:
-            import diagnostics
-            load = diagnostics.external_gpu_load()
+            import diagnostics_torch
+            load = diagnostics_torch.external_gpu_load()
             if load:
                 gpu = f", GPU free {load['memory_free_mb']:.0f} of {load['memory_total_mb']:.0f} MB"
         except Exception:

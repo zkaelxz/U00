@@ -82,8 +82,8 @@ def _read_vram_mb(at_load: bool = False):
         except Exception:
             pass
     try:
-        import diagnostics
-        load = diagnostics.external_gpu_load()
+        import diagnostics_torch
+        load = diagnostics_torch.external_gpu_load()
     except Exception:
         load = None
     if load and load.get("memory_total_mb") is not None and load.get("memory_free_mb") is not None:

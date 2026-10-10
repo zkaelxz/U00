@@ -285,7 +285,7 @@ def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
     _no_jobs(monkeypatch)
     # The command line depends on whether torch is installed on the machine
     # running the tests (it then gets a `-c <pins>` file); pin that down.
-    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: [])
     seen = []
     _fake_pip(monkeypatch, seen=seen)
     for fn in (svc.install_dependency, svc.upgrade_dependency):
@@ -299,7 +299,7 @@ def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
 
 def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_file(monkeypatch):
     _no_jobs(monkeypatch)
-    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines",
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines",
                         lambda: ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"])
     contents = {}
 
@@ -645,7 +645,7 @@ def _scripted_pip(monkeypatch, outputs):
             yield {"line": line}
         yield {"returncode": rc, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
-    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: [])
     return seen
 
 

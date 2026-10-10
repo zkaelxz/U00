@@ -44,6 +44,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `core.py`
 - `db.py`
 - `diagnostics.py`
+- `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
 - `expected_files.py`
 - `portable.py`
 - `process_guard.py`

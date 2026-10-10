@@ -12,7 +12,7 @@ what the user can do.
 
 Free memory comes from torch.cuda.mem_get_info() when torch is already
 imported with CUDA available (it sees this process's own cache too), else
-from nvidia-smi (diagnostics.external_gpu_load). `MODEL_VRAM_MB` holds
+from nvidia-smi (diagnostics_torch.external_gpu_load). `MODEL_VRAM_MB` holds
 deliberately low estimates of what each model needs, so the check only
 refuses loads that can't possibly fit.
 """
@@ -44,8 +44,8 @@ def free_vram_mb():
         except Exception:
             pass
     try:
-        import diagnostics
-        load = diagnostics.external_gpu_load()
+        import diagnostics_torch
+        load = diagnostics_torch.external_gpu_load()
     except Exception:
         load = None
     if load and load.get("memory_free_mb") is not None:

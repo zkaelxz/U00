@@ -48,6 +48,7 @@ import background_jobs
 import job_process_kill
 import db
 import diagnostics
+import diagnostics_torch
 from lib import proc as proc_run
 from services import diagnostics_gaps_service as gaps
 from services import drama_service
@@ -511,7 +512,7 @@ def start_upgrade_check(name: str, target: str = None, confirm: bool = False) ->
     `name` (409 otherwise, as for Upgrade); the job installs exactly that
     version (with constraints.txt) into a throwaway environment and runs
     this app's tests against it. Your real install is not touched."""
-    if name in diagnostics.TORCH_FAMILY:
+    if name in diagnostics_torch.TORCH_FAMILY:
         gaps.guard(confirm)
         raise gaps.AdminActionNotPossible(
             "torch, torchvision and torchaudio are set up together under GPU PyTorch.")

@@ -20,6 +20,7 @@ import os
 import background_jobs
 import db
 import diagnostics
+import diagnostics_torch
 import applog
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,7 +54,7 @@ def get_diagnostics_overview() -> dict:
     report."""
     running = background_jobs.list_running_jobs()
     import core
-    gpu = dict(diagnostics.get_gpu_status())
+    gpu = dict(diagnostics_torch.get_gpu_status())
     # What faster-whisper's own runtime (ctranslate2) sees -- can differ
     # from torch (missing cuBLAS/cuDNN makes Whisper silently use CPU).
     gpu["whisper"] = core.gpu_status()

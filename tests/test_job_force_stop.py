@@ -7,7 +7,7 @@ import pytest
 
 import background_jobs as bg
 import db
-import diagnostics
+import diagnostics_torch
 import job_force_stop
 from services import jobs_service
 from services.service_errors import ConflictError, NotFoundError
@@ -24,8 +24,8 @@ def _wait_for(pred, timeout=3.0):
 
 @pytest.fixture
 def quiet_gpu(isolated_db, monkeypatch):
-    monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: False)
-    monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None)
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: False)
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: None)
 
 
 class HungJob:
@@ -208,8 +208,8 @@ class TestGpuProbeOutsideTheLock:
     def test_a_slow_nvidia_smi_does_not_block_status_reads(self, isolated_db, monkeypatch):
         def slow(*_):
             time.sleep(0.4)
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: slow() or False)
-        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: slow())
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: slow() or False)
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: slow())
         bg.start_job("other", lambda: time.sleep(0.01))
         starter = threading.Thread(
             target=lambda: bg.start_job("gpu_job", lambda: None, gpu_touching=True, description="g"))
@@ -227,8 +227,8 @@ class TestGpuProbeOutsideTheLock:
 
     def test_the_prefetched_reading_still_decides_the_slot(self, isolated_db, monkeypatch):
         busy = {"value": True}
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: busy["value"])
-        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None)
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: busy["value"])
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: None)
         bg.start_job("gpu_a", lambda: None, gpu_touching=True, description="a")
         assert bg.get_status("gpu_a")["status"] == "queued"
         bg.clear_job("gpu_a")
@@ -239,8 +239,8 @@ class TestGpuProbeOutsideTheLock:
     def test_a_reading_is_used_once_and_never_when_old(self, monkeypatch):
         import gpu_probe
         calls = []
-        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: calls.append(1) or {"n": len(calls)})
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: False)
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: calls.append(1) or {"n": len(calls)})
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: False)
         gpu_probe.prefetch()
         assert gpu_probe.external_gpu_load() == {"n": 1}
         assert gpu_probe.external_gpu_load() == {"n": 2}   # second read is live

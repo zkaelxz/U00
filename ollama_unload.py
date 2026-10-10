@@ -82,8 +82,8 @@ class JobScope:
 
 def _free_vram_mb():
     """Free VRAM per nvidia-smi, or None when it can't be read."""
-    import diagnostics
-    load = diagnostics.external_gpu_load()
+    import diagnostics_torch
+    load = diagnostics_torch.external_gpu_load()
     return None if load is None else load["memory_free_mb"]
 
 

@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diagnostics
+import diagnostics_torch
 
 
 class TestParseRequirementsFile:
@@ -37,27 +38,27 @@ class TestParseRequirementsFile:
 
 class TestGpuTorchMismatch:
     def test_false_when_nvidia_smi_not_on_path(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
-        assert diagnostics.gpu_torch_mismatch() is False
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: None)
+        assert diagnostics_torch.gpu_torch_mismatch() is False
 
     def test_true_when_gpu_present_but_torch_is_cpu_only(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which",
+        monkeypatch.setattr(diagnostics_torch.shutil, "which",
                             lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
         monkeypatch.setattr(diagnostics, "check_cuda",
                             lambda: {"torch_installed": True, "cuda_available": False})
-        assert diagnostics.gpu_torch_mismatch() is True
+        assert diagnostics_torch.gpu_torch_mismatch() is True
 
     def test_false_when_cuda_is_available(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
         monkeypatch.setattr(diagnostics, "check_cuda",
                             lambda: {"torch_installed": True, "cuda_available": True})
-        assert diagnostics.gpu_torch_mismatch() is False
+        assert diagnostics_torch.gpu_torch_mismatch() is False
 
     def test_false_when_torch_isnt_installed_at_all(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
         monkeypatch.setattr(diagnostics, "check_cuda",
                             lambda: {"torch_installed": False, "cuda_available": None})
-        assert diagnostics.gpu_torch_mismatch() is False
+        assert diagnostics_torch.gpu_torch_mismatch() is False
 
 
 class TestExternalGpuLoad:
@@ -77,43 +78,43 @@ class TestExternalGpuLoad:
         return run
 
     def test_none_when_nvidia_smi_not_on_path(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
-        assert diagnostics.external_gpu_load() is None
-        assert diagnostics.external_gpu_is_busy() is False
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: None)
+        assert diagnostics_torch.external_gpu_load() is None
+        assert diagnostics_torch.external_gpu_is_busy() is False
 
     def test_parses_a_real_nvidia_smi_response(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics.subprocess, "run",
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch.subprocess, "run",
                             self._fake_run("72, 9500, 12288\n"))
-        load = diagnostics.external_gpu_load()
+        load = diagnostics_torch.external_gpu_load()
         assert load == {"utilization_percent": 72.0, "memory_used_mb": 9500.0,
                         "memory_total_mb": 12288.0, "memory_free_mb": 2788.0}
 
     def test_none_on_a_failed_or_malformed_query(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
 
         def raises(*a, **kw):
-            raise diagnostics.subprocess.SubprocessError("nvidia-smi timed out")
-        monkeypatch.setattr(diagnostics.subprocess, "run", raises)
-        assert diagnostics.external_gpu_load() is None
-        assert diagnostics.external_gpu_is_busy() is False  # never blocks when it can't tell
+            raise diagnostics_torch.subprocess.SubprocessError("nvidia-smi timed out")
+        monkeypatch.setattr(diagnostics_torch.subprocess, "run", raises)
+        assert diagnostics_torch.external_gpu_load() is None
+        assert diagnostics_torch.external_gpu_is_busy() is False  # never blocks when it can't tell
 
     def test_busy_when_utilization_crosses_the_threshold(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics.subprocess, "run",
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch.subprocess, "run",
                             self._fake_run("55, 2000, 12288\n"))  # busy: high util, plenty free
-        assert diagnostics.external_gpu_is_busy() is True
+        assert diagnostics_torch.external_gpu_is_busy() is True
 
     def test_busy_when_free_vram_is_low_even_at_low_utilization(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics.subprocess, "run",
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch.subprocess, "run",
                             self._fake_run("5, 11800, 12288\n"))  # idle compute, almost no VRAM left
-        assert diagnostics.external_gpu_is_busy() is True
+        assert diagnostics_torch.external_gpu_is_busy() is True
 
     def test_not_busy_when_idle_and_plenty_free(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics.subprocess, "run",
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch.subprocess, "run",
                             self._fake_run("3, 500, 12288\n"))
-        assert diagnostics.external_gpu_is_busy() is False
+        assert diagnostics_torch.external_gpu_is_busy() is False
 
 
