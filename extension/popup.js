@@ -17,13 +17,15 @@ const els = {
   cancelCapture: document.getElementById("cancelCapture"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
+  novelSection: document.getElementById("novelSection"),
+  saveNovel: document.getElementById("saveNovel"),
   dramaTitle: document.getElementById("dramaTitle"),
   openLink: document.getElementById("openInBaihe"),
   allowSites: document.getElementById("allowSites"),
   notice: document.getElementById("notice"),
   noticeText: document.getElementById("noticeText"),
   noticeAction: document.getElementById("noticeAction"),
-  controls: [...document.querySelectorAll("#pageSection select, #pageSection input, #pageSection button, #textSection select, #textSection button")],
+  controls: [...document.querySelectorAll("#pageSection select, #pageSection input, #pageSection button, #textSection select, #textSection button, #novelSection button")],
 };
 
 // The service worker words this error; matching its opening is the only way to tell "no token" from
@@ -36,6 +38,7 @@ let noticeHandler = null;
 // link carries only a drama id.
 const APP_URL = "http://127.0.0.1:8600";
 const dramaTitles = new Map();
+const dramaMedia = new Map();
 
 function setControlsEnabled(enabled) {
   for (const el of els.controls) el.disabled = !enabled;
@@ -105,6 +108,27 @@ function showDramaTitle() {
   els.dramaTitle.textContent = title;
   els.dramaTitle.hidden = !title;
   els.drama.title = title;
+  els.saveNovel.textContent = novelButtonLabel(title, dramaMedia.get(els.drama.value));
+}
+
+// The button names where the text will go, so a wrong pick shows before the click.
+function novelButtonLabel(title, mediaType) {
+  if (!title) return "Save text into a title";
+  if ((mediaType || "").toLowerCase() !== "novel") return "Pick a novel title to save text";
+  return `Save text into ${title}`;
+}
+
+// Offered only where the page reads as prose or the person has selected text; on a comic
+// page the comic actions above are the ones that apply.
+async function showNovelSection() {
+  try {
+    const tab = await activeTab();
+    if (!tab || !tab.id) return;
+    await ensureContentScript(tab.id);
+    const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
+    els.novelSection.hidden = !(status && status.ok &&
+                                (status.data.textPage || status.data.hasSelection));
+  } catch (e) { /* a page the browser keeps extensions out of */ }
 }
 
 function showOpenLink(dramaId) {
@@ -237,6 +261,7 @@ async function load() {
       : drama.title;
     option.title = drama.title;
     dramaTitles.set(option.value, drama.title);
+    dramaMedia.set(option.value, drama.media_type || "");
     els.drama.appendChild(option);
   }
   // Reading a long series shouldn't be a per-page decision.
@@ -424,6 +449,40 @@ async function runText() {
   }
 }
 
+// One line for the save's outcome: whether a chapter was added, and from what.
+function describeNovelSave(data) {
+  const title = dramaTitles.get(String(data.drama_id)) || "the title";
+  if (!data.saved) return `Already saved in ${title}; nothing was added.`;
+  const from = data.fromSelection ? "the selected text" : "the page's main text";
+  return `Saved ${from} (${data.chars} characters) into ${title} as a new chapter.`;
+}
+
+let novelSaveInFlight = false;
+
+async function runSaveNovel() {
+  if (novelSaveInFlight) return;
+  const dramaId = els.drama.value ? Number(els.drama.value) : null;
+  if (!dramaId || (dramaMedia.get(els.drama.value) || "").toLowerCase() !== "novel") {
+    return say("Pick a novel title to save the text into.", true);
+  }
+  novelSaveInFlight = true;
+  els.saveNovel.disabled = true;
+  try {
+    const tab = await activeTab();
+    if (!tab || !tab.id) return say("No active tab.", true);
+    say("Saving the text…");
+    await ensureContentScript(tab.id);
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "saveNovelText", dramaId });
+    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    say(describeNovelSave({ ...result.data, drama_id: dramaId }));
+  } catch (e) {
+    say(`Couldn't run on this page (${e.message}).`, true);
+  } finally {
+    novelSaveInFlight = false;
+    els.saveNovel.disabled = false;
+  }
+}
+
 els.drama.addEventListener("change", showDramaTitle);
 els.translate.addEventListener("click", () => run(false));
 els.translateAll.addEventListener("click", () => run(true));
@@ -439,6 +498,7 @@ els.cancelCapture.addEventListener("click", async () => {
   }
 });
 els.translateText.addEventListener("click", runText);
+els.saveNovel.addEventListener("click", runSaveNovel);
 els.toggle.addEventListener("click", async () => {
   const tab = await activeTab();
   if (!tab || !tab.id) return;
@@ -461,4 +521,4 @@ els.openLink.addEventListener("click", (event) => {
 });
 els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
 
-load().then(syncCaptureUi);
+load().then(syncCaptureUi).then(showNovelSection);

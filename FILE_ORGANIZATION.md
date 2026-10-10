@@ -42,6 +42,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `cli.py`
 - `cli_subtitle.py` (the `import-subtitle` command)
 - `cli_timing.py` (the `timing-check` command, and the wait after a Qwen-only `transcribe`)
+- `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db.py`
 - `diagnostics.py`
@@ -79,11 +80,13 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `sensitivity_preset.py`
 - `vad_segments.py`
 - `voice_id.py`
+- `whisper_models.py` (loads or releases the Whisper model on the right device and explains why it fell back to the CPU; the model list, GPU status and download-error diagnosis)
 - `word_align.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**
 
 - `auto_qc.py`
+- `bulk_providers.py`
 - `bulk_translate.py`
 - `emotion.py`
 - `en_cleanup.py`
@@ -106,6 +109,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `dub.py`
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
 - `media_inspect.py`
+- `review_thresholds.py`
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
 - `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
@@ -173,6 +177,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `assistant_roles_service.py`
 - `auth_service.py`
 - `auto_backup_service.py`
+- `autotune_service.py` (the "Auto-tune" speech-splitting sensitivity process job: start, status, apply a measured candidate)
 - `backup_import_service.py`
 - `benchmark_case_service.py`
 - `benchmark_lab_service.py`
@@ -196,6 +201,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `disk_usage_clips_service.py`
 - `disk_usage_links.py`
 - `disk_usage_service.py`
+- `disk_usage_trash_service.py` (Trash list, Restore, purge and empty)
 - `temp_cleanup_service.py`
 - `drama_service.py`
 - `dub_service.py`
@@ -203,6 +209,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `engine_routing_service.py`
 - `event_stream_service.py`
 - `export_service.py`
+- `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
 - `extension_service.py`
 - `fixflag_transcribe.py`
 - `bulk_job_view.py` (public view of a bulk_jobs row)

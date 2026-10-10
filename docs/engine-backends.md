@@ -20,8 +20,8 @@ name from the `engine_backends/` package so `import translate_engines` and
 | `shared.py` | usage totals, `call_with_backoff`, secret redaction, id-keyed request and parsing, moderation detection |
 | `prompts.py` | prompt builders shared by the LLM engines |
 | `claude.py` | `ClaudeEngine` (Anthropic SDK) |
-| `openai_compat.py` | `DeepSeekEngine` (OpenAI SDK pointed at `api.deepseek.com`), `OpenAIEngine` (plain `requests` call to Chat Completions) |
-| `gemini.py` | `GeminiEngine` (plain `requests` call to `generateContent`), free-tier pacing and rate status |
+| `openai_compat.py` | `DeepSeekEngine` (OpenAI SDK pointed at `api.deepseek.com`), `OpenAIEngine` (call through `lib.http` to Chat Completions) |
+| `gemini.py` | `GeminiEngine` (call through `lib.http` to `generateContent`), free-tier pacing and rate status |
 | `local.py` | `OllamaEngine` (REST to a local server), `check_ollama_reachable` |
 | `llm_tasks.py` | `call_llm_json` and the single-prompt helpers (speaker tagging, pacing rewrite, consistency check, episode summary, flagging) |
 | `engine_registry.py` | `ENGINES`, capability tags, notes, model overrides, `get_engine` |
@@ -35,8 +35,8 @@ Engine map today:
 |---|---|---|---|
 | `claude` | `ClaudeEngine` | `anthropic` SDK | key |
 | `deepseek` | `DeepSeekEngine` | `openai` SDK | key |
-| `openai` | `OpenAIEngine` | `requests` | key |
-| `gemini` | `GeminiEngine` | `requests` | key (free-tier keys are paced client-side) |
+| `openai` | `OpenAIEngine` | `lib.http` | key |
+| `gemini` | `GeminiEngine` | `lib.http` | key (free-tier keys are paced client-side) |
 | `ollama` | `OllamaEngine` | `requests` to the local server | none; a running Ollama |
 
 The `deepseek` engine needs the `openai` package, which is why
@@ -251,7 +251,7 @@ root modules below.
 
 | Choice | Code | What it does |
 |---|---|---|
-| `whisper` (default) | `asr_backend.WhisperBackend` -> `core.transcribe_for_timing` | local faster-whisper with VAD segmentation; `core.load_whisper_model` falls back from GPU to CPU |
+| `whisper` (default) | `asr_backend.WhisperBackend` -> `core.transcribe_for_timing` | local faster-whisper with VAD segmentation; `whisper_models.load_whisper_model` falls back from GPU to CPU |
 | `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; needs `qwen-asr`; batching (`qwen_asr_batch_size`) is honoured only on the tested qwen-asr version (`effective_qwen_batch_size`) |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 

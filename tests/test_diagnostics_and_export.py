@@ -3,6 +3,7 @@ tests/test_diagnostics_and_export.py -- tests for diagnostics.py
 and db.py's line history (undo) functions.
 """
 
+import whisper_models
 import sys
 import os
 import json
@@ -97,7 +98,7 @@ class TestDiagnostics:
             assert deps[pip_name][2] == "feature"
 
     def test_ctranslate2_is_registered_for_gpu_detection(self):
-        """core.gpu_status imports ctranslate2 lazily; without an entry
+        """whisper_models.gpu_status imports ctranslate2 lazily; without an entry
         Diagnostics could never say it is missing."""
         assert diagnostics.OPTIONAL_DEPENDENCIES["ctranslate2"][0] == "ctranslate2"
 
@@ -852,6 +853,26 @@ class TestRedactForSupport:
         text = diagnostics_report.redact_for_support(
             "failed to open /a/b.wav because the disk is full, see notes.txt")
         assert text == "failed to open .../b.wav because the disk is full, see notes.txt"
+
+    def test_spaced_filename_with_dotted_earlier_word_is_fully_redacted(self):
+        text = diagnostics_report.redact_for_support(
+            r"saved to C:\Users\me\Videos\v1.2 final.wav, retrying")
+        assert text == "saved to .../v1.2 final.wav, retrying"
+        text = diagnostics_report.redact_for_support(
+            "saved to /home/me/ep 3.5 cut.mp4 then stopped")
+        assert text == "saved to .../ep 3.5 cut.mp4 then stopped"
+        text = diagnostics_report.redact_for_support(
+            r"saved to \\server\share\v1.2 final.wav")
+        assert text == "saved to .../v1.2 final.wav"
+
+    def test_version_number_without_a_path_is_not_redacted(self):
+        text = "using build v1.2 final for the release, see notes v2.1 draft"
+        assert diagnostics_report.redact_for_support(text) == text
+
+    def test_dotted_word_after_a_spaced_filename_is_still_prose(self):
+        text = diagnostics_report.redact_for_support(
+            "failed to open /a/b.wav because v1.2 final.wav is newer")
+        assert text == "failed to open .../b.wav because v1.2 final.wav is newer"
 
     def test_two_paths_in_one_sentence_stay_separate(self):
         text = diagnostics_report.redact_for_support(

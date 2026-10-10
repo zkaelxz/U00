@@ -19,7 +19,7 @@ import time
 import pytest
 
 import background_jobs
-import cli
+import cli_translate
 import db
 import line_tools
 import translate_engines
@@ -110,5 +110,5 @@ def test_cli_translate(isolated_db, monkeypatch, apply):
         style_note=None, style_preset="audio_drama", locale="en-US", force=False,
         ollama_num_ctx=None)
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args)
+        cli_translate.cmd_translate(args)
     assert (PREF in seen["style_guidelines"]) is apply
