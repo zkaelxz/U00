@@ -6,6 +6,7 @@ patching translate_service.resolve_api_key / translate_engines.get_engine
 and the story/wiki/QA helpers the service calls.
 """
 import os
+from urllib.parse import quote
 
 import pytest
 
@@ -253,9 +254,20 @@ def test_vocab_csv_chinese_title_gets_ascii_filename(client, isolated_db):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     cd = r.headers["content-disposition"]
-    assert cd == f'attachment; filename="drama_{did}_vocab.csv"'
+    assert cd.startswith('attachment; filename="')
+    assert "filename*=UTF-8''" + quote("白鹤之恋 - vocabulary.csv") in cd
     cd.encode("ascii")
     assert "猫 (māo)" in r.text
+
+
+def test_vocab_downloads_survive_a_hostile_title(client, isolated_db):
+    did = _vocab_drama(title_en='A"b\r\nX-Evil: 1\u202e\u00e9')
+    r = client.get(f"{BASE}/{did}/vocab/export.csv")
+    cd = r.headers["content-disposition"]
+    assert r.status_code == 200 and "X-Evil" not in r.headers
+    assert "\r" not in cd and "\n" not in cd and "\u202e" not in cd
+    assert cd.startswith('attachment; filename="A bX-Evil 1')
+    assert quote("é") in cd
 
 
 def test_vocab_csv_empty_is_404(client, drama):
@@ -279,14 +291,17 @@ def test_apkg_with_genanki(client, isolated_db):
     did = _vocab_drama(title_zh="白鹤")
     r = client.get(f"{BASE}/{did}/vocab/export.apkg")
     assert r.status_code == 200 and r.content[:2] == b"PK"
-    assert r.headers["content-disposition"] == f'attachment; filename="drama_{did}_vocab.apkg"'
+    assert r.headers["content-disposition"] == (
+        'attachment; filename="_ - Anki deck.apkg"; '
+        f"filename*=UTF-8''{quote('白鹤 - Anki deck.apkg')}")
     assert client.get(f"{BASE}/{did}/vocab/export.apkg",
                       params={"rich": True}).status_code == 404   # nothing queued yet
     client.post(f"{BASE}/{did}/vocab/rich", json={"words": ["猫"]})
     r = client.get(f"{BASE}/{did}/vocab/export.apkg", params={"rich": True})
     assert r.status_code == 200
     assert r.headers["content-disposition"] == \
-        f'attachment; filename="drama_{did}_vocab_sentence.apkg"'
+        ('attachment; filename="_ - Anki deck with sentences.apkg"; '
+         f"filename*=UTF-8''{quote('白鹤 - Anki deck with sentences.apkg')}")
 
 
 # --- story tools, wiki, Q&A --------------------------------------------------
@@ -356,7 +371,8 @@ def test_wiki_update_list_export_clear(client, drama, fake_engine, monkeypatch):
     assert r.status_code == 200 and "Early" in r.text and "Late" not in r.text
     assert r.headers["content-type"].startswith("text/markdown")
     assert r.headers["content-disposition"] == \
-        f'attachment; filename="drama_{drama}_universe_wiki.md"'
+        'attachment; filename="Story - universe wiki.md"; ' \
+        "filename*=UTF-8''Story%20-%20universe%20wiki.md"
 
     # clear: no confirm -> 422 and entries kept
     for body in ({}, {"confirm": False}, {"confirm": "true"}):
