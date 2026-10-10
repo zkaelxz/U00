@@ -2,57 +2,36 @@ import { expect, test } from '@playwright/test'
 
 import { mockFirstRun } from './getStartedMocks'
 
-// Empty-library card with the translator choice. Stats, engines and the
-// settings write are mocked; nothing real is changed.
+// Empty-library view: the Make subtitles card replaces the step list and the
+// translator radios. Stats and engines are mocked; nothing real is changed.
 
-test('walks the steps, picks a translator and dismisses for good', async ({ page }) => {
+test('shows Make subtitles with the Discover and Sources links, and dismisses for good', async ({ page }) => {
   await mockFirstRun(page)
-  const posts: unknown[] = []
-  await page.route('**/api/settings', (r) => {
-    if (r.request().method() !== 'POST') return r.fallback()
-    posts.push(r.request().postDataJSON())
-    return r.fulfill({ json: {} })
-  })
   await page.goto('/')
-  const card = page.getByRole('region', { name: 'Get started' })
-  await expect(card.locator('.get-started-steps').getByRole('listitem')).toHaveCount(5)
-  await expect(card.locator('.get-started-steps').getByRole('listitem').first()).toContainText('Add.')
-  await expect(card.getByRole('link', { name: 'Discover' })).toHaveAttribute('href', '#/discover')
-  await expect(card.getByRole('link', { name: 'Sources' })).toHaveAttribute('href', '#/sources')
+  const view = page.getByRole('region', { name: 'Get started' })
+  await expect(view.getByRole('region', { name: 'Make subtitles' })).toBeVisible()
+  await expect(view.locator('.get-started-steps')).toHaveCount(0)
+  await expect(view.getByRole('radio')).toHaveCount(0)
+  await expect(view.getByRole('link', { name: 'Discover' })).toHaveAttribute('href', '#/discover')
+  await expect(view.getByRole('link', { name: 'Sources' })).toHaveAttribute('href', '#/sources')
 
-  // Claude is the saved default but has no key: the card says so.
-  await expect(card.getByRole('radio', { name: /Claude/ })).toBeChecked()
-  await expect(card.getByTestId('translator-needs-key')).toContainText("Claude can't run until a key is added")
-  await expect(card.getByRole('button', { name: 'Add key' })).toBeVisible()
+  // The saved default (Claude) has no key: the card says so.
+  await expect(view.getByLabel('Translator')).toHaveValue('claude')
+  await expect(view.getByText('No key saved')).toBeVisible()
 
-  await card.getByRole('radio', { name: /Ollama/ }).check()
-  await expect(card.getByTestId('translator-needs-key')).toHaveCount(0)
-  await card.getByRole('button', { name: 'Use Ollama (local) for new dramas' }).click()
-  await expect(card.getByRole('button', { name: 'Saved' })).toBeDisabled()
-  expect(posts).toEqual([{ default_engine: 'ollama' }])
-
-  await card.getByRole('button', { name: 'Dismiss' }).click()
-  await expect(card).toHaveCount(0)
+  await view.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(view).toHaveCount(0)
+  // Dismissing hides the first-run wrapper only; the card stays on the Library.
+  await expect(page.getByRole('region', { name: 'Make subtitles' })).toBeVisible()
   await page.reload()
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Get started' })).toHaveCount(0)
 })
 
-test('a library with a drama never shows it', async ({ page }) => {
+test('a library with a drama never shows the first-run view', async ({ page }) => {
   await mockFirstRun(page, 1)
   await page.goto('/')
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Get started' })).toHaveCount(0)
-})
-
-test('a server error on saving shows as plain text, never raw', async ({ page }) => {
-  await mockFirstRun(page)
-  await page.route('**/api/settings', (r) => r.request().method() === 'POST'
-    ? r.fulfill({ status: 400, json: { error: { code: 'validation_error', message: 'That translator is not available.' } } })
-    : r.fallback())
-  await page.goto('/')
-  const card = page.getByRole('region', { name: 'Get started' })
-  await card.getByRole('radio', { name: /Ollama/ }).check()
-  await card.getByRole('button', { name: /^Use Ollama/ }).click()
-  await expect(card.getByRole('alert')).toContainText('Some of the values entered are not valid')
+  await expect(page.getByRole('region', { name: 'Make subtitles' })).toBeVisible()
 })

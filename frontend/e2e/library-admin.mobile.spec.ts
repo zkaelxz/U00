@@ -48,8 +48,9 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
   }
   await expect(bar.getByRole('button', { name: 'Translate 1' })).toBeVisible()
   await noSideways(page)
+  // The Make subtitles card is its own panel with its own primary (rule 1 is per panel).
   const filled = await page.locator('button.primary, .btn-primary').evaluateAll((els) =>
-    els.filter((e) => (e as HTMLElement).offsetParent !== null).length)
+    els.filter((e) => (e as HTMLElement).offsetParent !== null && !e.closest('.make-subtitles')).length)
   expect(filled).toBeLessThanOrEqual(1)
 
   // The menu stays inside the screen.

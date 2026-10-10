@@ -55,7 +55,7 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
   needs: PreflightNeed[]
   engine?: string
   whisperInstalled?: boolean
-  onReady?: (ok: boolean) => void
+  onReady?: (ok: boolean, blockers: PreflightRow[]) => void
   /** Switch to another translator (the caller owns where that choice is stored). */
   onUseEngine?: (name: string) => void
 }) {
@@ -99,7 +99,7 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
   useEffect(() => {
     if (!loaded.done || lastReady.current === ready) return
     lastReady.current = ready
-    onReady?.(ready)
+    onReady?.(ready, rows.filter((r) => r.blocking))
   }, [loaded.done, ready, onReady])
 
   const recheck = useCallback(() => setTick((t) => t + 1), [])
