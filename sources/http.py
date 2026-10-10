@@ -536,8 +536,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
         cur_headers = {k: v for k, v in cur_headers.items()
                        if k.lower() not in _CONDITIONAL_HEADERS}
         if _should_strip_auth(current, nxt):
-            cur_headers = {k: v for k, v in cur_headers.items()
-                           if k.lower() not in ("authorization", "cookie")}
+            cur_headers = url_guard.cross_origin_headers(cur_headers)
         if r.status_code == 303 or (r.status_code in (301, 302) and cur_method == "POST"):
             if cur_method != "HEAD":
                 cur_method = "GET"

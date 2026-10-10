@@ -167,12 +167,9 @@ def enabled_source(name: str):
 
 
 def start_job(job_id: str, target, *args, description: str):
-    status = background_jobs.get_status(job_id)
-    if status and status.get("status") in ("running", "queued"):
-        raise ConflictError("A request like this is already running.",
-                            details={"job_id": job_id})
-    if status:
-        background_jobs.clear_job(job_id)
+    # background_jobs.start_job checks for a running or queued entry and
+    # replaces a finished one under its own lock; clearing the old entry
+    # here first could drop another request's run that started in between.
     if not background_jobs.start_job(job_id, target, *args, description=description):
         raise ConflictError("A request like this is already running.",
                             details={"job_id": job_id})
@@ -243,7 +240,7 @@ def _search_job(job_id: str, query: str, names):
 
 def start_search(query, sources=None) -> dict:
     """Starts the fixed-id `sources_search` job. 409 if one is running; a
-    finished one is cleared first. `sources` (names) limits the search to
+    finished one is replaced. `sources` (names) limits the search to
     those enabled sources; unknown names are 404, switched-off ones 400."""
     query = plain_text(query, "The search text", MAX_QUERY_LEN)
     names = None

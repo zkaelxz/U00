@@ -59,6 +59,7 @@ export default function SourceStage() {
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [replace, setReplace] = useState(false)
   // The server says the drama has audio/video even if the status we read did not.
   const [serverHasMedia, setServerHasMedia] = useState(false)
@@ -142,9 +143,11 @@ export default function SourceStage() {
   const confirmReplace = mustConfirm && replace
 
   const upload = () => {
-    if (!file || (mustConfirm && !replace)) return
+    if (!file || uploading || (mustConfirm && !replace)) return
+    setUploading(true)
     uploadMedia(dramaId, file, confirmReplace).then(
       (r) => {
+        setUploading(false)
         setError(null)
         setReplace(false)
         setServerHasMedia(false)
@@ -161,6 +164,7 @@ export default function SourceStage() {
         onJobDone()
       },
       (e: unknown) => {
+        setUploading(false)
         if (needsReplaceConfirm(e)) setServerHasMedia(true)
         setError(e)
       },
@@ -231,10 +235,10 @@ export default function SourceStage() {
           <button
             type="button"
             className={buttonClass('secondary')}
-            disabled={!file || busy || (mustConfirm && !replace)}
+            disabled={!file || busy || uploading || (mustConfirm && !replace)}
             onClick={upload}
           >
-            Upload
+            {uploading ? 'Uploading...' : 'Upload'}
           </button>
           {mustConfirm && (
             <label>
