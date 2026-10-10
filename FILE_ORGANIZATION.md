@@ -71,6 +71,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `ollama_unload.py`
 - `raw_transcript.py`
 - `resegment.py`
+- `segment_splitting.py` (cuts long Whisper segments into subtitle-sized lines on sentence, clause and word-timing boundaries; the stored word times a line keeps)
 - `sensevoice_tags.py`
 - `sensitivity_preset.py`
 - `vad_segments.py`

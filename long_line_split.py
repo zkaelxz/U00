@@ -1,7 +1,7 @@
 """
 long_line_split.py -- the last resort for lines that are too long to read.
 
-core.split_long_segments cuts at sentence ends, then commas, then spaces and
+segment_splitting.split_long_segments cuts at sentence ends, then commas, then spaces and
 real word pauses, and leaves a line whole when none of those exist. A
 streamer VOD run through Qwen or Whisper often yields exactly that: ~100
 characters over 90 seconds with no punctuation and no stored word timings.
@@ -14,21 +14,21 @@ never just says "nothing to do".
 """
 import math
 
-import core
+import segment_splitting
 import resegment
 
 EVEN_SPLIT_NOTE = resegment.EVEN_SPLIT_NOTE
 
 
-def split_long_segments(segments, *, rules=None, min_pause: float = core.MIN_WORD_GAP_SECONDS) -> list:
-    """core.split_long_segments, then an even cut of any piece still over the
+def split_long_segments(segments, *, rules=None, min_pause: float = segment_splitting.MIN_WORD_GAP_SECONDS) -> list:
+    """segment_splitting.split_long_segments, then an even cut of any piece still over the
     character limit. Pieces keep the line's other keys; an evenly cut piece
     drops its words (they no longer line up) and carries the approximate flag."""
-    limit_c = rules.max_chars if rules else core.SPLIT_MAX_CJK_CHARS
-    limit_s = rules.max_seconds if rules else core.SPLIT_MAX_SECONDS
-    count = rules.measure if rules else (lambda t: len(core._CJK_RE.findall(t)))
+    limit_c = rules.max_chars if rules else segment_splitting.SPLIT_MAX_CJK_CHARS
+    limit_s = rules.max_seconds if rules else segment_splitting.SPLIT_MAX_SECONDS
+    count = rules.measure if rules else (lambda t: len(segment_splitting._CJK_RE.findall(t)))
     out = []
-    for piece in core.split_long_segments(segments, rules=rules, min_pause=min_pause):
+    for piece in segment_splitting.split_long_segments(segments, rules=rules, min_pause=min_pause):
         text = piece.get("text") or ""
         if not limit_c or count(text) <= limit_c:
             out.append(piece)
@@ -85,7 +85,7 @@ def nothing_to_split(candidates, cfg, next_hint: str) -> str:
     cut are a different problem from no line being over them. `cfg` is the
     restructure_service._Resplit in use."""
     if cfg.sensitivity == "sentence":
-        bare = sum(not core._SENTENCE_END_RE.search(ln.zh) for ln in candidates)
+        bare = sum(not segment_splitting._SENTENCE_END_RE.search(ln.zh) for ln in candidates)
         if bare:
             return (f"{bare} line{'s' if bare != 1 else ''} with no sentence end (。！？) to cut "
                     "at. Try Normal or More: they also cut at commas and pauses, then evenly.")
@@ -94,9 +94,9 @@ def nothing_to_split(candidates, cfg, next_hint: str) -> str:
         if cfg.too_long(ln):
             stuck += 1
             continue
-        rules = cfg.rules(ln) or core.SplitRules(max_chars=core.SPLIT_MAX_CJK_CHARS,
+        rules = cfg.rules(ln) or segment_splitting.SplitRules(max_chars=segment_splitting.SPLIT_MAX_CJK_CHARS,
                                                  count_latin=False)
-        stuck += core.exceeds_limits({"start": ln.start, "end": ln.end, "text": ln.zh}, rules)
+        stuck += segment_splitting.exceeds_limits({"start": ln.start, "end": ln.end, "text": ln.zh}, rules)
     if stuck:
         return (f"{stuck} line{'s' if stuck != 1 else ''} over the limits at {cfg.label} "
                 "sensitivity, but nothing to cut at: no punctuation and no word pauses.")

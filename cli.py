@@ -62,6 +62,7 @@ import traceback
 
 import audio_preprocess
 import core as core_module
+import segment_splitting
 import db
 import ollama_unload
 import diagnostics
@@ -1509,8 +1510,8 @@ def main():
                               help="VAD: silence that splits speech (300-3000).")
     p_transcribe.add_argument("--min-pause", type=float, default=None,
                               help="Pause (seconds) a long line may be cut at, "
-                                   f"{core_module.MIN_WORD_GAP_SECONDS_MIN:g}-"
-                                   f"{core_module.MIN_WORD_GAP_SECONDS_MAX:g}; saved on the title.")
+                                   f"{segment_splitting.MIN_WORD_GAP_SECONDS_MIN:g}-"
+                                   f"{segment_splitting.MIN_WORD_GAP_SECONDS_MAX:g}; saved on the title.")
     p_transcribe.add_argument("--vad-threshold", type=float, default=None,
                               help="VAD speech threshold (0.1-0.9).")
     p_transcribe.add_argument("--sensitivity", choices=("normal", "sensitive"), default=None,

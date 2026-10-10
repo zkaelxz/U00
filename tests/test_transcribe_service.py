@@ -20,6 +20,7 @@ import pytest
 
 import background_jobs
 import core as core_module
+import segment_splitting
 from services import transcribe_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -1707,7 +1708,7 @@ def test_the_run_uses_the_pause_saved_when_it_started(isolated_db, monkeypatch, 
     segments = [{"start": 0.0, "end": 1.0, "text": "你好"}]
     monkeypatch.setattr(core_module, "transcribe_with_groq",
                         lambda path, lang, key, progress_cb=None: segments)
-    monkeypatch.setattr(core_module, "split_long_segments",
+    monkeypatch.setattr(segment_splitting, "split_long_segments",
                         lambda segs, **kw: seen.append(kw) or segs)
     monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)

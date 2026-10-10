@@ -1114,7 +1114,7 @@ def _migrate_line_columns(conn):
         # source_language, so existing lines keep their meaning.
         _safe_alter(conn, "ALTER TABLE lines ADD COLUMN lang TEXT")
     if "word_timings" not in existing_cols:
-        # core.encode_line_words' payload: the line's Whisper word times, kept
+        # segment_splitting.encode_line_words' payload: the line's Whisper word times, kept
         # so a later re-split cuts at real pauses. Never selected by load_lines
         # unless asked for, so line lists don't read it.
         _safe_alter(conn, "ALTER TABLE lines ADD COLUMN word_timings TEXT")
@@ -4633,7 +4633,7 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
     Each line's stored word timings are read from its row and kept only when
     they were computed for the snapshot's own text (up to
     MAX_SNAPSHOT_WORD_BYTES in all), so a restore brings back real pauses."""
-    from core import words_for_text
+    from segment_splitting import words_for_text
     snapshot = [
         {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
          "zh": ln.zh, "en": ln.en,

@@ -103,8 +103,8 @@ import storage
 import zlib
 
 import background_jobs
-import core
 import db
+import segment_splitting
 import sensitivity_preset
 from db import fsync_dir as _fsync_dir
 from lib.link_new import link_new
@@ -1328,9 +1328,9 @@ def has_table(conn, table: str) -> bool:
 
 
 def _storable_words(value) -> bool:
-    """A line's word timings come in only within the size a transcription
-    stores (a file may be hand-made); their content is checked again on use."""
-    return isinstance(value, str) and len(value) <= core.MAX_STORED_WORD_BYTES
+    """Word timings stay within a transcription's size (a file may be
+    hand-made); their content is rechecked on use."""
+    return isinstance(value, str) and len(value) <= segment_splitting.MAX_STORED_WORD_BYTES
 
 
 def _insert(dst, table: str, row: dict, live_cols) -> int:

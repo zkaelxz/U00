@@ -57,7 +57,7 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
 export const MIN_SILENCE_MS_MIN = 100
 export const MIN_SILENCE_MS_MAX = 3000
 
-// Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in core.py.
+// Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in segment_splitting.py.
 export const MIN_PAUSE_SEC_DEFAULT = 0.35
 export const MIN_PAUSE_SEC_MIN = 0.1
 export const MIN_PAUSE_SEC_MAX = 2.0

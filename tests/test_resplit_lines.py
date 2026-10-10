@@ -10,6 +10,7 @@ import pytest
 import background_jobs
 import db
 import diarize
+import segment_splitting
 from core import Line
 from services import restructure_service as svc
 from services.service_errors import ConflictError, InvalidInputError
@@ -536,12 +537,11 @@ def _reference_cuts(text):
     """The original whole-prefix implementation, kept to prove the bounded and
     incremental one cuts the same places on ordinary text."""
     import re
-    import core
 
     def inside(end):
         head = text[:end]
         return (head.count('"') % 2 == 1
-                or any(head.count(o) > head.count(c) for o, c in core._QUOTE_PAIRS))
+                or any(head.count(o) > head.count(c) for o, c in segment_splitting._QUOTE_PAIRS))
 
     def keep(_t, m):
         if inside(m.end()):
@@ -550,14 +550,14 @@ def _reference_cuts(text):
             return True
         word = re.search(r"(\S+)$", text[:m.start()])
         word = word.group(1).strip("\"'“‘([").lower() if word else ""
-        if (word.rstrip(".") in core._ABBREVIATIONS or word.isdigit()
+        if (word.rstrip(".") in segment_splitting._ABBREVIATIONS or word.isdigit()
                 or re.fullmatch(r"(?:[a-z]\.)+[a-z]", word)):
             return False
         if len(word) == 1 and word != "i":
             return False
         after = text[m.end():m.end() + 1]
-        return not (after.islower() or (after.isdigit() and word in core._NUMBERED_BEFORE_DIGIT))
-    return core._cut_after(text, core._SENTENCE_END_RE, keep)
+        return not (after.islower() or (after.isdigit() and word in segment_splitting._NUMBERED_BEFORE_DIGIT))
+    return segment_splitting._cut_after(text, segment_splitting._SENTENCE_END_RE, keep)
 
 
 EQUIV_TEXTS = [
@@ -573,8 +573,7 @@ EQUIV_TEXTS = [
 
 @pytest.mark.parametrize("text", EQUIV_TEXTS)
 def test_incremental_sentence_cuts_match_the_whole_prefix_version(text):
-    import core
-    assert core._cut_after(text, core._SENTENCE_END_RE, core._sentence_keep()) == _reference_cuts(text)
+    assert segment_splitting._cut_after(text, segment_splitting._SENTENCE_END_RE, segment_splitting._sentence_keep()) == _reference_cuts(text)
 
 
 def _timed(fn, limit=2.0):
@@ -585,9 +584,8 @@ def _timed(fn, limit=2.0):
 
 
 def _sentence_split(text, seconds):
-    import core
-    rules = core.SplitRules(None, None, per_sentence=True)
-    return core.split_long_segments([{"start": 0.0, "end": seconds, "text": text}], rules=rules)
+    rules = segment_splitting.SplitRules(None, None, per_sentence=True)
+    return segment_splitting.split_long_segments([{"start": 0.0, "end": seconds, "text": text}], rules=rules)
 
 
 @pytest.mark.parametrize("n", [100_000, 1_000_000])
@@ -617,12 +615,11 @@ def test_resplit_leaves_a_line_over_the_cap_unsplit_and_says_so():
 
 
 def test_resplit_uses_the_titles_pause(monkeypatch):
-    import core
     did, ids = _seed()
     db.update_drama(did, min_pause_sec=0.8)
     seen = []
-    real = core.split_long_segments
-    monkeypatch.setattr(core, "split_long_segments",
+    real = segment_splitting.split_long_segments
+    monkeypatch.setattr(segment_splitting, "split_long_segments",
                         lambda segs, **kw: seen.append(kw["min_pause"]) or real(segs, **kw))
     svc.resplit_long_lines(did, ids)
     assert seen and set(seen) == {0.8}
