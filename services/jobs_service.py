@@ -461,10 +461,11 @@ def is_stale(record: dict, now: Optional[float] = None) -> bool:
         return False
     if job_store.owner_gone(record):
         return True
-    if job_store.owner_alive_elsewhere(record.get("owner_pid")):
-        return False
+    now = time.time() if now is None else now
     updated = record.get("updated_at") or 0
-    return (time.time() if now is None else now) - updated > STALE_JOB_SECONDS
+    if job_store.owner_alive_elsewhere(record.get("owner_pid"), updated, now):
+        return False
+    return now - updated > STALE_JOB_SECONDS
 
 
 # One entry per background_jobs.DRAMA_JOB_PREFIXES prefix (a test fails when

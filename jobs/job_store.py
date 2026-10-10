@@ -25,6 +25,10 @@ ACTIVE = ("queued", "running")
 _WRITE_TRIES = 3
 _RETRY_DELAY = 0.05
 EXIT_FLUSH_SECONDS = 2.0
+# A paused owner (laptop lid, debugger) wakes within hours and rewrites its
+# row; a server killed without its exit hook never does, and after a reboot
+# Windows may hand its pid to an unrelated process that looks like it.
+STALE_ALIVE_CEILING_SECONDS = 6 * 3600
 # A write under background_jobs._lock waits no longer than this for another
 # process's write lock: every get_status waits on that lock too.
 UNDER_LOCK_BUSY_SECONDS = 0.5
@@ -393,28 +397,34 @@ def close_if_owner_gone(record: dict) -> bool:
                       (record["owner_pid"],))
 
 
-def owner_alive_elsewhere(pid) -> bool:
+def owner_alive_elsewhere(pid, updated_at, now=None) -> bool:
     """True when `pid` (a row's owner_pid) is another process that still
-    runs: its row may be quiet but is not abandoned."""
+    runs and the row was written within STALE_ALIVE_CEILING_SECONDS: its
+    row may be quiet but is not abandoned."""
     import background_jobs as bj
+    now = time.time() if now is None else now
+    if (updated_at or 0) < now - STALE_ALIVE_CEILING_SECONDS:
+        return False
     return pid is not None and pid != os.getpid() and bj.owner_process_alive(pid)
 
 
 def close_stale(job_id: str, cutoff: float) -> bool:
     """Closes the row as interrupted only if its owner has not written or
-    heartbeated since `cutoff` and is not a live process. A paused owner
-    (laptop lid, debugger, a long GC) stops heartbeating but rewrites the
-    row when it wakes, which would flip a closed row back to running; only
-    a row with no owner_pid is judged by heartbeat age alone."""
+    heartbeated since `cutoff` and is not a live process (owner_alive_elsewhere).
+    A paused owner (laptop lid, debugger, a long GC) stops heartbeating but
+    rewrites the row when it wakes, which would flip a closed row back to
+    running; only a row with no owner_pid, or one quiet past the ceiling, is
+    judged by heartbeat age alone."""
     with contextlib.closing(db.get_conn()) as conn:
-        row = conn.execute("SELECT owner_pid FROM job_records WHERE job_id = ?",
+        row = conn.execute("SELECT owner_pid, updated_at FROM job_records WHERE job_id = ?",
                            (job_id,)).fetchone()
     if row is None:
         return False
-    pid = row[0]
-    if owner_alive_elsewhere(pid):
+    pid, updated_at = row
+    if owner_alive_elsewhere(pid, updated_at):
         return False
-    # The pid read above must still be the row's owner when it is closed.
+    # The pid read above must still be the row's owner, and any write since
+    # the read moves updated_at past `cutoff`, so a woken owner always wins.
     return _close_one(job_id, "COALESCE(updated_at, 0) < ? AND owner_pid IS ?", (cutoff, pid))
 
 

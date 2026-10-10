@@ -298,6 +298,28 @@ class TestRowsOfGoneOwners:
             other.wait(timeout=10)
         assert db.get_job_record("st_dead")["detail_state"] == "interrupted"
 
+    def test_a_live_pid_protects_a_quiet_row_only_up_to_the_ceiling(self, isolated_db):
+        """After a hard kill and reboot an unrelated process can hold the dead
+        server's pid; past the ceiling the row must close anyway."""
+        from services import jobs_service
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            ages = {"st_reused": job_store.STALE_ALIVE_CEILING_SECONDS + 60,
+                    "st_napping": bg.STALE_JOB_SECONDS + 60}
+            for job_id, age in ages.items():
+                db.save_job_record(job_id, "running", owner_pid=other.pid)
+                _set_row(job_id, owner_instance="another-server", updated_at=time.time() - age)
+            assert jobs_service.is_stale(db.get_job_record("st_reused")) is True
+            assert jobs_service.is_stale(db.get_job_record("st_napping")) is False
+            cutoff = time.time() - bg.STALE_JOB_SECONDS
+            assert job_store.close_stale("st_napping", cutoff) is False
+            assert job_store.close_stale("st_reused", cutoff) is True
+        finally:
+            other.kill()
+            other.wait(timeout=10)
+        assert db.get_job_record("st_napping")["status"] == "running"
+        assert db.get_job_record("st_reused")["detail_state"] == "interrupted"
+
     def test_my_own_row_with_a_write_still_pending_is_not_closed(self, isolated_db):
         """A job cleared from memory while its last write is owed: the row
         is this process's to write, not an earlier server's to close."""

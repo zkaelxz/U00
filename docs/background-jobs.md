@@ -141,7 +141,9 @@ same id starts. The protections:
   `owner_process_alive`), or when `updated_at` is older than `STALE_JOB_SECONDS` (15 min)
   and its owner pid is not another live process (`job_store.owner_alive_elsewhere`): a
   paused owner (laptop lid, debugger) rewrites its row when it wakes, so heartbeat age
-  alone closes only a row with no `owner_pid`.
+  alone closes only a row with no `owner_pid`. That protection lasts
+  `STALE_ALIVE_CEILING_SECONDS` (6 h): a row quiet for longer closes even though its
+  pid is alive, because after a hard kill and reboot Windows can reuse the dead server's pid.
   `jobs_service.is_stale` and the sweep skip any job live in this process. Each close
   is one conditional `UPDATE` (`job_store.close_if_owner_gone`, `job_store.close_stale`),
   so a live owner's heartbeat, `done` or new run always wins.
