@@ -18,7 +18,7 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
     return route.abort()
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   for (const title of [...CARDS, ...SECTIONS]) {
     let s = page.getByRole('region', { name: title, exact: true })
     if (SECTIONS.includes(title)) {
