@@ -27,17 +27,15 @@ No FastAPI import: plain dicts in, plain dicts out.
 """
 import math
 import os
-import time
 import socket  # noqa: F401  (tests patch metadata_service.socket.getaddrinfo)
 from typing import Optional
-from urllib.parse import urljoin, urlsplit
 
 import db
 import media_inspect
 import metadata_lookup
 import translate_engines
 from services import drama_service, settings_service
-from lib import url_guard
+from lib import http, url_guard
 from services.service_errors import (
     DependencyUnavailableError,
     InvalidInputError,
@@ -161,92 +159,27 @@ def check_public_url(url: str) -> str:
         raise InvalidInputError(_BAD_URL) from None
 
 
-def pinned_get(url: str, ip: str, headers: dict, timeout: float = FETCH_TIMEOUT):
-    """GET url connecting to the validated ip, not a fresh DNS lookup."""
-    import requests
-    from requests.adapters import HTTPAdapter
-
-    parts = urlsplit(url)
-    host = parts.hostname
-
-    class _PinnedAdapter(HTTPAdapter):
-        def init_poolmanager(self, *args, **kwargs):
-            if parts.scheme == "https":  # SNI + cert check against the real name
-                kwargs["server_hostname"] = host
-                kwargs["assert_hostname"] = host
-            super().init_poolmanager(*args, **kwargs)
-
-        def send(self, request, **kw):
-            p = urlsplit(request.url)
-            ip_host = f"[{ip}]" if ":" in ip else ip
-            netloc = ip_host + (f":{p.port}" if p.port else "")
-            request.url = p._replace(netloc=netloc).geturl()
-            request.headers["Host"] = p.netloc
-            return super().send(request, **kw)
-
-    session = requests.Session()
-    session.trust_env = False  # a proxy would re-resolve the hostname itself
-    session.mount(f"{parts.scheme}://", _PinnedAdapter())
-    return session.get(url, headers=headers, timeout=timeout,
-                       allow_redirects=False, stream=True)
-
-
-def _read_body(resp, max_bytes: int, deadline: float = None) -> bytes:
-    """At most max_bytes of the body, stopping at the wall-clock deadline
-    (FETCH_DEADLINE seconds from now by default)."""
-    if deadline is None:
-        deadline = time.monotonic() + FETCH_DEADLINE
-    chunks, total = [], 0
-    while total < max_bytes:
-        if time.monotonic() > deadline:
-            raise DependencyUnavailableError(_FETCH_FAILED)
-        chunk = resp.raw.read(min(65_536, max_bytes - total), decode_content=True)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total += len(chunk)
-    return b"".join(chunks)
-
-
 def _fetch_page_text(url: str) -> str:
     try:
-        import requests  # noqa: F401  (availability check; used by _pinned_get)
         from bs4 import BeautifulSoup
     except ImportError as e:
         raise DependencyUnavailableError("Fetching pages needs requests and beautifulsoup4 "
                                          "installed.") from e
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
-    current = url
-    deadline = time.monotonic() + FETCH_DEADLINE
     try:
-        for _ in range(MAX_REDIRECTS + 1):
-            if time.monotonic() > deadline:
-                raise DependencyUnavailableError(_FETCH_FAILED)
-            ip = check_public_url(current)
-            resp = pinned_get(current, ip, headers)
-            try:
-                if resp.status_code in (301, 302, 303, 307, 308):
-                    location = resp.headers.get("Location")
-                    if not location:
-                        raise DependencyUnavailableError(_FETCH_FAILED)
-                    current = urljoin(current, location)
-                    continue
-                resp.raise_for_status()
-                raw = _read_body(resp, MAX_FETCH_BYTES + 1, deadline)
-                encoding = resp.encoding or "utf-8"
-            finally:
-                resp.close()
-            html = raw[:MAX_FETCH_BYTES].decode(encoding, errors="replace")
-            soup = BeautifulSoup(html, "html.parser")
-            for tag in soup(["script", "style", "noscript"]):
-                tag.decompose()
-            return "\n".join(ln.strip() for ln in soup.get_text("\n").splitlines()
-                             if ln.strip())[:MAX_PAGE_TEXT_CHARS]
-    except (InvalidInputError, DependencyUnavailableError):
-        raise
-    except Exception as e:
-        raise DependencyUnavailableError(_FETCH_FAILED) from e
-    raise DependencyUnavailableError(_FETCH_FAILED)  # too many redirects
+        resp = http.get(url, timeout=FETCH_TIMEOUT, max_bytes=MAX_FETCH_BYTES, truncate=True,
+                        deadline=FETCH_DEADLINE, guard=check_public_url,
+                        max_redirects=MAX_REDIRECTS,
+                        headers={"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"})
+        if not resp.ok:
+            raise http.FetchError()
+    except http.FetchError:
+        raise DependencyUnavailableError(_FETCH_FAILED) from None
+    soup = BeautifulSoup(resp.body.decode(resp.encoding, errors="replace"),
+                         "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    return "\n".join(ln.strip() for ln in soup.get_text("\n").splitlines()
+                     if ln.strip())[:MAX_PAGE_TEXT_CHARS]
 
 
 def _api_key(engine_name: str) -> Optional[str]:

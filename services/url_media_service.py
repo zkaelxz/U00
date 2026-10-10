@@ -204,6 +204,7 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     refused), so the cancel and wall-clock checks run after every raw chunk
     and every decode step, and both raw and decoded bytes count against the
     cap (security review M-1). Fixed-text errors only."""
+    from lib import http
     from services import metadata_service as ms
     from sources import http as shttp
     limit = media_upload_service.max_upload_bytes()
@@ -212,7 +213,7 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     for _ in range(MAX_DIRECT_REDIRECTS + 1):
         try:
             ip = ms.check_public_url(current)
-            resp = ms.pinned_get(current, ip, _DIRECT_HEADERS)
+            resp = http.pinned_get(current, ip, _DIRECT_HEADERS)
         except Exception:
             raise RuntimeError(_FAILED) from None
         try:

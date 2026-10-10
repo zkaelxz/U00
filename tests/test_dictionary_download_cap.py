@@ -5,20 +5,28 @@ import io
 import pytest
 
 import dictionary
+from lib import http
 
 
-class _Resp(io.BytesIO):
-    def __enter__(self):
-        return self
+class _Resp:
+    status_code = 200
+    headers = {}
+    encoding = None
 
-    def __exit__(self, *a):
-        self.close()
+    def __init__(self, payload):
+        self._buf = io.BytesIO(payload)
+
+    def iter_content(self, size):
+        while chunk := self._buf.read(size):
+            yield chunk
+
+    def close(self):
+        self._buf.close()
 
 
 def _install(monkeypatch, tmp_path, payload):
     monkeypatch.setattr(dictionary, "CEDICT_PATH", str(tmp_path / "cedict.txt"))
-    monkeypatch.setattr(dictionary.urllib.request, "urlopen",
-                        lambda url, timeout=None: _Resp(payload))
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: _Resp(payload))
 
 
 def test_an_oversized_download_is_refused(monkeypatch, tmp_path):

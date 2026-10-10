@@ -27,7 +27,10 @@ def _find_requests_calls_missing_timeout(path, session_verbs=False):
     `urlopen`), so ordinary `dict.get` / router `.post` decorators aren't.
     With `session_verbs=True` (used for services/), `session.<verb>` and
     `<name>.<verb>` on a name assigned from `requests.Session()` are
-    checked too."""
+    checked too.
+
+    Retired when no raw `requests`/`httpx`/`urlopen` call remains outside
+    `lib/http.py` and `engine_backends/` (lib.http always passes timeout=)."""
     tree = ast.parse(open(path, encoding="utf-8").read(), path)
     problems = []
     session_names = set()
