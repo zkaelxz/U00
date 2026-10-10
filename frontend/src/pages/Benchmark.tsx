@@ -17,6 +17,7 @@ import { cancelJob } from '../api/jobs'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { HelpTip } from '../components/HelpTip'
 import { buttonClass } from '../components/uiClasses'
 import { useJob, useJobRun } from '../hooks/useJob'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -29,7 +30,7 @@ import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
 import { ReevalCard } from './benchmark/ReevalCard'
 import { RunCard } from './benchmark/RunCard'
 import { RunsCard } from './benchmark/RunsCard'
-import { BENCH_INTRO } from './benchmark/benchmarkHelp'
+import { BENCH_INTRO, BENCH_PAGE_HELP } from './benchmark/benchmarkHelp'
 import { isRunActive } from './benchmark/benchmarkForm'
 import './benchmark/benchmark.css'
 
@@ -86,7 +87,16 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
     <section className="bench-page" aria-label="Benchmark Lab">
       <header className="page-head">
         <div className="page-head-text">
-          <h2 className="page-title">Benchmark Lab</h2>
+          <h2 className="page-title">
+            Benchmark Lab
+            <HelpTip label="Benchmark Lab" id="bench-page-help" className="bench-help">
+              {BENCH_PAGE_HELP.map((line, i) => (
+                <span key={line} className="bench-help-step">
+                  {i + 1}. {line}
+                </span>
+              ))}
+            </HelpTip>
+          </h2>
           <p className="page-meta pill-row">
             {options ? (
               <>

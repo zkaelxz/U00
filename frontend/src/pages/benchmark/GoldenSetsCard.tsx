@@ -14,6 +14,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { BenchSection } from './BenchSection'
+import { BuildSetSection } from './BuildSetSection'
 import { TIER_HELP, TIER_LABELS, plainError, setDisplayName, stageLabel, tierLabel, tierTone } from './benchmarkForm'
 
 type Props = {
@@ -91,6 +92,7 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
 
       {shown && <CasesPanel key={setKey(shown)} set={shown} pc={pc} onChanged={onChanged} onClose={() => setOpenSet(null)} />}
 
+      <BuildSetSection pc={pc} onDone={onChanged} />
       <ImportSection options={options} pc={pc} onDone={onChanged} />
       <AddCaseSection options={options} pc={pc} onDone={onChanged} />
     </BenchSection>

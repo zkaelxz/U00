@@ -177,7 +177,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `auto_backup_service.py`
 - `backup_import_service.py`
 - `benchmark_case_service.py`
+- `benchmark_judge_service.py`
 - `benchmark_lab_service.py`
+- `benchmark_set_builder_service.py`
 - `blocked_retry_service.py`
 - `browser_install_service.py`
 - `bug_report_service.py`
@@ -310,7 +312,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `benchmark.py`, `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
