@@ -352,6 +352,7 @@ Routes in `api/routers/jobs_routes.py`, logic in `services/jobs_service.py`:
 | `GET /api/jobs` | `library.read` | every visible `job_records` row, newest started first (sweeps stale rows first) |
 | `GET /api/jobs/{id}` | `library.read` | one record |
 | `POST /api/jobs/{id}/cancel` | `jobs.cancel` | `cancel_job`: 404 unknown or not visible, 409 already finished, else `{cancel_requested, status}`; asynchronous |
+| `POST /api/jobs/{id}/force-stop` | `jobs.cancel` | `force_stop_job`: 404 unknown or not visible, 409 unless a thread job has been Cancelling for over a minute, else closes the record as `cancelled` and returns `{force_stopped, status, worker_still_running}`; the thread itself cannot be killed |
 | `POST /api/jobs/{id}/delete` | `local_only()` | removes one finished record (needs `confirm=true`; 409 if still active) |
 | `POST /api/jobs/clear-finished` | `local_only()` | removes every finished record (needs `confirm=true`) |
 
