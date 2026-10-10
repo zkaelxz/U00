@@ -112,7 +112,7 @@ NVIDIA's multilingual Canary-1B-v2 and Parakeet-TDT-0.6B-v3 cover European langu
   | 960 ms | 4.34 | 6.80 | 14.90 | 8.99 |
   | 2400 ms | 4.05 | 5.50 | 14.30 | 8.48 |
 
-  The same paper reports offline Whisper at ja 4.97, ko 14.30, zh 7.94. At 960 ms and above, Voxtral Realtime beats ElevenLabs Scribe v2 Realtime (zh 16.82, ko 11.90) on zh, and GPT-4o-mini-transcribe (zh 15.43, ko 19.46) on zh and ko. The paper does not state hardware or VRAM. — [Voxtral Realtime, arXiv 2602.11298](https://arxiv.org/html/2602.11298v2); delay "configurable down to sub-200ms" and a roughly 2.4 s setting suited to subtitling, per [Mistral announcement](https://mistral.ai/news/voxtral-transcribe-2)
+  The same paper reports offline Whisper at ja 4.97, ko 14.30, zh 7.94. At 960 ms and above, Voxtral Realtime beats the commercial Scribe v2 Realtime (zh 16.82, ko 11.90) on zh, and GPT-4o-mini-transcribe (zh 15.43, ko 19.46) on zh and ko. The paper does not state hardware or VRAM. — [Voxtral Realtime, arXiv 2602.11298](https://arxiv.org/html/2602.11298v2); delay "configurable down to sub-200ms" and a roughly 2.4 s setting suited to subtitling, per [Mistral announcement](https://mistral.ai/news/voxtral-transcribe-2)
 - **NVIDIA Canary-1B-v2 and Parakeet-TDT-0.6B-v3:** both cover 25 European languages only, so no zh/ja/ko. — [arXiv 2509.14128](https://arxiv.org/pdf/2509.14128); WhisperLiveKit also lists "Canary: 25 European languages" ([README](https://github.com/QuentinFuxa/WhisperLiveKit)). Canary's licence is CC-BY-4.0 (same README).
 - **Japanese models, measured (third party, 2026-09-01, one L40S, FLEURS ja):**
 

@@ -202,7 +202,7 @@ llm-subtrans documents the most explicit batching and terminology controls. Vide
 - **Licence conflict.** The README says MIT, but GitHub reports NOASSERTION. — [README](https://github.com/machinewrapped/llm-subtrans)
 
 **VideoLingo (Apache-2.0)**
-- **ASR.** The local default is now Qwen3-ASR plus Qwen3-ForcedAligner for word-level recognition and alignment. WhisperX is optional and requires a manual install. ElevenLabs and MAI-Transcribe-2 are cloud options. — [README](https://github.com/Huanshere/VideoLingo)
+- **ASR.** The local default is now Qwen3-ASR plus Qwen3-ForcedAligner for word-level recognition and alignment. WhisperX is optional and requires a manual install. MAI-Transcribe-2 and other hosted services are cloud options. — [README](https://github.com/Huanshere/VideoLingo)
 - **Pipeline.** NLP and AI segmentation with configurable length limits, "Custom + AI-generated terminology" (custom_terms.xlsx), and "direct translation with optional reflection and natural rewriting". — [README](https://github.com/Huanshere/VideoLingo)
 - **Dubbing.** GPT-SoVITS, CosyVoice2, F5-TTS, Fish Audio, Edge TTS and others. — [README](https://github.com/Huanshere/VideoLingo)
 - **Stated limits.**
