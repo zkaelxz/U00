@@ -86,6 +86,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**
 
 - `auto_qc.py`
+- `bulk_providers.py`
 - `bulk_translate.py`
 - `emotion.py`
 - `en_cleanup.py`
@@ -108,6 +109,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `dub.py`
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
 - `media_inspect.py`
+- `review_thresholds.py`
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
 - `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
@@ -175,6 +177,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `assistant_roles_service.py`
 - `auth_service.py`
 - `auto_backup_service.py`
+- `autotune_service.py` (the "Auto-tune" speech-splitting sensitivity process job: start, status, apply a measured candidate)
 - `backup_import_service.py`
 - `benchmark_case_service.py`
 - `benchmark_lab_service.py`
@@ -198,6 +201,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `disk_usage_clips_service.py`
 - `disk_usage_links.py`
 - `disk_usage_service.py`
+- `disk_usage_trash_service.py` (Trash list, Restore, purge and empty)
 - `temp_cleanup_service.py`
 - `drama_service.py`
 - `dub_service.py`

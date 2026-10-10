@@ -7,12 +7,13 @@ import type { AdminUser, AuditEvent } from '../../types/adminUsers'
 
 export function holds(s: SessionState, permission: string): boolean {
   if (s.status === 'loading') return false
-  if (s.status === 'unavailable') return true
+  // Unknown session: render as before sign-in existed (routes still enforce),
+  // except admin controls, which would otherwise light up for every member.
+  if (s.status === 'unavailable') return !permission.startsWith('admin.')
   return s.me.permissions.includes(permission)
 }
 
-/** Show the sections? Only to a caller holding admin.users.read. If /me is
- * unavailable the page renders as before sign-in existed (routes still enforce). */
+/** Show the sections? Only to a caller holding admin.users.read; not while /me is unavailable. */
 export function canViewUsers(s: SessionState): boolean {
   return holds(s, 'admin.users.read')
 }
