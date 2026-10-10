@@ -47,6 +47,12 @@ describe('setup rows', () => {
     if (!pkg) expect(rows.find((r) => r.key === 'playwright')?.text).toContain('no browser download is needed')
   })
 
+  it.each([[null], [undefined]])('shows no Playwright row when the package state is unknown (%s)', (pkg) => {
+    const rows = setupRows(checks({ browser: { found: true, name: 'Chrome', package: pkg } }), gpu)
+    expect(rows.map((r) => r.key)).not.toContain('playwright')
+    expect(rows.some((r) => r.problem)).toBe(false)
+  })
+
   it('reads "Label: value" when everything is fine', () => {
     const rows = setupRows(checks(), gpu)
     expect(rows.map((r) => r.text)).toEqual([

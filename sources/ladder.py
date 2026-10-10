@@ -239,7 +239,7 @@ def _refused_address(url: str):
     "unresolved" when the name doesn't resolve here: the static tier may
     still run and fail normally, but the browser tiers are dropped (with
     split-horizon DNS Chromium could resolve it to a private IP)."""
-    from services import url_guard
+    from lib import url_guard
     try:
         url_guard.resolve_public(ascii_url(url))
     except (url_guard.UnsafeURLError, UnsafeRedirect):

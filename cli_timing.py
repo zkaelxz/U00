@@ -14,7 +14,7 @@ import sys
 import background_jobs
 import translate_engines
 from services import timing_check_service
-from services.service_errors import ServiceError
+from lib.errors import ServiceError
 
 
 def _report(label: str, result: dict) -> None:

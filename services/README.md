@@ -1,12 +1,12 @@
 # services/
 
 UI-free application logic shared by `api/routers/` and `cli.py`. Mostly
-`<area>_service.py`; a few helpers have other names (`safe_fetch.py`,
-`url_guard.py`, `egress_proxy.py`, `capped_body.py`, `service_errors.py`).
+`<area>_service.py`; a few helpers have other names (`safe_fetch.py`, `egress_proxy.py`).
+Domain-free helpers (`errors.py`, `url_guard.py`, `capped_body.py`) live in `lib/`.
 
 ## Start here
 - `python tools/repo_map.py services` (two parts) then `python tools/repo_map.py services/<name>`.
-- `service_errors.py`: the only errors to raise (`InvalidInputError`, `NotFoundError`,
+- `lib/errors.py` (also importable as `services.service_errors`): the only errors to raise (`InvalidInputError`, `NotFoundError`,
   `ConflictError`, `ForbiddenError`, `DependencyUnavailableError`, ...).
 - `ownership_service.py`: who may see or change a drama or series.
 - `drama_service.py`: example of whitelisting client-chosen keys before `db.update_drama`.
@@ -19,7 +19,7 @@ UI-free application logic shared by `api/routers/` and `cli.py`. Mostly
 - Jobs write only their own fields: `db.save_lines(drama_id, lines, fields=("en",))`;
   build Lines with `core.line_from_row`.
 - Every HTTP call has `timeout=` (enforced for all of `services/`). Fetch user-given
-  URLs through `safe_fetch.py` / `url_guard.py`.
+  URLs through `safe_fetch.py` / `lib/url_guard.py`.
 - Pass error text through `translate_engines.redact_secrets` before storing or returning it.
 - CLI and app must match: if `cli.py` uses the same setting, check it too.
 

@@ -8,12 +8,14 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import { useLoad } from '../../hooks/useLoad'
 import type { PcMode } from '../../hooks/usePcOnly'
+import { PreflightCard } from '../preflight/PreflightCard'
 import { GET_STARTED_STEPS, initialTranslator, translatorOptions } from './getStartedLogic'
 
 // The first-run card on an empty Library: the pipeline in five lines and a
 // choice of translator. A key is never typed here (Settings holds that form).
 export function GetStarted({ pc, onNew, onDismiss }: { pc: PcMode; onNew: () => void; onDismiss: () => void }) {
-  const engines = useLoad(translateApi.engineList, 0)
+  const [reload, setReload] = useState(0)
+  const engines = useLoad(translateApi.engineList, reload)
   const [picked, setPicked] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -69,9 +71,14 @@ export function GetStarted({ pc, onNew, onDismiss }: { pc: PcMode; onNew: () => 
           </label>
         ))}
         {chosen && !chosen.ready && (
-          <p className="muted" data-testid="translator-needs-key">
-            {chosen.label} can't run until a key is added. <a href="#/settings">Add it in Settings</a>.
-          </p>
+          <>
+            <p className="muted" data-testid="translator-needs-key">{chosen.label} can't run until a key is added.</p>
+            <PreflightCard
+              needs={['key']} engine={current}
+              onReady={(ok) => ok && setReload((n) => n + 1)}
+              onUseEngine={(name) => { setPicked(name); setSaved(null) }}
+            />
+          </>
         )}
         {chosen && (pc === 'remote'
           ? <p className="muted">Changing the translator is PC only.</p>

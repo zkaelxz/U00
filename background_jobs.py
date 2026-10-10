@@ -35,7 +35,7 @@ import traceback
 
 import gpu_probe
 import job_force_stop
-from job_process_kill import _kill_worker_group, _stop_process, kill_tree  # noqa: F401
+from job_process_kill import _kill_worker_group, _stop_process, kill_tree, reap_worker  # noqa: F401
 
 _jobs = {}
 
@@ -943,7 +943,7 @@ def _refuse_if_stopping_locked(job_id):
     """Caller holds _lock."""
     job_force_stop.refuse_if_abandoned_locked(job_id)
     if _stopping:
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         raise ConflictError(STOPPING_MESSAGE)
 
 
@@ -1331,6 +1331,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     logger = applog.get_logger()
     _timing = _timing_start(job_id, thread_job=False)
     stage = {}
+    reaped = False
     try:
         outcome = None
         while True:
@@ -1395,6 +1396,9 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 outcome = item
         if stage.get("ticker") is not None:
             stage.pop("ticker").stop()
+        # Before the job's final status: "done" must mean the worker is gone.
+        reap_worker(proc, kill_whole_tree)
+        reaped = True
         hook_error = None
         result = outcome[1] if outcome and outcome[0] == "ok" else None
         if outcome and outcome[0] == "ok" and on_done is not None:
@@ -1484,23 +1488,11 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     finally:
         if stage.get("ticker") is not None:
             stage.pop("ticker").stop()
-        # Reap the child (no zombie) and close the queue's pipe fds.
-        try:
-            proc.join(timeout=5)
-            # A worker that sent its result but has not exited (stuck in
-            # interpreter or CUDA teardown, or waiting on a child it started)
-            # still holds VRAM and its temp files: end it before the GPU
-            # slot and the finish hook are released. On POSIX its group is
-            # killed even once the worker itself is gone (stopped after a
-            # watcher failure, or crashed): an ffmpeg it started may still
-            # be writing into the folder on_finish removes.
-            if kill_whole_tree and os.name != "nt":
-                _kill_worker_group(proc)
-            if kill_whole_tree and proc.is_alive():
-                kill_tree(proc)
-                proc.join(timeout=5)
-        except Exception:
-            pass
+        # The cancel and watcher-failure paths get here unreaped: no zombie,
+        # and the worker is ended before the GPU slot and finish hook are
+        # released. Then close the queue's pipe fds.
+        if not reaped:
+            reap_worker(proc, kill_whole_tree)
         try:
             result_queue.close()
         except Exception:
