@@ -48,6 +48,7 @@ import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
+import { useNovelFilesVersion } from './novelFileEvents'
 import { SpeechCoverage } from './SpeechCoverage'
 import { TranscriptModePicker } from './SourceModes'
 import { mediaFileInputId, needsReplaceConfirm } from './stageBlockers'
@@ -108,6 +109,8 @@ interface Props {
   // The server refused the upload until replacing is confirmed.
   onReplaceRefused: () => void
   busy: boolean
+  // False when the raw-novel upload is not shown here (no novel on this title).
+  showRawNovel?: boolean
   // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
   // sentFile: the run was started by uploading `file`.
   onJobStarted: (jobId: string, expectedSeconds?: number | null, sentFile?: boolean) => void
@@ -168,7 +171,7 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
 })
 
 export default function TranscribeStage({
-  mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, onJobStarted, retryRef,
+  mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, showRawNovel = true, onJobStarted, retryRef,
 }: Props) {
   const { dramaId, drama } = useStage()
   const developerMode = useDeveloperMode()
@@ -300,6 +303,13 @@ export default function TranscribeStage({
       () => undefined,
     )
   }
+
+  // A raw novel saved from the Source stage's optional novel row changes the prompt too.
+  const novelFilesVersion = useNovelFilesVersion()
+  useEffect(() => {
+    if (novelFilesVersion > 0 && !showRawNovel) reloadAutoPrompt()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [novelFilesVersion])
 
   // Open the folded sections around the flagged field and bring it into view.
   useEffect(() => {
@@ -786,7 +796,7 @@ export default function TranscribeStage({
           </>}
         </Section>
       <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} autoCheck={checkAfterRun} onAutoChecked={() => setCheckAfterRun(false)} />
-      <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
+      {showRawNovel && <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />}
     </section>
   )
 }
