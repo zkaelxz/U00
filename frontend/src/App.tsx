@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import type { AuthUser } from './api/auth'
+import { loginHref, type AuthUser } from './api/auth'
 import { api } from './api/client'
 import { useMediaQuery } from './hooks/useMediaQuery'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { JobsProvider } from './hooks/JobsProvider'
-import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
+import { canSignOut, gateView, menuUser, recheckSession, sessionExpired, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AdminPage from './pages/Admin'
 import AssistantPage from './pages/Assistant'
@@ -58,11 +58,12 @@ function ApiStatus() {
 }
 
 // Signed in with auth on: the account and "Sign out". Absent with auth off.
-function UserMenu({ user }: { user: AuthUser }) {
+// With /me unavailable the user is unknown, but Sign out stays reachable.
+function UserMenu({ user }: { user: AuthUser | null }) {
   const ref = useDetailsMenu()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const label = user.email ?? user.display_name ?? 'Signed in'
+  const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
 
   async function onSignOut() {
     setBusy(true)
@@ -81,8 +82,14 @@ function UserMenu({ user }: { user: AuthUser }) {
         <span className="user-menu-email">{label}</span>
       </summary>
       <div className="user-menu-panel">
-        <p className="muted">Signed in as</p>
-        <p className="user-menu-email" data-testid="user-email">{label}</p>
+        {user ? (
+          <>
+            <p className="muted">Signed in as</p>
+            <p className="user-menu-email" data-testid="user-email">{label}</p>
+          </>
+        ) : (
+          <p className="muted">Can't check who is signed in right now.</p>
+        )}
         <button type="button" onClick={onSignOut} disabled={busy}>
           {busy ? 'Signing out…' : 'Sign out'}
         </button>
@@ -93,6 +100,45 @@ function UserMenu({ user }: { user: AuthUser }) {
         )}
       </div>
     </details>
+  )
+}
+
+// A 401 after the app was on screen. Signing in here in a new tab keeps this
+// tab's unsaved drafts; a same-tab redirect to Google would unload them.
+function SignInOverlay({ configured }: { configured: boolean }) {
+  const ref = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    // A modal dialog, so it sits in the top layer above any open Sheet and makes the app beneath inert.
+    const d = ref.current
+    if (d && !d.open) {
+      if (typeof d.showModal === 'function') d.showModal()
+      else d.setAttribute('open', '')
+    }
+    const onFocus = () => void recheckSession()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+  const returnTo = `${window.location.pathname}${window.location.hash}`
+
+  return (
+    <dialog ref={ref} className="signin-overlay" aria-labelledby="signin-overlay-title" onCancel={(e) => e.preventDefault()}>
+      <section className="panel login-card">
+        <h2 id="signin-overlay-title">You've been signed out</h2>
+        {configured ? (
+          <>
+            <p className="muted">Your unsaved work is still here. Sign in in a new tab, then come back to this one.</p>
+            <a className="login-button" href={loginHref(returnTo)} target="_blank" rel="noopener noreferrer">
+              Sign in with Google (new tab)
+            </a>
+          </>
+        ) : (
+          <p className="muted">Sign-in isn't set up on the PC yet. Your unsaved work is still here.</p>
+        )}
+        <button type="button" onClick={() => void recheckSession()}>
+          I've signed in
+        </button>
+      </section>
+    </dialog>
   )
 }
 
@@ -125,9 +171,9 @@ export default function App() {
       </p>
     )
   }
-  if (view === 'login') {
-    return <LoginPage configured={session.status !== 'ready' || session.me.sign_in_configured} />
-  }
+  const signInConfigured = session.status !== 'ready' || session.me.sign_in_configured
+  const signedOut = sessionExpired(session)
+  if (view === 'login' && !signedOut) return <LoginPage configured={signInConfigured} />
   const user = menuUser(session)
   const navContext = { session, pcMode, developerMode, hidden }
 
@@ -139,7 +185,7 @@ export default function App() {
       <ReportProblemButton />
       <ThemeMenu />
       <ApiStatus />
-      {user && <UserMenu user={user} />}
+      {canSignOut(session) && <UserMenu user={user} />}
     </div>
   )
 
@@ -183,6 +229,7 @@ export default function App() {
   // One tree at every width, so crossing 1024px keeps the open page (and a playing video) mounted.
   return (
     <JobsProvider>
+      {signedOut && <SignInOverlay configured={signInConfigured} />}
       <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
         {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={toggleRail} />}
         <div className="app-main" data-width={WIDE_ROUTES.has(route.name) ? 'wide' : undefined}>

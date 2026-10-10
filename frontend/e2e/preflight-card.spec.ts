@@ -70,3 +70,16 @@ test('a key is added inline in Make subtitles', async ({ page }) => {
   await expect.poll(() => posts.length).toBe(1)
   await expect(card(page).getByText('not-a-real-key')).toHaveCount(0)
 })
+
+test('a saved key the server does not pick up keeps the form open with the warning', async ({ page }) => {
+  await mockFirstRun(page)
+  await page.route('**/api/settings/keys/claude', (r) => r.fulfill({ json: { engine: 'claude', configured: false } }))
+  await page.route('**/api/diagnostics/**', (r) => r.fulfill({ status: 403, json: { code: 'forbidden', message: 'no' } }))
+  await page.goto('/')
+  await card(page).getByRole('button', { name: 'Add key' }).click()
+  await card(page).getByRole('textbox', { name: 'Claude key' }).fill('not-a-real-key')
+  await card(page).getByRole('button', { name: 'Save key' }).click()
+  await card(page).getByRole('button', { name: /Confirm: save/ }).click()
+  await expect(card(page).getByRole('status').filter({ hasText: 'Saved, but the key is not being picked up.' })).toBeVisible()
+  await expect(card(page).getByRole('textbox', { name: 'Claude key' })).toBeVisible()
+})
