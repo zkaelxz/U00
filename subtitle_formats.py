@@ -21,6 +21,7 @@ import copy
 import html
 import re
 
+import review_thresholds
 from core import notes_suffix, sfx_cue_text
 
 # ---------------------------------------------------------------- wrapping
@@ -145,6 +146,12 @@ READING_SPEED_MODES = ("normal", "relaxed", "off")
 DEFAULT_READING_SPEED_MODE = "normal"
 RELAXED_CPS_LIMITS = {"cjk": 9.0, "abugida_rtl": 10.0, "latin": 12.0}
 RELAXED_DEFAULT_CPS_LIMIT = 10.5
+# Streamer speech runs near 17 characters/second in English, above even the
+# relaxed table, and cues can't be lengthened past the audio. Flags only the
+# extremes: the relaxed limits raised by another 50%.
+STREAMER_MODE = "streamer"
+STREAMER_CPS_LIMITS = {k: v * 1.5 for k, v in RELAXED_CPS_LIMITS.items()}
+STREAMER_DEFAULT_CPS_LIMIT = RELAXED_DEFAULT_CPS_LIMIT * 1.5
 
 # A cue shorter than this, or with less text than this, is never flagged: a
 # few words are read almost at a glance whatever the ratio says, and such a
@@ -179,14 +186,27 @@ def reading_speed_mode_of(drama) -> str:
     return mode if mode in READING_SPEED_MODES else DEFAULT_READING_SPEED_MODE
 
 
+def flagging_mode_of(drama) -> str:
+    """The mode the checks run at. A streamer title saved at "normal" (the
+    column's default, so it can't be told from a deliberate choice) runs at
+    STREAMER_MODE; an explicit Relaxed or Off is honoured as saved. Not
+    offered in READING_SPEED_MODES: it is never stored or sent by the API."""
+    mode = reading_speed_mode_of(drama)
+    if mode == "normal" and review_thresholds.profile_of(drama) == review_thresholds.PROFILE_STREAMER:
+        return STREAMER_MODE
+    return mode
+
+
 def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE) -> list:
     """[(line, chars_per_second, limit)] for every line whose `field` text
     is too dense to read in the time it's on screen. Cues under the
     MIN_DENSE_* floor are skipped; mode "off" finds nothing."""
     if mode == "off":
         return []
-    limits, fallback = ((RELAXED_CPS_LIMITS, RELAXED_DEFAULT_CPS_LIMIT) if mode == "relaxed"
-                        else (CPS_LIMITS, DEFAULT_CPS_LIMIT))
+    limits, fallback = {
+        "relaxed": (RELAXED_CPS_LIMITS, RELAXED_DEFAULT_CPS_LIMIT),
+        STREAMER_MODE: (STREAMER_CPS_LIMITS, STREAMER_DEFAULT_CPS_LIMIT),
+    }.get(mode, (CPS_LIMITS, DEFAULT_CPS_LIMIT))
     out = []
     for ln in lines:
         text = getattr(ln, field, "") or ""

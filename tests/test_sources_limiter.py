@@ -132,3 +132,37 @@ def test_a_waiting_client_gives_up_when_its_cancel_check_raises():
     assert gate.active == 0
     with gate.at(1):   # the cancelled waiter left the queue clean
         pass
+
+
+def test_a_blocking_wait_callback_does_not_stop_another_client_entering():
+    gate = Limiter()
+    in_callback = threading.Event()
+    release = threading.Event()
+    entered = threading.Event()
+
+    def slow_check():
+        in_callback.set()
+        release.wait(5)
+
+    def blocked_waiter():
+        with gate.at(1, slow_check):
+            pass
+
+    def other():
+        with gate.at(5):
+            entered.set()
+
+    holder = gate.at(1)
+    holder.__enter__()
+    t = threading.Thread(target=blocked_waiter)
+    t.start()
+    assert in_callback.wait(2)
+    holder.__exit__(None, None, None)
+    t2 = threading.Thread(target=other)
+    t2.start()
+    try:
+        assert entered.wait(1), "a client was blocked behind another's wait callback"
+    finally:
+        release.set()
+        t.join(2)
+        t2.join(2)

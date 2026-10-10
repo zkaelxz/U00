@@ -3,7 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { PendingInstallPlan, PendingInstallStatus } from '../../types/pendingInstall'
-import { InstallPlanPanel, PendingInstallBanner, needsPlanPanel, pendingKeys } from './PendingInstall'
+import { ApiError } from '../../api/client'
+import {
+  InstallPlanPanel, PendingInstallBanner, needsPlanPanel, pendingKeys, planCheckUnavailable, planPanelKey,
+} from './PendingInstall'
 
 const plan = (o: Partial<PendingInstallPlan> = {}): PendingInstallPlan => ({
   packages: ['paddleocr'], available: true, mode: 'now', changes: [], summary: [], loaded: [], blocked: [],
@@ -100,5 +103,42 @@ describe('pendingKeys', () => {
   it('is empty without a status', () => {
     expect(pendingKeys(null).size).toBe(0)
     expect(pendingKeys(status({ packages: ['cv2'] })).has('cv2')).toBe(true)
+  })
+})
+
+describe('planCheckUnavailable', () => {
+  const err = (status: number, code: string) => new ApiError(status, { code, message: code })
+
+  it('skips the preview only for a missing endpoint or no answer', () => {
+    expect(planCheckUnavailable(err(404, 'not_found'))).toBe(true)
+    expect(planCheckUnavailable(err(0, 'network_error'))).toBe(true)
+    expect(planCheckUnavailable(new TypeError('Failed to fetch'))).toBe(true)
+  })
+
+  it.each([
+    ['a running job (409)', err(409, 'conflict')],
+    ['a dry-run timeout (504)', err(504, 'timeout')],
+    ['a refusal (403)', err(403, 'forbidden')],
+    ['a server error (500)', err(500, 'internal_error')],
+  ])('does not install on %s', (_name, e) => {
+    expect(planCheckUnavailable(e)).toBe(false)
+  })
+})
+
+describe('InstallPlanPanel queueing', () => {
+  it('disables the queue button while the request is in flight', () => {
+    const html = renderToStaticMarkup(createElement(InstallPlanPanel, {
+      planned: { label: 'PaddleOCR', keys: ['paddleocr'], plan: plan({ mode: 'restart' }), installNow: noop },
+      queueing: true, onQueue: noop, onCancel: noop,
+    }))
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Install when I restart Baihe/)
+  })
+})
+
+describe('planPanelKey', () => {
+  it('differs per package set, so a tick for one set never carries to another', () => {
+    expect(planPanelKey(['numpy'])).not.toBe(planPanelKey(['paddleocr']))
+    expect(planPanelKey(['a', 'b'])).not.toBe(planPanelKey(['ab']))
+    expect(planPanelKey(['a', 'b'])).toBe(planPanelKey(['a', 'b']))
   })
 })

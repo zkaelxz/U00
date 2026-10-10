@@ -490,6 +490,9 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .deletable-list { list-style: none; padding: 0 !important; }
 .deletable-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .deletable-list .row-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Inline buttons that wrap onto a second line stack their 44px hit areas on top of each other at 360px; a wrapping flex row with a gap keeps them apart. Block children (preview, confirm) take a full row. */
+.records-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.records-list > li > :is(div, p, form, fieldset, section, pre) { flex: 1 1 100%; min-width: 0; }
 .rename-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); width: 100%; min-width: 0; }
 .rename-form .field-item { flex: 1 1 12rem; min-width: 0; }
 .rename-form .error { flex-basis: 100%; margin: 0; }
@@ -853,3 +856,8 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 }
 
 .source-link { font-size: 0.9em; white-space: nowrap; }
+/* Same trick as .btn-sm: the box stays inline-sized, the ::after extends the tap area to 44px. */
+@media (pointer: coarse), (max-width: 640px) {
+  .source-link { position: relative; }
+  .source-link::after { content: ''; position: absolute; inset: -12px -6px; }
+}
