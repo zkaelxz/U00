@@ -10,6 +10,7 @@ import applog
 import background_jobs
 import db
 import diagnostics
+import diarize
 from services import diagnostics_gaps_service as svc
 from services import settings_service
 
@@ -164,7 +165,7 @@ def test_pyannote_readiness_with_hf_hub_returns_list(monkeypatch):
     monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
     out = svc.get_pyannote_readiness(check_access=True)
     assert out["models"] == [{"model": m, "accessible": True}
-                             for m in diagnostics.diarize.DIARIZATION_MODELS]
+                             for m in diarize.DIARIZATION_MODELS]
     assert out["ready"] is True
 
 

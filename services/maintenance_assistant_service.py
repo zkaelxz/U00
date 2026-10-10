@@ -108,7 +108,7 @@ _SECRET_NAME_RE = re.compile(r"(^\.env|secret|token|password|credential|cookie|\
 
 def _redact(text) -> str:
     """Keys and tokens out, plus this PC's absolute project/home folder
-    prefixes. Deliberately NOT diagnostics.redact_for_support: that one
+    prefixes. Deliberately NOT diagnostics_report.redact_for_support: that one
     collapses every "a/b/c" to ".../c" and replaces the OS user name as a
     bare substring, which mangles repo-relative paths, code and patches.
     The log, job history and support report tools are already redacted

@@ -19,7 +19,7 @@ preference. The others are stored in db.app_settings under
 
 Also here: the per-engine status for Settings
 (not configured / untested / working / failed) and the "Test" action, which
-makes one short real call through diagnostics.check_engine_reachable with
+makes one short real call through diagnostics_report.check_engine_reachable with
 the key resolved on the PC. Keys are never accepted or returned; a failure
 message goes through translate_engines.redact_secrets.
 """
@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 
 import db
-import diagnostics
+import diagnostics_report
 import translate_engines
 from services import settings_service, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -250,7 +250,7 @@ def test_engine(engine: str, model: str = None) -> dict:
 
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        future = pool.submit(diagnostics.check_engine_reachable, engine, api_key, model,
+        future = pool.submit(diagnostics_report.check_engine_reachable, engine, api_key, model,
                              base_url=base_url)
     except Exception:
         _release()
@@ -267,7 +267,7 @@ def test_engine(engine: str, model: str = None) -> dict:
     if not result.get("ok"):
         # Keys, then paths and URLs-with-paths (a local server's address)
         # come out: this text is shown later by an admin.settings read.
-        error = diagnostics.redact_for_support(str(result.get("error") or "The test failed."))
+        error = diagnostics_report.redact_for_support(str(result.get("error") or "The test failed."))
         error = error[:_MAX_TEST_ERROR]
     # A key or endpoint saved while the test ran makes this result stale:
     # it tested the old one, so it isn't recorded.

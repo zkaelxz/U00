@@ -14,6 +14,7 @@ import sys
 import tempfile
 
 import diagnostics
+import diagnostics_report
 import diagnostics_torch
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +25,7 @@ def installable_packages() -> set:
     dependencies in an installable tier plus model-registry packages."""
     names = {k for k, (_imp, _f, tier) in diagnostics.OPTIONAL_DEPENDENCIES.items()
              if tier in diagnostics.INSTALLABLE_TIERS}
-    names |= {e["package"] for e in diagnostics.MODEL_ENGINE_REGISTRY if e.get("package")}
+    names |= {e["package"] for e in diagnostics_report.MODEL_ENGINE_REGISTRY if e.get("package")}
     return {n for n in names
             if diagnostics.canonical_dist(diagnostics.pip_install_name(n))
             not in diagnostics.NOT_OFFERED_FOR_INSTALL}

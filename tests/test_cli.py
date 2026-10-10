@@ -29,7 +29,7 @@ import json
 
 import pytest
 import db
-import diagnostics
+import diagnostics_report
 import translate_engines
 import dub as dub_module
 import dub_narration
@@ -1381,7 +1381,7 @@ class TestCmdDoctor:
     real, minimal translate call, before committing a batch job to it."""
 
     def test_prints_ok_and_exits_cleanly_on_success(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: {"engine": "fake", "ok": True, "error": None})
         args = argparse.Namespace(engine="fake", api_key=None, model=None)
         out = io.StringIO()
@@ -1390,7 +1390,7 @@ class TestCmdDoctor:
         assert "OK: fake is reachable" in out.getvalue()
 
     def test_prints_the_error_and_exits_nonzero_on_failure(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: {"engine": "claude", "ok": False,
                                             "error": "invalid x-api-key"})
         args = argparse.Namespace(engine="claude", api_key="bad-key", model=None)

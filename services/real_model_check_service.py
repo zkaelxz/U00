@@ -31,6 +31,7 @@ import requests
 
 import background_jobs
 import diagnostics
+import diagnostics_report
 import memory_headroom
 from engine_backends.local import strip_ollama_thinking
 from services import diagnostics_gaps_service as gaps
@@ -73,7 +74,7 @@ class _CouldNotCheck(Exception):
 
 
 def _redact(text) -> str:
-    return diagnostics.redact_for_support("" if text is None else str(text))[:300]
+    return diagnostics_report.redact_for_support("" if text is None else str(text))[:300]
 
 
 def _installed(module: str) -> bool:

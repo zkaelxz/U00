@@ -28,7 +28,7 @@ Both start through the install guard of diagnostics_gaps_service
 progress) and run as ordinary background_jobs jobs, so they show in the
 running-jobs list and an install can't start under them. Their progress
 and final result are read back from GET routes here (nothing is returned
-as a path; every output line goes through diagnostics.redact_for_support).
+as a path; every output line goes through diagnostics_report.redact_for_support).
 """
 
 import contextlib
@@ -48,6 +48,7 @@ import background_jobs
 import job_process_kill
 import db
 import diagnostics
+import diagnostics_report
 import diagnostics_torch
 import upgrade_check
 from lib import proc as proc_run
@@ -109,7 +110,7 @@ class DependencyInstallFailed(Exception):
 
 
 def _redact(text) -> str:
-    return diagnostics.redact_for_support("" if text is None else str(text))
+    return diagnostics_report.redact_for_support("" if text is None else str(text))
 
 
 def _job_view(job_id: str):

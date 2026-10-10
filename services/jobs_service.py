@@ -23,7 +23,7 @@ from typing import Optional
 
 import db
 from services import job_stage_service, ownership_service, run_settings_service
-import diagnostics
+import diagnostics_report
 import background_jobs
 import job_force_stop
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -88,11 +88,11 @@ def redact_text(text: str) -> str:
     """redact_for_support, but never raising: getpass.getuser() inside it
     can fail in some containers, so fall back to secret + path redaction."""
     try:
-        return diagnostics.redact_for_support(text)
+        return diagnostics_report.redact_for_support(text)
     except Exception:
         import translate_engines
         text = translate_engines.redact_secrets(text or "")
-        return diagnostics.PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+        return diagnostics_report.PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
 
 
 def _error_item_text(item) -> str:
