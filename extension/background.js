@@ -294,6 +294,7 @@ async function fetchImage({ url }, sender) {
     const options = { credentials: "omit", redirect: "error", signal: controller.signal };
     const pageOrigin = senderOrigin(sender);
     if (pageOrigin) Object.assign(options, { referrer: `${pageOrigin}/`, referrerPolicy: "origin" });
+    // The result reports parsed.href, not response.url, so a redirect target can never reach the page.
     // redirect "error" because a redirect target would be requested before it
     // could be checked, letting a granted origin bounce the fetch to a LAN address.
     const response = await fetch(parsed.href, options);
@@ -309,7 +310,7 @@ async function fetchImage({ url }, sender) {
     if (!contentType) {
       return { ok: false, error: "the address returned something that isn't a PNG, JPEG or WebP image" };
     }
-    return { ok: true, data: { data: base64Of(bytes), content_type: contentType, url: response.url || parsed.href } };
+    return { ok: true, data: { data: base64Of(bytes), content_type: contentType, url: parsed.href } };
   } catch (e) {
     return {
       ok: false,

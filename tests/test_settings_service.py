@@ -10,6 +10,8 @@ presence only, never a value, and that ENV_NAMES resolution matches the
 documented priority order and BOM-safe parsing.
 """
 
+import sqlite3
+
 from services import settings_service
 
 
@@ -85,3 +87,26 @@ def test_get_settings_overview_never_leaks_a_key_value(tmp_path, isolated_db):
     env_path = _write_env(tmp_path, "BAIHE_CLAUDE_KEY=sk-should-not-leak\n")
     overview = settings_service.get_settings_overview(env_path)
     assert "sk-should-not-leak" not in repr(overview)
+
+
+def test_an_unreadable_setting_warns_once_per_key_and_returns_the_default(monkeypatch):
+    import applog
+    import db
+    from lib import settings_schema
+
+    def boom(_key):
+        raise sqlite3.OperationalError("database is locked: /secret/path/library.db")
+
+    warnings = []
+
+    class _Log:
+        def warning(self, msg, *args):
+            warnings.append(msg % args)
+
+    monkeypatch.setattr(db, "get_app_setting", boom)
+    monkeypatch.setattr(applog, "get_logger", lambda: _Log())
+    monkeypatch.setattr(settings_service, "_warned_unreadable_keys", set())
+    expected = settings_schema.default_of(settings_schema.BY_KEY["developer_mode"])
+    assert settings_service.get("developer_mode") == expected
+    assert settings_service.get("developer_mode") == expected
+    assert warnings == ["Setting 'developer_mode' could not be read; using its default."]

@@ -204,3 +204,36 @@ def test_dropped_events_are_counted(child_env):
     items = list(ytdlp_child.run_download(
         child_env.work, {"url": URL, "audio_only": True}, 60, lambda: False))
     assert items[-1]["dropped"] == 3
+
+
+def test_the_spec_file_is_removed_when_the_run_is_cancelled(child_env, isolated_db):
+    child_env.mode("hang")
+    job_id = _run_job("urlmedia_spec_cancel", child_env.work)
+    spec = os.path.join(child_env.work, ytdlp_child._SPEC_NAME)
+    try:
+        assert _wait_for(lambda: child_env.pidfile.exists()
+                         and len(child_env.pidfile.read_text().split()) == 2)
+        assert os.path.exists(spec)
+        background_jobs.request_cancel(job_id)
+        assert _finish(job_id, 15)["status"] == "cancelled"
+        assert not os.path.exists(spec)
+    finally:
+        background_jobs.clear_job(job_id)
+
+
+def test_a_second_path_event_is_ignored_and_logged_once(child_env, monkeypatch):
+    first, second = "/work/downloaded_a.m4a", "/work/downloaded_b.m4a"
+    events = [{"event": {"path": first}}, {"event": {"path": second}},
+              {"event": {"path": second}}, {"returncode": 0}]
+    monkeypatch.setattr(ytdlp_child, "run_download", lambda *a, **k: (e for e in events))
+    warnings = []
+
+    class _Log:
+        def warning(self, msg, *args):
+            warnings.append(msg % args)
+    monkeypatch.setattr(svc.applog, "get_logger", lambda: _Log())
+    monkeypatch.setattr(svc.os.path, "realpath", lambda p: p)
+    monkeypatch.setattr(svc.os.path, "isfile", lambda p: True)
+    path, _ = svc._download("urlmedia_two", URL, "/work", True)
+    assert path == first
+    assert len(warnings) == 1 and "downloaded_" not in warnings[0]
