@@ -79,6 +79,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "reader.py",
     "real_model_check_cli.py",
     "resegment.py",
+    "review_thresholds.py",
     "run_tests.py",
     "scanlate.py",
     "scanlate_detect.py",

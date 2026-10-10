@@ -15,6 +15,7 @@ import {
   glossaryText,
   mergeSearchHits,
   pacingFindings,
+  pacingKindCounts,
   spendText,
   termsText,
 } from './reviewResults'
@@ -97,6 +98,18 @@ describe('coverage and pacing findings', () => {
     ])
     expect(out[0]).toMatchObject({ lineId: 7, where: '#7', text: 'Too long for its time slot: ~3.0s needed, only 1.0s available' })
     expect(out[1]).toMatchObject({ lineId: null, text: 'odd thing' })
+  })
+  it('counts pacing flags per kind and hides a kind on request', () => {
+    const flags = [
+      { id: 1, idx: 0, issue: 'too_long_for_slot', detail: 'a' },
+      { id: 2, idx: 1, issue: 'too_long_for_slot', detail: 'b' },
+      { id: 3, idx: 2, issue: 'very_short_relative_to_slot', detail: 'c' },
+    ]
+    expect(pacingKindCounts(flags)).toEqual([
+      { issue: 'too_long_for_slot', count: 2 },
+      { issue: 'very_short_relative_to_slot', count: 1 },
+    ])
+    expect(pacingFindings(flags, new Set(['too_long_for_slot'])).map((f) => f.lineId)).toEqual([3])
   })
 })
 

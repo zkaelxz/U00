@@ -107,6 +107,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `dub.py`
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
 - `media_inspect.py`
+- `review_thresholds.py`
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
 - `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
