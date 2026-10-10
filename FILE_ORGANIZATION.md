@@ -1,7 +1,7 @@
 # File organization
 
 A short index: one line per package, with its entry point. Every non-test `.py` file at the top level,
-in `services/` and in `api/routers/` is named below, because the hook in `.claude/hooks/file-organization-check.py`
+in `lib/`, in `services/` and in `api/routers/` is named below, because the hook in `.claude/hooks/file-organization-check.py`
 warns when a file's name is missing from this file. A new file there gets its name added to the right group.
 Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier per-file descriptions are kept in
 `docs/archive/file-organization-full.md`.
@@ -11,7 +11,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `service_errors.py` | called by routers and `cli.py` |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`); imports nothing of the app's own code | imported by every layer |
+| `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`) | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
@@ -135,6 +136,14 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `page_server.py`
 - `title_library.py`
 
+## lib/
+
+Shared helpers with no domain knowledge; nothing here imports `services`, `api`, `db` or a domain module (`tests/test_static_analysis.py` enforces it).
+
+- `capped_body.py` (byte- and time-capped read of a streamed HTTP body)
+- `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
+- `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
+
 ## services/
 
 - `artifact_service.py`
@@ -149,7 +158,6 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `blocked_retry_service.py`
 - `browser_install_service.py`
 - `bug_report_service.py`
-- `capped_body.py`
 - `characters_service.py`
 - `comic_chapters_service.py`
 - `comic_view_service.py`
@@ -232,7 +240,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `scanlate_render_service.py`
 - `scanlate_run_service.py`
 - `series_people_service.py`
-- `service_errors.py`
+- `service_errors.py` (re-exports `lib/errors.py` for the existing call sites)
 - `settings_service.py`
 - `shutdown_service.py`
 - `source_domains_service.py`
@@ -259,7 +267,6 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `translate_thinking_service.py`
 - `translation_version_service.py`
 - `update_service.py`
-- `url_guard.py`
 - `url_media_service.py`
 - `usage_recost_service.py`
 - `voice_bank_audio_service.py`

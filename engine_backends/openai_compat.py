@@ -2,7 +2,7 @@
 
 import json
 
-from services import capped_body
+from lib import capped_body
 
 from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_listed_extra_models
 from .prompts import build_batch_user_message, build_stable_system_text
@@ -100,7 +100,7 @@ class OpenAIEngine:
         # be costed too low (or at $0) and slip past the spending caps. Only the
         # built-in list and GPT-5+ models OpenAI itself listed are taken.
         if model not in OPENAI_MODELS and model not in openai_listed_extra_models():
-            from services.service_errors import InvalidInputError
+            from lib.errors import InvalidInputError
             raise InvalidInputError("That model isn't offered for this engine.")
         self.api_key = api_key
         self.model = model

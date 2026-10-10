@@ -937,7 +937,7 @@ def refuse_new_jobs() -> None:
 def _refuse_if_stopping_locked():
     """Caller holds _lock."""
     if _stopping:
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         raise ConflictError(STOPPING_MESSAGE)
 
 

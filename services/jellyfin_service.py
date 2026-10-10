@@ -44,7 +44,8 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import db
-from services import (artifact_service, capped_body, drama_service, export_service,
+from lib import capped_body
+from services import (artifact_service, drama_service, export_service,
                       settings_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)

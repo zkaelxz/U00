@@ -14,7 +14,7 @@ import subtitle_parse
 import subtitle_sidecar
 import translate_engines
 from services import subtitle_import_service as svc
-from services.service_errors import ServiceError
+from lib.errors import ServiceError
 
 
 def _problems(report: dict) -> None:

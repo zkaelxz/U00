@@ -9,7 +9,7 @@ fact against the code, not older docs, and name only test files that exist.
 # <path>/
 
 One or two sentences: what this package does and which layer it sits in
-(frontend -> api/routers -> services -> root domain modules -> db.py).
+(frontend -> api/routers -> services -> root domain modules -> db.py; `lib/` sits below them all).
 
 ## Start here
 - `<module>.py`: the entry point most tasks begin from, and what it holds.

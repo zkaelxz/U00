@@ -36,7 +36,7 @@ def _walk_files(top, suffixes, skip=_SKIP_DIRS):
 
 # --- 1. HTTP timeouts by folder -------------------------------------------
 
-_TIMEOUT_FOLDERS = ("sources", "installer", "engine_backends", "scripts", "tools", "extension")
+_TIMEOUT_FOLDERS = ("sources", "installer", "engine_backends", "scripts", "tools", "extension", "lib")
 
 
 def _timeout_scan_files():
