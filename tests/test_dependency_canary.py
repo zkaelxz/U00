@@ -201,7 +201,9 @@ def test_without_uv_uses_venv_and_pip(monkeypatch, tmp_path):
     cmds = [c for c, _, _ in calls]
     assert cmds[0][1:3] == ["-m", "venv"]
     assert any(c[1:4] == ["-m", "pip", "install"] for c in cmds)
-    assert not any("uv" in c[0] for c in cmds)
+    # The venv lives under a mkdtemp name with a random suffix, which can
+    # itself contain "uv"; only the executable's name says whether uv ran.
+    assert not any(os.path.basename(c[0]) == "uv" for c in cmds)
 
 
 def test_with_uv_builds_venv_and_installs_through_uv(monkeypatch, tmp_path):
