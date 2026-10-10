@@ -326,3 +326,11 @@ def test_unknown_key_is_an_error(isolated_db):
 
 def test_nan_is_never_a_stored_number():
     assert schema.coerce("monthly_cap_usd", math.nan) is None
+
+
+def test_choice_empty_string_is_kept_only_when_listed():
+    key = "default_engine"
+    default = schema.default_of(schema.BY_KEY[key])
+    assert schema.coerce(key, "", ("", "claude")) == ""
+    assert schema.coerce(key, "", ("claude",)) == default
+    assert schema.coerce(key, "", None) == default
