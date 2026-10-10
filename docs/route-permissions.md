@@ -523,12 +523,17 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/transcribe/dramas/{drama_id}/compare-transcription/run` | jobs.start |
 | `GET /api/transcribe/dramas/{drama_id}/config` | library.read |
 | `POST /api/transcribe/dramas/{drama_id}/config` | lines.edit |
+| `GET /api/transcribe/dramas/{drama_id}/gaps` | lines.read |
+| `POST /api/transcribe/dramas/{drama_id}/gaps/add-lines` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/lines/{line_id}/retranscribe` | lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/lines/{line_id}/retranscribe` | jobs.start |
 | `POST /api/transcribe/dramas/{drama_id}/lines/{line_id}/retranscribe/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/retime/apply` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/retime/result` | lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/retime/run` | jobs.start |
+| `GET /api/transcribe/dramas/{drama_id}/retranscribe-lines` | lines.read |
+| `POST /api/transcribe/dramas/{drama_id}/retranscribe-lines` | jobs.start |
+| `POST /api/transcribe/dramas/{drama_id}/retranscribe-lines/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/run` | jobs.start |
 | `GET /api/transcribe/dramas/{drama_id}/speech-coverage` | library.read |
 | `POST /api/transcribe/dramas/{drama_id}/speech-coverage` | jobs.start |

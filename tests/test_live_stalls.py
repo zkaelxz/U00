@@ -488,9 +488,9 @@ class TestWhisperRunner:
 
 
 class TestAbandonedWorkerBlocksAdminActions:
-    def _abandon(self, release):
+    def _abandon(self, release, gpu=True):
         runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
-                                            clock=TickingClock(), poll=0.005, grace=0.05)
+                                            clock=TickingClock(), poll=0.005, grace=0.05, gpu=gpu)
         with pytest.raises(live_whisper.ChunkTimeout):
             runner.run(lambda cb: release.wait(20), 3, "chunk 4")
 
@@ -527,6 +527,44 @@ class TestAbandonedWorkerBlocksAdminActions:
         with contextlib.closing(db.get_conn()) as conn:
             holders = [r["holder"] for r in conn.execute("SELECT holder FROM gpu_lock")]
         assert holders == ["cli:123"]
+
+    def test_startup_keeps_a_live_process_claim_and_drops_a_dead_one(self, isolated_db, monkeypatch):
+        import contextlib
+        import db
+        alive, dead = f"{live_whisper.CLAIM_PREFIX}4242", f"{live_whisper.CLAIM_PREFIX}4343"
+        for holder in (alive, dead):
+            assert db.try_acquire_gpu_lock(holder, "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
+        monkeypatch.setattr(background_jobs, "owner_process_alive", lambda pid: pid == 4242)
+        assert live_whisper.release_stale_claims() == 1
+        with contextlib.closing(db.get_conn()) as conn:
+            holders = [r["holder"] for r in conn.execute("SELECT holder FROM gpu_lock")]
+        assert holders == [alive]
+
+    def test_a_failed_thread_start_leaves_nothing_outstanding(self, isolated_db, monkeypatch):
+        def refuse(self):
+            raise RuntimeError("can't start new thread")
+        monkeypatch.setattr(threading.Thread, "start", refuse)
+        runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None)
+        with pytest.raises(RuntimeError):
+            runner.run(lambda cb: None, 3, "chunk 1")
+        assert live_whisper.outstanding_label() is None
+        assert live_whisper.wait_for_outstanding(0.05)
+
+    def test_cpu_call_does_not_show_the_gpu_wait_message(self, isolated_db):
+        release = threading.Event()
+        runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
+                                            clock=TickingClock(), poll=0.005, grace=0.05, gpu=False)
+        with pytest.raises(live_whisper.ChunkTimeout):
+            runner.run(lambda cb: release.wait(20), 3, "chunk 4")
+        try:
+            assert not live_whisper.gpu_claim_held()
+            with background_jobs._lock:
+                background_jobs._jobs["q2"] = {"status": "queued"}
+                background_jobs._note_gpu_wait_reason_locked("q2")
+                assert background_jobs._jobs["q2"]["gpu_wait_external"] != live_whisper.WAIT_MESSAGE
+                del background_jobs._jobs["q2"]
+        finally:
+            release.set()
 
     def test_queued_job_wait_text_names_the_live_call(self, isolated_db):
         release = threading.Event()

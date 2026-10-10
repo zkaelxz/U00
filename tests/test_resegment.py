@@ -96,12 +96,24 @@ class TestRuleBasedSplit:
         spans = rs.rule_split_spans(text, "zh", 32, _every_char_bounds(text, "zh"))
         assert spans == [(0, len(text))]  # the only cut would leave a 1-char stub
 
-    def test_a_long_line_with_no_meaningful_boundary_is_left_whole(self):
+    def test_a_long_line_with_no_meaningful_boundary_is_left_whole_when_even_split_is_off(self):
         text = "我" * 45  # no punctuation, no connective -- only a length-based cut would split it
         ln = Line(idx=0, start=0.0, end=9.0, zh=text)
-        new_lines, changed = rs.resegment_lines([ln], "zh", boundaries_fn=_every_char_bounds)
+        new_lines, changed = rs.resegment_lines([ln], "zh", boundaries_fn=_every_char_bounds,
+                                                even_split=False)
         assert changed == []
         assert [l.zh for l in new_lines] == [text]
+
+    def test_a_line_with_no_boundary_is_cut_evenly_and_flagged_approximate(self):
+        text = "".join(chr(0x4e00 + i) for i in range(100))  # a minute-long Qwen line: no marks
+        ln = Line(idx=0, start=146.69, end=243.46, zh=text)
+        new_lines, changed = rs.resegment_lines([ln], "zh", boundaries_fn=_every_char_bounds)
+        assert len(changed) == 1
+        assert "".join(l.zh for l in new_lines) == text
+        assert all(len(l.zh) <= rs.max_line_chars("zh") for l in new_lines)
+        assert {l.flag for l in new_lines} == {"timing_uncertain"}
+        assert new_lines[0].start == 146.69 and new_lines[-1].end == 243.46
+        assert all(a.end == b.start for a, b in zip(new_lines, new_lines[1:]))
 
     def test_connective_inside_a_longer_word_is_not_a_boundary(self):
         text = "他怎么也说不出一个所以然来他怎么也说不出一个所以然来他怎么也说不出"
@@ -178,7 +190,7 @@ class TestLlmPass:
         engine = ScriptedEngine([bad, "not json", json.dumps({"text": self.LONG})])
         ln = Line(idx=0, start=0.0, end=8.0, zh=self.LONG, en="kept", id=4)
         new_lines, changed = rs.resegment_lines([ln], "zh", engine=engine,
-                                                boundaries_fn=_every_char_bounds)
+                                                boundaries_fn=_every_char_bounds, even_split=False)
         assert len(engine.prompts) == rs.LLM_MAX_ATTEMPTS
         assert changed == []
         assert [(l.zh, l.en, l.id) for l in new_lines] == [(self.LONG, "kept", 4)]
