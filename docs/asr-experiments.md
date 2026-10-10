@@ -58,6 +58,34 @@ line inside its span; lines whose timing had to be estimated are flagged. Slower
 `qwen3_asr_long` always aligns. Ignored when Mixed languages is on (the aligner takes
 one language per run).
 
+### Timing check
+
+Qwen3-ASR without Whisper (`qwen3_asr_vad`, `qwen3_asr_long`) gives good text but
+line times that can sit in silence or run past the speech. The Review stage's
+**Check timing** (Flag lines for review) compares each line's start and end with the
+speech Silero finds in the title's audio (the speech coverage check's chunked CPU scan:
+no Whisper, no Qwen, no GPU; cancel from Jobs) and sets the `timing_drift` flag when a
+line starts more than 0.7 s before speech, ends more than 0.7 s after it, is under 40%
+speech, sits in silence, or overlaps the next line. The note is fixed text plus numbers
+("Starts 1.4 s before speech."). The thresholds are constants in `timing_drift.py`.
+
+- It runs by itself after a transcription with either Qwen-only backend, and on demand
+  for any title (`python cli.py timing-check --id N [--snap]`).
+- Only `flag` and `flag_note` are written, only while a line's times are unchanged since
+  they were judged. A line with another flag keeps it; a `timing_drift` flag that no
+  longer applies is cleared. **Dismiss flag** on a timing flag is remembered
+  (`timing_check.json` in the title's folder), so a re-check leaves that line alone;
+  a new transcription forgets dismissals.
+- **Snap to speech** (per line) and **Snap all flagged** shorten a flagged line to the
+  speech it overlaps, at most 3 s per edge, after a history snapshot. Each is a
+  compare-and-set on start, end and flag, so a time you edited since the check wins.
+  Lines in silence and overlap-only lines get no suggestion.
+- Streamer VODs are checked more loosely (1.5x tolerances) and the note says speech
+  detection can mistake music for speech. If the detector finds almost no speech in the
+  whole file (under 2%), no line is flagged and the title gets one notice instead.
+- Unverified on real audio: the thresholds were chosen from the cases above, not tuned
+  on recordings.
+
 ### Mixed languages
 
 For recordings where people speak more than one of Korean, Chinese, Japanese and

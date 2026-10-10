@@ -21,13 +21,19 @@ import threading
 
 import pytest
 
+import page_capture_checks
 import page_server
 
 
-def _png_bytes(width=600, height=900, colour=(240, 240, 240)):
+def _png_bytes(width=600, height=900, colour=(240, 240, 240), blank=False):
+    """A page-like image. A mark is drawn unless `blank`, because the
+    endpoint refuses a single-colour image as an unpainted page."""
     Image = pytest.importorskip("PIL.Image", reason="Pillow builds the fixture image")
+    img = Image.new("RGB", (width, height), colour)
+    if not blank:
+        img.paste((10, 10, 10), (width // 4, height // 4, width // 2, height // 2))
     buf = io.BytesIO()
-    Image.new("RGB", (width, height), colour).save(buf, format="PNG")
+    img.save(buf, format="PNG")
     return buf.getvalue()
 
 
@@ -766,3 +772,346 @@ class TestTheConfigBridge:
         page_server.set_translation_config(engine="not_a_real_engine", api_key="k")
         assert page_server._build_engine(page_server.get_translation_config()) is None
         assert _get(page_server.load_or_create_token()).status == 200
+
+
+def _distinct_page(i):
+    return {"data": _b64(_png_bytes(800, 1200, (240 - i * 3, 200 + i, 120 + i * 2))),
+            "content_type": "image/png", "key": f"p{i}",
+            "url": f"https://site.invalid/p{i}.png"}
+
+
+class TestAWholeChapterIsAccountedFor:
+    def test_health_advertises_the_per_request_cap_so_the_extension_batches_to_it(self, token):
+        handler = _get(token)
+        assert handler.payload["max_images_per_request"] == page_server.MAX_IMAGES_PER_REQUEST
+
+    def test_every_page_of_a_full_request_is_stored_in_order(self, token, fake_pipeline,
+                                                            isolated_db):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        n = page_server.MAX_IMAGES_PER_REQUEST
+        handler = _post(token, {"images": [_distinct_page(i) for i in range(n)],
+                                "drama_id": drama_id, "store": True,
+                                "source_url": "https://site.invalid/c/1"}, path="/pages")
+        assert handler.status == 200
+        body = handler.payload
+        assert (body["received"], body["stored"], body["failed"]) == (n, n, [])
+        assert len(db.list_pages(drama_id)) == n
+
+    def test_one_page_failing_does_not_lose_the_others_and_is_named(self, token, fake_pipeline,
+                                                                   isolated_db, monkeypatch):
+        import scanlate
+        real = scanlate.detect_and_ocr_page
+        seen = {"n": 0}
+
+        def flaky(path, lang, **kw):
+            seen["n"] += 1
+            if seen["n"] == 2:
+                raise RuntimeError("model fell over with key sk-secret1234567890abcd")
+            return real(path, lang, **kw)
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", flaky)
+        handler = _post(token, {"images": [_distinct_page(i) for i in range(4)], "store": False,
+                                "source_url": "https://site.invalid/c/1"}, path="/pages")
+        assert handler.status == 200
+        body = handler.payload
+        assert [p["key"] for p in body["pages"]] == ["p0", "p2", "p3"]
+        assert [f["key"] for f in body["failed"]] == ["p1"]
+        assert "sk-secret1234567890abcd" not in json.dumps(body)
+        assert body["received"] == 4
+
+    def test_a_blank_page_is_reported_not_stored(self, token, fake_pipeline, isolated_db):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        blank = {"data": _b64(_png_bytes(800, 1200, (245, 240, 225), blank=True)),
+                 "content_type": "image/png", "key": "blank",
+                 "url": "https://site.invalid/blank.png"}
+        handler = _post(token, {"images": [_distinct_page(0), blank, _distinct_page(2)],
+                                "drama_id": drama_id, "store": True, "filter_pages": False},
+                        path="/pages")
+        body = handler.payload
+        assert [f["key"] for f in body["failed"]] == ["blank"]
+        assert "blank" in body["failed"][0]["error"]
+        assert body["stored"] == 2
+        assert len(db.list_pages(drama_id)) == 2
+
+    def test_a_single_blank_send_is_refused_not_stored(self, token, fake_pipeline, isolated_db):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        blank = {"data": _b64(_png_bytes(800, 1200, (245, 240, 225), blank=True)),
+                 "content_type": "image/png", "key": "blank"}
+        handler = _post(token, {"images": [blank], "drama_id": drama_id, "store": True})
+        assert handler.status == 200
+        assert handler.payload["failed"][0]["key"] == "blank"
+        assert db.list_pages(drama_id) == []
+
+    def test_stored_is_zero_when_not_saving(self, token, fake_pipeline, isolated_db):
+        handler = _post(token, {"images": [_distinct_page(0)], "store": False})
+        assert handler.payload["stored"] == 0
+        assert handler.payload["received"] == 1
+
+
+class TestAPageFailureNeverLeaksOrLeavesDebris:
+    def test_a_windows_path_in_an_error_is_not_in_the_response(self, token, fake_pipeline,
+                                                              isolated_db, monkeypatch):
+        import scanlate
+        leak = r"C:\Users\alice\AppData\Baihe\library\pages\page_0001.png"
+
+        def boom(path, lang, **kw):
+            raise ValueError(f"Could not read image: {leak}")
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", boom)
+        handler = _post(token, {"images": [_distinct_page(0), _distinct_page(1)], "store": False},
+                        path="/pages")
+        wire = json.dumps(handler.payload)
+        assert "alice" not in wire and "AppData" not in wire
+        assert [f["key"] for f in handler.payload["failed"]] == ["p0", "p1"]
+        assert all(f["error"] for f in handler.payload["failed"])
+
+    def test_an_oserror_path_is_not_in_the_response(self, token, fake_pipeline, isolated_db,
+                                                   monkeypatch):
+        import scanlate
+
+        def boom(path, lang, **kw):
+            raise OSError(28, "No space left on device", r"C:\Users\alice\lib\x.png")
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", boom)
+        handler = _post(token, {"images": [_distinct_page(0)], "store": False})
+        assert "alice" not in json.dumps(handler.payload)
+
+    def test_a_failed_stored_page_is_rolled_back_so_a_retry_does_not_duplicate(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        import scanlate
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        real = scanlate.detect_and_ocr_page
+        state = {"fail": True}
+
+        def flaky(path, lang, **kw):
+            if state["fail"]:
+                raise RuntimeError("model fell over")
+            return real(path, lang, **kw)
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", flaky)
+        body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
+        first = _post(token, body).payload
+        assert first["stored"] == 0 and len(first["failed"]) == 1
+        assert db.list_pages(drama_id) == []
+        state["fail"] = False
+        _post(token, body)
+        assert len(db.list_pages(drama_id)) == 1
+
+    def test_a_headroom_error_stops_the_request_once(self, token, fake_pipeline, isolated_db,
+                                                    monkeypatch):
+        import db
+        import scanlate
+        from memory_headroom import HeadroomError
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        calls = {"n": 0}
+
+        def no_memory(path, lang, **kw):
+            calls["n"] += 1
+            raise HeadroomError("Not loading the OCR model: Keep free graphics memory")
+
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", no_memory)
+        handler = _post(token, {"images": [_distinct_page(i) for i in range(5)],
+                                "drama_id": drama_id, "store": True,
+                                "filter_pages": False}, path="/pages")
+        body = handler.payload
+        assert calls["n"] == 1
+        assert len(body["failed"]) == 1 and body["stopped"]
+        assert body["stored"] == 0
+        assert db.list_pages(drama_id) == []
+
+    def test_recapturing_the_same_page_reuses_it_instead_of_duplicating(
+            self, token, fake_pipeline, isolated_db):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        body = {"images": [_distinct_page(0), _distinct_page(1)], "drama_id": drama_id,
+                "store": True, "filter_pages": False}
+        _post(token, body, path="/pages")
+        second = _post(token, body, path="/pages").payload
+        assert len(db.list_pages(drama_id)) == 2
+        assert second["stored"] == 2
+
+    def test_a_huge_canvas_is_not_decoded_for_the_blank_check(self):
+        Image = pytest.importorskip("PIL.Image")
+        # Over the blank check's own cap but under Pillow's decompression
+        # bomb error threshold (twice MAX_IMAGE_PIXELS), so only that cap keeps this flat (hence blank) canvas
+        # from being called blank.
+        side = 11000
+        assert side * side > page_capture_checks.BLANK_CHECK_MAX_PIXELS
+        assert side * side < 2 * Image.MAX_IMAGE_PIXELS
+        img = Image.new("1", (side, side))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        assert page_capture_checks.looks_blank(buf.getvalue()) is False
+        assert page_capture_checks.looks_blank(_png_bytes(blank=True)) is True
+
+
+class TestRecapturingKeepsSavedWork:
+    def _first_capture(self, token, isolated_db, monkeypatch):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+        body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
+        _post(token, body)
+        page = db.list_pages(drama_id)[0]
+        bubbles = db.load_bubbles(page["id"])
+        bubbles[0]["translated_text"] = "my correction"
+        db.save_bubbles(page["id"], bubbles)
+        return drama_id, page, body
+
+    @pytest.mark.parametrize("engine", ["works", "fails", "unset"])
+    def test_a_corrected_translation_survives_a_recapture(
+            self, token, fake_pipeline, isolated_db, monkeypatch, engine):
+        import db
+        import scanlate
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        if engine == "unset":
+            monkeypatch.setattr(page_server, "_build_engine", lambda config: None)
+        elif engine == "fails":
+            def boom(*a, **kw):
+                raise RuntimeError("engine down")
+            monkeypatch.setattr(scanlate, "translate_page_bubbles", boom)
+        reads = len(fake_pipeline["detect"])
+        second = _post(token, body).payload
+        assert len(fake_pipeline["detect"]) == reads
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction"]
+        assert len(db.list_pages(drama_id)) == 1
+        assert second["failed"] == [] and second["stored"] == 1
+        assert second["already_stored"] == 1
+        assert second["pages"][0]["regions"][0]["translated_text"] == "my correction"
+
+    def _page_with_one_gap(self, token, isolated_db, monkeypatch):
+        import db
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        bubbles = db.load_bubbles(page["id"])
+        gap = {k: v for k, v in bubbles[0].items() if k != "id"}
+        gap.update(translated_text="", source_text="空")
+        db.save_bubbles(page["id"], bubbles + [gap])
+        return page, body
+
+    def test_a_recapture_translates_only_the_bubbles_still_empty(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        reads = len(fake_pipeline["detect"])
+        second = _post(token, body).payload
+        assert len(fake_pipeline["detect"]) == reads
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == [
+            "my correction", "the translation"]
+        assert second["pages"][0]["notes"] == []
+
+    def test_a_recapture_without_an_engine_points_to_scanlate(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: None)
+        second = _post(token, body).payload
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction", ""]
+        assert second["pages"][0]["notes"] == [
+            ["warning", "already in the library; translate it in Scanlate"]]
+
+    def test_a_failing_engine_on_a_recapture_leaves_every_bubble_as_it_was(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        import scanlate
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+
+        def boom(*a, **kw):
+            raise RuntimeError("engine down")
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", boom)
+        second = _post(token, body).payload
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction", ""]
+        assert second["pages"][0]["notes"][0][0] == "warning"
+
+    def test_a_translation_typed_during_the_llm_call_is_not_overwritten(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        import scanlate
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        gap_id = db.load_bubbles(page["id"])[1]["id"]
+        rev = db.get_page(page["id"])["rev"]
+
+        def translate_while_someone_types(bubbles, engine, drama_meta, **kwargs):
+            db.update_bubble_fields(gap_id, {"translated_text": "typed meanwhile"})
+            for b in bubbles:
+                b["translated_text"] = "the translation"
+            return "ctx"
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate_while_someone_types)
+        second = _post(token, body).payload
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == [
+            "my correction", "typed meanwhile"]
+        assert db.get_page(page["id"])["rev"] == rev + 1
+        assert second["failed"] == []
+        assert "changed meanwhile" in second["pages"][0]["notes"][0][1]
+
+    def test_filling_a_gap_bumps_the_page_rev(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        rev = db.get_page(page["id"])["rev"]
+        _post(token, body)
+        assert db.get_page(page["id"])["rev"] == rev + 1
+
+    def test_an_empty_reused_page_written_to_meanwhile_is_left_alone(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        import scanlate
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        db.save_bubbles(page["id"], [])
+        mine = {"x": 1, "y": 2, "w": 3, "h": 4, "source_text": "他", "translated_text": "job's",
+                "kind": "bubble", "font_category": "regular", "reading_order": 0}
+
+        def translate_while_a_job_saves(bubbles, engine, drama_meta, **kwargs):
+            db.replace_bubbles_if_unchanged(page["id"], [], [mine])
+            return "ctx"
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate_while_a_job_saves)
+        second = _post(token, body).payload
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["job's"]
+        assert second["failed"] == []
+        assert "changed meanwhile" in second["pages"][0]["notes"][-1][1]
+
+    def test_a_shared_page_keeps_its_bubbles_and_other_chapters_context(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        context = dict(page_server._contexts)
+        chapter_two = {"images": [_distinct_page(0), _distinct_page(1)], "drama_id": drama_id,
+                       "store": True, "filter_pages": False}
+        result = _post(token, chapter_two, path="/pages").payload
+        assert len(db.list_pages(drama_id)) == 2
+        assert result["stored"] == 2 and result["already_stored"] == 1
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction"]
+        assert fake_pipeline["translate"][-1]["kwargs"]["previous_context"] == context.get(
+            str(drama_id), "")
+
+    def test_a_saved_page_without_bubbles_is_read_again(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
+        db.save_bubbles(page["id"], [])
+        reads = len(fake_pipeline["detect"])
+        _post(token, body)
+        assert len(fake_pipeline["detect"]) == reads + 1
+        assert len(db.load_bubbles(page["id"])) == 1
+
+    def test_the_stored_page_is_the_one_this_request_added(self, isolated_db, monkeypatch):
+        import db
+        from sources import pipeline
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        real = pipeline.add_page_images
+        foreign = {}
+
+        def racing(did, images, ids_out=None, chapter=None):
+            added = real(did, images, ids_out=ids_out, chapter=chapter)
+            # Another writer's page lands before this caller looks.
+            foreign["id"] = db.create_page(did, 99, "pages/page_0099.png", 1, 1)
+            return added
+
+        monkeypatch.setattr(pipeline, "add_page_images", racing)
+        page = page_server._store_page(drama_id, _png_bytes(), ".png")
+        assert page["id"] != foreign["id"]
+        pipeline._discard_pages(drama_id, [page["id"]])
+        assert [p["id"] for p in db.list_pages(drama_id)] == [foreign["id"]]
