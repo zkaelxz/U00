@@ -89,6 +89,10 @@ class TestWorkerDownload:
         assert out == {"ok": True, "content_type": "image/jpeg", "credentials": "omit",
                        "redirect": "error", "hasSignal": True}
 
+    def test_base64_matches_the_reference_encoder_across_chunk_boundaries(self):
+        out = _run("background", "base64_matches_btoa")
+        assert out and all(out.values()), out
+
     def test_the_referrer_is_only_the_origin_of_the_page(self):
         out = _run("background", "referrer_is_only_the_page_origin")
         assert out == {"referrer": "https://reader.example/", "referrerPolicy": "origin"}

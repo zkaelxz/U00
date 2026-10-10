@@ -178,7 +178,7 @@ function loadBackground({ granted, response, fetchImpl, stored = {} }) {
   vm.createContext(sandbox);
   vm.runInContext(read("background.js"), sandbox);
   const ask = (message, sender = {}) => new Promise((resolve) => { listener(message, sender, resolve); });
-  return { ask, fetchCalls };
+  return { ask, fetchCalls, sandbox };
 }
 
 // The shared origin check, as the popup loads it (a plain script, no worker).
@@ -243,6 +243,16 @@ async function background(scenario) {
     return { ...r, fetchCalls: h.fetchCalls.length, options: h.fetchCalls[0] && h.fetchCalls[0].options };
   };
   switch (scenario) {
+    case "base64_matches_btoa": {
+      const { base64Of } = loadBackground({ granted: () => true }).sandbox;
+      const out = {};
+      // 0x8000 is the chunk size; one byte over it exercises the join across chunks.
+      for (const size of [0, 1, 5, 0x8000, 0x8001, 3 * 0x8000 + 7]) {
+        const bytes = Uint8Array.from({ length: size }, (_, i) => (i * 31 + 7) & 0xff);
+        out[size] = base64Of(bytes) === Buffer.from(bytes).toString("base64");
+      }
+      return out;
+    }
     case "valid_jpeg": {
       const r = await go({ response: image(JPEG) });
       return { ok: r.ok, content_type: r.data && r.data.content_type, credentials: r.options.credentials,
