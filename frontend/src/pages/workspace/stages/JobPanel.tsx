@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { cancelJob } from '../../../api/jobs'
+import { buttonClass } from '../../../components/uiClasses'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { capFirst } from '../../../labels'
@@ -8,7 +9,7 @@ import type { ApiError } from '../../../api/client'
 import type { JobRecord } from '../../../types/jobs'
 import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample } from './transcribeEstimate'
 import { formatElapsed } from './autotuneGlossary'
-import { TERMINAL_STATUSES, jobFailed, jobOutcomeText } from '../../../types/jobs'
+import { TERMINAL_STATUSES, jobFailed, jobName, jobOutcomeText } from '../../../types/jobs'
 
 interface Props {
   job: JobRecord | null
@@ -120,12 +121,14 @@ export function JobPanel({ job, pollError, note, liveEta = false, expectedSecond
           {active && canCancel && (
             <button
               type="button"
+              className={buttonClass('secondary', 'sm', 'job-panel-cancel')}
+              aria-label={`Cancel ${jobName(job)}`}
               onClick={() => cancelJob(job.job_id).then(() => {
                 setCancelError(null)
                 onCancelled?.()
               }, setCancelError)}
             >
-              Cancel job
+              Cancel
             </button>
           )}
           <ErrorBanner error={cancelError} onDismiss={() => setCancelError(null)} />

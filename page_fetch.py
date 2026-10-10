@@ -642,6 +642,8 @@ def request_shutdown() -> None:
 def _require_playwright():
     if _SHUTDOWN.is_set():
         raise RuntimeError("Baihe Studio is shutting down; no new browser is started.")
+    import importlib
+    importlib.invalidate_caches()  # a just-installed package must import without a restart
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:

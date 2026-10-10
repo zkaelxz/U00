@@ -105,7 +105,7 @@ test('Transcribe: uploading the raw novel refreshes the automatic prompt', async
   expect(uploads.map((u) => u.kind)).toEqual(['raw-novel'])
   const transcribe = page.getByRole('region', { name: 'Transcribe' })
   await openTranscribeOptions(page)
-  await transcribe.locator('.section-title', { hasText: 'Advanced' }).click()
+  await transcribe.locator('.section-title', { hasText: 'More options' }).click()
   await expect(page.getByTestId('auto-prompt')).toContainText('云隐宗、沈清疑')
 })
 

@@ -48,6 +48,9 @@ export type JobKind =
 
 // A remote household admin may cancel only their own jobs; everyone else
 // gets Cancel as before (the server still refuses what they may not stop).
+/** The one label for a job in the header menu, the Jobs page and the stage panel. */
+export const jobName = (j: Pick<JobRecord, 'description' | 'job_id'>) => j.description || j.job_id
+
 export function offersCancel(job: Pick<JobRecord, 'owned_by_me'>, remoteAdmin: boolean): boolean {
   return !remoteAdmin || job.owned_by_me === true
 }
