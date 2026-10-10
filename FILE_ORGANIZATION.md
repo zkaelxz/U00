@@ -292,6 +292,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `web_search_service.py`
 - `workflow_service.py`
 - `workspace_job_service.py`
+- `ytdlp_child.py` (one yt-dlp download in a killable child process, for `url_media_service`)
 
 ## api/
 
