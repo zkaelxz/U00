@@ -8,7 +8,7 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
 2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
 3. **Before pushing:** the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`; for the frontend also `npx tsc --noEmit` and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the full suite (`python run_tests.py -q -n auto`, about 17 minutes) and the full frontend and e2e jobs on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
-   `npm run e2e` runs two Playwright projects: `desktop` (every spec except `e2e/mobile.spec.ts`) and `phone` (390x844, touch, only `e2e/mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
+   `npm run e2e` runs two Playwright projects: `desktop` (every spec except files matching `mobile.spec.ts`) and `phone` (390x844, touch, every `e2e/*mobile.spec.ts` match, such as `mobile.spec.ts`, `settings.mobile.spec.ts` and `review-results-mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
 5. A failure is not "environmental" or "flaky" until the mechanism is confirmed (a real background thread left running by an earlier test was the cause of the "database is locked" errors fixed in PR #259).
 6. Tests must not leave real job threads or subprocesses running: wait for them or mock them.
@@ -51,7 +51,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Installer / updates | `tests/test_installer_service.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
 | Database / migrations | `tests/test_db.py tests/test_save_lines_write_race.py` | n/a | n/a |
 | Shared helpers (`lib/`) | `tests/test_lib_http.py tests/test_lib_proc.py tests/test_cancellable_lock.py tests/test_settings_schema.py` | n/a | n/a |
-| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first four are the CI `guards` job) | n/a | n/a |
+| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five are the CI `guards` job) | n/a | n/a |
 
 ## Tests
 
@@ -82,7 +82,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
   `pyannote/speaker-diarization-community-1` is a gated model — an
   `HF_TOKEN` alone isn't enough; the account it belongs to also has to
   have accepted that specific model's license on huggingface.co first
-  (`diagnostics.check_pyannote_gated_access` is what checks this in-app;
+  (`diagnostics_report.check_pyannote_gated_access` is what checks this in-app;
   the CLI's own `--hf-token`/`HF_TOKEN`/`BAIHE_HF_TOKEN` (`cli.py diarize`)
   and the app's saved Hugging Face token setting both need the same accepted token). If
   a step touches diarization and needs a real (not mocked) run to verify

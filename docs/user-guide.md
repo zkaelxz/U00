@@ -6,7 +6,7 @@ Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engin
 
 ## What the app is
 
-- **Pages.** Library, Library tools (with Saved manga), Translate text, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
+- **Pages.** Library, Library tools (with Saved manga), Quick translate, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
 - **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). **Audit log** and **Users** are on the Admin page.
 - **Background services.** `python -m api` also starts the scheduled chapter check and other schedulers (`api/background.py`), and the browser-extension bridge (`page_server.py`) when the extension setting is on.
 - **Three content modes**: audio drama (your audio or video plus a transcript, aligned to real timing), novel narration (paste the text; the app chunks it, tags speakers with the LLM, translates, and can generate a narration/dub) and streamer VOD (see [Streamer VODs and series](#streamer-vods-and-series)).
@@ -76,7 +76,7 @@ Diagnostics > Danger zone > **Reset library** deletes every drama, translation, 
 
 Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; an engine that can't follow instructions tags everything "Narrator".
 
-**Context from recent lines.** Translate > Advanced has "Context before" and "Context ahead" (number fields; the default before is 6, or 10 for novels; 0 turns it off). They show LLM engines how the preceding lines were already translated, so pronouns and relation-only references stay consistent across batches. Consistency across separate VODs of one streamer comes from assigning them to the same series.
+**Context from recent lines.** Translate > More options has "Context before" and "Context ahead" (number fields; the defaults are 10 before and 6 ahead, for novels too; 0 turns it off). They show LLM engines how the preceding lines were already translated, so pronouns and relation-only references stay consistent across batches. Consistency across separate VODs of one streamer comes from assigning them to the same series.
 
 ### Translation guide (style, terms, and notes)
 
@@ -108,7 +108,7 @@ For a streamer, "English title" and "Original title" are the translated and untr
 
 ### Raw novel
 
-One upload of the original-language novel (Workspace > Source > "Raw source novel") feeds transcription priming and, with an English reference translation, matched-pair glossary extraction.
+One upload of the original-language novel (Workspace > Media > "Raw source novel") feeds transcription priming and, with an English reference translation, matched-pair glossary extraction.
 
 ## Transcription & OCR
 
@@ -120,7 +120,7 @@ Whisper often mishears proper nouns in Chinese without it showing. In order of v
 3. **`large-v3` instead of `medium`**: slightly more accurate on Korean and clean Chinese in our tests, about twice as slow and ~3GB. The default (`large-v3-turbo`) is the same on CPU and GPU; see "Which Whisper model to pick" in `docs/asr-experiments.md`.
 4. **Wider beam search** (8-10): costs time only.
 
-Other transcribe options (Workspace > Source > "Transcribe audio or video"; fine controls under Advanced):
+Other transcribe options (Workspace > Media > "Transcribe audio or video"; fine controls under Advanced):
 - **Min silence** (ms; default 300, range 100-3000; lower values split at shorter pauses and can cut mid-sentence) and **VAD threshold** (the Silero speech-detection threshold, 0.1-0.9): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines. A "Sensitivity" preset (normal / sensitive): sensitive lowers a VAD threshold you haven't changed from 0.5 to 0.35 and drops Whisper's repeat penalties; it leaves Min silence alone.
 - **Separate vocals first** (removes background music before transcribing): vocal separation with `audio-separator` (preferred) or Demucs. Adds a full extra pass; skip it unless the background is music alone (in the benchmark it hurt with noise and did nothing on clean audio).
 - **Realign long segments** (experimental, off by default): re-aligns a line against its own audio with Meta's MMS aligner (`pip install torchaudio uroman`, ~1.1GB model on first use). It only re-times text Whisper already produced.
@@ -130,7 +130,7 @@ Other transcribe options (Workspace > Source > "Transcribe audio or video"; fine
 ### OCR (image-based chapter scans)
 
 Upload page images in the novel-narration OCR section instead of pasting text. Always review OCR output before translating.
-- **Tesseract** (default): `pip install pytesseract pillow` plus the Tesseract binary with language packs (macOS `brew install tesseract tesseract-lang`; Ubuntu `sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor`; Windows [installer](https://github.com/UB-Mannheim/tesseract/wiki)). If Windows can't find it, set Settings > Advanced > OCR > "Tesseract program" to `tesseract.exe`.
+- **Tesseract** (used for languages other than ja, zh and ko when the OCR default is `auto`, the setting's default; ja picks manga-ocr and zh/ko pick PaddleOCR): `pip install pytesseract pillow` plus the Tesseract binary with language packs (macOS `brew install tesseract tesseract-lang`; Ubuntu `sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor`; Windows [installer](https://github.com/UB-Mannheim/tesseract/wiki)). If Windows can't find it, set Settings > System > Advanced > OCR > "Tesseract program" to `tesseract.exe`.
 - **PaddleOCR** (`pip install paddleocr paddlepaddle`): heavier, better on stylized Chinese fonts.
 - **manga-ocr** (`pip install manga-ocr`): Japanese speech bubbles; best on single-bubble crops.
 
@@ -225,7 +225,7 @@ Limits: the CV detector misses borderless or irregular bubbles; inpainting is Op
 
 ### Browser extension
 
-A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Integrations > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Details: [`browser-extension.md`](browser-extension.md).
+A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Preferences > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Details: [`browser-extension.md`](browser-extension.md).
 
 ### Metadata romanization
 
@@ -258,15 +258,15 @@ If Whisper's first download fails with `getaddrinfo failed` or `LocalEntryNotFou
 4. A DNS blocker (Pi-hole, AdGuard, corporate filter) answering `0.0.0.0`. Check with `nslookup huggingface.co`; if it answers `0.0.0.0` or `::`, allow `huggingface.co`, `cdn-lfs.huggingface.co`, `cdn-lfs-us-1.hf.co` and `hf.co` (the `cdn-lfs` hosts serve the model files), then flush DNS. The app names this case itself.
 5. Blocked by your ISP or region: set a mirror, e.g. `$env:HF_ENDPOINT="https://hf-mirror.com"` (PowerShell) before `python -m api`.
 
-Fully offline: download a `faster-whisper` model elsewhere and point Settings > Advanced > "Offline and performance" > "Offline Whisper model folder" at it.
+Fully offline: download a `faster-whisper` model elsewhere and point Settings > System > Advanced > "Offline and performance" > "Offline Whisper model folder" at it.
 
 ### GPU transcription failures ("cublas64_12.dll is not found")
 
-The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctranslate2 wheel or a CUDA version that doesn't match the driver. Turn "Use the GPU for transcription" off (Settings > Jobs > Performance) to silence it. Background: `docs/technical-notes.md`.
+The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctranslate2 wheel or a CUDA version that doesn't match the driver. Turn "Use the GPU for transcription" off (Settings > System > Performance) to silence it. Background: `docs/technical-notes.md`.
 
 ### Sharing the PC with other programs (Keep free memory)
 
-If this PC also runs something else that needs the GPU or RAM (a media server doing hardware transcoding, say), set Settings > Advanced > Offline and performance > "Keep free graphics memory" and "Keep free RAM". Before a local model loads (Whisper, Qwen3-ASR, the aligner, vocal separation, a local Ollama translation model, the dub voices), Baihe compares the model's estimated size and the memory that is free right now with that reserve. If loading would break it, the job stops at once with a message saying what is needed, what is free and what is kept free, instead of running out of memory halfway. Then unload another model (Settings > Loaded now, once no job is running), pick a smaller model or int8, or lower the setting. The default is 0 (off). Sizes are estimates, so leave a little slack. Cloud engines and an Ollama on another machine use none of this PC's memory and are not checked. If the memory can't be read (no NVIDIA GPU, or an OS Baihe can't query for RAM), the check is skipped and Loaded now says so. The app and the command line use the same check; on the command line a refusal is reported as that drama's failure (the batch summary lists it) and, like every other per-drama failure there, the exit code stays 0. A refused Ollama translation stops the run after the first batch rather than retrying every batch. A Whisper model folder is sized by its folder name when it is a known model; otherwise no estimate is made and the check is skipped. Not yet covered: diarization, OCR other than the manga model, and a llama.cpp server.
+If this PC also runs something else that needs the GPU or RAM (a media server doing hardware transcoding, say), set Settings > System > Advanced > Offline and performance > "Keep free graphics memory" and "Keep free RAM". Before a local model loads (Whisper, Qwen3-ASR, the aligner, vocal separation, a local Ollama translation model, the dub voices), Baihe compares the model's estimated size and the memory that is free right now with that reserve. If loading would break it, the job stops at once with a message saying what is needed, what is free and what is kept free, instead of running out of memory halfway. Then unload another model (Settings > System > Loaded now, once no job is running), pick a smaller model or int8, or lower the setting. The default is 0 (off). Sizes are estimates, so leave a little slack. Cloud engines and an Ollama on another machine use none of this PC's memory and are not checked. If the memory can't be read (no NVIDIA GPU, or an OS Baihe can't query for RAM), the check is skipped and Loaded now says so. The app and the command line use the same check; on the command line a refusal is reported as that drama's failure (the batch summary lists it) and, like every other per-drama failure there, the exit code stays 0. A refused Ollama translation stops the run after the first batch rather than retrying every batch. A Whisper model folder is sized by its folder name when it is a known model; otherwise no estimate is made and the check is skipped. Not yet covered: diarization, OCR other than the manga model, and a llama.cpp server.
 
 ### GPU PyTorch (NVIDIA)
 
@@ -317,6 +317,6 @@ The Benchmark Lab page (linked from Diagnostics) checks whether a model, engine 
 ## Notes & tips
 
 - The first run downloads the Whisper model (a few hundred MB to ~3GB, once).
-- No GPU is required, but a GPU makes transcription much faster (Settings > Jobs > Performance).
+- No GPU is required, but a GPU makes transcription much faster (Settings > System > Performance).
 - Alignment is an approximation that interpolates timing for lines Whisper didn't clearly catch; skim the review table before exporting.
 - Your API keys and files never leave your machine except for the direct call to your chosen translation/TTS provider.
