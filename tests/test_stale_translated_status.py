@@ -6,6 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import bulk_providers as bp
 import bulk_translate as bt
 from core import Line
 from services import lines_service
@@ -83,7 +84,7 @@ class TestBulkApplyWithNothingNewlyApplied:
         batches = engine.client.messages.batches
         _answer_every_request(batches)
         batches.status = "ended"
-        bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
 
         assert isolated_db.get_bulk_job(bulk_id)["result_summary"]["applied"] == 0
         assert _status(isolated_db, did) == "translated"

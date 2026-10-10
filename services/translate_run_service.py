@@ -34,6 +34,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 import background_jobs
+import bulk_providers
 import bulk_translate
 import core
 import db
@@ -619,7 +620,7 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
     if background_jobs.is_cancel_requested(job_id):
         return
     first_id = current = submit()
-    provider = bulk_translate.make_provider(engine_name, engine)
+    provider = bulk_providers.make_provider(engine_name, engine)
     while True:
         bulk_translate.run_bulk_poller(job_id, current, provider=provider, engine=engine,
                                        interval=bulk_translate.POLL_INTERVAL_SECONDS,
@@ -743,7 +744,7 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
         raise ConflictError(f"Bulk job {bulk_job_id} is {job['status']} and cannot be cancelled.")
     key = translate_service.resolve_api_key(job["engine"])
     engine = translate_engines.get_engine(job["engine"], key, job.get("model") or None) if key else None
-    provider = bulk_translate.make_provider(job["engine"], engine) if engine else None
+    provider = bulk_providers.make_provider(job["engine"], engine) if engine else None
     note = bulk_translate.cancel_bulk_job(bulk_job_id, provider)
     return {"drama_id": drama_id, "bulk_job": bulk_job_view.bulk_entry(db.get_bulk_job(bulk_job_id)),
             "message": note}
