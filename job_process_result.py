@@ -42,32 +42,42 @@ class ResultChannel:
         # The owner prefix is the library temp folder's naming (see
         # storage.new_workdir) so its startup sweep spares a live job's file.
         self._path = os.path.join(result_dir, f"{owner_token}~result-{uuid.uuid4().hex}.pkl")
+        self._spill_count = 0
 
     def put(self, item):
-        if item and item[0] == "ok":
-            data = pickle.dumps(item, pickle.HIGHEST_PROTOCOL)
-            if len(data) > INLINE_LIMIT_BYTES:
-                self._write_result_file(data)
-                self._queue.put((_FILE_MARKER,))
-                return
-        elif item and item[0] == "error" and len(item) >= 3:
+        if item and item[0] == "error" and len(item) >= 3:
             # Redact before truncating: a key cut at the limit could fall
             # below the redaction pattern's minimum length and survive.
             from translate_engines import redact_secrets
             text = redact_secrets(str(item[2]))
             text = text.encode("utf-8")[:MAX_ERROR_MESSAGE_BYTES].decode("utf-8", "ignore")
             item = (item[0], item[1], text)
+        else:
+            data = pickle.dumps(item, pickle.HIGHEST_PROTOCOL)
+            if len(data) > INLINE_LIMIT_BYTES:
+                if item and item[0] == "ok":
+                    path, marker = self._path, (_FILE_MARKER,)
+                else:
+                    # Items and progress repeat, so each spill gets its own
+                    # file: one shared path would be overwritten before the
+                    # parent read the previous one.
+                    self._spill_count += 1
+                    path = f"{self._path}.{self._spill_count}"
+                    marker = (_FILE_MARKER, self._spill_count)
+                self._write_result_file(data, path)
+                self._queue.put(marker)
+                return
         self._queue.put(item)
 
-    def _write_result_file(self, data: bytes):
+    def _write_result_file(self, data: bytes, path: str):
         try:
             os.makedirs(self._dir, exist_ok=True)
-            partial = self._path + ".part"
+            partial = path + ".part"
             with open(partial, "wb") as f:
                 f.write(data)
             # Renamed only once complete: the marker never points at a
             # half-written file.
-            os.replace(partial, self._path)
+            os.replace(partial, path)
         except OSError:
             # The OSError text carries the library temp path, which must not
             # reach the stored job error or the log.
@@ -76,15 +86,16 @@ class ResultChannel:
     def get(self, timeout=None):
         item = self._queue.get(timeout=timeout)
         if item and item[0] == _FILE_MARKER:
+            path = self._path if len(item) == 1 else f"{self._path}.{int(item[1])}"
             try:
-                with open(self._path, "rb") as f:
+                with open(path, "rb") as f:
                     result = pickle.load(f)
             except OSError:
                 raise OSError(RESULT_FILE_ERROR) from None
             # Removed before the watcher can publish the job as done: its
             # final discard() runs after that, so a client that saw "done"
             # could still find the file.
-            self._remove_files()
+            self._remove_files(path)
             return result
         return item
 
@@ -104,10 +115,21 @@ class ResultChannel:
         """Watcher only: removes the result file and any partial one."""
         self._remove_files()
 
-    def _remove_files(self):
-        for path in (self._path, self._path + ".part"):
+    def _remove_files(self, path=None):
+        """One result file and its partial, or with no path every file this
+        channel could have written (the parent cannot know how many spilled)."""
+        if path is None:
+            prefix = os.path.basename(self._path)
             try:
-                os.remove(path)
+                names = [n for n in os.listdir(self._dir) if n.startswith(prefix)]
+            except OSError:
+                names = []
+            paths = [os.path.join(self._dir, n) for n in names]
+        else:
+            paths = [path, path + ".part"]
+        for target in paths:
+            try:
+                os.remove(target)
             except OSError:
                 pass
 

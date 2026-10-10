@@ -118,7 +118,7 @@ describe('title pickers', () => {
     expect(defaultAudioOnly('audio_drama')).toBe(true)
     expect(defaultAudioOnly(null)).toBe(true)
   })
-  it('labels a title by title', () => {
+  it('labels a title by its Chinese name, else by id', () => {
     expect(dramaLabel({ id: 9, title_en: '', title_zh: '天官' })).toBe('天官')
     expect(dramaLabel({ id: 9, title_en: null, title_zh: null })).toBe('Title 9')
   })
