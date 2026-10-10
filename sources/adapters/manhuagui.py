@@ -189,8 +189,8 @@ def decode_image_data(html: str) -> dict:
         return json.loads(unpacked[start:end + 1])
     except RecursionError:
         raise LayoutChanged("valid image data") from None
-    except ValueError as e:
-        raise LayoutChanged(f"valid image data ({e})") from None
+    except ValueError:
+        raise LayoutChanged("valid image data") from None
 
 
 def _soup(html: str):
