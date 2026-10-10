@@ -41,6 +41,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `cli.py`
 - `cli_subtitle.py` (the `import-subtitle` command)
 - `cli_timing.py` (the `timing-check` command, and the wait after a Qwen-only `transcribe`)
+- `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db.py`
 - `diagnostics.py`

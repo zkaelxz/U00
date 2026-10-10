@@ -616,11 +616,11 @@ def test_live_route_uses_cookies_only_at_the_pc(isolated_db, env_file, monkeypat
 
 
 def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
-    import cli
+    import cli_translate
     settings_service.set_settings({"monthly_cap_usd": 4})
-    assert cli._monthly_cap_setting() == 4.0
+    assert cli_translate._monthly_cap_setting() == 4.0
     settings_service.set_settings({"monthly_cap_usd": 0})
-    assert cli._monthly_cap_setting() is None
+    assert cli_translate._monthly_cap_setting() is None
 
     # cli translate: engine, locale, style note, num_ctx and summary engine
     # fall back to the saved Settings values when no flag is given.
@@ -646,12 +646,12 @@ def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
         return types.SimpleNamespace(**base)
 
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args())
+        cli_translate.cmd_translate(args())
     assert "deepseek" in engines  # the drama has no engine saved
     assert seen["locale"] == "en-AU" and seen["style_note"] == "Terse."
     assert seen["ollama_num_ctx_override"] == 8192
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args(engine="fake", locale="en-GB", style_note="",
+        cli_translate.cmd_translate(args(engine="fake", locale="en-GB", style_note="",
                                ollama_num_ctx=0))
     assert seen["locale"] == "en-GB" and seen["style_note"] == ""
     assert seen["ollama_num_ctx_override"] == 0

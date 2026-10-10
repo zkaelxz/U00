@@ -6,7 +6,7 @@ import io
 import pytest
 
 import background_jobs
-import cli
+import cli_translate
 import translate_engines as te
 from core import Line
 from engine_backends.translate_pipeline import plan_batches
@@ -160,7 +160,7 @@ class TestCliParity:
 
         args = _translate_args(id=did)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
         job_id = "test_plan_batches_parity"
         background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False,

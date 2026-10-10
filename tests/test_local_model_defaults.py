@@ -185,7 +185,7 @@ class TestGemma4Models:
     def test_cli_passes_the_tag_to_the_engine(self, isolated_db, monkeypatch, tag):
         import contextlib
         import io
-        import cli
+        import cli_translate
         from core import Line
         from tests.test_cli import _translate_args
         seen = {}
@@ -203,7 +203,7 @@ class TestGemma4Models:
         did = isolated_db.create_drama(title_en="T", status="aligned")
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did, engine="ollama", model=tag,
+            cli_translate.cmd_translate(_translate_args(id=did, engine="ollama", model=tag,
                                               cost_cap=None, monthly_cap=None))
         assert seen["model"] == tag
 
