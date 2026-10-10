@@ -64,7 +64,7 @@ class TestPageSideFallback:
         assert out["ok"] is False and out["sent"] == []
         assert out["code"] == "NEEDS_SITE_ACCESS"
         assert out["origins"] == ["https://s1.bzcdn.net"]
-        assert '"Allow this site"' in out["error"]
+        assert '"Allow" button' in out["error"]
 
 
 class TestWholeChapterCapture:
@@ -144,3 +144,33 @@ class TestWorkerDownload:
     def test_local_and_private_addresses_and_other_schemes_are_never_fetched(self):
         out = _run("background", "private_hosts_refused")
         assert out and all(v == {"ok": False, "fetchCalls": 0} for v in out.values())
+
+
+class TestPrivateNamesAreNeverGranted:
+    def test_single_label_and_lan_suffixed_hosts_are_never_fetched(self):
+        out = _run("background", "private_hosts_refused")
+        for target in ("http://nas/x.jpg", "http://camera/snapshot.jpg", "http://router.lan/x.jpg",
+                       "http://printer.internal/x.jpg", "http://x.home.arpa/x.jpg", "http://a.intranet/x.jpg",
+                       "http://a.corp/x.jpg", "http://a.localdomain/x.jpg", "http://nas./x.jpg"):
+            assert out[target] == {"ok": False, "fetchCalls": 0}, target
+
+    def test_the_popup_refuses_the_same_origins_with_the_same_check(self):
+        out = _run("popup", "site_patterns")
+        assert out["https://s1.bzcdn.net"] == "https://s1.bzcdn.net/*"
+        assert out["https://cdn.example:8443"] == "https://cdn.example:8443/*"
+        refused = [k for k in out if k not in ("https://s1.bzcdn.net", "https://cdn.example:8443")]
+        assert refused and all(out[k] is None for k in refused), out
+
+    def test_the_popup_asks_for_one_origin_per_click(self):
+        source = os.path.join(os.path.dirname(HARNESS), "..", "..", "extension", "popup.js")
+        with open(source, encoding="utf-8") as fh:
+            assert "origins: [pattern]" in fh.read()
+
+
+class TestTaintedCanvasOverlayKey:
+    def test_the_key_is_per_canvas_and_size_and_empty_urls_have_none(self):
+        out = _run("popup", "tainted_keys")
+        assert out["firstIsStable"] is True
+        assert out["twoCanvasesDiffer"] is True
+        assert out["resizedDiffers"] is True
+        assert out["emptyUrl"] is None

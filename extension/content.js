@@ -331,7 +331,7 @@
       return {
         ok: false, code: "NEEDS_SITE_ACCESS", origins,
         error: `This page draws its images from ${origins.join(", ")}, and the browser won't let the page ` +
-               'read them. Click "Allow this site" to let the extension download them itself.',
+               'read them. Click an "Allow" button to let the extension download them itself.',
       };
     }
     return {
@@ -1061,18 +1061,30 @@
     await Promise.race([loaded, sleep(CAPTURE_LOAD_WAIT_MS)]);
   }
 
+  // The page's own canvas identity and size are in the key because a reader that repaints a canvas
+  // without touching its data-src would otherwise keep the key, and the previous page's overlay.
+  // No URL means no key, so nothing is ever reused for such a canvas.
+  const taintedIds = new WeakMap();
+  let nextTaintedId = 0;
+  function taintedKey(el) {
+    const url = findImageUrl(el);
+    if (!url) return null;
+    if (!taintedIds.has(el)) taintedIds.set(el, ++nextTaintedId);
+    return `tainted:${taintedIds.get(el)}:${el.width}x${el.height}:${url}`;
+  }
+
   // A canvas has no src, so its draw target is identified by the hash of its pixels: a reader that
   // repaints the canvas with another page while a batch is in flight changes the hash, and the
   // bubbles are not drawn on the wrong page.
   function drawTargetKey(el, hash) {
-    if (taintedCanvases.has(el)) return `tainted:${findImageUrl(el)}`;
+    if (taintedCanvases.has(el)) return taintedKey(el);
     return el.tagName === "CANVAS" ? hash : elementKey(el);
   }
 
   async function currentDrawTargetKey(el) {
     if (el.tagName !== "CANVAS") return elementKey(el);
     // Its pixels can never be hashed; the file it was painted from stands in.
-    if (taintedCanvases.has(el)) return `tainted:${findImageUrl(el)}`;
+    if (taintedCanvases.has(el)) return taintedKey(el);
     try {
       const blob = await new Promise((resolve, reject) => {
         el.toBlob((b) => (b ? resolve(b) : reject(new Error("unreadable"))), "image/png");
@@ -1283,7 +1295,7 @@
             // later page while this batch was in flight; drawing then
             // would put these bubbles on the wrong page.
             for (const el of elements) {
-              if (el.isConnected && await currentDrawTargetKey(el) === srcKey) {
+              if (srcKey && el.isConnected && await currentDrawTargetKey(el) === srcKey) {
                 drawOverlay(el, regions);
                 counts.drawn += 1;
               }

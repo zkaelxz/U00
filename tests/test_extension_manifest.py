@@ -95,7 +95,7 @@ class TestTheManifest:
         assert "<all_urls>" not in manifest["optional_host_permissions"]
         assert set(manifest["optional_host_permissions"]) == {"https://*/*", "http://*/*"}
         popup = _code("popup.js")
-        assert "chrome.permissions.request({ origins: access.origins })" in popup
+        assert "chrome.permissions.request({ origins: [pattern] })" in popup
         assert "permissions.request" not in _code("background.js")
         assert "permissions.request" not in _code("content.js")
 

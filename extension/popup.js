@@ -19,7 +19,7 @@ const els = {
   translateText: document.getElementById("translateText"),
   dramaTitle: document.getElementById("dramaTitle"),
   openLink: document.getElementById("openInBaihe"),
-  allowSite: document.getElementById("allowSite"),
+  allowSites: document.getElementById("allowSites"),
   notice: document.getElementById("notice"),
   noticeText: document.getElementById("noticeText"),
   noticeAction: document.getElementById("noticeAction"),
@@ -49,56 +49,50 @@ function showNotice(text, actionLabel, handler) {
   setControlsEnabled(false);
 }
 
-// Set while the "Allow this site" button is showing: the origins to ask for and the action to repeat.
-let pendingAccess = null;
+// Set while the "Allow <site>" buttons are showing: the action to repeat once one is granted.
+let pendingRetry = null;
 
-// The origin came from the page, so it is validated again here: a "*" in a host
-// would make the permission request a wildcard grant.
-function sitePattern(origin) {
-  try {
-    const u = new URL(origin);
-    const host = u.hostname.toLowerCase().replace(/\.$/, "");
-    if ((u.protocol !== "https:" && u.protocol !== "http:") || !/^[a-z0-9.-]+$/.test(host)
-        || /^\d+(\.\d+)*$/.test(host) || /^\.|\.\./.test(host)) return null;
-    return `${u.protocol}//${host}${u.port ? `:${u.port}` : ""}/*`;
-  } catch (e) {
-    return null;
-  }
-}
-
+// One button per origin, never one request for all of them: the origins come from the page, so a
+// hostile page could otherwise bundle a real CDN with names it wants the person to approve unseen.
 function offerSiteAccess(result, retry) {
-  pendingAccess = { origins: (result.origins || []).map(sitePattern).filter(Boolean), retry };
-  if (!pendingAccess.origins.length) {
-    pendingAccess = null;
-    return;
+  pendingRetry = retry;
+  els.allowSites.replaceChildren();
+  const origins = [...new Set(result.origins || [])].filter(sitePattern);
+  for (const origin of origins) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary";
+    button.textContent = `Allow ${origin}`;
+    button.addEventListener("click", () => allowSite(origin));
+    els.allowSites.append(button);
   }
-  els.allowSite.hidden = false;
+  els.allowSites.hidden = !origins.length;
 }
 
 // chrome.permissions.request needs the click that happens here, which is why the worker only reports
 // the need and never asks itself. The optional permission is per origin, so nothing broader is granted.
-async function allowSite() {
-  const access = pendingAccess;
-  if (!access) return;
+async function allowSite(origin) {
+  const retry = pendingRetry;
+  const pattern = sitePattern(origin);
+  if (!retry || !pattern) return;
   try {
-    const granted = await chrome.permissions.request({ origins: access.origins });
+    const granted = await chrome.permissions.request({ origins: [pattern] });
     if (!granted) {
       say("Not allowed, so the page's images still can't be read.", true);
-      els.allowSite.hidden = false;
       return;
     }
   } catch (e) {
     say(`Couldn't ask for that permission (${e.message}).`, true);
-    els.allowSite.hidden = false;
     return;
   }
-  pendingAccess = null;
-  access.retry();
+  pendingRetry = null;
+  els.allowSites.hidden = true;
+  retry();
 }
 
 function say(message, bad = false) {
   els.status.textContent = message;
-  els.allowSite.hidden = true;
+  els.allowSites.hidden = true;
   els.status.classList.toggle("bad", !!bad);
   // A new message replaces the result it described, so its link goes too.
   els.openLink.hidden = true;
@@ -465,7 +459,6 @@ els.openLink.addEventListener("click", (event) => {
   event.preventDefault();
   chrome.tabs.create({ url: els.openLink.href });
 });
-els.allowSite.addEventListener("click", allowSite);
 els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
 
 load().then(syncCaptureUi);

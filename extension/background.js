@@ -17,6 +17,8 @@
 // If you ever see a CORS error here, the fix is to make the request from
 // this worker -- never to add a permissive header on the server.
 
+importScripts("site_access.js");
+
 // Fixed on purpose: the app's bridge always binds this port (page_server.DEFAULT_PORT)
 // and the manifest's host permission is narrowed to it, so it is not a setting.
 const BRIDGE_PORT = 8756;
@@ -225,37 +227,6 @@ function sniffImageType(bytes) {
   return "";
 }
 
-// The page chooses this URL, so it must not be able to aim the person's browser
-// at their own machine or network (including the app on 8600 and the bridge).
-// This is a literal-address check only: a public DNS name that resolves to a
-// private address (rebinding) cannot be excluded from inside an extension, and
-// the suffix list below is a cheap guard for the common wildcard-DNS services.
-const WILDCARD_DNS_SUFFIXES = [".nip.io", ".sslip.io", ".localtest.me"];
-
-function isPrivateHost(hostname) {
-  // "localhost." is the same host as "localhost".
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "");
-  if (/^(?:.*\.)?local(?:host)?$/.test(host)) return true;
-  if (WILDCARD_DNS_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true;
-  if (host.includes(":")) return true;     // IPv6 literals: loopback, link-local, ULA, ::ffff: mapped
-  const m = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-  if (!m) return false;
-  const [a, b] = [Number(m[1]), Number(m[2])];
-  return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
-    || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19));
-}
-
-// The permission pattern is built only from a validated scheme, host and port:
-// URL parsing accepts "*" in a host, which would turn the request into a
-// wildcard grant. IP literals are refused so only named hosts can be granted.
-function permissionTarget(parsed) {
-  const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
-  if (!/^[a-z0-9.-]+$/.test(host) || /^\d+(\.\d+)*$/.test(host) || /(^|\.)\.|^\.|\.\./.test(host)) return null;
-  const origin = `${parsed.protocol}//${host}${parsed.port ? `:${parsed.port}` : ""}`;
-  return { origin, pattern: `${origin}/*` };
-}
-
 function base64Of(bytes) {
   let binary = "";
   const chunk = 0x8000;      // chunked, so a big page can't blow the stack
@@ -301,9 +272,6 @@ async function fetchImage({ url }, sender) {
   } catch (e) {
     return { ok: false, error: "that image address isn't valid" };
   }
-  if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || isPrivateHost(parsed.hostname)) {
-    return { ok: false, error: "that image is not on a public web address" };
-  }
   const target = permissionTarget(parsed);
   if (!target) return { ok: false, error: "that image is not on a public web address" };
   const origins = [target.pattern];
@@ -312,7 +280,7 @@ async function fetchImage({ url }, sender) {
     return {
       ok: false, code: "NEEDS_PERMISSION", origin: target.origin,
       error: `The page draws its image from ${target.origin}, which the browser won't let the page read. ` +
-             'Click "Allow this site" in the extension popup to let it download that image itself.',
+             `Click "Allow ${target.origin}" in the extension popup to let it download that image itself.`,
     };
   }
   const controller = new AbortController();

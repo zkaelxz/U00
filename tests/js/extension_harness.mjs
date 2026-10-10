@@ -174,10 +174,63 @@ function loadBackground({ granted, response, fetchImpl }) {
       permissions: { contains: async ({ origins }) => granted(origins) },
     },
   };
+  sandbox.importScripts = (name) => vm.runInContext(read(name), sandbox);
   vm.createContext(sandbox);
   vm.runInContext(read("background.js"), sandbox);
   const ask = (message, sender = {}) => new Promise((resolve) => { listener(message, sender, resolve); });
   return { ask, fetchCalls };
+}
+
+// The shared origin check, as the popup loads it (a plain script, no worker).
+function loadSiteAccess() {
+  const sandbox = { URL };
+  vm.createContext(sandbox);
+  vm.runInContext(read("site_access.js"), sandbox);
+  return sandbox;
+}
+
+// taintedKey is private to content.js's closure, so it is lifted out by its source text.
+function loadTaintedKey(findImageUrl) {
+  const src = read("content.js");
+  const start = src.indexOf("const taintedIds");
+  const end = src.indexOf("// A canvas has no src, so its draw target");
+  if (start < 0 || end < 0) throw new Error("taintedKey not found");
+  const sandbox = { WeakMap, findImageUrl };
+  vm.createContext(sandbox);
+  vm.runInContext(`${src.slice(start, end)}; this.taintedKey = taintedKey;`, sandbox);
+  return sandbox.taintedKey;
+}
+
+async function popup(scenario) {
+  const { sitePattern } = loadSiteAccess();
+  switch (scenario) {
+    case "site_patterns": {
+      const out = {};
+      for (const origin of ["https://s1.bzcdn.net", "https://cdn.example:8443", "http://nas", "http://camera",
+        "https://router.lan", "https://printer.internal", "https://x.home.arpa", "http://localhost", "http://127.0.0.1",
+        "http://192.168.1.5", "https://8.8.8.8", "https://*.victim.com", "file:///etc/passwd", "not a url"]) {
+        out[origin] = sitePattern(origin);
+      }
+      return out;
+    }
+    case "tainted_keys": {
+      const urls = new Map();
+      const a = { width: 800, height: 1200 };
+      const b = { width: 800, height: 1200 };
+      const resized = { width: 400, height: 600 };
+      const blank = { width: 800, height: 1200 };
+      urls.set(a, IMG_URL); urls.set(b, IMG_URL); urls.set(resized, IMG_URL); urls.set(blank, "");
+      const key = loadTaintedKey((el) => urls.get(el));
+      const first = key(a);
+      urls.set(a, "https://s1.bzcdn.net/p/2.jpg");
+      return {
+        firstIsStable: first === (urls.set(a, IMG_URL), key(a)),
+        twoCanvasesDiffer: key(a) !== key(b), resizedDiffers: key(resized) !== key(b),
+        emptyUrl: key(blank),
+      };
+    }
+  }
+  throw new Error(`unknown scenario ${scenario}`);
 }
 
 async function background(scenario) {
@@ -262,7 +315,9 @@ async function background(scenario) {
         "http://localhost./x.jpg", "http://127.0.0.1.nip.io/x.jpg", "http://a.sslip.io/x.jpg",
         "http://a.localtest.me/x.jpg", "http://100.64.0.1/x.jpg", "http://198.18.0.1/x.jpg",
         "http://224.0.0.1/x.jpg", "http://240.0.0.1/x.jpg", "http://[::ffff:127.0.0.1]/x.jpg",
-        "http://[fc00::1]/x.jpg", "http://[fe80::1]/x.jpg"]) {
+        "http://[fc00::1]/x.jpg", "http://[fe80::1]/x.jpg", "http://nas/x.jpg", "http://camera/snapshot.jpg",
+        "http://router.lan/x.jpg", "http://printer.internal/x.jpg", "http://x.home.arpa/x.jpg",
+        "http://a.intranet/x.jpg", "http://a.corp/x.jpg", "http://a.localdomain/x.jpg", "http://nas./x.jpg"]) {
         const r = await go({ response: image(JPEG) }, target);
         out[target] = { ok: r.ok, fetchCalls: r.fetchCalls };
       }
@@ -273,6 +328,7 @@ async function background(scenario) {
 }
 
 const [kind, scenario] = process.argv.slice(2);
-const result = await (kind === "content" ? content(scenario) : background(scenario));
+const handlers = { content, background, popup };
+const result = await handlers[kind](scenario);
 process.stdout.write(JSON.stringify(result));
 process.exit(0);
