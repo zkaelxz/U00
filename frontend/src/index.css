@@ -853,3 +853,8 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 }
 
 .source-link { font-size: 0.9em; white-space: nowrap; }
+/* Same trick as .btn-sm: the box stays inline-sized, the ::after extends the tap area to 44px. */
+@media (pointer: coarse), (max-width: 640px) {
+  .source-link { position: relative; }
+  .source-link::after { content: ''; position: absolute; inset: -12px -6px; }
+}

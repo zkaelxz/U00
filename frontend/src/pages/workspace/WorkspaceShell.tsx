@@ -93,7 +93,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       {drama && (
         <ButtonLink
           href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}
-          variant="primary"
+          variant="secondary"
           size="sm"
           className="ws-read"
           data-testid="header-open"
