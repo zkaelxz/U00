@@ -1,5 +1,6 @@
-import numpy as np
 import pytest
+
+np = pytest.importorskip("numpy")
 
 import stereo_cues as sc
 import stereo_render as render
