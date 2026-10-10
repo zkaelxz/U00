@@ -802,6 +802,16 @@ class TestKnownInstallLimitationReason:
 
 
 class TestRedactForSupport:
+    @pytest.fixture(autouse=True)
+    def _pinned_profile(self, monkeypatch):
+        # The runner's own login and home folder would otherwise be redacted
+        # too; expanduser ignores HOME on Windows, so it is pinned as well.
+        monkeypatch.setattr("getpass.getuser", lambda: "tester")
+        monkeypatch.setenv("HOME", "/home/tester")
+        monkeypatch.setenv("USERPROFILE", "C:\\Users\\tester")
+        monkeypatch.setattr(diagnostics_report.os.path, "expanduser",
+                            lambda p: os.environ["HOME"] if p == "~" else p)
+
     def test_strips_api_keys(self):
         text = diagnostics_report.redact_for_support("key=sk-ant-api03-" + "X" * 40)
         assert "sk-ant-api03" not in text
@@ -822,6 +832,53 @@ class TestRedactForSupport:
         monkeypatch.setattr("getpass.getuser", lambda: "li")
         text = diagnostics_report.redact_for_support("Library check by li: Linux ok")
         assert text == "Library check by [USER]: Linux ok"
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("push failed for bob@bob-laptop", "push failed for [USER]@[USER]-laptop"),
+        ("Author: Bob <bob@example.com>", "Author: [USER] <[USER]@example.com>"),
+        ("connected to BOB-PC", "connected to [USER]-PC"),
+        ("saved bob_notes.txt", "saved [USER]_notes.txt"),
+        ("wrote C:\\Users\\x\\bob_notes.txt", "wrote .../[USER]_notes.txt"),
+    ])
+    def test_a_username_ends_at_any_non_alphanumeric(self, monkeypatch, raw, expected):
+        monkeypatch.setattr("getpass.getuser", lambda: "bob")
+        assert diagnostics_report.redact_for_support(raw) == expected
+
+    def test_a_username_inside_a_word_is_kept(self, monkeypatch):
+        monkeypatch.setattr("getpass.getuser", lambda: "li")
+        assert (diagnostics_report.redact_for_support("Library_li and li-ion in Linux")
+                == "Library_[USER] and [USER]-ion in Linux")
+
+    @pytest.mark.parametrize("raw", [
+        "x \x00URL7\x00",
+        "\x00URL" + "9" * 5000 + "\x00",
+        "https://h/a \x00URL0\x00 \x00URL1\x00",
+        "\x00\x00URL\x00\x00",
+        "",
+        "\x00",
+        "a\x00b " * 20000,
+        ("C:\\a b\\" * 2000) + "c.txt " + "https://h/p?sig=1 " * 2000,
+        "token=\x00URL0\x00 https://h/x",
+    ])
+    def test_hostile_input_never_raises(self, raw):
+        out = diagnostics_report.redact_for_support(raw)
+        assert isinstance(out, str) and "\x00" not in out
+
+    def test_a_forged_placeholder_cannot_pull_in_another_url(self):
+        out = diagnostics_report.redact_for_support("see \x00URL0\x00 and https://h/p?sig=1")
+        assert out == "see URL0 and https://h/p"
+
+    @pytest.mark.parametrize("raw,expected", [
+        # Only http(s) links are parked, so the rest goes through the path pass.
+        ("wss://h/live?X-Goog-Signature=abc&x=1", "ws.../live?X-Goog-Signature=[REDACTED]&x=1"),
+        ("refresh_token=abc def", "refresh_token=[REDACTED] def"),
+        ("id_token=a.b.c", "id_token=[REDACTED]"),
+        ("Key-Pair-Id=K1 Policy=eyJ", "Key-Pair-Id=[REDACTED] Policy=[REDACTED]"),
+        ("X-Goog-Credential=svc%2F2026", "X-Goog-Credential=[REDACTED]"),
+        ("api_key=abc; auth=xyz, password=hunter2", "api_key=[REDACTED]; auth=[REDACTED], password=[REDACTED]"),
+    ])
+    def test_credential_params_outside_a_url_are_redacted(self, raw, expected):
+        assert diagnostics_report.redact_for_support(raw) == expected
 
     def test_getuser_raising_does_not_fail_redaction(self, monkeypatch):
         def boom():

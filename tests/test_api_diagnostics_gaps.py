@@ -68,7 +68,7 @@ def fakes(isolated_db, monkeypatch):
                         lambda: {"found": True, "name": "deno", "path": ABS_PATH})
     monkeypatch.setattr(diagnostics, "check_browser",
                         lambda: {"found": True, "name": "Chrome", "path": ABS_PATH})
-    monkeypatch.setattr(diagnostics, "check_cuda",
+    monkeypatch.setattr(diagnostics_torch, "check_cuda_isolated",
                         lambda: {"torch_installed": False, "cuda_available": None})
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda *a, **k: [
         {"repo_id": "org/model", "repo_type": "model", "revision": "abc123",

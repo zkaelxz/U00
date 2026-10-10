@@ -10,6 +10,7 @@ import applog
 import background_jobs
 import db
 import diagnostics
+import diagnostics_torch
 import diarize
 from services import diagnostics_gaps_service as svc
 from services import settings_service
@@ -81,7 +82,7 @@ def test_setup_checks_have_no_paths(isolated_db, monkeypatch):
                         lambda: {"found": True, "path": ABS_PATH, "version": "ffmpeg 6 " + ABS_PATH})
     monkeypatch.setattr(diagnostics, "check_js_runtime",
                         lambda: {"found": True, "name": "deno", "path": ABS_PATH})
-    monkeypatch.setattr(diagnostics, "check_cuda",
+    monkeypatch.setattr(diagnostics_torch, "check_cuda_isolated",
                         lambda: {"torch_installed": False, "cuda_available": None})
     out = svc.get_setup_checks()
     assert out["ffmpeg"]["found"] is True and out["js_runtime"]["name"] == "deno"

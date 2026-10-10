@@ -60,14 +60,6 @@ _CSRF_RE = re.compile(r"(x-csrf-token[\"']?\s*[:=]\s*[\"']?)[^\s\"',;]+", re.IGN
 _COOKIE_HDR_RE = re.compile(r"(?im)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*")
 # URL userinfo: scheme://user:pass@host -> scheme://***@host.
 _USERINFO_RE = re.compile(r"(?<=//)[^/\s@\"'<>]+@")
-# Credential-shaped parameters of any length, wherever they sit (a query
-# string, a log line, JSON): token=, access_token=, sig=, signature=,
-# X-Amz-Signature=, Key-Pair-Id=, auth=, api_key=, password=, ... The name
-# set follows sources/ai_extract._SENSITIVE_PARAM (prompt_safe), without its
-# need for a preceding ?/&.
-_PARAM_RE = re.compile(
-    r"(?i)(?<![\w.\-])((?:[\w.\-]*(?:token|sig|auth|session|secret|credential|passw|key|jwt|"
-    r"ticket|hmac|policy)[\w.\-]*|x-amz-[\w.\-]+)=)[^&#\s\"'<>\\;,]*")
 _TOKENISH_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 _USER_DIR_RE = re.compile(
     r"(?i)((?:[a-z]:)?[\\/]+(?:users|documents and settings|home)[\\/]+)[^\\/\s\"'<>|:*?]+")
@@ -88,7 +80,7 @@ def _pre_scrub(text: str) -> str:
     text = _COOKIE_HDR_RE.sub(r"\1[REDACTED]", text)
     text = _CSRF_RE.sub(r"\1[REDACTED]", text)
     text = _USERINFO_RE.sub("***@", text)
-    text = _PARAM_RE.sub(r"\1[REDACTED]", text)
+    text = diagnostics_report.CREDENTIAL_PARAM_PATTERN.sub(r"\1[REDACTED]", text)
     text = _USER_DIR_RE.sub(r"\1[USER]", text)
     return _TOKENISH_RE.sub("[REDACTED]", text)
 

@@ -9,6 +9,11 @@ that job/log data is redacted before leaving the service, the same
 scope guarantee tests/test_reader_service.py checks for Slice 4.
 """
 
+import os
+import sys
+
+import pytest
+
 import background_jobs
 from services import diagnostics_service
 
@@ -62,13 +67,10 @@ def test_result_field_is_never_exposed(isolated_db, monkeypatch):
     assert "result" not in overview["running_jobs"][0]
 
 
-def test_overview_reads_the_gpu_without_loading_torch_or_ctranslate2(
-        isolated_db, monkeypatch, tmp_path):
-    """Loading either in the server keeps CUDA DLLs locked, so GPU PyTorch
-    setup can't replace them. Fakes on PYTHONPATH reach the child too, which
-    proves the GPU block came from there."""
-    import os
-    import sys
+@pytest.fixture
+def fake_gpu_modules(monkeypatch, tmp_path):
+    """A fake torch (8 GB GPU) and ctranslate2. Fakes on PYTHONPATH reach the
+    GPU child too, so a GPU answer proves it came from there."""
     import diagnostics_torch
     (tmp_path / "torch").mkdir()
     (tmp_path / "torch" / "__init__.py").write_text(
@@ -86,11 +88,109 @@ def test_overview_reads_the_gpu_without_loading_torch_or_ctranslate2(
         monkeypatch.delitem(sys.modules, name, raising=False)
     monkeypatch.setattr(diagnostics_torch, "_gpu_status_cache", {"at": None, "value": None})
 
+
+def test_overview_reads_the_gpu_without_loading_torch_or_ctranslate2(
+        isolated_db, fake_gpu_modules):
+    """Loading either in the server keeps CUDA DLLs locked, so GPU PyTorch
+    setup can't replace them."""
     gpu = diagnostics_service.get_diagnostics_overview()["gpu"]
 
     assert "torch" not in sys.modules and "ctranslate2" not in sys.modules
     assert gpu["available"] is True and gpu["name"] == "Fake GPU"
     assert gpu["whisper"]["ctranslate2_cuda_devices"] == 1
+
+
+def test_setup_checks_and_bug_report_read_the_gpu_without_loading_torch(
+        isolated_db, fake_gpu_modules, monkeypatch):
+    """The Diagnostics page fetches the setup checks alongside the overview,
+    and a bug report includes them; pyannote 4 adds the low-VRAM check."""
+    import diagnostics
+    from services import bug_report_service, diagnostics_gaps_service
+    real_version = diagnostics.get_installed_version
+    monkeypatch.setattr(diagnostics, "get_installed_version",
+                        lambda n: "4.0.1" if n == "pyannote.audio" else real_version(n))
+    monkeypatch.setattr(bug_report_service, "_CACHE", {})
+
+    checks = diagnostics_gaps_service.get_setup_checks()
+    summary = bug_report_service._setup_summary()
+
+    assert "torch" not in sys.modules and "ctranslate2" not in sys.modules
+    assert checks["cuda"] == {"torch_installed": True, "cuda_available": True}
+    assert any("less than 12 GB" in w for w in checks["warnings"])
+    assert "CUDA available" in summary
+
+
+def test_check_cuda_isolated_tells_cpu_only_torch_from_a_failed_check(monkeypatch):
+    import diagnostics
+    import diagnostics_torch
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+    for gpu, expected in [({"available": True}, True),
+                          ({"available": False, "torch_cuda_version": None}, False),
+                          ({"available": False, "message": "GPU info unavailable."}, None)]:
+        monkeypatch.setattr(diagnostics_torch, "get_gpu_status_isolated", lambda g=gpu: g)
+        assert diagnostics_torch.check_cuda_isolated() == {
+            "torch_installed": True, "cuda_available": expected}
+
+
+def test_no_gpu_child_runs_while_an_install_holds_the_library(monkeypatch):
+    """A child importing torch while setup replaces its files can lock them."""
+    import diagnostics_torch
+    calls = []
+    monkeypatch.setattr(diagnostics_torch, "_gpu_status_cache", {"at": None, "value": None})
+    monkeypatch.setattr(diagnostics_torch, "_gpu_status_from_child",
+                        lambda: calls.append(1) or {"available": True, "whisper": {},
+                                                    "probed": True})
+    assert background_jobs.acquire_exclusive("GPU PyTorch setup")
+    try:
+        paused = diagnostics_torch.get_gpu_status_isolated()
+    finally:
+        background_jobs.release_exclusive()
+    assert paused["available"] is False
+    assert paused["message"] == diagnostics_torch.GPU_CHECK_PAUSED_MESSAGE
+    assert calls == []
+
+    assert diagnostics_torch.get_gpu_status_isolated()["available"] is True
+    monkeypatch.setitem(diagnostics_torch._gpu_status_cache, "at", -1e9)
+    assert background_jobs.acquire_exclusive("GPU PyTorch setup")
+    try:
+        # A stale answer beats none while the install runs.
+        assert diagnostics_torch.get_gpu_status_isolated()["available"] is True
+    finally:
+        background_jobs.release_exclusive()
+    assert calls == [1]
+
+
+def test_a_good_gpu_answer_is_kept_until_an_install(monkeypatch):
+    import time
+    import diagnostics_torch
+    from services import diagnostics_gaps_service
+    calls = []
+    monkeypatch.setattr(diagnostics_torch, "_gpu_status_cache", {"at": None, "value": None})
+    monkeypatch.setattr(diagnostics_torch, "_gpu_status_from_child",
+                        lambda: calls.append(1) or {"available": True, "whisper": {},
+                                                    "probed": True})
+    assert "probed" not in diagnostics_torch.get_gpu_status_isolated()
+    monkeypatch.setitem(diagnostics_torch._gpu_status_cache, "at",
+                        time.monotonic() - diagnostics_torch.GPU_STATUS_RETRY_SECONDS - 1)
+    diagnostics_torch.get_gpu_status_isolated()
+    assert len(calls) == 1
+    diagnostics_gaps_service._clear_update_cache()
+    diagnostics_torch.get_gpu_status_isolated()
+    assert len(calls) == 2
+
+
+def test_a_failed_gpu_check_is_retried_soon(monkeypatch):
+    import time
+    import diagnostics_torch
+    calls = []
+    monkeypatch.setattr(diagnostics_torch, "_gpu_status_cache", {"at": None, "value": None})
+    monkeypatch.setattr(diagnostics_torch, "_gpu_status_from_child",
+                        lambda: calls.append(1) or diagnostics_torch._gpu_status_unavailable())
+    diagnostics_torch.get_gpu_status_isolated()
+    monkeypatch.setitem(diagnostics_torch._gpu_status_cache, "at",
+                        time.monotonic() - diagnostics_torch.GPU_STATUS_RETRY_SECONDS - 1)
+    diagnostics_torch.get_gpu_status_isolated()
+    assert len(calls) == 2
 
 
 def test_gpu_status_is_cached_briefly(monkeypatch):
