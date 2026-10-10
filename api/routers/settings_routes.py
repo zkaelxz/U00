@@ -24,9 +24,9 @@ from api.auth import (LOOPBACK_HOSTS, PROXY_HEADERS, host_name, is_local_request
                       is_loopback_peer, local_only, require_permission)
 from api.schemas import (EndpointUrlResult, EndpointUrlSetRequest, EngineKeyClearRequest,
                          EngineKeyResult, EngineKeySetRequest, MonthCounterResetResult,
-                         SettingsOverview,
+                         SettingsOverview, SettingsSchema,
                          SettingsUpdateRequest)
-from services import settings_service
+from services import settings_schema_service, settings_service
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -39,6 +39,13 @@ _PATH_PREFERENCES = ("whisper_model_path", "tesseract_cmd", "cookies_file", "lnc
 def get_overview(request: Request):
     return _with_path_flags(settings_service.get_settings_overview(),
                             is_local_request(request))
+
+
+@router.get("/schema", dependencies=[require_permission("admin.settings")],
+            response_model=SettingsSchema,
+            summary="Declared settings (labels, types, limits, choices); never a value")
+def get_schema():
+    return settings_schema_service.get_schema()
 
 
 # PC-only: the preferences include paths the server itself uses (the
