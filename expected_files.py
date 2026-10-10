@@ -94,6 +94,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "translation_guide.py",
     "translation_memory.py",
     "universe_wiki.py",
+    "upgrade_check.py",
     "vad_segments.py",
     "video_download.py",
     "video_export.py",
