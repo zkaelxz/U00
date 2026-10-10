@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "installer"))
 
 import service  # noqa: E402
+from installer import setup_lock  # noqa: E402
 
 
 TEMPLATE = ROOT / "deploy" / "caddy" / "Caddyfile.template"
@@ -1236,7 +1237,7 @@ class FakeMutexes:
 
     def create(self, name):
         if name in self.existing:
-            raise service.SetupRunning(name)
+            raise setup_lock.SetupRunning(name)
         self.existing.add(name)
         return name
 
@@ -1269,7 +1270,7 @@ class TestSetupLock:
     def test_the_names_are_setups(self):
         iss = (ROOT / "installer" / "baihe.iss").read_text(encoding="utf-8")
         names = re.search(r"^SetupMutex=(.*)$", iss, re.M).group(1).strip()
-        assert tuple(n.strip() for n in names.split(",")) == service.SETUP_MUTEX_NAMES
+        assert tuple(n.strip() for n in names.split(",")) == setup_lock.SETUP_MUTEX_NAMES
 
     @pytest.mark.parametrize("argv", LOCKED, ids=lambda a: a[0])
     @pytest.mark.parametrize("name", ["BaiheStudioSetupMutex", "Global\\BaiheStudioSetupMutex"])
@@ -1297,7 +1298,7 @@ class TestSetupLock:
             return real(*a)
         monkeypatch.setattr(svc, method, recording)
         assert service.main(argv, services=svc, admin=True, mutexes=mutexes) == 0
-        assert seen == [set(service.SETUP_MUTEX_NAMES)]
+        assert seen == [set(setup_lock.SETUP_MUTEX_NAMES)]
         assert mutexes.existing == set()
 
     def test_released_after_a_failure(self, layout, source):
@@ -1320,14 +1321,14 @@ class TestSetupLock:
         mutexes = FakeMutexes()
         with pytest.raises(KeyboardInterrupt):
             service.main(["set-port", "8711"], services=svc, admin=True, mutexes=mutexes)
-        assert held == [set(service.SETUP_MUTEX_NAMES)]
+        assert held == [set(setup_lock.SETUP_MUTEX_NAMES)]
         assert mutexes.existing == set()
         assert service.stored_api_port(layout.config_file) == service.ADMIN_PORT
 
     def test_a_second_command_is_refused_while_one_runs(self, layout, source, capsys):
         svc, win = self._installed(layout, source)
         mutexes = FakeMutexes()
-        with service.setup_lock(mutexes):
+        with setup_lock.setup_lock(mutexes):
             before = self._snapshot(layout)
             assert service.main(["set-port", "8711"], services=svc, admin=True,
                                 mutexes=mutexes) == 2
@@ -1344,9 +1345,9 @@ class TestSetupLock:
         if argv == ["install"]:
             for name in win.services:
                 win.services[name]["state"] = "STOPPED"     # Setup stopped them
-        mutexes = FakeMutexes(service.SETUP_MUTEX_NAMES)
+        mutexes = FakeMutexes(setup_lock.SETUP_MUTEX_NAMES)
         assert service.main(argv, services=svc, admin=True, mutexes=mutexes) == 0
-        assert mutexes.existing == set(service.SETUP_MUTEX_NAMES)
+        assert mutexes.existing == set(setup_lock.SETUP_MUTEX_NAMES)
 
     def test_a_mutex_error_changes_nothing(self, layout, source, capsys):
         svc, win = self._installed(layout, source)
@@ -1361,7 +1362,7 @@ class TestSetupLock:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="the non-Windows stand-in")
     def test_a_no_op_off_windows(self, layout, source):
-        assert isinstance(service.default_mutexes(), service.NoMutexes)
+        assert isinstance(setup_lock.default_mutexes(), setup_lock.NoMutexes)
         svc, win = self._installed(layout, source)
         assert service.main(["set-port", "8711"], services=svc, admin=True) == 0
         assert svc.api_port() == 8711
@@ -1563,8 +1564,10 @@ class TestNothingBeyondLoopback:
         assert not any("firewall_rule_command" in r for r in runs)
 
     def test_standard_library_only(self):
-        modules = set(re.findall(r"^(?:from|import) (\w+)", self.SOURCE, re.M))
-        assert modules <= set(sys.stdlib_module_names)
+        sibling = Path(setup_lock.__file__).read_text(encoding="utf-8")
+        modules = set(re.findall(r"^(?:from|import) (\w+)", self.SOURCE + sibling, re.M))
+        assert modules - {"installer"} <= set(sys.stdlib_module_names)
+        assert set(re.findall(r"^from (installer\.\w+)", self.SOURCE, re.M)) == {"installer.setup_lock"}
 
     def test_every_command_has_a_time_limit(self):
         assert "timeout=timeout" in self.SOURCE and "timeout=2)" in self.SOURCE
