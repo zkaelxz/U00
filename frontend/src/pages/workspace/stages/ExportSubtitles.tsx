@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { getAssText, getSubtitleText, type SubtitleFile } from '../../../api/export'
 import { ButtonLink } from '../../../components/Button'
@@ -45,7 +45,15 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [result, setResult] = useState<{ text: string; filename: string; fmt: ExportFormat } | null>(null)
+  const [pending, setPending] = useState(false)
+  const latest = useRef(0)
   const set = <K extends keyof AssForm>(k: K, v: AssForm[K]) => setForm({ ...form, [k]: v })
+
+  // A response for the old format or language must not appear (or download) under the new selection.
+  useEffect(() => {
+    latest.current += 1
+    setPending(false)
+  }, [fmt, form.field])
 
   const fetchText = (): Promise<SubtitleFile> | null => {
     if (fmt === 'ass') {
@@ -67,10 +75,15 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
   }
 
   const exportFile = () => {
+    if (pending) return
     const p = fetchText()
     if (!p) return
+    const mine = ++latest.current
+    setPending(true)
     p.then(
       ({ text, filename: serverName }) => {
+        if (mine !== latest.current) return
+        setPending(false)
         const filename = exportFilename(form.baseName, dramaId, form.field, fmt, serverName)
         setError(null)
         setResult({ text, filename, fmt })
@@ -78,6 +91,8 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         downloadText(text, filename, MIME[fmt])
       },
       (e: unknown) => {
+        if (mine !== latest.current) return
+        setPending(false)
         setResult(null)
         setError(e)
       },
@@ -105,11 +120,11 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         <button
           type="button"
           className="primary"
-          disabled={blocked}
+          disabled={blocked || pending}
           aria-describedby={blocked ? 'export-blocker' : undefined}
           onClick={exportFile}
         >
-          Export
+          {pending ? 'Exporting...' : 'Export'}
         </button>
       </div>
       {blocked && (

@@ -131,10 +131,21 @@ function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { sou
   const from = source === 'novel' ? 'the attached novel' : "this title's source lines"
 
   const cancel = () => {
-    // Stop a paid extraction nobody is waiting for.
+    // Stop a paid extraction nobody is waiting for. Closing waits for the answer, so a
+    // cancel that failed (the scan keeps running and billing) is shown, not hidden.
     // Run-scoped: a newer run started meanwhile is refused (409), not cancelled.
-    if (active && cur?.run_id) GLOSSARY_API[source].cancel(dramaId, cur.run_id).then(() => bumpGlossaryRun(source), () => undefined)
-    onCancel()
+    if (!active || !cur?.run_id) return onCancel()
+    setBusy(true)
+    GLOSSARY_API[source].cancel(dramaId, cur.run_id).then(
+      () => {
+        bumpGlossaryRun(source)
+        onCancel()
+      },
+      (e: unknown) => {
+        setError(e)
+        setBusy(false)
+      },
+    )
   }
 
   const startTranslation = () => {
