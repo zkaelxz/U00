@@ -65,7 +65,9 @@ migration is not a prerequisite.
 `_paddle_instances`, ...) are plain module globals with no locking, so
 two concurrent requests could race on first load. Every pipeline run
 therefore happens under `_PIPELINE_LOCK`: requests queue instead of
-racing. This is a single-user local app, so serialising is the right
+racing. Only detection and OCR (and storing their result) are serialised;
+translation runs outside the lock so an LLM call never stalls other pages
+or a Cancel. This is a single-user local app, so serialising is the right
 trade rather than a bug.
 
 ## Where the translation settings come from
@@ -420,6 +422,12 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                         except OSError:
                             pass
 
+                # Saved before release so a re-capture or Redo finds the read.
+                if page is not None:
+                    read_notes = page_capture_checks.save_read_bubbles(
+                        page["id"], bubbles, newly_stored, reused_rev)
+                    stored_bubbles = [] if read_notes else db.load_bubbles(page["id"])
+
         # Only detection and OCR touch the shared model caches; an LLM call
         # under the lock would stall every other page and a Cancel.
         if reuse_saved is not None:
@@ -453,8 +461,9 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         elif bubbles and engine is None:
             notes.append(_no_engine_note(config, "read"))
         if page is not None:
-            notes.extend(page_capture_checks.save_read_bubbles(
-                page["id"], bubbles, newly_stored, reused_rev))
+            notes.extend(read_notes)
+            notes.extend(page_capture_checks.save_translations_of_read(
+                page["id"], stored_bubbles, bubbles))
     except BaseException:
         # A page whose reading failed must not stay behind as an empty
         # page: the caller reports it as not delivered, and a retry
@@ -462,7 +471,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         if page is not None and newly_stored:
             from sources import pipeline
             try:
-                pipeline._discard_pages(int(drama_id), [page["id"]])
+                with PIPELINE_LOCK:
+                    pipeline._discard_pages(int(drama_id), [page["id"]])
             except Exception:
                 pass
         raise

@@ -50,6 +50,16 @@ def save_filled_translations(page_id: int, bubbles, originals: dict) -> list:
     return []
 
 
+def save_translations_of_read(page_id: int, stored, translated) -> list:
+    """Fills the rows stored from a read (same order) with the translations
+    the bridge produced on the in-memory list afterwards."""
+    return save_filled_translations(
+        page_id,
+        [{"id": row["id"], "translated_text": b.get("translated_text")}
+         for row, b in zip(stored, translated)],
+        snapshot_texts(stored))
+
+
 def save_read_bubbles(page_id: int, bubbles, newly_stored: bool, reused_rev: int) -> list:
     """Stores a fresh read. A reused page was empty when checked, but the read
     ran unlocked, so it is only replaced if nobody wrote since. Returns notes."""

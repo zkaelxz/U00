@@ -248,6 +248,8 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     try:
         render_svc.render_page(drama_id, page_id, render_notes,
                                lambda: render_svc.check_cancel(jid))
+    except background_jobs.JobCancelled:
+        raise                                    # a cancel is not a render failure
     except Exception as exc:
         render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
                              f"{translate_engines.redact_secrets(str(exc))}"))

@@ -1101,11 +1101,16 @@ class TestRecapturingKeepsSavedWork:
         import scanlate
         drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
         db.save_bubbles(page["id"], [])
-        mine = {"x": 1, "y": 2, "w": 3, "h": 4, "source_text": "他", "translated_text": "job's",
-                "kind": "bubble", "font_category": "regular", "reading_order": 0}
 
         def translate_while_a_job_saves(bubbles, engine, drama_meta, **kwargs):
-            db.replace_bubbles_if_unchanged(page["id"], [], [mine])
+            # The read is stored before translating, so a job's write lands on it.
+            saved = db.load_bubbles(page["id"])
+            db.update_bubble_fields(saved[0]["id"], {"translated_text": "job's"},
+                                    expected={"translated_text": saved[0]["translated_text"],
+                                              "source_text": saved[0]["source_text"]},
+                                    page_id=page["id"])
+            for b in bubbles:
+                b["translated_text"] = "mine"
             return "ctx"
         monkeypatch.setattr(scanlate, "translate_page_bubbles", translate_while_a_job_saves)
         second = _post(token, body).payload

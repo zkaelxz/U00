@@ -52,5 +52,8 @@ def test_without_a_cancel_check_it_waits_for_the_lock():
     lock = threading.Lock()
     lock.acquire()
     threading.Timer(0.3, lock.release).start()
+    started = time.monotonic()
     with cancellable_lock.hold(lock):
+        waited = time.monotonic() - started
         assert lock.locked()
+    assert waited >= 0.25

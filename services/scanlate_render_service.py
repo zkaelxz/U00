@@ -123,6 +123,8 @@ def _render_job(jid: str, drama_id: int, page_ids: list):
             if render_page(drama_id, pid, notes, lambda: check_cancel(jid))["rendered"]:
                 done += 1
             append_notes(pid, notes)
+        except background_jobs.JobCancelled:
+            raise                                # a cancel is not a page failure
         except (NotFoundError, InvalidInputError) as exc:
             failed += 1
             append_notes(pid, [("error", f"Render failed: {exc}")])
@@ -218,6 +220,8 @@ def _export_job(jid: str, drama_id: int, formats: list):
                 path = original_path(drama_id, page)
                 originals += 1
             files.append((n, path))
+        except background_jobs.JobCancelled:
+            raise                                # a cancel is not a skipped page
         except Exception as exc:
             failed += 1
             append_notes(page["id"], [("error", f"Export skipped this page: "
