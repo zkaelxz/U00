@@ -1198,6 +1198,85 @@ class TestWhisperDeviceReporting:
         assert status["errors"] and "boom" in status["errors"][0]
 
 
+class TestWhisperModelCache:
+    @staticmethod
+    def _hub(monkeypatch, tmp_path):
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        hub = tmp_path / "hub"
+        hub.mkdir()
+        return hub
+
+    @staticmethod
+    def _repo(hub, name, weights=True):
+        snap = hub / name / "snapshots" / "abc123"
+        snap.mkdir(parents=True)
+        (snap / "config.json").write_text("{}")
+        if weights:
+            (snap / "model.bin").write_bytes(b"x")
+
+    def test_turbo_alone_does_not_make_large_v3_cached(self, monkeypatch, tmp_path):
+        hub = self._hub(monkeypatch, tmp_path)
+        self._repo(hub, "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo")
+        assert whisper_models.is_whisper_model_cached("large-v3-turbo")
+        assert not whisper_models.is_whisper_model_cached("large-v3")
+
+    def test_exact_name_under_any_org_is_cached(self, monkeypatch, tmp_path):
+        hub = self._hub(monkeypatch, tmp_path)
+        self._repo(hub, "models--Systran--faster-whisper-large-v3")
+        assert whisper_models.is_whisper_model_cached("large-v3")
+
+    def test_partial_download_is_not_cached(self, monkeypatch, tmp_path):
+        hub = self._hub(monkeypatch, tmp_path)
+        self._repo(hub, "models--Systran--faster-whisper-small", weights=False)
+        (hub / "models--Systran--faster-whisper-medium").mkdir()
+        assert not whisper_models.is_whisper_model_cached("small")
+        assert not whisper_models.is_whisper_model_cached("medium")
+
+
+class TestWhisperDownloadToken:
+    def _stub(self, monkeypatch, download_model):
+        import types
+        built = []
+        fw = types.ModuleType("faster_whisper")
+        fw.WhisperModel = lambda target, device, compute_type: built.append(target) or object()
+        utils = types.ModuleType("faster_whisper.utils")
+        utils.download_model = download_model
+        fw.utils = utils
+        monkeypatch.setitem(sys.modules, "faster_whisper", fw)
+        monkeypatch.setitem(sys.modules, "faster_whisper.utils", utils)
+        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+        monkeypatch.setattr(whisper_models, "_whisper_device_info", {})
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
+        return built
+
+    def test_token_goes_to_the_download_not_the_environment(self, monkeypatch):
+        calls = []
+
+        def download_model(size, use_auth_token=None):
+            calls.append((size, use_auth_token))
+            return "/cache/" + size
+        built = self._stub(monkeypatch, download_model)
+        whisper_models.load_whisper_model("small", hf_token="hf_first")
+        assert calls == [("small", "hf_first")]
+        assert built == ["/cache/small"]
+        assert "HF_TOKEN" not in os.environ
+
+    def test_a_changed_token_is_used_without_a_restart(self, monkeypatch):
+        tokens = []
+        self._stub(monkeypatch, lambda size, use_auth_token=None: tokens.append(use_auth_token) or "/m")
+        whisper_models.load_whisper_model("small", hf_token="hf_first")
+        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+        whisper_models.load_whisper_model("small", hf_token="hf_second")
+        assert tokens == ["hf_first", "hf_second"]
+
+    def test_no_token_leaves_the_download_to_faster_whisper(self, monkeypatch):
+        calls = []
+        built = self._stub(monkeypatch, lambda *a, **k: calls.append(a) or "/m")
+        whisper_models.load_whisper_model("small")
+        assert calls == [] and built == ["small"]
+
+
 class TestSplitLongSegments:
     @staticmethod
     def _seg(text, start=10.0, end=40.0, **extra):

@@ -811,6 +811,29 @@ class TestRedactForSupport:
         text = diagnostics_report.redact_for_support("C:\\Users\\bobsmith\\project\\library\\foo.txt")
         assert "bobsmith" not in text
 
+    def test_strips_a_profile_folder_named_differently_from_the_login(self, monkeypatch):
+        monkeypatch.setattr("getpass.getuser", lambda: "bob")
+        monkeypatch.setenv("USERPROFILE", "C:\\Users\\张三")
+        monkeypatch.setenv("HOME", "/home/oldname")
+        text = diagnostics_report.redact_for_support("张三 and oldname opened a file")
+        assert text == "[USER] and [USER] opened a file"
+
+    def test_a_short_username_does_not_corrupt_words(self, monkeypatch):
+        monkeypatch.setattr("getpass.getuser", lambda: "li")
+        text = diagnostics_report.redact_for_support("Library check by li: Linux ok")
+        assert text == "Library check by [USER]: Linux ok"
+
+    def test_getuser_raising_does_not_fail_redaction(self, monkeypatch):
+        def boom():
+            raise OSError("no username")
+        monkeypatch.setattr("getpass.getuser", boom)
+        assert diagnostics_report.redact_for_support("plain text") == "plain text"
+
+    def test_urls_keep_scheme_host_and_path_not_a_mangled_path(self):
+        text = diagnostics_report.redact_for_support(
+            "download https://huggingface.co/org/model/resolve/main/model.bin?token=abc stalled")
+        assert text == "download https://huggingface.co/org/model/resolve/main/model.bin stalled"
+
     def test_collapses_posix_paths_to_the_last_segment(self):
         text = diagnostics_report.redact_for_support("saved to /home/bob/U00/library/drama_3/audio.wav")
         assert "/home/bob" not in text
