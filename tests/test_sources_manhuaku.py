@@ -230,3 +230,57 @@ class TestRegistration:
         adapter = registry.find_for_url(f"{BASE}/chapter/ch1.html")
         assert adapter is not None
         assert adapter.name == "manhuaku"
+
+
+def _gif(w, h):
+    import io as _io
+    from PIL import Image
+    buf = _io.BytesIO()
+    Image.new("P", (w, h), 3).save(buf, "GIF")
+    return buf.getvalue()
+
+
+class TestChapterImportKeepsEveryPageKind:
+    """Adapter chapters bring no budget of their own: a GIF page, or a
+    page whose CDN labels it text/plain, is still a page."""
+
+    GIF_URL = "https://img.example.invalid/pages/1.gif"
+    PLAIN_URL = "https://img.example.invalid/pages/2.jpg"
+    ICON_URL = "https://img.example.invalid/pages/icon.png"
+
+    def _routes(self):
+        from sources.http import Response
+        from .sources_helpers import png
+        return {self.GIF_URL: Response(200, {"content-type": "image/gif"}, _gif(800, 1200), ""),
+                self.PLAIN_URL: Response(200, {"content-type": "text/plain"},
+                                         png(800, 1200, 2), ""),
+                self.ICON_URL: image(10, 10, 3)}
+
+    def _rendered(self, url):
+        return ("<html><body><div class='reader'>"
+                f"<img src='{self.GIF_URL}'><img src='{self.PLAIN_URL}'>"
+                f"<img src='{self.ICON_URL}'></div></body></html>", "")
+
+    def test_gif_and_text_plain_pages_are_kept(self):
+        a, t = _adapter(self._routes(), rendered_fetch=self._rendered)
+        chapter = ChapterInfo("manhuaku", "test-slug", "ch1", "第1话",
+                              f"{BASE}/chapter/ch1.html")
+        refs = a.get_pages(chapter)
+        assert [r.url for r in refs] == [self.GIF_URL, self.PLAIN_URL]
+
+    def test_skipped_images_are_reported_in_the_job_result(self, isolated_db):
+        import background_jobs
+        from sources import pipeline
+        a, t = _adapter(self._routes(), rendered_fetch=self._rendered)
+        chapter = ChapterInfo("manhuaku", "test-slug", "ch1", "第1话",
+                              f"{BASE}/chapter/ch1.html")
+        drama_id = isolated_db.create_drama(title_zh="测试", media_type="manhua")
+        job = "source_import_manhuaku_skipped"
+        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+                                      "cancel_requested": False, "result": None}
+        pipeline.run_import_job(job, "manhuaku", [chapter], drama_id, adapter=a)
+        result = background_jobs.get_status(job)["result"]
+        background_jobs.clear_job(job)
+        assert result["chapters"] == [{"chapter_id": "ch1", "title": "第1话", "ok": True,
+                                       "pages": 2,
+                                       "skipped_pages": ["too small to be a page (10x10)"]}]

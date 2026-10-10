@@ -183,6 +183,20 @@ def test_comic_import_writes_pages(client, fakes):
     assert len(db.list_pages(did)) == 2
 
 
+def test_comic_import_reports_the_images_it_left_out(client, fakes):
+    fakes["comic"] = _make("comic", comic=True)
+    fakes["comic"].skipped_pages = lambda self, ch: [f"couldn't download {SECRET}",
+                                                     "too small to be a page (10x10)"]
+    did = db.create_drama(title_en="M", media_type="manhua")
+    client.post("/api/sources/comic/import",
+                json={"series_id": "s1", "chapter_ids": ["c1"], "drama_id": did})
+    _, b = _result(client, f"sourceimport_{did}")
+    ch = b["result"]["chapters"][0]
+    assert ch["outcome"] == "imported" and ch["pages"] == 2
+    assert ch["skipped_pages"][1] == "too small to be a page (10x10)"
+    assert SECRET not in str(b)
+
+
 def test_failed_chapter_counts_and_projection(client, fakes):
     from services import jobs_service
     fakes["alpha"] = _make("alpha", fail={"c2": SourceUnavailable(f"down {SECRET} C:\\x\\y")})

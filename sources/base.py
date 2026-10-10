@@ -142,6 +142,12 @@ class SourceAdapter:
     def download_page(self, page):
         raise NotSupportedError(f"{self.display_name or self.name} doesn't download page images.")
 
+    def skipped_pages(self, chapter) -> list:
+        """Why get_pages() left images of `chapter` out, one plain reason
+        each, so the import job can report them instead of importing a
+        shorter chapter silently."""
+        return []
+
     def get_chapter_text(self, chapter):
         raise NotSupportedError(f"{self.display_name or self.name} doesn't provide chapter text.")
 

@@ -120,6 +120,7 @@ class BilibiliMangaSource(SourceAdapter):
         # easily run after the token has expired. download_page() just
         # returns what get_pages() already fetched.
         self._page_bytes = {}
+        self._skipped = {}
 
     def get_pages(self, chapter):
         try:
@@ -133,6 +134,7 @@ class BilibiliMangaSource(SourceAdapter):
                 "authenticated browser, but its images couldn't be imported through the "
                 f"adapter. ({e})",
                 FailureReason.SIGNED_RESOURCE) from e
+        self._skipped[chapter.chapter_id] = [c.reject_reason or "not a page" for c in result.rejected]
         refs = []
         for c in result.images:
             ref = PageRef(self.name, chapter.chapter_id, c.order, c.url)
@@ -149,6 +151,9 @@ class BilibiliMangaSource(SourceAdapter):
             "download_page() must be called for it before starting a new chapter "
             "(Bilibili Manga's image tokens are short-lived).",
             FailureReason.SIGNED_RESOURCE)
+
+    def skipped_pages(self, chapter) -> list:
+        return self._skipped.pop(chapter.chapter_id, [])
 
     def parse_url(self, url: str):
         m = _CHAPTER_URL.search(url or "")

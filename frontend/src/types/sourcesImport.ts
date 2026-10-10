@@ -35,6 +35,8 @@ export interface ChapterImportRow {
   title: string
   outcome: ChapterOutcome | string
   pages?: number | null
+  // Why images on the chapter page were left out, one plain reason each.
+  skipped_pages?: string[]
   chars?: number | null
   error?: string | null
 }

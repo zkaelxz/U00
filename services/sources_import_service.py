@@ -64,6 +64,7 @@ sources_search_service.get_job_result (GET /api/sources/jobs/{id}/result).
 Text is scrubbed, URLs reduced to scheme+host+path.
 """
 
+import dataclasses
 import threading
 from urllib.parse import urlsplit
 
@@ -85,7 +86,6 @@ from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, SERI
 from services.sources_url_service import (check_public_url, fail_job, handoff_error,
                                           source_client)
 from sources import adaptive, chapter_order, generic_import, ladder, novel_follow, pipeline, registry, store
-from sources.generic_import import DownloadBudget
 from sources.http import Cancelled
 from sources.models import AccessTier, ChallengeDetected, TermsProhibited
 
@@ -177,6 +177,8 @@ def _outcome(row: dict) -> dict:
         out["outcome"] = "imported"
         if "pages" in row:
             out["pages"] = int(row["pages"])
+        if row.get("skipped_pages"):
+            out["skipped_pages"] = [scrub(r) for r in row["skipped_pages"]]
         if "chars" in row:
             out["chars"] = int(row["chars"])
     elif row.get("needs_ai"):
@@ -664,9 +666,9 @@ def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=Fa
 def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
                           review: bool = False):
     background_jobs.update_progress(job_id, 0.1, "Reading the page and checking each image...")
-    budget = DownloadBudget(limits.MAX_FILES_PER_IMPORT, limits.MAX_IMPORT_BYTES,
-                            max_image_pixels=limits.MAX_IMAGE_PIXELS,
-                            allowed_formats=limits.ALLOWED_IMAGE_TYPES)
+    budget = dataclasses.replace(generic_import.default_budget(),
+                                 max_image_pixels=limits.MAX_IMAGE_PIXELS,
+                                 allowed_formats=limits.ALLOWED_IMAGE_TYPES)
     client = source_client(url, job_id)
     client.max_image_bytes = limits.MAX_IMAGE_BYTES
     try:
