@@ -45,9 +45,12 @@ def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=N
 
     The watchdog is a thread in this process: the stuck call (a ctranslate2
     future wait, a CUDA kernel) releases the GIL, so the watchdog can still
-    report and end the process. It closes and joins the queue's feeder thread
-    before os._exit, or the item would die in the buffer and the parent would
-    see a worker that vanished."""
+    report and end the process. It closes the queue and waits up to
+    FLUSH_TIMEOUT_S for its feeder thread before os._exit, or the item would
+    die in the buffer and the parent would see a worker that vanished. The
+    wait is bounded because a parent that stopped reading would block it
+    forever; the channel keeps every message under the pipe's atomic write
+    size so a cut-off flush cannot leave a half message."""
     background_jobs.start_own_process_group()
     timeout_item = on_timeout or ("error", "TimeoutError", TIMEOUT_MESSAGE)
 
@@ -161,6 +164,8 @@ def _await_child(job_id, proc, channel, poll_s, worker_deadline, deadline, on_it
             if on_item is not None:
                 try:
                     on_item(item[1])
+                except background_jobs.JobCancelled:
+                    raise
                 except Exception as exc:
                     raise ChildFailed(redact_secrets(str(exc))) from None
             continue

@@ -490,6 +490,9 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .deletable-list { list-style: none; padding: 0 !important; }
 .deletable-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .deletable-list .row-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Inline buttons that wrap onto a second line stack their 44px hit areas on top of each other at 360px; a wrapping flex row with a gap keeps them apart. Block children (preview, confirm) take a full row. */
+.records-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.records-list > li > :is(div, p, form, fieldset, section, pre) { flex: 1 1 100%; min-width: 0; }
 .rename-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); width: 100%; min-width: 0; }
 .rename-form .field-item { flex: 1 1 12rem; min-width: 0; }
 .rename-form .error { flex-basis: 100%; margin: 0; }

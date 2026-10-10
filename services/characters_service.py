@@ -583,7 +583,7 @@ def undo_rename_speaker(drama_id: int, undo: dict) -> dict:
         raise ConflictError("The old label is in use again, so the rename can't be undone.")
     _check_target(drama_id, old_label, new_label)
     if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError(_BUSY.format(what="undoing"))
+        raise ConflictError(_BUSY.format(what="undoing"), details={"reason": "job_running"})
     lines = _lines_with_label(drama_id, new_label)
     by_id = {p["id"]: p for p in previous}
     if {ln.id for ln in lines} != set(by_id) or len(by_id) != len(previous):
