@@ -2,12 +2,12 @@
 job_process_kill.py -- stopping a background job's child process: terminate
 then kill, and killing a worker's process group. kill_tree lives in
 lib/proc_kill.py; both are re-exported by background_jobs, which is where
-callers and tests reach these names.
+callers and tests reach these names (kill_tree here adds the app-log warning).
 """
 
 import os
 
-from lib.proc_kill import kill_tree  # noqa: F401
+from lib import proc_kill
 
 
 def _warn_via_jobs(what, exc):
@@ -25,6 +25,10 @@ def _stop_process(proc):
     if proc.is_alive():
         proc.kill()
         proc.join(timeout=5)
+
+
+def kill_tree(proc):
+    return proc_kill.kill_tree(proc, warn=_warn_via_jobs)
 
 
 def _kill_worker_group(proc):

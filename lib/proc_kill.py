@@ -4,15 +4,17 @@ import logging
 import os
 import subprocess
 
-# Logs the exception type only: kill failures carry no detail worth the risk
-# of a path or argument ending up in a log line.
-_log = logging.getLogger(__name__)
+# The app's logger by name (applog owns its file handler and secret filter,
+# but lib can't import it). Only the exception type is logged.
+_log = logging.getLogger("baihe")
 
 
-def kill_tree(proc):
+def kill_tree(proc, warn=None):
     """Kills proc and everything it started (it runs in its own process
     group/session -- see run_cancellable), so a wrapper script's ffmpeg
-    grandchild can't keep the pipes open."""
+    grandchild can't keep the pipes open. `warn(what, exc)` reports a swallowed
+    failure; the default only logs the exception type."""
+    warn = warn or (lambda what, exc: _log.warning("%s: %s", what, type(exc).__name__))
     try:
         if os.name == "nt":
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
@@ -23,8 +25,8 @@ def kill_tree(proc):
     except ProcessLookupError:
         pass   # the group already exited
     except Exception as exc:
-        _log.warning("could not kill process tree %s: %s", proc.pid, type(exc).__name__)
+        warn(f"could not kill process tree {proc.pid}", exc)
     try:
         proc.kill()
     except Exception as exc:
-        _log.warning("could not kill process %s: %s", proc.pid, type(exc).__name__)
+        warn(f"could not kill process {proc.pid}", exc)
