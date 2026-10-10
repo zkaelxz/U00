@@ -6,7 +6,10 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
 import { routeHref } from '../../../router'
-import { buildAssRequest, emptyAssForm, loadAssForm, saveAssForm, type AssForm } from '../exportForm'
+import { buttonClass } from '../../../components/uiClasses'
+import { browserStorage, readPref, writePref } from '../../../hooks/usePersistedState'
+import { useStageDraft } from '../../../hooks/useStageDraft'
+import { assFormFromDraft, buildAssRequest, emptyAssForm, EXPORT_DRAFT_STAGE, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
 import { ExportJellyfin } from './ExportJellyfin'
@@ -14,26 +17,12 @@ import { ExportEpub, ExportMediaJobs, MarkExported } from './ExportMedia'
 import { ExportSubtitles, type ExportFormat } from './ExportSubtitles'
 import './export.css'
 
-const FMT_KEY = 'baihe.export.format'
-const FIELD_KEY = 'baihe.export.language'
-
-// Last-used choices are a per-viewer convenience; storage may be missing or throw.
-function readChoice<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
-  try {
-    const v = window.localStorage.getItem(key)
-    return allowed.find((a) => a === v) ?? fallback
-  } catch {
-    return fallback
-  }
-}
-
-function writeChoice(key: string, value: string) {
-  try {
-    window.localStorage.setItem(key, value)
-  } catch {
-    // ignore
-  }
-}
+const FORMATS: readonly ExportFormat[] = ['srt', 'vtt', 'lrc', 'ass']
+const FIELDS: readonly AssForm['field'][] = ['en', 'zh', 'bilingual']
+const allowed = <T extends string>(options: readonly T[], v: unknown, fallback: T): T => options.find((o) => o === v) ?? fallback
+// A title with no draft yet starts from the viewer's last format and language (rule 12).
+const LAST_CHOICE_PREF = 'export.last'
+const EXPORT_DRAFT_SHAPE = { fmt: 'srt' }
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 
@@ -43,20 +32,25 @@ export default function ExportStage() {
   const [readinessError, setReadinessError] = useState<unknown>(null)
   const [options, setOptions] = useState<AssStyleOptions | null>(null)
   const [optionsError, setOptionsError] = useState<unknown>(null)
-  const [form, setFormState] = useState<AssForm>(() => ({
-    ...(loadAssForm(dramaId) ?? emptyAssForm('')),
-    field: readChoice(FIELD_KEY, ['en', 'zh', 'bilingual'], 'en'),
-  }))
-  const [fmt, setFmtState] = useState<ExportFormat>(() => readChoice(FMT_KEY, ['srt', 'vtt', 'lrc', 'ass'], 'srt'))
-
-  const setForm = (f: AssForm) => {
-    setFormState(f)
-    saveAssForm(dramaId, f)
-    writeChoice(FIELD_KEY, f.field)
-  }
-  const setFmt = (f: ExportFormat) => {
-    setFmtState(f)
-    writeChoice(FMT_KEY, f)
+  const { draft, raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, EXPORT_DRAFT_STAGE, EXPORT_DRAFT_SHAPE)
+  const [form, setForm] = useState<AssForm>(() => {
+    const kept = assFormFromDraft(rawDraft)
+    if (kept) return kept
+    const last = readPref(browserStorage(), LAST_CHOICE_PREF, { fmt: 'srt', field: 'en' })
+    return { ...emptyAssForm(''), field: allowed(FIELDS, last.field, 'en') }
+  })
+  const [fmt, setFmt] = useState<ExportFormat>(() => {
+    const last = readPref(browserStorage(), LAST_CHOICE_PREF, { fmt: 'srt', field: 'en' })
+    return allowed(FORMATS, draft.fmt ?? last.fmt, 'srt')
+  })
+  useEffect(() => {
+    saveDraft({ fmt, form })
+    writePref(browserStorage(), LAST_CHOICE_PREF, { fmt, field: form.field })
+  }, [saveDraft, fmt, form])
+  const resetToDefaults = () => {
+    clearDraft()
+    setFmt('srt')
+    setForm(emptyAssForm(options?.default_preset ?? ''))
   }
 
   useEffect(() => {
@@ -76,7 +70,7 @@ export default function ExportStage() {
       (o) => {
         if (cancelled) return
         setOptions(o)
-        setFormState((f) => ({ ...f, preset: o.presets[f.preset] ? f.preset : o.default_preset }))
+        setForm((f) => ({ ...f, preset: o.presets[f.preset] ? f.preset : o.default_preset }))
       },
       (e: unknown) => !cancelled && setOptionsError(e),
     )
@@ -126,6 +120,9 @@ export default function ExportStage() {
           options={options}
           totalLines={r ? r.total_lines : null}
         />
+        <div className="actions">
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={resetToDefaults}>Reset to defaults</button>
+        </div>
         <MarkExported />
       </section>
       {fmt === 'ass' && assStyle}
