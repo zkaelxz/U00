@@ -47,9 +47,8 @@ class FakeGitHub:
         self.files = {"services/dub_service.py": BASE_FILE}
         self.trees = []
 
-    def request(self, method, url, headers=None, json=None, params=None, timeout=None,
-                allow_redirects=True, stream=False):
-        assert timeout and not allow_redirects
+    def request(self, method, url, ip="unset", headers=None, json=None, params=None, timeout=None):
+        assert timeout and ip is None  # ip None: guard=None, a fixed vendor URL
         assert url.startswith("https://api.github.com/") and TOKEN not in url
         path = url[len("https://api.github.com"):]
         self.calls.append((method, path, json, headers))
@@ -83,10 +82,10 @@ class FakeGitHub:
 
 
 def _serve(monkeypatch, fn):
-    """Route lib.http's connection step to `fn(method, url, **requests_kwargs)`."""
+    """Route lib.http's connection step to `fn(method, url, ip=, headers=, timeout=, **requests_kwargs)`,
+    passing on exactly what lib.http handed pinned_get."""
     monkeypatch.setattr(http, "pinned_get", lambda url, ip, headers, timeout=None, method="GET", **kw:
-                        fn(method, url, headers=headers, timeout=timeout,
-                           allow_redirects=False, stream=True, **kw))
+                        fn(method, url, ip=ip, headers=headers, timeout=timeout, **kw))
 
 
 @pytest.fixture
@@ -183,6 +182,22 @@ def test_a_stale_patch_is_refused_before_any_write(ready):
     with pytest.raises(gh.ConflictError):
         gh.deliver(PATCH, "Fix", sha256=gh.patch_sha256(PATCH), confirm=True)
     assert all(m == "GET" for m, *_ in ready.calls)
+
+
+def test_redirect_is_not_followed(ready, monkeypatch):
+    calls = []
+
+    class Redirect(Resp):
+        headers = {"Location": "https://evil.example/"}
+
+    def redirect(method, url, **kw):
+        calls.append(url)
+        return Redirect(302, {})
+    _serve(monkeypatch, redirect)
+    with pytest.raises(gh.ServiceError) as e:
+        gh.test_connection()
+    assert "GitHub said 302" in e.value.message
+    assert len(calls) == 1 and "evil.example" not in calls[0]
 
 
 def test_errors_never_carry_the_token(ready, monkeypatch):

@@ -27,15 +27,12 @@ class FakeResp:
     def close(self):
         pass
 
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            raise RuntimeError(f"HTTP {self.status_code}")
-
 
 def _serve(monkeypatch, fn):
-    """Route lib.http's connection step to `fn(url, headers=, timeout=, allow_redirects=, stream=)`."""
+    """Route lib.http's connection step to `fn(url, ip=, headers=, timeout=, method=, **requests_kwargs)`,
+    passing on exactly what lib.http handed pinned_get."""
     monkeypatch.setattr(http, "pinned_get", lambda url, ip, headers, timeout=None, method="GET", **kw:
-                        fn(url, headers=headers, timeout=timeout, allow_redirects=False, stream=True))
+                        fn(url, ip=ip, headers=headers, timeout=timeout, method=method, **kw))
 
 
 @pytest.fixture(autouse=True)
@@ -88,8 +85,8 @@ class TestProviderCheck:
         db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
         seen = {}
 
-        def fake_get(url, headers=None, timeout=None, allow_redirects=True, stream=False):
-            seen.update(url=url, headers=headers, timeout=timeout, redirects=allow_redirects)
+        def fake_get(url, ip="unset", headers=None, timeout=None, **kw):
+            seen.update(url=url, headers=headers, timeout=timeout, ip=ip)
             return FakeResp({"data": [{"id": "claude-sonnet-5-5"}, {"id": "claude-haiku-4-5-20251001"}]})
         _serve(monkeypatch, fake_get)
         status = svc.check_providers()
@@ -99,8 +96,19 @@ class TestProviderCheck:
         assert status["warnings"] >= 1
         # Key in a header, never the URL; a timeout on the call.
         assert "SECRETKEY" not in seen["url"] and seen["headers"]["x-api-key"].startswith("sk-ant-")
-        assert seen["timeout"] and seen["redirects"] is False
+        assert seen["timeout"] and seen["ip"] is None  # ip None: guard=None, a fixed vendor URL
         assert _item(status, "claude", "claude-sonnet-5-5")["status"] == "current"
+
+    def test_redirect_from_provider_is_not_followed(self, isolated_db, keys, monkeypatch):
+        calls = []
+
+        class Redirect(FakeResp):
+            headers = {"Location": "https://evil.example/"}
+        _serve(monkeypatch, lambda url, **kw: calls.append(url) or Redirect({}, status=302))
+        status = svc.check_providers()
+        assert len(calls) == 1 and "evil.example" not in calls[0]
+        assert status["engines_checked"]["claude"]["error"]
+        assert all(i["status"] != "not_listed" for i in status["items"])
 
     def test_engines_without_key_are_not_called(self, isolated_db, keys, monkeypatch):
         calls = []
