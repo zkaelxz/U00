@@ -294,7 +294,7 @@ export interface RetranscribeManyStarted {
 }
 
 // Raw line text (the proposal is only readable here, never in the job record).
-// had_english: applying it clears that line's translation.
+// had_english: applying it keeps that English and flags the line source_changed.
 export interface RetranscribeManyProposal {
   line_id: number
   number: number
