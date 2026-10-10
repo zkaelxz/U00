@@ -121,7 +121,7 @@ export default function ExportStage() {
           totalLines={r ? r.total_lines : null}
         />
         <div className="actions">
-          <button type="button" className={buttonClass('ghost', 'sm')} onClick={resetToDefaults}>Reset to defaults</button>
+          <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
         </div>
         <MarkExported />
       </section>

@@ -374,7 +374,7 @@ export function CompareTranscription({
           )}
           <button
             type="button"
-            className={buttonClass('ghost', 'sm')}
+            className={buttonClass('ghost')}
             disabled={busy}
             onClick={() => {
               clearDraft()

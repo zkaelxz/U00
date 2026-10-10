@@ -221,7 +221,7 @@ export default function DubStage() {
           <div className="actions">
             <button
               type="button"
-              className={buttonClass('ghost', 'sm')}
+              className={buttonClass('ghost')}
               onClick={() => {
                 clearDraft()
                 setForm(initialDubForm(cfg))

@@ -702,7 +702,7 @@ function RunPanel({
           </div>
           <SavePreset f={f} defaultEngine={config.translation_engine} />
           <div className="advanced-wide actions">
-            <button type="button" className={buttonClass('ghost', 'sm')} onClick={resetToDefaults}>Reset to defaults</button>
+            <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
           </div>
         </div>
       </Section>
