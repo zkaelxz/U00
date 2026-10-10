@@ -81,6 +81,7 @@ class TestEveryTransitionIsWrittenOnce:
         _finish()
         assert [s for j, s in writes if j == "st_done"] == ["running", "done"]
         _assert_row_matches_job("st_done")
+        assert "st_done" not in job_store._last_write
         bg.clear_job("st_done")
 
     def test_running_cancelling_then_cancelled(self, writes):
@@ -219,6 +220,47 @@ class TestAFailedWriteIsVisibleAndRetried:
         bg.clear_job("st_locked")
 
 
+class TestAWriteUnderTheJobsLockNeverWaitsLong:
+    @pytest.mark.parametrize("failure", ["locked", "disk"])
+    def test_a_database_held_by_another_connection_fails_fast(
+            self, isolated_db, monkeypatch, failure):
+        release = threading.Event()
+        assert bg.start_job("st_held", lambda: release.wait(10.0))
+        if failure == "disk":
+            # A non-lock failure must not follow up with its own write under the lock.
+            def boom(*a, **k):
+                raise sqlite3.OperationalError("disk I/O error")
+            monkeypatch.setattr(db, "save_job_record", boom)
+        holding, done = threading.Event(), threading.Event()
+
+        def hold():
+            with contextlib.closing(db.get_conn()) as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                holding.set()
+                done.wait(10.0)
+                conn.rollback()
+        holder = threading.Thread(target=hold)
+        holder.start()
+        try:
+            assert holding.wait(5.0)
+            t0 = time.monotonic()
+            with bg._lock:
+                ok = job_store.write_transition("st_held", bg._jobs["st_held"])
+            assert time.monotonic() - t0 < 2.0
+            assert ok is False
+            assert bg.get_status("st_held")["sync_error"]
+            assert "st_held" in job_store._pending
+        finally:
+            done.set()
+            holder.join(10)
+            monkeypatch.undo()
+            release.set()
+            _finish()
+        bg._heartbeat_once()
+        assert "st_held" not in job_store._pending
+        bg.clear_job("st_held")
+
+
 class TestRowsOfGoneOwners:
     def test_my_pid_with_another_instance_is_swept_a_live_other_pid_is_not(self, isolated_db):
         db.save_job_record("st_earlier", "running", owner_pid=os.getpid())
@@ -235,6 +277,22 @@ class TestRowsOfGoneOwners:
         row = db.get_job_record("st_earlier")
         assert (row["status"], row["detail_state"], row["error"]) == (
             "cancelled", "interrupted", bg.INTERRUPTED_MESSAGE)
+
+    def test_my_own_row_with_a_write_still_pending_is_not_closed(self, isolated_db):
+        """A job cleared from memory while its last write is owed: the row
+        is this process's to write, not an earlier server's to close."""
+        db.save_job_record("st_owed", "running", owner_pid=os.getpid())
+        _set_row("st_owed", owner_instance=job_store.INSTANCE_ID)
+        with bg._lock:
+            job_store._pending.add("st_owed")
+        try:
+            assert job_store.owner_gone(db.get_job_record("st_owed")) is False
+            assert job_store.sweep_dead_owners(bg.STALE_JOB_SECONDS) == 0
+            assert db.get_job_record("st_owed")["status"] == "running"
+        finally:
+            with bg._lock:
+                job_store._pending.discard("st_owed")
+        assert job_store.close_if_owner_gone(db.get_job_record("st_owed")) is True
 
     def test_a_close_loses_to_a_new_run_by_another_instance(self, isolated_db):
         db.save_job_record("st_race", "running", owner_pid=os.getpid())
