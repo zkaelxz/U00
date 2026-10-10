@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import db
 import diagnostics
+import diagnostics_torch
 import expected_files
 from core import Line, lines_to_srt, lines_to_bilingual_srt
 
@@ -455,31 +456,31 @@ class TestGpuStatus:
 
     def test_unavailable_when_torch_not_installed(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert "PyTorch isn't installed" in status["message"]
 
     def test_unavailable_no_error_when_no_gpu_present(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: None)
         fake_torch = types.SimpleNamespace(
             version=types.SimpleNamespace(cuda=None),
             cuda=types.SimpleNamespace(is_available=lambda: False))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert "unavailable" in status["message"]
         assert "GPU" not in status["message"] or "no CUDA-capable GPU" in status["message"]
 
     def test_names_the_real_mismatch_when_gpu_present_but_torch_is_cpu_only(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
-        monkeypatch.setattr(diagnostics.shutil, "which",
+        monkeypatch.setattr(diagnostics_torch.shutil, "which",
                             lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
         fake_torch = types.SimpleNamespace(
             version=types.SimpleNamespace(cuda=None),
             cuda=types.SimpleNamespace(is_available=lambda: False))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert "CPU-only" in status["message"]
 
@@ -494,7 +495,7 @@ class TestGpuStatus:
                 get_device_properties=lambda idx: props,
                 memory_allocated=lambda idx: 2 * 1024 ** 3))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is True
         assert status["name"] == "NVIDIA GeForce RTX 3080 Ti"
         assert status["vram_used_gb"] == pytest.approx(2.0)
@@ -504,7 +505,7 @@ class TestGpuStatus:
     def test_broken_torch_import_does_not_crash(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
         monkeypatch.setitem(sys.modules, "torch", None)  # forces ImportError on `import torch`
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert status["message"]
 

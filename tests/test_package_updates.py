@@ -10,6 +10,7 @@ import json
 import pytest
 
 import diagnostics
+import diagnostics_torch
 from services import diagnostics_gaps_service as svc
 
 _v, SPEC, _r = diagnostics._packaging()
@@ -272,7 +273,7 @@ def test_install_and_torch_setup_clear_the_cached_check(monkeypatch):
     svc.install_dependency("jieba", confirm=True)
     assert svc.cached_update("jieba") is None
     svc.check_package_updates()
-    monkeypatch.setattr(diagnostics, "nvidia_driver_info", lambda: None)
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     monkeypatch.setattr(svc, "verify_torch", lambda: {"torch": "2.11.0+cpu", "error": None})
     svc.setup_gpu_torch("cpu", confirm=True)
     assert svc.cached_update("jieba") is None
