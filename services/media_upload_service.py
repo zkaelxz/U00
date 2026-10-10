@@ -605,14 +605,14 @@ def _follow_job(job_id, child_id, deadline_s):
     while True:
         child = background_jobs.get_status(child_id) or {}
         status = child.get("status")
+        if status not in ("running", "queued"):
+            break  # a child that ended just past the deadline still counts as ended
         if status == "queued":
             give_up_at = time.monotonic() + deadline_s
         elif time.monotonic() >= give_up_at:
             if not background_jobs.cancel_queued(child_id):
                 background_jobs.request_cancel(child_id)
             raise RuntimeError(FOLLOW_TIMEOUT_MESSAGE)
-        if status not in ("running", "queued"):
-            break
         if background_jobs.is_cancel_requested(job_id) and not forwarded:
             forwarded = True
             if not background_jobs.cancel_queued(child_id):

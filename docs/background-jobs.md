@@ -57,7 +57,7 @@ so a restarted server that reuses a pid is never the live owner of an old row),
 `cancel_requested_at` (the requester's time, which the owner adopts when it hears the
 cancel, so Force stop is judged from the moment the user asked),
 `detail_state` (why a final state was reached by someone other than the worker:
-`interrupted`, `abandoned` by Force stop, `lost` worker) and `sync_error`. None of these
+`interrupted`, `lost` worker; a Force stop is told by its message) and `sync_error`. None of these
 reach a client (`jobs_service._redact`).
 
 - **No swallowed writes.** A transition write runs under `background_jobs._lock`, so

@@ -344,3 +344,26 @@ class TestEngineTransport:
             call()
         assert all(not u.startswith("http://elsewhere") for u, _ in calls)
         assert len(calls) == 2  # each attempt is one request, never a second hop
+
+
+class TestGroqErrorWording:
+    def test_a_connection_failure_does_not_say_the_page_could_not_be_fetched(self, monkeypatch, tmp_path):
+        from lib import http
+
+        def boom(*a, **k):
+            raise http.FetchError()
+        monkeypatch.setattr(http, "pinned_get", boom)
+        audio = tmp_path / "a.wav"
+        audio.write_bytes(b"RIFF")
+        with pytest.raises(core.GroqTranscriptionError) as exc:
+            core.transcribe_with_groq(str(audio), "zh", SECRET)
+        assert str(exc.value) == "Couldn't reach Groq's API."
+
+    def test_a_200_that_is_not_json_is_not_called_too_large_or_too_slow(self, monkeypatch, tmp_path):
+        from lib import http
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **k: StreamResp(b"<html>nope</html>"))
+        audio = tmp_path / "a.wav"
+        audio.write_bytes(b"RIFF")
+        with pytest.raises(core.GroqTranscriptionError) as exc:
+            core.transcribe_with_groq(str(audio), "zh", SECRET)
+        assert str(exc.value) == "Groq's reply wasn't valid JSON."
