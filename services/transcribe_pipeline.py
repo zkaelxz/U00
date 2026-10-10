@@ -315,7 +315,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
                  for i, seg in enumerate(segments) if seg["text"].strip()]
         raw_backend, raw_model, raw_mode = "hardsub_ocr", hardsub_info.get("backend", hardsub_ocr_backend), "hardsub_ocr"
-        coverage_msg = hardsub_info.get("note")
+        dropped = hardsub_info.get("dropped_frames", 0)
+        dropped_msg = (f"{dropped} sampled frame{'s' if dropped != 1 else ''} timed out while "
+                       "reading and may be missing captions." if dropped else None)
+        coverage_msg = " ".join(filter(None, [hardsub_info.get("note"), dropped_msg])) or None
     else:
         if separate_vocals_first:
             import audio_preprocess

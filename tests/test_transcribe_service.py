@@ -1002,6 +1002,27 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
         assert captured["tesseract_cmd"] == "/usr/bin/tesseract"
         _clear(job_id)
 
+    def test_frames_dropped_by_a_tesseract_timeout_are_reported(self, isolated_db, monkeypatch):
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+
+        def fake_extract(video_path, **kwargs):
+            kwargs["info"].update(backend="tesseract", note=None, dropped_frames=3)
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", fake_extract)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, None, "hardsub_ocr", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+            video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="tesseract",
+            hardsub_interval=1.0)
+
+        warning = background_jobs.get_status(job_id)["result"]["coverage_warning"]
+        assert warning == "3 sampled frames timed out while reading and may be missing captions."
+        _clear(job_id)
+
     def test_auto_fallback_records_the_engine_that_ran_and_surfaces_the_note(
             self, isolated_db, monkeypatch):
         import raw_transcript

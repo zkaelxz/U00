@@ -97,7 +97,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
                   presets.normalize(drama.get("sensitivity_preset")),
                   transcribe_pipeline._model_loading_message(
                       size, whisper_models.is_whisper_model_cached(size)),
-                  retranscribe_timeout_s(sum(w[2] - w[1] for w in windows)), scratch_dir),
+                  retranscribe_timeout_s(sum(w[2] - w[1] for w in windows), len(windows)), scratch_dir),
             gpu_touching=True,
             description=f"Re-transcribing {len(windows)} lines (drama #{drama_id})",
             kill_whole_tree=True, initial_result={"line_count": len(windows)},

@@ -98,6 +98,18 @@ def _fixed_write_errors():
         raise RuntimeError("Could not write the export file.") from None
 
 
+def _move_labelled(drama_id, kind, src, final, language):
+    # Label first: a download landing between the move and a later label write
+    # would name the new file with the old file's language.
+    name = os.path.basename(final)
+    artifact_service.set_download_language(drama_id, kind, name, language, source=src)
+    try:
+        shutil.move(src, final)
+    except BaseException:
+        artifact_service.clear_download_language(drama_id, kind, name)
+        raise
+
+
 def _run_video_ffmpeg(job_id, cmd, cwd):
     try:
         background_jobs.run_cancellable(job_id, cmd, cwd=cwd, timeout=_VIDEO_TIMEOUT_S)
@@ -118,8 +130,7 @@ def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original, langu
         except (subprocess.CalledProcessError, OSError):
             raise RuntimeError("ffmpeg failed to produce the export.") from None
         final = artifact_service.output_path(drama_id, "audio", f"audiobook_{drama_id}.m4b")
-        shutil.move(tmp_out, final)
-        artifact_service.set_download_language(drama_id, "audio", os.path.basename(final), language)
+        _move_labelled(drama_id, "audio", tmp_out, final, language)
     background_jobs.update_progress(job_id, 1.0, "Audiobook ready.")
 
 
@@ -164,8 +175,7 @@ def _burned_video_job(job_id, drama_id, video_path, ass_text, ext, language):
                "-c:a", "copy", out_name]
         _run_video_ffmpeg(job_id, cmd, tmp)
         final = artifact_service.output_path(drama_id, "video", f"burned_video_{drama_id}{ext}")
-        shutil.move(os.path.join(tmp, out_name), final)
-        artifact_service.set_download_language(drama_id, "video", os.path.basename(final), language)
+        _move_labelled(drama_id, "video", os.path.join(tmp, out_name), final, language)
     background_jobs.update_progress(job_id, 1.0, "Video ready.")
 
 
@@ -207,8 +217,7 @@ def _softsub_video_job(job_id, drama_id, video_path, srt_text, ext, language, la
         _run_video_ffmpeg(job_id, cmd, tmp)
         final = artifact_service.output_path(drama_id, "softsub_video",
                                              f"softsub_video_{drama_id}{ext}")
-        shutil.move(os.path.join(tmp, out_name), final)
-        artifact_service.set_download_language(drama_id, "softsub_video", os.path.basename(final), label)
+        _move_labelled(drama_id, "softsub_video", os.path.join(tmp, out_name), final, label)
     background_jobs.update_progress(job_id, 1.0, "Video ready.")
 
 
@@ -250,8 +259,7 @@ def _dubbed_video_job(job_id, drama_id, video_path, dub_path, ext, keep_original
         _run_video_ffmpeg(job_id, cmd, tmp)
         final = artifact_service.output_path(drama_id, "dubbed_video",
                                              f"dubbed_video_{drama_id}{ext}")
-        shutil.move(os.path.join(tmp, out_name), final)
-        artifact_service.set_download_language(drama_id, "dubbed_video", os.path.basename(final), label)
+        _move_labelled(drama_id, "dubbed_video", os.path.join(tmp, out_name), final, label)
     background_jobs.update_progress(job_id, 1.0, "Video ready.")
 
 

@@ -89,6 +89,7 @@ class TestForceStop:
         status = bg.get_status("hung_2")
         assert status["status"] == "cancelled"
         assert status["message"] == job_force_stop.FORCE_STOPPED_MESSAGE
+        assert "detail_state" not in status  # nothing reads it; the message already says Force stopped
         assert db.get_job_record("hung_2")["status"] == "cancelled"
         assert _slot_held("hung_2"), "the abandoned worker may still be using the GPU"
 
