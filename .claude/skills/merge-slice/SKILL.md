@@ -3,7 +3,7 @@ name: merge-slice
 description: Merge a finished migration branch into baihe-subtitler using the repo's recipe (base merge, append-only conflict helpers, import and permission checks, focused tests, PR, squash-merge). Use when a slice, service or React branch is ready to land.
 ---
 
-# /merge-slice `<branch> [<service_stem> <router_stem>]`
+# /merge-slice `<branch>`
 
 Lands one finished branch on `baihe-subtitler`. Work on one branch at a time: each merge changes the base for the next one.
 
@@ -21,8 +21,7 @@ git merge --no-edit origin/baihe-subtitler
 ```
 
 ## 2. Resolve conflicts
-- New service + router slice: `python scripts/migration/resolve_slice.py <service_stem> <router_stem>`. It handles `api/server.py`, `FILE_ORGANIZATION.md`, and keeps both sides of any conflict in the `api/schemas/<module>.py` files (a branch that still edits the old single `api/schemas.py` has to be moved into the package by hand).
-- Append-only conflicts, with no new router: `python scripts/migration/keepboth.py <files>`.
+- Append-only conflicts: `python scripts/migration/keepboth.py <files>`.
 - **Don't use keep-both when a branch edits an existing class or function in place.** This is most common in `api/schemas/*.py` (see "Known flags" in `docs/archive/migration-handoff.md`). Resolve those by hand: take the base, then apply the branch's edit.
 - Code conflicts in import blocks: keep both sides, then remove duplicate imports.
 - If both sides changed the same logic and choosing one side would lose behaviour, stop and report.
