@@ -16,7 +16,7 @@ const JOB = {
 }
 const OWN_JOB = { ...JOB, job_id: 'j2', description: 'Translate Mine', owned_by_me: true }
 const ITEM = {
-  kind: 'drama', id: 5, title: 'Kae drama', owner_name: 'Kae', is_private: true, series_id: null,
+  kind: 'drama', id: 5, title: 'Kae title', owner_name: 'Kae', is_private: true, series_id: null,
   series_name: null, series_is_private: null, created_at_pc: false,
 }
 

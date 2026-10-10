@@ -10,7 +10,7 @@ const rec = (over: Partial<JobRecord>): JobRecord => ({
 })
 
 describe('lastRunFor', () => {
-  it('picks the newest finished job among the stage ids and ignores other dramas and live jobs', () => {
+  it('picks the newest finished job among the stage ids and ignores other titles and live jobs', () => {
     const jobs = [
       rec({ job_id: 'translate_3', finished_at: 100 }),
       rec({ job_id: 'translate_3', status: 'error', finished_at: 300, error: 'boom' }),
@@ -46,7 +46,7 @@ describe('lastRunCounts', () => {
     expect(lastRunCounts(rec({ result: { device: 'cuda', note: 'text' } }))).toBe('')
   })
 
-  it('counts dramas for a bulk library run', () => {
-    expect(lastRunCounts(rec({ result: { bulk: { translated_count: 3, failed_count: 1 }, line_count: 9 } }))).toBe('3 dramas · 1 failed')
+  it('counts titles for a bulk library run', () => {
+    expect(lastRunCounts(rec({ result: { bulk: { translated_count: 3, failed_count: 1 }, line_count: 9 } }))).toBe('3 titles · 1 failed')
   })
 })

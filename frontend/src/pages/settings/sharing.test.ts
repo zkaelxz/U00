@@ -47,7 +47,7 @@ describe('sharing helpers', () => {
     expect(canSeeAllItems({ status: 'ready', me: me(['library.read', 'lines.edit']) })).toBe(false)
   })
 
-  it('a drama in a series follows the series', () => {
+  it('a title in a series follows the series', () => {
     const solo = item({ is_private: true })
     const inSeries = item({ series_id: 7, series_name: 'Saga', series_is_private: false, is_private: false })
     expect(followsSeries(solo)).toBe(false)
@@ -76,11 +76,11 @@ describe('sharing helpers', () => {
   })
 
   it('names untitled items plainly', () => {
-    expect(itemTitle(item({ title: ' ' }))).toBe('Untitled drama')
+    expect(itemTitle(item({ title: ' ' }))).toBe('Untitled')
     expect(itemTitle(item({ kind: 'series', title: '' }))).toBe('Untitled series')
   })
 
-  it('a series flip updates the series and its dramas only', () => {
+  it('a series flip updates the series and its titles only', () => {
     const items = [
       item({ kind: 'series', id: 7 }),
       item({ id: 1, series_id: 7, series_is_private: false }),

@@ -45,11 +45,11 @@ test('Library: cards, title opens the workspace', async ({ page }) => {
   await expect(page.getByTestId('drama-count')).toBeVisible()
   await expect(page.locator('.drama-grid')).toBeVisible()
   await checkScreen(page, ['.drama-grid .drama-card', '.drama-card-foot .btn', '.library-page .btn-primary', '.continue-item .btn'])
-  await page.getByRole('region', { name: 'Dramas' }).getByRole('link', { name: 'Signal', exact: true }).click()
+  await page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'Signal', exact: true }).click()
   // No stage in the link: the workspace opens the drama's current stage
   // (Source for the seeded drama, which has no lines).
   await expect(page).toHaveURL(/#\/drama\/\d+$/)
-  await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
 for (const stage of ['source', 'translate', 'review', 'dub', 'export']) {
@@ -85,14 +85,14 @@ for (const [name, path] of [
   })
 }
 
-test('Library at 360px: no sideways scroll; New drama and Details open bottom sheets', async ({ page }) => {
+test('Library at 360px: no sideways scroll; New title and Details open bottom sheets', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto('/')
   await expect(page.getByTestId('drama-count')).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await expectTall(page, '.segmented label')
-  await page.getByRole('button', { name: 'New drama' }).click()
-  await expect(page.getByRole('dialog', { name: 'New drama' })).toBeVisible()
+  await page.getByRole('button', { name: 'New title' }).click()
+  await expect(page.getByRole('dialog', { name: 'New title' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await page.getByRole('button', { name: 'Close' }).click()
   await page.getByRole('button', { name: 'Details: Signal' }).click()

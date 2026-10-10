@@ -151,7 +151,7 @@ export default function TranslatePage() {
     <section className="translate-page" aria-label="Quick translate">
       <header className="translate-head">
         <h2>Quick translate</h2>
-        <p className="muted">Quick text translation, outside any drama. One side is always English.</p>
+        <p className="muted">Quick text translation, outside any title. One side is always English.</p>
       </header>
       {showLocalOnlyNote(engines, engine) && (
         <p className="translate-note" role="note" data-testid="local-only-note">

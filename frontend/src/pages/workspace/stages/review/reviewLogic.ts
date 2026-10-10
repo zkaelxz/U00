@@ -338,7 +338,7 @@ export function emptyMessage(filter: LineFilter, term: string): string {
   if (term) return `No lines match “${term}”.`
   if (filter === 'flagged') return 'No flagged lines. Nice.'
   if (filter === 'untranslated') return 'Every line has English.'
-  return 'No lines yet. Transcribe on Source first.'
+  return 'No lines yet. Transcribe on Media first.'
 }
 
 /** One line per speaker, e.g. "Anna  3:40 · 62% · 41 turns", biggest first. */

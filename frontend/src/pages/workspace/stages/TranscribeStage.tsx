@@ -395,7 +395,7 @@ export default function TranscribeStage({
       return null
     }
     if (haveTranscript && !transcriptText.trim()) {
-      setProblem('Paste the transcript first: this drama transcribes from a transcript you supply.')
+      setProblem('Paste the transcript first: this title transcribes from a transcript you supply.')
       return null
     }
     setProblem(null)
@@ -623,7 +623,7 @@ export default function TranscribeStage({
       )}
       {busy && (
         <p className="muted" role="status">
-          A job for this drama is already running. Wait for it to finish or cancel it before starting another.
+          A job for this title is already running. Wait for it to finish or cancel it before starting another.
         </p>
       )}
       {(fieldProblem || problem) && (

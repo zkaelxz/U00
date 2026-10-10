@@ -248,7 +248,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
         {anyBulk && (
           <p className="muted" data-testid="bulk-warning">
             Bulk is half price but slow: results can take up to 24 hours. Until they arrive, structural edits (add, delete, merge, split,
-            re-segment, restore a version, delete the drama) are refused.
+            re-segment, restore a version, delete the title) are refused.
           </p>
         )}
         <Section storageKey="review.ai.options" title="Check options" summary={checkFormSummary(checks, defaultEngine, drama.has_audio)}>
@@ -258,7 +258,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
               defaultEngine={defaultEngine}
               engine={checks.engine}
               model={checks.model}
-              help={`Which service runs these checks. The default is the drama's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines cannot run these checks.`}
+              help={`Which service runs these checks. The default is the title's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines cannot run these checks.`}
               onChange={(n) => setChecks((c) => ({ ...c, ...n }))}
             />
             <div className="setting-list review-toggles">

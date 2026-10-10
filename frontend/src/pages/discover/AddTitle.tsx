@@ -76,7 +76,7 @@ export function AddTitle({ engine, aiReady, onAdded }: { engine: string; aiReady
   return (
     <div className="discover-block">
       <p className="muted discover-lead">
-        Adds a catalogue entry (title, author, tags, synopsis), not chapters or episodes. To pull content into a drama,
+        Adds a catalogue entry (title, author, tags, synopsis), not chapters or episodes. To pull content into a title,
         use Sources › Paste a link.
       </p>
       <div className="discover-row">

@@ -58,7 +58,7 @@ describe('comic types and defaults', () => {
     expect(sanitizePrefs({ mode: 'vertical', rtl: 'yes', fit: 'huge', text: true }, d)).toEqual({ ...d, mode: 'vertical', text: true })
   })
 
-  it('remembers prefs per drama', () => {
+  it('remembers prefs per title', () => {
     const s = memoryStorage()
     const d = defaultPrefs('manhua')
     expect(saveComicPrefs(s, 7, { ...d, mode: 'paged' })).toBe(true)

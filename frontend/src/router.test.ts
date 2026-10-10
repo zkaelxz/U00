@@ -41,7 +41,7 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'assistant' })).toBe('#/assistant')
   })
 
-  it('parses drama id and stage; no stage means null (the drama\'s current stage)', () => {
+  it('parses title id and stage; no stage means null (the title\'s current stage)', () => {
     expect(parseRoute('#/drama/12/review')).toEqual({ name: 'drama', id: 12, stage: 'review' })
     expect(parseRoute('#/drama/12')).toEqual({ name: 'drama', id: 12, stage: null })
     expect(routeHref({ name: 'drama', id: 12, stage: null })).toBe('#/drama/12')

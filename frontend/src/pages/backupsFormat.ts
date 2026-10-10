@@ -46,7 +46,7 @@ const plural = (n: number, one: string) => `${n.toLocaleString('en-US')} ${n ===
 export function snapshotFacts(s: SnapshotInfo): string {
   const parts = [snapshotKindLabel(s.kind)]
   if (typeof s.size === 'number') parts.push(formatBytes(s.size))
-  if (typeof s.drama_count === 'number') parts.push(plural(s.drama_count, 'drama'))
+  if (typeof s.drama_count === 'number') parts.push(plural(s.drama_count, 'title'))
   return parts.join(' · ')
 }
 
@@ -83,7 +83,7 @@ export const UNMANAGED_LABEL = 'Other or older copies (not managed)'
 export const UNMANAGED_NOTE =
   "Made by another library sharing this folder, before this update, or unreadable. Automatic rotation and \"delete all\" never remove them."
 export const UNMANAGED_RESTORE_WARNING =
-  "This copy wasn't made by this library (it may be another PC's library, or from before this update). Check its date and dramas before restoring."
+  "This copy wasn't made by this library (it may be another PC's library, or from before this update). Check its date and titles before restoring."
 export const UNMANAGED_DELETE_WARNING =
   "Not managed by this library: it may be another PC's backup, and that PC won't know it is gone."
 
@@ -208,7 +208,7 @@ const SKIPPED_WORDS: Record<string, string> = {
 export function describeRestore(r: RestoreDramaDone): string {
   const lines = r.counts?.lines
   const parts = [
-    r.restored_as_new ? `Restored '${r.title}' as a new drama.` : `Restored '${r.title}'.`,
+    r.restored_as_new ? `Restored '${r.title}' as a new title.` : `Restored '${r.title}'.`,
   ]
   if (typeof lines === 'number') parts.push(`${plural(lines, 'line')}.`)
   if (!r.media_restored) {
@@ -216,7 +216,7 @@ export function describeRestore(r: RestoreDramaDone): string {
   }
   if (r.series === 'recreated') parts.push('Its series was gone, so it was restored from the snapshot too.')
   if (r.series === 'dropped_private') {
-    parts.push("Its series is now someone else's private series, so the drama is back without a series.")
+    parts.push("Its series is now someone else's private series, so the title is back without a series.")
   }
   const skipped = r.skipped_tables.map((t) => SKIPPED_WORDS[t]).filter(Boolean)
   if (skipped.length) {

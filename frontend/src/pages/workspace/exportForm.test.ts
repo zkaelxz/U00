@@ -75,7 +75,7 @@ describe('formatBytes', () => {
 })
 
 describe('saved Export style', () => {
-  it('round-trips per drama and ignores bad data', () => {
+  it('round-trips per title and ignores bad data', () => {
     expect(assFormFromDraft(null)).toBeNull()
     expect(assFormFromDraft({ fmt: 'srt' })).toBeNull()
     expect(assFormFromDraft({ form: 'nope' })).toBeNull()
