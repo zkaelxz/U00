@@ -250,6 +250,7 @@ def init_db():
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
         _migrate_auth_session_columns(conn)
+        _grant_lines_read_for_reader_page(conn)
         import device_tokens   # owns its table; imports db, so not at the top
         device_tokens.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
@@ -1366,6 +1367,18 @@ def _migrate_ownership_columns(conn):
     if str(user_cols.get("share_by_default")) == "1" and conn.execute(
             "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
         conn.execute("UPDATE users SET share_by_default = 0")
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+
+
+def _grant_lines_read_for_reader_page(conn):
+    # The Reader page moved from library.read to lines.read (owner decision
+    # 2026-10-10): grant it once to everyone who could read the page before,
+    # so nobody loses the Reader on upgrade. The marker keeps a later revoke.
+    marker = "migrations.reader_page_lines_read"
+    if conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+        conn.execute("INSERT OR IGNORE INTO user_permissions (user_id, permission) "
+                     "SELECT user_id, 'lines.read' FROM user_permissions "
+                     "WHERE permission = 'library.read'")
         conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
 
 

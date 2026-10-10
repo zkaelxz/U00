@@ -2186,6 +2186,28 @@ class TestInitDbSchema:
         finally:
             conn.close()
 
+    def test_library_read_holders_get_lines_read_once_for_the_reader_page(self, isolated_db):
+        from services import auth_service
+        reader = auth_service.add_user("reader@example.com")["id"]
+        nobody = auth_service.add_user("nobody@example.com")["id"]
+        for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+            if p != "library.read":
+                isolated_db.auth_revoke_permission(reader, p)
+            isolated_db.auth_revoke_permission(nobody, p)
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:   # as before the migration ran
+            conn.execute("DELETE FROM app_settings WHERE key = 'migrations.reader_page_lines_read'")
+            conn.commit()
+        finally:
+            conn.close()
+        isolated_db.init_db()
+        assert set(isolated_db.auth_get_permissions(reader)) == {"library.read", "lines.read"}
+        assert not isolated_db.auth_get_permissions(nobody)
+        # Once only: a later revoke survives the next start.
+        isolated_db.auth_revoke_permission(reader, "lines.read")
+        isolated_db.init_db()
+        assert set(isolated_db.auth_get_permissions(reader)) == {"library.read"}
+
 
 # Tables with a line_id that a full sync deliberately leaves alone when a line
 # is removed or merged. A new per-line table must go here or in

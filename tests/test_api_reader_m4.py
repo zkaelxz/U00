@@ -516,8 +516,8 @@ def test_permissions_per_route(on_client, drama):
     # library.read reads
     for path in ("/overview", "/notes", "/media", "/vocab", "/wiki"):
         assert on_client.get(f"{BASE}/{drama}{path}", headers=_h(reader_only)).status_code == 200
-    # lines.read: captions, exports
-    for path in ("/captions/Source", "/wiki/export.md"):
+    # lines.read: the page (it carries line text), captions, exports
+    for path in ("/page", "/captions/Source", "/wiki/export.md"):
         assert on_client.get(f"{BASE}/{drama}{path}", headers=_h(reader_only)).status_code == 403
         assert on_client.get(f"{BASE}/{drama}{path}", headers=_h(lines_read)).status_code == 200
     for path in ("/vocab/export.csv", "/vocab/export.apkg"):

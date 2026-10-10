@@ -17,7 +17,8 @@ from typing import Optional
 import background_jobs
 import db
 import diarize
-from services import drama_service, run_settings_service, settings_service, transcribe_pipeline
+from services import (drama_service, ownership_service, run_settings_service, settings_service,
+                      transcribe_pipeline)
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
@@ -266,6 +267,8 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     if overwrite_manual and confirm is not True:
         raise InvalidInputError("overwrite_manual=true replaces speakers you corrected by hand "
                                 "and needs confirm=true as well.")
+    if overwrite_manual:
+        ownership_service.require_acting_lines_edit()
     try:
         expected_speakers, min_speakers, max_speakers = diarize.validate_speaker_hints(
             expected_speakers, min_speakers, max_speakers)
