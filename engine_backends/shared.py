@@ -43,16 +43,22 @@ def gemini_usage(usage_metadata) -> dict:
             "cache_write_tokens": 0}
 
 
+# 503 and 529 (Anthropic's "overloaded") are the provider asking for a retry
+# later, like 429. The SDK clients run with max_retries=0, so this is the only
+# place those get a backoff.
+_BACKOFF_STATUSES = (429, 503, 529)
+
+
 def _is_rate_limit_error(e: Exception) -> bool:
-    """Detects rate-limit responses across different SDK styles (Anthropic,
-    OpenAI-compatible, raw requests) so backoff only kicks in for the
-    specific error where waiting actually helps -- not for genuine
-    failures like a bad API key or malformed request."""
+    """Detects rate-limit and overloaded responses across different SDK
+    styles (Anthropic, OpenAI-compatible, raw requests) so backoff only
+    kicks in for the specific errors where waiting actually helps -- not for
+    genuine failures like a bad API key or malformed request."""
     status = getattr(e, "status_code", None)
     resp = getattr(e, "response", None)
     if resp is not None:
         status = status or getattr(resp, "status_code", None)
-    if status == 429:
+    if status in _BACKOFF_STATUSES:
         return True
     cls_name = type(e).__name__.lower()
     if "ratelimit" in cls_name or "rate_limit" in cls_name:

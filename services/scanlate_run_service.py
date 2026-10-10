@@ -35,7 +35,7 @@ import background_jobs
 import db
 import translate_engines
 from engine_backends import llm_tasks
-from engine_backends.shared import TranslationCancelled
+from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
 from memory_headroom import HeadroomError
 from services import comic_chapters_service
 from services import scanlate_pages_service as pages_svc
@@ -166,8 +166,10 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
         result, new_context = scanlate.translate_regions_by_id(
             keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
             glossary_terms=glossary)
-    except HeadroomError:
-        raise  # the Ollama check refuses on every page; stop the job once
+    except (HeadroomError, LLMTaskTimeout):
+        # The Ollama check refuses on every page, and a timed-out request is
+        # still running and would refuse the next page's call: stop the job once.
+        raise
     except Exception as exc:
         notes.append(("warning", f"Translation failed ({type(exc).__name__}: {exc}). The OCR "
                                  "text was saved; use Redo this page to try again."))
@@ -264,8 +266,10 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
     counts = {"translated": 0, "done": 0, "skipped": 0, "stale": 0, "kept": 0, "failed": 0}
     total = len(page_ids)
     # Cancel and a total deadline for every AI call of the run, not only between
-    # pages; a page whose call timed out fails on its own like any other error.
-    with llm_tasks.bounded_llm_calls(jid, lambda: background_jobs.is_cancel_requested(jid)):
+    # pages. One request per page, and with thinking on DeepSeek may take the
+    # whole client timeout to answer, so the deadline is the per-request one.
+    with llm_tasks.bounded_llm_calls(jid, lambda: background_jobs.is_cancel_requested(jid),
+                                     deadline=llm_tasks.request_deadline_for(engine)):
         for n, pid in enumerate(page_ids, start=1):
             render_svc.check_cancel(jid)
             background_jobs.update_progress(jid, (n - 1) / total, f"Page {n} of {total}")
@@ -286,6 +290,10 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
                     from applog import get_logger
                     get_logger().warning("Could not save the error note for page %s: %s", pid,
                                          translate_engines.redact_secrets(str(note_exc)))
+                # The abandoned request may still be running; every later page
+                # would be refused, so the run ends with this error.
+                if isinstance(exc, LLMTaskTimeout):
+                    raise
     parts = [f"{counts['translated']} translated"]
     if counts["done"]:
         parts.append(f"{counts['done']} without translation")

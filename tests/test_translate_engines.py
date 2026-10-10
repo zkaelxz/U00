@@ -147,6 +147,15 @@ class TestCallWithBackoff:
     def test_is_rate_limit_error_detects_status_code(self):
         assert te._is_rate_limit_error(RateLimitError("x")) is True
 
+    @pytest.mark.parametrize("status", [503, 529])
+    def test_overloaded_statuses_get_a_backoff_too(self, status):
+        # The SDK clients never retry on their own, so this is the only retry
+        # an overloaded provider gets.
+        err = type("ServerError", (Exception,), {"status_code": status})("x")
+        assert te._is_rate_limit_error(err) is True
+        assert te._is_rate_limit_error(
+            type("ServerError", (Exception,), {"status_code": 500})("x")) is False
+
     def test_is_rate_limit_error_rejects_generic_errors(self):
         assert te._is_rate_limit_error(GenericError("x")) is False
 

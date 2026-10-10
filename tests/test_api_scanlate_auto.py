@@ -812,6 +812,57 @@ def test_failed_error_note_write_is_logged(isolated_db, monkeypatch):
     assert len(seen) == 1 and "page 7" in seen[0] and "disk full" in seen[0]
 
 
+def _job_harness(monkeypatch):
+    import background_jobs
+    monkeypatch.setattr(run_svc.render_svc, "check_cancel", lambda jid: None)
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
+    monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)
+    monkeypatch.setattr(run_svc.settings_service, "get_tesseract_cmd", lambda: None)
+    monkeypatch.setattr(run_svc.db, "get_drama", lambda did: {})
+
+
+def test_a_timed_out_call_stops_the_run_instead_of_failing_every_page(isolated_db, monkeypatch):
+    """The abandoned request keeps the job's worker slot, so every later page
+    would be refused with "still finishing" and written up as a failure."""
+    from engine_backends import llm_tasks
+    _job_harness(monkeypatch)
+    processed, notes, scopes = [], [], []
+
+    def page(drama_id, drama, pid, *a, **k):
+        processed.append(pid)
+        raise llm_tasks.LLMTaskTimeout("The AI engine did not answer within 330 seconds.")
+    monkeypatch.setattr(run_svc, "_process_page", page)
+    monkeypatch.setattr(run_svc.db, "update_page", lambda pid, **f: notes.append((pid, f)))
+    real_scope = llm_tasks.bounded_llm_calls
+
+    def spy(job_id, cancel_check, **kw):
+        scopes.append(kw)
+        return real_scope(job_id, cancel_check, **kw)
+    monkeypatch.setattr(run_svc.llm_tasks, "bounded_llm_calls", spy)
+    engine = type("E", (), {"name": "deepseek", "model": "m"})()
+    with pytest.raises(llm_tasks.LLMTaskTimeout, match="did not answer"):
+        run_svc._run_job("j", 1, "all", [7, 8, 9], "deepseek", engine, "auto")
+    assert processed == [7]  # pages 8 and 9 were never attempted
+    assert len(notes) == 1 and notes[0][0] == 7 and "did not answer" in notes[0][1]["run_notes"]
+    # Each page is one request, and with thinking on DeepSeek may take the whole
+    # client timeout to answer it.
+    assert scopes[0]["deadline"] >= translate_engines.SDK_REQUEST_TIMEOUT
+
+
+def test_translate_helper_does_not_turn_a_timeout_into_a_warning(monkeypatch):
+    from engine_backends import llm_tasks
+
+    def hangs(*a, **k):
+        raise llm_tasks.LLMTaskTimeout("did not answer")
+    monkeypatch.setattr(scanlate, "translate_regions_by_id", hangs)
+    notes = []
+    with pytest.raises(llm_tasks.LLMTaskTimeout):
+        run_svc._translate([_region(5)], _LLM(), "claude", {}, None,
+                           None, 1, notes)
+    assert notes == []
+
+
 def test_stored_page_error_note_is_redacted(isolated_db, monkeypatch):
     import background_jobs
     stored = []

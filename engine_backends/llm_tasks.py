@@ -6,7 +6,8 @@ import contextvars
 import re
 import threading
 import time
-from .fallback import FallbackEngine
+from .fallback import (FALLBACK_BACKOFF_BASE_SECONDS, FALLBACK_BACKOFF_CAP_SECONDS,
+                       FALLBACK_TRANSIENT_RETRIES, FallbackEngine)
 from .gemini import GeminiEngine
 from .local import (OllamaEngine, _ollama_chat, abort_check_var, estimate_ollama_num_ctx,
                     ollama_chat_timeout, strip_ollama_thinking)
@@ -27,6 +28,7 @@ from .shared import (
     TranslationCancelled,
 )
 from .thinking import deepseek_extra_body
+from services import job_timing_service
 
 # DeepSeek's per-request bound. It is only a per-read idle timeout, so
 # LLM_TASK_DEADLINE_SECONDS is what actually ends a call whose server keeps the
@@ -63,9 +65,11 @@ _scope_var = contextvars.ContextVar("llm_task_scope", default=None)
 # directly instead of stacking a second worker and deadline.
 _in_worker_var = contextvars.ContextVar("llm_task_in_worker", default=False)
 # Calls with no job id (request threads, CLI) can't be limited per job, so the
-# limit is on how many such abandoned workers may be alive at once.
+# limit is on how many workers per engine may be alive at once, abandoned ones
+# included. A worker takes its slot under the lock before it starts, so two
+# calls checking together can't both pass with one slot left.
 _MAX_ABANDONED_JOBLESS = 4
-_abandoned_jobless = []
+_abandoned_jobless = {}  # engine key -> worker threads alive or not yet pruned
 # job id -> worker thread of a call this job stopped waiting for. A python
 # thread can't be killed, so the rule is one such thread per job id: a new
 # call is refused while it lives, instead of piling more up.
@@ -103,15 +107,39 @@ def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
 _BATCH_REQUESTS = 2
 
 
+def _request_timeout_for(engine) -> float:
+    if isinstance(engine, OllamaEngine):
+        return ollama_chat_timeout(engine.model)
+    return SDK_REQUEST_TIMEOUT
+
+
+def request_deadline_for(engine) -> float:
+    """Total seconds one request to this engine may take: its client timeout
+    plus the margin. DeepSeek with thinking on keeps the connection alive
+    while it reasons, so its idle timeout never fires and a scope that runs
+    one request per call (a Reflect pass, a Scanlate page) must allow at
+    least this much rather than LLM_TASK_DEADLINE_SECONDS."""
+    if isinstance(engine, FallbackEngine):
+        return max(request_deadline_for(e) for e in engine.engines)
+    return _request_timeout_for(engine) + _DEADLINE_MARGIN_SECONDS
+
+
+def _fallback_backoff_total() -> float:
+    return sum(min(FALLBACK_BACKOFF_CAP_SECONDS, FALLBACK_BACKOFF_BASE_SECONDS * (2 ** i))
+               for i in range(FALLBACK_TRANSIENT_RETRIES))
+
+
 def batch_deadline_for(engine) -> float:
     """Total seconds one engine.translate_batch call may take, retries inside
     it included. A fallback chain gets one window per engine so a hung first
-    engine still leaves time for the next."""
+    engine still leaves time for the next: that window covers every attempt
+    FallbackEngine makes on the same engine before switching, plus the
+    backoff between them."""
     if isinstance(engine, FallbackEngine):
-        return sum(batch_deadline_for(e) for e in engine.engines)
-    if isinstance(engine, OllamaEngine):
-        return _BATCH_REQUESTS * ollama_chat_timeout(engine.model) + _DEADLINE_MARGIN_SECONDS
-    return _BATCH_REQUESTS * SDK_REQUEST_TIMEOUT + _DEADLINE_MARGIN_SECONDS
+        attempts = FALLBACK_TRANSIENT_RETRIES + 1
+        return sum(attempts * _BATCH_REQUESTS * _request_timeout_for(e) + _fallback_backoff_total()
+                   for e in engine.engines) + _DEADLINE_MARGIN_SECONDS
+    return _BATCH_REQUESTS * _request_timeout_for(engine) + _DEADLINE_MARGIN_SECONDS
 
 
 def llm_tasks_scope_active() -> bool:
@@ -121,29 +149,23 @@ def llm_tasks_scope_active() -> bool:
 def _deadline_for(scope: _BoundedScope, engine) -> float:
     if scope.deadline is not None:
         return scope.deadline
-    if isinstance(engine, OllamaEngine):
-        # Ollama's own chat timeout is the bound (up to 900 s for the big
-        # models, which legitimately take that long); the deadline must not
-        # cut a local run short.
-        return ollama_chat_timeout(engine.model) + _DEADLINE_MARGIN_SECONDS
     if getattr(engine, "name", "") == "deepseek":
         return LLM_TASK_DEADLINE_SECONDS
-    return max(LLM_TASK_DEADLINE_SECONDS, SDK_REQUEST_TIMEOUT + _DEADLINE_MARGIN_SECONDS)
+    # Ollama's own chat timeout is the bound (up to 900 s for the big models,
+    # which legitimately take that long); the deadline must not cut a local
+    # run short. Other clients' timeout surfaces first, then the deadline.
+    return max(LLM_TASK_DEADLINE_SECONDS, request_deadline_for(engine))
 
 
-def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None):
-    with _abandoned_lock:
-        if scope.job_id is None:
-            _abandoned_jobless[:] = [w for w in _abandoned_jobless if w.is_alive()]
-            busy = len(_abandoned_jobless) >= _MAX_ABANDONED_JOBLESS
-        else:
-            old = _abandoned.get(scope.job_id)
-            busy = old is not None and old.is_alive()
-            if not busy:
-                _abandoned.pop(scope.job_id, None)
-        if busy:
-            raise LLMTaskTimeout(
-                "The previous AI request is still finishing. Wait a minute and try again.")
+def _engine_key(engine) -> str:
+    return getattr(engine, "name", None) or type(engine).__name__
+
+
+def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None,
+                 on_late_result=None):
+    """on_late_result() is called once, from whichever thread notices first,
+    when fn returns after the call was abandoned: the result is discarded but
+    the request was billed, so the caller can still log its usage."""
     box = {}
     scope_on_wait = _backoff_wait_var.get()
     ctx = contextvars.copy_context()
@@ -164,15 +186,47 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None):
     # GPU after the job has let go. Other engines never read it.
     if scope.closes_ollama:
         ctx.run(abort_check_var.set, lambda: abandon.is_set() or bool(scope.cancel_check()))
+    # The job's stage cost is keyed by a thread-local the job thread set; the
+    # worker inherits it so usage logged inside the call still reaches the job.
+    timing_job = job_timing_service.current_job()
+    late_once = threading.Lock()
+
+    def record_late_result():
+        if on_late_result is not None and late_once.acquire(blocking=False):
+            try:
+                on_late_result()
+            except Exception as exc:
+                import applog
+                applog.get_logger().warning(
+                    "usage of an abandoned AI call was not logged: %s", redact_secrets(str(exc)))
 
     def work():
+        job_timing_service.set_current_job(timing_job)
         try:
             box["value"] = ctx.run(fn)
         except BaseException as exc:
             box["error"] = exc
+            return
+        if abandon.is_set():
+            record_late_result()
 
     worker = threading.Thread(target=work, daemon=True, name=f"llm-task-{scope.job_id}")
-    worker.start()
+    with _abandoned_lock:
+        if scope.job_id is None:
+            slots = _abandoned_jobless.setdefault(_engine_key(engine), [])
+            slots[:] = [w for w in slots if w.is_alive()]
+            busy = len(slots) >= _MAX_ABANDONED_JOBLESS
+        else:
+            old = _abandoned.get(scope.job_id)
+            busy = old is not None and old.is_alive()
+            if not busy:
+                _abandoned.pop(scope.job_id, None)
+        if busy:
+            raise LLMTaskTimeout(
+                "The previous AI request is still finishing. Wait a minute and try again.")
+        if scope.job_id is None:
+            slots.append(worker)
+        worker.start()
     if deadline is None:
         deadline = _deadline_for(scope, engine)
     end = time.monotonic() + deadline
@@ -187,11 +241,13 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None):
             # free before the job reports back.
             worker.join(2.0)
             if worker.is_alive():
-                with _abandoned_lock:
-                    if scope.job_id is None:
-                        _abandoned_jobless.append(worker)
-                    else:
+                if scope.job_id is not None:
+                    with _abandoned_lock:
                         _abandoned[scope.job_id] = worker
+            elif "value" in box:
+                # Returned between the check and abandon.set(); the worker may
+                # have missed the flag, so the discarded result is logged here.
+                record_late_result()
             if cancelled:
                 raise TranslationCancelled("cancelled")
             raise LLMTaskTimeout(
@@ -233,7 +289,7 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     return _bounded(lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb), engine)
 
 
-def _bounded(fn, engine, deadline: float = None):
+def _bounded(fn, engine, deadline: float = None, on_late_result=None):
     if _in_worker_var.get():
         return fn()
     scope = _scope_var.get()
@@ -242,7 +298,7 @@ def _bounded(fn, engine, deadline: float = None):
         # backoff waits still applies.
         scope = _BoundedScope(None, _cancel_check_var.get() or (lambda: False), None, False,
                               lenient_empty=True, closes_ollama=False)
-    return _run_bounded(scope, fn, engine, deadline)
+    return _run_bounded(scope, fn, engine, deadline, on_late_result)
 
 
 def bound_batches(engine):
@@ -257,11 +313,12 @@ def bound_batches(engine):
     return engine
 
 
-def call_batch_bounded(engine, fn):
+def call_batch_bounded(engine, fn, on_late_result=None):
     """Runs one engine.translate_batch-style call (fn, no arguments) under the
     batch deadline, so a hung engine ends the call and Cancel is noticed within
-    a moment instead of after the SDK's own timeouts."""
-    return _bounded(fn, engine, batch_deadline_for(engine))
+    a moment instead of after the SDK's own timeouts. on_late_result() runs once
+    if fn returns after the call was abandoned (see _run_bounded)."""
+    return _bounded(fn, engine, batch_deadline_for(engine), on_late_result)
 
 
 def _is_deepseek(engine) -> bool:
