@@ -202,6 +202,23 @@ def test_concurrent_starts_give_one_run_and_one_conflict(fakes, monkeypatch):
     assert len(runs) == 1
 
 
+def test_starting_over_a_finished_search_never_clears_the_entry(fakes, monkeypatch):
+    # Clearing the old entry before start_job left a window where a second
+    # request's running job could be dropped; the interleaving is forced by
+    # making any clear fail rather than by racing two threads.
+    fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
+    svc.start_search("first")
+    _wait("sources_search")
+
+    def no_clear(*a, **k):
+        raise AssertionError("start_search must not clear the job entry")
+
+    with monkeypatch.context() as m:
+        m.setattr(background_jobs, "clear_job", no_clear)
+        assert svc.start_search("second") == {"job_id": "sources_search"}
+    _wait("sources_search")
+
+
 def test_result_idle_after_clear_and_404_for_foreign_ids(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     svc.start_search("abc")

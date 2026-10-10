@@ -74,8 +74,11 @@ engine in the app: the key-free `FakeEngine` lives in `tests/fake_engine.py`
   (`_is_rate_limit_error`: status 429, a `RateLimit` class name, or "429" in
   the text when no status was given) back off exponentially; any other error
   gets one quick retry, then raises. Sleeps go through `_cancellable_sleep`, so
-  a cancelled job stops waiting (`TranslationCancelled`).
-  `FreeTierDailyLimitReached` is never retried.
+  a cancelled job stops waiting (`TranslationCancelled`). These are re-raised
+  at once, never retried: `TranslationCancelled`, `FreeTierDailyLimitReached`,
+  `HeadroomError`, `LLMTaskTimeout` and `ProviderResponseTooLarge` (the reply
+  was already billed), and a rate-limit error from a fallback chain that has
+  tried every engine.
 - **`redact_secrets(text)`, `redact_for_storage`, `safe_url`,
   `strip_url_queries`.** Pattern-based scrubbing of keys (`sk-`, `AIza`,
   `key=`, `Authorization`/`Bearer`, DeepL, URL userinfo) from any error text.

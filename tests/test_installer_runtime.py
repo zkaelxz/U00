@@ -117,6 +117,27 @@ class TestLaunch:
         launcher.apply_pending_install("python", {}, True)
         assert ran == []
 
+    def test_a_lock_of_a_really_dead_pid_is_not_waited_for(self, data_dir, monkeypatch):
+        import subprocess
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        proc.wait()
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"pid": proc.pid, "time": int(time.time())}))
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran == []
+
+    def test_a_lock_with_an_oversized_pid_does_not_crash_the_launcher(self, data_dir, monkeypatch):
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"pid": 10 ** 30, "time": int(time.time())}))
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran == []
+
     def test_a_lock_held_by_a_live_pid_is_waited_for(self, data_dir, monkeypatch, capsys):
         lock = data_dir / "pending_install" / "apply.lock"
         lock.parent.mkdir(parents=True)

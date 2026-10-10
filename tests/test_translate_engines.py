@@ -1545,7 +1545,9 @@ class TestOllamaModelInstalledCheck:
         te.check_ollama_model_installed("http://localhost:11434", "m:1b")
         assert calls[-1] == "http://proxy.local/api/tags"
 
-    @pytest.mark.parametrize("status", [301, 404, 500])
+    # 300 and 304 are redirect-class statuses lib/http does not follow, so they
+    # reach the status check (a 301 with no Location never does).
+    @pytest.mark.parametrize("status", [300, 304, 404, 500])
     def test_a_non_2xx_final_answer_means_unreachable(self, monkeypatch, status):
         self._serve(monkeypatch, self.Resp(status))
         with pytest.raises(te.OllamaUnavailableError) as exc:
