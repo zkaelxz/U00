@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+import bulk_providers
 import bulk_translate as bt
 import db
 import translate_engines as te
@@ -88,8 +89,9 @@ def _env(monkeypatch):
 def _fake_engines(monkeypatch, ended=True):
     engine = te.ClaudeEngine("sk-ant-fake")
     monkeypatch.setattr(te, "get_engine", lambda *a, **k: engine)
-    monkeypatch.setattr(bt, "make_provider",
-                        lambda choice, e: FakeProvider(_current["did"], ended=ended))
+    for module in (bulk_providers, bt):
+        monkeypatch.setattr(module, "make_provider",
+                            lambda choice, e: FakeProvider(_current["did"], ended=ended))
     return engine
 
 

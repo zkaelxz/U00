@@ -108,14 +108,14 @@ def test_bulk_list_and_cancel(client, monkeypatch):
 
 
 def _provider_env(monkeypatch, provider):
-    import bulk_translate
+    import bulk_providers
     import translate_engines
     from services import translate_service
     seen = {}
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: seen.setdefault("key_for", name) and "k")
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
-    monkeypatch.setattr(bulk_translate, "make_provider", lambda name, engine: provider)
+    monkeypatch.setattr(bulk_providers, "make_provider", lambda name, engine: provider)
     return seen
 
 
