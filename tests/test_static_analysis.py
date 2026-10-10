@@ -584,13 +584,38 @@ def _imports_of(dirname, forbidden):
     return offenders
 
 
+def _repo_modules():
+    """Top-level names that resolve to this repo's own code: every root
+    .py stem and every package folder with an __init__.py."""
+    names = set()
+    for entry in os.listdir(PROJECT_ROOT):
+        if entry.endswith(".py"):
+            names.add(entry[:-3])
+        elif os.path.isfile(os.path.join(PROJECT_ROOT, entry, "__init__.py")):
+            names.add(entry)
+    return names
+
+
 class TestLayering:
     """The layers only call downward (CLAUDE.md): services stay UI- and
     HTTP-free so the CLI and the API share them, and routers reach the
-    database only through a service, where ownership and whitelists live."""
+    database only through a service, where ownership and whitelists live.
+    `lib/` sits below every layer, so any module may import it; in return
+    it imports nothing of the app's own code."""
 
     def test_services_do_not_import_the_api(self):
         assert _imports_of("services", "api") == []
+
+    def test_lib_imports_no_app_module(self):
+        forbidden = _repo_modules() - {"lib"}
+        offenders = [f"{os.path.relpath(p, PROJECT_ROOT)}:{line} {module}"
+                     for p in _py_files_under("lib")
+                     for line, module in _absolute_imports(p)
+                     if module.split(".")[0] in forbidden]
+        assert "services" in forbidden and "db" in forbidden and "core" in forbidden
+        assert offenders == [], (
+            "lib/ holds helpers with no domain knowledge; move the dependency "
+            f"out or keep the module in services/: {offenders}")
 
     def test_routers_do_not_import_db(self):
         assert _imports_of(os.path.join("api", "routers"), "db") == []

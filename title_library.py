@@ -71,7 +71,7 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
     back to search_url_fallback() below)."""
     import json
     import requests
-    from services import capped_body
+    from lib import capped_body
     headers = {"User-Agent": "Mozilla/5.0 (compatible; TitleLibrary/1.0)", "Accept": "application/json"}
     results = []
     for collection, fields, title_field in _BAIHEHUB_COLLECTIONS:

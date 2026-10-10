@@ -36,7 +36,8 @@ import db
 import media_inspect
 import metadata_lookup
 import translate_engines
-from services import drama_service, settings_service, url_guard
+from services import drama_service, settings_service
+from lib import url_guard
 from services.service_errors import (
     DependencyUnavailableError,
     InvalidInputError,
@@ -144,7 +145,7 @@ def _positive_int(value):
 
 def check_public_url(url: str) -> str:
     """http(s) only, with a host whose every resolved address is public
-    (the rule itself lives in services.url_guard, shared with sources/http).
+    (the rule itself lives in lib.url_guard, shared with sources/http).
 
     Returns the first validated address, which the caller must connect to.
     """

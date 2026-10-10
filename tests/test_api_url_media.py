@@ -22,7 +22,8 @@ import video_export
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, jobs_service, media_upload_service, url_guard
+from services import auth_service, jobs_service, media_upload_service
+from lib import url_guard
 from services import url_media_service as svc
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"

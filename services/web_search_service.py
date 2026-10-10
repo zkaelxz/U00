@@ -42,7 +42,8 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import db
-from services import capped_body, settings_service
+from services import settings_service
+from lib import capped_body
 from services.auth_service import SlidingWindowRateLimiter
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)

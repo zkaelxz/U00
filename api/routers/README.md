@@ -16,7 +16,7 @@ return a response model.
 - A new router module is registered in `api/server.py` and listed in `FILE_ORGANIZATION.md`.
 - No `import db` here (enforced); ownership and key whitelists live in services.
 - Raise nothing HTTP-specific for domain errors: let the service raise
-  `services/service_errors.py` errors; `api/error_handlers.py` maps them.
+  `lib/errors.py` errors; `api/error_handlers.py` maps them.
 
 ## Tests
 - `tests/test_api_permissions.py` (one declaration per route; table matches the app)

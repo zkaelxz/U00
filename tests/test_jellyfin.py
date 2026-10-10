@@ -371,7 +371,7 @@ def test_oversized_reply_is_refused(setup, monkeypatch):
 
 
 def test_slow_reply_hits_the_deadline_and_is_closed(monkeypatch):
-    from services import capped_body
+    from lib import capped_body
     ticks = iter([0.0, 1.0, jf.READ_DEADLINE + 1])
     monkeypatch.setattr(capped_body.time, "monotonic", lambda: next(ticks))
 

@@ -7,7 +7,7 @@ import re
 import time
 
 from core import LANGUAGE_NAMES
-from services import capped_body
+from lib import capped_body
 from memory_headroom import HeadroomError
 
 
@@ -177,7 +177,7 @@ class ProviderResponseTooLarge(RuntimeError):
 def read_json_capped(resp, deadline_seconds: float, cap_bytes: int = PROVIDER_RESPONSE_MAX_BYTES,
                      make_error=None):
     """The JSON body of a `stream=True` requests response, read through
-    services.capped_body. A non-2xx status raises requests.HTTPError, as
+    lib.capped_body. A non-2xx status raises requests.HTTPError, as
     raise_for_status does, without reading the body."""
     if not resp.ok:
         resp.close()

@@ -13,7 +13,7 @@ import pytest
 import requests
 
 import db
-from services import capped_body
+from lib import capped_body
 from services import update_service as us
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)

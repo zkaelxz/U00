@@ -26,7 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import live_fetch
 import live_translate
 import translate_engines
-from services import egress_proxy, live_service, url_guard
+from services import egress_proxy, live_service
+from lib import url_guard
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
 HAS_OPENSSL = shutil.which("openssl") is not None

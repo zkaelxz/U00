@@ -40,7 +40,8 @@ import time
 
 import db
 import translate_engines
-from services import capped_body, settings_service, translate_service
+from services import settings_service, translate_service
+from lib import capped_body
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      RateLimitedError)
 

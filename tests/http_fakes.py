@@ -1,7 +1,7 @@
 """The streaming surface of a requests response (ok, headers, iter_content,
 close) for a test's hand-written fake, built from its own status_code /
 raise_for_status / json() / text, so bodies read with `stream=True`
-through services.capped_body see the same reply the fake describes."""
+through lib.capped_body see the same reply the fake describes."""
 import json as _json
 
 

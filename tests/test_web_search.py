@@ -15,7 +15,8 @@ from fastapi.testclient import TestClient
 
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import capped_body, settings_service
+from services import settings_service
+from lib import capped_body
 from services import web_search_service as ws
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)

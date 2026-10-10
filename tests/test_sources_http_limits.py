@@ -8,7 +8,7 @@ import time
 import pytest
 
 import background_jobs
-from services import url_guard
+from lib import url_guard
 from sources import http, registry
 from sources.http import (Cancelled, FetchLimits, PacingPolicy, ResponseTooLarge,
                           ResponseTooSlow, SourceClient)

@@ -79,7 +79,7 @@ class FakePage:
 def _public_dns(monkeypatch):
     # B-28: an unresolvable start URL drops the browser tiers; these fake
     # `.invalid` hosts stand for public sites, so resolve them.
-    monkeypatch.setattr("services.url_guard.resolve_public", lambda url: "93.184.216.34")
+    monkeypatch.setattr("lib.url_guard.resolve_public", lambda url: "93.184.216.34")
 
 
 class FakeContext:

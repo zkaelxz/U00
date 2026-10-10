@@ -94,7 +94,7 @@ def normalize_line_lang(value):
         return None
     code = value.strip().lower() if isinstance(value, str) else None
     if code not in LINE_LANGUAGES:
-        from services.service_errors import InvalidInputError
+        from lib.errors import InvalidInputError
         raise InvalidInputError(f"lang must be one of {', '.join(LINE_LANGUAGES)} or empty.",
                                 details={"allowed": list(LINE_LANGUAGES)})
     return code
@@ -1456,7 +1456,7 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     import os as _os
     import requests
     import translate_engines
-    from services import capped_body
+    from lib import capped_body
 
     def too_big():
         return GroqTranscriptionError("Groq's reply was too large or too slow to read.")

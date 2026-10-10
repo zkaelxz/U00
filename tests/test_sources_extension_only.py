@@ -17,7 +17,7 @@ import db
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import sources_extension_service as ext
-from services import url_guard
+from lib import url_guard
 from sources import chapter_check, extension_marker, generic_import, health, ladder, store
 from sources.base import SourceAdapter
 

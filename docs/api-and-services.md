@@ -12,9 +12,10 @@ This page links the pieces; it does not repeat them.
 frontend/ (React)
   -> frontend/src/api/*            the only code that makes HTTP calls
   -> api/routers/*_routes.py       thin: parse, declare permission, call a service
-  -> services/*_service.py         UI-free logic; raises services/service_errors.py errors
+  -> services/*_service.py         UI-free logic; raises lib/errors.py errors
   -> root domain modules           core, translate_engines, scanlate, ...
   -> db.py                         plain sqlite3
+  lib/                             shared helpers (errors, url_guard, capped_body); every layer may import it, it imports none
 ```
 
 - A router function validates input through a Pydantic model, calls one

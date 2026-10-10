@@ -195,7 +195,7 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
     """
     problem = paddle_vl_manga_problem()
     if problem:
-        from services.service_errors import DependencyUnavailableError
+        from lib.errors import DependencyUnavailableError
         raise DependencyUnavailableError(problem)
     from PIL import Image
     import torch

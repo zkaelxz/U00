@@ -57,7 +57,7 @@ import background_jobs
 import db
 import portable
 import process_guard
-from services import capped_body
+from lib import capped_body
 from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 

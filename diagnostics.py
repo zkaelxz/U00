@@ -1043,7 +1043,7 @@ def get_latest_pypi_version(pip_name: str, timeout: float = 10.0):
     explicit button and cache the result (see check_dependency_versions)."""
     import requests
     try:
-        from services import capped_body
+        from lib import capped_body
         resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
                             stream=True, allow_redirects=False)
         if resp.status_code != 200:
@@ -1986,7 +1986,7 @@ def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
     import requests
     version_mod, _s, _r = _packaging()
     try:
-        from services import capped_body
+        from lib import capped_body
         resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
                             timeout=timeout, headers={"Accept": "application/json"},
                             stream=True, allow_redirects=False)

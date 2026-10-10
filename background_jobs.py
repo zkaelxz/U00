@@ -943,7 +943,7 @@ def _refuse_if_stopping_locked(job_id):
     """Caller holds _lock."""
     job_force_stop.refuse_if_abandoned_locked(job_id)
     if _stopping:
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         raise ConflictError(STOPPING_MESSAGE)
 
 
