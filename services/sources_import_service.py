@@ -68,6 +68,7 @@ import threading
 from urllib.parse import urlsplit
 
 import background_jobs
+import comic_chapters
 import db
 from services import drama_service, ownership_service
 from services import page_import_limits as limits
@@ -78,7 +79,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 from services.sources_extension_service import require_url_not_extension_only
 from services.sources_registry_service import (import_supported, require_source, scrub,
                                               safe_url)
-from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, enabled_source,
+from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, SERIES_JOB_PREFIX, enabled_source,
                                              error_view, JobFailed, plain_text, clean_series_id,
                                              start_job)
 from services.sources_url_service import (check_public_url, fail_job, handoff_error,
@@ -251,6 +252,22 @@ def _chapter_outcomes(raw: dict, wanted: list, missing_ids: list, skip=(),
                        for c in missing_ids]
 
 
+def _series_page_url(name: str, series_id: str) -> str:
+    """The series' own page, from the series view the person just opened or
+    else the tracked-series row; "" when neither is known. No new fetch."""
+    status = background_jobs.get_status(SERIES_JOB_PREFIX + name) or {}
+    result = status.get("result") if status.get("status") == "done" else None
+    if isinstance(result, dict) and result.get("series_id") == series_id:
+        return str((result.get("info") or {}).get("url") or "")
+    try:
+        for row in store.list_tracked_series():
+            if row["source"] == name and row["series_id"] == series_id:
+                return str(row.get("url") or "")
+    except Exception:
+        pass
+    return ""
+
+
 def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: list,
                         drama_id: int):
     cancel_check = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
@@ -283,7 +300,8 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
         pipeline.run_import_job(
             job_id, name, wanted, drama_id, adapter=adapter, skip_ids=skip,
             on_layout_changed=lambda ch, url, html: extraction.stash_layout_page(
-                drama_id, name, series_id, ch.chapter_id, url, html, ch.title))
+                drama_id, name, series_id, ch.chapter_id, url, html, ch.title),
+            series_url=_series_page_url(name, series_id))
     except Exception:
         # An unexpected error (e.g. an unreadable page image) still leaves
         # the chapters that failed or never ran in the retry manifest.
@@ -534,7 +552,9 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Saving the text...")
     extraction.drop_review(drama_id)
-    pipeline.save_novel_text(drama_id, text, append=True, heading=res.title)
+    heading = res.title or adaptive.title_from_url(url)
+    pipeline.save_novel_text(drama_id, text, append=True, heading=heading, url=url)
+    drama_service.set_source_url_once(drama_id, url)
     background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": False,
                                         "char_count": len(text), "review_open": False})
 
@@ -674,7 +694,12 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Adding the pages...")
     extraction.drop_review(drama_id)
-    n, skipped = extraction.write_pages(drama_id, ((c, c.content) for c in res.images), job_id)
+    chapter = comic_chapters.chapter_ref(
+        None, adaptive.page_label(report.data, getattr(res.ladder, "html", ""), url), "", url)
+    n, skipped = extraction.write_pages(drama_id, ((c, c.content) for c in res.images), job_id,
+                                        chapter=chapter)
+    if n:
+        drama_service.set_source_url_once(drama_id, url)
     background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected)))
 
 

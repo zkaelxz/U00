@@ -71,3 +71,31 @@ test('is not shown for a title that is not a novel', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Saved chapters' })).toHaveCount(0)
 })
+
+test('the chapter selector steps through chapters and each chapter links to its source page', async ({ page }) => {
+  const rows = [row(1, { url: 'https://novel.example/b/1.html' }), row(2), row(3, { url: 'javascript:alert(1)' })]
+  const slices = await mockChapters(page, listBody(rows), (number) => ({
+    drama_id: 2, number, title: `第${number}章 标题`, source: 'xbanxia', imported_at: '', unsplit: false, chars: 4000 + number,
+    in_translation: false, url: number === 1 ? 'https://novel.example/b/1.html' : '', offset: 0, text: `正文${number}`, next_offset: null,
+  }))
+  await page.goto('/#/drama/2/source')
+  const panel = page.getByRole('region', { name: 'Saved chapters' })
+  const nav = panel.getByRole('group', { name: 'Chapter selector' })
+  await expect(nav.getByRole('button', { name: 'Previous chapter' })).toBeDisabled()
+  await nav.getByLabel('Chapter', { exact: true }).selectOption({ label: '1. 第1章 标题' })
+  const preview = panel.getByRole('region', { name: 'Chapter preview' })
+  await expect(preview.getByTestId('chapters-text')).toHaveText('正文1')
+  const link = preview.getByRole('link', { name: 'Open chapter page' })
+  await expect(link).toHaveAttribute('href', 'https://novel.example/b/1.html')
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  await nav.getByRole('button', { name: 'Next chapter' }).click()
+  await expect(preview.getByTestId('chapters-text')).toHaveText('正文2')
+  await expect(preview.getByRole('link', { name: 'Open chapter page' })).toHaveCount(0)
+  await nav.getByRole('button', { name: 'Next chapter' }).click()
+  await expect(nav.getByRole('button', { name: 'Next chapter' })).toBeDisabled()
+  await nav.getByRole('button', { name: 'Previous chapter' }).click()
+  await expect(preview.getByTestId('chapters-text')).toHaveText('正文2')
+  expect(slices.map((s) => s.number)).toEqual([1, 2, 3, 2])
+  // Only the row with a real http(s) address gets a link.
+  await expect(panel.getByRole('list', { name: 'Saved chapters' }).getByRole('link', { name: 'Open chapter page' })).toHaveCount(1)
+})

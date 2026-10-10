@@ -264,6 +264,34 @@ def safe_url(url) -> str:
     return f"{parts.scheme}://{host}{port}{parts.path}"
 
 
+# A path segment that looks like a credential (a long random run, or a
+# Telegram-style bot<id>:<key>), e.g. a path-signed CDN or bot file link.
+_TOKEN_SEGMENT = re.compile(r"^(?:bot\d+:.+|[A-Za-z0-9_\-.~:=]{32,})$")
+
+
+def display_url(url) -> str:
+    """A stored link as the API may show it: http(s) only, scheme + host +
+    path, no query, fragment, userinfo or ;params. A pasted link can carry
+    a signed token; a path that looks like it holds one is dropped, leaving
+    only the host. Anything else (unparsable, scheme-less, file://) gives ""."""
+    from urllib.parse import urlsplit
+    try:
+        parts = urlsplit(str(url or "").strip())
+        host = parts.hostname or ""
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return ""
+    if parts.scheme.lower() not in ("http", "https") or not host:
+        return ""
+    if ":" in host:
+        host = f"[{host}]"          # IPv6 keeps its brackets
+    path = parts.path.split(";", 1)[0]
+    if (redact_secrets(path) != path
+            or any(_TOKEN_SEGMENT.match(seg) for seg in path.split("/") if seg)):
+        path = "/"
+    return f"{parts.scheme.lower()}://{host}{port}{path}"
+
+
 def strip_url_queries(text):
     """Reduces every absolute URL inside `text` to scheme+host+path
     (redact_secrets leaves query strings and fragments alone)."""

@@ -24,8 +24,9 @@
 .workspace-header .ws-back { gap: var(--space-1); }
 .workspace-header .ws-badges { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .workspace-header .ws-lines { font-size: var(--text-sm); }
-.workspace-header .ws-read { margin-left: auto; }
-.workspace-header .ws-read-comic { white-space: nowrap; }
+/* The title's main way in (read or open the comic) plus its source page, pushed to the header's right edge. */
+.ws-actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+.ws-actions a { white-space: nowrap; }
 
 /* Job pill: what is running on this title, on every stage. 32px on desktop, 44px on touch and phones. */
 .job-pill-wrap { position: relative; flex: 0 0 auto; }
@@ -108,9 +109,9 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header .ws-back { min-width: 44px; min-height: 44px; padding-inline: 0; font-size: var(--text-xl); }
   .workspace-header .ws-back-text,
   .workspace-header .ws-media,
-  .workspace-header .ws-lines,
-  .workspace-header .ws-read:not(.ws-read-comic) { display: none; }
-  .workspace-header .ws-read-comic { flex: 0 0 auto; min-height: 44px; margin-left: 0; }
+  .workspace-header .ws-lines { display: none; }
+  .ws-actions { margin: var(--space-2) 0; }
+  .workspace .ws-actions a.btn { flex: 1 1 0; justify-content: center; min-height: 44px; }
   .workspace-header h2 { flex: 1 1 auto; font-size: var(--text-lg); }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }

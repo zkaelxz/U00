@@ -11,6 +11,7 @@ import { comicApi } from '../../api/comic'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Sheet } from '../../components/Sheet'
+import { SourceLink } from '../discover/ExternalLink'
 import type { ComicChapter, ComicPageInfo } from '../../types/comic'
 import {
   chapterIndex,
@@ -103,6 +104,7 @@ export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, 
           Page {pos.inChapter} of {pos.chapterTotal} <span className="muted">({pos.overall}/{pos.overallTotal})</span>
         </span>
       )}
+      <SourceLink href={chapter?.url}>Open chapter page</SourceLink>
       {hiddenCount > 0 && (
         <button type="button" aria-pressed={prefs.showHidden} onClick={() => onPrefs({ ...prefs, showHidden: !prefs.showHidden })}>
           {prefs.showHidden ? 'Hide' : 'Show'} hidden ({hiddenCount})

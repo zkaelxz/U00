@@ -30,7 +30,7 @@ test('the header is one slim row and the drawer lists the pages, each link 44px 
   }
 })
 
-test('Workspace header on a phone: a 44px back button and the title; media, line count and Read are hidden', async ({ page }) => {
+test('Workspace header on a phone: a 44px back button and the title; media and line count are hidden, Read is a full-height primary button', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress }))
   await page.goto('/#/drama/1/translate')
   const header = page.locator('.workspace-header')
@@ -42,7 +42,12 @@ test('Workspace header on a phone: a 44px back button and the title; media, line
   await expect(back.locator('.ws-back-text')).toBeHidden()
   await expect(header.locator('.ws-media')).toBeHidden()
   await expect(header.getByTestId('stage-counts')).toBeHidden()
-  await expect(header.getByRole('link', { name: 'Read', exact: true })).toBeHidden()
+  const read = page.locator('.ws-actions').getByRole('link', { name: 'Read', exact: true })
+  await expect(read).toBeVisible()
+  await expect(read).toHaveClass(/btn-primary/)
+  const readBox = (await read.boundingBox())!
+  expect(readBox.height).toBeGreaterThanOrEqual(44)
+  expect(readBox.x + readBox.width).toBeLessThanOrEqual(page.viewportSize()!.width)
   // The title shares the back button's row.
   const title = (await header.getByTestId('drama-title').boundingBox())!
   expect(title.y).toBeLessThan(backBox.y + backBox.height)

@@ -19,7 +19,7 @@ OpenCode loads this file, not `CLAUDE.md`. You must still read the project rules
 ## Rules that bite
 A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set.
 - Match LLM results to lines by explicit id, never by list position.
-- No secrets in URLs, logs, stored errors or API responses. Keys go in headers; pass error text
+- No secrets in URLs, logs, stored errors or API responses (no fetched URLs either, except a `display_url`-cleaned source page link (scheme, host, path only)). Keys go in headers; pass error text
   through `translate_engines.redact_secrets`.
 - Every outbound HTTP call has `timeout=`.
 - Every API route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()`

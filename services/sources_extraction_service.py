@@ -71,8 +71,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import background_jobs
+import comic_chapters
 import db
 import translate_engines
+from services import drama_service
 from services import page_import_limits as limits
 from services import settings_service
 from services.service_errors import (
@@ -508,7 +510,7 @@ def _usable(rv: _Review, i: int) -> bool:
             and size <= limits.MAX_IMAGE_BYTES)
 
 
-def write_pages(drama_id: int, items, job_id: str = None) -> tuple:
+def write_pages(drama_id: int, items, job_id: str = None, chapter: dict = None) -> tuple:
     """Prepares and writes the pages one image at a time, in order, under
     the page rules (EXIF orientation applied, webtoon strips cut into
     pages): (pages added, [skipped candidates]). Each image's bytes are
@@ -516,7 +518,8 @@ def write_pages(drama_id: int, items, job_id: str = None) -> tuple:
     prepared pages are held at once. An image over a cap, or damaged, is
     skipped with its reason set, never failing the rest. `items`:
     (candidate, bytes or a callable returning them). With `job_id`, a
-    cancel is honoured between images (pages already written stay)."""
+    cancel is honoured between images (pages already written stay).
+    `chapter` (comic_chapters.chapter_ref) labels every page written."""
     added, skipped = 0, []
     for c, content in items:
         if job_id and background_jobs.is_cancel_requested(job_id):
@@ -534,7 +537,7 @@ def write_pages(drama_id: int, items, job_id: str = None) -> tuple:
         finally:
             c.content = b""          # the download is no longer needed
             content = None
-        added += pipeline.add_page_images(drama_id, pages)
+        added += pipeline.add_page_images(drama_id, pages, chapter=chapter)
         del pages
     return added, skipped
 
@@ -740,7 +743,7 @@ def _recovered_import(job_id: str, drama_id: int, text: str, heading: str, rv: _
     from sources.models import ChapterInfo
     rec = rv.recovery
     ch = ChapterInfo(rec["source"], rec["series_id"], rec["chapter_id"],
-                     rec["title"] or heading)
+                     rec["title"] or heading, rv.url)
     error = pipeline.append_recovered_chapter(rec["source"], ch, drama_id, text)
     if error:
         err = {"status": 500, "code": "import_failed", "message": error}
@@ -757,11 +760,11 @@ def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, rv: _Rev
             raise background_jobs.JobCancelled(job_id)
         background_jobs.update_progress(job_id, 0.5, "Saving the reviewed result...")
         if rv.recovery:
-            _recovered_import(job_id, drama_id, *snapshot[0], rv)
+            _recovered_import(job_id, drama_id, *snapshot[0][:2], rv)
             return
         if kind == "novel":
             chars = 0
-            for n, (text, heading) in enumerate(snapshot):
+            for n, (text, heading, url) in enumerate(snapshot):
                 # Between pages only: a page is appended whole or not at all.
                 if n and background_jobs.is_cancel_requested(job_id):
                     # The review is gone; say what is already in the drama.
@@ -775,17 +778,20 @@ def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, rv: _Rev
                 if len(snapshot) > 1:
                     background_jobs.update_progress(job_id, 0.5 + 0.45 * n / len(snapshot),
                                                     f"Saving page {n + 1} of {len(snapshot)}...")
-                pipeline.save_novel_text(drama_id, text, append=True, heading=heading)
+                pipeline.save_novel_text(drama_id, text, append=True, heading=heading, url=url)
                 chars += len(text)
             result = {"kind": "review_import", "content_type": "novel", "char_count": chars,
                       "pages_imported": len(snapshot)}
         else:
             from services import sources_import_service as imp
+            label = _first_heading(rv, rv.data) or adaptive.title_from_url(rv.url)
             n, skipped = write_pages(
                 drama_id, ((rv.candidates[i], (lambda i=i: _read(rv, i))) for i in snapshot),
-                job_id)
+                job_id, chapter=comic_chapters.chapter_ref(None, label, "", rv.url))
             result = {"kind": "review_import", "content_type": "comic", "pages_added": n,
                       "skipped": imp.skipped_view(skipped), "skipped_count": len(skipped)}
+        if kind == "novel" or result["pages_added"]:
+            drama_service.set_source_url_once(drama_id, rv.url)
         background_jobs.set_result(job_id, result)
     finally:
         _discard(rv)                  # the review ended when its import started
@@ -828,10 +834,12 @@ def start_review_import(drama_id: int, revision: str, principal=None,
         if rv.recovery and rv.recovery["chapter_id"] in src_store.imported_chapter_ids(
                 rv.recovery["source"], rv.recovery["series_id"], drama_id):
             raise ConflictError("That chapter was imported since this review opened.")
-        parts = [(data.get("content") or "", _first_heading(rv, data))]
-        parts += [(p.text or "", p.title or "") for p in rv.chain]
+        parts = [(data.get("content") or "", _first_heading(rv, data) or adaptive.title_from_url(rv.url),
+                  rv.url)]
+        parts += [(p.text or "", p.title or adaptive.title_from_url(p.url), p.url)
+                  for p in rv.chain]
         snapshot = [parts[i] for i in _chosen_pages(rv, pages)]
-        if not all(text.strip() for text, _h in snapshot):
+        if not all(text.strip() for text, _h, _u in snapshot):
             raise InvalidInputError("There's no chapter text to import.")
     else:
         if pages is not None:

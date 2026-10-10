@@ -15,6 +15,7 @@ import { getGlossaryTerms } from '../api/translateStage'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
+import { SourceLink } from './discover/ExternalLink'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
@@ -198,6 +199,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const appLook = resolveTheme(useThemePref(), useMediaQuery('(prefers-color-scheme: dark)'))
   const [prefs, setPrefsState] = useState<ReaderPrefs>(() => loadPrefs(browserStorage()))
   const [title, setTitle] = useState<string | null>(null)
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [sourceLanguage, setSourceLanguage] = useState('und')
   const [mediaType, setMediaType] = useState<string | null>(null)
   const [overview, setOverview] = useState<ReaderOverview | null>(null)
@@ -220,6 +222,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     api.getDrama(id).then(
       (d) => {
         setTitle(d.title_en || d.title_zh || `Title #${d.id}`)
+        setSourceUrl(d.source_url ?? null)
         if (d.source_language) setSourceLanguage(d.source_language)
         setMediaType(d.media_type)
       },
@@ -351,11 +354,13 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         <header className="reader-phone-head">
           <a href={routeHref({ name: 'library' })} className="reader-back" aria-label="Back to Library">‹</a>
           <span className="reader-title">{title ?? 'Loading…'}</span>
+          <SourceLink href={sourceUrl} />
           {aa}
         </header>
       ) : (
         <div className="reader-top">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'read', id, page: null }, { title })} />
+          <SourceLink href={sourceUrl} />
           {aa}
         </div>
       )}
