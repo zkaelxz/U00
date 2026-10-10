@@ -81,7 +81,8 @@ def render_page(drama_id: int, page_id: int, notes: list = None, cancel_check=No
     name = f"typeset_id{page_id}.png"
     out = os.path.join(_pages_dir(drama_id), name)
     render_notes = []
-    with cancellable_lock.hold(pages_svc.pipeline_lock(), cancel_check):
+    # A direct call outside a job has no cancel to honour, so the wait is unbounded as before.
+    with cancellable_lock.hold(pages_svc.pipeline_lock(), cancel_check or (lambda: None)):
         _path, skipped_blank = scanlate.process_page(
             src, bubbles, out, custom_fonts=_custom_fonts(drama_id), notes=render_notes)
     for n in render_notes:
