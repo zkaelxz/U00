@@ -18,6 +18,13 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 CI is the merge gate while the repo is public. Only if the repo becomes private or Actions minutes run out does the gate become the full local suite
 (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands (tier 3 above). Never skip or weaken a test.
 
+## CI layout
+
+`.github/workflows/tests.yml` runs four jobs on every PR: `guards` (the quick guard files, about a minute, so a broken rule is
+red first), `test` (the full mocked suite with xdist; tests that failed on the branch's previous run go first through `--ff`
+and a restored `.pytest_cache`, so a repeat failure shows in the first minute), `frontend` (build, vitest, lint) and
+`e2e` (Playwright in four shards). `windows-bootstrap.yml` and `windows-installer.yml` cover the installer.
+
 ## Focused checks per area
 
 Area names match the "Where to look" table in `AGENTS.md`. Run the pytest line while iterating, the vitest line for a
