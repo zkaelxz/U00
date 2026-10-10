@@ -23,7 +23,29 @@ CEDICT_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024   # the gzip is a few MB
 CEDICT_MAX_UNPACKED_BYTES = 80 * 1024 * 1024    # the text is a few tens of MB
 CEDICT_PATH = os.path.join(portable.data_dir(), "library", "cedict.txt")
 
+# Whole-download budget: the per-read timeout alone restarts on every chunk, so a
+# server dripping bytes would hold the Reader's first lookup open indefinitely.
+CEDICT_DOWNLOAD_DEADLINE_SECONDS = 120
+
 _cedict_cache = None
+
+
+class _ChunkedResponse:
+    """Gives a urllib response the iter_content() read_capped expects."""
+
+    def __init__(self, resp):
+        self._resp = resp
+        self.headers = getattr(resp, "headers", None) or {}
+
+    def iter_content(self, size):
+        while True:
+            chunk = self._resp.read(size)
+            if not chunk:
+                return
+            yield chunk
+
+    def close(self):
+        self._resp.close()
 
 
 def _ensure_cedict():
@@ -34,10 +56,12 @@ def _ensure_cedict():
         return
     import gzip
     os.makedirs(os.path.dirname(CEDICT_PATH), exist_ok=True)
+    from services import capped_body
     with urllib.request.urlopen(CEDICT_URL, timeout=30) as resp:
-        packed = resp.read(CEDICT_MAX_DOWNLOAD_BYTES + 1)
-    if len(packed) > CEDICT_MAX_DOWNLOAD_BYTES:
-        raise RuntimeError("The CC-CEDICT download is larger than expected.")
+        packed = capped_body.read_capped(
+            _ChunkedResponse(resp), CEDICT_MAX_DOWNLOAD_BYTES, CEDICT_DOWNLOAD_DEADLINE_SECONDS,
+            lambda: RuntimeError("The CC-CEDICT download is larger than expected."),
+            make_deadline_error=lambda: RuntimeError("The CC-CEDICT download took too long."))
     with gzip.GzipFile(fileobj=io.BytesIO(packed)) as gz:
         raw = gz.read(CEDICT_MAX_UNPACKED_BYTES + 1)
     if len(raw) > CEDICT_MAX_UNPACKED_BYTES:

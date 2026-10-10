@@ -920,7 +920,7 @@ class SourceClient:
         attempt_no = 0
         slowed = False
         while True:
-            with st["sem"].at(self.policy.max_concurrent):
+            with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
                 self._wait_turn(host, st)
                 self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
@@ -1053,7 +1053,7 @@ class SourceClient:
         if poll is not None:
             poll.other_requests += 1
         st = _state(self.source)
-        with st["sem"].at(self.policy.max_concurrent):
+        with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
             self._wait_turn(_host_key(url), st)
             self.stats["access_method"] = access_method
             self.stats["requests"] += 1

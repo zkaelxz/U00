@@ -252,6 +252,7 @@ def _reset_background_jobs_memory():
         bg._gpu_queue.clear()
         bg._last_db_cancel_check.clear()
         bg._db_cancel_check_failed.clear()
+        bg.job_force_stop._abandoned.clear()
     bg.release_exclusive()
     bg._stopping = False
     while bg._maintenance_count:

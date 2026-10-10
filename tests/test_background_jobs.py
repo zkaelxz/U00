@@ -648,7 +648,7 @@ class TestExternalGpuLoadGuard:
         _restore_library(*self._library_state)
 
     def test_queues_when_gpu_is_externally_busy_even_with_no_baihe_job_running(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: True)
         calls = []
         assert bg.start_job("gpu_ext_a", lambda: calls.append(1), gpu_touching=True) is True
         assert bg.get_status("gpu_ext_a")["status"] == "queued"
@@ -657,7 +657,7 @@ class TestExternalGpuLoadGuard:
 
     def test_recheck_gpu_queue_promotes_once_external_load_clears(self, monkeypatch):
         busy = {"value": True}
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: busy["value"])
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: busy["value"])
         started = threading.Event()
         bg.start_job("gpu_ext_b", lambda: started.set(), gpu_touching=True)
         assert bg.get_status("gpu_ext_b")["status"] == "queued"
@@ -671,7 +671,7 @@ class TestExternalGpuLoadGuard:
         bg.clear_job("gpu_ext_b")
 
     def test_a_non_gpu_job_is_unaffected_by_external_gpu_load(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: True)
         calls = []
         assert bg.start_job("cpu_ext", lambda: calls.append(1), gpu_touching=False) is True
         _wait("cpu_ext")
@@ -679,7 +679,7 @@ class TestExternalGpuLoadGuard:
         bg.clear_job("cpu_ext")
 
     def test_queued_message_for_external_load_is_generic(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: True)
         bg.start_job("gpu_ext_c", lambda: None, gpu_touching=True)
         assert bg.get_status("gpu_ext_c")["message"] == bg.GPU_WAIT_MESSAGE
         bg.clear_job("gpu_ext_c")
@@ -713,7 +713,7 @@ class TestExternalGpuWaitMessage:
         load = {"utilization_percent": 5.0, "memory_used_mb": 100.0,
                 "memory_total_mb": 10240.0, "memory_free_mb": 10140.0}
         monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: load)
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: True)
         bg.start_job("gpu_wait_b", lambda: None, gpu_touching=True)
         assert bg.get_status("gpu_wait_b")["message"] == bg.GPU_WAIT_MESSAGE
         bg.clear_job("gpu_wait_b")
@@ -770,7 +770,7 @@ class TestGpuParallelSlots:
     @pytest.fixture(autouse=True)
     def _gpu(self, monkeypatch):
         self.free_mb = {"value": 20000.0}
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: False)
         monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None if self.free_mb["value"] is None
                             else {"utilization_percent": 90.0, "memory_used_mb": 0.0,
                                   "memory_total_mb": 24000.0, "memory_free_mb": self.free_mb["value"]})
@@ -2233,7 +2233,7 @@ class TestStartFailure:
         return real
 
     def test_thread_start_failure_marks_error_and_frees_everything(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: False)
         real = self._fail_thread_starts(monkeypatch)
         with pytest.raises(RuntimeError):
             bg.start_job("sf_thread", lambda: None, gpu_touching=True)
@@ -2250,7 +2250,7 @@ class TestStartFailure:
         assert bg.get_status("sf_thread")["status"] == "done"
 
     def test_process_start_failure_marks_error(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: False)
 
         procs, queues = [], []
 
@@ -2283,7 +2283,7 @@ class TestStartFailure:
         bg.release_exclusive()
 
     def test_promoted_job_failing_to_start_errors_and_the_next_one_runs(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: False)
         bg.set_gpu_limit_enabled(True)
         release = threading.Event()
         assert bg.start_job("sf_a", lambda: release.wait(5), gpu_touching=True)
@@ -2402,7 +2402,7 @@ def _boom(*a, **k):
 
 class TestSwallowedFailuresAreVisible:
     def test_gpu_lock_db_error_queues_the_job_and_logs(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: False)
         bg.set_gpu_limit_enabled(True)
         real = db.try_acquire_gpu_lock
         monkeypatch.setattr(db, "try_acquire_gpu_lock", _boom)

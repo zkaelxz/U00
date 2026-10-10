@@ -161,6 +161,21 @@ test('Cancel stops a running job; a refused cancel shows the server message', as
   await expect(rows(page)).toHaveCount(1)
 })
 
+test('Force stop shows only for a job stuck in Cancelling, and needs two presses', async ({ page }) => {
+  const jobs = pageJobs().map((j) => (j.job_id === 'translate_3' ? { ...j, message: 'Cancelling... (finishes the current step first)', can_force_stop: true } : j))
+  const log = await mockJobsApi(page, jobs, true)
+  await page.goto('/#/jobs')
+  await expect(rows(page)).toHaveCount(2)
+  await expect(rows(page).nth(1).getByRole('button', { name: /Force stop/ })).toHaveCount(0)
+  const stuck = rows(page).first()
+  await expect(stuck).toContainText('its worker may keep running')
+  await stuck.getByRole('button', { name: 'Force stop Translate Signal' }).click()
+  expect(log.forceStopped).toEqual([])
+  await stuck.getByRole('button', { name: 'Confirm force stop' }).click()
+  await expect.poll(() => log.forceStopped).toEqual(['translate_3'])
+  await expect(rows(page)).toHaveCount(1)
+})
+
 test('Delete is two-step and permanent; only finished jobs offer it', async ({ page }) => {
   const log = await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/jobs')

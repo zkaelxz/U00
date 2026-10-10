@@ -306,7 +306,7 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
            "-f", "ipod", out_path]
     if cancel_job_id:
         import background_jobs
-        background_jobs.run_cancellable(cancel_job_id, cmd)
+        background_jobs.run_cancellable(cancel_job_id, cmd, timeout=M4B_ENCODE_TIMEOUT_SECONDS)
     else:
         subprocess.run(cmd, check=True, capture_output=True,
                        timeout=M4B_ENCODE_TIMEOUT_SECONDS)

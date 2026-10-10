@@ -9,13 +9,14 @@
  */
 import { useEffect, useId, useRef, useState } from 'react'
 
-import { cancelJob } from '../api/jobs'
+import { cancelJob, forceStopJob } from '../api/jobs'
+import { ConfirmButton } from './ConfirmButton'
 import { jobsRefusal, useJobs, useNow } from '../hooks/useJobs'
 import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
 import { isActive, jobDetail, statusLabel } from '../pages/diagnosticsFormat'
 import { jobLinks } from '../pages/jobs/jobsFilter'
 import { routeHref, type Route } from '../router'
-import { offersCancel, type JobRecord } from '../types/jobs'
+import { FORCE_STOP_HINT, offersCancel, offersForceStop, type JobRecord } from '../types/jobs'
 import { Badge } from './Badge'
 import { statusTone } from './labels'
 import { activeCount, badgeText, elapsedText, jobsButtonLabel, menuJobs } from './jobsMenuState'
@@ -78,9 +79,9 @@ export function JobsMenu() {
     if (!open) setAlignStart(panelFitsLeftwards(button.current) === false)
     setOpen(!open)
   }
-  const cancel = async (id: string) => {
+  const cancel = async (id: string, action: (id: string) => Promise<unknown> = cancelJob) => {
     try {
-      await cancelJob(id)
+      await action(id)
     } catch {
       // quiet: the list below shows what the server says
     }
@@ -133,6 +134,12 @@ export function JobsMenu() {
                         </button>
                       )}
                     </div>
+                    {isActive(j.status) && offersForceStop(j, remoteAdmin) && (
+                      <div className="jobs-item-meta">
+                        <ConfirmButton name={name} label="Force stop…" verb="force stop" confirmLabel="Confirm force stop" onConfirm={() => void cancel(j.job_id, forceStopJob)} />
+                        <span className="muted jobs-note">{FORCE_STOP_HINT}</span>
+                      </div>
+                    )}
                     {detail && <span className="muted jobs-note">{detail}</span>}
                   </li>
                 )

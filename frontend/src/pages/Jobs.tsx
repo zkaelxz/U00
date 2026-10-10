@@ -7,7 +7,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 
 import { api } from '../api/client'
-import { cancelJob, clearFinishedJobs, deleteJob } from '../api/jobs'
+import { cancelJob, clearFinishedJobs, deleteJob, forceStopJob } from '../api/jobs'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ConfirmButton } from '../components/ConfirmButton'
@@ -20,7 +20,7 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
 import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
-import { offersCancel, jobOutcomeText, type JobRecord } from '../types/jobs'
+import { FORCE_STOP_HINT, offersCancel, offersForceStop, jobOutcomeText, type JobRecord } from '../types/jobs'
 import { formatDuration, isActive, isFinished, jobDetail, statusLabel } from './diagnosticsFormat'
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
 import { RunSettings } from './jobs/RunSettings'
@@ -100,8 +100,10 @@ export default function JobsPage() {
   const rowProps = {
     now, titles, authOn, pc, open,
     cancellable,
+    forceStoppable: (j: JobRecord) => offersForceStop(j, remoteAdmin),
     onToggle: toggle,
     onCancel: (id: string) => void run(() => cancelJob(id)),
+    onForceStop: (id: string) => void run(() => forceStopJob(id)),
     onDelete: (id: string) => void run(() => deleteJob(id)),
   }
 
@@ -231,8 +233,10 @@ interface RowProps {
   pc: ReturnType<typeof usePcOnly>
   open: ReadonlySet<string>
   cancellable: (j: JobRecord) => boolean
+  forceStoppable: (j: JobRecord) => boolean
   onToggle: (id: string) => void
   onCancel: (id: string) => void
+  onForceStop: (id: string) => void
   onDelete: (id: string) => void
 }
 
@@ -270,6 +274,12 @@ function JobActions({ job, props, expanded }: { job: JobRecord; props: RowProps;
         <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${name}`} onClick={() => props.onCancel(job.job_id)}>
           Cancel
         </button>
+      )}
+      {props.forceStoppable(job) && (
+        <>
+          <ConfirmButton name={name} label="Force stop…" verb="force stop" confirmLabel="Confirm force stop" onConfirm={() => props.onForceStop(job.job_id)} />
+          <span className="muted">{FORCE_STOP_HINT}</span>
+        </>
       )}
       {links.stage && (
         <ButtonLink href={routeHref(links.stage.route)} size="sm" aria-label={`Open ${links.stage.label.toLowerCase()} for ${name}`}>
