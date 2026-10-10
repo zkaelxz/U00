@@ -26,7 +26,7 @@ test('transcription experiments save, and MOSS is not offered', async ({ page })
 
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
   const backend = page.getByLabel('ASR backend', { exact: true })
   await expect(backend.locator('option', { hasText: 'MOSS' })).toHaveCount(0)
 
@@ -48,6 +48,6 @@ test('Speakers says where the last speaker detection ran', async ({ page }) => {
     }))
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
   await expect(page.getByTestId('diarize-device')).toHaveText('Last Detect speakers run (pyannote) used the GPU.')
 })

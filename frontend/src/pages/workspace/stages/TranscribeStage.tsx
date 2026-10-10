@@ -42,6 +42,7 @@ import {
   type RunFieldProblem,
   whisperModelWarning,
 } from '../sourceForm'
+import { useDeveloperMode } from '../../assistant/developerMode'
 import { PreflightCard } from '../../preflight/PreflightCard'
 import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
@@ -168,6 +169,7 @@ export default function TranscribeStage({
   mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, onJobStarted,
 }: Props) {
   const { dramaId, drama } = useStage()
+  const developerMode = useDeveloperMode()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
@@ -301,6 +303,7 @@ export default function TranscribeStage({
   useEffect(() => {
     if (!fieldProblem) return
     const el = panelRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')
+    // Only fields that are always in the DOM are flagged (runProblemFromError); a hidden one shows the banner text instead.
     if (!el) return
     for (let d = el.closest('details'); d; d = d.parentElement?.closest('details') ?? null) d.open = true
     el.scrollIntoView({ block: 'center' })
@@ -631,79 +634,72 @@ export default function TranscribeStage({
         <p className="muted source-summary" aria-hidden="true">&nbsp;</p>
       )}
 
-      <Section storageKey="source.speakers" title="Speakers" summary={speakersSummary(speakers, minSpeakers, maxSpeakers)}>
-        <div className="source-grid">
-          <Field label="Expected speakers" help="0-20. Blank lets the app decide." error={fieldError('speakers')}>
-            <input type="number" value={speakers} onChange={(e) => { setFieldProblem(null); setSpeakers(e.target.value) }} />
-          </Field>
-          <Field label="Min speakers" help="1-20. When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.">
-            <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => { setFieldProblem(null); setMinSpeakers(e.target.value) }} />
-          </Field>
-          <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">
-            <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => { setFieldProblem(null); setMaxSpeakers(e.target.value) }} />
-          </Field>
-        </div>
-        {manualCount > 0 && (
-          <div className="source-manual" data-testid="manual-speakers">
-            <div className="setting-list">
-              <Field
-                label={`Replace my ${corrections}`}
-                help="Off keeps your corrections: detection only changes the lines you haven't corrected. On replaces them with what detection finds."
-              >
-                <Toggle
-                  checked={overwriteManual}
-                  onChange={(v) => {
-                    setOverwriteManual(v)
-                    setOverwriteAck(false)
-                  }}
-                />
-              </Field>
-            </div>
-            {overwriteManual ? (
-              <label className="inline stage-ack">
-                <input type="checkbox" checked={overwriteAck} onChange={(e) => setOverwriteAck(e.target.checked)} />{' '}
-                I understand my {corrections} will be replaced
-              </label>
-            ) : (
-              <p className="muted">Your {corrections} {manualCount === 1 ? 'is' : 'are'} kept.</p>
-            )}
-          </div>
-        )}
-        <div className="actions">
-          <button
-            type="button"
-            className={buttonClass('ghost')}
-            disabled={busy || needsAck}
-            aria-describedby={needsAck ? 'diarize-needed' : undefined}
-            onClick={diarize}
-          >
-            Detect speakers only
-          </button>
-          {needsAck ? (
-            <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
-          ) : (
-            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
-          )}
-        </div>
-        <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
-      </Section>
-
       {/* Always mounted so the fold's header never appears late; its body waits for the saved options. */}
       <Section
           storageKey="source.advanced"
-          title="Advanced"
-          summary={cf ? readableSummary(advancedSummary({ ...cf, prompt: override })) : 'tuning'}
+          title="More options"
+          summary={cf ? [readableSummary(advancedSummary({ ...cf, prompt: override, source_language: language }, developerMode)), `speakers ${speakersSummary(speakers, minSpeakers, maxSpeakers)}`].join(' · ') : 'tuning'}
         >
           {cf && <>
           <div className="source-grid">
+            <Field label="Expected speakers" help="0-20. Blank lets the app decide." error={fieldError('speakers')}>
+              <input type="number" value={speakers} onChange={(e) => { setFieldProblem(null); setSpeakers(e.target.value) }} />
+            </Field>
+            <Field label="Min speakers" help="1-20. When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.">
+              <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => { setFieldProblem(null); setMinSpeakers(e.target.value) }} />
+            </Field>
+            <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">
+              <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => { setFieldProblem(null); setMaxSpeakers(e.target.value) }} />
+            </Field>
+          </div>
+          {manualCount > 0 && (
+            <div className="source-manual" data-testid="manual-speakers">
+              <div className="setting-list">
+                <Field
+                  label={`Replace my ${corrections}`}
+                  help="Off keeps your corrections: detection only changes the lines you haven't corrected. On replaces them with what detection finds."
+                >
+                  <Toggle
+                    checked={overwriteManual}
+                    onChange={(v) => {
+                      setOverwriteManual(v)
+                      setOverwriteAck(false)
+                    }}
+                  />
+                </Field>
+              </div>
+              {overwriteManual ? (
+                <label className="inline stage-ack">
+                  <input type="checkbox" checked={overwriteAck} onChange={(e) => setOverwriteAck(e.target.checked)} />{' '}
+                  I understand my {corrections} will be replaced
+                </label>
+              ) : (
+                <p className="muted">Your {corrections} {manualCount === 1 ? 'is' : 'are'} kept.</p>
+              )}
+            </div>
+          )}
+          <div className="actions">
+            <button
+              type="button"
+              className={buttonClass('ghost')}
+              disabled={busy || needsAck}
+              aria-describedby={needsAck ? 'diarize-needed' : undefined}
+              onClick={diarize}
+            >
+              Detect speakers only
+            </button>
+            {needsAck ? (
+              <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
+            ) : (
+              hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
+            )}
+          </div>
+          <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
+          <div className="source-grid">
             {select('Sensitivity', 'sensitivity_preset', ['normal', 'sensitive'],
               'Catches quieter or faster speech, but may add false text on music or breathing.')}
-            {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
             {num('Min silence', 'min_silence_ms', 50, `${MIN_SILENCE_MS_MIN}-${MIN_SILENCE_MS_MAX}. Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms')}
             {num('Pause that can split a long line', 'min_pause_sec', 0.05, `${MIN_PAUSE_SEC_MIN}-${MIN_PAUSE_SEC_MAX}. Longer lines are only cut where the speaker pauses at least this long. Higher gives fewer, longer lines. Lower cuts more.`, 's')}
-            {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
-            {num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. Off (0) by default; 0 or 0.5-10. Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Whisper only: ignored by Qwen3-ASR, and by Fast mode.', 's')}
-            {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
             {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'],
               haveTranscript
                 ? 'Qwen3 forced alignment lines up the transcript you supply against the audio for more exact timing.'
@@ -711,8 +707,12 @@ export default function TranscribeStage({
               haveTranscript ? [] : ['qwen3_forced_align'])}
             {select('ASR backend', 'asr_backend_choice', asrBackendOptions(), [asrBackendHelp(asrBackendOptions()), config?.asr_backend_notice].filter(Boolean).join('\n'))}
             <VoiceDetectorField />
-            {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
-            {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'auto'], 'PaddleOCR reads Chinese, Korean and Japanese captions with the matching language model. Automatic uses it when installed and falls back to Tesseract, with a note.')}
+            {developerMode && num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
+            {developerMode && num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
+            {developerMode && num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. Off (0) by default; 0 or 0.5-10. Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Whisper only: ignored by Qwen3-ASR, and by Fast mode.', 's')}
+            {developerMode && num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
+            {developerMode && select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
+            {developerMode && select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'auto'], 'PaddleOCR reads Chinese, Korean and Japanese captions with the matching language model. Automatic uses it when installed and falls back to Tesseract, with a note.')}
           </div>
           <p className="muted" data-testid="auto-prompt">
             {config?.auto_initial_prompt
@@ -754,7 +754,7 @@ export default function TranscribeStage({
                 ? ' Not used with the selected ASR backend: choose Whisper or Qwen3 ASR for this to apply. Long lines can still be cut afterwards in Review.'
                 : ''),
             )}
-            {toggle(
+            {developerMode && toggle(
               'Whisper repeat guard',
               'whisper_repeat_guard',
               'Stops Whisper repeating the same few words. Can drop or change real Chinese and Japanese speech, where short words repeat naturally. Turn on only if a title shows repeated-phrase loops.',

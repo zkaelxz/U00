@@ -6,7 +6,7 @@ import { openTranscribeOptions } from './sourceHelpers'
 async function openAdvanced(page: Page) {
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
 }
 
 async function expectOnScreen(page: Page, text: ReturnType<Page['getByRole']>) {

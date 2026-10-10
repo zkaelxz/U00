@@ -4,7 +4,7 @@ import { openTranscribeOptions } from './sourceHelpers'
 async function openAdvanced(page: Page) {
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
 }
 
 function help(page: Page) {
@@ -55,6 +55,6 @@ test('a click outside closes it', async ({ page }) => {
   const { button, text } = help(page)
   await button.focus()
   await expect(text).toBeVisible()
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
   await expect(text).toBeHidden()
 })

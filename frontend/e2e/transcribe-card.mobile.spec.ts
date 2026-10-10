@@ -57,7 +57,7 @@ test('folded settings on the phone', async ({ page }) => {
   await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
   await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
   await expect(card.getByLabel('Expected speakers', { exact: true })).toBeHidden()
-  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
   await expect(card.getByLabel('Expected speakers', { exact: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await shot(page, 'transcribe-folded-phone')

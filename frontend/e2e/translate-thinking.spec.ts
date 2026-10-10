@@ -51,7 +51,7 @@ test('off by default, switchable for DeepSeek, and the estimate becomes a lower 
   await mockStage(page, state)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
 
   const toggle = run.getByRole('switch', { name: LABEL })
   await expect(toggle).not.toBeChecked()
@@ -74,7 +74,7 @@ test('the title remembers the choice, and an engine without a switch says it doe
   await mockStage(page, state)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   await expect(run.getByRole('switch', { name: LABEL })).toBeChecked()
 
   await run.getByLabel('AI engine', { exact: true }).selectOption('claude')
@@ -89,7 +89,7 @@ test('a thinking fallback makes the switch apply, and the help names it', async 
   await mockStage(page, state)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   await expect(run.getByRole('switch', { name: LABEL })).toBeDisabled()
 
   await run.getByRole('button', { name: 'Add fallback engine' }).click()
