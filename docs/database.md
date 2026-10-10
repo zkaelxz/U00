@@ -220,7 +220,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 - *Atomic writes.* `core.atomic_write(path, data)` writes a temp file in the same
   folder and `os.replace`s it, so a crash never leaves a truncated file. Backups
   are written to a hidden partial file, verified, flushed and linked into place
-  (`auto_backup_service._place_copy`, `_link_new`); the Trash uses one same-volume
+  (`auto_backup_service._place_copy`, `lib.link_new.link_new`); the Trash uses one same-volume
   rename (`disk_usage_service._rename`). New drama media goes through a staging
   folder with a journal (`db.new_media_staging`, `move_staged_folder`,
   `recover_media_imports`) so a crash between the database insert and the folder

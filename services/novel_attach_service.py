@@ -375,13 +375,18 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
     return {"job_id": job_id}
 
 
+def _raise_if_cancelled(job_id):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+
+
 def _run_ocr_job(job_id, drama_id, stage, paths, backend, mode, language, script,
                  tesseract_cmd=None):
     try:
         background_jobs.update_progress(job_id, 0.1, "Running OCR...")
         text = _clean(ocr_module.extract_text_from_images(
             paths, backend=backend, source_language=language, chinese_script=script,
-            tesseract_cmd=tesseract_cmd))
+            tesseract_cmd=tesseract_cmd, before_page=lambda: _raise_if_cancelled(job_id)))
         if not text:
             background_jobs.set_result(job_id, {"failed_reason": "empty"})
             return

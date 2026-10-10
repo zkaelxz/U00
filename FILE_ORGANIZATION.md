@@ -11,7 +11,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`) | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
@@ -150,6 +150,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
+- `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
 
 ## services/
 
@@ -161,6 +162,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `auth_service.py`
 - `auto_backup_service.py`
 - `backup_import_service.py`
+- `benchmark_case_service.py`
 - `benchmark_lab_service.py`
 - `blocked_retry_service.py`
 - `browser_install_service.py`
