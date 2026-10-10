@@ -8,7 +8,7 @@ import { navLink, openMenu } from './settingsNav'
 
 // The Library's own drama list, so a link or button elsewhere on the page
 // (Continue shelf, Library tools) never matches.
-const dramas = (page: Page) => page.getByRole('region', { name: 'Dramas' })
+const dramas = (page: Page) => page.getByRole('region', { name: 'Titles' })
 const tools = (page: Page) => page.getByRole('region', { name: 'Library tools' })
 
 test('More filters: language, author and custom tags go through the API', async ({ page }) => {

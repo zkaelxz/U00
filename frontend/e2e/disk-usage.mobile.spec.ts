@@ -42,7 +42,7 @@ test('root and a drilled folder: no sideways scroll, 44px targets', async ({ pag
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-root-phone.png`, fullPage: true })
 
   await sec.getByRole('button', { name: 'Open library' }).click()
-  await sec.getByRole('button', { name: 'Open titles' }).click()
+  await sec.getByRole('button', { name: 'Open dramas' }).click()
   await sec.locator('.du-row', { hasText: '12' }).getByRole('button', { name: 'Move 12 to Trash' }).scrollIntoViewIfNeeded()
   await noSideways(page)
   expect(await shortTargets(page, '.du button:not(.du-cell), .du .du-ack')).toEqual([])

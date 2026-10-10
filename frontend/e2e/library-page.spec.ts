@@ -84,5 +84,5 @@ test('create (Enter submits) then delete with typed confirmation', async ({ page
   await detail.getByLabel('Type DELETE to confirm').fill('DELETE')
   await confirm.click()
   await expect(page.getByRole('dialog', { name: 'E2E Temp Title' })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Dramas' }).getByRole('link', { name: 'E2E Temp Title' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'E2E Temp Title' })).toHaveCount(0)
 })

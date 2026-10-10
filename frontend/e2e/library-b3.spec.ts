@@ -104,7 +104,7 @@ test('Series view: only 2+ titles, types, shared counts, Open (L05)', async ({ p
   await expect(panel).toContainText('Audio drama 1 · Manhua 1')
   await expect(panel).toContainText('14 shared characters · 1 glossary term')
   const dramas = panel.getByRole('list', { name: 'Titles in Mo Dao Zu Shi' }).getByRole('listitem')
-  await expect(titles).toHaveCount(2)
+  await expect(dramas).toHaveCount(2)
   await expect(dramas.nth(1)).toContainText('Transcribed')
   await expect(panel.getByRole('link', { name: 'Open MDZS (manhua)' })).toHaveAttribute('href', '#/drama/4')
 })

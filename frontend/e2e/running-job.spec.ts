@@ -92,7 +92,7 @@ test.describe('a running job (real API)', () => {
     await page.goto('/')
     await page.getByLabel('Search title or summary').fill('Running Job E2E')
     await expect(page.getByTestId('drama-count')).toHaveText('1 title')
-    await page.getByRole('region', { name: 'Dramas' }).getByRole('button', { name: `Details: ${title}` }).click()
+    await page.getByRole('region', { name: 'Titles' }).getByRole('button', { name: `Details: ${title}` }).click()
     const detail = page.getByRole('dialog', { name: title })
     await expect(detail).toBeVisible()
 
@@ -109,7 +109,7 @@ test.describe('a running job (real API)', () => {
     await page.reload()
     await page.getByLabel('Search title or summary').fill('Running Job E2E')
     await expect(page.getByTestId('drama-count')).toHaveText('1 title')
-    await expect(page.getByRole('region', { name: 'Dramas' }).getByRole('link', { name: title, exact: true })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: title, exact: true })).toBeVisible()
     // The job was not touched by the refused delete.
     expect(await jobStatus(request, jobId)).toBe('running')
   })

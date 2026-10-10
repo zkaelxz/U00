@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 // Data comes from e2e/serve_seeded_api.py -- three dramas.
 
 // The Library's drama list, so the Continue shelf and Library tools never match.
-const dramas = (page: Page) => page.getByRole('region', { name: 'Dramas' })
+const dramas = (page: Page) => page.getByRole('region', { name: 'Titles' })
 
 test('shows the library from the real API', async ({ page }) => {
   await page.goto('/')
