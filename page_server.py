@@ -70,6 +70,14 @@ translation runs outside the lock so an LLM call never stalls other pages
 or a Cancel. This is a single-user local app, so serialising is the right
 trade rather than a bug.
 
+Because a stored page is visible to other requests before it is
+translated, each translating request claims the page (`_claim_page`): a
+re-capture of a page still being translated waits for that translation
+instead of paying for a second one. Pages of one title translate one at a
+time (`_translate_in_chain`) so each gets the previous page's context, and
+a page is only discarded on a failure while the lock is still held, since
+after that another request may already have answered with it.
+
 ## Where the translation settings come from
 
 The server runs on its own background thread with no request session of
@@ -152,6 +160,15 @@ _config = {
 # and nothing else.
 _context_lock = threading.Lock()
 _contexts = {}
+_chain_locks = {}
+
+# Page id -> Event set when the request translating that page finishes.
+_inflight_lock = threading.Lock()
+_inflight = {}
+# A re-capture waits this long for an earlier capture's translation, so a
+# slow model makes it answer "still translating" rather than hold the
+# extension's request open indefinitely.
+INFLIGHT_WAIT_SECONDS = 30.0
 
 
 class EndpointError(Exception):
@@ -315,7 +332,6 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
                        config: dict) -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
-    import scanlate
     import translate_engines
 
     missing = [b for b in saved if not (b.get("translated_text") or "").strip()]
@@ -326,19 +342,62 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
         return [["warning", "already in the library; translate it in Scanlate"]]
     glossary = (db.list_glossary_terms(drama["series_id"])
                 if drama and drama.get("series_id") else None)
-    key = str(drama_id) if drama_id else f"url:{source_url}"
-    with _context_lock:
-        previous = _contexts.get(key, "")
     originals = page_capture_checks.snapshot_texts(missing)
     try:
-        new_context = scanlate.translate_page_bubbles(
-            missing, engine, drama or {}, previous_context=previous,
-            glossary_terms=glossary, usage_cb=_usage_cb(drama, config, engine))
+        _translate_in_chain(drama_id, source_url, missing, engine, drama, glossary, config)
     except Exception as e:
         return [["warning", f"translation failed ({translate_engines.redact_secrets(str(e))})"]]
-    with _context_lock:
-        _contexts[key] = new_context
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
+
+
+def _translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, config):
+    """Translates one page as the next link of its title's context chain.
+    Pages of one title take turns here so `previous_context` is always the
+    page finished last; other titles never wait on this lock."""
+    import scanlate
+    key = str(drama_id) if drama_id else f"url:{source_url}"
+    with _context_lock:
+        chain = _chain_locks.setdefault(key, threading.Lock())
+    with chain:
+        with _context_lock:
+            previous = _contexts.get(key, "")
+        new_context = scanlate.translate_page_bubbles(
+            bubbles, engine, drama or {}, previous_context=previous,
+            glossary_terms=glossary, usage_cb=_usage_cb(drama, config, engine))
+        with _context_lock:
+            _contexts[key] = new_context
+
+
+def _claim_page(page_id):
+    """`(None, mine)` when this request now owns the page's translation,
+    else `(theirs, None)` with the owner's Event."""
+    with _inflight_lock:
+        theirs = _inflight.get(page_id)
+        if theirs is not None:
+            return theirs, None
+        mine = _inflight[page_id] = threading.Event()
+        return None, mine
+
+
+def _release_page(page_id, mine):
+    with _inflight_lock:
+        if _inflight.get(page_id) is mine:
+            del _inflight[page_id]
+    mine.set()
+
+
+def _await_other_capture(page_id, theirs):
+    """Waits, bounded, for another request's translation of this page and
+    then claims it. Returns the page's bubbles as saved by then and this
+    request's claim, or no claim when the wait ran out."""
+    import db
+    deadline = time.monotonic() + INFLIGHT_WAIT_SECONDS
+    mine = None
+    while theirs is not None:
+        if not theirs.wait(max(0.0, deadline - time.monotonic())):
+            return db.load_bubbles(page_id), None
+        theirs, mine = _claim_page(page_id)
+    return db.load_bubbles(page_id), mine
 
 
 def translate_image(data: bytes, content_type: str, drama_id=None,
@@ -375,62 +434,91 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     temp_path = None
 
     reuse_saved = None
+    busy = None
+    claim = None
     try:
         with PIPELINE_LOCK:
-            if store and drama is not None:
-                page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
-                if page is not None:
-                    # Re-reading would replace bubbles the person corrected in
-                    # Scanlate; a page without bubbles has nothing to lose.
-                    # Capture sends no chapter labels, so an identical page
-                    # shared by two chapters (credits) is reused, not added.
-                    # Rev before bubbles: a write in between fails the rev check.
-                    reused_rev = int((db.get_page(page["id"]) or {}).get("rev") or 0)
-                    reuse_saved = db.load_bubbles(page["id"]) or None
+            try:
+                if store and drama is not None:
+                    page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
+                    if page is not None:
+                        # Re-reading would replace bubbles the person corrected in
+                        # Scanlate; a page without bubbles has nothing to lose.
+                        # Capture sends no chapter labels, so an identical page
+                        # shared by two chapters (credits) is reused, not added.
+                        # Rev before bubbles: a write in between fails the rev check.
+                        reused_rev = int((db.get_page(page["id"]) or {}).get("rev") or 0)
+                        reuse_saved = db.load_bubbles(page["id"]) or None
+                    if reuse_saved is None:
+                        newly_stored = page is None
+                        if newly_stored:
+                            page = _store_page(int(drama_id), data, ext)
+                        image_path = os.path.join(db.drama_dir(int(drama_id)), page["filename"])
+                    # Claimed under the lock, where a re-capture looks the page up.
+                    busy, mine = _claim_page(page["id"])
+                    claim = (page["id"], mine) if mine else None
+                else:
+                    # Overlay-only: the person is reading, not importing, so the
+                    # bytes never enter the library. Cleaned up below whatever
+                    # happens, since the pipeline reads it several times.
+                    import tempfile
+                    fd, temp_path = tempfile.mkstemp(suffix=ext, prefix="baihe_page_")
+                    with os.fdopen(fd, "wb") as fh:
+                        fh.write(data)
+                    image_path = temp_path
+                    if store and drama is None:
+                        notes.append(["warning", "no drama chosen, so this page was not saved"])
+
                 if reuse_saved is None:
-                    newly_stored = page is None
-                    if newly_stored:
-                        page = _store_page(int(drama_id), data, ext)
-                    image_path = os.path.join(db.drama_dir(int(drama_id)), page["filename"])
-            else:
-                # Overlay-only: the person is reading, not importing, so the
-                # bytes never enter the library. Cleaned up below whatever
-                # happens, since the pipeline reads it several times.
-                import tempfile
-                fd, temp_path = tempfile.mkstemp(suffix=ext, prefix="baihe_page_")
-                with os.fdopen(fd, "wb") as fh:
-                    fh.write(data)
-                image_path = temp_path
-                if store and drama is None:
-                    notes.append(["warning", "no drama chosen, so this page was not saved"])
+                    try:
+                        lang = _page_source_language(drama, source_language)
+                        bubbles, detect_notes = scanlate.detect_and_ocr_page(
+                            image_path, lang,
+                            detect_backend=config.get("detect_backend") or "auto",
+                            hf_token=config.get("hf_token") or None,
+                            ocr_backend=config.get("ocr_backend") or None,
+                            tesseract_cmd=config.get("tesseract_cmd") or None,
+                            prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
+                            page_id=(page or {}).get("id"))
+                    finally:
+                        if temp_path:
+                            try:
+                                os.remove(temp_path)
+                            except OSError:
+                                pass
 
-            if reuse_saved is None:
-                try:
-                    lang = _page_source_language(drama, source_language)
-                    bubbles, detect_notes = scanlate.detect_and_ocr_page(
-                        image_path, lang,
-                        detect_backend=config.get("detect_backend") or "auto",
-                        hf_token=config.get("hf_token") or None,
-                        ocr_backend=config.get("ocr_backend") or None,
-                        tesseract_cmd=config.get("tesseract_cmd") or None,
-                        prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
-                        page_id=(page or {}).get("id"))
-                finally:
-                    if temp_path:
-                        try:
-                            os.remove(temp_path)
-                        except OSError:
-                            pass
-
-                # Saved before release so a re-capture or Redo finds the read.
-                if page is not None:
-                    read_notes = page_capture_checks.save_read_bubbles(
-                        page["id"], bubbles, newly_stored, reused_rev)
-                    stored_bubbles = [] if read_notes else db.load_bubbles(page["id"])
+                    # Saved before release so a re-capture or Redo finds the read.
+                    if page is not None:
+                        read_notes = page_capture_checks.save_read_bubbles(
+                            page["id"], bubbles, newly_stored, reused_rev)
+                        stored_bubbles = [] if read_notes else db.load_bubbles(page["id"])
+            except BaseException:
+                # A page whose reading failed must not stay behind as an empty
+                # page: the caller reports it as not delivered, and a retry
+                # would add it a second time. Discarded before release, while
+                # no other request can have seen it.
+                if page is not None and newly_stored:
+                    from sources import pipeline
+                    try:
+                        pipeline._discard_pages(int(drama_id), [page["id"]])
+                    except Exception:
+                        pass
+                raise
 
         # Only detection and OCR touch the shared model caches; an LLM call
-        # under the lock would stall every other page and a Cancel.
+        # under the lock would stall every other page and a Cancel. From here
+        # on a failure keeps the page: a re-capture reuses it and fills the
+        # bubbles still untranslated.
         if reuse_saved is not None:
+            if busy is not None:
+                reuse_saved, mine = _await_other_capture(page["id"], busy)
+                if mine is None:
+                    return page_capture_checks.reused_page_response(
+                        data, reuse_saved,
+                        [["warning", "an earlier capture of this page is still being "
+                                     "translated; capture it again in a moment"]],
+                        int(drama_id), page["id"])
+                claim = (page["id"], mine)
             reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, int(drama_id), page["id"])
@@ -443,15 +531,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         if bubbles and engine is not None:
             glossary = (db.list_glossary_terms(drama["series_id"])
                         if drama and drama.get("series_id") else None)
-            key = str(drama_id) if drama_id else f"url:{source_url}"
-            with _context_lock:
-                previous = _contexts.get(key, "")
             try:
-                new_context = scanlate.translate_page_bubbles(
-                    bubbles, engine, drama or {}, previous_context=previous,
-                    glossary_terms=glossary, usage_cb=_usage_cb(drama, config, engine))
-                with _context_lock:
-                    _contexts[key] = new_context
+                _translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, config)
             except Exception as e:
                 # The OCR text is still real and still useful, so it
                 # is returned rather than thrown away -- the same
@@ -464,18 +545,9 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             notes.extend(read_notes)
             notes.extend(page_capture_checks.save_translations_of_read(
                 page["id"], stored_bubbles, bubbles))
-    except BaseException:
-        # A page whose reading failed must not stay behind as an empty
-        # page: the caller reports it as not delivered, and a retry
-        # would add it a second time.
-        if page is not None and newly_stored:
-            from sources import pipeline
-            try:
-                with PIPELINE_LOCK:
-                    pipeline._discard_pages(int(drama_id), [page["id"]])
-            except Exception:
-                pass
-        raise
+    finally:
+        if claim is not None:
+            _release_page(*claim)
 
     width, height = page_capture_checks.image_size(data)
     return {
