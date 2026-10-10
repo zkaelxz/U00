@@ -20,3 +20,19 @@ test('the transcript mode is picked in the Transcribe card and saved at once', a
   await expect(page.getByLabel('Transcript text')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Source modes' })).toHaveCount(0)
 })
+
+test('a double-clicked Upload sends the file once and says Uploading', async ({ page }) => {
+  let uploads = 0
+  await page.route('**/api/media/dramas/1/upload', async (route) => {
+    uploads += 1
+    await new Promise((r) => setTimeout(r, 500))
+    await route.fulfill({ json: { name: 'source.mp3', size: 3, kind: 'audio' } })
+  })
+  await page.goto('/#/drama/1/source')
+  await page.getByLabel('Audio or video file').setInputFiles({ name: 'a.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  const button = page.getByRole('button', { name: 'Upload', exact: true })
+  await button.dblclick()
+  await expect(page.getByRole('button', { name: 'Uploading...' })).toBeDisabled()
+  await expect(page.getByText(/^Uploaded audio/)).toBeVisible()
+  expect(uploads).toBe(1)
+})
