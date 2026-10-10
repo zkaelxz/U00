@@ -78,9 +78,14 @@ class ResultChannel:
         if item and item[0] == _FILE_MARKER:
             try:
                 with open(self._path, "rb") as f:
-                    return pickle.load(f)
+                    result = pickle.load(f)
             except OSError:
                 raise OSError(RESULT_FILE_ERROR) from None
+            # Removed before the watcher can publish the job as done: its
+            # final discard() runs after that, so a client that saw "done"
+            # could still find the file.
+            self._remove_files()
+            return result
         return item
 
     def close(self):
@@ -97,6 +102,9 @@ class ResultChannel:
 
     def discard(self):
         """Watcher only: removes the result file and any partial one."""
+        self._remove_files()
+
+    def _remove_files(self):
         for path in (self._path, self._path + ".part"):
             try:
                 os.remove(path)
