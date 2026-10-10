@@ -13,7 +13,7 @@ table) is in `archive/asr-experiments-history.md`.
 
 | Option | Where | Default | Notes |
 |---|---|---|---|
-| Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `core.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
+| Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
 | ASR backend | per title | `whisper`, except as below | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`. |
 | Qwen3-ASR batch size | Settings > Transcription experiments (PC only) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |

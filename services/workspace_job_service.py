@@ -20,6 +20,7 @@ import translation_guide as tguide
 import bulk_translate
 import emotion
 import core as core_module
+import whisper_models
 from core import transcribe_for_timing
 from services import (auth_service, fixflag_transcribe, job_timing_service,
                       language_pack_service, library_restore_sql, line_provenance_service,
@@ -310,11 +311,11 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
                 local_model_path=local_model_path, hf_token=hf_token,
                 initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=min_silence_duration_ms, vad_threshold=vad_threshold,
-                on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module.short_reason(exc)),
+                on_gpu_fallback=lambda exc: gpu_fallback_msg.append(whisper_models.short_reason(exc)),
                 progress_cb=lambda frac: background_jobs.update_progress(
                     job_id, frac, f"Transcribing... {frac * 100:.0f}%"),
                 fast_mode=fast_mode)
-        except core_module.ModelDownloadError as exc:
+        except whisper_models.ModelDownloadError as exc:
             background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
             return
 
@@ -346,7 +347,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
             # failing" rule this app follows everywhere else.
             word_align_error = str(exc)
 
-    core_module.release_gpu_models()  # transcription stage done
+    whisper_models.release_gpu_models()  # transcription stage done
     result = {
         "segments": segments,
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
@@ -354,7 +355,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         **ollama_unload.take_notice_result(),
     }
     if gpu_fallback_msg:
-        result["device_notice"] = core_module.gpu_fallback_notice("Transcription", gpu_fallback_msg[0])
+        result["device_notice"] = whisper_models.gpu_fallback_notice("Transcription", gpu_fallback_msg[0])
     background_jobs.set_result(job_id, result)
 
 
@@ -423,7 +424,7 @@ def run_sensevoice_job(job_id, drama_id, lines, audio_path, drama_dir, use_gpu):
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Listening for emotion and sounds... {frac * 100:.0f}%"))
     finally:
-        core_module.release_gpu_models()
+        whisper_models.release_gpu_models()
     sensevoice_tags.save_audio_tags(drama_dir, tags)
     background_jobs.set_result(job_id, {"tagged": len(tags)})
 
@@ -624,7 +625,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 break
     finally:
         if audio_path and os.path.exists(audio_path):
-            core_module.release_gpu_models()  # re-transcription stage done
+            whisper_models.release_gpu_models()  # re-transcription stage done
         db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
     if cancelled:
         raise background_jobs.JobCancelled(job_id)

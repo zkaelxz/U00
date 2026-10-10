@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 import background_jobs
 import core
+import whisper_models
 import memory_headroom
 from lib import http
 from services import settings_service
@@ -92,9 +93,9 @@ def _app_rows() -> dict:
     """Reads the caches as they are; loads nothing and imports nothing new."""
     models = []
     try:
-        for key in list(core._whisper_model_cache):
+        for key in list(whisper_models._whisper_model_cache):
             target = key.rsplit("_", 1)[0]
-            info = core._whisper_device_info.get(key) or {}
+            info = whisper_models._whisper_device_info.get(key) or {}
             device = info.get("device") or ("cuda" if key.endswith("_gpu") else "cpu")
             models.append({"name": _model_label(target), "kind": "Whisper",
                            "device": _device_label(device)})
@@ -197,5 +198,5 @@ def free_app_models() -> dict:
     using one of them, and the cache gives no way to tell which."""
     if _gpu_job_running():
         raise ConflictError(BUSY_MESSAGE)
-    core.release_gpu_models()
+    whisper_models.release_gpu_models()
     return get_loaded_models()

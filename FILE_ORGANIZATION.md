@@ -79,6 +79,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `sensitivity_preset.py`
 - `vad_segments.py`
 - `voice_id.py`
+- `whisper_models.py` (loads or releases the Whisper model on the right device and explains why it fell back to the CPU; the model list, GPU status and download-error diagnosis)
 - `word_align.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**

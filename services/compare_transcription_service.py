@@ -15,6 +15,7 @@ import threading
 import asr_backend
 import background_jobs
 import core as core_module
+import whisper_models
 import db
 import sensitivity_preset as presets
 import translate_engines
@@ -409,7 +410,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                     spent += _translate_into(proposal, ln, engine, context, character_names,
                                              translation, drama_id, cfg["language"], errors)
     finally:
-        core_module.release_gpu_models()
+        whisper_models.release_gpu_models()
     result = {"proposals": proposals, "line_count": len(lines), "candidate_count": len(proposals),
               "errors": errors[:20], "cap_reached": cap_reached,
               "asr_backend": cfg["backend"], "whisper_size": cfg["whisper_size"],
@@ -418,7 +419,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
               **notice}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
-        result["device_notice"] = core_module.gpu_fallback_notice(
+        result["device_notice"] = whisper_models.gpu_fallback_notice(
             "Comparing transcription", gpu_fallback[0])
     if failed_reason and not proposals:
         result = {"failed_reason": failed_reason, "detail": detail}

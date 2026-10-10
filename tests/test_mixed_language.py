@@ -1,5 +1,6 @@
 """Per-span language detection for mixed-language titles. Models, audio, VAD and the
 language detector are all fakes."""
+import whisper_models
 from types import SimpleNamespace
 
 import numpy as np
@@ -260,10 +261,10 @@ def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
                 {"start": 2.0, "end": 4.0, "text": ZH, "lang": "zh"}]
 
     monkeypatch.setattr(ml, "transcribe_mixed_whisper", fake_mixed)
-    monkeypatch.setattr(ts.core_module, "load_whisper_model", lambda *a, **k: None)
-    monkeypatch.setattr(ts.core_module, "is_whisper_model_cached", lambda s: True)
-    monkeypatch.setattr(ts.core_module, "get_whisper_device_info", lambda *a, **k: {})
-    monkeypatch.setattr(ts.core_module, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: None)
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda s: True)
+    monkeypatch.setattr(whisper_models, "get_whisper_device_info", lambda *a, **k: {})
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     monkeypatch.setattr(tp, "transcribe_for_timing",
                         lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": KO}])
 

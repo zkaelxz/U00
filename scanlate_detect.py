@@ -329,7 +329,7 @@ def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
             "Falling back to the free heuristic for this page."
         ) from exc
     except Exception as exc:
-        from core import is_network_error
+        from whisper_models import is_network_error
         if is_network_error(exc):
             raise BubbleModelUnavailable(
                 "Couldn't download the bubble-detection model -- this is a network "

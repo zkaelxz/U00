@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 import bulk_translate
 import core
+import whisper_models
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -125,7 +126,7 @@ def fake_asr(monkeypatch, inline_process_jobs):
 
     monkeypatch.setattr(core, "extract_audio_slice", fake_slice)
     monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
-    monkeypatch.setattr(core, "is_whisper_model_cached", lambda size: True)
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
     return calls
 
 
@@ -325,7 +326,7 @@ class TestJob:
     def test_model_download_failure_stops_the_run_and_is_redacted(
             self, isolated_db, fake_asr, monkeypatch):
         def boom(*a, **k):
-            raise core.ModelDownloadError(f"download failed token={SECRET}")
+            raise whisper_models.ModelDownloadError(f"download failed token={SECRET}")
         monkeypatch.setattr(core, "transcribe_for_timing", boom)
         did, ids = _drama(isolated_db)
         _out, job = _run(did, ids)
@@ -528,7 +529,7 @@ def _hung_many_worker(*args):
         time.sleep(600)
     c.extract_audio_slice = cut
     c.transcribe_for_timing = hang
-    c.is_whisper_model_cached = lambda size: True
+    whisper_models.is_whisper_model_cached = lambda size: True
     rw.retranscribe_many_worker(*args)
 
 

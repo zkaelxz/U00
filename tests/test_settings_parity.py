@@ -2,6 +2,7 @@
 persisted PC-side preferences and endpoint URLs, their permissions, and
 that the services and the CLI read the saved values. Mocked; no network."""
 
+import whisper_models
 import contextlib
 import inspect
 import io
@@ -506,12 +507,12 @@ def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monke
     did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
     settings_service.set_settings({"whisper_model_path": "/models/faster-whisper-small"})
     seen = {}
-    monkeypatch.setattr(core_module, "is_whisper_model_cached", lambda *a, **k: False)
-    monkeypatch.setattr(core_module, "load_whisper_model",
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda *a, **k: False)
+    monkeypatch.setattr(whisper_models, "load_whisper_model",
                         lambda *a, **k: seen.setdefault("load", k.get("local_model_path")))
-    monkeypatch.setattr(core_module, "get_whisper_device_info",
+    monkeypatch.setattr(whisper_models, "get_whisper_device_info",
                         lambda *a, **k: seen.setdefault("info", k.get("local_model_path")) and {})
-    monkeypatch.setattr(core_module, "describe_whisper_device", lambda info: "")
+    monkeypatch.setattr(whisper_models, "describe_whisper_device", lambda info: "")
 
     def fake_transcribe(*a, **k):
         seen["transcribe"] = k.get("local_model_path")

@@ -41,10 +41,8 @@ import tempfile
 from typing import Optional
 
 import memory_headroom
-from core import (
-    ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname, extract_audio_slice,
-    transcribe_for_timing,
-)
+from core import extract_audio_slice, transcribe_for_timing
+from whisper_models import ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname
 from segment_splitting import SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, SplitRules
 from forced_align import LANGUAGE_NAMES
 
@@ -124,7 +122,7 @@ def coverage_warning(segments, audio_seconds, qwen3_asr: bool = False) -> Option
     return msg
 
 
-# Loaded models stay cached across calls; core.release_gpu_models() clears
+# Loaded models stay cached across calls; whisper_models.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
 _asr_model_cache = {}
 
@@ -191,7 +189,7 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
                    on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ASR model. Same GPU-fallback/network-
     error handling pattern as forced_align.load_qwen3_aligner() and
-    core.load_whisper_model() -- see forced_align.py's docstring for why a
+    whisper_models.load_whisper_model() -- see forced_align.py's docstring for why a
     transformers/torch model's CUDA failure surfaces here, at load time,
     rather than deferred to first inference like ctranslate2/faster-whisper.
 

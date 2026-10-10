@@ -6,6 +6,7 @@ burned-subtitle preview clip (mocked ffmpeg). TestClient against an
 `isolated_db` library -- no network, GPU, model or ffmpeg.
 """
 
+import whisper_models
 import json
 import os
 import subprocess
@@ -636,7 +637,7 @@ class TestSenseVoice:
         from services import workspace_job_service
         did, ids = _audio_drama()
         monkeypatch.setattr(svc, "_sensevoice_installed", lambda: True)
-        monkeypatch.setattr(workspace_job_service.core_module, "release_gpu_models", lambda: None)
+        monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
         seen = {}
 
         def tag_lines(audio_path, lines, use_gpu=False, progress_cb=None, cancel_check=None):

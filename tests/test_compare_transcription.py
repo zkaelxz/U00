@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import core
+import whisper_models
 import db
 import translate_engines
 from api.api_config import ApiSettings
@@ -61,7 +62,7 @@ def _env(isolated_db, monkeypatch):
     monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
     monkeypatch.setattr(core, "extract_audio_slice", fake_slice)
     monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
-    monkeypatch.setattr(core, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     calls["engine"] = engine
     yield calls
     background_jobs.clear_all_jobs()
@@ -284,7 +285,7 @@ class TestRun:
 
     def test_model_download_failure_is_redacted(self, monkeypatch):
         def boom(*a, **k):
-            raise core.ModelDownloadError(f"failed token={SECRET}")
+            raise whisper_models.ModelDownloadError(f"failed token={SECRET}")
         monkeypatch.setattr(core, "transcribe_for_timing", boom)
         did, _ = _drama(2)
         out = _run(did)

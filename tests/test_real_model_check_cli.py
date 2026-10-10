@@ -1,5 +1,6 @@
 """The `smoke` CLI command (real_model_check_cli.py). Every check is faked: no
 GPU, models or network."""
+import whisper_models
 import sys
 import time
 
@@ -36,7 +37,7 @@ def _fakes(*overrides):
 @pytest.fixture
 def env(isolated_db, monkeypatch):
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
-    monkeypatch.setattr("core.release_gpu_models", lambda: None)
+    monkeypatch.setattr("whisper_models.release_gpu_models", lambda: None)
     background_jobs.clear_job(svc.JOB_ID)
     svc._STATE.update(checks=[], finished=False)
     yield

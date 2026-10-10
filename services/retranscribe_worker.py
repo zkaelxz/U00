@@ -10,6 +10,7 @@ import subprocess
 
 import background_jobs
 import core as core_module
+import whisper_models
 import db
 import ollama_unload
 from services import gpu_process_job
@@ -59,9 +60,9 @@ def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_
     try:
         segments = core_module.transcribe_for_timing(
             slice_path, whisper_size, language=language,
-            on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
+            on_gpu_fallback=lambda exc: gpu_fallback.append(whisper_models.short_reason(exc)),
             fast_mode=False, **transcribe_kwargs)
-    except core_module.ModelDownloadError as exc:
+    except whisper_models.ModelDownloadError as exc:
         return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
     return {"segments": [{"text": (seg.get("text") or "")} for seg in segments or []]}
 
@@ -136,7 +137,7 @@ def apply_retranscribe_outcome(job_id, outcome, drama_id, line_id, zh_before, st
               **{k: v for k, v in outcome.items() if k not in ("segments", "gpu_fallback")}}
     if outcome.get("gpu_fallback"):
         result["gpu_fallback"] = outcome["gpu_fallback"]
-        result["device_notice"] = core_module.gpu_fallback_notice(
+        result["device_notice"] = whisper_models.gpu_fallback_notice(
             "Re-transcribing this line", outcome["gpu_fallback"])
     return result
 
@@ -250,6 +251,6 @@ def apply_retranscribe_many_outcome(job_id, outcome, drama_id, bases):
         result["truncated"] = True
     if outcome.get("gpu_fallback"):
         result["gpu_fallback"] = outcome["gpu_fallback"]
-        result["device_notice"] = core_module.gpu_fallback_notice(
+        result["device_notice"] = whisper_models.gpu_fallback_notice(
             "Re-transcribing these lines", outcome["gpu_fallback"])
     return result

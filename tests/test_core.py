@@ -7,6 +7,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import core
+import whisper_models
 import segment_splitting
 
 from core import (
@@ -185,29 +186,29 @@ class TestModelDownloadErrorHandling:
     regression cover for the real error seen in the field."""
 
     def test_classifies_the_real_windows_dns_failure(self):
-        from core import is_network_error
+        from whisper_models import is_network_error
         exc = Exception("Got: ConnectError: [Errno 11004] getaddrinfo failed")
         assert is_network_error(exc) is True
 
     def test_classifies_common_network_failures(self):
-        from core import is_network_error
+        from whisper_models import is_network_error
         for msg in ("httpx.ConnectError", "Max retries exceeded",
                     "LocalEntryNotFoundError", "Connection timed out",
                     "Temporary failure in name resolution", "proxy error"):
             assert is_network_error(Exception(msg)) is True, msg
 
     def test_does_not_misclassify_real_audio_or_gpu_errors(self):
-        from core import is_network_error
+        from whisper_models import is_network_error
         for msg in ("Invalid audio file format", "CUDA out of memory",
                     "unsupported sample rate"):
             assert is_network_error(Exception(msg)) is False, msg
 
     def test_model_download_error_is_a_runtime_error(self):
-        from core import ModelDownloadError
+        from whisper_models import ModelDownloadError
         assert issubclass(ModelDownloadError, RuntimeError)
 
     def test_cache_check_returns_bool_and_never_raises(self):
-        from core import is_whisper_model_cached
+        from whisper_models import is_whisper_model_cached
         assert isinstance(is_whisper_model_cached("medium"), bool)
         assert isinstance(is_whisper_model_cached("nonexistent-size"), bool)
 
@@ -217,7 +218,7 @@ class TestDefaultWhisperSize:
     claim that it is weaker on Japanese/Korean (the benchmarks don't show it)."""
 
     def test_default_whisper_size_is_large_v3_turbo(self):
-        from core import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
+        from whisper_models import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
         assert DEFAULT_WHISPER_SIZE == "large-v3-turbo"
         assert DEFAULT_WHISPER_SIZE in WHISPER_MODELS
         assert "default" in WHISPER_MODELS["large-v3-turbo"]
@@ -232,22 +233,22 @@ class TestDnsDiagnosis:
     whitelisting a domain, the other by fixing your network."""
 
     def test_loopback_hostname_not_flagged_as_blocked(self):
-        from core import diagnose_hostname
+        from whisper_models import diagnose_hostname
         assert diagnose_hostname("localhost")["status"] == "ok"
 
     def test_unresolvable_hostname_reports_no_dns(self):
-        from core import diagnose_hostname
+        from whisper_models import diagnose_hostname
         assert diagnose_hostname("definitely-not-real-xyz123.invalid")["status"] == "no_dns"
 
     def test_result_always_has_expected_keys(self):
-        from core import diagnose_hostname
+        from whisper_models import diagnose_hostname
         for host in ("localhost", "not-real-xyz123.invalid"):
             r = diagnose_hostname(host)
             for key in ("status", "hostname", "addresses", "detail"):
                 assert key in r
 
     def test_status_is_one_of_three_known_values(self):
-        from core import diagnose_hostname
+        from whisper_models import diagnose_hostname
         assert diagnose_hostname("localhost")["status"] in ("ok", "blocked", "no_dns")
 
 
@@ -388,7 +389,7 @@ class TestVadSensitivity:
         function accepts the argument."""
         import sys, types
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         class FakeSegment:
             def __init__(self, start, end, text):
@@ -417,7 +418,7 @@ class TestVadSensitivity:
     def test_vad_threshold_defaults_to_point_five(self, monkeypatch):
         import sys, types
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         class FakeSegment:
             def __init__(self, start, end, text):
@@ -549,7 +550,7 @@ class TestHallucinationSilenceThreshold:
         fake_fw = types.ModuleType("faster_whisper")
         fake_fw.WhisperModel = lambda *a, **k: model_cls()
         sys.modules["faster_whisper"] = fake_fw
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         return core.transcribe_for_timing("/fake/audio.mp3", **kwargs)
 
     def test_off_by_default_and_overridable(self):
@@ -616,7 +617,7 @@ class TestTranscribeForTimingHallucinationFilter:
 
     def test_hallucination_filter_is_applied_by_default(self):
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         self._stub_faster_whisper(["thanks for watching"] * 5 + ["real line"])
 
         result = core.transcribe_for_timing("/fake/audio.mp3")
@@ -626,7 +627,7 @@ class TestTranscribeForTimingHallucinationFilter:
 
     def test_filter_can_be_disabled(self):
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         self._stub_faster_whisper(["thanks for watching"] * 5 + ["real line"])
 
         result = core.transcribe_for_timing("/fake/audio.mp3", filter_hallucination_repeats=0)
@@ -671,7 +672,7 @@ class TestTightenToWords:
         fake_fw = types.ModuleType("faster_whisper")
         fake_fw.WhisperModel = lambda *a, **k: Model()
         sys.modules["faster_whisper"] = fake_fw
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         assert core.transcribe_for_timing("/fake/audio.mp3") == [
             {"start": 4.0, "end": 5.0, "text": "hi"}]
@@ -694,7 +695,7 @@ class TestPunctuationOnlySegmentsDropped:
         fake_fw = types.ModuleType("faster_whisper")
         fake_fw.WhisperModel = lambda *a, **k: Model()
         sys.modules["faster_whisper"] = fake_fw
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         got = core.transcribe_for_timing("/fake/audio.mp3")
 
@@ -793,19 +794,19 @@ class TestGpuInferenceFailureFallback:
     time. transcribe_for_timing now catches it there instead."""
 
     def test_classifies_the_exact_reported_error(self):
-        from core import is_gpu_error
+        from whisper_models import is_gpu_error
         exc = RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
         assert is_gpu_error(exc) is True
 
     def test_classifies_common_cuda_failures(self):
-        from core import is_gpu_error
+        from whisper_models import is_gpu_error
         for msg in ("CUDA error: no kernel image is available",
                     "cuDNN error", "no CUDA-capable device is detected",
                     "CUDA out of memory"):
             assert is_gpu_error(RuntimeError(msg)) is True, msg
 
     def test_does_not_misclassify_network_or_genuine_errors(self):
-        from core import is_gpu_error
+        from whisper_models import is_gpu_error
         assert is_gpu_error(RuntimeError("Connection timed out")) is False
         assert is_gpu_error(ValueError("Invalid audio file format")) is False
 
@@ -848,7 +849,7 @@ class TestGpuInferenceFailureFallback:
     def test_gpu_inference_failure_falls_back_to_cpu_and_returns_real_segments(self):
         import core
         calls = self._stub_faster_whisper()
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         result = core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
 
@@ -862,7 +863,7 @@ class TestGpuInferenceFailureFallback:
     def test_caller_is_notified_when_fallback_occurs(self):
         import core
         self._stub_faster_whisper()
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         notified = []
         core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True,
@@ -892,7 +893,7 @@ class TestGpuInferenceFailureFallback:
         sys.modules["faster_whisper"] = fake_fw
 
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         notified = []
         core.transcribe_for_timing("/fake/audio.mp3", use_gpu=False,
                                     on_gpu_fallback=lambda exc: notified.append(exc))
@@ -915,7 +916,7 @@ class TestGpuInferenceFailureFallback:
         sys.modules["faster_whisper"] = fake_fw
 
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         try:
             core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
             assert False, "a genuine non-GPU error must still propagate, not be swallowed"
@@ -955,7 +956,7 @@ class TestTranscribeProgress:
                     self._FakeSegment(30.0, 90.0, "b"),
                     self._FakeSegment(90.0, 120.0, "c")]
         self._stub_faster_whisper(segments, self._FakeInfo(duration=120.0))
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         seen = []
         result = core.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
@@ -967,7 +968,7 @@ class TestTranscribeProgress:
         import core
         segments = [self._FakeSegment(0.0, 10.0, "a")]
         self._stub_faster_whisper(segments, self._FakeInfo(duration=10.0))
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         result = core.transcribe_for_timing("/fake/audio.mp3")
         assert result == [{"start": 0.0, "end": 10.0, "text": "a"}]
@@ -978,7 +979,7 @@ class TestTranscribeProgress:
         import core
         segments = [self._FakeSegment(0.0, 10.0, "a")]
         self._stub_faster_whisper(segments, info=None)
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         seen = []
         result = core.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
@@ -1010,7 +1011,7 @@ class TestTranscribeProgress:
         fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": (
             FakeCudaModel() if device == "cuda" else FakeCpuModel())
         sys.modules["faster_whisper"] = fake_fw
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         seen = []
         result = core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True, progress_cb=seen.append)
@@ -1153,33 +1154,33 @@ class TestWhisperDeviceReporting:
         mod = types.ModuleType("faster_whisper")
         mod.WhisperModel = FakeWhisperModel
         monkeypatch.setitem(sys.modules, "faster_whisper", mod)
-        monkeypatch.setattr(core, "_whisper_model_cache", {})
-        monkeypatch.setattr(core, "_whisper_device_info", {})
+        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+        monkeypatch.setattr(whisper_models, "_whisper_device_info", {})
 
     def test_gpu_load_success_reports_gpu(self, monkeypatch):
         self._stub_faster_whisper(monkeypatch, None)
-        core.load_whisper_model("tiny", use_gpu=True)
-        info = core.get_whisper_device_info("tiny", use_gpu=True)
+        whisper_models.load_whisper_model("tiny", use_gpu=True)
+        info = whisper_models.get_whisper_device_info("tiny", use_gpu=True)
         assert info == {"device": "cuda", "compute_type": "float16", "gpu_error": None}
-        assert core.describe_whisper_device(info) == "Using GPU (float16)"
+        assert whisper_models.describe_whisper_device(info) == "Using GPU (float16)"
 
     def test_gpu_failure_falls_back_and_reports_redacted_reason(self, monkeypatch):
         self._stub_faster_whisper(
             monkeypatch, "Library cublas64_12.dll is not found key=sk-abcdefghijklmnopqrstuvwx")
-        model = core.load_whisper_model("tiny", use_gpu=True)
+        model = whisper_models.load_whisper_model("tiny", use_gpu=True)
         assert model.device == "cpu"
-        info = core.get_whisper_device_info("tiny", use_gpu=True)
+        info = whisper_models.get_whisper_device_info("tiny", use_gpu=True)
         assert info["device"] == "cpu"
         assert "cublas64_12.dll" in info["gpu_error"]
         assert "sk-abcdefghijklmnopqrstuvwx" not in info["gpu_error"]
-        text = core.describe_whisper_device(info)
+        text = whisper_models.describe_whisper_device(info)
         assert text.startswith("GPU unavailable (") and text.endswith("); using CPU")
 
     def test_cpu_request_reports_cpu(self, monkeypatch):
         self._stub_faster_whisper(monkeypatch, None)
-        core.load_whisper_model("tiny", use_gpu=False)
-        assert core.describe_whisper_device(
-            core.get_whisper_device_info("tiny")) == "Using CPU (int8)"
+        whisper_models.load_whisper_model("tiny", use_gpu=False)
+        assert whisper_models.describe_whisper_device(
+            whisper_models.get_whisper_device_info("tiny")) == "Using CPU (int8)"
 
     def test_gpu_status_never_raises_and_reports_both_probes(self, monkeypatch):
         import sys, types
@@ -1189,10 +1190,10 @@ class TestWhisperDeviceReporting:
         torch.cuda = types.SimpleNamespace(is_available=lambda: False)
         monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
         monkeypatch.setitem(sys.modules, "torch", torch)
-        assert core.gpu_status() == {"ctranslate2_cuda_devices": 1,
+        assert whisper_models.gpu_status() == {"ctranslate2_cuda_devices": 1,
                                      "torch_cuda_available": False, "errors": []}
         ct2.get_cuda_device_count = lambda: (_ for _ in ()).throw(RuntimeError("boom"))
-        status = core.gpu_status()
+        status = whisper_models.gpu_status()
         assert status["ctranslate2_cuda_devices"] is None
         assert status["errors"] and "boom" in status["errors"][0]
 
@@ -1318,7 +1319,7 @@ class TestWordTimestampsKept:
         fake_fw = types.ModuleType("faster_whisper")
         fake_fw.WhisperModel = lambda *a, **k: Model()
         sys.modules["faster_whisper"] = fake_fw
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         assert core.transcribe_for_timing("/fake/audio.mp3") == [
             {"start": 0.2, "end": 1.0, "text": "你好",
              "words": [{"start": 0.2, "end": 0.6, "word": "你"},
@@ -1343,7 +1344,7 @@ class TestWordTimestampsKept:
         fake_fw.WhisperModel = lambda *a, **k: object()
         fake_fw.BatchedInferencePipeline = Pipeline
         sys.modules["faster_whisper"] = fake_fw
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         core.transcribe_for_timing("/fake/audio.mp3", fast_mode=True)
         assert seen["word_timestamps"] is True
 

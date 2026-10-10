@@ -7,6 +7,7 @@ thread, since faster-whisper cannot be interrupted mid-step).
 The blocked Ollama server is a real local socket that accepts and never
 replies; the capture is a real `sh` that leaves a `sleep` grandchild.
 """
+import whisper_models
 import functools
 import os
 import socket
@@ -223,7 +224,7 @@ class TestWhisperIsAbandonedOnCancel:
         monkeypatch.setattr(lt, "stop_capture", lambda proc, **kw: None)
         monkeypatch.setattr(core, "transcribe_for_timing", blocked_whisper)
         released = []
-        monkeypatch.setattr(core, "release_gpu_models", lambda: released.append(1))
+        monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: released.append(1))
         assert _start("live_cancel_whisper", _chunk_dir(tmp_path), object(), use_gpu=True)
         assert inside.wait(PROMPT)
         assert "transcribing 0 s of audio with Whisper small (GPU)" in \
