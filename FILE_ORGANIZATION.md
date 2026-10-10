@@ -35,6 +35,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `job_force_stop.py` (Force stop for a thread job that ignores Cancel: closes its record, abandons the worker, refuses a rerun while it lives)
 - `gpu_probe.py` (nvidia-smi readings taken before background_jobs' lock, used once by the GPU-slot decision)
 - `job_process_kill.py` (stopping a job's child process or process tree; re-exported by `background_jobs`)
+- `job_process_result.py` (the channel a process-job worker sends its result through: a large result travels as a file so a child killed mid-write cannot hang the watcher)
 - `job_process_run.py` (the one runner for long external commands whose output is read -- pip, pytest, venv, winget: own process group, tree kill on timeout or cancel, bounded output drain)
 - `benchmark.py`
 - `check_setup.py`

@@ -35,6 +35,7 @@ import traceback
 
 import gpu_probe
 import job_force_stop
+import job_process_result
 from job_process_kill import _kill_worker_group, _stop_process, kill_tree, reap_worker  # noqa: F401
 
 _jobs = {}
@@ -133,6 +134,15 @@ def _heartbeat_once():
     job_force_stop.refresh_abandoned_gpu_rows()
     with _lock:
         live = [j for j, job in _jobs.items() if job.get("status") in ("queued", "running")]
+        running_gpu = [j for j in live if _jobs[j]["status"] == "running"
+                       and _jobs[j].get("gpu_touching")]
+    # A job that reports no progress (dub) never refreshes its own row.
+    for j in running_gpu:
+        try:
+            import db
+            db.heartbeat_gpu_lock(f"ui:{j}")
+        except Exception:
+            pass
     if live:
         try:
             import db
@@ -603,10 +613,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                                  with_errors=_with_errors)
         except JobCancelled:
             with _lock:
-                if _still_running_locked(job_id):
-                    _jobs[job_id]["status"] = "cancelled"
-                    _jobs[job_id]["finished_at"] = time.time()
-                    _mirror_locked(job_id)
+                _mark_cancelled_locked(job_id)
             logger.info(f"job {job_id} cancelled")
         except BaseException as exc:
             # BaseException too: a SystemExit from job code would otherwise
@@ -1149,7 +1156,7 @@ def _register_process_job(job_id, target, args, gpu_touching, description, owner
     lock. Returns (proc, result_queue) for that. start_method None keeps
     the platform's default context."""
     mp = multiprocessing.get_context(start_method) if start_method else multiprocessing
-    result_queue = mp.Queue()
+    result_queue = job_process_result.wrap_queue(mp.Queue(), job_id)
     proc = mp.Process(target=target, args=(*args, result_queue), daemon=True)
     _jobs[job_id] = {
         "status": "running", "progress": 0.0, "message": "Starting...",
@@ -1417,6 +1424,12 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 returned = on_done(job_id, outcome[1])
                 if returned is not None:
                     result = returned
+            except JobCancelled:
+                # The hook applied its work, then a stop began (see
+                # _apply_transcription): cancelled, nothing is rolled back.
+                with _lock:
+                    _mark_cancelled_locked(job_id)
+                return
             except Exception as exc:
                 from translate_engines import redact_secrets
                 hook_error = redact_secrets(f"{type(exc).__name__}: {exc}")
@@ -1468,9 +1481,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     except Exception as exc:
         # A complete message that fails to unpickle, a broken queue or any
         # other watcher failure: without this the job stays "running"
-        # forever. Known limit, not handled: a child killed partway through
-        # writing a large result can leave Queue.get blocked on the rest of
-        # that message, so the watcher never gets here.
+        # forever.
         from translate_engines import redact_secrets
         error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
         logger.error(f"job {job_id} watcher failed: {error_msg}")

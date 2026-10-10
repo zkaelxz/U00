@@ -293,6 +293,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         args=(audio_path, hf_token, expected_speakers or None,
               worker_options(min_speakers, max_speakers)),
         gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+        kill_whole_tree=True, start_method="spawn",
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
                                    min_speakers, max_speakers),
         run_settings=run_settings_service.for_diarize(

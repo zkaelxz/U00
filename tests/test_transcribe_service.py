@@ -1054,6 +1054,54 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
         assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
         _clear(job_id)
 
+    def _run_with_refusing_chain_start(self, isolated_db, monkeypatch, cancel, seen):
+        """Runs the apply step with a chain start that raises; `seen` gets
+        the launch kwargs and the saved line count."""
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db, with_audio=True)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+
+        def refuse(_diarize_id, target, args=(), **k):
+            seen["launch"] = k
+            if cancel:
+                # The clean stop cancels every job, after the lines were saved.
+                background_jobs._jobs[job_id]["cancel_requested"] = True
+            raise ConflictError("Baihe is stopping, so no new job can start.")
+        monkeypatch.setattr(background_jobs, "start_process_job", refuse)
+        try:
+            transcribe_service._run_transcribe_and_apply_job(
+                job_id, did, None, "hardsub_ocr", None, "zh", "simplified",
+                "medium", 5, 300, 0.5, False, "auto", False, False, False, None, "hf-token", None,
+                video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="tesseract",
+                hardsub_interval=1.0, diarize_audio_path=os.path.join(ddir, "audio.wav"))
+        finally:
+            seen["line_count"] = len(isolated_db.load_lines(did))
+            _clear(job_id)
+
+    def test_a_stop_that_began_after_the_save_cancels_and_keeps_the_lines(
+            self, isolated_db, monkeypatch):
+        seen = {}
+        with pytest.raises(background_jobs.JobCancelled):
+            self._run_with_refusing_chain_start(isolated_db, monkeypatch, True, seen)
+        assert seen["line_count"] == 1
+
+    def test_a_refused_chain_start_without_a_stop_is_still_an_error(
+            self, isolated_db, monkeypatch):
+        seen = {}
+        with pytest.raises(ConflictError):
+            self._run_with_refusing_chain_start(isolated_db, monkeypatch, False, seen)
+
+    def test_the_diarization_chain_runs_spawned_and_is_killed_as_a_tree(
+            self, isolated_db, monkeypatch):
+        seen = {}
+        with pytest.raises(ConflictError):
+            self._run_with_refusing_chain_start(isolated_db, monkeypatch, False, seen)
+        assert seen["launch"]["kill_whole_tree"] is True
+        assert seen["launch"]["start_method"] == "spawn"
+
     def test_diarization_skipped_gracefully_with_no_drama_audio(self, isolated_db, monkeypatch):
         hardsub_ocr = pytest.importorskip("hardsub_ocr")
         did, ddir = _drama_with_video(isolated_db, with_audio=False)

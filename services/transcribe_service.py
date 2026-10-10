@@ -1451,16 +1451,27 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     diarize_started = False
     if hf_token and diarize_audio_path:
         import diarize as diarize_module
-        diarize_started = background_jobs.start_process_job(
-            f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
-            args=(diarize_audio_path, hf_token, expected_speakers or None,
-                  diarization_service.worker_options(min_speakers, max_speakers)),
-            gpu_touching=True, description=f"Diarization (drama #{drama_id})",
-            on_done=diarization_service.make_apply_on_done(
-                drama_id, expected_speakers, min_speakers=min_speakers,
-                max_speakers=max_speakers),
-            run_settings=run_settings_service.for_diarize(
-                expected_speakers, min_speakers, max_speakers, settings_service.get_use_gpu()))
+        try:
+            diarize_started = background_jobs.start_process_job(
+                f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
+                args=(diarize_audio_path, hf_token, expected_speakers or None,
+                      diarization_service.worker_options(min_speakers, max_speakers)),
+                gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+                kill_whole_tree=True, start_method="spawn",
+                on_done=diarization_service.make_apply_on_done(
+                    drama_id, expected_speakers, min_speakers=min_speakers,
+                    max_speakers=max_speakers),
+                run_settings=run_settings_service.for_diarize(
+                    expected_speakers, min_speakers, max_speakers,
+                    settings_service.get_use_gpu()))
+        except ConflictError:
+            # A clean stop cancels every job and refuses new ones, so one
+            # that began after the lines were saved refuses the follow-up
+            # job. The saved lines stay and the job ends cancelled, not
+            # error; diarization can be run again from the Speakers step.
+            if not background_jobs.is_cancel_requested(job_id):
+                raise
+            raise background_jobs.JobCancelled(job_id) from None
 
     if "work" in whisper_clock and whisper_clock["p"] < 0.5:
         # Only the Whisper pass counts, and only the part after its first
@@ -1518,6 +1529,7 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
     """Process-job target (top-level, picklable): transcribes once per
     candidate, holding every other setting constant, and returns only the
     scores (no segments, no token)."""
+    background_jobs.start_own_process_group()
     try:
         results = []
         for n, candidate_ms in enumerate(candidates):
@@ -1586,7 +1598,8 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
               bool(drama.get("whisper_fast_mode")),
               presets.normalize(drama.get("sensitivity_preset")),
               bool(drama.get("whisper_repeat_guard"))),
-        gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})")
+        gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})",
+        kill_whole_tree=True, start_method="spawn")
     if not started:
         raise ConflictError(f"Auto-tune is already running for drama {drama_id}.")
     return {"job_id": job_id, "candidates": list(candidates)}
