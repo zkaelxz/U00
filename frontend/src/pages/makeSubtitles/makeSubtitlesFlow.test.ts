@@ -76,7 +76,7 @@ describe('what is created', () => {
     expect(mediaTypeFor('clip.mkv')).toBe('video_drama')
     expect(mediaTypeFor('talk.mp3')).toBe('audio_drama')
   })
-  it('titles the title with the file stem unless one is typed', () => {
+  it('names the title after the file stem unless one is typed', () => {
     expect(titleFor('My Show.ep1.mp4', '')).toBe('My Show.ep1')
     expect(titleFor('a.mp3', '  Typed ')).toBe('Typed')
   })
