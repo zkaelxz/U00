@@ -1,7 +1,7 @@
 # Status
 
 History lives in `git log`; this file is the current state only.
-Checked against `origin/baihe-subtitler` and the PR list on 2026-10-10; those win over this file.
+Checked against `origin/baihe-subtitler` (through #1062) and the PR list on 2026-10-10; those win over this file.
 
 ## Where the app is
 
@@ -15,6 +15,9 @@ What works:
 - Live: capture fetched in Python through a guarded egress proxy (`services/egress_proxy.py`, `live_fetch.py`) and piped to ffmpeg's stdin; ffmpeg never opens a URL. LocalAgreement-2 streaming recognition, transcript first and translation later, captions over the video.
 - Sources: the adapters in `sources/adapters/`, per-source pace levels with automatic slowdown, the browser extension with per-device tokens and whole-chapter capture, subtitle file import (SRT/VTT/ASS/LRC) and LRC export, and lightnovel-crawler as a separate program.
 - Navigation: one nav registry, a collapsible left rail, a drawer on narrow screens, Customize menu, Ctrl+K for pages and stages (not titles or lines), a Jobs page, and a Settings upload size limit (default 20 GB; library restore stays capped at 2 GB).
+- Jobs: one job surface (the Jobs page and the job panel with its Last run card and no-progress warning; the Diagnostics jobs panel is retired). Process jobs hand results back through a file for large ones, are reaped before they report done, and GPU work that must be killable runs through `services/gpu_process_job.py` (compare transcription and fix-flagged hear). URL media runs yt-dlp in a killable child (#1055). Phase 0 of the jobs plan (the QC queue: bounded AI calls, force stop, cancel checks, process-job hardening) is complete; Phase 1 (the jobs rewrite, library.db as the authority) has PR A open as #1058 (`jobs/job_store.py`), not merged, so the in-memory dict is still the authority.
+- Outbound HTTP: `lib/http.py` is the one fetch front door (guard on every redirect hop, pinned connection, byte cap, deadline); waves 1-3 are merged (#1046, #1054, #1057: `services/`, root modules, LLM engine POSTs and simple sessions). `lib/` also holds `proc.py` (the one external-command runner), `cancellable_lock.py` and `settings_schema.py` (declared settings and one reader, no behaviour change, #1062; the schema's parts 2 and 3 are not merged).
+- Frontend: Settings has three tabs with a search box, Make subtitles is one screen from the Library, Transcribe and Translate have Basic and More options views, and the UI says "title" (not "drama"), a Media stage (not Source) and Quick translate. Diagnostics installs show a preview and can queue for restart when files are in use (`install_plan.py`, `pending_install.py`).
 - CLI (`cli.py`): transcribe, translate, bulk translate, align, diarize, dub, qc, glossary, clean-en, set-language, import/export and export-video, at parity with the app for glossary, style guide, locale and names.
 
 Known limits and open decisions:
@@ -25,8 +28,10 @@ Known limits and open decisions:
 - Parked import/export follow-ups (2026-09-30): the chapter list is fetched twice (only lightnovel_fun repeats real fetches); `media_export_service` builds in the system temp dir and moves across drives by copy; rows written before at-rest redaction are scrubbed on read only.
 - The Characters merge confirm duplicates `db._folded_row`'s clip rule in `mergeSpeakers.ts` (`leavesVoiceClip`); update both if it changes.
 - The `db.py` split is deferred; `api/schemas.py` and `translate_engines.py` are already packages (`api/schemas/`, `engine_backends/`).
+- Splits done (current sizes): `segment_splitting.py` from `core.py` (25 KB), `diagnostics_torch.py` (16 KB) and `upgrade_check.py` (17 KB) from `diagnostics.py`, `scanlate_detect.py` from `scanlate.py` (24 KB), `services/transcribe_pipeline.py` from `services/transcribe_service.py` (34 KB), `lib/` out of `services/`. Still over 40 KB: `db.py`, `diagnostics.py`, `services/transcribe_service.py`, `core.py`, `cli.py` (PR #1063 splits the translate command out), `scanlate.py`, `background_jobs.py`, `bulk_translate.py` and the rest of `OVERSIZED_MODULE_BYTES`. PR #943 (DB-0, `db/` package) is open.
 
 ## Next
+- Jobs rewrite Phase 1: merge PR A (#1058, the job store) and the parts after it; `docs/background-jobs.md` describes today's behaviour until then.
 - Remote access, steps 133-140: left is the owner's LAN test with a real certificate and the router port last (140); WP5 network steps (port 443, DDNS, the firewall rule `enable-remote` prints, Google client values and `BAIHE_PUBLIC_URL` in `.env`).
 - Step 141: spec only (`docs/specs/step-141-pc-shell-and-connect.md`) for the standalone PC shell and the "This PC" / "Connect to my PC" toggle.
 - Next wave: 171 CBZ + full ComicInfo; 162 text-mask fallback (Otsu with light/dark polarity, ML detector deferred); 158 manual timing shift (auto-sync waits on re-timing).
