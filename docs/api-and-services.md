@@ -327,7 +327,7 @@ the client to follow.
   needs the TypeScript edited in the same change. Where a limit exists on
   both sides the TS comment says so (for example
   `MAX_TRANSLATE_TEXT_CHARS` mirrors a schema constant).
-  `npx tsc --noEmit` and the per-module `*.test.ts` files catch a client
+  `npx tsc -b` and the per-module `*.test.ts` files catch a client
   that drifts from its own types, not from the API.
 
 ## Adding an endpoint

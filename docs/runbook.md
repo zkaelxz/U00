@@ -16,7 +16,7 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 ## 2. Run the local test suite
 - One area: `python -m pytest -q tests/test_<area>.py`
 - Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (takes 10+ minutes)
-- Frontend: `cd frontend && npx tsc --noEmit && npx vitest run`
+- Frontend: `cd frontend && npx tsc -b && npx vitest run`
 - Browser tests (`frontend/e2e/`) use the Chromium already installed. Never run `playwright install`.
 - GitHub CI is the merge gate while the repo is public. If the repo becomes private or Actions minutes run out, the full local suite plus the frontend commands above is the gate.
 

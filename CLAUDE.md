@@ -15,7 +15,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 
 ## Tests
 - While iterating: `python -m pytest -q tests/test_<area>.py`. Before pushing: the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`. CI runs the full suite on every PR (about 17 minutes); don't run it locally as well.
-- Frontend: `cd frontend && npx tsc --noEmit && npx vitest run`; Playwright in `frontend/e2e/` (use the preinstalled Chromium; never `playwright install`).
+- Frontend: `cd frontend && npx tsc -b && npx vitest run`; Playwright in `frontend/e2e/` (use the preinstalled Chromium; never `playwright install`).
 - Tests are mocked: no network, GPU, real models or real keys. Use the `isolated_db` fixture for anything touching the database, and `pytest.importorskip` for optional libraries.
 - Wait for background job threads before asserting. Poll a background process with `kill -0 <pid>`, never `pgrep -f` on a pattern that also matches your own command line.
 - CI is the merge gate while the repo is public. Only if it becomes private or Actions minutes run out does the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands become the gate. A test is never skipped, loosened or deleted to get CI green. Removing or rewriting one is fine when its behaviour is gone, when another test (named in the PR) pins the same behaviour, when it pinned an implementation detail (a patch target, a call shape) and a behaviour test replaces it, or when it could not fail. The only test of a behaviour that still exists stays. The PR summary lists each removed test and which of these applies.
@@ -27,7 +27,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Background jobs write only the fields they own: `db.save_lines(drama_id, lines, fields=("en",))`. A full sync (`fields=None`) makes the list the drama's lines: rows are updated in place by id, rows missing from the list are deleted, and a field is written when it differs from the Line's `orig`. Build Lines with `core.line_from_row` (it carries every field and `orig`) so flags, speaker and the like aren't wiped.
 - `db.create_drama` / `db.update_drama` interpolate kwarg keys into SQL: services must whitelist any keys a client can choose (`drama_service` does); other services pass fixed literal keys. Services check drama/series ownership (`services/ownership_service.py`).
 - Every API route declares exactly one of `require_permission(...)`, `public_route()` or `local_only()`; `tests/test_api_permissions.py` enforces it, and its row in `docs/route-permissions.md` is regenerated with `python tools/route_table.py --write`.
-- CLI and app must behave the same (glossary, style guide, locale, character names). When you change one, check the other.
+- When you change shared logic, the CLI must not break. New features are app-only unless asked. The CLI is maintenance-only.
 - A new optional dependency is registered in `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
 
 ## Commenting Standards

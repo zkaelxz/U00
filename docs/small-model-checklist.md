@@ -69,7 +69,7 @@ Tests are mocked, so no GPU, models or keys are needed. Optional libraries missi
 Test commands (run from the repo root unless noted):
 - One area: `python -m pytest -q tests/test_<area>.py` (areas: `docs/testing-and-ci.md`).
 - Quick guards before pushing: `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`. CI runs the full suite.
-- Frontend, from `frontend/`: `npx tsc --noEmit && npx vitest run`.
+- Frontend, from `frontend/`: `npx tsc -b && npx vitest run`.
 - Playwright (`frontend/e2e/`) only for a UI flow, with the Chromium already on the machine
   (`docs/testing-and-ci.md`). Never run `playwright install`.
 
