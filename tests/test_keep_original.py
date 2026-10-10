@@ -142,10 +142,13 @@ def test_trash_list_flags_items_from_a_pinned_title(isolated_db):
     assert flags == {str(pinned): True, str(loose): False}
 
 
-def test_trash_flag_needs_a_title_folder():
+def test_trash_flag_needs_a_title_folder(isolated_db):
     assert not keep_original_service.trashed_from_pinned_title(["library", "backups", "1"])
     assert not keep_original_service.trashed_from_pinned_title(["model_cache"])
     assert not keep_original_service.trashed_from_pinned_title([])
+    lib = os.path.basename(db.LIBRARY_DIR)
+    for odd in ("²", "99999999999999999999", "7a"):
+        assert not keep_original_service.trashed_from_pinned_title([lib, "dramas", odd])
 
 
 # ----- export ----------------------------------------------------------------

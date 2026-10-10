@@ -158,6 +158,11 @@ def test_no_other_api_response_for_the_title_carries_the_full_link(isolated_db):
         assert MARKER not in r.text, path
         seen.append(r.status_code)
     assert 200 in seen
+    # The POST routes that return the title after a write.
+    for path, body in [(f"/api/dramas/{did}/metadata", {"title_en": "Linked"}),
+                       (f"/api/metadata/dramas/{did}/autofill/apply", {"title_en": "Linked"})]:
+        r = c.post(path, json=body)
+        assert r.status_code == 200 and MARKER not in r.text, (path, r.text[:200])
     detail = c.get(f"/api/library/dramas/{did}").json()
     assert detail["source_url"] == CLEAN and "source_url_full" not in detail
 
@@ -205,3 +210,20 @@ def test_support_report_strips_query_and_userinfo(text):
     out = diagnostics_report.redact_for_support(text)
     assert MARKER not in out and "hunter2" not in out and "bob" not in out
     assert "?" not in out and "#" not in out
+
+
+def test_research_apply_returns_the_detail_shape_without_the_full_link(isolated_db, monkeypatch):
+    from services import metadata_research_service as mrs
+    did = _pinned_title()
+    monkeypatch.setattr(mrs, "apply_research", lambda drama_id, *a, **k: {
+        "drama_id": drama_id, "replaced": [], "saved_alternates": [], "confirmed": [], "kept": [],
+        "drama": drama_service.library_service.get_library_drama(drama_id)})
+    r = _local(_app(auth_mode="off")).post(f"/api/metadata/dramas/{did}/research/apply",
+                                           json={"research_id": "a" * 64, "choices": {}})
+    assert r.status_code == 200, r.text
+    assert MARKER not in r.text and r.json()["drama"]["source_url"] == CLEAN
+
+
+def test_library_service_never_hands_out_the_full_link(isolated_db):
+    did = _pinned_title()
+    assert "source_url_full" not in drama_service.library_service.get_library_drama(did)

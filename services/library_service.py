@@ -94,6 +94,9 @@ def get_library_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
+    # The raw source link may carry a token; only source_link_service reads
+    # it, so a route that returns this dict untyped can't leak it.
+    drama.pop("source_url_full", None)
     return drama
 
 

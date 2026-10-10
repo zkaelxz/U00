@@ -14,6 +14,7 @@ The pin itself is written through drama_service.update_drama_metadata
 """
 
 import os
+import re
 import stat
 import zipfile
 
@@ -87,8 +88,8 @@ def trashed_from_pinned_title(parts) -> bool:
     in a pinned title's folder, or is that folder."""
     parts = list(parts or ())
     if (len(parts) < 3 or parts[0].lower() != os.path.basename(db.LIBRARY_DIR).lower()
-            or parts[1].lower() != "dramas" or not parts[2].isdigit()):
-        return False
+            or parts[1].lower() != "dramas" or not re.fullmatch(r"[0-9]{1,9}", parts[2])):
+        return False    # a stray folder name must not break the Trash list
     return is_pinned(db.get_drama(int(parts[2])))
 
 

@@ -16,6 +16,7 @@ from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.metadata_research_schemas import (ProvenanceList, ResearchApplied, ResearchApply,
                                            ResearchBudget, ResearchRequest, ResearchResult)
+from api.routers.library_routes import to_detail
 from api.schemas import ErrorResponse
 from services import metadata_research_service
 
@@ -49,9 +50,10 @@ def research(payload: ResearchRequest, request: Request, drama_id: int = Path(ge
              summary="Keep, replace or save-both each researched field (per-field provenance)",
              responses=_ERRS)
 def apply_research(payload: ResearchApply, request: Request, drama_id: int = Path(ge=1)):
-    return metadata_research_service.apply_research(
+    result = metadata_research_service.apply_research(
         drama_id, payload.research_id, payload.choices, seen=payload.seen,
         principal=request.state.principal)
+    return {**result, "drama": to_detail(result["drama"])}
 
 
 @router.get("/dramas/{drama_id}/provenance", dependencies=[require_permission("library.read")],

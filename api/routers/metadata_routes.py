@@ -10,8 +10,10 @@ engines.paid for a paid engine, and takes a slot from the shared LLM cap
 from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
-from api.schemas import (AutofillApply, AutofillRequest, AutofillSuggestion, ErrorResponse,
-                         MediaAnalysis, RomanizeCreditsRequest, RomanizeCreditsResult)
+from api.routers.library_routes import to_detail
+from api.schemas import (AutofillApply, AutofillRequest, AutofillSuggestion, DramaDetail,
+                         ErrorResponse, MediaAnalysis, RomanizeCreditsRequest,
+                         RomanizeCreditsResult)
 from services import metadata_service
 
 router = APIRouter(prefix="/api/metadata", tags=["metadata"])
@@ -51,7 +53,8 @@ def romanize_credits(payload: RomanizeCreditsRequest, request: Request, drama_id
 
 
 @router.post("/dramas/{drama_id}/autofill/apply", dependencies=[require_permission("admin.library")],
+             response_model=DramaDetail,
              summary="Write chosen autofill fields to the drama; returns drama detail",
              responses=_ERRS)
 def apply_autofill(payload: AutofillApply, drama_id: int = Path(ge=1)):
-    return metadata_service.apply_autofill(drama_id, payload.model_dump(exclude_none=True))
+    return to_detail(metadata_service.apply_autofill(drama_id, payload.model_dump(exclude_none=True)))
