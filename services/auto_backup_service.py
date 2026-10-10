@@ -107,6 +107,7 @@ import core
 import db
 import sensitivity_preset
 from db import fsync_dir as _fsync_dir
+from lib.link_new import link_new
 from services import delete_service
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
@@ -1019,38 +1020,12 @@ def _place_copy(tmp: str, folder: str, now: datetime.datetime) -> str:
         path = os.path.join(folder, _copy_name(at))
         if not os.path.lexists(path):
             try:
-                _link_new(tmp, path)
+                link_new(tmp, path)
                 return path
             except FileExistsError:
                 pass
         at += datetime.timedelta(seconds=1)
     raise OSError("no free backup copy name")
-
-
-def _link_new(src: str, dest: str):
-    """Gives `src` the name `dest` without ever replacing a file there
-    (FileExistsError when one is there): a hard link, then src's name is
-    removed. A file system without hard links (FAT/exFAT drives, some
-    network shares) gets dest created exclusively first and src renamed
-    over that empty placeholder, which only this call can have made."""
-    try:
-        os.link(src, dest)
-    except FileExistsError:
-        raise
-    except (OSError, AttributeError, NotImplementedError):
-        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0))
-        os.close(fd)
-        try:
-            os.replace(src, dest)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.remove(dest)
-            raise
-        return
-    # The copy is in place under both names; a leftover partial name is
-    # swept by cleanup_stale_leftovers.
-    with contextlib.suppress(OSError):
-        os.remove(src)
 
 
 def _backup_job(job_id, include_media: bool):
@@ -1077,7 +1052,8 @@ def _backup_job(job_id, include_media: bool):
             owner = _identity(bump_from=floor)
         background_jobs.update_progress(job_id, 0.1, "Writing the backup...")
         las.write_backup_zip(tmp, include_media=include_media,
-                             manifest=lambda snap: _manifest_bytes(snap, include_media, owner))
+                             manifest=lambda snap: _manifest_bytes(snap, include_media, owner),
+                             should_cancel=lambda: background_jobs.is_cancel_requested(job_id))
         background_jobs.update_progress(job_id, 0.8, "Checking the backup...")
         _verify_snapshot(tmp)
         # On disk before any old copy is deleted: a power cut must not
@@ -1104,6 +1080,10 @@ def _backup_job(job_id, include_media: bool):
             except Exception as exc:
                 log.warning("Could not rotate the automatic backup copies: %s",
                             type(exc).__name__)
+    except background_jobs.JobCancelled:
+        # A cancel is not a failure: no error is recorded, and the finally
+        # below removes the partial archive.
+        raise
     except Exception as exc:
         log.warning("Automatic backup failed: %s", type(exc).__name__)
         _update_state(last_error=_FAILED)

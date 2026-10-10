@@ -23,6 +23,7 @@ So this module does three things:
 import os
 import re
 import threading
+import time
 from contextlib import contextmanager
 
 import browser_support
@@ -632,6 +633,11 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
 # after the grace period ends with the server's Job Object (process_guard).
 _SHUTDOWN = threading.Event()
 LOGIN_POLL_MS = 1000
+# A sign-in window nobody closes (walked away, forgot it) would hold the
+# source's browser profile lock and a job slot until the app quits; ten
+# minutes is long enough for a CAPTCHA or MFA round and short enough to
+# free the profile the same session.
+LOGIN_MAX_WAIT_SECONDS = 600
 
 
 def request_shutdown() -> None:
@@ -886,12 +892,19 @@ def _playwright_timeout_error():
         return _NoTimeout
 
 
-def _wait_for_close(context) -> None:
-    """Waits, however long it takes, for the person to close the window --
+class LoginWindowTimeout(RuntimeError):
+    """The sign-in window stayed open past LOGIN_MAX_WAIT_SECONDS."""
+
+
+def _wait_for_close(context, max_wait: float = None) -> None:
+    """Waits for the person to close the window, up to LOGIN_MAX_WAIT_SECONDS --
     in short steps, so an app shutdown ends the wait too (and _shut then
     closes the browser on this, its own, thread)."""
     timeout_error = _playwright_timeout_error()
+    give_up_at = time.monotonic() + (LOGIN_MAX_WAIT_SECONDS if max_wait is None else max_wait)
     while not _SHUTDOWN.is_set():
+        if time.monotonic() >= give_up_at:
+            raise LoginWindowTimeout("The sign-in window was left open too long, so it was closed.")
         try:
             context.wait_for_event("close", timeout=LOGIN_POLL_MS)
             return
@@ -901,7 +914,7 @@ def _wait_for_close(context) -> None:
 
 def open_login_window(url: str, profile_dir: str, launcher=None):
     """Opens a visible browser window on the persistent profile at `url`
-    and waits -- with no timeout -- until the person closes it. They sign
+    and waits until the person closes it (or LOGIN_MAX_WAIT_SECONDS passes). They sign
     in (and pass any CAPTCHA/MFA the site asks for) themselves, the normal
     way; nothing here types, clicks, solves or reads anything."""
     lock = profile_lock(profile_dir)

@@ -59,7 +59,7 @@ class TestExtractTextTesseractUsesExplicitPSM:
         pytesseract = pytest.importorskip("pytesseract")
         captured = {}
 
-        def fake_image_to_string(image, lang=None, config=None):
+        def fake_image_to_string(image, lang=None, config=None, timeout=0):
             captured["lang"] = lang
             captured["config"] = config
             return "text"
@@ -74,7 +74,7 @@ class TestExtractTextTesseractUsesExplicitPSM:
         pytesseract = pytest.importorskip("pytesseract")
         captured = {}
 
-        def fake_image_to_string(image, lang=None, config=None):
+        def fake_image_to_string(image, lang=None, config=None, timeout=0):
             captured["config"] = config
             return "text"
 
