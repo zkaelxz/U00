@@ -10,10 +10,12 @@ const openSection = async (page: Page, title: string) => {
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
-// The Catalogue tab is hidden while CATALOGUE_TAB_ENABLED is false.
-const catalogueTest = CATALOGUE_TAB_ENABLED ? test : test.skip
+// The Catalogue tab is hidden while CATALOGUE_TAB_ENABLED is false, and that constant is compiled into the
+// bundle, so these tests (tagged @catalogue) run in the 'catalogue' project against a build that has it on
+// (playwright.config.ts, vite.config.ts) rather than in the default build.
+const catalogueTest = test
 
-catalogueTest('nav entry, empty catalogue loads starter titles, search and filters', async ({ page }) => {
+catalogueTest('nav entry, empty catalogue loads starter titles, search and filters @catalogue', async ({ page }) => {
   const s = await mockDiscover(page, { titles: [] })
   await page.goto('/#/discover')
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Discover' })).toHaveAttribute('aria-current', 'page')
@@ -49,7 +51,7 @@ test('opening the page makes no 404 request to /api/discover', async ({ page }) 
   expect(notFound).toEqual([])
 })
 
-catalogueTest('add to Library, already-added 409, PC-only remove', async ({ page }) => {
+catalogueTest('add to Library, already-added 409, PC-only remove @catalogue', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
   const list = page.getByTestId('catalog-list')
@@ -72,7 +74,7 @@ catalogueTest('add to Library, already-added 409, PC-only remove', async ({ page
   expect(s.unmocked).toEqual([])
 })
 
-catalogueTest('remote viewer: no remove button', async ({ page }) => {
+catalogueTest('remote viewer: no remove button @catalogue', async ({ page }) => {
   await mockDiscover(page, { local: false })
   await page.goto('/#/discover')
   await expect(page.getByTestId('catalog-list').getByText('Deleting is PC only.').first()).toBeVisible()
