@@ -7,7 +7,8 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import {
-  arenaRunNames, deltaTone, formatCost, formatDelta, formatLatency, formatScore, metricName, metricNote, mixedMetricNote, mixedScorerNote, plainError,
+  arenaRunNames, deltaTone, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
+  mixedMetricNote, mixedScorerNote, plainError,
   runConfigLabel, runStatusLabel, runStatusTone, tierLabel, tierTone,
 } from './benchmarkForm'
 
@@ -98,6 +99,12 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                     {r.passed_count}/{r.scored_count} passed · {formatLatency(r.avg_latency_seconds)} avg · {formatCost(r.total_cost_usd)}
                     {r.error_count ? ` · ${r.error_count} errors` : ''}
                   </span>
+                  {r.judge && (
+                    <span className="muted num" data-testid="arena-judge">
+                      {judgeRunLine(r.judge)}
+                    </span>
+                  )}
+                  {r.judge?.same_as_tested && <span className="warn">Judged by a model that was also tested; its scores here are biased.</span>}
                   {r.note && <span className="muted">{r.note}</span>}
                 </li>
               ))}
@@ -163,6 +170,7 @@ function ResultCell({ res, name, showRun }: { res: BenchmarkResult | null; name:
             )}
             {res.duration_seconds != null && <span className="muted num">{formatLatency(res.duration_seconds)}</span>}
           </span>
+          {res.judge && <span className="muted num" data-testid="result-judge">Judge {formatJudgeScore(res.judge)}</span>}
         </>
       )}
     </div>

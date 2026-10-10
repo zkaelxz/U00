@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  addRegressionCase, casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
+  addRegressionCase, buildBenchmarkSet, casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
   getBenchmarkOptions, getBenchmarkRun, getBenchmarkSets, importGoldenSet, listBenchmarkRuns, startBenchmarkRun,
 } from './benchmark'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
@@ -15,6 +15,22 @@ const localHeader = (init: RequestInit) => new Headers(init.headers).get('X-Baih
 const bodyOf = (init: RequestInit) => JSON.parse(String(init.body))
 
 afterEach(() => resetPcModeForTests())
+
+describe('benchmark api: build a set and judge', () => {
+  it('builds a set from a title as a PC-only post, and carries the judge on estimate and start', async () => {
+    const { mock, f } = reply(200, {})
+    const body = { drama_id: 3, set_name: 'moon', include: 'reviewed' as const, lines_per_case: 4, dry_run: true }
+    await buildBenchmarkSet(body, f)
+    await estimateBenchmark({ stage: 'translation', configs: [{ engine: 'claude' }], judge: { engine: 'deepseek' } }, f)
+    await startBenchmarkRun({ stage: 'translation', configs: [{ engine: 'claude' }], judge: { engine: 'deepseek', allow_same_model: true } }, f)
+    const calls = mock.mock.calls as [string, RequestInit][]
+    expect(calls.map((c) => c[0])).toEqual(['/api/benchmark/sets/from-title', '/api/benchmark/estimate', '/api/benchmark/runs'])
+    expect(localHeader(calls[0][1])).toBe('1')
+    expect(bodyOf(calls[0][1])).toEqual(body)
+    expect(bodyOf(calls[1][1]).judge).toEqual({ engine: 'deepseek' })
+    expect(bodyOf(calls[2][1])).toMatchObject({ confirm: true, judge: { engine: 'deepseek', allow_same_model: true } })
+  })
+})
 
 describe('benchmark api', () => {
   it('reads options, sets, runs, one run and the arena from their paths', async () => {
