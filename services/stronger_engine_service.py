@@ -31,6 +31,7 @@ import re
 import core
 import db
 import translate_engines
+from engine_backends import llm_tasks
 from services import (engine_routing_service, settings_service, translate_run_service,
                       translate_service, workspace_job_service)
 from services.service_errors import (
@@ -288,7 +289,8 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     context["recent_context"] = recent
     try:
         try:
-            results = list(engine.translate_batch([line.zh], context) or [])
+            results = list(llm_tasks.call_batch_bounded(
+                engine, lambda: engine.translate_batch([line.zh], context)) or [])
         finally:
             cost = _log_spend(drama_id, engine_name, engine)
     except translate_engines.ContentModerationBlocked:

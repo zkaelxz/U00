@@ -14,6 +14,7 @@ from .shared import (
     SDK_REQUEST_TIMEOUT,
     _add_usage,
     _empty_usage,
+    make_openai_client,
     read_json_capped,
     redact_secrets,
     request_translations_with_retry,
@@ -32,9 +33,7 @@ class DeepSeekEngine:
     supports_reference = True
 
     def __init__(self, api_key: str, model: str = "deepseek-flash"):
-        from openai import OpenAI
-        self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com",
-                             timeout=SDK_REQUEST_TIMEOUT)
+        self.client = make_openai_client(api_key, base_url="https://api.deepseek.com")
         self.model = model
         self.last_usage = _empty_usage()
 
