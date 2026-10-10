@@ -17,7 +17,7 @@ from typing import Optional
 import background_jobs
 import db
 import diarize
-from services import drama_service, run_settings_service, settings_service
+from services import drama_service, run_settings_service, settings_service, transcribe_pipeline
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
@@ -73,8 +73,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
     uncovered = None
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path:
-        from services import transcribe_service  # imports this module, so not at the top
-        duration = transcribe_service._audio_duration_seconds(audio_path)
+        duration = transcribe_pipeline._audio_duration_seconds(audio_path)
         if duration:
             uncovered = round(max(0.0, duration - covered), 1)
     speakers = [{"label": k, "seconds": round(v["seconds"], 1),
@@ -196,7 +195,7 @@ def _record_run_speed(drama_id: int, result) -> None:
             return
         from services import transcribe_service  # imports this module, so not at the top
         transcribe_service.record_diarize_speed(
-            result.get("device") == "cuda", transcribe_service._audio_duration_seconds(audio_path),
+            result.get("device") == "cuda", transcribe_pipeline._audio_duration_seconds(audio_path),
             seconds)
     except Exception:
         pass

@@ -35,7 +35,7 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 ## Fragile seams
 - db: `configure_library_dir` rebinds `LIBRARY_DIR`, `DB_PATH` and friends, so read them as `db.X`
   when used and never copy them. A read-then-write transaction starts with `BEGIN IMMEDIATE`. See `docs/database.md`.
-- Process-job workers (`diarize.py`, `resegment.py`, `dub.py`, `dub_narration.py`, `services/transcribe_service.py`) stay
+- Process-job workers (`diarize.py`, `resegment.py`, `dub.py`, `dub_narration.py`, `services/transcribe_pipeline.py`, `services/transcribe_service.py`) stay
   top-level and picklable: Windows starts them in a fresh interpreter. Every process job starts with spawn,
   its own process group (`start_own_process_group()` first in the worker) and `kill_whole_tree=True`, so a bad
   worker fails on Linux CI too. See `docs/background-jobs.md`.

@@ -19,7 +19,7 @@ import db
 import sensitivity_preset as presets
 import translate_engines
 from services import (asr_options_service, compare_hear_worker, gpu_process_job, jobs_service,
-                      retranscribe_worker, settings_service, transcribe_service,
+                      retranscribe_worker, settings_service, transcribe_pipeline, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
@@ -70,7 +70,7 @@ def _backend_problem(choice: str, language: str):
     # Whisper hears the audio first on every other backend too.
     if (choice in ("whisper", "qwen3_asr")
             and not transcribe_service.diagnostics.check_dependency("faster_whisper")):
-        return transcribe_service.MISSING_TRANSCRIPTION_MESSAGE
+        return transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE
     if (choice == "qwen3_asr" or choice in _VAD_BACKENDS) and language not in asr_backend.LANGUAGE_NAMES:
         return "Qwen3-ASR doesn't cover this title's language."
     return None

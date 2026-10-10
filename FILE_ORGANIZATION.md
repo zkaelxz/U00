@@ -280,6 +280,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `subtitle_import_service.py`
 - `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
 - `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
+- `transcribe_pipeline.py` (the in-process transcription pipeline and its spawn-target worker: separation, model load, VAD, decode, Qwen pass, realign, split; writes no database rows)
 - `transcribe_service.py`
 - `translate_run_service.py`
 - `translate_service.py`

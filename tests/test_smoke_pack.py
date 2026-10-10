@@ -265,7 +265,7 @@ def test_stage_recorder_durations():
 @pytest.mark.parametrize("configured", ["/models/whisper-small", None])
 def test_run_clip_passes_the_offline_whisper_folder(tmp_path, monkeypatch, configured):
     from services import settings_service
-    from services import transcribe_service as ts
+    from services import transcribe_pipeline as ts
     monkeypatch.setattr(settings_service, "get_whisper_model_path", lambda: configured)
     seen = {}
 
