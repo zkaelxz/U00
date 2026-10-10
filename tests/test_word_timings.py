@@ -591,7 +591,7 @@ def _set_snapshot(history_id, rows):
 # ---- transcription and backups -----------------------------------------------------
 
 def test_transcription_stores_words_with_the_lines_it_creates(monkeypatch):
-    from services import transcribe_service
+    from services import transcribe_pipeline, transcribe_service
     did = db.create_drama(title_en="D", audio_filename="audio.wav", transcript_mode="whisper")
     ddir = db.drama_dir(did)
     os.makedirs(ddir, exist_ok=True)
@@ -603,7 +603,7 @@ def test_transcription_stores_words_with_the_lines_it_creates(monkeypatch):
     monkeypatch.setattr(core, "load_whisper_model", lambda *a, **k: None)
     monkeypatch.setattr(core, "get_whisper_device_info",
                         lambda *a, **k: {"device": "cpu", "compute_type": "int8"})
-    monkeypatch.setattr(transcribe_service, "transcribe_for_timing", lambda *a, **k: [
+    monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: [
         {"start": START, "end": END, "text": TEXT, "words": WORDS},
         {"start": END + 1, "end": END + 2, "text": "好的", "words": [
             {"word": "好", "start": END + 1, "end": END + 1.4}]}])   # words don't spell it

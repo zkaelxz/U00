@@ -16,7 +16,7 @@ import translate_engines
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import (compare_transcription_service as svc, gpu_process_job, transcribe_service,
+from services import (compare_transcription_service as svc, gpu_process_job, transcribe_pipeline, transcribe_service,
                       translate_service)
 from tests.gpu_inline import run_in_child_inline
 
@@ -418,7 +418,7 @@ class TestMissingPackage:
         did, _ = _drama()
         by_id = {b["id"]: b for b in svc.get_options(did)["backends"]}
         assert by_id["whisper"]["available"] is False
-        assert by_id["whisper"]["reason"] == transcribe_service.MISSING_TRANSCRIPTION_MESSAGE
+        assert by_id["whisper"]["reason"] == transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE
         with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
             svc.start_compare(did, selection=ALL)
 
