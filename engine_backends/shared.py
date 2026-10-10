@@ -5,9 +5,10 @@ import contextvars
 import json
 import re
 import time
+from typing import Optional
 
 from core import LANGUAGE_NAMES
-from lib import capped_body
+from lib import capped_body, http
 from memory_headroom import HeadroomError
 
 
@@ -170,6 +171,9 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
 PROVIDER_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
 
 
+_ERROR_BODY_DEFAULT_BYTES = 4096
+
+
 class ProviderResponseTooLarge(RuntimeError):
     """A provider's reply was over its byte cap or took too long to read."""
 
@@ -185,6 +189,59 @@ def read_json_capped(resp, deadline_seconds: float, cap_bytes: int = PROVIDER_RE
     make_error = make_error or (lambda: ProviderResponseTooLarge(
         "The provider's reply was too large or too slow to read."))
     return json.loads(capped_body.read_capped(resp, cap_bytes, deadline_seconds, make_error))
+
+
+class _ErrorResponse:
+    """What `_is_rate_limit_error` and callers read from `HTTPError.response`."""
+
+    def __init__(self, resp):
+        from requests.structures import CaseInsensitiveDict
+        self.status_code = resp.status
+        self.headers = CaseInsensitiveDict(resp.headers)
+        self.text = resp.text()
+        self.ok = False
+
+
+PROVIDER_UNREACHABLE = "The provider could not be reached."
+
+
+def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict] = None,
+              label: str = "The provider", error_detail_bytes: Optional[int] = None):
+    """POST `payload` as JSON through lib.http and return (parsed reply, headers).
+
+    The URL is a vendor endpoint or the PC owner's own Ollama address, so no
+    public-address guard and no redirects (a key header must never leave its
+    origin). The exception types are the ones `call_with_backoff` keys on: a
+    non-2xx reply is a requests.HTTPError carrying the status (429/503/529
+    back off, anything else gets one quick retry), a reply over the cap or
+    past the deadline is ProviderResponseTooLarge, and a transport failure or
+    redirect is a lib.http.FetchError with fixed text; fallback.py recognises
+    it as transient.
+    Every message is fixed text, so the key in `headers` cannot reach one.
+    """
+    import requests
+    try:
+        resp = http.post(url, timeout=timeout, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None,
+                         deadline=2 * timeout, headers=headers, json=payload,
+                         max_error_bytes=error_detail_bytes or _ERROR_BODY_DEFAULT_BYTES)
+    except (http.ResponseTooLarge, http.ResponseTooSlow):
+        raise ProviderResponseTooLarge("The provider's reply was too large or too slow to read.") from None
+    except http.FetchError:
+        raise http.FetchError(PROVIDER_UNREACHABLE) from None
+    if resp.status >= 400:
+        detail = ""
+        if error_detail_bytes:
+            try:
+                detail = str((json.loads(resp.body).get("error") or {}).get("message") or "")[:300]
+            except Exception:
+                pass
+        raise requests.HTTPError(redact_secrets(f"{label} returned HTTP {resp.status}"
+                                                + (f": {detail}" if detail else "")),
+                                 response=_ErrorResponse(resp))
+    if resp.status >= 300:  # redirects are not followed, so there is no reply to read
+        raise http.FetchError(PROVIDER_UNREACHABLE)
+    from requests.structures import CaseInsensitiveDict
+    return json.loads(resp.body), CaseInsensitiveDict(resp.headers)
 
 
 # Matches a raw API key/token sitting in an error string -- a query
