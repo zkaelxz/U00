@@ -465,6 +465,39 @@ class TestRetriesNeverHoldTheJobsLock:
             release.set()
             _finish("st_race2")
 
+    def test_a_second_retry_waits_for_the_one_in_flight(self, isolated_db, monkeypatch):
+        """The heartbeat's retry and the exit flush's can overlap; the second
+        would write an older copy that can land after the first returned."""
+        real = job_store._write_row
+        release = threading.Event()
+        assert bg.start_job("st_two", lambda: release.wait(5.0))
+        with bg._lock:
+            job_store._pending.add("st_two")
+        inside, active, overlapped = threading.Event(), [], []
+
+        def slow_write(job_id, job, result_json, timeout=None):
+            overlapped.append(bool(active))
+            active.append(1)
+            inside.set()
+            time.sleep(0.3)
+            real(job_id, job, result_json, timeout)
+            active.pop()
+        monkeypatch.setattr(job_store, "_write_row", slow_write)
+        first = threading.Thread(target=job_store.retry_pending)
+        try:
+            first.start()
+            assert inside.wait(5.0)
+            second = threading.Thread(target=job_store.retry_pending)
+            second.start()
+            first.join(5.0)
+            second.join(5.0)
+            assert not first.is_alive() and not second.is_alive()
+            assert overlapped == [False]
+            assert "st_two" not in job_store._pending
+        finally:
+            release.set()
+            _finish("st_two")
+
 
     def test_a_sync_error_stored_after_a_newer_write_landed_is_rewritten(
             self, isolated_db, monkeypatch):

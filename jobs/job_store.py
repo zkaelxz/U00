@@ -12,6 +12,7 @@ import itertools
 import os
 import secrets
 import sqlite3
+import threading
 import time
 
 import db
@@ -38,6 +39,10 @@ _pending = set()
 # in the meantime, or it could pass off an older state as landed.
 _last_write = {}
 _tokens = itertools.count()
+# One retry_pending at a time (the heartbeat's and the exit flush's can
+# overlap): two copying the same job write it twice, and the older copy can
+# land after the exit flush has returned. Taken before background_jobs._lock.
+_retry_lock = threading.Lock()
 _exit_hook_registered = False
 _flushed = False
 
@@ -235,6 +240,15 @@ def retry_pending(deadline=None) -> None:
     update_progress or a Jobs poll; the lock is held only to copy the job
     and to apply the outcome. Stops at the first "database is locked" (the
     rest would wait on the same lock) and at `deadline` (time.monotonic())."""
+    if not _acquire(_retry_lock, deadline):
+        return
+    try:
+        _retry_pending(deadline)
+    finally:
+        _retry_lock.release()
+
+
+def _retry_pending(deadline):
     import background_jobs as bj
     for _ in range(_WRITE_TRIES):
         if not _acquire(bj._lock, deadline):
