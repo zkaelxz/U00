@@ -16,10 +16,9 @@ carries keys, filesystem paths or URLs.
 import os
 import sys
 
-import background_jobs
-import db
 import diagnostics
 import translate_engines
+from jobs import gpu_slots
 from services import real_model_check_service as svc
 
 USAGE_ERROR, GPU_BUSY = 2, 2
@@ -59,12 +58,12 @@ def run(speech_clip=None, expected_text=None, out=print) -> int:
     if expected_text and not speech_clip:
         out("--expected-text needs --speech-clip.")
         return USAGE_ERROR
-    holder = f"cli:{os.getpid()}"
+    holder = f"check:{os.getpid()}"
     try:
         # The CLI never starts background jobs, so it claims the same
         # cross-process slot the app's GPU jobs use.
-        if not background_jobs.try_take_gpu_slot(holder, "Real-model check"):
-            out(f"The GPU is busy with: {_safe(db.gpu_lock_status()[1] or 'another job')}. "
+        if not gpu_slots.acquire(holder, "Real-model check"):
+            out(f"The GPU is busy with: {_safe(gpu_slots.status()[1] or 'another job')}. "
                 "Try again when it ends.")
             return GPU_BUSY
     except Exception as exc:
@@ -77,7 +76,7 @@ def run(speech_clip=None, expected_text=None, out=print) -> int:
         out(f"The real-model check stopped: {_safe(exc) or type(exc).__name__}")
         return 1
     finally:
-        db.release_gpu_lock(holder)
+        gpu_slots.release(holder)
     out(format_report(results))
     return exit_code(results)
 

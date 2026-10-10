@@ -21,6 +21,7 @@ import pytest
 import background_jobs
 import core as core_module
 import segment_splitting
+from jobs import gpu_slots
 from services import transcribe_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -1612,7 +1613,7 @@ class TestTranscribeProcessJob:
                    and m.startswith("Transcribing... 50%") for f, m in messages)
         assert max(f for f, _ in messages) < 1.0
         assert _wait_until(lambda: not os.path.exists(scratch[0]))
-        assert _wait_until(lambda: isolated_db.gpu_lock_holder_count() == 0)
+        assert _wait_until(lambda: gpu_slots.holder_count() == 0)
         _clear(job_id)
 
     def test_vocals_are_separated_in_the_scratch_folder_then_kept(self, isolated_db, monkeypatch):
@@ -1652,7 +1653,7 @@ class TestTranscribeProcessJob:
             info = json.load(f)
         assert info["temp"].startswith(transcribe_service.storage.temp_root())
         assert background_jobs.get_status(job_id)["status"] == "running"
-        assert isolated_db.gpu_lock_holder_count() == 1
+        assert gpu_slots.holder_count() == 1
 
         started = time.monotonic()
         background_jobs.request_cancel(job_id)
@@ -1665,7 +1666,7 @@ class TestTranscribeProcessJob:
         assert _wait_until(lambda: not os.path.exists(info["temp"]))
         assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧的"]
         assert not os.path.exists(os.path.join(ddir, "raw_transcript.json"))
-        assert _wait_until(lambda: isolated_db.gpu_lock_holder_count() == 0)
+        assert _wait_until(lambda: gpu_slots.holder_count() == 0)
         _clear(job_id)
 
 

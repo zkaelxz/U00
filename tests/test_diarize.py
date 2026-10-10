@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diarize
+from jobs import gpu_slots
 
 
 @pytest.fixture(autouse=True)
@@ -560,7 +561,7 @@ class TestOomFallbackFollowUps:
         monkeypatch.setattr(diarize, "save_turns",
                             lambda *a, **k: saved.update(k) or real_save(*a, **k))
         monkeypatch.setattr(cli, "release_gpu_models", lambda: None)
-        monkeypatch.setattr(isolated_db, "heartbeat_gpu_lock", lambda h: beats.append(h))
+        monkeypatch.setattr(gpu_slots, "heartbeat", lambda holders: beats.extend(holders))
         clock = iter([0.0, 100.0, 200.0, 300.0])
         import time as real_time
         import types

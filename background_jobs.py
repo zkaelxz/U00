@@ -169,13 +169,8 @@ def set_gpu_limit_enabled(enabled: bool):
 
 # How many GPU-touching jobs may run at once while the GPU limit is on,
 # across this process and any cli.py run. 1 (the default) is one at a time.
-# The upper bound matches db.GPU_LOCK_MAX_SLOTS (the gpu_lock table's CHECK).
+# The upper bound matches gpu_slots.GPU_LOCK_MAX_SLOTS (the gpu_lock table's CHECK).
 GPU_MAX_PARALLEL_LIMIT = 4
-# A job joins one that is already running only with at least this much
-# free VRAM per nvidia-smi, and only once the newest running job has had
-# this long to load its model (so the free-VRAM reading includes it).
-GPU_PARALLEL_RESERVE_MB = 2048
-GPU_PARALLEL_SETTLE_SECONDS = 30
 
 
 def _clamp_gpu_max_parallel(value) -> int:
@@ -199,54 +194,6 @@ def get_gpu_max_parallel() -> int:
 def set_gpu_max_parallel(value: int):
     import db
     db.set_app_setting("gpu_max_parallel", _clamp_gpu_max_parallel(value))
-
-
-def _vram_room_for_another_gpu_job() -> bool:
-    """True only when nvidia-smi reports at least GPU_PARALLEL_RESERVE_MB
-    free. No reading (no nvidia-smi, a failed query) is False: without it
-    nothing can tell whether a second model fits, so jobs run one at a time.
-    No per-job size estimate is used: none is known before a job loads."""
-    try:
-        load = gpu_probe.external_gpu_load()
-    except Exception as exc:
-        _warn("GPU memory check failed; running GPU jobs one at a time", exc)
-        return False
-    free_mb = (load or {}).get("memory_free_mb")
-    return free_mb is not None and free_mb >= GPU_PARALLEL_RESERVE_MB
-
-
-def try_take_gpu_slot(holder: str, description: str = None, check_external_load: bool = False) -> bool:
-    """Claims a cross-process GPU slot (db.gpu_lock) for `holder`; True if
-    taken. Shared by UI jobs and cli.py so both follow the same cap.
-
-    The first holder needs only a free lock (and, with check_external_load,
-    no other application loading the GPU). Joining running holders needs
-    gpu_max_parallel > 1, fewer holders than that, enough free VRAM and the
-    settle time (see GPU_PARALLEL_SETTLE_SECONDS). The utilization check is
-    skipped when joining: Baihe's own running job is what loads the GPU
-    then, and free VRAM already counts every application's use.
-
-    May raise from the database; callers decide whether that queues/waits."""
-    import db
-    cap = get_gpu_max_parallel()
-    if cap > 1:
-        others = db.gpu_lock_holder_count(exclude_holder=holder)
-        if others >= cap:
-            return False
-        if others:
-            if not _vram_room_for_another_gpu_job():
-                return False
-            return db.try_acquire_gpu_lock(holder, description, max_holders=cap,
-                                           settle_seconds=GPU_PARALLEL_SETTLE_SECONDS)
-    if check_external_load:
-        try:
-            if gpu_probe.external_gpu_is_busy():
-                return False
-        except Exception as exc:
-            # Fails open on purpose: this check is optional (no nvidia-smi is
-            # normal and returns False without raising), the locks remain.
-            _warn("external GPU load check failed; ignoring it", exc)
-    return db.try_acquire_gpu_lock(holder, description)
 
 
 # An optional local desktop notification when a
@@ -377,8 +324,8 @@ def _note_gpu_wait_reason_locked(job_id):
             load = gpu_probe.external_gpu_load()
             reason = external_gpu_wait_message(load) if load else None
             if reason is None:
-                from services import gpu_lock_recovery_service
-                reason = gpu_lock_recovery_service.previous_run_wait_message()
+                from jobs import gpu_slots
+                reason = gpu_slots.previous_run_wait_message()
         except Exception as exc:
             _warn("GPU wait-reason check failed", exc)
     job["gpu_wait_external"] = reason
@@ -405,7 +352,7 @@ def _gpu_slot_available_locked(job_id, description):
     running right now -- nothing else, in this process, another one
     (cross-process), or a completely different application, currently
     holds the GPU. This module's own guard is in-process state, invisible
-    to a `cli.py` run, so db.gpu_lock is the cross-process coordination point.
+    to a `cli.py` run, so jobs/gpu_slots.py is the cross-process coordination point.
 
     Both of those locks only know about GPU-touching work Baihe
     itself started -- neither can see a different application on the same
@@ -427,7 +374,7 @@ def _gpu_slot_available_locked(job_id, description):
     after this returns True, not just probe.
 
     With gpu_max_parallel > 1, a job may also join running ones, up to
-    that many in total; see try_take_gpu_slot for the free-VRAM guardrail.
+    that many in total; see gpu_slots.acquire for the free-VRAM guardrail.
 
     No nvidia-smi (or a failing external check) is ignored for the first
     job, and means one at a time beyond it. A failing cross-process lock
@@ -436,7 +383,8 @@ def _gpu_slot_available_locked(job_id, description):
     if _running_gpu_job_count_locked(job_id) >= get_gpu_max_parallel():
         return False
     try:
-        if try_take_gpu_slot(f"ui:{job_id}", description, check_external_load=True):
+        from jobs import gpu_slots
+        if gpu_slots.acquire(f"ui:{job_id}", description, job_id=job_id, check_external_load=True):
             return True
         _note_gpu_wait_reason_locked(job_id)
         return False
@@ -466,13 +414,13 @@ def _release_gpu_slot(job_id, gpu_touching, run=None):
     if not gpu_touching:
         return
     try:
-        import db
+        from jobs import gpu_slots
         with _lock:
             current = _jobs.get(job_id)
             if (run is not None and current is not None and current is not run
                     and current.get("status") == "running"):
                 return
-            db.release_gpu_lock(f"ui:{job_id}")
+            gpu_slots.release(f"ui:{job_id}")
     except Exception:
         pass
 
@@ -1499,8 +1447,8 @@ def update_progress(job_id: str, frac: float, message: str = ""):
         # process before it's actually done. Best-effort, same reasoning
         # as _gpu_slot_available_locked -- never raises into a job thread.
         try:
-            import db
-            db.heartbeat_gpu_lock(f"ui:{job_id}")
+            from jobs import gpu_slots
+            gpu_slots.heartbeat([f"ui:{job_id}"])
         except Exception:
             pass
 

@@ -135,7 +135,7 @@ same id starts. The protections:
   `HEARTBEAT_INTERVAL` (60 s): `db.touch_job_records`, `reconcile_dead_workers`, and
   the retry of failed writes.
 - A GPU job also refreshes its `gpu_lock` row on every `update_progress`
-  (`db.heartbeat_gpu_lock`).
+  (`gpu_slots.heartbeat`).
 - A `queued`/`running` row is stale when its owner pid is gone (`owner_pid`, via
   `owner_process_alive`) or `updated_at` is older than `STALE_JOB_SECONDS` (15 min).
   `jobs_service.is_stale` and the sweep skip any job live in this process. Each close
@@ -164,14 +164,22 @@ A GPU job is queued instead of started when an earlier GPU job is already waitin
    `_promote_next_queued_gpu_job`), the head is started if a slot is free. Entries whose
    job was cleared or cancelled are dropped (their `on_finish` still runs). The queue
    is per process on purpose: each process manages only the jobs it started.
-2. **Cross-process slots.** `try_take_gpu_slot(holder, description)` claims a row in
-   `db.gpu_lock` via `db.try_acquire_gpu_lock` (`BEGIN IMMEDIATE`, so the read-then-write
-   is atomic across processes). Holders are `ui:<job_id>` and `cli:<pid>`. A row not
-   heartbeated for `db.GPU_LOCK_STALE_SECONDS` (10 min) is abandoned and ignored. At
-   startup a `ui:` row is also released at once when its job record was written after the
-   row was taken and names a dead owner pid (`gpu_lock_recovery_service`); a record older
-   than the row is a previous run's, so the row is left to expire. The
-   table has at most `GPU_LOCK_MAX_SLOTS` (4) rows.
+2. **Cross-process slots.** `jobs/gpu_slots.py` is the only code that reads or writes
+   the `gpu_lock` table, for every process: `acquire(holder, description, job_id=,
+   check_external_load=)` claims a row (`BEGIN IMMEDIATE`, so the read-then-write is
+   atomic across processes), `release`, `heartbeat`, `reap`, `status`. Holders are
+   `"<scope>:<name>"`: `ui:<job_id>`, `cli:<pid>`, `live-whisper:<pid>` (an abandoned
+   Live decode) and `check:<pid>` (the CLI real-model check). Each row records its
+   `owner_pid`, `owner_instance` (`job_store.INSTANCE_ID`) and, for `ui:`, `job_id`, and
+   whether it still counts is decided from those, never from the holder string: it is
+   dead when its pid has exited, when the pid is this process's but the instance is not
+   (an earlier server had the pid), or when it has not been heartbeated for
+   `GPU_LOCK_STALE_SECONDS` (10 min). A dead row is ignored by `acquire` and deleted by
+   `reap`, which the server runs once at startup. A row from before those columns existed
+   has only the heartbeat rule; while only such `ui:` rows hold the GPU, a queued job says
+   it is waiting for a previous run (`previous_run_wait_message`). `release` and
+   `heartbeat` touch only this process's rows, so two servers sharing a job id never free
+   or refresh each other's slot. The table has at most `GPU_LOCK_MAX_SLOTS` (4) rows.
 3. **External load.** For the first holder (`check_external_load=True`, which UI jobs
    pass), `diagnostics.external_gpu_is_busy` reads nvidia-smi totals. A program Baihe
    did not start (a game, a transcoder) keeps the job queued, with a message that says
@@ -184,7 +192,7 @@ a running one only if all of these hold:
 
 - fewer than the cap holders (live `gpu_lock` rows, any process);
 - at least `GPU_PARALLEL_RESERVE_MB` (2048) free VRAM per nvidia-smi
-  (`_vram_room_for_another_gpu_job`; no reading means no join);
+  (`gpu_slots._vram_room_for_another_gpu_job`; no reading means no join);
 - the newest holder has held its slot `GPU_PARALLEL_SETTLE_SECONDS` (30 s), checked
   inside the same transaction so two processes cannot both join on one reading.
 
@@ -429,13 +437,13 @@ work inline in the CLI process (for example `translate_engines.translate_lines_w
 in `cmd_translate`) and writes no `job_records` rows. Differences that matter:
 
 - **GPU slot.** A GPU step wraps its work in `_gpu_lock`, which loops on
-  `background_jobs.try_take_gpu_slot("cli:<pid>", ...)` (waiting, printing what it is
+  `gpu_slots.acquire("cli:<pid>", ...)` (waiting, printing what it is
   busy with) and releases the row on exit. So the "GPU jobs at once" cap and the free-VRAM
   check apply to the CLI like app jobs, and a CLI GPU run blocks a UI job (and the reverse).
   The CLI does not pass `check_external_load`, so it skips the nvidia-smi external-load
-  check. It refreshes its row with `db.heartbeat_gpu_lock`.
+  check. It refreshes its row with `gpu_slots.heartbeat`.
 - **Not seen by the Jobs API.** A CLI run is visible to other code only while it holds the
-  GPU lock (`db.gpu_lock_status`); a CLI run of non-GPU steps leaves no trace.
+  GPU lock (`gpu_slots.status`); a CLI run of non-GPU steps leaves no trace.
 - **Replacing lines.** Before writing a wholesale result it calls `cancel_line_jobs` and
   sets `job_records` cancel flags for the API's line-writing jobs.
 - CLI and app must behave the same for glossary, style guide, locale and character names:

@@ -91,10 +91,7 @@ def gpu_claim_held() -> bool:
         return bool(entry is not None and entry["claimed"] and entry["worker"].is_alive())
 
 
-CLAIM_PREFIX = "live-whisper:"
-# Per process, so a second launch's startup sweep can tell this process's
-# claim from a dead one's.
-CLAIM_HOLDER = f"{CLAIM_PREFIX}{os.getpid()}"
+CLAIM_HOLDER = f"live-whisper:{os.getpid()}"
 # Shown on a queued job when only the abandoned call holds the GPU.
 WAIT_MESSAGE = "Waiting for the GPU (a Live Whisper call is still finishing)"
 
@@ -119,46 +116,23 @@ def wait_for_outstanding(timeout: float) -> bool:
     return outstanding_label() is None
 
 
-def release_stale_claims() -> int:
-    """Deletes `live-whisper:<pid>` gpu_lock rows whose process is gone; run at
-    server startup. A claim whose process died would otherwise keep GPU jobs
-    queued until the row goes stale. A live pid's row is another running
-    instance's abandoned decode, still in its VRAM. This process's own pid
-    counts as gone: no Whisper thread exists yet, so the row is from an earlier
-    run that had the same pid."""
-    import contextlib
-    import db
-    released = 0
-    with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT holder FROM gpu_lock WHERE holder LIKE ?", (CLAIM_PREFIX + "%",)).fetchall()
-        for row in rows:
-            suffix = row["holder"][len(CLAIM_PREFIX):]
-            if suffix.isdigit() and int(suffix) != os.getpid() and (
-                    background_jobs.owner_process_alive(int(suffix))):
-                continue
-            released += conn.execute(
-                "DELETE FROM gpu_lock WHERE holder = ?", (row["holder"],)).rowcount
-        conn.commit()
-    return released
-
-
 def _claim_gpu(entry: dict) -> None:
     """Holds a gpu_lock slot while an abandoned GPU call may still decode, so a
     queued GPU job (or a CLI run) is not promoted into its VRAM after the Live
     job released its own slot. Never heartbeated: a call stuck forever stops
-    counting after db.GPU_LOCK_STALE_SECONDS, like any silent holder."""
+    counting after gpu_slots.GPU_LOCK_STALE_SECONDS, like any silent holder."""
     if not entry["gpu"]:
         return
     try:
-        import db
+        from jobs import gpu_slots
         with _outstanding_lock:
             if entry["ended"]:
                 return
             # Up to the table's cap, not the user's gpu_max_parallel: the Live
             # job still holds its own slot at this moment.
-            entry["claimed"] = db.try_acquire_gpu_lock(
-                CLAIM_HOLDER, "an abandoned Live Whisper decode", max_holders=db.GPU_LOCK_MAX_SLOTS)
+            entry["claimed"] = gpu_slots.take(
+                CLAIM_HOLDER, "an abandoned Live Whisper decode",
+                max_holders=gpu_slots.GPU_LOCK_MAX_SLOTS)
     except Exception as exc:
         _log("warning", f"Live: could not claim the GPU for the abandoned call: {_redacted(exc)}")
 
@@ -171,8 +145,8 @@ def _worker_ended(entry: dict) -> None:
         held, entry["claimed"] = entry["claimed"], False
         if held:
             try:
-                import db
-                db.release_gpu_lock(CLAIM_HOLDER)
+                from jobs import gpu_slots
+                gpu_slots.release(CLAIM_HOLDER)
             except Exception as exc:
                 _log("warning", f"Live: could not release the GPU claim: {_redacted(exc)}")
     if held:

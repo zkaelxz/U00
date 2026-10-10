@@ -400,8 +400,9 @@ class TestExitFlush:
         try:
             assert bg.get_status("st_ex_b")["status"] == "queued"
             with contextlib.closing(db.get_conn()) as conn:   # another process's job
-                conn.execute("INSERT INTO gpu_lock VALUES (2, 'ui:st_ex_b', 'x', ?, ?)",
-                             (time.time(), time.time()))
+                conn.execute("INSERT INTO gpu_lock (id, holder, description, acquired_at, heartbeat_at, "
+                             "owner_pid, owner_instance) VALUES (2, 'ui:st_ex_b', 'x', ?, ?, ?, 'other')",
+                             (time.time(), time.time(), os.getpid() + 1))
                 conn.commit()
             job_store.flush_at_exit()
             assert "ui:st_ex_b" in _gpu_holders()
