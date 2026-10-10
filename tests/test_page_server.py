@@ -23,6 +23,7 @@ import pytest
 
 import page_capture_checks
 import page_server
+import page_turns
 
 
 def _png_bytes(width=600, height=900, colour=(240, 240, 240), blank=False):
@@ -150,8 +151,8 @@ def fake_pipeline(monkeypatch):
 def _reset_module_state():
     page_server.set_translation_config(engine=None, api_key="", base_url=None,
                                        free_tier=False)
-    with page_server._context_lock:
-        page_server._contexts.clear()
+    with page_turns._context_lock:
+        page_turns._contexts.clear()
     yield
 
 
@@ -1122,7 +1123,7 @@ class TestRecapturingKeepsSavedWork:
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
         drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
-        context = dict(page_server._contexts)
+        context = dict(page_turns._contexts)
         chapter_two = {"images": [_distinct_page(0), _distinct_page(1)], "drama_id": drama_id,
                        "store": True, "filter_pages": False}
         result = _post(token, chapter_two, path="/pages").payload
@@ -1201,14 +1202,14 @@ class TestConcurrentCapturesOfOneTitle:
         drama_id = self._drama(monkeypatch)
         state = self._blocking_translate(monkeypatch)
         saw_busy = threading.Event()
-        real_claim = page_server._claim_page
+        real_claim = page_turns.claim_page
 
         def claim(page_id):
             theirs, mine = real_claim(page_id)
             if theirs is not None:
                 saw_busy.set()
             return theirs, mine
-        monkeypatch.setattr(page_server, "_claim_page", claim)
+        monkeypatch.setattr(page_turns, "claim_page", claim)
         body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
         first, first_out = self._in_thread(token, body)
         assert state["entered"].wait(self.WAIT)
@@ -1228,7 +1229,7 @@ class TestConcurrentCapturesOfOneTitle:
             self, token, fake_pipeline, isolated_db, monkeypatch):
         drama_id = self._drama(monkeypatch)
         state = self._blocking_translate(monkeypatch)
-        monkeypatch.setattr(page_server, "INFLIGHT_WAIT_SECONDS", 0.05)
+        monkeypatch.setattr(page_turns, "INFLIGHT_WAIT_SECONDS", 0.05)
         body = {"images": [_distinct_page(0)], "drama_id": drama_id, "store": True}
         first, _ = self._in_thread(token, body)
         assert state["entered"].wait(self.WAIT)
@@ -1256,7 +1257,7 @@ class TestConcurrentCapturesOfOneTitle:
 
             def __exit__(self, *exc):
                 self._lock.release()
-        monkeypatch.setitem(page_server._chain_locks, str(drama_id), SpyLock())
+        monkeypatch.setitem(page_turns._chain_locks, str(drama_id), SpyLock())
         first, _ = self._in_thread(token, {"images": [_distinct_page(0)],
                                            "drama_id": drama_id, "store": True})
         assert state["entered"].wait(self.WAIT)
@@ -1267,7 +1268,7 @@ class TestConcurrentCapturesOfOneTitle:
         first.join(self.WAIT)
         second.join(self.WAIT)
         assert state["calls"] == ["", "context after call 1"]
-        assert page_server._contexts[str(drama_id)] == "context after call 2"
+        assert page_turns._contexts[str(drama_id)] == "context after call 2"
 
     def test_a_late_failure_keeps_a_page_another_request_returned(
             self, token, fake_pipeline, isolated_db, monkeypatch):
@@ -1276,7 +1277,7 @@ class TestConcurrentCapturesOfOneTitle:
         import db
         drama_id = self._drama(monkeypatch)
         state = self._blocking_translate(monkeypatch)
-        monkeypatch.setattr(page_server, "INFLIGHT_WAIT_SECONDS", 0.05)
+        monkeypatch.setattr(page_turns, "INFLIGHT_WAIT_SECONDS", 0.05)
         real_save = page_capture_checks.save_translations_of_read
 
         def locked_db(*a, **kw):
