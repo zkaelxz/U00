@@ -435,6 +435,41 @@ test.describe('desktop', () => {
   })
 })
 
+test('series instructions follow a series assigned here, so Save never writes the old text over it', async ({ page }) => {
+  let seriesId: number | null = null
+  const saved: unknown[] = []
+  await page.route(/\/api\/auth\/me$/, (route) => route.fulfill({ json: ME.authOff }))
+  await page.route('**/api/library/dramas/1', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: seriesId } })
+  })
+  await withExportLines(page)
+  await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/dramas/1/metadata', (route) => {
+    seriesId = 7
+    return route.fulfill({ json: {} })
+  })
+  const instructions = () => ({ project_instructions: 'Project rules', series_instructions: seriesId ? 'Series 7 rules' : '' })
+  await page.route('**/api/glossary/dramas/1/instructions', (route) => route.fulfill({ json: instructions() }))
+  await page.route('**/api/glossary/dramas/1/instructions/series', (route) => {
+    saved.push(route.request().postDataJSON())
+    return route.fulfill({ json: instructions() })
+  })
+
+  await page.goto('/#/drama/1/translate')
+  await openSection(page, 'Glossary')
+  const series = page.getByLabel('Series instructions')
+  await expect(series).toHaveValue('')
+  await page.getByLabel('Project instructions').fill('Project rules, typed')
+
+  await page.getByTestId('series-assign').getByRole('button', { name: /^Create series/ }).click()
+  await expect(series).toHaveValue('Series 7 rules')
+  // Project text does not depend on the series: unsaved typing stays.
+  await expect(page.getByLabel('Project instructions')).toHaveValue('Project rules, typed')
+  await page.getByRole('button', { name: 'Save series instructions' }).click()
+  await expect.poll(() => saved).toEqual([{ text: 'Series 7 rules' }])
+})
+
 test.describe('phone 390px', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 

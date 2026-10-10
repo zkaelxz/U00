@@ -109,7 +109,8 @@ export function saveMergeUndo(dramaId: number, undo: MergeUndoHandle | null, sto
  *  running" 409 (nothing was spent) or no answer at all. Not found, a stale
  *  409 and anything else mean the id is gone or can never work. */
 export function undoIdSurvives(e: unknown): boolean {
-  if (!(e instanceof ApiError)) return true
+  // The client reports an unreachable server as status 0.
+  if (!(e instanceof ApiError) || e.status === 0) return true
   const details = e.details as { reason?: unknown } | undefined
   return e.status === 409 && details?.reason === 'job_running'
 }
