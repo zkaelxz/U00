@@ -62,3 +62,14 @@ test('a file that is not a subtitle file, or has blocking problems, cannot be im
   await expect(panel.getByRole('list', { name: 'Problems found' })).toContainText('A cue ends before it starts')
   await expect(panel.getByRole('button', { name: 'Import', exact: true })).toBeDisabled()
 })
+
+test('a failed preview still shows the encoding and mode controls', async ({ page }) => {
+  await mockSubtitleImport(page)
+  await page.route('**/api/subtitle-import/dramas/2/preview', (r) =>
+    r.fulfill({ status: 422, json: { error: { code: 'validation_error', message: 'Could not read the file.' } } }))
+  const panel = await open(page)
+  await panel.getByLabel('Subtitle file').setInputFiles(SRT_FILE)
+  await expect(panel.getByLabel('Text encoding', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('radiogroup', { name: 'Import as' })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Import', exact: true })).toBeDisabled()
+})
