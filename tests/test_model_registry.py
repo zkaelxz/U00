@@ -8,6 +8,7 @@ import pytest
 
 import db
 import translate_engines
+from lib import http
 from services import model_registry_service as svc
 from services import translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -26,9 +27,12 @@ class FakeResp:
     def close(self):
         pass
 
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            raise RuntimeError(f"HTTP {self.status_code}")
+
+def _serve(monkeypatch, fn):
+    """Route lib.http's connection step to `fn(url, ip=, headers=, timeout=, method=, **requests_kwargs)`,
+    passing on exactly what lib.http handed pinned_get."""
+    monkeypatch.setattr(http, "pinned_get", lambda url, ip, headers, timeout=None, method="GET", **kw:
+                        fn(url, ip=ip, headers=headers, timeout=timeout, method=method, **kw))
 
 
 @pytest.fixture(autouse=True)
@@ -78,14 +82,13 @@ class TestRegistry:
 
 class TestProviderCheck:
     def test_model_no_longer_available_surfaces_clear_warning(self, isolated_db, keys, monkeypatch):
-        import requests
         db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
         seen = {}
 
-        def fake_get(url, headers=None, timeout=None, allow_redirects=True, stream=False):
-            seen.update(url=url, headers=headers, timeout=timeout, redirects=allow_redirects)
+        def fake_get(url, ip="unset", headers=None, timeout=None, **kw):
+            seen.update(url=url, headers=headers, timeout=timeout, ip=ip)
             return FakeResp({"data": [{"id": "claude-sonnet-5-5"}, {"id": "claude-haiku-4-5-20251001"}]})
-        monkeypatch.setattr(requests, "get", fake_get)
+        _serve(monkeypatch, fake_get)
         status = svc.check_providers()
         item = _item(status, "claude", "claude-opus-4-8")
         assert item["status"] == "not_listed"
@@ -93,24 +96,33 @@ class TestProviderCheck:
         assert status["warnings"] >= 1
         # Key in a header, never the URL; a timeout on the call.
         assert "SECRETKEY" not in seen["url"] and seen["headers"]["x-api-key"].startswith("sk-ant-")
-        assert seen["timeout"] and seen["redirects"] is False
+        assert seen["timeout"] and seen["ip"] is None  # ip None: guard=None, a fixed vendor URL
         assert _item(status, "claude", "claude-sonnet-5-5")["status"] == "current"
 
-    def test_engines_without_key_are_not_called(self, isolated_db, keys, monkeypatch):
-        import requests
+    def test_redirect_from_provider_is_not_followed(self, isolated_db, keys, monkeypatch):
         calls = []
-        monkeypatch.setattr(requests, "get", lambda url, **kw: calls.append(url)
-                            or FakeResp({"data": [{"id": "claude-sonnet-5"}]}))
+
+        class Redirect(FakeResp):
+            headers = {"Location": "https://evil.example/"}
+        _serve(monkeypatch, lambda url, **kw: calls.append(url) or Redirect({}, status=302))
+        status = svc.check_providers()
+        assert len(calls) == 1 and "evil.example" not in calls[0]
+        assert status["engines_checked"]["claude"]["error"]
+        assert all(i["status"] != "not_listed" for i in status["items"])
+
+    def test_engines_without_key_are_not_called(self, isolated_db, keys, monkeypatch):
+        calls = []
+        _serve(monkeypatch, lambda url, **kw: calls.append(url)
+               or FakeResp({"data": [{"id": "claude-sonnet-5"}]}))
         status = svc.check_providers()
         assert len(calls) == 1 and "anthropic" in calls[0]
         assert set(status["engines_checked"]) == {"claude"}
 
     def test_provider_error_is_redacted_and_cached(self, isolated_db, keys, monkeypatch):
-        import requests
 
         def boom(url, **kw):
             raise RuntimeError("401 for key sk-ant-SECRETKEY1234567890abcdef")
-        monkeypatch.setattr(requests, "get", boom)
+        _serve(monkeypatch, boom)
         status = svc.check_providers()
         err = status["engines_checked"]["claude"]["error"]
         assert "SECRETKEY" not in err
@@ -121,18 +133,16 @@ class TestProviderCheck:
     @pytest.mark.parametrize("body", [{"data": []}, {"unexpected": 1},
                                       {"data": [{"id": "claude-sonnet-5"}], "has_more": True}])
     def test_empty_or_partial_list_marks_nothing_gone(self, isolated_db, keys, monkeypatch, body):
-        import requests
         db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
-        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp(body))
+        _serve(monkeypatch, lambda url, **kw: FakeResp(body))
         status = svc.check_providers()
         assert status["engines_checked"]["claude"]["ok"] is False
         assert all(i["status"] != "not_listed" for i in status["items"])
 
     def test_offered_latest_alias_missing_is_not_flagged(self, isolated_db, monkeypatch):
-        import requests
         monkeypatch.setattr(translate_service, "resolve_api_key",
                             lambda name, env_path=None: "g-key-123456789" if name == "gemini" else None)
-        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp(
+        _serve(monkeypatch, lambda url, **kw: FakeResp(
             {"models": [{"name": "models/gemini-3.1-flash-lite"}]}))
         status = svc.check_providers()
         default = next(i for i in status["items"] if i["engine"] == "gemini" and i["kind"] == "default")
@@ -147,8 +157,7 @@ class TestProviderCheck:
             svc._check_lock.release()
 
     def test_rate_limited(self, isolated_db, keys, monkeypatch):
-        import requests
-        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp({"data": [{"id": "x"}]}))
+        _serve(monkeypatch, lambda url, **kw: FakeResp({"data": [{"id": "x"}]}))
         svc.check_providers(now=1000.0)
         with pytest.raises(RateLimitedError):
             svc.check_providers(now=1030.0)
@@ -187,9 +196,8 @@ class TestGuidedSwitch:
             svc.switch_preset_model(999, "a", "b")
 
     def test_nothing_switches_without_the_call(self, isolated_db, keys, monkeypatch):
-        import requests
         db.save_preset("Old DS", translation_engine="deepseek", engine_model="deepseek-chat")
-        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp({"data": [{"id": "x"}]}))
+        _serve(monkeypatch, lambda url, **kw: FakeResp({"data": [{"id": "x"}]}))
         svc.get_status()
         svc.check_providers()
         assert db.list_presets()[0]["engine_model"] == "deepseek-chat"
@@ -222,9 +230,8 @@ class TestReviewFixes:
 
 
 def test_alias_listed_as_dated_snapshot_counts_as_listed(isolated_db, keys, monkeypatch):
-    import requests
     db.save_preset("P", translation_engine="claude", engine_model="claude-sonnet-5")
-    monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp(
+    _serve(monkeypatch, lambda url, **kw: FakeResp(
         {"data": [{"id": "claude-sonnet-5-20260101"}]}))
     status = svc.check_providers()
     item = next(i for i in status["items"] if i["model"] == "claude-sonnet-5" and i["kind"] == "preset")
@@ -244,8 +251,7 @@ class TestClaudeAliases:
         return models
 
     def _check(self, monkeypatch, ids):
-        import requests
-        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp(
+        _serve(monkeypatch, lambda url, **kw: FakeResp(
             {"data": [{"id": i} for i in ids]}))
         return svc.check_providers()
 
@@ -349,10 +355,9 @@ class TestOfferProviderModels:
         assert svc._override_error("openai", "gpt-4") is not None
 
     def test_never_calls_network(self, isolated_db, monkeypatch):
-        import requests
         db.set_app_setting("offer_provider_models", True)
         self._cache(claude=["claude-sonnet-6"])
-        monkeypatch.setattr(requests, "get", lambda *a, **k: pytest.fail("network"))
+        _serve(monkeypatch, lambda *a, **k: pytest.fail("network"))
         assert "claude-sonnet-6" in self._models("claude")["models"]
 
     def test_extra_accepted_for_runs_and_presets_only_when_on(self, isolated_db):
@@ -578,23 +583,21 @@ class TestModelOverrides:
 
 
 def test_an_oversized_model_list_is_refused(monkeypatch):
-    import requests
 
     class Big(FakeResp):
         headers = {"Content-Length": "9999999"}
-    monkeypatch.setattr(requests, "get", lambda *a, **k: Big({}))
-    with pytest.raises(ValueError, match="too large"):
+    _serve(monkeypatch, lambda *a, **k: Big({}))
+    with pytest.raises(http.ResponseTooLarge):
         svc._fetch_models("claude", "sk-ant-key")
 
 
 def test_a_model_list_that_outgrows_the_cap_while_streaming_is_refused(monkeypatch):
-    import requests
 
     class Endless(FakeResp):
         def iter_content(self, size):
             while True:
                 yield b"x" * size
     monkeypatch.setattr(svc, "MAX_RESPONSE_BYTES", 1000)
-    monkeypatch.setattr(requests, "get", lambda *a, **k: Endless({}))
-    with pytest.raises(ValueError, match="too large"):
+    _serve(monkeypatch, lambda *a, **k: Endless({}))
+    with pytest.raises(http.ResponseTooLarge):
         svc._fetch_models("claude", "sk-ant-key")

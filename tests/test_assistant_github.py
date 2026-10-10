@@ -15,6 +15,7 @@ import action_tiers
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
+from lib import http
 from services import assistant_github_service as gh, auth_service, settings_service
 
 TOKEN = "ghp_" + "Z" * 36
@@ -46,9 +47,8 @@ class FakeGitHub:
         self.files = {"services/dub_service.py": BASE_FILE}
         self.trees = []
 
-    def request(self, method, url, headers=None, json=None, params=None, timeout=None,
-                allow_redirects=True, stream=False):
-        assert timeout and not allow_redirects
+    def request(self, method, url, ip="unset", headers=None, json=None, params=None, timeout=None):
+        assert timeout and ip is None  # ip None: guard=None, a fixed vendor URL
         assert url.startswith("https://api.github.com/") and TOKEN not in url
         path = url[len("https://api.github.com"):]
         self.calls.append((method, path, json, headers))
@@ -81,6 +81,13 @@ class FakeGitHub:
         return Resp(500, {"message": f"unexpected {method} {path} token={TOKEN}"})
 
 
+def _serve(monkeypatch, fn):
+    """Route lib.http's connection step to `fn(method, url, ip=, headers=, timeout=, **requests_kwargs)`,
+    passing on exactly what lib.http handed pinned_get."""
+    monkeypatch.setattr(http, "pinned_get", lambda url, ip, headers, timeout=None, method="GET", **kw:
+                        fn(method, url, ip=ip, headers=headers, timeout=timeout, **kw))
+
+
 @pytest.fixture
 def env(isolated_db, tmp_path, monkeypatch):
     path = tmp_path / ".env"
@@ -92,7 +99,7 @@ def env(isolated_db, tmp_path, monkeypatch):
 @pytest.fixture
 def fake(monkeypatch):
     f = FakeGitHub()
-    monkeypatch.setattr(gh.requests, "request", f.request)
+    _serve(monkeypatch, f.request)
     return f
 
 
@@ -177,10 +184,26 @@ def test_a_stale_patch_is_refused_before_any_write(ready):
     assert all(m == "GET" for m, *_ in ready.calls)
 
 
+def test_redirect_is_not_followed(ready, monkeypatch):
+    calls = []
+
+    class Redirect(Resp):
+        headers = {"Location": "https://evil.example/"}
+
+    def redirect(method, url, **kw):
+        calls.append(url)
+        return Redirect(302, {})
+    _serve(monkeypatch, redirect)
+    with pytest.raises(gh.ServiceError) as e:
+        gh.test_connection()
+    assert "GitHub said 302" in e.value.message
+    assert len(calls) == 1 and "evil.example" not in calls[0]
+
+
 def test_errors_never_carry_the_token(ready, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError(f"connection reset for Authorization: Bearer {TOKEN}")
-    monkeypatch.setattr(gh.requests, "request", boom)
+    _serve(monkeypatch, boom)
     with pytest.raises(gh.ServiceError) as e:
         gh.test_connection()
     assert TOKEN not in e.value.message
@@ -416,7 +439,7 @@ def test_failed_pr_names_the_branch_it_left(ready, monkeypatch):
             return Resp(422, {"message": "Draft pull requests are not supported"})
         return real(method, url, **kw)
 
-    monkeypatch.setattr(gh.requests, "request", no_draft)
+    _serve(monkeypatch, no_draft)
     prev = gh.preview(PATCH, "Fix")
     with pytest.raises(gh.ServiceError) as e:
         gh.deliver(PATCH, "Fix", sha256=prev["sha256"], confirm=True)
@@ -425,7 +448,6 @@ def test_failed_pr_names_the_branch_it_left(ready, monkeypatch):
 
 
 def test_an_oversized_github_response_is_refused(monkeypatch):
-    import requests
     from services.service_errors import ServiceError
 
     class Endless:
@@ -440,7 +462,7 @@ def test_an_oversized_github_response_is_refused(monkeypatch):
         def close(self):
             Endless.closed = True
     monkeypatch.setattr(gh, "MAX_RESPONSE_BYTES", 1000)
-    monkeypatch.setattr(requests, "request", lambda *a, **k: Endless())
+    _serve(monkeypatch, lambda *a, **k: Endless())
     with pytest.raises(ServiceError, match="more data than expected"):
         gh._call("tok", "GET", "/user")
     assert Endless.closed
