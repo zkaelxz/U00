@@ -197,6 +197,173 @@ def test_stale_lock_from_a_crash_is_taken_over(data):
     assert pi._acquire_lock(time.time()) is True
 
 
+def _write_lock(data, pid):
+    lock = data / "pending_install" / "apply.lock"
+    os.makedirs(lock.parent, exist_ok=True)
+    lock.write_text(json.dumps({"pid": pid, "time": int(time.time())}))
+    return lock
+
+
+def _dead_pid():
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
+
+
+def test_fresh_lock_of_a_dead_pid_is_stale_and_taken_over(data):
+    _write_lock(data, _dead_pid())
+    assert pi.apply_running() is False
+    assert pi._acquire_lock(time.time()) is True
+
+
+def test_lock_with_our_own_pid_is_running(data):
+    _write_lock(data, os.getpid())
+    assert pi.apply_running() is True
+
+
+def test_old_lock_of_a_live_pid_is_still_stale(data):
+    lock = _write_lock(data, os.getpid())     # pid reuse: the age rule still applies
+    old = time.time() - pi.OVERALL_SECONDS - 600
+    os.utime(lock, (old, old))
+    assert pi.apply_running() is False
+
+
+def test_two_takeovers_of_one_dead_lock_let_exactly_one_start_run(data, monkeypatch):
+    import threading
+    _write_lock(data, _dead_pid())
+    together = threading.Barrier(2, timeout=10)
+    readers = []
+    real = pi._left_by_live_start
+
+    def slow_read(fd):
+        readers.append(fd)
+        time.sleep(0.5)            # both read the dead pid here if the file alone decided
+        return real(fd)
+    monkeypatch.setattr(pi, "_left_by_live_start", slow_read)
+
+    def start():
+        together.wait()
+        results.append(pi._acquire_lock(time.time()))
+    results = []
+    starts = [threading.Thread(target=start) for _ in range(2)]
+    for t in starts:
+        t.start()
+    for t in starts:
+        t.join(15)
+    try:
+        assert sorted(results) == [False, True]
+        assert len(readers) == 1
+        assert json.loads((data / "pending_install" / "apply.lock").read_text())["pid"] == os.getpid()
+    finally:
+        pi._release_lock()
+    assert not (data / "pending_install" / "apply.lock").exists()
+
+
+def test_a_lock_another_process_holds_is_never_taken_even_if_its_record_says_dead(data):
+    os.makedirs(data / "pending_install")
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys, time, pending_install as pi\n"
+         "print(pi._acquire_lock(time.time()), flush=True)\n"
+         "sys.stdin.readline()\n"
+         "pi._release_lock()\n"],
+        cwd=ROOT, env={**os.environ, "BAIHE_DATA_DIR": str(data)},
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "True"
+        lock = data / "pending_install" / "apply.lock"
+        lock.write_text(json.dumps({"pid": _dead_pid(), "time": int(time.time())}))
+        assert pi.apply_running() is True
+        assert pi._acquire_lock(time.time()) is False
+        assert lock.exists()
+    finally:
+        holder.communicate("\n", timeout=15)
+    assert pi._acquire_lock(time.time()) is True
+    pi._release_lock()
+
+
+def test_the_lock_records_our_start_time_beside_the_pid(data):
+    assert pi._acquire_lock(time.time()) is True
+    try:
+        doc = json.loads((data / "pending_install" / "apply.lock").read_text())
+        assert doc["pid"] == os.getpid()
+        assert doc.get("started") == pi._process_start(os.getpid())
+    finally:
+        pi._release_lock()
+
+
+def test_a_reused_pid_with_another_start_time_is_dead(data):
+    started = pi._process_start(os.getpid())
+    if started is None:
+        pytest.skip("no process start time on this platform")
+    lock = _write_lock(data, os.getpid())
+    lock.write_text(json.dumps({"pid": os.getpid(), "started": started + 1}))
+    assert pi.apply_running() is False
+    lock.write_text(json.dumps({"pid": os.getpid(), "started": started}))
+    assert pi.apply_running() is True
+
+
+@pytest.mark.parametrize("pid", [2 ** 70, 2 ** 32, -5])
+def test_an_impossible_pid_is_dead_not_an_error(data, pid):
+    _write_lock(data, pid)
+    assert pi.apply_running() is False
+    assert pi._acquire_lock(time.time()) is True
+    pi._release_lock()
+
+
+class _K32:
+    def __init__(self, handle=1, exit_code=259, ok=True):
+        self.handle, self.exit_code, self.ok = handle, exit_code, ok
+
+    def OpenProcess(self, access, inherit, pid):
+        return self.handle
+
+    def GetExitCodeProcess(self, handle, ref):
+        ref._obj.value = self.exit_code
+        return self.ok
+
+    def CloseHandle(self, handle):
+        pass
+
+
+@pytest.mark.parametrize("k32, last_error, alive", [
+    (_K32(exit_code=259), 0, True),
+    (_K32(exit_code=0), 0, False),
+    (_K32(ok=False), 0, True),            # the query failed: unknown, never dead
+    (_K32(handle=0), 5, True),            # access denied: it exists
+    (_K32(handle=0), 87, False),
+])
+def test_windows_liveness(k32, last_error, alive):
+    assert pi._win_pid_running(5, k32, lambda: last_error) is alive
+
+
+def test_watchdog_result_keeps_the_packages_the_running_result_named(data, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    Fake(monkeypatch, [{"numpy": "1"}])
+
+    def seen_mid_pip(argv, timeout, echo=False):
+        seen.update(pi.read_result())
+        return None, [], True
+    seen = {}
+    monkeypatch.setattr(pi, "run_capture", seen_mid_pip)
+    pi._CURRENT["stop"] = True      # skips the restore, as the watchdog does
+    try:
+        pi.apply()
+    finally:
+        pi._CURRENT["stop"] = False
+    assert seen["status"] == "running" and seen["before"] == {"numpy": "1"}
+    pi._write_json("result", seen)
+    out = pi._watchdog_result()
+    assert out["status"] == "timed_out"
+    assert out["packages"] == ["paddleocr"] and out["before"] == {"numpy": "1"}
+    assert "versions may have been changed" in out["message"] and "Packages in Diagnostics" in out["message"]
+
+
+def test_watchdog_result_without_a_running_result_has_no_packages(data):
+    out = pi._watchdog_result()
+    assert out["packages"] == [] and out["before"] == {}
+
+
 def test_main_always_exits_zero_so_the_server_still_starts(data, monkeypatch):
     monkeypatch.setattr(pi, "apply", lambda **k: (_ for _ in ()).throw(OSError("disk")))
     assert pi.main([]) == 0
