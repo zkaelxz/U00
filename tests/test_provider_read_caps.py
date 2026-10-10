@@ -50,7 +50,7 @@ def posts(monkeypatch):
         def fake(*args, **kwargs):
             calls.append(kwargs)
             return resp
-        patch_post(monkeypatch, fake)
+        install.seen = patch_post(monkeypatch, fake)
         monkeypatch.setattr(requests, "get", fake)
         return resp
     install.calls = calls
@@ -90,7 +90,7 @@ class TestEngines:
             engine.translate_batch(["你好"], {})
         assert SECRET not in str(exc.value)
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True and posts.calls[0]["timeout"]
+        assert posts.seen[0]["method"] == "POST" and posts.seen[0]["timeout"]
 
     def test_openai_chat(self, posts):
         r = posts(_oversized())
@@ -98,7 +98,7 @@ class TestEngines:
         with pytest.raises(shared.ProviderResponseTooLarge):
             engine.chat([{"role": "user", "content": "hi"}])
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True
+        assert posts.seen[0]["method"] == "POST"
 
     def test_openai_error_detail_is_capped_too(self, posts):
         r = posts(StreamResp(b"x" * (openai_compat.ERROR_BODY_MAX_BYTES + 1), status=400))
@@ -144,11 +144,13 @@ class TestEngines:
         assert local.check_ollama_reachable("http://cap-test:11434") is True
         assert r.chunks_read <= 1 and r.closed  # lib.http reads one byte of a truncated body
 
-    def test_call_llm_json_gemini(self, posts):
+    def test_call_llm_json_gemini(self, posts, monkeypatch):
+        monkeypatch.setattr(shared, "_cancellable_sleep", lambda s: pytest.fail("retry slept"))
         r = posts(_oversized())
         with pytest.raises(shared.ProviderResponseTooLarge):
             llm_tasks.call_llm_json(gemini.GeminiEngine(SECRET), "prompt")
         assert r.chunks_read == 0 and r.closed
+        assert len(posts.seen) == 1  # a too-large reply is not billed a second time
 
 
 class TestQa:
@@ -157,7 +159,7 @@ class TestQa:
         with pytest.raises(shared.ProviderResponseTooLarge):
             qa.dispatch_chat("sys", [{"role": "user", "content": "q"}], gemini.GeminiEngine(SECRET))
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True
+        assert posts.seen[0]["method"] == "POST"
 
     def test_ollama(self, posts):
         r = posts(_oversized())

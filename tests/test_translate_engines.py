@@ -1523,6 +1523,51 @@ class TestOllamaUnavailableErrors:
         assert resp.closed
 
 
+class TestOllamaModelInstalledCheck:
+    class Resp:
+        def __init__(self, status, body=b'{"models": [{"name": "m:1b"}]}', headers=None):
+            self.status_code, self.body, self.headers = status, body, headers or {}
+        def iter_content(self, size):
+            return iter([self.body])
+        def close(self):
+            pass
+
+    def _serve(self, monkeypatch, *replies):
+        calls, queue = [], list(replies)
+        monkeypatch.setattr(http, "pinned_get",
+                            lambda url, *a, **kw: calls.append(url) or queue.pop(0))
+        return calls
+
+    def test_follows_a_308_to_the_model_list(self, monkeypatch):
+        calls = self._serve(monkeypatch,
+                            self.Resp(308, headers={"Location": "http://proxy.local/api/tags"}),
+                            self.Resp(200))
+        te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        assert calls[-1] == "http://proxy.local/api/tags"
+
+    @pytest.mark.parametrize("status", [301, 404, 500])
+    def test_a_non_2xx_final_answer_means_unreachable(self, monkeypatch, status):
+        self._serve(monkeypatch, self.Resp(status))
+        with pytest.raises(te.OllamaUnavailableError) as exc:
+            te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        assert exc.value.reason == "ollama_unreachable"
+
+    def test_an_unsettled_redirect_means_unreachable(self, monkeypatch):
+        loop = self.Resp(308, headers={"Location": "http://localhost:11434/api/tags"})
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: loop)
+        with pytest.raises(te.OllamaUnavailableError):
+            te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+
+
+class TestDisplayUrlEncodedTokens:
+    @pytest.mark.parametrize("path", ["/dl/AbC%2Bxyz%3D" + "q" * 28 + "/file", "/dl/" + "A%2D" * 20 + "/f"])
+    def test_percent_encoded_token_segment_is_dropped(self, path):
+        assert te.display_url(f"https://cdn.example{path}") == "https://cdn.example/"
+
+    def test_ordinary_encoded_name_is_kept(self):
+        assert te.display_url("https://cdn.example/a%20b/c.html") == "https://cdn.example/a%20b/c.html"
+
+
 class TestOllamaReachability:
     """Regression coverage for a real gap: Ollama is exempted from the
     API-key check entirely (workspace_tab.py's _needs_key), with nothing
@@ -1562,19 +1607,31 @@ class TestOllamaReachability:
         monkeypatch.setattr(http, "pinned_get", fake_get)
         assert te.check_ollama_reachable("http://localhost:11434") is False
 
-    def test_false_when_the_server_redirects(self, monkeypatch):
+    def test_follows_a_redirect_like_the_chat_call_does(self, monkeypatch):
         calls = []
 
-        class Redirect:
-            status_code = 302
-            headers = {"Location": "http://elsewhere.example/api/tags"}
+        class Resp:
+            def __init__(self, status, headers=None):
+                self.status_code, self.headers = status, headers or {}
+            def iter_content(self, size):
+                return iter([b"x"])
+            def close(self):
+                pass
+        replies = [Resp(308, {"Location": "http://proxy.local/api/tags"}), Resp(200)]
+        monkeypatch.setattr(http, "pinned_get", lambda url, *a, **kw: calls.append(url) or replies.pop(0))
+        assert te.check_ollama_reachable("http://localhost:11434") is True
+        assert calls == ["http://localhost:11434/api/tags", "http://proxy.local/api/tags"]
+
+    def test_false_when_a_redirect_never_settles(self, monkeypatch):
+        class Loop:
+            status_code = 308
+            headers = {"Location": "http://localhost:11434/api/tags"}
             def iter_content(self, size):
                 return iter([])
             def close(self):
                 pass
-        monkeypatch.setattr(http, "pinned_get", lambda url, *a, **kw: calls.append(url) or Redirect())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: Loop())
         assert te.check_ollama_reachable("http://localhost:11434") is False
-        assert calls == ["http://localhost:11434/api/tags"]
 
     def test_false_when_the_connection_fails(self, monkeypatch):
         fake_get, _ = self._fake_get(raises=ConnectionError("refused"))
