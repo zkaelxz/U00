@@ -1,6 +1,7 @@
 """services/ytdlp_child.py with a real child process. The child imports a fake
 `yt_dlp` module from a temp folder put first on PYTHONPATH, so nothing is
 downloaded and the real yt-dlp is never loaded."""
+import json
 import os
 import sys
 import time
@@ -204,3 +205,27 @@ def test_dropped_events_are_counted(child_env):
     items = list(ytdlp_child.run_download(
         child_env.work, {"url": URL, "audio_only": True}, 60, lambda: False))
     assert items[-1]["dropped"] == 3
+
+
+def test_nonce_in_other_lines_and_wrong_nonce_events_are_ignored(tmp_path, monkeypatch):
+    media = str(tmp_path / "downloaded_a.m4a")
+
+    def fake_stream(cmd, timeout, cwd=None, cancel=None):
+        nonce = json.load(open(cmd[-1]))["nonce"]
+        good = f"@@ytdlp-{nonce} " + json.dumps({"path": media})
+        yield {"line": f"WARNING: reading {cmd[-1]} nonce {nonce}"}  # echoed, not an event
+        yield {"line": f" {good}"}  # not at column 0
+        yield {"line": f"x{good}"}
+        yield {"line": good + " trailing"}  # not one JSON object
+        yield {"line": f"@@ytdlp-{nonce} " + json.dumps({"path": media, "extra": 1})}
+        yield {"line": f"@@ytdlp-{nonce} " + json.dumps([1])}
+        yield {"line": f"@@ytdlp-{nonce} {{}}"}
+        yield {"line": "@@ytdlp-" + "0" * 32 + " " + json.dumps({"path": media})}  # forged
+        yield {"line": good}
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+
+    monkeypatch.setattr(ytdlp_child.proc, "stream_tree", fake_stream)
+    items = list(ytdlp_child.run_download(str(tmp_path), {"url": URL}, 60, lambda: False))
+    assert [i["event"] for i in items if "event" in i] == [{"path": media}]
+    # Only right-nonce lines with a bad body count; the rest are not events at all.
+    assert items[-1]["dropped"] == 4
