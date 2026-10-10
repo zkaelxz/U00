@@ -219,10 +219,20 @@ class TestChapters:
         chapters = a.get_chapters("n0063lr")
         assert [(c.chapter_id, c.title) for c in chapters] == [("1", "a"), ("2", "b"), ("3", "c")]
 
-    def test_page_walk_is_capped(self, monkeypatch):
+    def test_a_list_longer_than_the_cap_is_refused_not_cut_short(self, monkeypatch):
         monkeypatch.setattr(syosetu, "MAX_LIST_PAGES", 3)
         routes = {f"{BASE}/n0063lr/": html(_top("n0063lr", [(1, "a")], last=9999))}
         for p in (2, 3, 4):
+            routes[f"{BASE}/n0063lr/?p={p}"] = html(_top("n0063lr", [(p, str(p))]))
+        a, t = _adapter(routes)
+        with pytest.raises(SourceError, match="longer than this app can fetch"):
+            a.get_chapters("n0063lr")
+        assert len(t.calls) == 1
+
+    def test_a_list_exactly_at_the_cap_is_walked(self, monkeypatch):
+        monkeypatch.setattr(syosetu, "MAX_LIST_PAGES", 3)
+        routes = {f"{BASE}/n0063lr/": html(_top("n0063lr", [(1, "a")], last=3))}
+        for p in (2, 3):
             routes[f"{BASE}/n0063lr/?p={p}"] = html(_top("n0063lr", [(p, str(p))]))
         a, t = _adapter(routes)
         chapters = a.get_chapters("n0063lr")

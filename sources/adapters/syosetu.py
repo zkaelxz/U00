@@ -78,7 +78,7 @@ _PAGE_PARAM = re.compile(r"[?&]p=(\d+)")
 _EPISODES = re.compile(r"全\s*(\d+)\s*エピソード")
 
 # Hard cap on list pages walked (100 episodes each), so a broken pager can't
-# loop forever.
+# loop forever; a longer list is refused rather than cut short.
 MAX_LIST_PAGES = 200
 
 _ADULT_MARKERS = ("over18", "年齢確認", "18歳以上", "18歳未満")
@@ -269,7 +269,12 @@ class SyosetuSource(SourceAdapter):
             title = soup.select_one("h1.p-novel__title").get_text(strip=True)
             return [ChapterInfo(self.name, code, "1", title or code, f"{self.base_url}/{code}/")]
         chapters, seen, group = [], set(), ""
-        last = min(self._last_page(soup), MAX_LIST_PAGES)
+        last = self._last_page(soup)
+        if last > MAX_LIST_PAGES:
+            # Stopping at the cap would drop the newest episodes without
+            # anyone noticing.
+            raise SourceError("This work's chapter list is longer than this app can fetch.",
+                              FailureReason.UNKNOWN)
         group = self._list_page(soup, code, group, chapters, seen)
         for n in range(2, last + 1):
             page = _soup(self._top(code, n))
