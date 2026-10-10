@@ -46,14 +46,15 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     (default os.environ) is the environment the key variables are removed
     from."""
     from services import diagnostics_gaps_service as diag
+    from services import diagnostics_installs_service as installs
     from services import extension_service as ext
     from services import settings_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
 
-    def refuse_pip(name, confirm=False, target=None):
+    def refuse_pip(name, confirm=False, target=None, job_id=None):
         raise ConflictError("Installing is disabled on the e2e server.")
 
-    def refuse_torch_setup(variant=None, confirm=False):
+    def refuse_torch_setup(variant=None, confirm=False, job_id=None):
         raise ConflictError("Installing is disabled on the e2e server.")
 
     def refuse_network(*a, **k):
@@ -66,13 +67,16 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     setattr_(diag, "install_dependency", refuse_pip)
     setattr_(diag, "upgrade_dependency", refuse_pip)
     setattr_(diag, "setup_gpu_torch", refuse_torch_setup)
+    # The install routes start a job; refuse before one exists.
+    setattr_(installs, "start_dependency_install", refuse_pip)
+    setattr_(installs, "start_gpu_torch_setup", refuse_torch_setup)
     setattr_(diag, "check_package_updates", refuse_network)
     setattr_(diag, "check_gpu_torch", refuse_network)
     # Second layer: nothing that reaches the command runner (or the torch
     # verify subprocess) starts a process.
-    setattr_(diag, "_run_commands", lambda cmds, torch_pins=None: {
+    setattr_(diag, "_run_commands", lambda cmds, torch_pins=None, sox_watch=None, job_id=None: {
         "ok": False, "output_tail": list(E2E_STUB_OUTPUT)})
-    setattr_(diag, "verify_torch", lambda blocking=True: {"error": "stubbed in e2e"})
+    setattr_(diag, "verify_torch", lambda blocking=True, cancel=None: {"error": "stubbed in e2e"})
     setattr_(diag, "reset_library", refuse_reset)
     # The Transcribe button is disabled while faster-whisper is missing; specs that
     # press it need the config to say it is installed. transcription-missing mocks
@@ -129,7 +133,7 @@ def _hold_until_cancelled(job_id: str):
 def add_e2e_job_routes(app):
     import background_jobs
     from fastapi import Body
-    from services.service_errors import ConflictError, InvalidInputError
+    from lib.errors import ConflictError, InvalidInputError
 
     def _check(job_id: str):
         import re

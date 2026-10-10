@@ -1,0 +1,47 @@
+{
+ "id": "shared-drama",
+ "version": 1,
+ "language": "any",
+ "title": "Shared drama and streamer terms",
+ "description": "Starter pack, review it. Terms that look the same in every source language, so they apply to Japanese, Korean and Chinese titles.",
+ "entries": [
+  {
+   "source": "ASMR",
+   "en": "ASMR",
+   "category": "streamer"
+  },
+  {
+   "source": "VTuber",
+   "en": "VTuber",
+   "category": "streamer"
+  },
+  {
+   "source": "cosplay",
+   "en": "cosplay",
+   "category": "streamer"
+  },
+  {
+   "source": "CP",
+   "en": "ship",
+   "category": "streamer",
+   "note": "A pairing of two characters or people that fans root for."
+  },
+  {
+   "source": "BGM",
+   "en": "background music",
+   "category": "streamer"
+  },
+  {
+   "source": "OP",
+   "en": "opening",
+   "category": "streamer",
+   "note": "The opening theme or credits."
+  },
+  {
+   "source": "ED",
+   "en": "ending",
+   "category": "streamer",
+   "note": "The ending theme or credits."
+  }
+ ]
+}

@@ -60,7 +60,8 @@ def test_default_is_no_engine_and_no_keys(env):
     body = r.json()
     assert body["engine"] is None and body["model"] is None and body["ready"] is False
     assert {e["name"] for e in body["engines"]} == set(translate_engines.ENGINES)
-    assert all(set(e) == {"name", "label", "free", "models", "model_labels", "key_configured"}
+    assert all(set(e) == {"name", "label", "free", "models", "model_labels", "cloud_models",
+                                "key_configured"}
                for e in body["engines"])
 
 

@@ -1460,6 +1460,23 @@ class TestPortsMatchTheApp:
         settings = api_config.load_settings({k: v for k, v in env.items() if v})
         assert settings.household_port == 8610 and settings.port == service.ADMIN_PORT
 
+    def test_the_service_applies_a_queued_install_before_serving(self, layout, monkeypatch):
+        # No launcher sits in front of the service, so api/__main__ does it.
+        env = service.app_service_env(layout.data)
+        assert env["BAIHE_APPLY_PENDING"] == "1"
+        import api.__main__ as entry
+        import pending_install
+        calls = []
+        monkeypatch.setattr(pending_install, "apply", lambda echo=False: calls.append("apply"))
+        monkeypatch.setattr(entry, "_serve", lambda: calls.append("serve"))
+        monkeypatch.setenv("BAIHE_APPLY_PENDING", "1")
+        entry.main([])
+        assert calls == ["apply", "serve"]
+        calls.clear()
+        monkeypatch.delenv("BAIHE_APPLY_PENDING")
+        entry.main([])
+        assert calls == ["serve"]
+
 
 class TestUninstallNeverFollowsCaddysFolders:
     def test_a_link_caddy_made_in_its_folder_is_removed_not_followed(self, layout, source, tmp_path):

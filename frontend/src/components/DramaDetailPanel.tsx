@@ -109,12 +109,12 @@ export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
         {!onDeleted && deleteNote && <p className="muted">{deleteNote}</p>}
         {onDeleted && !confirming && (
           <button type="button" className={buttonClass('danger', 'sm')} onClick={() => setConfirming(true)}>
-            Delete drama…
+            Delete title…
           </button>
         )}
         {onDeleted && confirming && (
           <div className="delete-confirm">
-            <p>This permanently deletes the drama and all its lines. Type DELETE to confirm.</p>
+            <p>This permanently deletes the title and all its lines. Type DELETE to confirm.</p>
             <input
               aria-label="Type DELETE to confirm"
               value={typed}
@@ -130,7 +130,7 @@ export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
             </div>
             {deleteError instanceof ApiError && deleteError.status === 409 ? (
               <p className="error" role="alert">
-                Not deleted: a background job is still running for this drama. Wait for it to
+                Not deleted: a background job is still running for this title. Wait for it to
                 finish or cancel it, then try again.
               </p>
             ) : (

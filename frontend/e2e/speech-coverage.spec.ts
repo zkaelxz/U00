@@ -17,10 +17,10 @@ async function openPanel(page: import('@playwright/test').Page) {
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
-test('is disabled with its reason when the drama has no audio', async ({ page }) => {
+test('is disabled with its reason when the title has no audio', async ({ page }) => {
   await openPanel(page)
   await expect(page.getByRole('button', { name: 'Check coverage' })).toBeDisabled()
-  await expect(page.getByTestId('speech-coverage')).toContainText('Still needed: audio on this drama.')
+  await expect(page.getByTestId('speech-coverage')).toContainText('Still needed: audio on this title.')
 })
 
 test('checks on demand and lists the gaps with what Whisper produced', async ({ page }) => {

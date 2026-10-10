@@ -27,7 +27,7 @@ be classified or marked as a page).
 
 import io
 import os
-import tempfile
+import storage
 
 ALLOWED_IMAGE_TYPES = ("PNG", "JPEG", "WEBP")       # Pillow format names
 ALLOWED_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".pdf")
@@ -77,7 +77,7 @@ def _slices(png: bytes) -> list:
     [png] when OpenCV isn't installed or the slicer can't read it."""
     try:
         import scanlate
-        with tempfile.TemporaryDirectory() as tmp:
+        with storage.job_workdir("page_import") as tmp:
             # A fixed ASCII name: OpenCV can't open non-ASCII paths on Windows.
             path = os.path.join(tmp, "strip.png")
             with open(path, "wb") as f:

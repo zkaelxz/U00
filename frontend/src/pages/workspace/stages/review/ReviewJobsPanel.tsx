@@ -9,7 +9,7 @@ import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
-import { reviewJobIds } from '../../stageJobIds'
+import { reviewJobIds, reviewKindOf } from '../../stageJobIds'
 import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { useStage } from '../../StageContext'
@@ -185,6 +185,13 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
   const engines = config?.engines ?? []
   const cuesOn = checks.audioCues ?? drama.has_audio
   const bulkEngines = config?.bulk_supported_engines ?? []
+  // The Last run card's Retry: the same call as the check's own button, with the current options.
+  const retryReview = (kind: ReviewJobKind | null): (() => void) | null => {
+    if (!kind) return null
+    if (kind === 'fix-flagged') return startFix
+    const row = KINDS.find((k) => k.kind === kind)
+    return () => void start(kind, reviewStartBody(kind, checks, bulkOn, defaultEngine, bulkEngines), row?.what ?? '')
+  }
   const engineNow = effectiveEngine(checks, defaultEngine)
   const bulkOk = config !== null && reviewBulkAvailable(engineNow, bulkEngines)
   const bulkReason = config
@@ -201,7 +208,12 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
   // running or reattached job is always visible.
   return (
     <div aria-label="AI checks" role="group" className="review-ai">
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        lastRun={{ dramaId, ids: reviewJobIds(dramaId), retryFor: (j) => retryReview(reviewKindOf(j.job_id)) }}
+      />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {bulkRuns.map((r) => (
         <BulkRun key={r.kind} run={r} onDone={bulkDone} onSubmitted={reloadBatches} />
@@ -236,7 +248,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
         {anyBulk && (
           <p className="muted" data-testid="bulk-warning">
             Bulk is half price but slow: results can take up to 24 hours. Until they arrive, structural edits (add, delete, merge, split,
-            re-segment, restore a version, delete the drama) are refused.
+            re-segment, restore a version, delete the title) are refused.
           </p>
         )}
         <Section storageKey="review.ai.options" title="Check options" summary={checkFormSummary(checks, defaultEngine, drama.has_audio)}>
@@ -246,7 +258,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
               defaultEngine={defaultEngine}
               engine={checks.engine}
               model={checks.model}
-              help={`Which service runs these checks. The default is the drama's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines cannot run these checks.`}
+              help={`Which service runs these checks. The default is the title's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines cannot run these checks.`}
               onChange={(n) => setChecks((c) => ({ ...c, ...n }))}
             />
             <div className="setting-list review-toggles">

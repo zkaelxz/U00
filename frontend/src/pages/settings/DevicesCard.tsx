@@ -121,7 +121,7 @@ function DevicesBody({ session }: { session: SessionState }) {
         <p className="settings-note">
           Lost a phone? Sign it out here. It stays locked out until someone signs in on it with Google again.
           It may still be signed in to your Google account, so also remove it there (Google Account, Security, Your devices).
-          Signing out all other devices also renews this device's sign-in, so a copy of it stops working.
+          Signing out all other devices also renews this device's sign-in, so a copy of it stops working, and revokes your browser extension devices.
           To sign out this device, use Sign out in the account menu.
         </p>
         <span className="muted" aria-live="polite">{note}</span>

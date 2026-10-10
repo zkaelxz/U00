@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from services import url_guard
+from lib import url_guard
 from sources import chapter_check, http, store
 from sources.base import SourceAdapter
 from sources.http import Response

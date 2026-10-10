@@ -141,7 +141,7 @@ describe('suggest terms sources', () => {
   it('novel only: defaults to the novel', () => {
     const b = blockers(7, true, false)
     expect(b.novel).toBeNull()
-    expect(b.lines).toEqual({ text: 'Still needed: transcript lines', link: 'transcribe it on Source', href: '#/drama/3/source' })
+    expect(b.lines).toEqual({ text: 'Still needed: transcript lines', link: 'transcribe it on Media', href: '#/drama/3/source' })
     expect(defaultSuggestSource(b, false)).toBe('novel')
   })
 
@@ -161,8 +161,8 @@ describe('suggest terms sources', () => {
 
   it('no series blocks both with the series text', () => {
     const b = blockers(null, true, true)
-    expect(b.novel?.text).toBe('Still needed: a series for this drama')
-    expect(b.lines?.text).toBe('Still needed: a series for this drama')
+    expect(b.novel?.text).toBe('Still needed: a series for this title')
+    expect(b.lines?.text).toBe('Still needed: a series for this title')
   })
 
   it('a source still being read is not blocked yet', () => {

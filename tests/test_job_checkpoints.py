@@ -361,9 +361,9 @@ def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
 
 
 def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
-    import diagnostics
+    import diagnostics_torch
     monkeypatch.delitem(sys.modules, "torch", raising=False)
-    monkeypatch.setattr(diagnostics, "external_gpu_load",
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load",
                         lambda: {"memory_free_mb": 1024.0, "memory_used_mb": 0,
                                  "memory_total_mb": 1024.0, "utilization_percent": 0})
     assert vram_service.free_vram_mb() == 1024.0
@@ -584,9 +584,9 @@ def test_cli_narrate_prep_resumes_and_can_start_over(isolated_db, monkeypatch):
     import argparse
     import os
     import cli
-    import dub
+    import dub_narration
     did = _narration_setup(isolated_db, monkeypatch)
-    with open(os.path.join(isolated_db.drama_dir(did), dub.NOVEL_SOURCE_FILENAME), "w",
+    with open(os.path.join(isolated_db.drama_dir(did), dub_narration.NOVEL_SOURCE_FILENAME), "w",
               encoding="utf-8") as f:
         f.write("novel")
     monkeypatch.setattr(cli, "chunk_novel_text", lambda text: [f"段落{i}" for i in range(40)])
@@ -616,7 +616,7 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
     import argparse
     import contextlib
     import io
-    import cli
+    import cli_translate
     from services import workspace_job_service as wjs
     did = isolated_db.create_drama(title_en="C", status="aligned")
     isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
@@ -632,7 +632,7 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
                               style_note="Keep it short", style_preset="novel",
                               locale="en-GB", force=False, ollama_num_ctx=None)
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args)
+        cli_translate.cmd_translate(args)
     line = isolated_db.load_line_objects(did)[0]
     prov = line_provenance_service.get(did, line.id, current_en=line.en)
     assert line.en == "hello" and prov is not None
@@ -646,7 +646,7 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
                         lambda *a, **k: captured.update(k) or real(*a, **k))
     isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args)
+        cli_translate.cmd_translate(args)
     assert captured["style_preset"] == "novel"
     assert captured["style_note"] == "Keep it short"
     assert captured["style_guidelines"]

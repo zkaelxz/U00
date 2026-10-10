@@ -5,6 +5,7 @@ import { jobFailed } from '../../types/jobs'
 import type { ArtifactKind } from '../../types/libraryAdmin'
 import { formatBytes, percent } from './libraryAdmin'
 import type { AdminJob } from './useAdminJob'
+import { buttonClass } from '../../components/uiClasses'
 
 /** "Working… 40% · Cancel" while running; the failure or download link after. */
 export function AdminJobLine({ job, busyText, artifact, showLink = true }: {
@@ -23,7 +24,7 @@ export function AdminJobLine({ job, busyText, artifact, showLink = true }: {
             {j && percent(j.progress) && ` ${percent(j.progress)}`}
           </span>
           {j && (
-            <button type="button" className="link" onClick={job.cancel}>
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={job.cancel}>
               Cancel
             </button>
           )}

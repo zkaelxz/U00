@@ -57,7 +57,7 @@ import background_jobs
 import db
 import portable
 import process_guard
-from services import capped_body
+from lib import capped_body
 from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
@@ -529,10 +529,19 @@ def start_download() -> dict:
             raise ConflictError("There is no newer version to download. Check for updates first.")
         _verified = None
         _state.update(download="downloading", downloaded_bytes=0, download_error=None)
+    # Taken before the thread starts: a fast download could otherwise finish first and
+    # the caller would be told "verified" by the call that started it. The state above
+    # already refuses a second start, so nothing can slip in between.
+    started = status()
+    try:
         _download_thread = threading.Thread(target=_run_download, daemon=True,
                                             name="update-download")
         _download_thread.start()
-    return status()
+    except BaseException:
+        with _lock:
+            _state.update(download="idle")
+        raise
+    return started
 
 
 # --- install ------------------------------------------------------------------

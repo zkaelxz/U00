@@ -24,7 +24,9 @@
 .workspace-header .ws-back { gap: var(--space-1); }
 .workspace-header .ws-badges { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .workspace-header .ws-lines { font-size: var(--text-sm); }
-.workspace-header .ws-read { margin-left: auto; }
+/* The title's main way in (read or open the comic) plus its source page, pushed to the header's right edge. */
+.ws-actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+.ws-actions a { white-space: nowrap; }
 
 /* Job pill: what is running on this title, on every stage. 32px on desktop, 44px on touch and phones. */
 .job-pill-wrap { position: relative; flex: 0 0 auto; }
@@ -81,6 +83,9 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 .stage-tabs a[data-state='done'] { color: var(--text); }
 .stage-tabs a[data-state='current'] { color: var(--accent-text); font-weight: var(--weight-bold); }
 .stage-tabs a[data-state='blocked'] { opacity: 0.7; }
+/* Comics keep the tabs (deep links work) but they are not used, so they read as secondary. */
+.stage-tabs a[data-comic-skipped='true']:not([aria-current='page']) { opacity: 0.55; }
+.comic-stage-notice .comic-open-scanlate { justify-self: start; min-height: 44px; }
 .stage-tabs .stage-mark { font-size: var(--text-xs); color: var(--muted); }
 .stage-tabs a[data-state='done'] .stage-mark { color: var(--ok); font-size: var(--text-sm); }
 .stage-tabs a[data-state='current'] .stage-mark { color: var(--accent-text); }
@@ -104,8 +109,9 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header .ws-back { min-width: 44px; min-height: 44px; padding-inline: 0; font-size: var(--text-xl); }
   .workspace-header .ws-back-text,
   .workspace-header .ws-media,
-  .workspace-header .ws-lines,
-  .workspace-header .ws-read { display: none; }
+  .workspace-header .ws-lines { display: none; }
+  .ws-actions { margin: var(--space-2) 0; }
+  .workspace .ws-actions a.btn { flex: 1 1 0; justify-content: center; min-height: 44px; }
   .workspace-header h2 { flex: 1 1 auto; font-size: var(--text-lg); }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }

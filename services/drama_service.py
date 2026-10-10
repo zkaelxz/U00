@@ -25,6 +25,7 @@ No FastAPI import: plain dicts in, plain dicts out.
 """
 
 import contextlib
+import datetime
 import logging
 import os
 import re
@@ -98,6 +99,9 @@ def _find_preset(preset_id):
     return next((p for p in db.list_presets() if p["id"] == preset_id), None)
 
 
+SENTENCE_SPLIT_DEFAULT_LANGUAGES = ("zh", "ja")
+
+
 def create_drama(*, source_language, title_en="", title_zh="", author="", studio="",
                  director="", voice_actors="", summary="", media_type="audio_drama",
                  series_id=None, new_series_name=None, preset_id=None,
@@ -145,6 +149,11 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     fields = dict(texts, media_type=media_type, source_language=source_language, **owned)
     if series_id is not None:
         fields["series_id"] = series_id
+    if source_language in SENTENCE_SPLIT_DEFAULT_LANGUAGES:
+        # Chinese and Japanese speech runs long between pauses; without it a
+        # Whisper or Whisper + Qwen title comes back as minute-long lines.
+        # Existing titles keep their stored value.
+        fields["split_by_sentences"] = 1
     if preset and preset.get("translation_engine"):
         fields["translation_engine"] = preset["translation_engine"]
     else:
@@ -258,6 +267,29 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     if fields:
         db.update_drama(drama_id, **fields)
     return library_service.get_library_drama(drama_id)
+
+
+def set_source_url_once(drama_id, url) -> bool:
+    """Records where an import came from, only while the title has no link,
+    so what the owner typed is never overwritten. Stores the display-safe
+    form (no query, userinfo or token-like path); a link that leaves
+    nothing usable is ignored. Never raises: a link is a convenience and
+    must not fail the import that called it."""
+    safe = library_service.display_source_url(url)
+    if not safe or len(safe) > MAX_URL_LEN:
+        return False
+    try:
+        # One conditional statement: a link the owner saves between a read
+        # and a write would otherwise be overwritten by the import.
+        with contextlib.closing(db.get_conn()) as conn:
+            cur = conn.execute(
+                "UPDATE dramas SET source_url = ?, updated_at = ? "
+                "WHERE id = ? AND TRIM(COALESCE(source_url, '')) = ''",
+                (safe, datetime.datetime.utcnow().isoformat(), drama_id))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception:
+        return False
 
 
 # A job_records row still saying running/queued but not heartbeated this

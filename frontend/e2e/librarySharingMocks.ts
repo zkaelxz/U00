@@ -25,7 +25,7 @@ const SERIES = [
   },
 ]
 
-export const CONFLICT = "Move other people's dramas out of this series first."
+export const CONFLICT = "Move other people's titles out of this series first."
 
 interface SharingMock extends AuthMockState {
   posts: { path: string; body: unknown }[]

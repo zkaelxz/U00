@@ -7,7 +7,7 @@ import pytest
 import background_jobs
 import db
 import translation_guide as tguide
-from services import glossary_service as gs
+from services import glossary_extract_service, glossary_service as gs
 from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
 
@@ -113,7 +113,7 @@ class TestStatusAndIgnoreList:
             gs.list_glossary_dismissals(999)
 
     def test_ignore_list_is_capped_per_series(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(gs, "MAX_DISMISSALS_PER_SERIES", 3)
+        monkeypatch.setattr(glossary_extract_service, "MAX_DISMISSALS_PER_SERIES", 3)
         did, sid = _drama(isolated_db)
         gs.dismiss_glossary_proposals(did, ["a", "b"])
         with pytest.raises(InvalidInputError, match="at most 3"):

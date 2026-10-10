@@ -96,6 +96,16 @@ EXTRACT_JOB_PREFIX = "extract_audio_"
 # job "running" forever; cancel kills it sooner.
 EXTRACT_TIMEOUT_SECONDS = 2 * 60 * 60
 _FOLLOW_POLL_SECONDS = 0.5
+# The follow-up transcription's own watchdog is per worker; this bounds the
+# wait for a run that never ends (a hung queue slot). The floor covers short
+# media, where model loading dominates; the multiple covers slow CPU runs.
+_FOLLOW_FLOOR_SECONDS = 2 * 60 * 60
+_FOLLOW_PER_MEDIA_SECOND = 5
+FOLLOW_TIMEOUT_MESSAGE = "Transcription took much longer than expected and was stopped."
+
+
+def follow_deadline_seconds(media_seconds) -> float:
+    return max(_FOLLOW_FLOOR_SECONDS, _FOLLOW_PER_MEDIA_SECOND * float(media_seconds or 0.0))
 # An unnamed in-place file younger than this may be one another Baihe process
 # has just put in place and not yet recorded (the upload claim is per
 # process), so recovery leaves it for a later pass.
@@ -556,6 +566,11 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     try:
         background_jobs.run_cancellable(job_id, cmd, cwd=ddir, timeout=EXTRACT_TIMEOUT_SECONDS)
         failed = _SAVE_FAILED
+        from services import transcribe_pipeline, transcribe_service
+        # Probed before install_media moves the file, and only when a
+        # transcription will follow and need its deadline.
+        media_seconds = (transcribe_pipeline._audio_duration_seconds(part_path)
+                         if transcribe_options is not None else None)
         install_media(drama_id, {"source_video_filename": (staged, "source", ext),
                                  "audio_filename": (part_path, "audio", ".wav")})
     except BaseException as exc:
@@ -570,23 +585,32 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     if transcribe_options is None:
         background_jobs.update_progress(job_id, 1.0, "Audio extracted.")
         return
-    from services import transcribe_service
     if background_jobs.is_cancel_requested(job_id):  # never start a GPU run after a cancel
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.1, "Audio extracted. Starting transcription...")
     run = transcribe_service.start_transcribe_run(drama_id, **transcribe_options)
-    _follow_job(job_id, run["job_id"])
+    _follow_job(job_id, run["job_id"], follow_deadline_seconds(media_seconds))
 
 
-def _follow_job(job_id, child_id):
+def _follow_job(job_id, child_id, deadline_s):
     """Mirrors child_id's progress onto job_id until the child ends and
     forwards a cancel to it; a child error or cancel ends job_id the same way.
     A queued child is removed outright by cancel_queued, so once a cancel
-    has been forwarded a vanished child also counts as cancelled."""
+    has been forwarded a vanished child also counts as cancelled. A child
+    still going after deadline_s seconds of running is stopped and job_id ends
+    as an error, so this job can't wait forever. Time spent queued behind
+    another title's GPU job doesn't count: the clock starts when it runs."""
     forwarded = False
+    give_up_at = time.monotonic() + deadline_s
     while True:
         child = background_jobs.get_status(child_id) or {}
         status = child.get("status")
+        if status == "queued":
+            give_up_at = time.monotonic() + deadline_s
+        elif time.monotonic() >= give_up_at:
+            if not background_jobs.cancel_queued(child_id):
+                background_jobs.request_cancel(child_id)
+            raise RuntimeError(FOLLOW_TIMEOUT_MESSAGE)
         if status not in ("running", "queued"):
             break
         if background_jobs.is_cancel_requested(job_id) and not forwarded:

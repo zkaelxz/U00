@@ -78,13 +78,24 @@ export const PREVIEW_NOTES: Record<'unknown', string> = {
 // ---------------------------------------------------------------- dramas
 
 export const dramaLabel = (d: Pick<DramaSummary, 'id' | 'title_en' | 'title_zh'>) =>
-  d.title_en?.trim() || d.title_zh?.trim() || `Drama ${d.id}`
+  d.title_en?.trim() || d.title_zh?.trim() || `Title ${d.id}`
 
 const COMIC_MEDIA_TYPES = ['manhua', 'manga', 'manhwa']
 
 /** Dramas a chapter import may write into: comic types for page sources, novels for text sources. */
 export function chapterImportDramas(dramas: DramaSummary[], comic: boolean): DramaSummary[] {
   return dramas.filter((d) => (comic ? COMIC_MEDIA_TYPES.includes(d.media_type ?? '') : d.media_type === 'novel'))
+}
+
+/** How many titles chapterImportDramas leaves out. */
+export const hiddenDramaCount = (dramas: DramaSummary[], comic: boolean) => dramas.length - chapterImportDramas(dramas, comic).length
+
+/** Why the import list is short, so a missing title is not a mystery. */
+export function hiddenDramasNote(count: number, comic: boolean): string {
+  const others = count === 1 ? '1 other title isn’t' : `${plural(count, 'other title')} aren’t`
+  return comic
+    ? `Showing comic titles only. ${others} listed because manga pages can’t go into a novel or audio title. Choose “New title…” to make a comic title.`
+    : `Showing novel titles only. ${others} listed because chapter text can only go into a novel title. Choose “New title…” to make a novel title.`
 }
 
 // Mirrors services/media_upload_service._UPLOAD_CONTENT_MODES (null = audio_drama).
@@ -138,7 +149,7 @@ export const importLabel = (n: number) => `Import ${plural(n, 'chapter')}`
 export function importReason(count: number, dramaId: number | null): string | null {
   if (count === 0) return 'Still needed: at least one chapter.'
   if (count > MAX_CHAPTERS) return `Import at most ${MAX_CHAPTERS} chapters at a time.`
-  if (!dramaId) return 'Still needed: a drama to import into.'
+  if (!dramaId) return 'Still needed: a title to import into.'
   return null
 }
 
@@ -194,7 +205,7 @@ export function urlImportText(r: UrlImportResult): string {
   if (r.needs_review) {
     return 'Baihe couldn’t be sure it found the chapter text, so nothing was saved. Paste the text in the Workspace’s Novel panel instead.'
   }
-  return `Added ${plural(r.char_count, 'character')} to the drama’s novel text.`
+  return `Added ${plural(r.char_count, 'character')} to the title’s novel text.`
 }
 
 // ---------------------------------------------------------------- import state

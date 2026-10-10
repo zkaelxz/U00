@@ -32,7 +32,7 @@ describe('Bulk review engine gating (R49)', () => {
     expect(bulkBlocker('gemini', FREE_TIER)).toMatch(/^Still needed for Bulk: Gemini's free tier turned off in Settings/)
     expect(bulkBlocker('deepseek', PAID)).toBe('Still needed for Bulk: Claude or Gemini as the engine (Check options).')
   })
-  it('uses the picked engine, else the drama default', () => {
+  it('uses the picked engine, else the title default', () => {
     expect(effectiveEngine({ engine: '' }, 'gemini')).toBe('gemini')
     expect(effectiveEngine({ engine: ' claude ' }, 'gemini')).toBe('claude')
   })
@@ -63,7 +63,7 @@ describe('Bulk copy', () => {
     expect(BULK_HELP).toMatch(/Half price/)
     expect(BULK_HELP).toMatch(/24 hours/)
     expect(BULK_HELP).toMatch(/by its id/)
-    for (const w of ['adding', 'deleting', 'merging', 'splitting', 're-segmenting', 'restoring a version', 'deleting the drama'])
+    for (const w of ['adding', 'deleting', 'merging', 'splitting', 're-segmenting', 'restoring a version', 'deleting the title'])
       expect(BULK_HELP).toContain(w)
     const t = bulkStartedText('Consistency check', 1)
     expect(t).toMatch(/^Consistency check: sent as a bulk batch at half price \(1 line\)\./)

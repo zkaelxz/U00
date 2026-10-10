@@ -13,6 +13,8 @@ export interface SourceSupports {
   login: boolean
 }
 
+export type SourcePace = 'careful' | 'normal' | 'fast'
+
 export type HealthLight = 'green' | 'yellow' | 'red'
 
 export interface SourceSummary {
@@ -28,6 +30,11 @@ export interface SourceSummary {
   adult_enabled: boolean
   health: HealthLight | string
   has_saved_signin: boolean
+  pace: SourcePace
+  fast_allowed: boolean
+  slowed_down: boolean
+  // The person marked this source as working only through the browser extension.
+  extension_only?: boolean
 }
 
 export interface SourceHealth {
@@ -67,6 +74,17 @@ export interface SourceDetail extends SourceSummary {
   terms: Record<string, unknown>
   terms_enforced: boolean
   health_detail: SourceHealth
+  extension_marked_at?: number | null
+  extension_note?: string
+  // A Static or Browser test passed after the marker was set.
+  extension_works_without?: boolean
+}
+
+export interface ExtensionOnlyMark {
+  extension_only: boolean
+  extension_marked_at: number | null
+  extension_note: string
+  extension_works_without: boolean
 }
 
 export interface SourceAttempt {
@@ -153,6 +171,8 @@ export interface TrackedSeries {
   drama_id: number | null
   last_checked: number | null
   last_check_error: string | null
+  // Scheduled checks skip it: its source works only through the browser extension.
+  extension_only?: boolean
   // New chapters are saved as CBZ files by the check (comic sources).
   save_cbz: boolean
 }

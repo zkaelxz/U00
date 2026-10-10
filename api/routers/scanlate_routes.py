@@ -1,6 +1,6 @@
 """
 api/routers/scanlate_routes.py -- the automatic Scanlate path (spec
-docs/specs/scanlate-api-spec.md). Thin over
+docs/archive/scanlate-api-spec.md). Thin over
 services/scanlate_pages_service.py, scanlate_run_service.py and
 scanlate_render_service.py. Shares the /api/scanlate prefix with the comic
 viewer's read routes (api/routers/comic_routes.py), which serve the page
@@ -127,7 +127,7 @@ def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge
     require_engines_allowed(request, engine)
     return scanlate_run_service.start_run(
         drama_id, mode=body.mode, page_id=body.page_id, confirm=body.confirm, engine=engine,
-        detect_backend=body.detect_backend)
+        detect_backend=body.detect_backend, chapter_id=body.chapter_id)
 
 
 @router.post("/dramas/{drama_id}/render", dependencies=[require_permission("jobs.start")],

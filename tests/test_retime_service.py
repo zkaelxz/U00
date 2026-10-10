@@ -10,13 +10,14 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import core
+import whisper_models
 import db
 import forced_align
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import (jobs_service, ownership_service, restructure_service, retime_service as svc,
-                      settings_service, transcribe_service)
+                      settings_service, transcribe_pipeline, transcribe_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
@@ -26,7 +27,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
     monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature: None)
-    monkeypatch.setattr(core, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
     calls = {"groups": [], "languages": [], "use_gpu": [], "shift": -0.4,
              "fail_text": None, "on_device": "GPU", "fallback": None}
@@ -282,7 +283,7 @@ class TestJob:
             a["end"] = 6.005
             b["start"], b["end"] = 6.005, 9.5
             return [a, b]
-        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda path: 9.0)
+        monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda path: 9.0)
         monkeypatch.setattr(forced_align, "refine_segment_timing", shift)
         _run(did, ids)
         (p,) = svc.get_retime_result(did)["proposals"]
@@ -292,7 +293,7 @@ class TestJob:
     def test_device_notice_is_scrubbed(self, monkeypatch, _env):
         did, ids = _drama(2)
         _env["fallback"] = True
-        monkeypatch.setattr(core, "gpu_fallback_notice",
+        monkeypatch.setattr(whisper_models, "gpu_fallback_notice",
                             lambda feature, why: f"{feature} fell back: C:\\Users\\x\\m.bin")
         _run(did, ids)
         assert "Users" not in svc.get_retime_result(did)["device_notice"]
@@ -337,7 +338,7 @@ class TestJob:
 
     def test_last_line_is_clamped_to_media_duration(self, monkeypatch, _env):
         did, ids = _drama(2)
-        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda path: 10.0)
+        monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda path: 10.0)
         monkeypatch.setattr(
             forced_align, "refine_segment_timing",
             lambda audio, groups, language, **kw: [{**groups[0][0], "end": 13.0}])

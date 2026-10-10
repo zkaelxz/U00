@@ -20,6 +20,9 @@ const MERGE_LIMITS: Record<keyof MergeShortOptions, [number, number]> = {
 
 export type MergeForm = Record<keyof MergeShortOptions, string>
 
+// The Merge short lines form's draft (hooks/useStageDraft, stage "review.merge"); its shape is mergeFormDefaults().
+export const MERGE_DRAFT_STAGE = 'review.merge'
+
 export const mergeFormDefaults = (): MergeForm => ({
   min_duration: String(MERGE_DEFAULTS.min_duration),
   max_gap: String(MERGE_DEFAULTS.max_gap),
@@ -94,7 +97,7 @@ export function resolveLineNumber(
   if (!m) return { error: 'Enter a line number, e.g. 12.' }
   const idx = idxFromLineNumber(Number(m[1]))
   const line = lines.find((l) => l.idx === idx)
-  return line ? { lineId: line.id } : { error: `No line #${m[1]} in this drama.` }
+  return line ? { lineId: line.id } : { error: `No line #${m[1]} in this title.` }
 }
 
 export function fmtSeconds(s: number | null | undefined): string {

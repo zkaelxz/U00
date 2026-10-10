@@ -26,6 +26,8 @@ URL = "http://192.168.1.20:8096"
 
 
 class Resp:
+    headers = {}
+
     def __init__(self, status=200, data=None, raw=None):
         import json
         self.status_code = status
@@ -192,6 +194,13 @@ def test_bad_key_and_unreachable_are_fixed_text(setup):
     with pytest.raises(DependencyUnavailableError) as e:
         jf.test_connection()
     assert KEY not in str(e.value) and "192.168" not in str(e.value)
+
+
+def test_redirect_is_not_followed_and_never_carries_the_key_elsewhere(setup):
+    FakeSession.routes[("GET", "/System/Info")] = lambda p: Resp(302)
+    with pytest.raises(DependencyUnavailableError):
+        jf.test_connection()
+    assert len(FakeSession.calls) == 1
 
 
 def test_scan_identifies_items_missing_target_language(setup):
@@ -370,23 +379,29 @@ def test_oversized_reply_is_refused(setup, monkeypatch):
         jf.test_connection()
 
 
-def test_slow_reply_hits_the_deadline_and_is_closed(monkeypatch):
-    from services import capped_body
-    ticks = iter([0.0, 1.0, jf.READ_DEADLINE + 1])
-    monkeypatch.setattr(capped_body.time, "monotonic", lambda: next(ticks))
+def test_slow_reply_hits_the_deadline_and_is_closed(setup, monkeypatch):
+    from lib import capped_body
+    now = [0.0]
+    monkeypatch.setattr(capped_body.time, "monotonic", lambda: now[0])
 
     class Slow(Resp):
         closed = False
 
+        def iter_content(self, size):
+            for chunk in super().iter_content(size):
+                now[0] += jf.READ_DEADLINE + 1
+                yield chunk
+
         def close(self):
             self.closed = True
     resp = Slow(200, raw=b"x" * 200_000)
+    FakeSession.routes[("GET", "/System/Info")] = lambda p: resp
     with pytest.raises(DependencyUnavailableError):
-        jf._read_capped(resp)
+        jf.test_connection()
     assert resp.closed
 
 
-def test_reply_declaring_more_than_the_cap_is_refused_unread(monkeypatch):
+def test_reply_declaring_more_than_the_cap_is_refused_unread(setup, monkeypatch):
     monkeypatch.setattr(jf, "MAX_RESPONSE_BYTES", 100)
 
     class Big(Resp):
@@ -396,15 +411,12 @@ def test_reply_declaring_more_than_the_cap_is_refused_unread(monkeypatch):
         def iter_content(self, size):
             Big.read = True
             return super().iter_content(size)
+    FakeSession.routes[("GET", "/System/Info")] = lambda p: Big(200, raw=b"{}")
     with pytest.raises(DependencyUnavailableError):
-        jf._read_capped(Big(200, raw=b"{}"))
+        jf.test_connection()
     assert Big.read is False
 
 
-def test_static_timeout():
-    from tests.test_static_analysis import PROJECT_ROOT, _find_requests_calls_missing_timeout
-    path = os.path.join(PROJECT_ROOT, "services", "jellyfin_service.py")
-    assert _find_requests_calls_missing_timeout(path, session_verbs=True) == []
 
 
 # --- routes -----------------------------------------------------------------

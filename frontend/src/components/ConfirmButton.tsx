@@ -33,6 +33,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { CONFIRM_REVERT_MS, armedAnnouncement, confirmLabelFor, confirmStep, type ConfirmEvent } from './confirmButtonState'
+import { buttonClass } from './uiClasses'
 
 type Props = {
   name: string
@@ -100,7 +101,7 @@ export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLab
           <button ref={confirmRef} type="button" className={tone} onClick={() => on('press')}>
             {confirmLabel ?? confirmLabelFor(name, verb)}
           </button>
-          <button type="button" className="link" onClick={() => on('cancel')}>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => on('cancel')}>
             Cancel
           </button>
         </>

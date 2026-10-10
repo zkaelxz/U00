@@ -52,8 +52,13 @@ def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplifi
 _TESSERACT_CMD_LOCK = threading.Lock()
 
 
+# One page should take seconds; a tesseract that hangs on a damaged image
+# would otherwise stall a whole chapter job that Cancel cannot reach.
+TESSERACT_PAGE_TIMEOUT_SECONDS = 120
+
+
 def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6,
-                            tesseract_cmd: str = None) -> str:
+                            tesseract_cmd: str = None, on_timeout=None) -> str:
     """Requires: `pip install pytesseract pillow` + the Tesseract binary
     itself installed system-wide, with the matching language pack.
       macOS:   brew install tesseract tesseract-lang
@@ -67,6 +72,8 @@ def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6,
     drop the last character of a short, single-line CJK image -- exactly
     the shape of a cropped hardsub caption band, and not rare enough on
     novel/manga page scans either to leave on the default.
+
+    on_timeout: called when the page timed out and was dropped.
 
     tesseract_cmd: optional full path to the tesseract binary
     (e.g. "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"). The Windows
@@ -86,12 +93,31 @@ def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6,
             pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
         try:
             return pytesseract.image_to_string(Image.open(image_path), lang=lang,
-                                                config=f"--psm {psm}")
+                                                config=f"--psm {psm}",
+                                                timeout=TESSERACT_PAGE_TIMEOUT_SECONDS)
+        except RuntimeError as exc:
+            # pytesseract signals a timeout as a bare RuntimeError; the page
+            # is lost but the rest of the chapter is still worth reading.
+            if "timeout" not in str(exc).lower():
+                raise
+            if on_timeout is not None:
+                on_timeout()
+            return ""
         finally:
             pytesseract.pytesseract.tesseract_cmd = previous
 
 
 _PADDLE_LANG_BY_SOURCE = {"zh": "ch", "ko": "korean"}
+
+# Pinned for lang="ch" so the real-model check can tell, without loading
+# anything, whether the exact models this call needs are already on disk;
+# left to PaddleX the choice shifts with its version and a leftover folder
+# from another version would look like the right one.
+_PADDLE_CH_MODELS = {
+    "text_detection_model_name": "PP-OCRv5_server_det",
+    "text_recognition_model_name": "PP-OCRv5_server_rec",
+    "textline_orientation_model_name": "PP-LCNet_x1_0_textline_ori",
+}
 
 
 def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
@@ -122,7 +148,8 @@ def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
     if lang not in instances:
         instances[lang] = PaddleOCR(
             use_doc_orientation_classify=False, use_doc_unwarping=False,
-            use_textline_orientation=True, lang=lang, enable_mkldnn=False)
+            use_textline_orientation=True, lang=lang, enable_mkldnn=False,
+            **(_PADDLE_CH_MODELS if lang == "ch" else {}))
     result = instances[lang].predict(image_path)
     lines = []
     for page in result:
@@ -184,7 +211,7 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
     """
     problem = paddle_vl_manga_problem()
     if problem:
-        from services.service_errors import DependencyUnavailableError
+        from lib.errors import DependencyUnavailableError
         raise DependencyUnavailableError(problem)
     from PIL import Image
     import torch
@@ -239,10 +266,12 @@ def extract_text_manga_ocr(image_path: str) -> str:
 def extract_text_from_images(image_paths, backend: str = "tesseract",
                               source_language: str = "zh",
                               chinese_script: str = "simplified",
-                              tesseract_cmd: str = None) -> str:
+                              tesseract_cmd: str = None, before_page=None, on_skip=None) -> str:
     """Runs OCR over multiple page images (e.g. a whole chapter's worth
     of screenshots) in order and joins them into one block of text,
-    ready to feed into the novel-narration pipeline."""
+    ready to feed into the novel-narration pipeline. before_page is called
+    ahead of each page so a caller can stop the run by raising; on_skip(path)
+    is called for each page Tesseract timed out on."""
     if backend == "manga_ocr":
         fn = extract_text_manga_ocr
     elif backend == "paddle_vl_manga":
@@ -252,10 +281,14 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
         fn = lambda p: extract_text_paddle(p, lang=paddle_lang)
     else:
         lang = resolve_tesseract_lang(source_language, chinese_script)
-        fn = lambda p: extract_text_tesseract(p, lang=lang, tesseract_cmd=tesseract_cmd)
+        fn = lambda p: extract_text_tesseract(
+            p, lang=lang, tesseract_cmd=tesseract_cmd,
+            **({"on_timeout": lambda: on_skip(p)} if on_skip is not None else {}))
 
     chunks = []
     for path in image_paths:
+        if before_page is not None:
+            before_page()
         text = fn(path).strip()
         if text:
             chunks.append(text)

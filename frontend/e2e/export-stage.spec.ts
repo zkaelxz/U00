@@ -49,7 +49,7 @@ test('with no lines, Export is disabled and links to Source (rule 22)', async ({
   await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeDisabled()
   const blocker = page.getByTestId('export-blocker')
   await expect(blocker).toContainText('No lines to export yet.')
-  await blocker.getByRole('link', { name: 'Go to Source' }).click()
+  await blocker.getByRole('link', { name: 'Go to Media' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/source$/)
 })
 
@@ -68,7 +68,7 @@ test('shows readiness and generates subtitle and ASS text', async ({ page }) => 
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByTestId('export-text')).toContainText('[Script Info]')
-  await expect(page.getByTestId('export-download')).toHaveAttribute('download', 'drama_1_en.ass')
+  await expect(page.getByTestId('export-download')).toHaveAttribute('download', 'Grandmaster of Demonic Cultivation - subtitles (en).ass')
 })
 
 test('bad ASS settings are explained before any request', async ({ page }) => {
@@ -99,7 +99,7 @@ test('the ASS style shows at the top only when ASS is chosen', async ({ page }) 
   await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
 })
 
-test('a drama that is not novel narration has no EPUB section', async ({ page }) => {
+test('a title that is not novel narration has no EPUB section', async ({ page }) => {
   await page.goto('/#/drama/1/export')
   await expect(page.getByTestId('readiness')).toBeVisible()
   await expect(page.getByRole('group', { name: 'EPUB' })).toHaveCount(0)
@@ -112,7 +112,7 @@ test('audiobook job can be cancelled', async ({ page }) => {
   await openMedia(page)
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
-  await page.getByRole('button', { name: 'Cancel job' }).click()
+  await page.getByRole('button', { name: /^Cancel / }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 

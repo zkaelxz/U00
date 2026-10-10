@@ -11,6 +11,8 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
+import { useStageDraft } from '../../../hooks/useStageDraft'
+import { buttonClass } from '../../../components/uiClasses'
 import { dubJobIds } from '../stageJobIds'
 import { jobSucceeded } from '../../../types/jobs'
 import { routeHref } from '../../../router'
@@ -20,6 +22,9 @@ import {
   buildDubRequest,
   dubAdvancedSummary,
   dubBlocker,
+  DUB_DRAFT_SHAPE,
+  DUB_DRAFT_STAGE,
+  dubFormFromDraft,
   dubSettingsLine,
   formatFactor,
   formatMs,
@@ -42,6 +47,10 @@ export default function DubStage() {
   const [cfg, setCfg] = useState<DubConfig | null>(null)
   const [pacing, setPacing] = useState<DubPacing | null>(null)
   const [form, setForm] = useState<DubForm | null>(null)
+  const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, DUB_DRAFT_STAGE, DUB_DRAFT_SHAPE)
+  useEffect(() => {
+    if (form) saveDraft(form)
+  }, [saveDraft, form])
   const [error, setError] = useState<unknown>(null)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   useReattachJob(dubJobIds(dramaId), adoptJob)
@@ -61,14 +70,14 @@ export default function DubStage() {
         if (cancelled) return
         setCfg(c)
         setPacing(p)
-        setForm((f) => f ?? initialDubForm(c))
+        setForm((f) => f ?? dubFormFromDraft(c, rawDraft))
       },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloads])
+  }, [dramaId, reloads, rawDraft])
 
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,
@@ -139,7 +148,7 @@ export default function DubStage() {
             <span>{blocker ?? (busy ? busyText : dubSettingsLine(cfg, form))}</span>
             {cfg.speakable_line_count === 0 && (
               <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                Go to Source
+                Go to Media
               </ButtonLink>
             )}
           </p>
@@ -209,6 +218,18 @@ export default function DubStage() {
               Keeping background music needs a video dub with source audio and the separation tools installed.
             </p>
           )}
+          <div className="actions">
+            <button
+              type="button"
+              className={buttonClass('ghost')}
+              onClick={() => {
+                clearDraft()
+                setForm(initialDubForm(cfg))
+              }}
+            >
+              Reset to defaults
+            </button>
+          </div>
         </Section>
       </section>
       <VoiceClonePanel cfg={cfg} onChanged={() => setReloads((n) => n + 1)} />
@@ -241,7 +262,14 @@ export default function DubStage() {
           </div>
         </Section>
       )}
-      {jobId && <JobPanel job={job} pollError={pollError} note={narrationResumeNote(job?.message)} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        note={narrationResumeNote(job?.message)}
+        // A narration is started from its own panel, so only a dub is run again from here.
+        lastRun={{ dramaId, ids: dubJobIds(dramaId), retryFor: (j) => (j.job_id.startsWith('dub_') ? start : null) }}
+      />
     </div>
   )
 }

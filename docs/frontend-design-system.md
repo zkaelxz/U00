@@ -41,7 +41,7 @@ Routes are location hashes, parsed by `parseRoute` in `router.ts`. Anything unkn
 | `#/library` (or empty) | Library |
 | `#/drama/<id>[/<stage>]` | Workspace for one title |
 | `#/read/<id>[?page=n]`, `#/comic/<id>[?page=n]` | Reader and comic reader |
-| `#/manga`, `#/manga/<source>/<series>[/<chapter>]` | Saved manga |
+| `#/manga`, `#/manga/<source>/<series>[/<chapter>]` | Saved manga (rail: Library tools) |
 | `#/translate`, `#/sources`, `#/discover`, `#/live`, `#/library-tools` | Top-level pages |
 | `#/jobs`, `#/settings`, `#/admin`, `#/diagnostics`, `#/assistant`, `#/benchmark[?compare=]` | In the left rail (the drawer below 1024px) |
 

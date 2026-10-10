@@ -27,14 +27,17 @@ from api.auth import (is_local_request, require_engines_allowed, require_paid_en
 from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
                          AutotuneStatus, CompareApplyRequest, CompareApplyResult,
                          CompareEstimate, CompareEstimateRequest, CompareOptions,
-                         CompareResult, CompareRunRequest, CompareRunResult, ErrorResponse, RetimeApplyRequest, RetimeApplyResult,
+                         CompareResult, CompareRunRequest, CompareRunResult, ErrorResponse,
+                         GapAddLinesRequest, GapAddLinesResult, RetimeApplyRequest, RetimeApplyResult,
                          RetimeResult, RetimeRunRequest, RetranscribeApplyRequest,
                          RetranscribeApplyResult, RetranscribeLineRequest,
                          RetranscribeLineResult, RetranscribeResult, SpeechCoverageRunRequest,
+                         RetranscribeManyApplyRequest, RetranscribeManyApplyResult,
+                         RetranscribeManyRequest, RetranscribeManyResult, RetranscribeManyStarted,
                          SpeechCoverageRunResult, SpeechCoverageStatus, TranscribeConfig, TranscribeConfigUpdate,
-                         TranscribeRunRequest, TranscribeRunResult)
-from services import (compare_transcription_service, retime_service, speech_coverage_service,
-                      transcribe_service)
+                         TranscribeGaps, TranscribeRunRequest, TranscribeRunResult)
+from services import (compare_transcription_service, retime_service, retranscribe_many_service,
+                      speech_coverage_service, transcribe_gap_service, transcribe_service)
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
@@ -169,13 +172,63 @@ def get_retranscribe_line(drama_id: int = Path(ge=1), line_id: int = Path(ge=1))
     return transcribe_service.get_retranscribe_result(drama_id, line_id)
 
 
-# --- Compare transcription (Review): proposals for a set of lines -------------
-# Local models only for the hearing; the optional translation uses the
-# title's engine, so it needs the same paid-engine permission as other jobs.
-
 _COMPARE_ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
                    409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
                    503: {"model": ErrorResponse}}
+
+# --- Re-transcribe selected lines (Review): one process job, proposals read back here --
+# Local Whisper only, like the one-line job; the job shares its id, so the two exclude each other.
+
+@router.post("/dramas/{drama_id}/retranscribe-lines",
+             dependencies=[require_permission("jobs.start")], response_model=RetranscribeManyStarted,
+             summary="Re-transcribe the ticked lines' audio windows in one job and propose new source text",
+             responses=_COMPARE_ERRORS)
+def post_retranscribe_lines(payload: RetranscribeManyRequest, drama_id: int = Path(ge=1)):
+    return retranscribe_many_service.start_retranscribe_many(
+        drama_id, payload.line_ids, initial_prompt=payload.initial_prompt,
+        extra_names=payload.extra_names)
+
+
+@router.get("/dramas/{drama_id}/retranscribe-lines",
+            dependencies=[require_permission("lines.read")], response_model=RetranscribeManyResult,
+            summary="The finished many-line re-transcription's proposals (raw line text)",
+            responses={404: {"model": ErrorResponse}})
+def get_retranscribe_lines(drama_id: int = Path(ge=1)):
+    return retranscribe_many_service.get_retranscribe_many_result(drama_id)
+
+
+@router.post("/dramas/{drama_id}/retranscribe-lines/apply",
+             dependencies=[require_permission("lines.edit")], response_model=RetranscribeManyApplyResult,
+             summary="Use chosen proposals: new source text, English cleared (compare-and-set per line)",
+             responses=_COMPARE_ERRORS)
+def post_apply_retranscribe_lines(payload: RetranscribeManyApplyRequest, drama_id: int = Path(ge=1)):
+    return retranscribe_many_service.apply_retranscribe_many(
+        drama_id, payload.job_id, [i.model_dump() for i in payload.items])
+
+
+# --- Untranscribed gaps (Review waveform) ------------------------------------
+
+@router.get("/dramas/{drama_id}/gaps",
+            dependencies=[require_permission("lines.read")], response_model=TranscribeGaps,
+            summary="Stretches longer than ~2 s that no subtitle line covers",
+            responses={404: {"model": ErrorResponse}})
+def get_transcribe_gaps(drama_id: int = Path(ge=1)):
+    return transcribe_gap_service.list_gaps(drama_id)
+
+
+@router.post("/dramas/{drama_id}/gaps/add-lines",
+             dependencies=[require_permission("lines.edit")], response_model=GapAddLinesResult,
+             summary="Add blank, flagged lines tiling an untranscribed stretch (30 s pieces)",
+             responses=_COMPARE_ERRORS)
+def post_add_gap_lines(payload: GapAddLinesRequest, drama_id: int = Path(ge=1)):
+    return transcribe_gap_service.add_gap_lines(
+        drama_id, payload.expected_line_ids, start=payload.start, end=payload.end,
+        after_line_id=payload.after_line_id)
+
+
+# --- Compare transcription (Review): proposals for a set of lines -------------
+# Local models only for the hearing; the optional translation uses the
+# title's engine, so it needs the same paid-engine permission as other jobs.
 
 
 @router.get("/dramas/{drama_id}/compare-transcription/options",
@@ -203,7 +256,7 @@ def post_compare_estimate(payload: CompareEstimateRequest, drama_id: int = Path(
              responses=_COMPARE_ERRORS)
 def post_compare_run(payload: CompareRunRequest, request: Request, drama_id: int = Path(ge=1)):
     if payload.translate:
-        require_engines_allowed(request, payload.engine)
+        require_engines_allowed(request, payload.engine, model=payload.model)
     return compare_transcription_service.start_compare(
         drama_id, payload.selection.model_dump(exclude_none=True), payload.whisper_size,
         payload.asr_backend, payload.translate, payload.retranslate_current, payload.engine,

@@ -72,7 +72,7 @@ describe('per-line tool api', () => {
 })
 
 describe('translation-memory dismiss', () => {
-  it('hides the dismissed source/suggestion pair on every line, per drama', () => {
+  it('hides the dismissed source/suggestion pair on every line, per title', () => {
     const store = memoryStore()
     dismissTm(1, tm(), store)
     const dismissed = readDismissed(1, store)

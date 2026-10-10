@@ -10,6 +10,8 @@ __all__ = [
     "AppLoadedModel",
     "AppLoaded",
     "GpuMemory",
+    "KeepFreeMemory",
+    "MemoryHeadroom",
     "LoadedModels",
     "FreeAppModelsRequest",
 ]
@@ -45,11 +47,25 @@ class GpuMemory(BaseModel):
     free_bytes: Optional[int] = None
 
 
+class KeepFreeMemory(BaseModel):
+    """Free and total memory, and the part Settings keeps free for other programs."""
+    state: Literal["ok", "unknown"]
+    total_bytes: Optional[int] = None
+    free_bytes: Optional[int] = None
+    reserved_bytes: int = 0
+
+
+class MemoryHeadroom(BaseModel):
+    vram: KeepFreeMemory
+    ram: KeepFreeMemory
+
+
 class LoadedModels(BaseModel):
     checked_at: str
     ollama: OllamaLoaded
     app: AppLoaded
     gpu: GpuMemory
+    memory: MemoryHeadroom
     llama_cpp_running: bool
     gpu_job_running: bool
 

@@ -179,3 +179,39 @@ describe('restarting a run with the same fixed job id', () => {
     expect(pickRunState(null, 'transcribe_1', 1)).toBeNull()
   })
 })
+
+describe('a poll the server never answers', () => {
+  const hangUntilAborted = (signal?: AbortSignal) =>
+    new Promise<JobRecord>((_, reject) => {
+      signal?.addEventListener('abort', () => reject(new ApiError(0, { code: 'network_error', message: 'timed out' })))
+    })
+
+  it('gives every read a 15 s deadline by default', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    const fetchJob = vi.fn(async (_id: string, _signal?: AbortSignal) => job('done'))
+    startJobPolling('j', { fetchJob, onUpdate: vi.fn(), onError: vi.fn() })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(timeout).toHaveBeenCalledWith(15000)
+    expect(fetchJob.mock.calls[0][1]).toBeInstanceOf(AbortSignal)
+    timeout.mockRestore()
+  })
+
+  it('abandons the hung read and keeps polling', async () => {
+    const hung = new AbortController()
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(hung.signal)
+    const fetchJob = vi.fn()
+      .mockImplementationOnce((_id: string, signal?: AbortSignal) => hangUntilAborted(signal))
+      .mockResolvedValue(job('done'))
+    const onError = vi.fn()
+    const onDone = vi.fn()
+    startJobPolling('j', { intervalMs: 100, fetchJob, onUpdate: vi.fn(), onError, onDone })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetchJob).toHaveBeenCalledTimes(1) // stuck: no second poll yet
+    hung.abort()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(onError).not.toHaveBeenCalled()
+    expect(fetchJob).toHaveBeenCalledTimes(2)
+    expect(onDone).toHaveBeenCalledTimes(1)
+    vi.restoreAllMocks()
+  })
+})

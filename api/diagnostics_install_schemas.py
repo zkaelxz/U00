@@ -1,12 +1,14 @@
 """
 api/diagnostics_install_schemas.py -- Pydantic models for
-api/routers/diagnostics_installs_routes.py (Deno install, "Test first" for
-an update).
+api/routers/diagnostics_installs_routes.py (package install and GPU PyTorch
+setup, Deno install, "Test first" for an update).
 """
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
+
+from api.schemas import DiagnosticsInstallResult, DiagnosticsTorchVerify
 
 
 class DiagnosticsJobState(BaseModel):
@@ -69,5 +71,23 @@ class DiagnosticsUpgradeCheckState(BaseModel):
     target: Optional[str] = None
     output_tail: List[str]
     result: Optional[DiagnosticsUpgradeCheckResult] = None
+    job_id: str
+    job: Optional[DiagnosticsJobState] = None
+
+
+class DiagnosticsDependencyInstallResult(DiagnosticsInstallResult):
+    """Like the old synchronous result, plus what the GPU PyTorch setup
+    adds (variant, the CUDA check) and whether Cancel ended it."""
+    cancelled: bool = False
+    variant: Optional[str] = None
+    verify: Optional[DiagnosticsTorchVerify] = None
+
+
+class DiagnosticsDependencyInstallState(BaseModel):
+    """The latest package install / GPU PyTorch setup job. Output lines are
+    redacted; no paths or keys."""
+    kind: Optional[Literal["package", "gpu_torch"]] = None
+    package: Optional[str] = None
+    result: Optional[DiagnosticsDependencyInstallResult] = None
     job_id: str
     job: Optional[DiagnosticsJobState] = None

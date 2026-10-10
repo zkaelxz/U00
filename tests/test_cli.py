@@ -29,11 +29,13 @@ import json
 
 import pytest
 import db
-import diagnostics
+import diagnostics_report
 import translate_engines
 import dub as dub_module
+import dub_narration
 from core import Line
 import cli
+import cli_translate
 from services import dub_service
 
 
@@ -82,7 +84,7 @@ class TestCmdTranslateParity:
 
         args = _translate_args(id=did, style_preset="novel", locale="en-GB")
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
 
         assert seen["locale"] == "en-GB"
         assert seen["character_names"] == {"SPEAKER_00": "Xiaoling"}
@@ -110,7 +112,7 @@ class TestCmdTranslateParity:
             return real(*a, **k)
         monkeypatch.setattr(cli.tguide, "build_style_guidelines", spy)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did, **flags))
+            cli_translate.cmd_translate(_translate_args(id=did, **flags))
         assert seen["default_female_pronouns"] is female
         assert seen["include_genre_notes"] is genre
 
@@ -129,10 +131,10 @@ class TestCmdTranslateParity:
             return real(*a, **k)
         monkeypatch.setattr(cli.tguide, "build_style_guidelines", spy)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did))
+            cli_translate.cmd_translate(_translate_args(id=did))
         assert (seen["include_genre_notes"], seen["default_female_pronouns"]) == (False, True)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did, female_pronouns=False, no_genre_notes=False))
+            cli_translate.cmd_translate(_translate_args(id=did, female_pronouns=False, no_genre_notes=False))
         assert (seen["include_genre_notes"], seen["default_female_pronouns"]) == (True, False)
         drama = isolated_db.get_drama(did)
         assert (drama["include_genre_notes"], drama["default_female_pronouns"]) == (1, 0)
@@ -144,7 +146,7 @@ class TestCmdTranslateParity:
     ])
     def test_parser_toggle_flags_are_three_state(self, monkeypatch, flags, female, no_genre):
         captured = {}
-        monkeypatch.setattr(cli, "cmd_translate", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(cli_translate, "cmd_translate", lambda a: captured.setdefault("args", a))
         monkeypatch.setattr(sys, "argv", ["cli.py", "translate", "--id", "1", "--api-key", "k"]
                             + flags)
         cli.main()
@@ -154,7 +156,7 @@ class TestCmdTranslateParity:
     @pytest.mark.parametrize("command", ["translate", "run"])
     def test_real_parser_has_the_toggle_flags(self, monkeypatch, command):
         captured = {}
-        monkeypatch.setattr(cli, "cmd_translate", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(cli_translate, "cmd_translate", lambda a: captured.setdefault("args", a))
         monkeypatch.setattr(cli, "cmd_run", lambda a: captured.setdefault("args", a))
         monkeypatch.setattr(sys, "argv", ["cli.py", command, "--id", "1", "--api-key", "k",
                                           "--female-pronouns", "--no-genre-notes"])
@@ -180,11 +182,11 @@ class TestCmdTranslateParity:
 
         args = _translate_args(id=did)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
 
-        assert seen["context_window"] == 6
-        assert seen["context_window_ahead"] == 3
-        assert seen["batch_size"] == 20
+        assert seen["context_window"] == 10
+        assert seen["context_window_ahead"] == 6
+        assert seen["batch_size"] == 30
 
     def test_context_window_ahead_and_batch_size_flags_reach_the_engine(
             self, isolated_db, monkeypatch):
@@ -199,7 +201,7 @@ class TestCmdTranslateParity:
 
         args = _translate_args(id=did, context_window=10, context_window_ahead=8, batch_size=30)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
 
         assert seen["context_window"] == 10
         assert seen["context_window_ahead"] == 8
@@ -226,7 +228,7 @@ class TestCmdTranslateParity:
 
         args = _translate_args(id=did)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
 
         assert called["list_glossary_terms"] is False
         assert seen["glossary_terms"] is None
@@ -246,7 +248,7 @@ class TestCmdTranslateParity:
 
         args = _translate_args(id=did)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
 
         assert seen["character_names"] == {}
 
@@ -273,7 +275,7 @@ class TestCmdTranslateParity:
         monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
 
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did))
+            cli_translate.cmd_translate(_translate_args(id=did))
         job_id = "test_cli_ui_pronoun_parity"
         background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
@@ -312,7 +314,7 @@ class TestCmdTranslateParity:
 
         args = _translate_args(id=did)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
 
         rows = isolated_db.load_lines(did)
         assert rows[0]["flag"] == "review"
@@ -337,7 +339,7 @@ class TestCmdTranslateParity:
 
         args = _translate_args(id=did, reflect=True)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
 
         assert seen["reflect"] is True
         notes = isolated_db.list_translation_notes(did)
@@ -358,7 +360,7 @@ class TestCmdTranslateParity:
         args = _translate_args(id=did)  # no "reflect" key at all
         assert not hasattr(args, "reflect")
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
         assert seen["reflect"] is False
 
 
@@ -391,7 +393,7 @@ class TestCmdTranslateSpendingCaps:
         did = self._drama(isolated_db)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(_translate_args(id=did, cost_cap=3.0, monthly_cap=None))
+            cli_translate.cmd_translate(_translate_args(id=did, cost_cap=3.0, monthly_cap=None, batch_size=20))
         assert engine.calls == 2
         assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 40
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(4.0)
@@ -405,11 +407,23 @@ class TestCmdTranslateSpendingCaps:
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             try:
-                cli.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0))
+                cli_translate.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0))
             except SystemExit:
                 pass
         assert engine.calls == 0
         assert not any(r["en"] for r in isolated_db.load_lines(did))
+
+    def test_thinking_is_saved_only_once_the_run_is_accepted(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: self._Engine())
+        did = self._drama(isolated_db, n=2)
+        isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 50.0)
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli_translate.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0, thinking=True))
+        # The run is refused (reported as that drama's failure), so the choice was never saved.
+        assert "spending cap" in err.getvalue() and "already used up" in err.getvalue()
+        assert "0 succeeded, 1 failed" in out.getvalue()
+        assert isolated_db.get_drama(did)["translate_thinking"] is None
 
 
 class TestCmdTranslateRetryAndWorkspaceParity:
@@ -431,14 +445,14 @@ class TestCmdTranslateRetryAndWorkspaceParity:
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(_translate_args(cost_cap=3.0, monthly_cap=None))
+            cli_translate.cmd_translate(_translate_args(cost_cap=3.0, monthly_cap=None, batch_size=20))
         assert "stopped at the spending cap" in out.getvalue()
         assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 40
         assert isolated_db.get_drama(did)["status"] == "aligned"
 
         # The same command again, as the message suggests (a higher cap).
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(cost_cap=None, monthly_cap=None))
+            cli_translate.cmd_translate(_translate_args(cost_cap=None, monthly_cap=None))
         assert all(r["en"] for r in isolated_db.load_lines(did))
         assert engine.calls == 3
         assert isolated_db.get_drama(did)["status"] == "translated"
@@ -457,7 +471,7 @@ class TestCmdTranslateRetryAndWorkspaceParity:
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(_translate_args(id=did))
+            cli_translate.cmd_translate(_translate_args(id=did))
 
         d = isolated_db.get_drama(did)
         assert d["status"] == "aligned"
@@ -483,7 +497,7 @@ class TestCmdTranslateRetryAndWorkspaceParity:
 
         cli_did, ui_did = drama(), drama()
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=cli_did))
+            cli_translate.cmd_translate(_translate_args(id=cli_did))
         job_id = "test_cli_ui_finish_parity"
         background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
@@ -945,7 +959,7 @@ class TestCmdDubNarration:
             for i, ln in enumerate(lines):
                 ln.start, ln.end, ln.dub_filename = 10.0 + i, 10.5 + i, "dub_clips/line_0000-0001.wav"
             return "narration_track.wav", []
-        monkeypatch.setattr(dub_module, "build_narration_track", fake_build_narration_track)
+        monkeypatch.setattr(dub_narration, "build_narration_track", fake_build_narration_track)
 
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
@@ -956,10 +970,10 @@ class TestCmdDubNarration:
 
     def test_m4b_flag_exports_the_audiobook(self, isolated_db, monkeypatch):
         did = self._narration_drama(isolated_db)
-        monkeypatch.setattr(dub_module, "build_narration_track",
+        monkeypatch.setattr(dub_narration, "build_narration_track",
                             lambda lines, *a, **k: ("narration_track.wav", []))
         exported = []
-        monkeypatch.setattr(dub_module, "export_narration_m4b",
+        monkeypatch.setattr(dub_narration, "export_narration_m4b",
                             lambda lines, ddir, title=None, **k: exported.append(title) or "x.m4b")
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did, m4b=True))
@@ -979,7 +993,7 @@ class TestCmdDubNarration:
             seen.update(narrate_original=narrate_original, source_language=source_language,
                         clone_map=character_clone_map)
             return "narration_track.wav", []
-        monkeypatch.setattr(dub_module, "build_narration_track", fake_build_narration_track)
+        monkeypatch.setattr(dub_narration, "build_narration_track", fake_build_narration_track)
 
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
@@ -993,7 +1007,7 @@ class TestCmdDubNarration:
             self, isolated_db, monkeypatch, capsys):
         did = self._narration_drama(isolated_db)
         isolated_db.update_drama(did, narration_language="original", source_language="en")
-        monkeypatch.setattr(dub_module, "build_narration_track",
+        monkeypatch.setattr(dub_narration, "build_narration_track",
                             lambda *a, **k: pytest.fail("must not start"))
         cli.cmd_dub(_dub_args(id=did))
         assert "can't speak this title's original language" in capsys.readouterr().err
@@ -1008,7 +1022,7 @@ class TestCmdDubNarration:
                                         narration_language="original")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="一", en="", speaker="Hero")])
         called = []
-        monkeypatch.setattr(dub_module, "build_narration_track",
+        monkeypatch.setattr(dub_narration, "build_narration_track",
                             lambda lines, *a, **k: called.append(True) or ("narration_track.wav", []))
 
         out = io.StringIO()
@@ -1089,7 +1103,7 @@ class TestCliGpuLock:
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
         did = self._drama(isolated_db)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did, engine="ollama", cost_cap=None, monthly_cap=None))
+            cli_translate.cmd_translate(_translate_args(id=did, engine="ollama", cost_cap=None, monthly_cap=None))
         assert engine.calls == 1
         assert isolated_db.gpu_lock_status() == (None, None)  # released when done
 
@@ -1115,7 +1129,7 @@ class TestCliGpuLock:
 
         def run():
             with contextlib.redirect_stdout(io.StringIO()):
-                cli.cmd_translate(_translate_args(id=did, engine="ollama",
+                cli_translate.cmd_translate(_translate_args(id=did, engine="ollama",
                                                   cost_cap=None, monthly_cap=None))
             done.set()
 
@@ -1141,7 +1155,7 @@ class TestCliGpuLock:
         isolated_db.try_acquire_gpu_lock("ui:live_job", "Transcription")
 
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did, engine="claude", cost_cap=None, monthly_cap=None))
+            cli_translate.cmd_translate(_translate_args(id=did, engine="claude", cost_cap=None, monthly_cap=None))
 
         assert engine.calls == 1  # ran immediately, no waiting
         # Still the other holder's -- untouched by the non-GPU translate run.
@@ -1265,7 +1279,7 @@ class TestAlignTranscriptOption:
     def test_run_passes_transcript_through(self, monkeypatch):
         seen = {}
         monkeypatch.setattr(cli, "cmd_align", lambda a: seen.update(t=a.transcript))
-        monkeypatch.setattr(cli, "cmd_translate", lambda a: None)
+        monkeypatch.setattr(cli_translate, "cmd_translate", lambda a: None)
         cli.cmd_run(argparse.Namespace(transcript="x.txt"))
         assert seen["t"] == "x.txt"
         monkeypatch.setattr("sys.argv", ["cli.py", "run", "--id", "1", "--transcript", "x.txt"])
@@ -1368,7 +1382,7 @@ class TestCmdDoctor:
     real, minimal translate call, before committing a batch job to it."""
 
     def test_prints_ok_and_exits_cleanly_on_success(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: {"engine": "fake", "ok": True, "error": None})
         args = argparse.Namespace(engine="fake", api_key=None, model=None)
         out = io.StringIO()
@@ -1377,7 +1391,7 @@ class TestCmdDoctor:
         assert "OK: fake is reachable" in out.getvalue()
 
     def test_prints_the_error_and_exits_nonzero_on_failure(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: {"engine": "claude", "ok": False,
                                             "error": "invalid x-api-key"})
         args = argparse.Namespace(engine="claude", api_key="bad-key", model=None)
@@ -1433,7 +1447,7 @@ class TestNarratePrepIdKeyed:
 
     def _run(self, isolated_db, monkeypatch, engine):
         did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
-        with open(os.path.join(isolated_db.drama_dir(did), dub_module.NOVEL_SOURCE_FILENAME),
+        with open(os.path.join(isolated_db.drama_dir(did), dub_narration.NOVEL_SOURCE_FILENAME),
                   "w", encoding="utf-8") as f:
             f.write(self.NOVEL)
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
@@ -1551,7 +1565,8 @@ class TestCliServiceParity:
         isolated_db.save_job_record(f"translate_{did}", "running")
         with contextlib.redirect_stdout(io.StringIO()):
             cli._replace_drama_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="新")], "x")
-        assert isolated_db.is_job_record_cancel_requested(f"translate_{did}")
+        row = isolated_db.get_job_record(f"translate_{did}")
+        assert row["cancel_requested"] == 1 and row["cancel_requested_at"]
 
     def _translate(self, isolated_db, monkeypatch, drama_kw, **arg_overrides):
         did = isolated_db.create_drama(title_en="T", status="aligned", **drama_kw)
@@ -1572,7 +1587,7 @@ class TestCliServiceParity:
         overrides = dict(engine=None, style_preset=None)
         overrides.update(arg_overrides)
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            cli.cmd_translate(_translate_args(id=did, **overrides))
+            cli_translate.cmd_translate(_translate_args(id=did, **overrides))
         self.out = out.getvalue()
         return [e for e in engines if e[0] != "ollama"], seen
 
@@ -1588,7 +1603,7 @@ class TestCliServiceParity:
         self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
                         api_key=None, monthly_cap=4.5)
         assert seen_caps == [4.5], self.out
-        monkeypatch.setattr(cli, "_monthly_cap_setting", lambda: 8.0)
+        monkeypatch.setattr(cli_translate, "_monthly_cap_setting", lambda: 8.0)
         self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
                         api_key=None, monthly_cap=None)
         assert seen_caps[-1] == 8.0
@@ -1600,11 +1615,11 @@ class TestCliServiceParity:
         monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
                             lambda lines, engine, **kw: (lines, []))
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did, force=True, engine=None, style_preset=None))
+            cli_translate.cmd_translate(_translate_args(id=did, force=True, engine=None, style_preset=None))
         assert [h["label"] for h in isolated_db.list_line_history(did)] == [
             "before force re-translate"]
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did, force=False, engine=None, style_preset=None))
+            cli_translate.cmd_translate(_translate_args(id=did, force=False, engine=None, style_preset=None))
         assert len(isolated_db.list_line_history(did)) == 1
 
     def test_summary_engine_gets_the_gemini_free_tier_flag(self, isolated_db, monkeypatch):
@@ -1617,7 +1632,7 @@ class TestCliServiceParity:
         monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
                             lambda lines, engine, **kw: (lines, []))
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(
+            cli_translate.cmd_translate(_translate_args(
                 id=did, engine=None, style_preset=None, api_key="k",
                 episode_summary_engine="gemini", episode_summary_api_key="g"))
         summary = [k for n, k in built if n == "gemini"]
@@ -1665,9 +1680,9 @@ class TestCliServiceParity:
         _, seen = self._translate(isolated_db, monkeypatch, {"content_mode": "novel_narration"})
         assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (10, 6, 30)
 
-    def test_translate_non_novel_drama_keeps_6_3_20(self, isolated_db, monkeypatch):
+    def test_translate_non_novel_drama_gets_10_6_30(self, isolated_db, monkeypatch):
         _, seen = self._translate(isolated_db, monkeypatch, {})
-        assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (6, 3, 20)
+        assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (10, 6, 30)
 
     def test_run_parser_leaves_engine_and_sizes_unset(self, monkeypatch):
         captured = {}
@@ -1698,7 +1713,7 @@ class TestCliSavedSettingsFallbacks:
         try:
             _sys.argv = ["cli.py", command, "--id", "1"]
             import unittest.mock as mock
-            with mock.patch.object(cli, "cmd_translate", lambda a: seen.update(ns=a)), \
+            with mock.patch.object(cli_translate, "cmd_translate", lambda a: seen.update(ns=a)), \
                     mock.patch.object(cli, "cmd_run", lambda a: seen.update(ns=a)):
                 cli.main()
             parser_args = seen["ns"]
@@ -1766,7 +1781,7 @@ class TestCliSavedSettingsFallbacks:
     def test_monthly_cap_setting_parsing(self, monkeypatch):
         for raw, want in (("20", 20.0), ("0", None), ("", None), ("junk", None), (None, None)):
             monkeypatch.setattr(cli.settings_service, "resolve_key", lambda k, *a, r=raw: r)
-            assert cli._monthly_cap_setting() == want
+            assert cli_translate._monthly_cap_setting() == want
 
     def _cap_run(self, isolated_db, monkeypatch, engine_name):
         engine = TestCmdTranslateSpendingCaps._Engine()
@@ -1779,7 +1794,7 @@ class TestCliSavedSettingsFallbacks:
         isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 50.0)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             try:
-                cli.cmd_translate(_translate_args(id=did, engine=engine_name,
+                cli_translate.cmd_translate(_translate_args(id=did, engine=engine_name,
                                                   cost_cap=None, monthly_cap=None))
             except SystemExit:
                 pass
@@ -1805,7 +1820,7 @@ class TestCmdTranslateFallback:
         seen = {}
         monkeypatch.setattr(translate_engines, "get_engine",
                             lambda name, *a, **k: type(name, (), {"name": name, "model": "m"})())
-        monkeypatch.setattr(cli.translate_service, "resolve_api_key", lambda n: "k")
+        monkeypatch.setattr(cli_translate.translate_service, "resolve_api_key", lambda n: "k")
 
         def fake_translate(lines, engine, **kw):
             seen["engine"], seen["cost_cap"] = engine, kw["cost_cap_usd"]
@@ -1813,7 +1828,7 @@ class TestCmdTranslateFallback:
         monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
         return seen, out.getvalue()
 
     def test_builds_a_fallback_engine_in_order(self, isolated_db, monkeypatch):
@@ -1839,11 +1854,11 @@ class TestCmdTranslateFallback:
         ("deepseek,gemini,openrouter", False), ("nope", False), ("deepseek", True)])
     def test_bad_flag_values_refused_up_front(self, value, reflect):
         with pytest.raises(SystemExit):
-            cli._parse_fallback_arg(value, reflect=reflect)
+            cli_translate._parse_fallback_arg(value, reflect=reflect)
 
     def test_real_parser_has_the_flag(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr(cli, "cmd_translate", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(cli_translate, "cmd_translate", lambda a: captured.setdefault("args", a))
         monkeypatch.setattr(sys, "argv", ["cli.py", "translate", "--id", "1",
                                           "--fallback", "deepseek"])
         cli.main()
@@ -1863,7 +1878,7 @@ def test_cli_and_translate_run_build_the_same_style_guidelines(isolated_db, monk
     monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
                         lambda lines, engine, **kw: (seen.update(kw), (lines, []))[1])
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(_translate_args(id=did, female_pronouns=True, no_genre_notes=True))
+        cli_translate.cmd_translate(_translate_args(id=did, female_pronouns=True, no_genre_notes=True))
     d = isolated_db.get_drama(did)
     lines = cli.lines_from_rows(isolated_db.load_lines(did))
     _, expected, _ = workspace_job_service.build_run_style_context(
@@ -2114,7 +2129,7 @@ class TestCmdTranslateValidatesLikeTheService:
         monkeypatch.setattr(translate_engines, "get_engine",
                             lambda name, *a, **k: calls.append(name) or object())
         with pytest.raises(SystemExit) as exc:
-            cli.cmd_translate(_translate_args(id=did, **overrides))
+            cli_translate.cmd_translate(_translate_args(id=did, **overrides))
         assert overrides.get("engine", "claude") not in calls
         return str(exc.value)
 
@@ -2137,7 +2152,7 @@ class TestCmdTranslateValidatesLikeTheService:
         assert "isn't offered" in self._run(isolated_db, monkeypatch, model="not-a-model")
 
     def test_gemini_free_tier_model_block(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(cli, "_gemini_free_tier", lambda name: name == "gemini")
+        monkeypatch.setattr(cli_translate, "_gemini_free_tier", lambda name: name == "gemini")
         model = sorted(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS)[0]
         assert "free tier" in self._run(
             isolated_db, monkeypatch, engine="gemini", model=model)
@@ -2166,7 +2181,7 @@ class TestCmdTranslateMatchesServiceCapsAndRunningJob:
             lambda lines, engine, **k: seen.update(cap=k["cost_cap_usd"]) or ([], []))
         did = self._drama(isolated_db)
         with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_translate(_translate_args(id=did, engine="ollama", cost_cap=1.0))
+            cli_translate.cmd_translate(_translate_args(id=did, engine="ollama", cost_cap=1.0))
         assert seen["cap"] is None
 
     def test_skips_a_title_the_app_is_already_translating(self, isolated_db, monkeypatch):
@@ -2177,7 +2192,7 @@ class TestCmdTranslateMatchesServiceCapsAndRunningJob:
         did = self._drama(isolated_db)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(_translate_args(id=did))
+            cli_translate.cmd_translate(_translate_args(id=did))
         assert "already running" in out.getvalue()
         assert "claude" not in calls
         assert not any(r["en"] for r in isolated_db.load_lines(did))

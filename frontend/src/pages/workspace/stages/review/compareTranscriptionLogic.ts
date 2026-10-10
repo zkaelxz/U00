@@ -164,3 +164,8 @@ export function compareOutcome(job: {
   if (reason === 'model_download') return { kind: 'none', text: 'The speech model could not be downloaded.' }
   return { kind: 'none', text: 'The comparison failed. Nothing was changed.' }
 }
+
+// The Compare run's draft (hooks/useStageDraft, stage "review.compare"): the
+// options as last left; a size or backend this server no longer offers is dropped.
+export const COMPARE_DRAFT_STAGE = 'review.compare'
+export const COMPARE_DRAFT_SHAPE = { size: '', backend: '', translate: false, retranslate: false, extraNames: '', hint: '' }

@@ -36,16 +36,16 @@ describe('paletteEntries', () => {
     for (const page of ['Admin', 'Diagnostics', 'Benchmark Lab']) expect(withIt).toContain(page)
   })
 
-  it('adds the open title\'s stages first, only inside a drama', () => {
+  it('adds the open title\'s stages first, only inside a title', () => {
     const inDrama = paletteEntries(member, { name: 'drama', id: 7, stage: null })
-    expect(labels(inDrama).slice(0, 5)).toEqual(['Go to Source', 'Go to Translate', 'Go to Review', 'Go to Dub', 'Go to Export'])
+    expect(labels(inDrama).slice(0, 5)).toEqual(['Go to Media', 'Go to Translate', 'Go to Review', 'Go to Dub', 'Go to Export'])
     expect(inDrama[2].href).toBe('#/drama/7/review')
     expect(labels(paletteEntries(member, { name: 'jobs' })).some((l) => l.startsWith('Go to'))).toBe(false)
   })
 })
 
 describe('filterEntries', () => {
-  const all = [entry('Library', 'titles'), entry('Translate text'), entry('Saved manga'), entry('Settings', 'disk')]
+  const all = [entry('Library', 'titles'), entry('Quick translate', 'text'), entry('Saved manga'), entry('Settings', 'disk')]
 
   it('returns everything for an empty or blank query', () => {
     expect(filterEntries(all, '')).toBe(all)
@@ -53,12 +53,12 @@ describe('filterEntries', () => {
   })
 
   it('is case-insensitive and matches anywhere in a word', () => {
-    expect(labels(filterEntries(all, 'TRANS'))).toEqual(['Translate text'])
+    expect(labels(filterEntries(all, 'TRANS'))).toEqual(['Quick translate'])
     expect(labels(filterEntries(all, 'brar'))).toEqual(['Library'])
   })
 
   it('needs every word, in any order', () => {
-    expect(labels(filterEntries(all, 'text translate'))).toEqual(['Translate text'])
+    expect(labels(filterEntries(all, 'text translate'))).toEqual(['Quick translate'])
     expect(filterEntries(all, 'text library')).toEqual([])
   })
 

@@ -89,7 +89,7 @@ export function SnapshotBlock() {
       {mode === 'idle' && (
         <div className="actions">
           <button type="button" disabled={!usable} onClick={() => open('restore')}>
-            Restore one drama…
+            Restore one title…
           </button>
           <button type="button" onClick={() => open('import')}>
             From a backup file…
@@ -140,7 +140,7 @@ export function SnapshotBlock() {
         <div className="actions" role="status" data-testid="restore-result">
           <span>{describeRestore(restored)}</span>
           <ButtonLink href={routeHref({ name: 'drama', id: restored.drama_id, stage: null })} size="sm">
-            Open drama
+            Open title
           </ButtonLink>
         </div>
       )}
@@ -149,7 +149,7 @@ export function SnapshotBlock() {
           <span>{describeImport(imported)}</span>
           {imported.imported.length === 1 && (
             <ButtonLink href={routeHref({ name: 'drama', id: imported.imported[0].drama_id, stage: null })} size="sm">
-              Open drama
+              Open title
             </ButtonLink>
           )}
         </div>
@@ -275,7 +275,7 @@ function RestorePicker({ copies, initial, onDone, onCancel }: {
     return (
       <div className="admin-block">
         {chooser}
-        <p className="muted">Loading the copy's dramas…</p>
+        <p className="muted">Loading the copy's titles…</p>
       </div>
     )
   }
@@ -294,7 +294,7 @@ function RestorePicker({ copies, initial, onDone, onCancel }: {
         <TypedConfirm
           word={RESTORE_SNAPSHOT_WORD}
           exact
-          action="Restore drama"
+          action="Restore title"
           busy={busy}
           onConfirm={restore}
           onCancel={onCancel}
@@ -314,16 +314,16 @@ function RestorePicker({ copies, initial, onDone, onCancel }: {
     <div className="admin-block">
       {chooser}
       {!list.dramas.length ? (
-        <p className="muted">This copy has no dramas.</p>
+        <p className="muted">This copy has no titles.</p>
       ) : (
         <>
           {list.dramas.length > SEARCH_FROM && (
-            <Field label="Find a drama">
+            <Field label="Find a title">
               <input type="search" value={query} placeholder="Title" onChange={(e) => setQuery(e.target.value)} />
             </Field>
           )}
-          <p className="muted">Pick the drama to restore. Nothing changes until you confirm.</p>
-          <ul className="snapshot-dramas" aria-label="Dramas in the copy">
+          <p className="muted">Pick the title to restore. Nothing changes until you confirm.</p>
+          <ul className="snapshot-dramas" aria-label="Titles in the copy">
             {shown.map((d) => (
               <li key={d.id}>
                 <button type="button" onClick={() => setPicked(d)}>
@@ -337,7 +337,7 @@ function RestorePicker({ copies, initial, onDone, onCancel }: {
               </li>
             ))}
           </ul>
-          {!shown.length && <p className="muted">No drama matches.</p>}
+          {!shown.length && <p className="muted">No title matches.</p>}
         </>
       )}
       <div className="actions">

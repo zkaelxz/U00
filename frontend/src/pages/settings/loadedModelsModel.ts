@@ -41,6 +41,25 @@ export function gpuLine(g: LoadedModels['gpu']): string {
   return `${g.name ?? 'GPU'}: ${formatBytes(g.used_bytes)} used of ${formatBytes(g.total_bytes)} (${formatBytes(g.free_bytes)} free)`
 }
 
+/** RAM now, plus what Settings keeps free of it and of graphics memory. */
+export function memoryLine(m: LoadedModels['memory']): string {
+  const ram = m.ram.state === 'ok' && m.ram.total_bytes != null && m.ram.free_bytes != null
+    ? `RAM: ${formatBytes(m.ram.free_bytes)} free of ${formatBytes(m.ram.total_bytes)}`
+    : 'RAM info unavailable'
+  const reserved = (name: string, k: LoadedModels['memory']['vram']) =>
+    k.reserved_bytes > 0 ? `${formatBytes(k.reserved_bytes)} of ${name} kept free` : ''
+  const kept = [reserved('graphics memory', m.vram), reserved('RAM', m.ram)].filter(Boolean)
+  return kept.length ? `${ram}. ${kept.join(', ')}.` : `${ram}.`
+}
+
+/** Said when a reserve is set but that memory can't be read, so the setting does nothing. */
+export function unreadableReserveNote(m: LoadedModels['memory']): string {
+  const names = (['vram', 'ram'] as const)
+    .filter((k) => m[k].reserved_bytes > 0 && m[k].state !== 'ok')
+    .map((k) => (k === 'vram' ? 'graphics memory' : 'RAM'))
+  return names.length ? `Can't read ${names.join(' or ')} here, so the keep-free setting is not enforced for it.` : ''
+}
+
 export const llamaLine = (running: boolean) => `llama.cpp server: ${running ? 'running' : 'not found'}`
 
 export function refreshedLine(iso: string): string {

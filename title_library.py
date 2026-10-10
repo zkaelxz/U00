@@ -70,8 +70,7 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
     snippet} dicts, or None if nothing came back (caller should fall
     back to search_url_fallback() below)."""
     import json
-    import requests
-    from services import capped_body
+    from lib import http
     headers = {"User-Agent": "Mozilla/5.0 (compatible; TitleLibrary/1.0)", "Accept": "application/json"}
     results = []
     for collection, fields, title_field in _BAIHEHUB_COLLECTIONS:
@@ -79,15 +78,13 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
         params = {f"filters[$or][{i}][{f}][$contains]": query for i, f in enumerate(fields)}
         params["pagination[limit]"] = limit
         try:
-            resp = requests.get(f"{BAIHEHUB_API}/{collection}", params=params,
-                                headers=headers, timeout=timeout, stream=True)
-            if resp.status_code != 200:
-                resp.close()
+            resp = http.get(f"{BAIHEHUB_API}/{collection}", params=params, headers=headers,
+                            timeout=timeout, max_bytes=BAIHEHUB_MAX_BYTES, guard=None,
+                            allow_redirects=True)
+            if resp.status != 200:
                 continue
-            items = _baihehub_items(json.loads(capped_body.read_capped(
-                resp, BAIHEHUB_MAX_BYTES, timeout * 3,
-                lambda: ValueError("BaiheHub response too large"))))
-        except (requests.RequestException, ValueError):
+            items = _baihehub_items(json.loads(resp.body))
+        except (http.FetchError, ValueError):
             continue
         for item in items:
             if not isinstance(item, dict):

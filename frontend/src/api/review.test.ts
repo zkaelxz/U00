@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildPatch, draftFromLine, formatTime, pageCount, staleLabels, suggestionIsStale, suggestionPatch } from '../pages/workspace/stages/review/reviewLogic'
+import { buildPatch, draftFromLine } from '../pages/workspace/stages/review/reviewDraft'
+import { formatTime, pageCount, staleLabels, suggestionIsStale, suggestionPatch } from '../pages/workspace/stages/review/reviewLogic'
 import type { ReviewLine } from '../types/review'
 import { ApiError } from './client'
 import * as review from './review'

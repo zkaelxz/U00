@@ -15,6 +15,7 @@ import threading
 from typing import Optional
 
 import background_jobs
+import memory_headroom
 import ollama_unload
 import portable
 from services.service_errors import InvalidInputError
@@ -80,6 +81,23 @@ def resolve_key(settings_key: str, env_path: str = None) -> Optional[str]:
     over HTTP must use key_status()/get_settings_overview() instead.
     """
     return resolve_env_names(ENV_NAMES.get(settings_key, ()), env_path)
+
+
+def ollama_endpoint_is_loopback() -> bool:
+    """Whether the configured Ollama URL points at this PC."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    url = resolve_key("ollama_url") or "http://localhost:11434"
+    try:
+        host = urlsplit(url if "://" in url else "http://" + url).hostname or ""
+    except ValueError:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def resolve_env_names(names, env_path: str = None) -> Optional[str]:
@@ -265,6 +283,8 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
             cleaned[key] = value
         elif key in _PREFERENCES:
             cleaned[key] = _PREFERENCES[key][1](value)
+            if key in memory_headroom.KEEP_FREE_KEYS.values():
+                _check_keep_free_fits(key, cleaned[key])
         else:
             raise InvalidInputError("Unknown or non-writable setting.")
     for key, value in cleaned.items():
@@ -369,6 +389,27 @@ def _check_int(name, low, high):
     return check
 
 
+def _check_keep_free_gb(name):
+    """0 = off. Whether it fits this PC is checked on write only (set_settings):
+    reading must not probe the hardware."""
+    def check(value):
+        if value is None:
+            return 0.0
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value \
+                or not 0 <= value <= memory_headroom.MAX_KEEP_FREE_GB:
+            raise InvalidInputError(f"'{name}' must be a number of GB, 0 or more.")
+        return round(float(value), 1)
+    return check
+
+
+def _check_keep_free_fits(key: str, gb: float):
+    memory = "vram" if key == memory_headroom.KEEP_FREE_KEYS["vram"] else "ram"
+    total = memory_headroom.total_mb(memory) if gb else None
+    if total is not None and gb * 1024 > total:
+        word = "graphics memory" if memory == "vram" else "RAM"
+        raise InvalidInputError(f"'{key}' is more than this PC's {word} ({total / 1024:.1f} GB).")
+
+
 def _check_cap(value):
     """None clears the saved cap (BAIHE_MONTHLY_CAP_USD in .env applies
     again); 0 means no cap."""
@@ -405,6 +446,9 @@ _PREFERENCES = {
                                                  lambda: SUMMARY_ENGINE_CHOICES)),
     "monthly_cap_usd": (None, _check_cap),
     "max_upload_mb": (DEFAULT_UPLOAD_MB, _check_upload_mb),
+    # Memory kept free for other programs on this PC; see memory_headroom.py.
+    "keep_free_vram_gb": (0.0, _check_keep_free_gb("keep_free_vram_gb")),
+    "keep_free_ram_gb": (0.0, _check_keep_free_gb("keep_free_ram_gb")),
     "ollama_num_ctx_override": (0, _check_int("ollama_num_ctx_override", 0, _MAX_NUM_CTX)),
     "whisper_model_path": ("", _check_text("whisper_model_path", _MAX_PATH_LENGTH)),
     "ocr_backend": ("auto", _one_of("ocr_backend", _ocr_choices)),
@@ -434,6 +478,39 @@ def get_preference(name: str):
         return check(raw)
     except Exception:
         return default
+
+
+def _voice_detector_choices() -> tuple:
+    from services import asr_options_service
+    return asr_options_service.VOICE_DETECTOR_CHOICES
+
+
+_SCHEMA_CHOICES = {
+    "engines": _engine_choices,
+    "locales": lambda: LOCALE_CHOICES,
+    "summary_engines": lambda: SUMMARY_ENGINE_CHOICES,
+    "ocr_backends": _ocr_choices,
+    "cookie_browsers": _cookie_browser_choices,
+    "voice_detectors": _voice_detector_choices,
+}
+
+
+def get(key: str):
+    """The declared setting `key` (lib/settings_schema.py) as a typed value.
+    A missing, unreadable or invalid stored value reads as the schema default,
+    like get_preference. Keys held in .env are secrets and go through
+    resolve_key instead."""
+    import db
+    from lib import settings_schema
+    setting = settings_schema.BY_KEY[key]
+    if setting.store != "db":
+        raise ValueError(f"'{key}' is not stored in app_settings.")
+    try:
+        choices = _SCHEMA_CHOICES[setting.choices]() if setting.choices else None
+        raw = db.get_app_setting(setting.store_key)
+        return settings_schema.coerce(key, raw, choices)
+    except Exception:
+        return settings_schema.default_of(setting)
 
 
 def get_preferences() -> dict:

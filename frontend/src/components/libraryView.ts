@@ -76,4 +76,4 @@ export function continueItems(reading: ReadingRow[], recent: RecentRow[]): Conti
 }
 
 /** "1 drama" / "3 dramas". */
-export const countDramas = (n: number) => `${n} ${n === 1 ? 'drama' : 'dramas'}`
+export const countDramas = (n: number) => `${n} ${n === 1 ? 'title' : 'titles'}`

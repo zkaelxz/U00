@@ -4,6 +4,10 @@
 .source-file { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; min-width: 0; }
 .source-file input[type='file'] { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
 .source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-3); min-width: 0; }
+/* Field puts every child in one flex row, so notes and the button go below the Field instead of inside it. */
+.field-with-extras { display: grid; gap: var(--space-2); min-width: 0; align-content: start; }
+.field-with-extras > .muted { margin: 0; min-width: 0; }
+.field-with-extras > button { justify-self: start; max-width: 100%; white-space: normal; text-align: left; }
 .source-panel .check { display: flex; align-items: center; gap: var(--space-2); }
 .source-summary { overflow-wrap: anywhere; }
 .source-suggestions { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); overflow-wrap: anywhere; }

@@ -250,6 +250,8 @@ def init_db():
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
         _migrate_auth_session_columns(conn)
+        import device_tokens   # owns its table; imports db, so not at the top
+        device_tokens.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
         conn.commit()
     _init_benchmark_lab_schema()
@@ -861,7 +863,7 @@ def _create_job_tables(conn):
         -- written at status transitions (queued, started, finished), never on
         -- every progress tick. No resume: a job whose owning process dies is not
         -- restarted; its row is closed as cancelled by the owner_pid / heartbeat
-        -- sweep (close_orphaned_job_record, close_stale_job_record).
+        -- sweep (jobs/job_store.py).
         CREATE TABLE IF NOT EXISTS job_records (
             job_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
@@ -1039,6 +1041,11 @@ def _migrate_job_records_columns(conn):
     # cutoff (services/jobs_service.sweep_stale_job_records).
     if "owner_pid" not in jr_cols:
         _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN owner_pid INTEGER")
+    # Written by jobs/job_store.py.
+    for col, kind in (("kind", "TEXT"), ("owner_instance", "TEXT"), ("cancel_requested_at", "REAL"),
+                      ("detail_state", "TEXT"), ("sync_error", "TEXT")):
+        if col not in jr_cols:
+            _safe_alter(conn, f"ALTER TABLE job_records ADD COLUMN {col} {kind}")
 
 
 def _create_auth_tables(conn):
@@ -1112,7 +1119,7 @@ def _migrate_line_columns(conn):
         # source_language, so existing lines keep their meaning.
         _safe_alter(conn, "ALTER TABLE lines ADD COLUMN lang TEXT")
     if "word_timings" not in existing_cols:
-        # core.encode_line_words' payload: the line's Whisper word times, kept
+        # segment_splitting.encode_line_words' payload: the line's Whisper word times, kept
         # so a later re-split cuts at real pauses. Never selected by load_lines
         # unless asked for, so line lists don't read it.
         _safe_alter(conn, "ALTER TABLE lines ADD COLUMN word_timings TEXT")
@@ -1176,9 +1183,8 @@ def _migrate_drama_columns(conn):
                           # sent anywhere. The series-level counterpart is
                           # series.instructions, inherited by every drama in the series.
                           ("project_instructions", "TEXT"),
-                          # Roadmap 112: the Notion page this drama was last exported
-                          # to (services/notion_service.py), so a re-export updates
-                          # that page in place. Only the id, never a token or URL.
+                          # Legacy: nothing writes it now. Kept so older databases
+                          # and backups load; dropping it needs a table rebuild.
                           ("notion_page_id", "TEXT"),
                           # Per-title reading-speed flag strictness
                           # (subtitle_formats.READING_SPEED_MODES).
@@ -1189,7 +1195,9 @@ def _migrate_drama_columns(conn):
                           ("default_female_pronouns", "INTEGER"),
                           ("include_genre_notes", "INTEGER"),
                           ("whisper_repeat_guard", "INTEGER DEFAULT 0"),
-                          ("split_by_sentences", "INTEGER DEFAULT 0")]:
+                          ("split_by_sentences", "INTEGER DEFAULT 0"),
+                          # "Think harder" for translation; NULL = never chosen (off).
+                          ("translate_thinking", "INTEGER")]:
         if col not in drama_cols:
             _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off
@@ -2198,15 +2206,6 @@ def set_status_if(drama_id: int, expected: str, new: str) -> bool:
             (new, datetime.datetime.utcnow().isoformat(), drama_id, expected))
         conn.commit()
         return cur.rowcount > 0
-
-
-def set_drama_notion_page_id(drama_id: int, page_id):
-    """Roadmap 112: records (or clears, with None) the Notion page a drama
-    was exported to. Left out of update_drama on purpose: an export is not
-    an edit, so updated_at stays as it was."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE dramas SET notion_page_id = ? WHERE id = ?", (page_id, drama_id))
-        conn.commit()
 
 
 def delete_drama(drama_id: int):
@@ -4639,7 +4638,7 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
     Each line's stored word timings are read from its row and kept only when
     they were computed for the snapshot's own text (up to
     MAX_SNAPSHOT_WORD_BYTES in all), so a restore brings back real pauses."""
-    from core import words_for_text
+    from segment_splitting import words_for_text
     snapshot = [
         {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
          "zh": ln.zh, "en": ln.en,
@@ -5118,15 +5117,19 @@ def list_field_provenance(drama_id: int):
 def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,
                     error: str = None, description: str = None, gpu_touching: bool = False,
                     started_at: float = None, finished_at: float = None,
-                    result_json: str = None, owner_user_id: int = None, owner_pid: int = None):
+                    result_json: str = None, owner_user_id: int = None, owner_pid: int = None,
+                    conn=None):
     """Mirrors one background_jobs.py job's status-transition fields into
     the cross-process job_records table -- records
     only, no resume: this is the *last written* state, not necessarily
     the *current* state, if the process that wrote it has since died
     without writing a terminal status. A caller reading this table for
     cross-process visibility should treat a long-unchanged `updated_at`
-    on a "running"/"queued" row as suspect, not trust `status` blindly."""
-    with contextlib.closing(get_conn()) as conn:
+    on a "running"/"queued" row as suspect, not trust `status` blindly.
+    With `conn`, runs in the caller's transaction and the caller commits."""
+    own = conn is None
+    conn = get_conn() if own else conn
+    try:
         conn.execute("""
             INSERT INTO job_records (job_id, status, progress, message, error, description,
                 gpu_touching, started_at, finished_at, updated_at, result_json, owner_user_id,
@@ -5153,27 +5156,18 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
                     THEN job_records.cancel_requested ELSE 0 END
         """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
               started_at, finished_at, time.time(), result_json, owner_user_id, owner_pid))
-        conn.commit()
-
-
-def request_job_record_cancel(job_id: str) -> bool:
-    """Flags a job_records row as cancel-requested so
-    the process actually running the job (which may not be this one) can
-    notice it. Only touches a still queued/running row; returns whether
-    it did."""
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute(
-            "UPDATE job_records SET cancel_requested = 1 "
-            "WHERE job_id = ? AND status IN ('queued', 'running')", (job_id,))
-        conn.commit()
-        return cur.rowcount > 0
+        if own:
+            conn.commit()
+    finally:
+        if own:
+            conn.close()
 
 
 def touch_job_records(job_ids) -> None:
     """The owning process's heartbeat (background_jobs) -- bumps
     updated_at on its still queued/running rows so a job that is alive
     but not changing status never looks abandoned. updated_at is only ever
-    written by the owner (request_job_record_cancel leaves it alone)."""
+    written by the owner (a cancel request leaves it alone)."""
     job_ids = list(job_ids)
     if not job_ids:
         return
@@ -5184,44 +5178,6 @@ def touch_job_records(job_ids) -> None:
             "WHERE job_id = ? AND status IN ('queued', 'running')",
             [(now, j) for j in job_ids])
         conn.commit()
-
-
-def close_stale_job_record(job_id: str, cutoff: float, error: str = None) -> bool:
-    """Marks a queued/running row cancelled only if its owner has not
-    written or heartbeated since `cutoff` -- a single conditional UPDATE,
-    so a row the owner just finished ("done") or just touched is never
-    overwritten. `error`, if given, says why. Returns whether it closed
-    the row."""
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute(
-            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0, "
-            "error = COALESCE(?, error) "
-            "WHERE job_id = ? AND status IN ('queued', 'running') "
-            "AND COALESCE(updated_at, 0) < ?", (time.time(), error, job_id, cutoff))
-        conn.commit()
-        return cur.rowcount > 0
-
-
-def close_orphaned_job_record(job_id: str, owner_pid: int, error: str = None) -> bool:
-    """Marks a queued/running row cancelled if it still belongs to the
-    (exited) process `owner_pid`: one conditional UPDATE, so a new run of
-    the same job id by a live process is never closed. Returns whether it
-    closed the row."""
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute(
-            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0, "
-            "error = COALESCE(?, error) "
-            "WHERE job_id = ? AND status IN ('queued', 'running') AND owner_pid = ?",
-            (time.time(), error, job_id, owner_pid))
-        conn.commit()
-        return cur.rowcount > 0
-
-
-def is_job_record_cancel_requested(job_id: str) -> bool:
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT cancel_requested FROM job_records WHERE job_id = ?",
-                           (job_id,)).fetchone()
-    return bool(row and row[0])
 
 
 def list_job_records() -> list:

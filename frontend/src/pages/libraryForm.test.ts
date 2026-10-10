@@ -42,7 +42,7 @@ describe('buildCreateRequest', () => {
 })
 
 describe('groupHistory', () => {
-  it('collapses consecutive rows of one drama and keeps the newest', () => {
+  it('collapses consecutive rows of one title and keeps the newest', () => {
     const rows = [
       { drama_id: 1, at: 'c' },
       { drama_id: 1, at: 'b' },
@@ -60,7 +60,7 @@ describe('groupHistory', () => {
 })
 
 describe('validateCreate', () => {
-  it('accepts a titled drama with a language', () => {
+  it('accepts a titled title with a language', () => {
     expect(validateCreate({ source_language: 'zh', title_en: 'A' })).toBeNull()
   })
   it('requires language and a title', () => {
@@ -84,7 +84,7 @@ describe('canConfirmDelete', () => {
 })
 
 describe('MEDIA_TYPES', () => {
-  it('does not offer music or other for new dramas', () => {
+  it('does not offer music or other for new titles', () => {
     expect(MEDIA_TYPES).not.toContain('music')
     expect(MEDIA_TYPES).not.toContain('other')
     expect(MEDIA_TYPES).toContain('audio_drama')

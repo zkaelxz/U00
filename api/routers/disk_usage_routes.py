@@ -3,7 +3,8 @@ api/routers/disk_usage_routes.py -- /api/data-usage/*: what is taking space in
 the app's data folder, move an item into Baihe's Trash folder, restore or
 permanently delete from it, move the automatic-backup folder, and list unused
 voice clips (GET /unused-voice-clips) and move them to Trash
-(POST /unused-voice-clips/to-trash). Thin adapter over services/disk_usage_service.py.
+(POST /unused-voice-clips/to-trash). Thin adapter over services/disk_usage_service.py
+and services/disk_usage_clips_service.py.
 
 Every route is local_only(): it reads and removes files on the PC. Paths in
 requests and responses are relative to the data folder; the path guard
@@ -24,10 +25,12 @@ from api.disk_usage_schemas import (
     DiskUsageClearDone, DiskUsageClearRequest, DiskUsageMoveDone, DiskUsageMoveRequest,
     DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashEmptyRequest, DiskUsageTrashList,
     DiskUsageTrashPurgeDone, DiskUsageTrashPurgeRequest, DiskUsageTrashRestoreDone,
-    DiskUsageTrashRestoreRequest, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
+    DiskUsageTrashRestoreRequest, TempCleanRequest, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
     UnusedVoiceClipTrashRequest)
-from api.schemas import ErrorResponse
+from api.schemas import ErrorResponse, TempCleanResult
+from services import disk_usage_clips_service as clips_svc
 from services import disk_usage_service as svc
+from services import temp_cleanup_service
 
 router = APIRouter(prefix="/api/data-usage", tags=["disk-usage"])
 
@@ -104,7 +107,7 @@ async def post_trash_empty(body: DiskUsageTrashEmptyRequest):
             summary="Voice clips no speaker uses, per title: type, size and date only (no "
                     "file names or paths), with an opaque id for each")
 async def get_unused_voice_clips():
-    return await run_in_threadpool(svc.unused_voice_clips)
+    return await run_in_threadpool(clips_svc.unused_voice_clips)
 
 
 @router.post("/unused-voice-clips/to-trash", dependencies=[local_only()],
@@ -113,6 +116,14 @@ async def get_unused_voice_clips():
                      "size shown for each). A clip that is used or changed meanwhile is skipped.")
 async def post_unused_voice_clips_to_trash(body: UnusedVoiceClipTrashRequest):
     return await run_in_threadpool(
-        svc.trash_unused_voice_clips,
+        clips_svc.trash_unused_voice_clips,
         [{"id": c.id, "expected_size_bytes": c.expected_size_bytes} for c in body.clips],
         confirm=body.confirm)
+
+
+@router.post("/clean-temp", dependencies=[local_only()], response_model=TempCleanResult,
+             responses=_ERR,
+             summary="Delete everything in Baihe's own temp folder (confirm=true; 409 while a job "
+                     "runs); returns how many entries and how many MB, never a path")
+async def post_clean_temp(body: TempCleanRequest):
+    return await run_in_threadpool(temp_cleanup_service.clean_now)

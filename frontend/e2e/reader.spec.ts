@@ -106,10 +106,10 @@ test('resumes at the saved page and saves progress', async ({ page }) => {
   await expect(page).toHaveURL(/page=3$/)
 })
 
-test('an empty drama says so and links to Source', async ({ page }) => {
+test('an empty title says so and links to Source', async ({ page }) => {
   await page.goto('/#/read/1')
   await expect(page.getByText('No lines to read yet.')).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Add lines on Source' })).toHaveAttribute('href', '#/drama/1/source')
+  await expect(page.getByRole('link', { name: 'Add lines on Media' })).toHaveAttribute('href', '#/drama/1/source')
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 
@@ -117,7 +117,7 @@ test('the library detail panel links to the reader', async ({ page }) => {
   await page.goto('/#/library')
   // Scoped to the Library's drama list and the details sheet, so the
   // Continue shelf and Library tools can't match.
-  await page.getByRole('region', { name: 'Dramas' }).getByRole('button', { name: "Details: Heaven Official's Blessing" }).click()
+  await page.getByRole('region', { name: 'Titles' }).getByRole('button', { name: "Details: Heaven Official's Blessing" }).click()
   await page.getByRole('dialog', { name: "Heaven Official's Blessing" }).getByRole('link', { name: 'Read', exact: true }).click()
   await expect(page).toHaveURL(/#\/read\/2/)
   await expect(label(page)).toHaveText('Page 1 of 3')
@@ -203,7 +203,7 @@ test('a 429 part-way through a wiki update resumes where it stopped', async ({ p
   expect(froms).toEqual([0, 40, 40])
 
   await page.locator('summary', { hasText: 'Ask about the story' }).click()
-  await expect(page.getByText('Q&A uses the whole drama, including later lines.')).toBeVisible()
+  await expect(page.getByText('Q&A uses the whole title, including later lines.')).toBeVisible()
 
   // "Uses <engine> · Change" opens Story tools and focuses its picker.
   const ask = page.locator('details', { has: page.locator('summary', { hasText: 'Ask about the story' }) })
@@ -319,7 +319,7 @@ test.describe('phone', () => {
     await page.goto('/')
     await expect(page.getByTestId('drama-count')).toBeVisible()
     // Scoped to the Library's drama list (the Continue shelf has its own links).
-    const list = page.getByRole('region', { name: 'Dramas' })
+    const list = page.getByRole('region', { name: 'Titles' })
     await expect(list.locator('.drama-card-read')).toHaveCount(3)
     const read = list.getByRole('link', { name: "Read Heaven Official's Blessing", exact: true })
     expect(await hitHeight(read)).toBeGreaterThanOrEqual(44)

@@ -514,7 +514,7 @@ test('delete is two-step and add fills the gap', async ({ page }) => {
 
 test('structure edits are refused with a plain message when the lines changed', async ({ page }) => {
   await page.route('**/api/restructure/dramas/3/merge', (route) =>
-    route.fulfill({ status: 409, json: { error: { code: 'conflict', message: "This drama's lines changed since you loaded them" } } }))
+    route.fulfill({ status: 409, json: { error: { code: 'conflict', message: "This title's lines changed since you loaded them" } } }))
   await open(page)
   await activate(page, 0)
   await page.keyboard.press('m')
@@ -523,13 +523,13 @@ test('structure edits are refused with a plain message when the lines changed', 
   await expect(rows(page)).toHaveCount(3)
 })
 
-test('structure edits wait while a job runs on the drama', async ({ page }) => {
+test('structure edits wait while a job runs on the title', async ({ page }) => {
   await page.route('**/api/jobs', (route) =>
     route.fulfill({ json: { items: [{ ...job('running'), job_id: 'translate_3' }], count: 1 } }))
   await open(page)
   const row = await activate(page, 0)
   await expect(row.getByRole('button', { name: 'Split…' })).toBeDisabled()
-  await expect(row).toContainText('A job is running on this drama.')
+  await expect(row).toContainText('A job is running on this title.')
   // Text edits stay allowed.
   await row.getByTestId('line-en').click()
   await expect(row.getByLabel('Translation')).toBeVisible()

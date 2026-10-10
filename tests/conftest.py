@@ -164,6 +164,24 @@ def _fake_engine_installed():
 
 
 @pytest.fixture(autouse=True)
+def _live_whisper_not_loaded():
+    """A Live job loads Whisper before it captures; no test may load a real
+    model. The real function stays on `warm_up.real` for its own tests.
+    Restores by hand, like the fixture below."""
+    import live_whisper
+    saved = live_whisper.warm_up
+
+    def stub(*args, **kwargs):
+        return None
+    stub.real = saved
+    live_whisper.warm_up = stub
+    try:
+        yield
+    finally:
+        live_whisper.warm_up = saved
+
+
+@pytest.fixture(autouse=True)
 def _private_separator_model_dir(tmp_path_factory):
     """The vocal-separator model folder defaults to ~/.cache; the startup
     sweep and the download guard list and delete files there, so no test
@@ -229,11 +247,15 @@ def _reset_background_jobs_memory():
     the maintenance count and the per-job cancel-check cache. In memory only -- clear_all_jobs() would
     also wipe job_records in whatever library db.LIBRARY_DIR points at."""
     import background_jobs as bg
+    from jobs import job_store
     with bg._lock:
         bg._jobs.clear()
         bg._gpu_queue.clear()
         bg._last_db_cancel_check.clear()
         bg._db_cancel_check_failed.clear()
+        bg.job_force_stop._abandoned.clear()
+        job_store._pending.clear()
+        job_store._last_write.clear()
     bg.release_exclusive()
     bg._stopping = False
     while bg._maintenance_count:
@@ -331,6 +353,26 @@ def _testclient_defaults_to_loopback():
 
 
 @pytest.fixture(autouse=True)
+def _workers_do_not_leave_the_test_session(request):
+    """Process-job workers call background_jobs.start_own_process_group()
+    first. Tests that run one in the pytest process would otherwise start a
+    new session for it and a watchdog that can end it; only
+    test_background_jobs.py, which exercises that function in real child
+    processes, keeps the real one.
+
+    Patched and restored by hand for the reason given on
+    _testclient_defaults_to_loopback."""
+    import background_jobs
+    original = background_jobs.start_own_process_group
+    if not request.module.__name__.endswith("test_background_jobs"):
+        background_jobs.start_own_process_group = lambda: None
+    try:
+        yield
+    finally:
+        background_jobs.start_own_process_group = original
+
+
+@pytest.fixture(autouse=True)
 def _no_ollama_unload_requests(request):
     """A GPU model load asks a local Ollama to free its memory; no test but
     test_ollama_unload.py (which fakes the HTTP calls) may reach one.
@@ -340,7 +382,10 @@ def _no_ollama_unload_requests(request):
     import ollama_unload
     original = ollama_unload.prepare_gpu_for_transcription
     if not request.module.__name__.endswith("test_ollama_unload"):
-        ollama_unload.prepare_gpu_for_transcription = lambda use_gpu: None
+        def stub(use_gpu):
+            return None
+        stub.real = original   # for tests of a caller's own unload policy
+        ollama_unload.prepare_gpu_for_transcription = stub
     try:
         yield
     finally:

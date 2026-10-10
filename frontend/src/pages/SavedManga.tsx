@@ -2,8 +2,8 @@
  * Saved manga (#/manga, #/manga/<source>/<series>): the chapters saved as
  * CBZ files (Sources "Save as CBZ", or a tracked series' auto-save), read in
  * the app. The list shows each series with a Continue link to where this
- * browser left off; a series shows its chapters. On the main PC the save
- * folder card picks and opens the folder.
+ * browser left off; a series shows its chapters. Library tools shows the
+ * same list; the save folder lives in Settings.
  */
 import { useCallback, useEffect, useState } from 'react'
 
@@ -11,7 +11,6 @@ import { listSavedChapters, listSavedSeries } from '../api/savedComics'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import type { SavedChapterList, SavedSeries } from '../types/savedComics'
-import { SaveFolderCard } from './manga/SaveFolder'
 import { chapterCount, loadLastRead, mangaReadHref, mangaSeriesHref, seriesTitle, type LastRead } from './manga/mangaLogic'
 import { ago, isoTime } from './sources/sourcesFormat'
 import './manga/manga.css'
@@ -53,34 +52,40 @@ function SeriesList() {
           turn on “Save new chapters as CBZ” for a tracked series.
         </p>
       ) : (
-        <ul className="manga-series" aria-label="Saved series">
-          {items.map((s) => {
-            const last = lastReadOf(s.source, s.series)
-            const resume = continueHref(s.source, s.series, last)
-            return (
-              <li key={`${s.source}/${s.series}`} className="card">
-                <div>
-                  <a className="manga-series-title" href={mangaSeriesHref(s.source, s.series)}>{seriesTitle(s.series)}</a>
-                  <p className="muted">
-                    {s.source} · {chapterCount(s.chapter_count)}
-                    {s.updated_at !== null && (
-                      <>
-                        {' '}· last saved <time dateTime={isoTime(s.updated_at)}>{ago(s.updated_at)}</time>
-                      </>
-                    )}
-                  </p>
-                </div>
-                <div className="actions">
-                  {resume && <ButtonLink size="sm" variant="primary" href={resume}>Continue</ButtonLink>}
-                  <ButtonLink size="sm" href={mangaSeriesHref(s.source, s.series)}>Chapters</ButtonLink>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+        <SavedSeriesRows items={items} />
       )}
-      <SaveFolderCard />
     </>
+  )
+}
+
+// Also the "Saved manga" section of Library tools.
+export function SavedSeriesRows({ items }: { items: SavedSeries[] }) {
+  return (
+    <ul className="manga-series" aria-label="Saved series">
+      {items.map((s) => {
+        const last = lastReadOf(s.source, s.series)
+        const resume = continueHref(s.source, s.series, last)
+        return (
+          <li key={`${s.source}/${s.series}`} className="card">
+            <div>
+              <a className="manga-series-title" href={mangaSeriesHref(s.source, s.series)}>{seriesTitle(s.series)}</a>
+              <p className="muted">
+                {s.source} · {chapterCount(s.chapter_count)}
+                {s.updated_at !== null && (
+                  <>
+                    {' '}· last saved <time dateTime={isoTime(s.updated_at)}>{ago(s.updated_at)}</time>
+                  </>
+                )}
+              </p>
+            </div>
+            <div className="actions">
+              {resume && <ButtonLink size="sm" variant="primary" href={resume}>Continue</ButtonLink>}
+              <ButtonLink size="sm" href={mangaSeriesHref(s.source, s.series)}>Chapters</ButtonLink>
+            </div>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

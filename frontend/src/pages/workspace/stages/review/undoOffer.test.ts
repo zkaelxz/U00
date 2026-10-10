@@ -24,7 +24,7 @@ describe('the one Review Undo offer', () => {
     dropUndo('merge-short')
     expect(shown('merge-short')).toBeNull()
   })
-  it('an edit retires any offer, and an offer shows only for its own drama', () => {
+  it('an edit retires any offer, and an offer shows only for its own title', () => {
     offerUndo('lines', 1, 'split')
     expect(shown('lines', 2)).toBeNull()
     retireUndoOffer()

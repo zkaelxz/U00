@@ -9,7 +9,7 @@
  * "Translate" opens the Scanlate panel (comic/ScanlatePanel.tsx: upload,
  * translate, redo, export); it is shown at once when there are no pages.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
@@ -17,9 +17,22 @@ import { api } from '../api/client'
 import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Sheet } from '../components/Sheet'
+import { SourceLink } from './discover/ExternalLink'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useShortcut } from '../hooks/useShortcut'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
+import { ChapterBar } from './comic/ChapterBar'
+import {
+  chapterIndex,
+  chapterLabel,
+  chapterStart,
+  loadChapterPrefs,
+  saveChapterPrefs,
+  scopeCounts,
+  snapToVisible,
+  visibleOrdinals,
+  type ChapterPrefs,
+} from './comic/chapterLogic'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicLines } from './comic/ComicText'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
@@ -82,6 +95,7 @@ function usePreload(urls: string[]) {
 export default function ComicPage({ id, page: routePage }: { id: number; page: number | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const [title, setTitle] = useState<string | null>(null)
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [data, setData] = useState<ComicPagesResponse | null>(null)
   const [error, setError] = useState<unknown>(null)
   // Saved page from the server (1 when unknown or not allowed).
@@ -102,6 +116,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [linesOpen, setLinesOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [initialPage] = useState(routePage)
+  const [chapterPrefs, setChapterPrefs] = useState<ChapterPrefs | null>(null)
 
   const stageRef = useRef<HTMLDivElement>(null)
   const figures = useRef(new Map<number, HTMLElement>())
@@ -116,7 +131,13 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const requested = useRef(new Set<number>())
 
   useEffect(() => {
-    api.getDrama(id).then((d) => setTitle(d.title_en || d.title_zh || `Drama #${d.id}`), () => setTitle(null))
+    api.getDrama(id).then(
+      (d) => {
+        setTitle(d.title_en || d.title_zh || `Title #${d.id}`)
+        setSourceUrl(d.source_url ?? null)
+      },
+      () => setTitle(null),
+    )
     comicApi.pages(id).then(setData, setError)
     comicApi.progress(id).then(
       (p) => {
@@ -139,6 +160,12 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
   const count = data?.page_count ?? data?.pages.length ?? 0
   const pages = useMemo(() => data?.pages ?? [], [data])
+  const chapters = useMemo(() => data?.chapters ?? [], [data])
+  const cprefs = useMemo(() => chapterPrefs ?? loadChapterPrefs(browserStorage(), id), [chapterPrefs, id])
+  const setCprefs = (next: ChapterPrefs) => {
+    setChapterPrefs(next)
+    saveChapterPrefs(browserStorage(), id, next)
+  }
   const defaults = useMemo(() => defaultPrefs(data?.media_type, data?.reading_mode_default), [data])
   const prefs = useMemo(() => stored ?? loadComicPrefs(browserStorage(), id, defaults), [stored, id, defaults])
   const paged = prefs.mode === 'paged'
@@ -154,9 +181,19 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         : savedPage !== null
           ? clampPage(savedPage, count)
           : null
-  const current = picked ?? start
+  const wanted = picked ?? start
+  // Pages marked "not part of the story" (unless shown) and, when reading one
+  // chapter only, the other chapters are left out of the reading list.
+  const wantedChapter = wanted !== null ? (pages[wanted - 1]?.chapter_id ?? null) : null
+  const visible = useMemo(() => visibleOrdinals(pages, cprefs, wantedChapter), [pages, cprefs, wantedChapter])
+  const current = wanted === null ? null : snapToVisible(wanted, visible, 1)
+  const position = current === null ? 0 : visible.indexOf(current) + 1
+  // Every listed page ignoring the one-chapter limit: chapter jumps and the overall position.
+  const visibleAll = useMemo(() => visibleOrdinals(pages, { ...cprefs, chapterOnly: false }, null), [pages, cprefs])
   const resumed = initialPage === null && !resumeDismissed && start !== null && start > 1 ? start : null
   const activeJump = useMemo(() => jump ?? (start !== null ? { page: start, seq: 0 } : null), [jump, start])
+  // Set after hiding or restoring pages: the reload shifts the layout, so the reader is put back on their page.
+  const reanchor = useRef(false)
   const requestJump = (page: number) => setJump((j) => ({ page, seq: (j?.seq ?? 0) + 1 }))
 
   // The hash changed from outside (typed, Back/Forward): follow it. The
@@ -183,9 +220,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   }
 
   const go = useCallback(
-    (n: number, fromScroll = false) => {
+    (n: number, fromScroll = false, free = false) => {
       if (!count) return
-      const target = clampPage(n, count)
+      const clamped = clampPage(n, count)
+      // Moving past a hidden page lands on the next listed one.
+      const target = fromScroll || free ? clamped : snapToVisible(clamped, visible, n < (current ?? clamped) ? -1 : 1)
       if (!fromScroll) {
         setResumeDismissed(true)
         setJump((j) => ({ page: target, seq: (j?.seq ?? 0) + 1 }))
@@ -193,8 +232,19 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       setPicked(target)
       replacePage(id, target)
     },
-    [count, id],
+    [count, id, visible, current],
   )
+
+  useEffect(() => {
+    if (!reanchor.current || current === null) return
+    reanchor.current = false
+    requestJump(current)
+    // Only a reloaded page list should re-anchor, not every move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages])
+
+  // The pager works in positions within the reading list, not page numbers.
+  const goListed = useCallback((i: number) => go(visible[i - 1] ?? i), [go, visible])
 
   // Bring a requested page into view once it is rendered: its own figure when
   // scrolling, the top of the stage when a new page is turned.
@@ -345,11 +395,16 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       Translate
     </button>
   )
+  const scopes = useMemo(
+    () => scopeCounts(pages, chapters, currentPage?.chapter_id ?? null),
+    [pages, chapters, currentPage],
+  )
   const panel = (
     <ScanlatePanel
       dramaId={id}
       pageId={currentPage?.id ?? null}
       pageNumber={currentPage ? current : null}
+      scopes={scopes}
       onChanged={refreshPages}
     />
   )
@@ -385,7 +440,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   )
 
   const shownPages: [ComicPageInfo, number][] =
-    paged ? (currentPage && current !== null ? [[currentPage, current]] : []) : pages.map((p, i) => [p, i + 1])
+    paged
+      ? currentPage && current !== null
+        ? [[currentPage, current]]
+        : []
+      : pages.map((p, i): [ComicPageInfo, number] => [p, i + 1]).filter(([, n]) => visible.includes(n))
   const stage = current !== null && pages.length > 0 && (
     <div
       ref={stageRef}
@@ -399,9 +458,18 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         data-testid="comic-zoom-layer"
       >
         {shownPages.map(([p, n]) => {
+          // A divider where a new chapter starts (not above the very first page).
+          const at = chapterIndex(chapters, p.chapter_id)
+          const startsChapter = at > 0 && chapterStart(chapters[at], visibleAll) === n
           return (
+            <Fragment key={`${p.id}:${paged ? 'p' : 'v'}`}>
+            {startsChapter && (
+              <p className="comic-divider" role="separator" data-testid="comic-divider">
+                {chapterLabel(chapters[at], at)}
+              </p>
+            )}
+            {p.hidden && <p className="comic-hidden-note muted">Hidden: not part of the story</p>}
             <ComicPageView
-              key={`${p.id}:${paged ? 'p' : 'v'}`}
               page={p}
               number={n}
               count={count}
@@ -413,14 +481,35 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               onProblem={onProblem}
               figureRef={figureRef(n)}
             />
+            </Fragment>
           )
         })}
       </div>
     </div>
   )
 
+  // Inside the sticky bar, so the chapter controls stay in reach while scrolling a long strip.
+  const chapterBar =
+    data && current !== null && count > 0 ? (
+      <ChapterBar
+        dramaId={id}
+        pages={pages}
+        chapters={chapters}
+        current={current}
+        visible={visibleAll}
+        prefs={cprefs}
+        hiddenCount={data.hidden_count ?? pages.filter((p) => p.hidden).length}
+        onPrefs={setCprefs}
+        onGo={(n) => go(n, false, true)}
+        onChanged={() => {
+          reanchor.current = true
+          refreshPages()
+        }}
+      />
+    ) : null
+
   const classes = ['comic', 'reader', phone ? 'comic-phone reader-phone' : '', chrome ? '' : 'comic-chrome-off', `comic-mode-${prefs.mode}`]
-  const label = current !== null && count ? `${current} / ${count}` : data === null ? '- / -' : ''
+  const label = current !== null && count ? `${position} / ${visible.length || count}` : data === null ? '- / -' : ''
 
   return (
     <div className={classes.filter(Boolean).join(' ')}>
@@ -428,21 +517,25 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         <header className="reader-phone-head comic-head">
           <a href={libraryHref} className="reader-back" aria-label="Back to Library">‹</a>
           <span className="reader-title">{title ?? 'Loading…'}</span>
+          <SourceLink href={sourceUrl} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
           {view}
+          {chapterBar}
         </header>
       ) : (
         <div className="comic-top comic-head">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'comic', id, page: null }, { title })} />
+          <SourceLink href={sourceUrl} />
           {current !== null && count > 0 ? (
-            <ComicPager page={current} count={count} rtl={rtl} onGo={go} />
+            <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} />
           ) : (
             data === null && <ComicPager page={1} count={1} rtl={rtl} onGo={go} loading />
           )}
           {toggles}
           {!empty && toolsButton}
           {view}
+          {chapterBar}
         </div>
       )}
       {!phone && toolsOpen && !empty && (
@@ -485,7 +578,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
       {phone && current !== null && count > 0 && (
         <div className="reader-bottom comic-bottom">
-          <ComicPager page={current} count={count} rtl={rtl} onGo={go} compact />
+          <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} compact />
           <button
             type="button"
             className="comic-text-btn"

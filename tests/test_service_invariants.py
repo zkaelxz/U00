@@ -13,10 +13,11 @@ import pytest
 
 import background_jobs
 import core as core_module
+import whisper_models
 import db
 import resegment
 from core import Line
-from services import drama_service, restructure_service, transcribe_service
+from services import drama_service, restructure_service, transcribe_pipeline, transcribe_service
 from services.service_errors import ConflictError, InvalidInputError
 from tests.http_fakes import StreamedBody
 
@@ -29,7 +30,7 @@ SECOND = "因为他上次也是这么说的，结果根本没有出现"
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
     monkeypatch.setattr(resegment, "word_boundaries", lambda *a, **k: None)
-    monkeypatch.setattr(core_module, "load_whisper_model", lambda *a, **k: object())
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: object())
     yield
     background_jobs.clear_all_jobs()
 
@@ -83,10 +84,10 @@ def _run_job_body(did, ddir, text):
 def _worker_with_fake_whisper(release, *args):
     """The transcribe worker in its spawned process, which imports every
     module fresh: the fake Whisper is installed here, not by monkeypatch."""
-    core_module.load_whisper_model = lambda *a, **k: object()
-    transcribe_service.transcribe_for_timing = (
+    whisper_models.load_whisper_model = lambda *a, **k: object()
+    transcribe_pipeline.transcribe_for_timing = (
         lambda *a, **k: (release.wait(5.0), [{"start": 0.0, "end": 1.0, "text": "你好"}])[1])
-    transcribe_service._transcribe_worker(*args)
+    transcribe_pipeline._transcribe_worker(*args)
 
 
 class TestTranscriptionCompletionInvariants:
@@ -97,7 +98,7 @@ class TestTranscriptionCompletionInvariants:
         did, _ = _transcript_drama()
         # Shared with the transcription's (spawned) worker process.
         release = multiprocessing.get_context("spawn").Event()
-        monkeypatch.setattr(transcribe_service, "_transcribe_worker",
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_worker",
                             functools.partial(_worker_with_fake_whisper, release))
         text = ["真实台词"]
         out = transcribe_service.start_transcribe_run(did, transcript_text=text[0])
@@ -110,9 +111,9 @@ class TestTranscriptionCompletionInvariants:
     def test_zero_aligned_lines_against_existing_lines_is_refused(self, monkeypatch):
         did, ddir = _transcript_drama()
         before = _snapshot(did)
-        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
-        monkeypatch.setattr(transcribe_service, "align_transcript_to_timing", lambda *a, **k: [])
+        monkeypatch.setattr(transcribe_pipeline, "align_transcript_to_timing", lambda *a, **k: [])
         result = _run_job_body(did, ddir, "真实台词")
         assert result["failed_reason"] == "empty_kept_existing"
         assert _snapshot(did) == before
@@ -120,7 +121,7 @@ class TestTranscriptionCompletionInvariants:
 
     def test_history_snapshot_is_taken_before_a_legitimate_replacement(self, monkeypatch):
         did, ddir = _transcript_drama()
-        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         _run_job_body(did, ddir, "真实台词")
         history = db.list_line_history(did)
@@ -413,6 +414,12 @@ class TestRetryOnDifferentEngineInvariants:
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a, **k: "k")
         monkeypatch.setattr("requests.post", lambda *a, **k: _OllamaResp())
         monkeypatch.setattr("requests.get", lambda *a, **k: _OllamaResp())
+        # A Translate job closes Ollama requests on Cancel through the abortable
+        # path, which opens its own session; route it to the patched post.
+        import requests
+        from engine_backends import local
+        monkeypatch.setattr(local, "_ollama_chat_abortable", lambda base_url, payload, check:
+                            local._ollama_chat_request(requests.post, base_url, payload))
         out = translate_run_service.start_translate_run(did, engine_name="ollama",
                                                         line_ids=[lines[0].id])
         job = _wait(out["job_id"])

@@ -47,7 +47,7 @@ def fakes(isolated_db, monkeypatch):
         "python": {"version": "3.11.0", "ok": True}, "ffmpeg": {"found": True, "version": None},
         "js_runtime": {"found": False, "name": None},
         "cuda": {"torch_installed": False, "cuda_available": None},
-        "files": {"all_present": True, "missing_top_level": [], "missing_tabs": []},
+        "files": {"all_present": True, "missing_top_level": []},
         "library_writable": True})
     monkeypatch.setattr(diagnostics_gaps_service, "get_log_tail",
                         lambda n=50, keyword="": ["INFO fine", f"ERROR {DIRTY}"])

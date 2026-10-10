@@ -101,10 +101,9 @@ ADMIN_PORT = 8600              # api_config.DEFAULT_PORT
 # The PC listener's own ports in RESERVED_PORTS: the service may take them,
 # the household listener may not.
 PC_LISTENER_PORTS = (ADMIN_PORT, ADMIN_PORT + 1)
-# Ports that are Baihe's own (settings_service.baihe_own_ports): the PC
-# listener's, the extension bridge's (page_server.DEFAULT_PORT), and
-# 8601, the documented "pick another port" for the PC listener. The
-# household listener may take none of them.
+# Fixed ports the household listener may not take: the PC listener's, the
+# extension bridge's (page_server.DEFAULT_PORT) and 8601, the documented
+# "pick another port". Static: settings_service.baihe_own_ports() differs.
 EXTENSION_BRIDGE_PORT = 8756    # page_server.DEFAULT_PORT
 RESERVED_PORTS = (ADMIN_PORT, ADMIN_PORT + 1, EXTENSION_BRIDGE_PORT)
 DEFAULT_HOUSEHOLD_PORT = 8610
@@ -491,7 +490,7 @@ def app_service_env(data_dir, household_port: int = 0, allow_key_writes: bool = 
                 "BAIHE_API_AUTH": "off", "BAIHE_API_ENV": "production",
                 "BAIHE_API_ALLOW_KEY_WRITES": "1" if allow_key_writes else "0",
                 "BAIHE_DATA_DIR": str(data_dir),
-                "PYTHONNOUSERSITE": "1", "PYTHONUNBUFFERED": "1"})
+                "BAIHE_APPLY_PENDING": "1", "PYTHONNOUSERSITE": "1", "PYTHONUNBUFFERED": "1"})
     if household_port:
         env["BAIHE_API_HOUSEHOLD_PORT"] = str(int(household_port))
     return env

@@ -96,7 +96,7 @@ export async function mockAiResegment(
     }
     return calls.previewStarts.length
       ? route.fulfill({ json: preview })
-      : route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No LLM re-segmentation preview is ready for this drama.' } } })
+      : route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No LLM re-segmentation preview is ready for this title.' } } })
   })
   await page.route('**/api/jobs/resegpreview_3', (route) => route.fulfill({ json: job('resegpreview_3', 'done') }))
   await page.route('**/api/jobs/resegment_3', (route) => route.fulfill({ json: job('resegment_3', 'done') }))

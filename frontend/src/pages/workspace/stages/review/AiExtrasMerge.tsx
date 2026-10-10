@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { listAllLines, restoreSnapshot } from '../../../../api/restructure'
 import { applyMergeShort, previewMergeShort } from '../../../../api/reviewExtras'
@@ -7,10 +7,12 @@ import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { buttonClass } from '../../../../components/uiClasses'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
+import { useStageDraft } from '../../../../hooks/useStageDraft'
 import { lineNumber } from '../../../../lineNumber'
 import type { MergeShortOptions, MergeShortPreview } from '../../../../types/reviewExtras'
-import { mergeFormDefaults, mergeSummary, parseMergeForm, type MergeForm } from './aiExtrasLogic'
-import { JOB_RUNNING_MESSAGE, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
+import { MERGE_DRAFT_STAGE, mergeFormDefaults, mergeSummary, parseMergeForm, type MergeForm } from './aiExtrasLogic'
+import { undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { UndoNotice } from './UndoNotice'
 import { retireUndoOffer, useUndoOffer } from './undoOffer'
 
@@ -26,7 +28,12 @@ interface Props {
 // apply it. The server re-checks the line ids and the merge groups (409 if
 // either changed) and saves a Line history snapshot first.
 export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
-  const [form, setForm] = useState<MergeForm>(mergeFormDefaults)
+  // The thresholds as last left here.
+  const { draft, save: saveDraft } = useStageDraft(dramaId, MERGE_DRAFT_STAGE, mergeFormDefaults())
+  const [form, setForm] = useState<MergeForm>(() => ({ ...mergeFormDefaults(), ...draft }))
+  useEffect(() => {
+    saveDraft(form)
+  }, [saveDraft, form])
   const [preview, setPreview] = useState<{ p: MergeShortPreview; opts: MergeShortOptions } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)

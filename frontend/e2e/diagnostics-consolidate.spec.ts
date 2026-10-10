@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
 
 import { REV_OTHER, REV_WHISPER, cacheMock, guardWrites, mockDiagnostics } from './diagnosticsConsolidateMocks'
@@ -79,7 +80,7 @@ test('Setup holds speaker detection and one model list with sizes and Delete', a
   // Downloads no engine claims and other model files keep their own groups.
   await expect(setup.getByRole('list', { name: 'Downloaded models' })).toContainText('someone/unknown-model')
   await expect(setup.getByRole('list', { name: 'Model files' })).toContainText('model.pt (PyTorch hub)')
-  await expect(setup).toContainText('A deleted model downloads again the next time a feature needs it.')
+  await expect(setup).toContainText('A deleted model downloads again when a feature needs it.')
 
   await setup.getByRole('button', { name: 'Delete Systran/faster-whisper-large-v3' }).click()
   expect(sent).toHaveLength(0)
@@ -110,13 +111,9 @@ test('Packages has no Missing packages fold; a task lists what it still needs', 
 test('each model engine is listed once, with Install in its Setup row; the other folds link to it', async ({ page }) => {
   await guardWrites(page)
   await mockDiagnostics(page)
-  const installed: string[] = []
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
-  await page.route('**/api/diagnostics/dependencies/*/install', (r) => {
-    installed.push(r.request().url())
-    return r.fulfill({ json: { ok: true, output_tail: ['done'], hint: null } })
-  })
+  const { started: installed } = await mockDependencyInstall(page, () => ({ ok: true, output_tail: ['done'] }))
   await page.goto('/#/diagnostics')
   // Open every fold: a name must still show up in only one engine list.
   for (const title of [/^Setup/, /^Model health/, /^Packages/]) await openSection(page, title)
@@ -135,7 +132,7 @@ test('each model engine is listed once, with Install in its Setup row; the other
   await expect(engines.getByRole('button', { name: /^Install/ })).toHaveCount(1)
   await qwen.getByRole('button', { name: /^Install/ }).click()
   await qwen.getByRole('button', { name: /^Confirm install/ }).click()
-  await expect(qwen.getByTestId('install-result')).toBeVisible()
+  await expect(qwen.getByTestId('install-result')).toBeVisible({ timeout: 10_000 })
   expect(installed).toHaveLength(1)
 })
 

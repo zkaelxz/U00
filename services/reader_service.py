@@ -23,7 +23,7 @@ Conventions shared by all of them:
   - plain dicts/lists/str/bytes out, never a filesystem path or key
     (media_file_path is the one server-internal exception, documented);
   - keys are resolved server-side, never accepted or returned, and an
-    engine failure is passed through diagnostics.redact_for_support (keys
+    engine failure is passed through diagnostics_report.redact_for_support (keys
     and absolute paths removed), a local OSError becomes a fixed message;
   - AI results are matched back by id or name, never by list position;
   - writes are scoped to their own table/fields (vocab_lookups,
@@ -49,12 +49,11 @@ Permission contract for routes (user decision, 2026-09-29):
 
 import os
 import re
-import shutil
-import tempfile
 
 import core as core_module
 import db
 import reader
+import storage
 import story_context
 import subtitle_formats
 import translate_engines
@@ -264,9 +263,9 @@ def _run_engine(fn):
     except OSError:  # local work (e.g. the CEDICT download/cache): no path out
         raise ServiceError("A local dictionary or file step failed; see the app log.") from None
     except Exception as e:  # engine/network failure: never leak a key or path
-        import diagnostics
+        import diagnostics_report
         raise ServiceError("The engine call failed: "
-                           + diagnostics.redact_for_support(str(e))[:300]) from None
+                           + diagnostics_report.redact_for_support(str(e))[:300]) from None
 
 
 def _text_arg(value, field: str, max_len: int) -> str:
@@ -585,8 +584,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
         original = None
     deck = _title(drama, "Baihe Vocab")
     name = "vocab_sentence.apkg" if rich else "vocab.apkg"
-    tmp = tempfile.mkdtemp(prefix="baihe_vocab_")
-    try:
+    with storage.job_workdir("vocab_export") as tmp:
         out_path = os.path.join(tmp, name)
         try:
             if rich:
@@ -602,8 +600,6 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
                 "Needs `pip install genanki` for .apkg export -- CSV works without it.") from None
         with open(out_path, "rb") as f:
             content = f.read()
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
     return {"filename": name, "media_type": "application/octet-stream", "content": content,
             "audio_omitted": audio_omitted, "cards_capped": cards_capped}
 

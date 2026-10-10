@@ -24,6 +24,11 @@ const REVIEW_PREFIXES: Record<ReviewJobKind, string> = {
   'fix-flagged': 'fixflag_',
 }
 export const reviewJobIds = (dramaId: number) => Object.values(REVIEW_PREFIXES).map((p) => `${p}${dramaId}`)
+// The check a review job id was started for, or null for a bulk batch or another stage's job.
+export function reviewKindOf(jobId: string): ReviewJobKind | null {
+  const hit = (Object.entries(REVIEW_PREFIXES) as [ReviewJobKind, string][]).find(([, p]) => jobId.startsWith(p))
+  return hit ? hit[0] : null
+}
 
 // services/media_export_service.py: one job per artifact kind.
 const MEDIA_PREFIXES: Record<MediaKind, string> = {

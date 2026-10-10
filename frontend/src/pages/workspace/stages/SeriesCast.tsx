@@ -30,8 +30,8 @@ import {
 import './seriesCast.css'
 
 const PRONOUNS_HELP =
-  'Fixes this person\'s pronouns in translation for every drama in the series. ' +
-  'A drama\'s own Characters table can override them for that drama.'
+  'Fixes this person\'s pronouns in translation for every title in the series. ' +
+  'A title\'s own Characters table can override them for that title.'
 
 // Name, pronouns (preset or custom), aliases and notes: shared by the
 // inline edit and the add form.
@@ -114,7 +114,7 @@ function EditPerson({ seriesId, person, onSaved, onCancel }: {
         <button type="button" className="primary" disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>
           {busy ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </fieldset>
@@ -363,7 +363,7 @@ export function SeriesCast({ seriesId, refresh = 0 }: {
       storageKey="translate.characters.series"
       title="Series cast"
       count={cast.length}
-      summary={cast.length ? 'shared by every drama in the series' : 'no one yet'}
+      summary={cast.length ? 'shared by every title in the series' : 'no one yet'}
     >
       {cast.length === 0 && <p className="muted">No one yet. Add the series' recurring people below.</p>}
       {cast.length > 0 && (

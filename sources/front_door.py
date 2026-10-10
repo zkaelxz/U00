@@ -6,11 +6,10 @@ source, a video, a novel chapter, or a comic chapter -- and builds a
 preview (title, chapter, language, content type, chapter count where
 knowable). Nothing is imported until the person presses Import.
 
-Video URLs go straight to the existing yt-dlp download path
-(video_download.download), the same call Workspace's "Video URL" uses.
+Video URLs are only recognised here; the download is Workspace's "Video
+URL" (services/url_media_service).
 """
 
-import os
 import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
@@ -174,89 +173,3 @@ def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = 
     return p
 
 
-def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=None,
-                 cookies_browser: str = None, cookies_file: str = None,
-                 confirm_replace_audio: bool = False) -> str:
-    """Routes a detected video URL into a download path -- a registered
-    VideoSource adapter (e.g. BilibiliSource) if one matches this
-    URL, otherwise the generic video_download.download call (YouTube etc.,
-    which have no dedicated adapter). The download goes to a temp folder and
-    is put in place by media_upload_service.install_media, as an upload is:
-    never over an existing file, and the replaced files are kept in
-    kept_media/. Its guards: the drama's upload claim is held throughout,
-    nothing starts while a job runs for the drama, replacing media needs
-    confirm_replace_audio, and the downloaded file must lie inside the temp
-    folder with a whitelisted extension (any other name could never be
-    recovered as an unnamed leftover). Unlike url_media_service it does not
-    check that the URL is public, check the drama's content mode, or cap the
-    download's duration and running time.
-    Returns the installed downloaded file's path."""
-    import shutil
-
-    import db
-    import storage
-    from services import drama_service, media_upload_service as mus
-    from services.service_errors import ConflictError, InvalidInputError, NotFoundError
-    if not isinstance(confirm_replace_audio, bool):
-        raise InvalidInputError("confirm_replace_audio must be true or false.")
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
-    if mus.has_media(drama, drama_id) and not confirm_replace_audio:
-        raise InvalidInputError(mus._CONFIRM_REPLACE, details={"reason": "confirm_replace_audio"})
-    with mus.claims_lock:
-        if drama_id in mus.claimed:
-            raise ConflictError("Another upload is in progress for this drama.")
-        mus.claimed.add(drama_id)
-    ddir = db.drama_dir(drama_id)
-    fetched = {}
-    tmp = None
-    try:
-        if drama_service.job_running_for_drama(drama_id):
-            raise ConflictError(mus._BUSY)
-        tmp = storage.new_workdir(f"frontdoor_{drama_id}")
-        adapter = registry.find_for_url(url)
-        if adapter is not None and hasattr(adapter, "download") and ContentType.VIDEO.value in adapter.content_types:
-            # Re-checked here, not just relied on from an earlier preview() call
-            # -- same "gate the actual action, don't trust a
-            # prior UI step" pattern pipeline.run_import_job already follows.
-            ladder.check_terms(adapter.name, adapter.capabilities())
-            options = {"quality": "Audio only" if audio_only else "Best available",
-                      "cookies_browser": cookies_browser, "cookies_file": cookies_file}
-            result = adapter.download(url, tmp, options=options)
-            path = result["path"]
-            if result.get("title"):
-                fetched["title"] = result["title"]
-        else:
-            import video_download
-            path = video_download.download(url, tmp, audio_only=audio_only, progress_cb=progress_cb,
-                                           title_cb=lambda t: fetched.setdefault("title", t),
-                                           cookies_browser=cookies_browser, cookies_file=cookies_file)
-
-        path = os.path.realpath(path)
-        ext = os.path.splitext(path)[1].lower()
-        # Video extensions stay allowed for audio_only: an audio-only stream
-        # can arrive as .webm (or a muxed fallback), and it is kept as the audio.
-        allowed = mus.VIDEO_EXTENSIONS + (mus.AUDIO_EXTENSIONS if audio_only else ())
-        if (not path.startswith(os.path.realpath(tmp) + os.sep) or not os.path.isfile(path)
-                or ext not in allowed):
-            raise InvalidInputError("The download didn't produce a usable audio or video file.")
-        if audio_only:
-            field = "audio_filename"
-            new_files = {field: (path, "source", ext)}
-        else:
-            import core
-            wav = core.extract_audio_from_video(path, os.path.join(tmp, "audio.wav"))
-            field = "source_video_filename"
-            new_files = {field: (path, "source", ext), "audio_filename": (wav, "audio", ".wav")}
-        drama = db.get_drama(drama_id) or {}
-        update = {}
-        if fetched.get("title") and not (drama.get("title_en") or drama.get("title_zh")):
-            update["title_zh"] = fetched["title"]
-        names = mus.install_media(drama_id, new_files, source_url=url, **update)
-    finally:
-        with mus.claims_lock:
-            mus.claimed.discard(drama_id)
-        if tmp is not None:
-            shutil.rmtree(tmp, ignore_errors=True)
-    return os.path.join(ddir, names[field])

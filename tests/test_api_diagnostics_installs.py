@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import diagnostics
+import upgrade_check
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -224,11 +225,11 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
     monkeypatch.setattr(svc, "_use_winget", lambda: True)
     ran = []
 
-    def fake_tree(cmd, timeout):
+    def fake_tree(cmd, timeout, cancel=None, **_kw):
         ran.append((cmd, timeout))
         yield {"line": f"Found Deno at {ABS_PATH} {SECRET}"}
-        yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(gaps, "stream_tree", fake_tree)
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+    monkeypatch.setattr(svc.proc_run, "stream_tree", fake_tree)
     assert client.post("/api/diagnostics/deno/install", json={"confirm": True}).status_code == 200
     assert _wait(svc.DENO_JOB_ID)["status"] == "done"
     assert ran and ran[0][0][:5] == ["winget", "install", "-e", "--id", "DenoLand.Deno"]
@@ -255,7 +256,7 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
         yield {"done": True, "ok": True, "verdict": "safe", "reason": "every test passed",
                "version": version, "new_failures": [], "preexisting_failures": [],
                "conflicts": []}
-    monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate", fake_check)
     url = "/api/diagnostics/dependencies/pydub/test-upgrade"
     assert client.post(url, json={"confirm": True, "target": "2.0.0"}).status_code == 409
     _cache_update()
@@ -276,7 +277,7 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
 
 
 def test_upgrade_check_refusals(client, env, monkeypatch):
-    monkeypatch.setattr(diagnostics, "check_upgrade_candidate",
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate",
                         lambda *a, **k: iter(()))
     _cache_update()
     assert client.post("/api/diagnostics/dependencies/fastapi/test-upgrade",
@@ -300,7 +301,7 @@ def test_upgrade_check_cancel_stops_the_run(client, env, monkeypatch):
                 time.sleep(0.005)
         finally:
             closed.append(True)
-    monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate", fake_check)
     _cache_update()
     client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                 json={"confirm": True, "target": "2.0.0"})

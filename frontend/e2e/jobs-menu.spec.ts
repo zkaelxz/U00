@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { mockJobs } from './jobsMenuMocks'
+import { mockJobs, sampleJobs } from './jobsMenuMocks'
 
 // The header Jobs button with /api/jobs mocked: badge, panel, Cancel, "All jobs".
 
@@ -25,6 +25,17 @@ test('badge counts active jobs and the panel lists active first', async ({ page 
   await expect.poll(() => cancelled).toEqual(['q1'])
   await page.keyboard.press('Escape')
   await expect(panel).toBeHidden()
+})
+
+test('the panel offers Force stop only for a job stuck in Cancelling', async ({ page }) => {
+  const stuck = sampleJobs().map((j) => (j.job_id === 'r1' ? { ...j, can_force_stop: true } : j))
+  await mockJobs(page, stuck)
+  await page.goto('/#/library')
+  await page.getByRole('button', { name: /^Jobs/ }).click()
+  const panel = page.getByRole('region', { name: 'Jobs' })
+  await expect(panel.getByRole('button', { name: /^Force stop/ })).toHaveCount(1)
+  await panel.getByRole('button', { name: /^Force stop/ }).click()
+  await expect(panel.getByRole('button', { name: 'Confirm force stop' })).toBeVisible()
 })
 
 test('no badge at zero, and All jobs opens the Jobs page', async ({ page }) => {

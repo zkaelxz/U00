@@ -12,7 +12,7 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
-import { FREE_BUSY_NOTE, OLLAMA_EMPTY, gpuLine, llamaLine, loadedRows, refreshedLine } from './loadedModelsModel'
+import { FREE_BUSY_NOTE, OLLAMA_EMPTY, gpuLine, llamaLine, loadedRows, memoryLine, refreshedLine, unreadableReserveNote } from './loadedModelsModel'
 
 const TITLE = 'Loaded now'
 
@@ -78,6 +78,10 @@ export function LoadedModelsCard() {
           {rows.length > 0 && data.ollama.state !== 'running' && <p className="muted">{OLLAMA_EMPTY[data.ollama.state]}</p>}
           {rows.length > 0 && data.app.state === 'unavailable' && <p className="muted">App models are unavailable.</p>}
           <p data-testid="loaded-gpu">{gpuLine(data.gpu)}</p>
+          <p data-testid="loaded-memory">{memoryLine(data.memory)}</p>
+          {unreadableReserveNote(data.memory) && (
+            <p className="muted" data-testid="loaded-memory-note">{unreadableReserveNote(data.memory)}</p>
+          )}
           <p className="muted" data-testid="loaded-llama">{llamaLine(data.llama_cpp_running)}</p>
           {pc === 'local' && (
             <div className="settings-actions">

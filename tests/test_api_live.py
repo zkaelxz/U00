@@ -159,10 +159,12 @@ def test_auth_on_permissions(fake_live):
     assert c.post("/api/live/sessions", json=free, headers=household).status_code == 403
     importer = _headers("media.import_url", email="imp@example.com")
     assert c.post("/api/live/sessions", json=paid, headers=importer).status_code == 403
-    assert c.post("/api/live/sessions", json={"url": URL}, headers=importer).status_code == 403
     r = c.post("/api/live/sessions", json=free, headers=importer)
     assert r.status_code == 200
     sid = r.json()["session_id"]
+    # An omitted engine runs the free Ollama default, so no engines.paid is
+    # needed; 409 because the session above is running, not 403.
+    assert c.post("/api/live/sessions", json={"url": URL}, headers=importer).status_code == 409
     spender = _headers("media.import_url", "engines.paid", email="pay@example.com")
     # past the permission checks; refused only because one session is running
     assert c.post("/api/live/sessions", json=paid, headers=spender).status_code == 409

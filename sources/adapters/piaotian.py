@@ -67,6 +67,7 @@ from ..base import SourceAdapter, host_url_search
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentHidden,
                       ContentType, FailureReason, FetchFailed, SearchResult, SeriesInfo,
                       SourceError)
+from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 
 HOST = "www.piaotia.com"
@@ -147,6 +148,10 @@ class PiaotianSource(SourceAdapter):
     display_name = "飘天文学 (Piaotian)"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
+    pacing_profile = PacingProfile(
+        fast=PaceLevel(min_delay=2.5, max_delay=3.5, max_concurrent=1),
+        evidence=("robots.txt fetched 2026-10-09: no Crawl-delay, only attachment/login/packshow/admin disallowed; no terms page found; 2.5 s floor kept for the site's own search throttle."),
+        fast_allowed=True)
     url_patterns = [r"(?:www\.)?(?:piaotia|ptwxz)\.com/"
                     r"(?:bookinfo/\d+/\d+\.html|html/\d+/\d+(?:/|$|\.html))"]
     # No Crawl-delay in robots.txt; the owner asked for human-paced use.

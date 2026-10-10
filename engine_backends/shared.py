@@ -5,9 +5,11 @@ import contextvars
 import json
 import re
 import time
+from typing import Optional
 
 from core import LANGUAGE_NAMES
-from services import capped_body
+from lib import capped_body, http
+from memory_headroom import HeadroomError
 
 
 def _empty_usage() -> dict:
@@ -42,16 +44,22 @@ def gemini_usage(usage_metadata) -> dict:
             "cache_write_tokens": 0}
 
 
+# 503 and 529 (Anthropic's "overloaded") are the provider asking for a retry
+# later, like 429. The SDK clients run with max_retries=0, so this is the only
+# place those get a backoff.
+_BACKOFF_STATUSES = (429, 503, 529)
+
+
 def _is_rate_limit_error(e: Exception) -> bool:
-    """Detects rate-limit responses across different SDK styles (Anthropic,
-    OpenAI-compatible, raw requests) so backoff only kicks in for the
-    specific error where waiting actually helps -- not for genuine
-    failures like a bad API key or malformed request."""
+    """Detects rate-limit and overloaded responses across different SDK
+    styles (Anthropic, OpenAI-compatible, raw requests) so backoff only
+    kicks in for the specific errors where waiting actually helps -- not for
+    genuine failures like a bad API key or malformed request."""
     status = getattr(e, "status_code", None)
     resp = getattr(e, "response", None)
     if resp is not None:
         status = status or getattr(resp, "status_code", None)
-    if status == 429:
+    if status in _BACKOFF_STATUSES:
         return True
     cls_name = type(e).__name__.lower()
     if "ratelimit" in cls_name or "rate_limit" in cls_name:
@@ -65,6 +73,10 @@ def _is_rate_limit_error(e: Exception) -> bool:
 
 class TranslationCancelled(Exception):
     """A wait was cut short because the running job was cancelled."""
+
+
+class LLMTaskTimeout(RuntimeError):
+    """A bounded AI call passed its total deadline."""
 
 
 class FreeTierDailyLimitReached(RuntimeError):
@@ -128,7 +140,11 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             return fn()
         except Exception as e:
             last_exception = e
-            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached)):
+            # A refused local load repeats identically; retrying only delays the message.
+            # A deadline has already waited as long as the call may; a retry would
+            # bill a second request while the abandoned one may still be running.
+            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached, HeadroomError,
+                              LLMTaskTimeout)):
                 raise
             if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
                 # FallbackEngine already retried and tried every engine.
@@ -155,6 +171,9 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
 PROVIDER_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
 
 
+_ERROR_BODY_DEFAULT_BYTES = 4096
+
+
 class ProviderResponseTooLarge(RuntimeError):
     """A provider's reply was over its byte cap or took too long to read."""
 
@@ -162,7 +181,7 @@ class ProviderResponseTooLarge(RuntimeError):
 def read_json_capped(resp, deadline_seconds: float, cap_bytes: int = PROVIDER_RESPONSE_MAX_BYTES,
                      make_error=None):
     """The JSON body of a `stream=True` requests response, read through
-    services.capped_body. A non-2xx status raises requests.HTTPError, as
+    lib.capped_body. A non-2xx status raises requests.HTTPError, as
     raise_for_status does, without reading the body."""
     if not resp.ok:
         resp.close()
@@ -170,6 +189,59 @@ def read_json_capped(resp, deadline_seconds: float, cap_bytes: int = PROVIDER_RE
     make_error = make_error or (lambda: ProviderResponseTooLarge(
         "The provider's reply was too large or too slow to read."))
     return json.loads(capped_body.read_capped(resp, cap_bytes, deadline_seconds, make_error))
+
+
+class _ErrorResponse:
+    """What `_is_rate_limit_error` and callers read from `HTTPError.response`."""
+
+    def __init__(self, resp):
+        from requests.structures import CaseInsensitiveDict
+        self.status_code = resp.status
+        self.headers = CaseInsensitiveDict(resp.headers)
+        self.text = resp.text()
+        self.ok = False
+
+
+PROVIDER_UNREACHABLE = "The provider could not be reached."
+
+
+def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict] = None,
+              label: str = "The provider", error_detail_bytes: Optional[int] = None):
+    """POST `payload` as JSON through lib.http and return (parsed reply, headers).
+
+    The URL is a vendor endpoint or the PC owner's own Ollama address, so no
+    public-address guard and no redirects (a key header must never leave its
+    origin). The exception types are the ones `call_with_backoff` keys on: a
+    non-2xx reply is a requests.HTTPError carrying the status (429/503/529
+    back off, anything else gets one quick retry), a reply over the cap or
+    past the deadline is ProviderResponseTooLarge, and a transport failure or
+    redirect is a lib.http.FetchError with fixed text; fallback.py recognises
+    it as transient.
+    Every message is fixed text, so the key in `headers` cannot reach one.
+    """
+    import requests
+    try:
+        resp = http.post(url, timeout=timeout, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None,
+                         deadline=2 * timeout, headers=headers, json=payload,
+                         max_error_bytes=error_detail_bytes or _ERROR_BODY_DEFAULT_BYTES)
+    except (http.ResponseTooLarge, http.ResponseTooSlow):
+        raise ProviderResponseTooLarge("The provider's reply was too large or too slow to read.") from None
+    except http.FetchError:
+        raise http.FetchError(PROVIDER_UNREACHABLE) from None
+    if resp.status >= 400:
+        detail = ""
+        if error_detail_bytes:
+            try:
+                detail = str((json.loads(resp.body).get("error") or {}).get("message") or "")[:300]
+            except Exception:
+                pass
+        raise requests.HTTPError(redact_secrets(f"{label} returned HTTP {resp.status}"
+                                                + (f": {detail}" if detail else "")),
+                                 response=_ErrorResponse(resp))
+    if resp.status >= 300:  # redirects are not followed, so there is no reply to read
+        raise http.FetchError(PROVIDER_UNREACHABLE)
+    from requests.structures import CaseInsensitiveDict
+    return json.loads(resp.body), CaseInsensitiveDict(resp.headers)
 
 
 # Matches a raw API key/token sitting in an error string -- a query
@@ -190,9 +262,10 @@ _SECRET_PATTERNS = [
     re.compile(r'\bhf_[A-Za-z0-9]{20,}\b'),
     # Groq keys: gsk_ + ~52 letters/digits.
     re.compile(r'\bgsk_[A-Za-z0-9]{20,}\b'),
-    # Notion integration secrets (roadmap 112): ntn_ (current) or secret_
-    # (older) + 40+ letters/digits. Same floor idea as hf_ above, so words like
-    # "secret_key" or "ntn_status" are left alone.
+    # Notion integration secrets: ntn_ (current) or secret_ (older) + 40+
+    # letters/digits. Kept although the integration is gone: a stored or pasted
+    # Notion token must still be scrubbed from error text. Same floor idea as
+    # hf_ above, so words like "secret_key" or "ntn_status" are left alone.
     re.compile(r'\b(?:ntn|secret)_[A-Za-z0-9]{20,}\b'),
     # DeepL keys: a UUID, with ":fx" on Free-plan keys. A bare UUID is
     # only redacted with the ":fx" suffix or after "DeepL-Auth-Key", so
@@ -204,6 +277,8 @@ _SECRET_PATTERNS = [
     re.compile(r'\bGOCSPX-[A-Za-z0-9_-]{10,}'),
     # GitHub tokens: ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained github_pat_.
     re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})'),
+    # Baihe's own browser-extension device tokens: baihe_dt_ + 43 characters.
+    re.compile(r'\bbaihe_dt_[A-Za-z0-9_-]{20,}'),
     # Discord webhook URLs: the id/token path is the secret.
     re.compile(r'(discord(?:app)?\.com/api/(?:v\d+/)?webhooks/)[^\s"\'<>]+', re.IGNORECASE),
 ]
@@ -244,6 +319,34 @@ def safe_url(url) -> str:
     if not parts.scheme or not host:
         return ""
     return f"{parts.scheme}://{host}{port}{parts.path}"
+
+
+# A path segment that looks like a credential (a long random run, or a
+# Telegram-style bot<id>:<key>), e.g. a path-signed CDN or bot file link.
+_TOKEN_SEGMENT = re.compile(r"^(?:bot\d+:.+|[A-Za-z0-9_\-.~:=]{32,})$")
+
+
+def display_url(url) -> str:
+    """A stored link as the API may show it: http(s) only, scheme + host +
+    path, no query, fragment, userinfo or ;params. A pasted link can carry
+    a signed token; a path that looks like it holds one is dropped, leaving
+    only the host. Anything else (unparsable, scheme-less, file://) gives ""."""
+    from urllib.parse import urlsplit
+    try:
+        parts = urlsplit(str(url or "").strip())
+        host = parts.hostname or ""
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return ""
+    if parts.scheme.lower() not in ("http", "https") or not host:
+        return ""
+    if ":" in host:
+        host = f"[{host}]"          # IPv6 keeps its brackets
+    path = parts.path.split(";", 1)[0]
+    if (redact_secrets(path) != path
+            or any(_TOKEN_SEGMENT.match(seg) for seg in path.split("/") if seg)):
+        path = "/"
+    return f"{parts.scheme.lower()}://{host}{port}{path}"
 
 
 def strip_url_queries(text):
@@ -527,3 +630,25 @@ def _detect_soft_refusal_text(text: str):
 # bound the Ollama REST call uses (300 s) rather than retrying (and
 # re-billing) a reply that was still coming.
 SDK_REQUEST_TIMEOUT = 300
+
+
+def _sdk_http_timeout(sdk):
+    # The SDK's own Timeout class: newer releases ship their own httpx and
+    # reject a Timeout from the httpx package. read is a per-read idle bound
+    # (a non-streamed reply sends nothing until it is done); the short
+    # connect/pool bounds stop a dead host or an exhausted pool eating it.
+    return sdk.Timeout(connect=10.0, read=SDK_REQUEST_TIMEOUT, write=30.0, pool=10.0)
+
+
+# max_retries=0: call_with_backoff and FallbackEngine are the retry layers the
+# user can cancel and see; the SDK's own two hidden retries would triple every
+# wait and keep re-billing in a thread nobody can stop.
+def make_anthropic_client(api_key: str):
+    import anthropic
+    return anthropic.Anthropic(api_key=api_key, timeout=_sdk_http_timeout(anthropic), max_retries=0)
+
+
+def make_openai_client(api_key: str, base_url: str = None):
+    import openai
+    return openai.OpenAI(api_key=api_key, base_url=base_url, timeout=_sdk_http_timeout(openai),
+                         max_retries=0)

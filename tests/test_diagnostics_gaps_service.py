@@ -10,6 +10,7 @@ import applog
 import background_jobs
 import db
 import diagnostics
+import diarize
 from services import diagnostics_gaps_service as svc
 from services import settings_service
 
@@ -164,7 +165,7 @@ def test_pyannote_readiness_with_hf_hub_returns_list(monkeypatch):
     monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
     out = svc.get_pyannote_readiness(check_access=True)
     assert out["models"] == [{"model": m, "accessible": True}
-                             for m in diagnostics.diarize.DIARIZATION_MODELS]
+                             for m in diarize.DIARIZATION_MODELS]
     assert out["ready"] is True
 
 
@@ -219,7 +220,7 @@ def _no_jobs(monkeypatch, running=False):
 
 
 def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
-    def fake(cmd, timeout, cwd=None, env=None):
+    def fake(cmd, timeout, cwd=None, env=None, **_kw):
         if seen is not None:
             seen.append((cmd, timeout))
         yield {"line": DIRTY}
@@ -285,7 +286,7 @@ def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
     _no_jobs(monkeypatch)
     # The command line depends on whether torch is installed on the machine
     # running the tests (it then gets a `-c <pins>` file); pin that down.
-    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: [])
     seen = []
     _fake_pip(monkeypatch, seen=seen)
     for fn in (svc.install_dependency, svc.upgrade_dependency):
@@ -299,11 +300,11 @@ def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
 
 def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_file(monkeypatch):
     _no_jobs(monkeypatch)
-    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines",
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines",
                         lambda: ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"])
     contents = {}
 
-    def fake(cmd, timeout, cwd=None, env=None):
+    def fake(cmd, timeout, cwd=None, env=None, **_kw):
         path = cmd[-1]     # the pins file is appended after constraints.txt
         with open(path, encoding="utf-8") as f:
             contents["pins"] = f.read().split()
@@ -386,7 +387,7 @@ def test_pip_holds_the_library_exclusively(monkeypatch):
     _no_jobs(monkeypatch)
     seen = {}
 
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         seen["exclusive"] = background_jobs.exclusive_active()
         seen["job_started"] = background_jobs.start_job("l7_probe", lambda: None)
         seen["maintenance"] = background_jobs.enter_maintenance()
@@ -410,7 +411,7 @@ def test_pip_refused_while_another_hold_is_active(monkeypatch):
 def test_pip_releases_the_hold_when_it_fails(monkeypatch):
     _no_jobs(monkeypatch)
 
-    def boom(cmd, timeout):
+    def boom(cmd, timeout, **_kw):
         raise OSError("no pip")
         yield  # noqa
     monkeypatch.setattr(svc, "stream_tree", boom)
@@ -587,7 +588,7 @@ def test_stream_tree_returns_when_pip_exits_but_a_child_holds_the_pipe(tmp_path)
         items = list(svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
                                       timeout=60.0, drain_seconds=1.0))
         assert _t.monotonic() - t0 < 15
-        assert items[-1] == {"returncode": 0, "timed_out": False}
+        assert items[-1] == {"returncode": 0, "timed_out": False, "cancelled": False}
     finally:
         _kill_pid_from(marker)
 
@@ -604,7 +605,7 @@ def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
     monkeypatch.setattr(svc, "_install_commands", lambda n: [
         ([sys.executable, "-c", _pipe_holder_script(marker, 60)], 1.0)])
     monkeypatch.setattr(svc, "stream_tree",
-                        lambda cmd, timeout: real(cmd, timeout, drain_seconds=1.0))
+                        lambda cmd, timeout, **kw: real(cmd, timeout, drain_seconds=1.0, **kw))
     try:
         out = svc.install_dependency("pydub", confirm=True)
         assert out["ok"] is False
@@ -638,14 +639,14 @@ def _scripted_pip(monkeypatch, outputs):
     """stream_tree stand-in: each pip run takes the next (lines, returncode)."""
     seen, runs = [], iter(outputs)
 
-    def fake(cmd, timeout, cwd=None, env=None):
+    def fake(cmd, timeout, cwd=None, env=None, **_kw):
         seen.append(cmd)
         lines, rc = next(runs)
         for line in lines:
             yield {"line": line}
         yield {"returncode": rc, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
-    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: [])
     return seen
 
 

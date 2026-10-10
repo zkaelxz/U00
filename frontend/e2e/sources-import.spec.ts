@@ -10,7 +10,7 @@ import { SOURCES, mockSources, posted } from './sourcesMocks'
 const expect = baseExpect.configure({ timeout: 15_000 })
 test.describe.configure({ timeout: 90_000 })
 
-test('chapter link: preview, open series with the chapter ticked, new drama, import with outcomes, track', async ({ page }) => {
+test('chapter link: preview, open series with the chapter ticked, new title, import with outcomes, track', async ({ page }) => {
   const s = await mockSources(page)
   const m = await mockImports(page, s, { importHold: true })
   await page.goto('/#/sources')
@@ -42,15 +42,15 @@ test('chapter link: preview, open series with the chapter ticked, new drama, imp
 
   const importBtn = panel.getByRole('button', { name: 'Import 3 chapters' })
   await expect(importBtn).toBeDisabled()
-  await expect(panel.getByText('Still needed: a drama to import into.')).toBeVisible()
+  await expect(panel.getByText('Still needed: a title to import into.')).toBeVisible()
 
   // Comic source: only comic dramas are offered, plus New drama….
   const into = panel.getByRole('combobox', { name: 'Import into' })
-  await expect(into.locator('option')).toHaveText(['Choose a drama…', 'Alpha Comic', 'New drama…'])
-  await into.selectOption({ label: 'New drama…' })
-  const newDrama = panel.getByRole('group', { name: 'New drama' })
+  await expect(into.locator('option')).toHaveText(['Choose a title…', 'Alpha Comic', 'New title…'])
+  await into.selectOption({ label: 'New title…' })
+  const newDrama = panel.getByRole('group', { name: 'New title' })
   await expect(newDrama.getByRole('textbox', { name: 'Title' })).toHaveValue('Heaven Book 1')
-  await newDrama.getByRole('button', { name: 'Create drama' }).click()
+  await newDrama.getByRole('button', { name: 'Create title' }).click()
   await expect.poll(() => posted(s, '/api/dramas')[0]?.body).toEqual({ source_language: 'zh', title_en: 'Heaven Book 1', media_type: 'manhua' })
   await expect(into).toHaveValue('21')
 
@@ -107,7 +107,7 @@ test('select all and the 200-chapter cap', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('novel page: pick a drama, import the text', async ({ page }) => {
+test('novel page: pick a title, import the text', async ({ page }) => {
   const s = await mockSources(page)
   await mockImports(page, s, { previewBody: NOVEL_PREVIEW })
   await page.goto('/#/sources')
@@ -120,11 +120,11 @@ test('novel page: pick a drama, import the text', async ({ page }) => {
   await expect(card.getByRole('button', { name: 'Open series' })).toHaveCount(0)
   const into = card.getByRole('combobox', { name: 'Import into' })
   // Only novel dramas: the text import refuses any other media type.
-  await expect(into.locator('option')).toHaveText(['Choose a drama…', 'Heaven Novel', 'New drama…'])
+  await expect(into.locator('option')).toHaveText(['Choose a title…', 'Heaven Novel', 'New title…'])
   await into.selectOption({ label: 'Heaven Novel' })
   await card.getByRole('button', { name: 'Import text' }).click()
   await expect.poll(() => posted(s, '/api/sources/url/import')[0]?.body).toEqual({ url: 'https://novels.example/book/5', drama_id: 11 })
-  await expect(card.getByTestId('url-import-result')).toContainText('Added 5,120 characters to the drama’s novel text.')
+  await expect(card.getByTestId('url-import-result')).toContainText('Added 5,120 characters to the title’s novel text.')
   expect(s.unmocked).toEqual([])
 })
 
@@ -162,7 +162,7 @@ test('video link: download into an audio drama (PC only), and the remote 403', a
   await expect(card.getByText('Video', { exact: true })).toBeVisible()
   const into = card.getByRole('combobox', { name: 'Import into' })
   // A novel-narration drama can't take audio.
-  await expect(into.locator('option')).toHaveText(['Choose a drama…', 'Alpha Comic', 'Radio Play', 'Stream VOD'])
+  await expect(into.locator('option')).toHaveText(['Choose a title…', 'Alpha Comic', 'Radio Play', 'Stream VOD'])
   await into.selectOption({ label: 'Stream VOD' })
   // Streamer VOD: audio only starts off; the drama has audio, so replacing needs a tick.
   await expect(card.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
@@ -190,10 +190,10 @@ test('video link: download into an audio drama (PC only), and the remote 403', a
   expect(s.unmocked).toEqual([])
 })
 
-test('import while another drama job runs: the server message, no outcomes', async ({ page }) => {
+test('import while another title job runs: the server message, no outcomes', async ({ page }) => {
   const s = await mockSources(page, { series: 'done' })
   // An older chapter import for this drama is stored as done; a start is refused.
-  await mockImports(page, s, { importJob: 'done', importStartConflict: 'Transcribing is running for this drama. Try again when it finishes.' })
+  await mockImports(page, s, { importJob: 'done', importStartConflict: 'Transcribing is running for this title. Try again when it finishes.' })
   await page.addInitScript(() => {
     localStorage.setItem('baihe.pref.sources.lastSeries', JSON.stringify({ source: 'alpha', series_id: 'a0', title: 'Heaven Book 1' }))
     localStorage.setItem('baihe.pref.sources.importInto.alpha:a0', '12')
@@ -203,7 +203,7 @@ test('import while another drama job runs: the server message, no outcomes', asy
   await panel.getByRole('checkbox', { name: 'Chapter 1', exact: true }).check()
   await panel.getByRole('button', { name: 'Import 1 chapter' }).click()
   await expect.poll(() => posted(s, '/api/sources/alpha/import').length).toBe(1)
-  await expect(panel.getByText('Transcribing is running for this drama. Try again when it finishes.')).toBeVisible()
+  await expect(panel.getByText('Transcribing is running for this title. Try again when it finishes.')).toBeVisible()
   const polls = () => s.calls.filter((c) => c.path === '/api/sources/jobs/sourceimport_12/result').length
   const before = polls()
   // Proving a non-event: a reattached poll would start within this window.
@@ -216,7 +216,7 @@ test('import while another drama job runs: the server message, no outcomes', asy
   expect(s.unmocked).toEqual([])
 })
 
-test('a remembered drama that is gone or the wrong type is not used', async ({ page }) => {
+test('a remembered title that is gone or the wrong type is not used', async ({ page }) => {
   const s = await mockSources(page, { series: 'done' })
   await mockImports(page, s)
   await page.addInitScript(() => {
@@ -229,7 +229,7 @@ test('a remembered drama that is gone or the wrong type is not used', async ({ p
   await panel.getByRole('checkbox', { name: 'Chapter 1', exact: true }).check()
   await expect(panel.getByRole('combobox', { name: 'Import into' })).toHaveValue('')
   await expect(panel.getByRole('button', { name: 'Import 1 chapter' })).toBeDisabled()
-  await expect(panel.getByText('Still needed: a drama to import into.')).toBeVisible()
+  await expect(panel.getByText('Still needed: a title to import into.')).toBeVisible()
   expect(s.calls.some((c) => c.path.startsWith('/api/sources/jobs/sourceimport_'))).toBe(false)
   expect(s.unmocked).toEqual([])
 })
@@ -277,7 +277,7 @@ test('Track shows for a source without chapter import', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('save chosen chapters of a comic series as CBZ files, without a drama', async ({ page }) => {
+test('save chosen chapters of a comic series as CBZ files, without a title', async ({ page }) => {
   const s = await mockSources(page)
   await mockImports(page, s)
   await page.goto('/#/sources')

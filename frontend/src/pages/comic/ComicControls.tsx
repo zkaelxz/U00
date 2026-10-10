@@ -3,10 +3,11 @@
  * bottom Sheet on phones, like the Reader's) and the pager with its page
  * scrubber. Right-to-left paging mirrors the pager so "forward" is on the left.
  */
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
 import { Field } from '../../components/Field'
 import { Sheet } from '../../components/Sheet'
+import { usePopoverDismiss } from '../../hooks/usePopoverDismiss'
 import { clampPage, FIT_OPTIONS, MODE_OPTIONS, type ComicFit, type ComicMode, type ComicPrefs } from './comicLogic'
 
 type PrefsProps = {
@@ -64,23 +65,8 @@ export function ComicViewControl({ children, ...props }: PrefsProps & { children
   const buttonRef = useRef<HTMLButtonElement>(null)
   const { phone } = props
 
-  useEffect(() => {
-    if (!open || phone) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      setOpen(false)
-      buttonRef.current?.focus()
-    }
-    const onDown = (e: PointerEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('keydown', onKey)
-    document.addEventListener('pointerdown', onDown)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener('pointerdown', onDown)
-    }
-  }, [open, phone])
+  const close = useCallback(() => setOpen(false), [])
+  usePopoverDismiss(open && !phone, wrap, buttonRef, close)
 
   const button = (
     <button

@@ -25,7 +25,7 @@ test('More filters and Continue fit a phone', async ({ page }) => {
     r.fulfill({
       json: {
         items: [1, 2, 3].map((id) => ({
-          drama_id: id, title_en: `A rather long drama title number ${id}`, title_zh: null, percent_complete: 30 + id,
+          drama_id: id, title_en: `A rather long title title number ${id}`, title_zh: null, percent_complete: 30 + id,
           last_page: id, last_accessed_at: `2026-09-29T12:0${id}:00`, has_cover_art: false,
         })),
       },

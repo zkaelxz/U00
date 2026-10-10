@@ -18,8 +18,7 @@ What the public web actually offers (read directly, 2026-09-30):
     the share page in a real browser (`page_fetch.api_capture_session`)
     and reads the responses the page's own script already made and
     earned -- the same "let the site's own execution path produce the
-    result" rule `bilibili_manga.py`, `manhuaku.py` and `mangaz.py`
-    follow. Nothing about the signature is read, stored or reproduced.
+    result" rule `bilibili_manga.py` and `manhuaku.py` follow. Nothing about the signature is read, stored or reproduced.
   - The page's script makes these calls, which are the only ones read:
       `album/album_info?album_id=<id>&from=H5` -> `data.{name, description,
         cover, play, liked, album_id, ...}` (the page renders name, cover,
@@ -149,7 +148,7 @@ def _data(resp) -> dict:
 def _default_capture(url: str):
     """Opens the share page in page_fetch's guarded browser and returns
     (rendered html, the page's own matching responses). Browser failures
-    come back as a plain SourceError, like mangaz.py's reader."""
+    come back as a plain SourceError, like the other browser-tier readers."""
     from page_fetch import api_capture_session
     try:
         with api_capture_session(url, API_PATTERN, timeout=30, wait_ms=5000) as (page,

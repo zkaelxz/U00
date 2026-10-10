@@ -11,6 +11,7 @@ added separately from the read-only half and translate().
 """
 from typing import Optional
 
+import bulk_translate
 import db
 import translate_engines
 from services import ownership_service, settings_service
@@ -39,8 +40,22 @@ ENGINE_MODEL_DICTS = {
     "claude": translate_engines.CLAUDE_MODELS,
     "gemini": translate_engines.GEMINI_MODELS,
     "openai": translate_engines.OPENAI_MODELS,
+    # Local tags only: this dict is also what Diagnostics lets the owner
+    # pick a new default from, and a hosted tag must never become one.
     "ollama": translate_engines.OLLAMA_MODELS,
 }
+
+
+def _saved_ollama_models() -> list:
+    """Ollama model tags saved in presets, so a preset's hosted tag that is
+    not built in is still offered (and flagged) rather than silently dropped."""
+    tags = []
+    for preset in db.list_presets():
+        tag = preset.get("engine_model")
+        if (preset.get("translation_engine") == "ollama" and isinstance(tag, str)
+                and translate_engines.MODEL_ID_RE.fullmatch(tag) and ".." not in tag):
+            tags.append(tag)
+    return list(dict.fromkeys(tags))
 
 
 def list_engines(env_path: Optional[str] = None) -> list:
@@ -69,12 +84,24 @@ def list_engines(env_path: Optional[str] = None) -> list:
             builtin = translate_engines.builtin_default_model(name)
             base = models if models is not None else ([builtin] if builtin else [])
             models = list(dict.fromkeys(base + extras + chosen))
+        if name == "ollama":
+            # Offered per run only; saved presets' tags are included so one
+            # saved with a hosted tag outside the built-in list is still flagged.
+            models = list(dict.fromkeys(
+                (models or []) + list(translate_engines.OLLAMA_CLOUD_MODELS)
+                + _saved_ollama_models()))
+        cloud = [m for m in models or [] if name == "ollama" and translate_engines.is_ollama_cloud_model(m)]
+        labels = {m: model_registry_service.extra_model_label(name, m) for m in extras}
+        # Without this the picker would show a hosted tag as plain text,
+        # indistinguishable from a local model.
+        labels.update({m: f"{m} -- CLOUD: sends text off this PC" for m in cloud})
         engines.append({
             "name": name,
             "label": translate_engines.engine_picker_label(name, gemini_free_tier),
             "free": name in translate_engines.FREE_ENGINES,
             "models": models,
-            "model_labels": {m: model_registry_service.extra_model_label(name, m) for m in extras},
+            "model_labels": labels,
+            "cloud_models": cloud,
             "key_configured": key_configured,
         })
     return engines
@@ -157,3 +184,21 @@ def clear_history(confirm: bool = False) -> dict:
             "This permanently deletes all saved translation history.")
     db.clear_translate_history()
     return {"cleared": True}
+
+
+def sync_translation_status(drama_id: int) -> None:
+    """Keeps "aligned"/"translated" true to the saved lines after a write that
+    can fill the last blank or open a new one (a line added, an English
+    blanked). Only those two statuses move: "dubbed" and "exported" were built
+    from the lines as they were."""
+    bulk_translate.mark_translated_if_complete(drama_id)
+    drama = db.get_drama(drama_id)
+    if drama and drama.get("status") == "translated" \
+            and bulk_translate.untranslated_line_count(drama_id):
+        db.set_status_if(drama_id, "translated", "aligned")
+
+
+def save_synced(drama_id: int, lines) -> None:
+    """Full-sync `lines`, then bring the title status in line with them."""
+    db.save_lines(drama_id, lines)
+    sync_translation_status(drama_id)

@@ -33,6 +33,13 @@ class DiskUsageItem(BaseModel):
     is_link: bool = False
     contains_link: bool = Field(False, description="A link or junction is somewhere inside; "
                                                    "clearing the folder whole is refused.")
+    linked_bytes: Optional[int] = Field(
+        None, description="Size of the linked folder(s) stored elsewhere that this item is or "
+                          "holds, kept out of size_bytes. Null when none was measured; never "
+                          "names where they are.")
+    linked_files: Optional[int] = None
+    linked_complete: Optional[bool] = Field(
+        None, description="False when a limit cut the linked size short (a lower bound).")
     complete: bool = Field(True, description="False when the scan's limit cut this item's "
                                              "measurement short (size is a lower bound).")
     protected: bool
@@ -57,6 +64,10 @@ class DiskUsageScan(BaseModel):
     parent: Optional[str] = None
     total_bytes: int
     file_count: int
+    linked_bytes: int = Field(0, description="Plus this much in linked folders stored "
+                                             "elsewhere: not part of total_bytes.")
+    linked_files: int = 0
+    linked_complete: bool = True
     items: List[DiskUsageItem]
     partial: bool = Field(description="A walk limit (entries or time) was hit: sizes are "
                                       "lower bounds.")
@@ -95,6 +106,11 @@ class DiskUsageMoveRequest(BaseModel):
     destination: StrictStr = Field(min_length=1, max_length=1024,
                                    description="An existing folder, full path (PC only).")
     confirm: StrictBool = False
+
+
+class TempCleanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: Literal[True]
 
 
 class DiskUsageMoveDone(BaseModel):

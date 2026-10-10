@@ -2,18 +2,17 @@
 
 import json
 
-from services import capped_body
-
 from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_listed_extra_models
 from .prompts import build_batch_user_message, build_stable_system_text
+from .local import strip_ollama_thinking
+from .thinking import deepseek_extra_body
 from .shared import (
     ContentModerationBlocked,
-    ProviderResponseTooLarge,
     SDK_REQUEST_TIMEOUT,
     _add_usage,
     _empty_usage,
-    read_json_capped,
-    redact_secrets,
+    make_openai_client,
+    post_json,
     request_translations_with_retry,
 )
 
@@ -29,10 +28,8 @@ class DeepSeekEngine:
     name = "deepseek"
     supports_reference = True
 
-    def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):
-        from openai import OpenAI
-        self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com",
-                             timeout=SDK_REQUEST_TIMEOUT)
+    def __init__(self, api_key: str, model: str = "deepseek-flash"):
+        self.client = make_openai_client(api_key, base_url="https://api.deepseek.com")
         self.model = model
         self.last_usage = _empty_usage()
 
@@ -47,6 +44,7 @@ class DeepSeekEngine:
                     {"role": "system", "content": system_text},
                     {"role": "user", "content": build_batch_user_message(context, numbered)},
                 ],
+                **deepseek_extra_body(context),
             )
             usage = getattr(resp, "usage", None)
             if usage:
@@ -71,7 +69,9 @@ class DeepSeekEngine:
             refusal = getattr(message, "refusal", None)
             if not message.content and refusal:
                 raise ContentModerationBlocked("deepseek", refusal)
-            return (message.content or "").strip()
+            # Reasoning arrives in a separate `reasoning_content` field that is
+            # never read; the strip covers a gateway that inlines it as <think>.
+            return strip_ollama_thinking(message.content or "")
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="deepseek",
@@ -95,7 +95,7 @@ class OpenAIEngine:
         # be costed too low (or at $0) and slip past the spending caps. Only the
         # built-in list and GPT-5+ models OpenAI itself listed are taken.
         if model not in OPENAI_MODELS and model not in openai_listed_extra_models():
-            from services.service_errors import InvalidInputError
+            from lib.errors import InvalidInputError
             raise InvalidInputError("That model isn't offered for this engine.")
         self.api_key = api_key
         self.model = model
@@ -113,22 +113,9 @@ class OpenAIEngine:
         ContentModerationBlocked on a refusal or a content_filter stop, and
         requests.HTTPError (message already redacted, response kept so rate
         limits are still recognised) on an HTTP error."""
-        import requests
-        resp = requests.post(self.url, headers=self._headers(),
-                             json=self.build_request_body(messages), timeout=SDK_REQUEST_TIMEOUT,
-                             stream=True)
-        if not resp.ok:
-            detail = ""
-            try:
-                body = json.loads(capped_body.read_capped(
-                    resp, ERROR_BODY_MAX_BYTES, SDK_REQUEST_TIMEOUT, ProviderResponseTooLarge))
-                detail = str((body.get("error") or {}).get("message") or "")[:300]
-            except Exception:
-                pass
-            raise requests.HTTPError(
-                redact_secrets(f"OpenAI returned HTTP {resp.status_code}"
-                               + (f": {detail}" if detail else "")), response=resp)
-        data = read_json_capped(resp, SDK_REQUEST_TIMEOUT)
+        data, _ = post_json(self.url, self.build_request_body(messages), timeout=SDK_REQUEST_TIMEOUT,
+                            headers=self._headers(), label="OpenAI",
+                            error_detail_bytes=ERROR_BODY_MAX_BYTES)
         usage = data.get("usage") or {}
         cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
         parsed = {"input_tokens": usage.get("prompt_tokens") or 0,

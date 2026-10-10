@@ -29,7 +29,7 @@ for `review`, or Sources diagnostics mode is on) nothing is written: the
 job opens a Review extraction for the drama instead (parity SO10,
 sources_extraction_service.open_review). From another device the signed-in profile and the browser tier
 are off. With `follow_pages` above 1 the job also follows each page's
-next-chapter link (adaptive.follow_novel: same client, host and checks,
+next-chapter link (novel_follow.follow_novel: same client, host and checks,
 each followed address re-checked as public) and always opens a review of
 the pages it read instead of writing; the person then imports the pages
 they keep, in order. Nothing is recorded per page: like a one-page URL
@@ -68,6 +68,7 @@ import threading
 from urllib.parse import urlsplit
 
 import background_jobs
+import comic_chapters
 import db
 from services import drama_service, ownership_service
 from services import page_import_limits as limits
@@ -75,22 +76,23 @@ from services import sources_extraction_service as extraction
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
+from services.sources_extension_service import require_url_not_extension_only
 from services.sources_registry_service import (import_supported, require_source, scrub,
                                               safe_url)
-from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, enabled_source,
+from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, SERIES_JOB_PREFIX, enabled_source,
                                              error_view, JobFailed, plain_text, clean_series_id,
                                              start_job)
 from services.sources_url_service import (check_public_url, fail_job, handoff_error,
                                           source_client)
-from sources import adaptive, chapter_order, generic_import, ladder, pipeline, registry, store
+from sources import adaptive, chapter_order, generic_import, ladder, novel_follow, pipeline, registry, store
 from sources.generic_import import DownloadBudget
 from sources.http import Cancelled
 from sources.models import AccessTier, ChallengeDetected, TermsProhibited
 
 MAX_CHAPTERS = 200
 MAX_SKIPPED_LISTED = 100
-MAX_FOLLOW_PAGES = adaptive.MAX_FOLLOW_PAGES
-FOLLOW_STOPS = adaptive.FOLLOW_STOPS
+MAX_FOLLOW_PAGES = novel_follow.MAX_FOLLOW_PAGES
+FOLLOW_STOPS = novel_follow.FOLLOW_STOPS
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
@@ -250,6 +252,22 @@ def _chapter_outcomes(raw: dict, wanted: list, missing_ids: list, skip=(),
                        for c in missing_ids]
 
 
+def _series_page_url(name: str, series_id: str) -> str:
+    """The series' own page, from the series view the person just opened or
+    else the tracked-series row; "" when neither is known. No new fetch."""
+    status = background_jobs.get_status(SERIES_JOB_PREFIX + name) or {}
+    result = status.get("result") if status.get("status") == "done" else None
+    if isinstance(result, dict) and result.get("series_id") == series_id:
+        return str((result.get("info") or {}).get("url") or "")
+    try:
+        for row in store.list_tracked_series():
+            if row["source"] == name and row["series_id"] == series_id:
+                return str(row.get("url") or "")
+    except Exception:
+        pass
+    return ""
+
+
 def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: list,
                         drama_id: int):
     cancel_check = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
@@ -282,7 +300,8 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
         pipeline.run_import_job(
             job_id, name, wanted, drama_id, adapter=adapter, skip_ids=skip,
             on_layout_changed=lambda ch, url, html: extraction.stash_layout_page(
-                drama_id, name, series_id, ch.chapter_id, url, html, ch.title))
+                drama_id, name, series_id, ch.chapter_id, url, html, ch.title),
+            series_url=_series_page_url(name, series_id))
     except Exception:
         # An unexpected error (e.g. an unreadable page image) still leaves
         # the chapters that failed or never ran in the retry manifest.
@@ -473,7 +492,7 @@ def _follow_import_job(job_id: str, url: str, drama_id: int, local: bool, engine
         background_jobs.update_progress(job_id, 0.05 + 0.9 * done / cap,
                                         f"Reading page {done + 1} of up to {cap}...")
     try:
-        chain = adaptive.follow_novel(
+        chain = novel_follow.follow_novel(
             url, follow_pages, engine=engine, client=source_client(url, job_id),
             allow_signed_in=local, allow_browser=local, hold_profiles=not local,
             url_check=_is_public, progress=progress,
@@ -533,7 +552,9 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Saving the text...")
     extraction.drop_review(drama_id)
-    pipeline.save_novel_text(drama_id, text, append=True, heading=res.title)
+    heading = res.title or adaptive.title_from_url(url)
+    pipeline.save_novel_text(drama_id, text, append=True, heading=heading, url=url)
+    drama_service.set_source_url_once(drama_id, url)
     background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": False,
                                         "char_count": len(text), "review_open": False})
 
@@ -553,6 +574,7 @@ def start_url_import(url, drama_id, local: bool = True, principal=None,
             or not 1 <= follow_pages <= MAX_FOLLOW_PAGES):
         raise InvalidInputError(f"Follow between 1 and {MAX_FOLLOW_PAGES} pages.")
     url = check_public_url(url)
+    require_url_not_extension_only(url)
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
         raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
@@ -575,15 +597,47 @@ _BILIBILI_MANGA_HINT = (
     "page, or save the chapter page from your own browser and import that file.")
 
 
+_BILIBILI_NEEDS_BROWSER = (
+    " Bilibili Manga builds its pages with scripts, so the images only appear in a real browser. "
+    "The browser extension's 'Capture whole chapter' works from your own browser.")
+_PLAYWRIGHT_MISSING = (
+    " The browser step could not run because the Playwright package is not installed. "
+    "Install it in Diagnostics > Packages (group 'Novels & reader', 'Novel sources from "
+    "websites'), then try again. No browser download is needed when Chrome or Edge is installed.")
+_BROWSER_MISSING = (
+    " The browser step could not run because no Chrome or Edge was found on this computer. "
+    "Install one of them, then try again.")
+_NO_BROWSER_TRIED = (
+    " No browser was used for this request; import it from the PC the app runs on, or save "
+    "the chapter page from your own browser and import that file.")
+
+
+def _bilibili_manga_cause(browser_tier: str) -> str:
+    """Names why Bilibili Manga's client-rendered page showed no images: a
+    browser that couldn't start comes first, since sign-in only matters once
+    the page actually rendered."""
+    if browser_tier == ladder.MISSING_PLAYWRIGHT:
+        return _BILIBILI_NEEDS_BROWSER + _PLAYWRIGHT_MISSING
+    if browser_tier == ladder.MISSING_BROWSER:
+        return _BILIBILI_NEEDS_BROWSER + _BROWSER_MISSING
+    if browser_tier == "ran":
+        return _BILIBILI_MANGA_HINT
+    return _BILIBILI_NEEDS_BROWSER + _NO_BROWSER_TRIED
+
+
 def _no_pages_error(exc, url) -> dict:
     """The 422 for a page with no usable images, saying why (the report's
     reason and each tier's line, scrubbed) instead of only the generic text."""
     report = getattr(exc, "report", None)
     reason = scrub((getattr(report, "reason", "") or "").strip())[:300]
     lines = [scrub(x)[:300] for x in (getattr(report, "access_lines", None) or [])][:10]
-    message = _NO_PAGES + (f" Why: {reason}" if reason else "")
+    why = f" Why: {reason}" if reason else ""
+    message = _NO_PAGES + why
     if (urlsplit(url or "").hostname or "").lower().endswith("manga.bilibili.com"):
-        message += _BILIBILI_MANGA_HINT
+        cause = _bilibili_manga_cause(getattr(report, "browser_tier", ""))
+        # A browser that couldn't start is the cause, so it leads; the generic
+        # "no image tags" reason is only a symptom of it.
+        message = _NO_PAGES + cause + why if cause != _BILIBILI_MANGA_HINT else message + cause
     return {"status": 422, "code": InvalidInputError.code, "message": message,
             "details": {"reason": "NO_CONTENT", "diagnostic": lines}}
 
@@ -640,7 +694,12 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Adding the pages...")
     extraction.drop_review(drama_id)
-    n, skipped = extraction.write_pages(drama_id, ((c, c.content) for c in res.images), job_id)
+    chapter = comic_chapters.chapter_ref(
+        None, adaptive.page_label(report.data, getattr(res.ladder, "html", ""), url), "", url)
+    n, skipped = extraction.write_pages(drama_id, ((c, c.content) for c in res.images), job_id,
+                                        chapter=chapter)
+    if n:
+        drama_service.set_source_url_once(drama_id, url)
     background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected)))
 
 
@@ -650,6 +709,7 @@ def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
     chapter URL, added to a manhua/manga/manhwa drama's pages (Scanlate).
     Same checks and errors as start_url_import."""
     url = check_public_url(url)
+    require_url_not_extension_only(url)
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in COMIC_MEDIA_TYPES:
         raise InvalidInputError("Comic pages import into a manhua, manga or manhwa drama. "

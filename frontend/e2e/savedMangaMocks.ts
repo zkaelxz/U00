@@ -26,9 +26,6 @@ const json = (route: Route, body: unknown, status = 200) =>
 export async function mockManga(page: Page, opts: { local?: boolean; empty?: boolean } = {}): Promise<State> {
   const local = opts.local ?? true
   const s: State = { calls: [], images: [], folderPosts: [], opened: 0, unmocked: [] }
-  let folder = { folder: 'C:\\Baihe\\data\\saved_comics', custom: false, picked_missing: false }
-  const pngs = new Map<number, Buffer>()
-
   await page.route('**/api/**', (route) => {
     s.unmocked.push(`${route.request().method()} ${route.request().url()}`)
     return route.abort()
@@ -42,6 +39,15 @@ export async function mockManga(page: Page, opts: { local?: boolean; empty?: boo
   await page.route(/\/api\/notifications$/, (route) => json(route, { items: [] }))
   await page.route(/\/api\/jobs$/, (route) => json(route, { items: [] }))
 
+  await mockSavedComics(page, s, opts)
+  return s
+}
+
+// Only /api/saved-comics/*, for specs that run the rest of the app against the seeded API.
+export async function mockSavedComics(page: Page, s: State, opts: { local?: boolean; empty?: boolean } = {}) {
+  const local = opts.local ?? true
+  let folder = { folder: 'C:\\Baihe\\data\\saved_comics', custom: false, picked_missing: false }
+  const pngs = new Map<number, Buffer>()
   await page.route(/\/api\/saved-comics\/folder(\/open)?$/, (route) => {
     const req = route.request()
     s.calls.push(`${req.method()} ${new URL(req.url()).pathname}`)
@@ -92,6 +98,7 @@ export async function mockManga(page: Page, opts: { local?: boolean; empty?: boo
     }
     return route.fulfill({ status: 200, contentType: 'image/png', body: png })
   })
-  return s
 }
+
+export const newState = (): State => ({ calls: [], images: [], folderPosts: [], opened: 0, unmocked: [] })
 

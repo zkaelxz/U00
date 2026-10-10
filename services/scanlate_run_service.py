@@ -1,6 +1,6 @@
 """
 services/scanlate_run_service.py -- the automatic Scanlate run for the API
-(docs/specs/scanlate-api-spec.md S5, typesetting via S6): detect text
+(docs/archive/scanlate-api-spec.md S5, typesetting via S6): detect text
 regions, OCR them, translate them and render the typeset page, one page at
 a time, as ONE background job per drama (`scanlate_<drama_id>`).
 
@@ -34,6 +34,11 @@ No FastAPI import.
 import background_jobs
 import db
 import translate_engines
+from engine_backends import llm_tasks
+from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
+from lib import cancellable_lock
+from memory_headroom import HeadroomError
+from services import comic_chapters_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import settings_service, translate_service
@@ -79,10 +84,11 @@ def _require_ocr_backend(drama_id: int) -> None:
 
 
 def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm: bool = False,
-              engine: str = None, detect_backend: str = "auto") -> dict:
+              engine: str = None, detect_backend: str = "auto",
+              chapter_id: str = None) -> dict:
     """Starts the drama's Scanlate run. 409: a job or import is running,
     or mode "all" without confirm. 503: no key for the engine. 400: no
-    pages. Returns {job_id, engine, mode}."""
+    pages. `chapter_id` limits "missing"/"all" to one chapter. Returns {job_id, engine, mode}."""
     pages_svc.require_drama(drama_id)
     if mode not in MODES:
         raise InvalidInputError("mode must be 'missing', 'page' or 'all'.")
@@ -97,12 +103,19 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
         pages_svc.require_page(drama_id, page_id)
     elif page_id is not None:
         raise InvalidInputError("page_id is only used to redo one page.")
+    if chapter_id is not None and mode == "page":
+        raise InvalidInputError("chapter_id can't be combined with a single page.")
     if mode == "all" and not confirm:
         raise ConflictError(_CONFIRM_ALL)
+    # Pages marked "not part of the story" are skipped, and a chapter limits the run.
+    targets = ([page_id] if mode == "page"
+               else comic_chapters_service.run_page_ids(drama_id, chapter_id))
+    if not targets:
+        raise UnsupportedOperationError("No pages to run: they are all hidden.")
     _require_ocr_backend(drama_id)
     engine_name = engine or settings_service.get_default_engine()
-    built = _build_engine(engine_name)
-    targets = [page_id] if mode == "page" else [p["id"] for p in pages]
+    # Pure-MT engines are called once per region, outside call_llm_json.
+    built = llm_tasks.bound_batches(_build_engine(engine_name))
     started = pages_svc.start_drama_job(
         drama_id, _run_job, pages_svc.job_id(drama_id), drama_id, mode, targets,
         engine_name, built, detect_backend,
@@ -120,12 +133,12 @@ def _predecessor_context(drama_id: int, page_id: int) -> str:
 
 
 def _detector_note(detect_backend: str, notes: list) -> tuple:
-    import scanlate
+    import scanlate_detect
     fell_back = any(n[0] == "warning" for n in notes)
     if detect_backend == "cv" or fell_back:
         why = " (the ML detector could not run)" if fell_back else ""
         return ("info", f"Detector: OpenCV heuristic{why}.")
-    if detect_backend == "ml" or scanlate.bubble_ml_weights_cached():
+    if detect_backend == "ml" or scanlate_detect.bubble_ml_weights_cached():
         return ("info", "Detector: ML model.")
     return ("info", "Detector: OpenCV heuristic (the ML model is not downloaded).")
 
@@ -154,6 +167,10 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
         result, new_context = scanlate.translate_regions_by_id(
             keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
             glossary_terms=glossary)
+    except (HeadroomError, LLMTaskTimeout):
+        # The Ollama check refuses on every page, and a timed-out request is
+        # still running and would refuse the next page's call: stop the job once.
+        raise
     except Exception as exc:
         notes.append(("warning", f"Translation failed ({type(exc).__name__}: {exc}). The OCR "
                                  "text was saved; use Redo this page to try again."))
@@ -179,7 +196,7 @@ def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool) ->
 
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
-                  detect_kwargs: dict, glossary) -> str:
+                  detect_kwargs: dict, glossary, jid: str) -> str:
     """One page. Returns "skipped", "stale", "kept" (a redo that failed; the
     old regions stay), "done" or "translated"."""
     import scanlate
@@ -190,13 +207,13 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     if mode == "missing" and existing:
         if not page.get("rendered_filename"):
             notes = []
-            render_svc.render_page(drama_id, page_id, notes)
+            render_svc.render_page(drama_id, page_id, notes, lambda: render_svc.check_cancel(jid))
             render_svc.append_notes(page_id, notes)
         return "skipped"
     expected_ids, expected_rev = [b["id"] for b in existing], int(page.get("rev") or 0)
     src = render_svc.original_path(drama_id, page)
     lang = drama.get("source_language") or "zh"
-    with pages_svc.pipeline_lock():
+    with cancellable_lock.hold(pages_svc.pipeline_lock(), lambda: render_svc.check_cancel(jid)):
         bubbles, detect_notes = scanlate.detect_and_ocr_page(src, lang, page_id=page_id,
                                                              **detect_kwargs)
     notes = [_detector_note(detect_kwargs["detect_backend"], detect_notes)]
@@ -229,7 +246,10 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     db.update_page(page_id, **fields)
     render_notes = []
     try:
-        render_svc.render_page(drama_id, page_id, render_notes)
+        render_svc.render_page(drama_id, page_id, render_notes,
+                               lambda: render_svc.check_cancel(jid))
+    except background_jobs.JobCancelled:
+        raise                                    # a cancel is not a render failure
     except Exception as exc:
         render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
                              f"{translate_engines.redact_secrets(str(exc))}"))
@@ -249,24 +269,35 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
                      "tesseract_cmd": settings_service.get_tesseract_cmd()}
     counts = {"translated": 0, "done": 0, "skipped": 0, "stale": 0, "kept": 0, "failed": 0}
     total = len(page_ids)
-    for n, pid in enumerate(page_ids, start=1):
-        render_svc.check_cancel(jid)
-        background_jobs.update_progress(jid, (n - 1) / total, f"Page {n} of {total}")
-        try:
-            counts[_process_page(drama_id, drama, pid, mode, engine, engine_name,
-                                 detect_kwargs, glossary)] += 1
-        except background_jobs.JobCancelled:
-            raise
-        except Exception as exc:
-            counts["failed"] += 1
+    # Cancel and a total deadline for every AI call of the run, not only between
+    # pages. One request per page, and with thinking on DeepSeek may take the
+    # whole client timeout to answer, so the deadline is the per-request one.
+    with llm_tasks.bounded_llm_calls(jid, lambda: background_jobs.is_cancel_requested(jid),
+                                     deadline=llm_tasks.request_deadline_for(engine)):
+        for n, pid in enumerate(page_ids, start=1):
+            render_svc.check_cancel(jid)
+            background_jobs.update_progress(jid, (n - 1) / total, f"Page {n} of {total}")
             try:
-                db.update_page(pid, run_notes=pages_svc.notes_to_json(
-                    [("error", f"This page failed: {type(exc).__name__}: "
-                                f"{translate_engines.redact_secrets(str(exc))}")]))
-            except Exception as note_exc:
-                from applog import get_logger
-                get_logger().warning("Could not save the error note for page %s: %s", pid,
-                                     translate_engines.redact_secrets(str(note_exc)))
+                counts[_process_page(drama_id, drama, pid, mode, engine, engine_name,
+                                     detect_kwargs, glossary, jid)] += 1
+            except TranslationCancelled:
+                raise background_jobs.JobCancelled(jid)
+            except (background_jobs.JobCancelled, HeadroomError):
+                raise
+            except Exception as exc:
+                counts["failed"] += 1
+                try:
+                    db.update_page(pid, run_notes=pages_svc.notes_to_json(
+                        [("error", f"This page failed: {type(exc).__name__}: "
+                                    f"{translate_engines.redact_secrets(str(exc))}")]))
+                except Exception as note_exc:
+                    from applog import get_logger
+                    get_logger().warning("Could not save the error note for page %s: %s", pid,
+                                         translate_engines.redact_secrets(str(note_exc)))
+                # The abandoned request may still be running; every later page
+                # would be refused, so the run ends with this error.
+                if isinstance(exc, LLMTaskTimeout):
+                    raise
     parts = [f"{counts['translated']} translated"]
     if counts["done"]:
         parts.append(f"{counts['done']} without translation")

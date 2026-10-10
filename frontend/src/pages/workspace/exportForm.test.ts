@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import type { AssStyleOptions } from '../../types/export'
 import { sectionStorageKey, writeSectionOpen } from '../../components/sectionStorage'
@@ -6,12 +6,11 @@ import {
   buildAssRequest,
   emptyAssForm,
   formatBytes,
-  loadAssForm,
+  assFormFromDraft,
   mediaBlockOpen,
   mediaBlockStorageKey,
   parseSpeakerColors,
   parseWrap,
-  saveAssForm,
 } from './exportForm'
 
 const opts: AssStyleOptions = {
@@ -76,16 +75,13 @@ describe('formatBytes', () => {
 })
 
 describe('saved Export style', () => {
-  it('round-trips per drama and ignores bad data', () => {
-    const store: Record<string, string> = {}
-    vi.stubGlobal('window', { localStorage: { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v } } })
-    expect(loadAssForm(3)).toBeNull()
-    saveAssForm(3, { ...emptyAssForm('Bold'), size: '40' })
-    expect(loadAssForm(3)).toMatchObject({ preset: 'Bold', size: '40' })
-    expect(loadAssForm(4)).toBeNull()
-    store['baihe.export.style.5'] = '{"size": 7, "preset": "X"}'
-    expect(loadAssForm(5)).toMatchObject({ preset: 'X', size: '' })
-    vi.unstubAllGlobals()
+  it('round-trips per title and ignores bad data', () => {
+    expect(assFormFromDraft(null)).toBeNull()
+    expect(assFormFromDraft({ fmt: 'srt' })).toBeNull()
+    expect(assFormFromDraft({ form: 'nope' })).toBeNull()
+    const form = { ...emptyAssForm('Bold'), size: '40' }
+    expect(assFormFromDraft({ fmt: 'ass', form: JSON.parse(JSON.stringify(form)) })).toEqual(form)
+    expect(assFormFromDraft({ form: { size: 7, preset: 'X', perSpeakerColors: 'yes' } })).toMatchObject({ preset: 'X', size: '', perSpeakerColors: true })
   })
 })
 

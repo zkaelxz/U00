@@ -42,7 +42,7 @@ describe('DramaCards', () => {
     expect(out).toContain('>+2</span>')
   })
 
-  it('falls back to the id when a drama has no title, and marks the selection', () => {
+  it('falls back to the id when a title has no title, and marks the selection', () => {
     const out = html([drama({ title_en: null, title_zh: null })], 7)
     expect(out).toContain('>#7</a>')
     expect(out).toContain('class="drama-card selected"')

@@ -51,6 +51,8 @@ export interface ResegmentPreview {
   flagged: number
   notes: number
   needs_confirm: boolean
+  // Why nothing would change; missing (an older server) or empty otherwise.
+  reason?: string
 }
 
 // The rules path; the AI path is ResegmentLlmPreviewStart then apply.

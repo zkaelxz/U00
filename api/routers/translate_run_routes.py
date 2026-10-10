@@ -20,7 +20,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
-                      require_engines_allowed, require_permission)
+                      require_cloud_model_allowed, require_engines_allowed, require_permission)
 from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffectedRunStart,
                          GlossaryAffectedRunStarted, TranslateBulkCancelResult, TranslateBulkList,
                          TranslateBulkResumeResult, TranslateErrorsDismissed,
@@ -28,7 +28,8 @@ from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffecte
                          TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
                          WorkflowTierApplied, WorkflowTierApply)
-from services import glossary_retranslate_service, ownership_service, translate_run_service
+from services import (glossary_retranslate_service, ownership_service, translate_run_service,
+                      translate_thinking_service)
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
@@ -38,7 +39,8 @@ router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
             summary="Read-only Translate-stage summary for one drama",
             responses={404: {"model": ErrorResponse}})
 def get_translate_run_config(drama_id: int = Path(ge=1)):
-    return translate_run_service.get_translate_config(drama_id)
+    return {**translate_run_service.get_translate_config(drama_id),
+            **translate_thinking_service.config_fields(drama_id)}
 
 
 @router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=TranslateRunEstimate,
@@ -51,12 +53,19 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
                                reflect: bool = False,
                                force_retranslate: bool = False,
                                bulk: bool = False,
+                               thinking: Optional[bool] = None,
                                gemini_free_tier: Optional[bool] = None,
                                job_cost_cap_usd: Optional[float] = Query(None, ge=0)):
-    return translate_run_service.estimate_translate_cost(
-        drama_id, engine_name=engine, model=model, reflect=reflect,
-        force_retranslate=force_retranslate, bulk=bulk,
-        gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd)
+    return translate_thinking_service.annotate_estimate(
+        translate_run_service.estimate_translate_cost(
+            drama_id, engine_name=engine, model=model, reflect=reflect,
+            force_retranslate=force_retranslate, bulk=bulk,
+            gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd),
+        drama_id, thinking, reflect)
+
+
+def _may_remember(request: Request, body) -> bool:
+    return translate_thinking_service.may_remember(holds_paid_engines(request), body.thinking)
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranslateRunStarted,
@@ -67,8 +76,12 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
 def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
-    return translate_run_service.start_translate_run(
-        drama_id, engine_name=body.engine, model=body.model,
+    require_cloud_model_allowed(request, (body.engine, body.model),
+                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
+    return translate_thinking_service.start_with_thinking(
+        translate_run_service.start_translate_run, drama_id, body.thinking,
+        _may_remember(request, body),
+        engine_name=body.engine, model=body.model,
         style_preset=body.style_preset, style_note=body.style_note,
         locale=body.locale, force_retranslate=body.force_retranslate,
         context_window=body.context_window,
@@ -112,8 +125,11 @@ def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request
                                 drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
-    return glossary_retranslate_service.start_affected_retranslate(
-        drama_id, body.line_ids, body.preview_hash,
+    require_cloud_model_allowed(request, (body.engine, body.model),
+                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
+    return translate_thinking_service.start_with_thinking(
+        glossary_retranslate_service.start_affected_retranslate, drama_id, body.thinking,
+        _may_remember(request, body), body.line_ids, body.preview_hash,
         include_hand_edited=body.include_hand_edited, term_ids=body.term_ids,
         engine_name=body.engine, model=body.model, style_preset=body.style_preset,
         style_note=body.style_note, locale=body.locale, context_window=body.context_window,
@@ -184,6 +200,7 @@ def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1
 def save_translate_preset(body: TranslatePresetSave, request: Request):
     if body.overwrite and is_auth_enabled(request.app) and not is_local_request(request):
         raise ForbiddenError("Replacing a preset is only allowed at the PC.")
+    require_cloud_model_allowed(request, (body.translation_engine, body.engine_model))
     return translate_run_service.save_translate_preset(
         body.name, body.translation_engine, engine_model=body.engine_model,
         style_preset=body.style_preset, locale=body.locale,

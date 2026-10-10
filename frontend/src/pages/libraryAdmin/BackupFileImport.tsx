@@ -81,11 +81,11 @@ export function BackupFileImport({ onDone, onCancel }: {
       {list && !confirming && (
         <>
           {!list.dramas.length ? (
-            <p className="muted">This file has no dramas.</p>
+            <p className="muted">This file has no titles.</p>
           ) : (
             <>
-              <p className="muted">Tick the dramas to import. Nothing changes until you confirm.</p>
-              <ul className="snapshot-dramas import-dramas" aria-label="Dramas in the file">
+              <p className="muted">Tick the titles to import. Nothing changes until you confirm.</p>
+              <ul className="snapshot-dramas import-dramas" aria-label="Titles in the file">
                 {list.dramas.map((d) => (
                   <li key={d.id}>
                     <label>
@@ -119,7 +119,7 @@ export function BackupFileImport({ onDone, onCancel }: {
         <TypedConfirm
           word={RESTORE_SNAPSHOT_WORD}
           exact
-          action="Import dramas"
+          action="Import titles"
           busy={busy}
           onConfirm={run}
           onCancel={() => setConfirming(false)}

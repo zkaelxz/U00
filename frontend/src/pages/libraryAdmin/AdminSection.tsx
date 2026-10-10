@@ -57,7 +57,7 @@ function ExportBlock({ exportable, job }: { exportable: number; job: AdminJob })
         </button>
       </div>
       {!exportable && (
-        <p className="muted">Still needed: a translated drama. <a href="#/library">Pick one in the Library</a> and translate it.</p>
+        <p className="muted">Still needed: a translated title. <a href="#/library">Pick one in the Library</a> and translate it.</p>
       )}
       <AdminJobLine job={job} busyText="Exporting…" artifact="export" />
       <ErrorBanner error={job.startError} describe={SERVER} />
@@ -108,7 +108,7 @@ function UserBackup() {
     <>
       <Field
         label="Backup of just my stuff"
-        help="Only these dramas and series, with their media. No other person's items and no sign-in data. Restore it into a new install."
+        help="Only these titles and series, with their media. No other person's items and no sign-in data. Restore it into a new install."
       >
         <select value={owner} onChange={(e) => setOwner(e.target.value)}>
           <option value="">Items owned at this PC</option>
@@ -312,7 +312,7 @@ function StorageBlock() {
       )}
       {scan && cleaning && (
         <TypedConfirm word="CLEAN" exact autoFocus action="Clean up" busy={busy} onConfirm={clean} onCancel={() => setCleaning(false)}>
-          <p>Removes the files this preset drops from every drama. Dramas with a running job are skipped.</p>
+          <p>Removes the files this preset drops from every title. Titles with a running job are skipped.</p>
         </TypedConfirm>
       )}
       {result && <p role="status">{result}</p>}

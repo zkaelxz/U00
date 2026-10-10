@@ -25,7 +25,7 @@ async function noSideways(page: Page) {
 
 async function openCard(page: Page) {
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   return page.getByRole('region', { name: 'Past costs' })
 }
 

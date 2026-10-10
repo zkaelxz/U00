@@ -11,8 +11,12 @@ folder itself.
 
 Scan: the immediate children of one folder with recursive size and file
 count, measured by a bounded walk (MAX_ENTRIES entries or MAX_SECONDS, then
-`partial`). Symlinks and Windows junctions are counted as the link itself and
-never entered. Nothing is cached: every call walks the disk again.
+`partial`). Symlinks, Windows junctions and folders on another volume are
+counted as the link itself and never entered, so a folder's size is what lives
+inside it. What they point at is measured apart (services/disk_usage_links.py,
+same budget, shown as `linked_bytes`, never a path), so a folder reads the same
+from its parent and when opened. Nothing is cached: every call walks the disk
+again.
 
 Clear and move are server-enforced, not only hidden in the UI:
 - protected: the data folder itself, the live SQLite files (and -wal, -shm,
@@ -52,8 +56,6 @@ Clear and move are server-enforced, not only hidden in the UI:
 import contextlib
 import datetime
 import errno
-import hashlib
-import hmac
 import json
 import os
 import re
@@ -68,6 +70,7 @@ import db
 import portable
 import storage
 from services import auto_backup_service as abs_
+from services import disk_usage_links
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
@@ -296,6 +299,7 @@ class _Ctx:
         self.root_reason = _root_blocker(self.root)
         self.backup_real = _backup_folder_real()
         self.top_level = _baihe_top_level_names()
+        self.linked = None      # set by a scan only; clear and restore never measure link targets
 
 
 def _under_backups(parts) -> bool:
@@ -311,12 +315,14 @@ def _flag_name(name: str, parts_of_parent) -> bool:
 
 
 class _Measured:
-    __slots__ = ("size", "files", "flagged", "unreadable", "has_link", "deepest")
+    __slots__ = ("size", "files", "flagged", "unreadable", "has_link", "deepest", "links", "links_cut")
 
     def __init__(self, base_len: int = 0):
         self.deepest = base_len
         self.size = self.files = 0
         self.flagged = self.unreadable = self.has_link = False
+        self.links = []
+        self.links_cut = False
 
 
 # --------------------------------------------------------------------------
@@ -361,6 +367,15 @@ def _unopenable_name(path: str, name: str) -> bool:
     long-path support), or a name ending in a dot or space (Windows rewrites
     it to another name)."""
     return len(path) >= MAX_PATH or name.endswith((".", " "))
+
+
+def _device_differs(st, ref_dev) -> bool:
+    """True only when both device numbers are known and differ. On Windows
+    os.DirEntry.stat() always reports st_dev 0 (only os.stat/os.lstat fill it),
+    so 0 means "unknown", not "another volume"; reading it as a different
+    device would turn every Windows folder into a link. Windows junctions and
+    mounted volumes are reparse points, which _is_link_stat already catches."""
+    return bool(ref_dev) and bool(st.st_dev) and st.st_dev != ref_dev
 
 
 def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
@@ -415,9 +430,13 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
                 # A folder on another volume (a POSIX mount point) is refused
                 # like a Windows junction: Clear must never move or delete
                 # what lives on a different disk.
-                link = _is_link_stat(st) or (stat.S_ISDIR(st.st_mode) and root_dev is not None and st.st_dev != root_dev)
+                link = _is_link_stat(st) or (stat.S_ISDIR(st.st_mode) and _device_differs(st, root_dev))
                 if link:
                     m.has_link = True
+                    if len(m.links) < disk_usage_links.MAX_LINK_TARGETS:
+                        m.links.append(entry.path)
+                    else:
+                        m.links_cut = True
                 if stat.S_ISDIR(st.st_mode) and not link:
                     stack.append((entry.path, cur_parts + (entry.name,)))
                     continue
@@ -544,6 +563,18 @@ def _movable(parts: tuple, real: str, protected: bool, ctx: _Ctx):
     return {"supported": False, "reason": reason, "what": None}
 
 
+def _on_another_volume(path: str, st) -> bool:
+    """A real folder on a different volume than the folder holding it (a POSIX
+    mount point). _measure counts one as a link from its parent's side, so it
+    has to be one from its own side too, or the two views disagree."""
+    if not stat.S_ISDIR(st.st_mode):
+        return False
+    try:
+        return _device_differs(st, os.lstat(os.path.dirname(path)).st_dev)
+    except OSError:
+        return False
+
+
 def _iso(ts: float):
     try:
         return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).isoformat()
@@ -554,17 +585,20 @@ def _iso(ts: float):
 def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx, measured=None) -> dict:
     """The public record of one item. `path` is the verified absolute path.
     `measured` is a _Measured already taken for this folder (not walked again)."""
-    is_link = _is_link_stat(st)
+    is_link = _is_link_stat(st) or _on_another_volume(path, st)
     is_dir = stat.S_ISDIR(st.st_mode) and not is_link
     unreadable = has_link = flagged = False
     deepest = len(path)
+    link_paths, links_cut = ([path] if is_link else []), False
     if is_dir:
         m = measured or _measure(path, parts, budget)
         size, files, flagged = m.size, m.files, m.flagged
         unreadable, has_link, deepest = m.unreadable, m.has_link, m.deepest
+        link_paths, links_cut = m.links, m.links_cut
     else:
         size, files = st.st_size, 1
         flagged = _flag_name(parts[-1], parts[:-1]) if parts else False
+    linked = ctx.linked.of(link_paths, budget, links_cut) if ctx.linked else None
     real = os.path.realpath(path)
     protected, reason = _protection(parts, real, flagged, ctx)
     if is_link:
@@ -583,6 +617,9 @@ def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx, measured=
         "modified_at": _iso(st.st_mtime),
         "is_link": is_link,
         "contains_link": has_link,
+        "linked_bytes": linked[0] if linked else None,
+        "linked_files": linked[1] if linked else None,
+        "linked_complete": linked[2] if linked else None,
         "complete": not budget.hit and not unreadable,
         "protected": protected,
         "protected_reason": reason,
@@ -625,6 +662,8 @@ def _scan(path) -> dict:
         raise InvalidInputError("That item is a file, not a folder.")
     budget = _Budget()
     ctx = _Ctx()
+    ctx.linked = disk_usage_links.LinkedSizes(
+        ctx.root, [ctx.program, *_home_dirs()], _within, _measure)
     trash_info, trash_measured = _trash_totals()
     items = []
     entries = []
@@ -680,6 +719,9 @@ def _scan(path) -> dict:
         "parent": "/".join(parts[:-1]) if parts else None,
         "total_bytes": total,
         "file_count": sum(i["file_count"] for i in items),
+        "linked_bytes": sum(i["linked_bytes"] or 0 for i in items),
+        "linked_files": sum(i["linked_files"] or 0 for i in items),
+        "linked_complete": all(i["linked_complete"] is not False for i in items),
         "items": items,
         "not_shown": not_shown,
         "partial": bool(reason),
@@ -1483,189 +1525,3 @@ def move(path, destination, confirm=False) -> dict:
                 "name": item["name"]}
     finally:
         _op_lock.release()
-
-
-# --------------------------------------------------------------------------
-# Unused voice clips: list, and move to Trash
-# --------------------------------------------------------------------------
-# Only the two kinds of file the app writes into a title's voice_refs/
-# (uploads and picked candidates) are ever offered. Voice-bank copies are
-# written to the title's root folder instead, so they are not scanned. Nothing in
-# a response names a file or a path: a clip is addressed by an id that only
-# this process can compute, so a client can't ask for a file it wasn't shown.
-
-VOICE_REFS_DIRNAME = "voice_refs"
-MAX_CLIP_BATCH = 500
-_CLIP_NAME_RE = re.compile(
-    r"clone_ref_[0-9a-f]{32}\.(wav|mp3|m4a|flac|ogg)|clone_pick_[0-9a-f]{32}\.wav",
-    re.IGNORECASE)
-_CLIP_ID_RE = re.compile(r"[0-9a-f]{32}")
-_CLIP_KEY = secrets.token_bytes(32)     # ids die with the process; the list is fetched again
-
-
-def _clip_id(drama_id: int, name: str) -> str:
-    return hmac.new(_CLIP_KEY, f"{drama_id}\0{name}".encode("utf-8"), hashlib.sha256).hexdigest()[:32]
-
-
-def _ref_key(stored) -> str:
-    """How a stored clip name is compared: its last part only, ignoring case.
-    Deliberately looser than the name voice_refs/ holds (a bare name, a
-    'voice_refs/' prefix and a Windows separator all match), because a clip
-    that is wrongly kept costs a few MB and one that is wrongly offered costs
-    a voice."""
-    return str(stored).replace("\\", "/").rsplit("/", 1)[-1].casefold()
-
-
-def _clips_held_by_undo(drama_id: int) -> set:
-    """Last-name-part keys (see _ref_key) of clips a live "merge two speakers"
-    undo record can bring back after the merge cleared the source's Characters
-    row: until the undo expires or is used, no row points at them, yet undoing
-    would link them again."""
-    return {_ref_key(c) for c in db.live_speaker_merge_undo_clips(drama_id, time.time())}
-
-
-def _clip_still_unused(drama_id: int, name: str) -> bool:
-    """Fresh answer, read when asked. False on any doubt, including an
-    unreadable database."""
-    from services import voice_clone_service
-    try:
-        if voice_clone_service._clip_reading_job_active(drama_id):
-            return False
-        key = name.casefold()
-        if key in _clips_held_by_undo(drama_id):
-            return False
-        return not any(_ref_key(r.get("ref_audio_filename") or "") == key
-                       for r in db.list_characters(drama_id) if r.get("ref_audio_filename"))
-    except Exception:
-        return False
-
-
-def _unused_clips_of(drama_id: int, ctx: _Ctx):
-    """[{name, parts, size, mtime}] for one title's unreferenced clips, or
-    None when a job that reads clips is running for it. Empty when the folder
-    is missing, a link, or can't be read."""
-    from services import voice_clone_service
-    lib = os.path.dirname(os.path.abspath(db.LIBRARY_DIR))
-    folder = os.path.join(db.DRAMAS_DIR, str(drama_id), VOICE_REFS_DIRNAME)
-    try:
-        folder_parts = split_rel(os.path.relpath(os.path.abspath(folder), lib))
-        _resolve(folder_parts)
-        if voice_clone_service._clip_reading_job_active(drama_id):
-            return None
-        used = {_ref_key(r["ref_audio_filename"]) for r in db.list_characters(drama_id)
-                if r.get("ref_audio_filename")} | _clips_held_by_undo(drama_id)
-        entries = list(os.scandir(os.path.join(ctx.root, *folder_parts)))
-    except (ServiceError, OSError, ValueError):
-        return []
-    out = []
-    for e in entries:
-        if not _CLIP_NAME_RE.fullmatch(e.name) or e.name.casefold() in used:
-            continue
-        try:
-            st = e.stat(follow_symlinks=False)
-            parts = split_rel("/".join(folder_parts + [e.name]))
-        except (OSError, ServiceError):
-            continue
-        if stat.S_ISREG(st.st_mode) and not _is_link_stat(st):
-            out.append({"name": e.name, "parts": parts, "size": st.st_size, "mtime": st.st_mtime})
-    return out
-
-
-def _unused_clip_index() -> tuple:
-    """({id: (drama_id, name, parts, size)}, titles, titles_in_use), where
-    `titles` is [(title, [clip, ...])] for every title with something to
-    offer. One pass over the library; the same code serves list and remove."""
-    ctx = _Ctx()
-    index, titles, in_use = {}, [], 0
-    for drama in db.list_dramas():
-        found = _unused_clips_of(drama["id"], ctx)
-        if found is None:
-            in_use += 1
-            continue
-        for c in found:
-            c["id"] = _clip_id(drama["id"], c["name"])
-            index[c["id"]] = (drama["id"], c["name"], c["parts"], c["size"])
-        if found:
-            titles.append((drama.get("title_en") or drama.get("title_zh") or "",
-                           sorted(found, key=lambda c: c["name"])))
-    return index, titles, in_use
-
-
-def unused_voice_clips() -> dict:
-    """Clips in each title's voice_refs/ that no speaker points to, with no
-    file name or path in the result. Titles with a dub, narration or
-    audiobook job running are left out and counted in `titles_in_use`."""
-    _, titles, in_use = _unused_clip_index()
-    shown, total_bytes, total_count = [], 0, 0
-    for title, clips in titles:
-        rows = []
-        for c in clips:
-            rows.append({"id": c["id"], "file_type": os.path.splitext(c["name"])[1][1:].lower(),
-                         "size_bytes": c["size"], "modified_at": _iso(c["mtime"])})
-        shown.append({"title": title, "size_bytes": sum(c["size"] for c in clips), "clips": rows})
-        total_bytes += shown[-1]["size_bytes"]
-        total_count += len(rows)
-    return {"titles": shown, "total_bytes": total_bytes, "total_count": total_count,
-            "titles_in_use": in_use, "busy_reason": busy_reason()}
-
-
-def trash_unused_voice_clips(clips, confirm=False) -> dict:
-    """Moves the named clips (each with the size that was shown) into Trash,
-    where they can be restored. Every clip is looked up and checked again
-    under the library hold, so one that was picked for a speaker, changed, or
-    whose title started a clip-reading job since the list is skipped, not
-    moved. A busy library or a failed move stops the batch: the error's details carry
-    moved_count, moved_bytes and skipped for what was done before it."""
-    _require_confirm(confirm)
-    if not isinstance(clips, list) or not clips or len(clips) > MAX_CLIP_BATCH:
-        raise InvalidInputError(f"Choose between 1 and {MAX_CLIP_BATCH} clips.")
-    wanted = []
-    for c in clips:
-        cid, size = (c or {}).get("id"), (c or {}).get("expected_size_bytes")
-        if (not isinstance(cid, str) or not _CLIP_ID_RE.fullmatch(cid) or isinstance(size, bool)
-                or not isinstance(size, int) or size < 0):
-            raise InvalidInputError("That isn't a clip from the list.")
-        wanted.append((cid, size))
-    if len({cid for cid, _ in wanted}) != len(wanted):
-        raise InvalidInputError("A clip is listed twice.")
-    from services import voice_clone_service
-    moved_bytes, moved, skipped = 0, 0, []
-    with _changing("Disk usage voice clips"):
-        if _root_blocker(_root()):
-            # Checked here so the clips aren't reported as "changed": every
-            # path is protected when the data folder is a drive root or a
-            # home folder, and the person needs to hear that.
-            raise InvalidInputError(ROOT_TOO_BROAD)
-        index, _titles, _in_use = _unused_clip_index()
-        try:
-            for cid, expected in wanted:
-                hit = index.get(cid)
-                if hit is None:
-                    skipped.append({"id": cid, "reason": "no_longer_unused"})
-                    continue
-                drama_id, name, parts, _size = hit
-                try:
-                    parts, real, item = _inspect_for_change("/".join(parts), "moving it")
-                    if item["kind"] != "file" or item["size_bytes"] != expected:
-                        raise ConflictError(CHANGED, details={"reason": "changed"})
-                    # The title's clip lock makes "no speaker points at it" and
-                    # the rename one step against a pick or upload.
-                    with voice_clone_service.clip_lock(drama_id):
-                        _move_to_trash(parts, real, item,
-                                       still_ok=lambda d=drama_id, n=name: _clip_still_unused(d, n))
-                except ConflictError as exc:
-                    if (exc.details or {}).get("reason") != "changed":
-                        raise
-                    skipped.append({"id": cid, "reason": "changed"})
-                    continue
-                except (NotFoundError, InvalidInputError):
-                    skipped.append({"id": cid, "reason": "changed"})
-                    continue
-                moved += 1
-                moved_bytes += item["size_bytes"]
-        except ServiceError as exc:
-            # What was already moved stays moved; say so with the failure.
-            raise type(exc)(exc.message, details={
-                **(exc.details or {}), "moved_count": moved, "moved_bytes": moved_bytes,
-                "skipped": skipped}) from None
-    return {"moved_count": moved, "moved_bytes": moved_bytes, "skipped": skipped}

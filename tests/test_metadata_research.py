@@ -3,6 +3,7 @@ Tests for grounded metadata research (roadmap Step 37,
 services/metadata_research_service.py and its routes). Fully mocked: no
 network, no real key.
 """
+from lib import http
 import os
 
 import pytest
@@ -427,9 +428,8 @@ def test_call_sends_key_as_header_with_timeout(monkeypatch):
     seen = {}
 
     class Resp:
-        def raise_for_status(self):
-            pass
-
+        status_code = 200
+        encoding = None
         headers = {}
 
         def iter_content(self, size):
@@ -438,11 +438,10 @@ def test_call_sends_key_as_header_with_timeout(monkeypatch):
         def close(self):
             pass
 
-    def post(url, **kw):
-        seen.update(kw, url=url)
+    def post(url, ip, headers, timeout, method="GET", **kw):
+        seen.update(kw, url=url, headers=headers, timeout=timeout)
         return Resp()
-    import requests
-    monkeypatch.setattr(requests, "post", post)
+    monkeypatch.setattr(http, "pinned_get", post)
     mrs._call_gemini(KEY, "gemini-flash-lite-latest", "p")
     assert KEY not in seen["url"] and seen["headers"] == {"x-goog-api-key": KEY}
     assert seen["timeout"] and seen["json"]["tools"] == [{"google_search": {}}]
@@ -512,6 +511,8 @@ def test_an_oversized_gemini_response_is_refused(monkeypatch):
     import requests
 
     class Endless:
+        status_code = 200
+        encoding = None
         headers = {}
         closed = False
 
@@ -525,7 +526,7 @@ def test_an_oversized_gemini_response_is_refused(monkeypatch):
         def close(self):
             Endless.closed = True
     monkeypatch.setattr(mrs, "MAX_RESPONSE_BYTES", 1000)
-    monkeypatch.setattr(requests, "post", lambda *a, **k: Endless())
-    with pytest.raises(ValueError, match="too large"):
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Endless())
+    with pytest.raises(http.ResponseTooLarge, match="larger than expected"):
         mrs._call_gemini(KEY, "gemini-flash-lite-latest", "p")
     assert Endless.closed

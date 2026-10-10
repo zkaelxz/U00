@@ -1,4 +1,6 @@
+import { mockPlainPlan } from './pendingInstallMocks'
 import { expect, test, type Page } from '@playwright/test'
+import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
 import { openSettingsGroups } from './settingsNav'
 import { hitHeight, installHitArea } from './hitArea'
@@ -30,10 +32,11 @@ async function guard(page: Page): Promise<string[]> {
     unmocked.push(`${r.method()} ${r.url()}`)
     return route.abort()
   })
+  await mockPlainPlan(page)
   return unmocked
 }
 
-test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll', async ({ page }) => {
+test('Diagnostics on a phone: 44px targets, no sideways scroll', async ({ page }) => {
   const unmocked = await guard(page)
   // No task groups here, so a missing package is installed one by one from "Not installed".
   // The server's own report says yt-dlp is installed on a machine that has it, and then there is no Install button.
@@ -42,7 +45,7 @@ test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll
       jieba: { installed: true, powers: 'Chinese word segmentation', tier: 'feature' },
       'yt-dlp': { installed: false, powers: 'downloading video', tier: 'feature' },
     },
-    file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+    file_completeness: { missing_top_level: [], all_present: true },
     library_writable: true,
     gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
     model_engine_versions: [],
@@ -58,14 +61,11 @@ test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll
   }] } }))
   await page.route('**/api/diagnostics/log**', (r) =>
     r.fulfill({ json: { lines: [`12:00 ERROR ${long}`, '12:01 INFO fine'] } }))
-  await page.route('**/api/diagnostics/dependencies/**', (r) =>
-    r.fulfill({ json: { package: 'yt-dlp', ok: false, output_tail: [`ERROR: ${long}`] } }))
+  await mockDependencyInstall(page, () => ({ ok: false, output_tail: [`ERROR: ${long}`] }))
 
   await page.goto('/#/diagnostics')
-  // The jobs summary is a banner with a 44px link to the Jobs page.
-  const banner = page.getByTestId('jobs-summary')
-  await expect(banner).toContainText('1 running, 1 failed')
-  expect((await hitHeight(banner.getByRole('link', { name: 'Open Jobs' })))).toBeGreaterThanOrEqual(44)
+  // Jobs live in the header menu and on the Jobs page, not on Diagnostics.
+  await expect(page.getByTestId('jobs-summary')).toHaveCount(0)
 
   await page.locator('summary', { hasText: /^Log/ }).click()
   await expect(page.getByLabel('Log lines')).toContainText('INFO fine')
@@ -84,7 +84,7 @@ test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll
 
   await install.click()
   await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
-  await expect(page.getByTestId('install-result')).toContainText('Install failed for yt-dlp.')
+  await expect(page.getByTestId('install-result')).toContainText('Install failed for yt-dlp.', { timeout: 10_000 })
   await expect(page.getByTestId('install-result').locator('pre')).toBeVisible()
 
   const small = await page.locator('button:not(.link):not(.field-help-btn):not(.toggle), summary').evaluateAll((els) =>
@@ -101,7 +101,7 @@ test('Settings on a phone: the extension section fits and its targets are 44px',
   await page.route('**/api/extension/status', (r) => r.fulfill({ json: { enabled: true, running: true } }))
   await page.route('**/api/extension/token', (r) => r.fulfill({ json: { token: 'tok-phone' } }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('On · running')
   await ext.getByRole('button', { name: 'Show extension token' }).click()

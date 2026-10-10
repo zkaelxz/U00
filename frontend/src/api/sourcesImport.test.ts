@@ -30,7 +30,7 @@ describe('sources import api', () => {
     expect(urlMediaJobId(4)).toBe('urlmedia_4')
   })
 
-  it('preview and url import post only the url (and drama id)', async () => {
+  it('preview and url import post only the url (and title id)', async () => {
     const { mock, f } = reply(200, { job_id: 'x' })
     await startUrlPreview('https://a.example/b', f)
     await startNovelUrlImport('https://a.example/b', 3, {}, f)
@@ -64,8 +64,8 @@ describe('sources import api', () => {
   })
 
   it('import state errors come back as ApiError', async () => {
-    const { f } = reply(404, { error: { code: 'not_found', message: 'No such drama.' } })
-    await expect(getImportState('alpha', 's1', 99, f)).rejects.toMatchObject({ status: 404, message: 'No such drama.' })
+    const { f } = reply(404, { error: { code: 'not_found', message: 'No such title.' } })
+    await expect(getImportState('alpha', 's1', 99, f)).rejects.toMatchObject({ status: 404, message: 'No such title.' })
   })
 
   it('track sends drama_id only when given', async () => {
