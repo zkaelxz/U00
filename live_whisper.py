@@ -243,6 +243,9 @@ class WhisperRunner:
         global _outstanding
         worker = threading.Thread(target=work, daemon=True, name="live-whisper")
         entry["worker"] = worker
+        # Read before the worker starts: a call that finishes its first step
+        # (or a test clock moved by it) must not push the limit further out.
+        deadline = self._clock() + timeout
         with _outstanding_lock:
             current = _outstanding
             if current is not None and current["worker"].is_alive():
@@ -250,7 +253,6 @@ class WhisperRunner:
             worker.start()
             # Only a started thread is outstanding: join() on an unstarted one raises.
             _outstanding = entry
-        deadline = self._clock() + timeout
         while True:
             worker.join(self._poll)
             if not worker.is_alive():
