@@ -1,4 +1,5 @@
 """Slice 54 (D-0): services/safe_fetch.py. Mocked only; no network."""
+from lib import http
 import io
 
 import pytest
@@ -33,6 +34,10 @@ class Resp:
                 return buf.read(n)
         self.raw = Raw()
 
+    def iter_content(self, size):
+        while chunk := self.raw.read(size, decode_content=True):
+            yield chunk
+
     def raise_for_status(self):
         if self.status_code >= 400:
             raise RuntimeError(f"boom http://secret.example/x?key=abc {self.status_code}")
@@ -44,11 +49,11 @@ class Resp:
 def _patch_get(monkeypatch, responses, calls=None):
     it = iter(responses)
 
-    def fake(url, ip, headers):
+    def fake(url, ip, headers, *a, **kw):
         if calls is not None:
             calls.append((url, ip))
         return next(it)
-    monkeypatch.setattr(metadata_service, "pinned_get", fake)
+    monkeypatch.setattr(http, "pinned_get", fake)
 
 
 @pytest.mark.parametrize("ip", [
@@ -205,8 +210,7 @@ class _Dripping:
 
 def _slow_clock(monkeypatch):
     clock = {"now": 1000.0}
-    monkeypatch.setattr(metadata_service.time, "monotonic", lambda: clock["now"])
-    monkeypatch.setattr(safe_fetch.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(http.time, "monotonic", lambda: clock["now"])
     return clock
 
 
@@ -219,7 +223,7 @@ def test_slow_drip_body_hits_the_wall_clock_deadline(monkeypatch):
     with pytest.raises(DependencyUnavailableError):
         safe_fetch.fetch_public_text("http://ok.example/")
     assert resp.closed
-    assert resp.raw.reads <= metadata_service.FETCH_DEADLINE // 5 + 2
+    assert resp.raw.reads <= safe_fetch.FETCH_DEADLINE // 5 + 2
 
 
 def test_metadata_page_fetch_hits_the_wall_clock_deadline(monkeypatch):

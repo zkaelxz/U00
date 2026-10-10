@@ -5,6 +5,7 @@ The shell fixtures below reproduce the shape of a real observed
 response: a JS-app container, many script tags, and an empty-state
 string, with none of the actual listings.
 """
+from lib import http
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -133,7 +134,7 @@ def _pinned(monkeypatch, responses, calls=None):
         if calls is not None:
             calls.append((url, ip))
         return next(it)
-    monkeypatch.setattr(metadata_service, "pinned_get", fake)
+    monkeypatch.setattr(http, "pinned_get", fake)
 
 
 class _Page:

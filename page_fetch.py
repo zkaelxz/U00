@@ -384,8 +384,7 @@ def fetch_static(url: str, timeout: int = 20):
     public http(s) address."""
     from urllib.parse import urljoin
     from bs4 import BeautifulSoup
-    from services import metadata_service
-    from lib import url_guard
+    from lib import http, url_guard
 
     headers = {"User-Agent": _UA}
     current = url
@@ -393,7 +392,7 @@ def fetch_static(url: str, timeout: int = 20):
     # connection pinned to the validated IP (no DNS-rebinding window).
     for _ in range(STATIC_FETCH_MAX_REDIRECTS + 1):
         ip = url_guard.resolve_public(current)
-        resp = metadata_service.pinned_get(current, ip, headers, timeout=timeout)
+        resp = http.pinned_get(current, ip, headers, timeout=timeout)
         location = resp.headers.get("Location")
         if resp.status_code in _REDIRECT_CODES and location:
             resp.close()

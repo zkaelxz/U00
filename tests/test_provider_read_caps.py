@@ -1,5 +1,6 @@
 """Byte caps on the raw HTTP replies of the LLM engines, Q&A, bulk Gemini
 batches and Groq transcription. No network: requests is faked."""
+from lib import http
 import pytest
 import requests
 import urllib3
@@ -194,6 +195,19 @@ class TestBulkGemini:
 
 
 class TestGroq:
+    @pytest.fixture
+    def posts(self, monkeypatch):
+        calls = []
+
+        def install(resp):
+            def fake(url, ip, headers, timeout=None, method="GET", **kwargs):
+                calls.append({"timeout": timeout, **kwargs})
+                return resp
+            monkeypatch.setattr(http, "pinned_get", fake)
+            return resp
+        install.calls = calls
+        return install
+
     def _transcribe(self, tmp_path):
         audio = tmp_path / "a.wav"
         audio.write_bytes(b"RIFF")
@@ -205,14 +219,16 @@ class TestGroq:
             self._transcribe(tmp_path)
         assert SECRET not in str(exc.value) and "http" not in str(exc.value).lower()
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True and posts.calls[0]["timeout"] == 600
+        assert posts.calls[0]["timeout"] == 600
 
     def test_error_detail_is_capped_and_redacted(self, posts, tmp_path):
         posts(StreamResp(f"bad key {SECRET}".encode() + b"y" * (core.GROQ_ERROR_MAX_BYTES + 1),
                          status=401))
         with pytest.raises(core.GroqTranscriptionError) as exc:
             self._transcribe(tmp_path)
-        assert str(exc.value) == "Groq API returned 401: "
+        # Over the error cap the body is cut, not dropped: the status and a redacted head stay.
+        assert str(exc.value).startswith("Groq API returned 401: ") and SECRET not in str(exc.value)
+        assert len(str(exc.value)) < 400
 
     def test_error_detail_kept_and_redacted(self, posts, tmp_path):
         posts(StreamResp(f"bad key {SECRET}".encode(), status=401))

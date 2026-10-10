@@ -3,6 +3,7 @@ tests/test_title_library.py -- tests for title_library.py's seed data
 and search/dedup logic.
 """
 
+from lib import http
 import json
 import sys
 import os
@@ -137,6 +138,7 @@ class _FakeResponse:
     def __init__(self, payload, status_code=200):
         self._payload = payload
         self.status_code = status_code
+        self.encoding = None
 
     @property
     def headers(self):
@@ -161,10 +163,10 @@ class TestSearchBaihehub:
         import requests
         calls = []
 
-        def fake_get(url, params=None, headers=None, timeout=None, stream=False):
+        def fake_get(url, ip, headers, timeout=None, method="GET", params=None):
             calls.append((url, params, timeout))
             return _FakeResponse(payload_for(url))
-        monkeypatch.setattr(requests, "get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         return title_library.search_baihehub("公主"), calls
 
     def test_dict_response_returns_results(self, monkeypatch):
@@ -204,12 +206,12 @@ class TestSearchBaihehub:
 
         def fake_get(*a, **k):
             raise requests.ConnectionError("offline")
-        monkeypatch.setattr(requests, "get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         assert title_library.search_baihehub("公主") is None
 
     def test_non_200_is_skipped(self, monkeypatch):
         import requests
-        monkeypatch.setattr(requests, "get", lambda *a, **k: _FakeResponse({"data": [self.ITEM]}, 404))
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **k: _FakeResponse({"data": [self.ITEM]}, 404))
         assert title_library.search_baihehub("公主") is None
 
 
@@ -220,13 +222,14 @@ class TestBaihehubResponseCap:
 
         class Big:
             status_code = 200
+            encoding = None
             headers = {"Content-Length": "999999"}
             def iter_content(self, size):
                 raise AssertionError("must not read past a declared oversize")
             def close(self):
                 closed.append(True)
         monkeypatch.setattr(title_library, "BAIHEHUB_MAX_BYTES", 1000)
-        monkeypatch.setattr(requests, "get", lambda *a, **k: Big())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Big())
         assert title_library.search_baihehub("公主") is None
         assert closed
 
@@ -235,6 +238,7 @@ class TestBaihehubResponseCap:
 
         class Endless:
             status_code = 200
+            encoding = None
             headers = {}
             def iter_content(self, size):
                 while True:
@@ -242,5 +246,5 @@ class TestBaihehubResponseCap:
             def close(self):
                 pass
         monkeypatch.setattr(title_library, "BAIHEHUB_MAX_BYTES", 1000)
-        monkeypatch.setattr(requests, "get", lambda *a, **k: Endless())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Endless())
         assert title_library.search_baihehub("公主") is None
