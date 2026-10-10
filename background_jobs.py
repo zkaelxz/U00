@@ -33,7 +33,7 @@ import threading
 import time
 import traceback
 
-from job_process_kill import _kill_worker_group, _stop_process, kill_tree, reap_worker  # noqa: F401
+from job_process_kill import _stop_process, kill_tree, reap_worker  # noqa: F401
 
 _jobs = {}
 

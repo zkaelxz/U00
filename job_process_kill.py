@@ -89,8 +89,11 @@ def reap_worker(proc, kill_whole_tree):
         proc.join(timeout=WORKER_EXIT_GRACE_S)
         if kill_whole_tree and os.name != "nt":
             _kill_worker_group(proc)
-        if kill_whole_tree and proc.is_alive():
-            background_jobs.kill_tree(proc)
-            proc.join(timeout=WORKER_EXIT_GRACE_S)
+        if kill_whole_tree:
+            if proc.is_alive():
+                background_jobs.kill_tree(proc)
+                proc.join(timeout=WORKER_EXIT_GRACE_S)
+        elif proc.is_alive():
+            _stop_process(proc)
     except Exception as exc:
         _warn_via_jobs(f"could not reap worker {getattr(proc, 'pid', None)}", exc)
