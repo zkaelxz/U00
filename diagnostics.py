@@ -18,41 +18,16 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
-import threading
 
 import diarize
 import storage
 
-# Every top-level .py file expected to exist for the
-# app to run. Kept as an explicit list (not auto-discovered) so a
-# missing file shows up as "missing" rather than just not being checked.
-EXPECTED_TOP_LEVEL_FILES = [
-    "core.py", "db.py", "translate_engines.py",
-    "diarize.py", "dub.py", "video_export.py", "ocr.py", "segment.py",
-    "dictionary.py", "reader.py", "scanlate.py", "metadata_lookup.py",
-    "known_sites.py", "title_library.py", "vocab_export.py",
-    "qa.py", "bulk_import.py", "epub_io.py", "cli.py", "diagnostics.py",
-    "run_tests.py", "translation_guide.py",
-    "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
-    "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "en_cleanup.py", "page_fetch.py",
-    "page_server.py",
-    "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
-    # This list had drifted -- these were all real,
-    # hard-imported modules missing from it, which meant the missing-file
-    # health check below could no longer actually catch one of them going
-    # missing.
-    "applog.py", "audio_preprocess.py", "auto_qc.py", "benchmark.py",
-    "bulk_translate.py", "check_setup.py", "hardsub_ocr.py", "live_translate.py", "live_fetch.py",
-    "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
-    "sensevoice_tags.py", "sensitivity_preset.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
-    "translation_memory.py", "action_tiers.py", "media_inspect.py",
-    "vad_segments.py", "mixed_language.py", "ollama_unload.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
-]
+from expected_files import EXPECTED_TOP_LEVEL_FILES
 
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
     "faster_whisper": ("faster_whisper", "audio alignment/timing", "feature"),
+    "onnxruntime": ("onnxruntime", "ASMR VAD", "feature"),
     "ctranslate2": ("ctranslate2", "Whisper GPU detection (installed with faster-whisper)", "feature"),
     "cv2": ("cv2", "Scanlate bubble detection/inpainting", "feature"),
     "anthropic": ("anthropic", "Claude translation engine", "engine"),
@@ -68,6 +43,7 @@ OPTIONAL_DEPENDENCIES = {
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
     "PIL": ("PIL", "OCR, Scanlate rendering, cover art upload", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
+    "paddlepaddle": ("paddle", "PaddleOCR engine", "feature"),
     "manga_ocr": ("manga_ocr", "OCR (Japanese manga backend)", "feature"),
     "jieba": ("jieba", "Chinese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pypinyin": ("pypinyin", "Chinese pinyin (Reader)", "feature"),
@@ -135,16 +111,10 @@ OPTIONAL_DEPENDENCIES = {
                                       "only runs it and reads the EPUB it makes)", "feature"),
 }
 
-# Import-name slots in OPTIONAL_DEPENDENCIES that are really external
-# programs: check_dependency asks this function instead of importlib, so the
-# program is found where it will be run from (PATH or its Settings path) and
-# its Python code is never looked up or imported.
-def _lncrawl_installed() -> bool:
-    from services import lncrawl_service
-    return lncrawl_service.is_installed()
-
-
-EXTERNAL_PROGRAMS = {"lncrawl": _lncrawl_installed}
+# Import-name slots that are really external programs, mapped to the service
+# whose is_installed() finds them where they will run (PATH or Settings path);
+# their Python code is never looked up or imported.
+EXTERNAL_PROGRAMS = {"lncrawl": "services.lncrawl_service"}
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +152,7 @@ def canonical_dist(name: str) -> str:
 APPROX_DOWNLOAD_MB = {
     "faster-whisper": 80, "ctranslate2": 40, "opencv-python": 45, "anthropic": 2, "openai": 2,
     "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
-    "pydub": 1, "omnivoice": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "manga-ocr": 20,
+    "pydub": 1, "omnivoice": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "paddlepaddle": 200, "manga-ocr": 20,
     "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3,
     "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
@@ -191,7 +161,7 @@ APPROX_DOWNLOAD_MB = {
     "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
-    "jiwer": 3, "sacrebleu": 2,
+    "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15,
 }
 PULLS_TORCH = {"pyannote-audio", "omnivoice", "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
 
@@ -275,8 +245,8 @@ INSTALL_TASKS = [
      "packages": ["pyannote.audio", "soundfile", "torch"]},
     {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
      "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
-     "packages": ["qwen-asr", "funasr", "torch"],
-     "recommended": ["qwen-asr", "funasr"]},
+     "packages": ["qwen-asr", "funasr", "torch", "onnxruntime"],
+     "recommended": ["qwen-asr", "funasr"], "optional": ["onnxruntime"]},
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
@@ -285,9 +255,9 @@ INSTALL_TASKS = [
      "packages": ["omnivoice", "torch", "pydub", "huggingface_hub"]},
     {"id": "hardsub_ocr", "group": "Video", "label": "Read burned-in captions (OCR)",
      "help": "Pull hard-coded subtitles out of video frames.",
-     "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr"],
+     "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr", "paddlepaddle"],
      "recommended": ["pytesseract"],
-     "optional": ["paddleocr"]},
+     "optional": ["paddleocr", "paddlepaddle"]},
     {"id": "url_import", "group": "Video", "label": "Import from a URL",
      "help": "Download video from YouTube, Bilibili and other sites.",
      "packages": ["yt-dlp"]},
@@ -313,10 +283,10 @@ INSTALL_TASKS = [
      "optional": ["playwright", "lightnovel-crawler"]},
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
-     "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
-                  "safetensors", "huggingface_hub", "sentencepiece"],
-     "recommended": ["manga_ocr", "pypdf", "transformers", "torch", "safetensors",
-                     "huggingface_hub"],
+     "packages": ["cv2", "PIL", "numpy", "manga_ocr", "paddleocr", "paddlepaddle", "pypdf",
+                  "transformers", "torch", "safetensors", "huggingface_hub", "sentencepiece"],
+     "recommended": ["manga_ocr", "paddleocr", "paddlepaddle", "pypdf", "transformers", "torch",
+                     "safetensors", "huggingface_hub"],
      "optional": ["sentencepiece"]},
     {"id": "paid_engines", "group": "Translation", "label": "Claude and DeepSeek",
      "help": "Client libraries for the paid translation engines (keys go in Settings).",
@@ -434,7 +404,9 @@ def _warn_low_vram_pyannote():
     pyannote = _ints(get_installed_version("pyannote.audio"), 1)
     if not pyannote or pyannote[0] < 4:
         return None
-    gpu = get_gpu_status()
+    # diagnostics_torch imports this module, so it can only be imported at call time.
+    import diagnostics_torch
+    gpu = diagnostics_torch.get_gpu_status()
     total = gpu.get("vram_total_gb") if gpu.get("available") else None
     if total is not None and total < PYANNOTE_MIN_VRAM_GB - PYANNOTE_VRAM_MARGIN_GB:
         return ("This GPU has less than 12 GB of memory, so speaker detection may run out "
@@ -458,10 +430,11 @@ def startup_warnings() -> list:
 
 
 def check_browser() -> dict:
-    """{found, name}: the browser used for JavaScript-only sites (see
-    page_fetch.browser_status). No path is returned."""
+    """{found, name, package}: the browser for JavaScript-only sites and
+    whether the Playwright package is installed. No path is returned."""
+    import browser_support
     import page_fetch
-    return page_fetch.browser_status()
+    return {**page_fetch.browser_status(), "package": browser_support.package_installed()}
 
 
 def check_cuda() -> dict:
@@ -493,7 +466,7 @@ def check_dependency(module_name: str) -> bool:
     are looked up as programs instead."""
     if module_name in EXTERNAL_PROGRAMS:
         try:
-            return bool(EXTERNAL_PROGRAMS[module_name]())
+            return bool(importlib.import_module(EXTERNAL_PROGRAMS[module_name]).is_installed())
         except Exception:
             return False
     try:
@@ -526,8 +499,6 @@ def check_file_completeness(project_root: str):
                           if not os.path.exists(os.path.join(project_root, f))]
     return {
         "missing_top_level": missing_top_level,
-        # Kept (always empty) so the API/React response shape is unchanged.
-        "missing_tabs": [],
         "all_present": not missing_top_level,
     }
 
@@ -726,7 +697,7 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     whatever renders it (that match would silently break
     if this literal ever changed). Makes no network call. "package" is the real pip/importlib.metadata distribution name for a
     "package" kind entry, None otherwise -- the exact string a caller
-    should pass to stream_dependency_install/stream_pip_install for that
+    should pass to the install route for that
     row's own Install button, straight from the registry rather than
     re-derived by matching against OPTIONAL_DEPENDENCIES's own keys (those
     use import-style names -- "faster_whisper", "manga_ocr" -- that don't
@@ -896,7 +867,7 @@ def format_diagnostics_report(results: dict, hf_cache: list = None,
     files = results.get("files") or {}
     if not files.get("all_present", True):
         lines.append("Missing files: " + ", ".join(
-            (files.get("missing_top_level") or []) + (files.get("missing_tabs") or [])))
+            (files.get("missing_top_level") or [])))
     if hf_cache is not None:
         total = sum(e["size_bytes"] for e in hf_cache)
         lines.append(f"Hugging Face cache: {len(hf_cache)} revision(s), "
@@ -1008,42 +979,10 @@ def qwen_asr_fallback_pip_args() -> list:
     return [list(QWEN_ASR_FALLBACK_DEPS), ["--no-deps", "qwen-asr"]]
 
 
-def stream_pip_install(pip_args: list, python_executable: str = None):
-    """Yields {"line": str} for each line of combined stdout/stderr as
-    `<python> -m pip install <pip_args>` runs, then a final
-    {"done": True, "ok": bool, "returncode": int}. Never swallows a
-    failed install into a generic message -- the real pip error text is
-    exactly what's yielded, for the caller to show in full (confirmed
-    live during this session: a genuine `audio-separator` build failure
-    on a real machine is exactly the case this must not hide)."""
-    python_executable = python_executable or sys.executable
-    cmd = [python_executable, "-m", "pip", "install", *PIP_INSTALL_FLAGS] + list(pip_args)
-    yield from _stream_pip(cmd)
-
-
-def _stream_pip(cmd: list):
-    # errors="replace": pip writes in the locale code page, and a bad byte must
-    # not kill the stream.
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            errors="replace", bufsize=1)
-    for line in proc.stdout:
-        yield {"line": line.rstrip("\n")}
-    returncode = proc.wait()
-    yield {"done": True, "ok": returncode == 0, "returncode": returncode}
-
-
-def stream_pip_uninstall(pip_args: list, python_executable: str = None):
-    """Same shape as stream_pip_install, for `<python> -m pip uninstall -y`."""
-    python_executable = python_executable or sys.executable
-    cmd = [python_executable, "-m", "pip", "uninstall", "-y"] + list(pip_args)
-    yield from _stream_pip(cmd)
-
-
 # ---------------------------------------------------------------------------
 # Install a whole requirements tier, and a real Deno install
 # action -- both real subprocess actions triggered only from an explicit
-# button click, matching stream_pip_install's own "never swallow the real
-# error" discipline.
+# button click.
 # ---------------------------------------------------------------------------
 
 def parse_requirements_file(path: str) -> list:
@@ -1103,17 +1042,13 @@ def get_latest_pypi_version(pip_name: str, timeout: float = 10.0):
     dependency's lookup failing shouldn't break the whole check. Makes a
     real network call every time it's called; callers gate this behind an
     explicit button and cache the result (see check_dependency_versions)."""
-    import requests
     try:
-        from services import capped_body
-        resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
-                            stream=True, allow_redirects=False)
-        if resp.status_code != 200:
-            resp.close()
+        from lib import http
+        resp = http.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
+                        max_bytes=PYPI_JSON_MAX_BYTES, guard=None)
+        if resp.status != 200:
             return None
-        body = capped_body.read_capped(resp, PYPI_JSON_MAX_BYTES, timeout * 3,
-                                       lambda: ValueError("PyPI response too large"))
-        return (json.loads(body).get("info") or {}).get("version") or None
+        return (json.loads(resp.body).get("info") or {}).get("version") or None
     except Exception:
         return None
 
@@ -1162,22 +1097,27 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
     return results
 
 
+def constraints_pip_args(project_root: str = None) -> list:
+    """`["-c", <constraints.txt>]` when the file exists, else []. Every pip
+    install that resolves dependencies passes this so a transitive pull
+    can't cross a cap (e.g. av 19 breaking faster-whisper). Portable and
+    installer layouts may ship without the file, so absence is not an error."""
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    constraints_path = os.path.join(project_root, "constraints.txt")
+    return ["-c", constraints_path] if os.path.exists(constraints_path) else []
+
+
 def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     """pip args for `python -m pip install --upgrade <pip_name>`, adding
     constraints.txt's existing version caps (pyannote.audio<5,
     transformers<6, torch<3, faster-whisper<2, ...) via pip's
     own `-c` flag whenever the file exists -- the same mechanism
-    stream_gpu_torch_reinstall already uses for torch/torchaudio,
+    the GPU PyTorch setup already uses for torch/torchaudio,
     generalized here since an Upgrade click can just as easily target any
     of constraints.txt's other pinned packages (e.g. transformers). A
     constraint for a package not named in the file is a no-op, so passing
     it unconditionally is always safe."""
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    constraints_path = os.path.join(project_root, "constraints.txt")
-    args = ["--upgrade", pip_name]
-    if os.path.exists(constraints_path):
-        args += ["-c", constraints_path]
-    return args
+    return ["--upgrade", pip_name, *constraints_pip_args(project_root)]
 
 
 # ---------------------------------------------------------------------------
@@ -1319,748 +1259,6 @@ def upgrade_blocked_reason(pip_name: str, latest_version: str = None,
 
 
 # ---------------------------------------------------------------------------
-# "If I upgrade this, will it break the app?" -- answered by
-# actually trying it, not by guessing from version numbers: install the
-# candidate into a throwaway venv that otherwise sees this environment's
-# own packages, run this app's own test suite there, and re-run anything
-# that failed in a second throwaway venv WITHOUT the candidate, so a test
-# that already fails today isn't blamed on the upgrade. The real
-# environment is never modified -- pip refuses to uninstall anything that
-# lives outside the throwaway venv's own prefix, and the candidate lands
-# only inside it. Four outcomes, never a guess: "safe" (no new failures,
-# no conflicts), "broken" (named tests that pass today fail with the
-# candidate), "conflict" (tests pass, but pip reports an installed package
-# that declares it won't work with the candidate), or "incomplete"
-# (couldn't finish -- no network, no disk space, a timeout).
-# No result at all means "untested", never "safe".
-# ---------------------------------------------------------------------------
-
-UPGRADE_CHECK_PIP_TIMEOUT = 900
-UPGRADE_CHECK_TEST_TIMEOUT = 1800
-
-
-def _env_package_dirs() -> list:
-    """This process's own site-packages/dist-packages directories -- what a
-    throwaway venv's .pth file points back at, so it sees exactly the
-    packages this app is really running with."""
-    return [p for p in sys.path if p and os.path.isdir(p)
-            and os.path.basename(os.path.normpath(p)) in ("site-packages", "dist-packages")]
-
-
-def _venv_python(venv_dir: str) -> str:
-    if os.name == "nt":
-        return os.path.join(venv_dir, "Scripts", "python.exe")
-    return os.path.join(venv_dir, "bin", "python")
-
-
-def _make_throwaway_venv(base_dir: str, name: str, python_executable: str, parent_dirs: list):
-    """(venv_python, None) on success, (None, reason) otherwise. No pip
-    inside it -- installs go through the real pip's own --python flag, so
-    this works even where ensurepip isn't available."""
-    venv_dir = os.path.join(base_dir, name)
-    try:
-        proc = subprocess.run([python_executable, "-m", "venv", "--without-pip", venv_dir],
-                              capture_output=True, errors="replace", timeout=300)
-        if proc.returncode != 0:
-            return None, (proc.stderr or proc.stdout).strip() or f"exit code {proc.returncode}"
-        venv_py = _venv_python(venv_dir)
-        purelib = subprocess.run(
-            [venv_py, "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
-            capture_output=True, errors="replace", timeout=60).stdout.strip()
-        os.makedirs(purelib, exist_ok=True)
-        with open(os.path.join(purelib, "_baihe_parent_env.pth"), "w", encoding="utf-8") as f:
-            f.write("\n".join(parent_dirs) + "\n")
-        return venv_py, None
-    except (OSError, subprocess.SubprocessError) as exc:
-        return None, str(exc)
-
-
-def _stream_process(cmd: list, timeout: float, cwd: str = None, env: dict = None):
-    """Yields {"line"} per output line, then {"returncode", "timed_out"}.
-    The process is killed if it outlives `timeout` or if the caller stops
-    iterating early (a closed page), so nothing is left running."""
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            encoding="utf-8", errors="replace", bufsize=1, cwd=cwd, env=env)
-    timed_out = threading.Event()
-
-    def _kill():
-        timed_out.set()
-        proc.kill()
-    timer = threading.Timer(timeout, _kill)
-    timer.start()
-    try:
-        for line in proc.stdout:
-            yield {"line": line.rstrip("\n")}
-        returncode = proc.wait()
-    finally:
-        timer.cancel()
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
-    yield {"returncode": returncode, "timed_out": timed_out.is_set()}
-
-
-def _parse_pytest_failures(lines: list) -> list:
-    """Node ids from pytest's -rfE short summary ("FAILED path::test - msg",
-    "ERROR path - msg" for a collection error), in order, de-duplicated."""
-    ids = []
-    for line in lines:
-        for prefix in ("FAILED ", "ERROR "):
-            if line.startswith(prefix):
-                node_id = line[len(prefix):].split(" - ", 1)[0].strip()
-                if node_id and node_id not in ids:
-                    ids.append(node_id)
-    return ids
-
-
-def _canonical_dist(name: str) -> str:
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
-_PIP_CONFLICT_RE = re.compile(
-    r"^(\S+) (\S+) requires (.+), but you have (\S+) (\S+) which is incompatible\.?$")
-
-
-def _parse_pip_conflicts(lines: list) -> list:
-    """pip's own post-install "X requires Y, but you have Z which is
-    incompatible" lines, keeping only the ones this install caused -- a
-    newly installed distribution (from pip's "Successfully installed ..."
-    line) on either side. A conflict that already existed in the
-    environment before (e.g. an unrelated package pinning numpy) isn't the
-    candidate's fault and isn't reported."""
-    installed = set()
-    for line in lines:
-        if line.startswith("Successfully installed "):
-            for token in line[len("Successfully installed "):].split():
-                installed.add(_canonical_dist(token.rsplit("-", 1)[0]))
-    conflicts = []
-    for line in lines:
-        m = _PIP_CONFLICT_RE.match(line.strip())
-        if not m:
-            continue
-        if _canonical_dist(m.group(1)) in installed or _canonical_dist(m.group(4)) in installed:
-            if line.strip() not in conflicts:
-                conflicts.append(line.strip())
-    return conflicts
-
-
-def _dist_version_in(venv_py: str, pip_name: str):
-    try:
-        out = subprocess.run(
-            [venv_py, "-c", "import importlib.metadata, sys; "
-                            "print(importlib.metadata.version(sys.argv[1]))", pip_name],
-            capture_output=True, errors="replace", timeout=60)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out.stdout.strip() if out.returncode == 0 else None
-
-
-def _ensure_pytest(venv_py: str, python_executable: str, timeout: float):
-    """Yields {"line"} items, then {"ok"}. The throwaway environment only sees
-    the real one's packages, and pytest is an optional install there, so it
-    is added to the throwaway environment itself when it can't be imported."""
-    has = _can_import(venv_py, "pytest")
-    if not has:
-        yield {"line": "pytest isn't installed in your environment; adding it to the throwaway one..."}
-        end = None
-        for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
-                                     "install", "pytest>=7.4"], timeout):
-            if "line" in item:
-                yield item
-            else:
-                end = item
-        if end["returncode"] != 0 or end["timed_out"]:
-            yield {"ok": False}
-            return
-    # pytest-xdist only makes the run faster, so a failed install is not an error.
-    if not _can_import(venv_py, "xdist"):
-        yield {"line": "Adding pytest-xdist so the tests can run on every CPU core..."}
-        for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
-                                     "install", "pytest-xdist"], timeout):
-            if "line" in item:
-                yield item
-    yield {"ok": True}
-
-
-def _can_import(venv_py: str, module: str) -> bool:
-    try:
-        return subprocess.run([venv_py, "-c", f"import {module}"], capture_output=True,
-                              timeout=60).returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-def _flag_conflicts(result: dict) -> dict:
-    """A "safe" test result that pip itself reports conflicts for becomes
-    "conflict" -- tests passing doesn't outweigh an installed package
-    declaring it won't work with the candidate."""
-    if result["verdict"] == "safe" and result["conflicts"]:
-        n = len(result["conflicts"])
-        result.update(ok=False, verdict="conflict",
-                      reason=f"{result['reason']}, but pip reports {n} installed package(s) "
-                             f"that declare they don't support it -- this app's tests don't "
-                             f"load those libraries for real, so they can't rule this out")
-    return result
-
-
-def check_upgrade_candidate(pip_name: str, version: str = None, project_root: str = None,
-                            test_args: list = None, python_executable: str = None,
-                            parent_dirs: list = None, pip_extra_args: list = None,
-                            pip_timeout: float = UPGRADE_CHECK_PIP_TIMEOUT,
-                            test_timeout: float = UPGRADE_CHECK_TEST_TIMEOUT):
-    """Yields {"line"} as it goes, then a final {"done": True, "ok",
-    "verdict", "reason", "version", "new_failures", "preexisting_failures",
-    "conflicts"} -- "ok" is True only for verdict "safe". "conflicts" is
-    pip's own "X requires Y, but you have Z" report for conflicts this
-    install caused; a passing test run with conflicts reads "conflict",
-    not "safe", since this app's mocked tests never import real ML
-    libraries (huggingface_hub 2.0 breaking `import transformers` passed
-    every test and was caught only this way). `version` pins the candidate
-    (Diagnostics passes the latest release the real Upgrade would install);
-    constraints.txt's caps apply exactly as they would to that real Upgrade.
-    Runs this app's whole test suite by default, so it takes minutes, not
-    seconds. `test_args`/`parent_dirs`/`pip_extra_args` exist so a test can
-    point this at a tiny offline suite and local wheels."""
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    python_executable = python_executable or sys.executable
-    parent_dirs = _env_package_dirs() if parent_dirs is None else list(parent_dirs)
-    test_args = list(test_args or [os.path.join(project_root, "tests")])
-    spec = f"{pip_name}=={version}" if version else pip_name
-    pip_args = ["--upgrade", spec] + upgrade_pip_args(pip_name, project_root)[2:] + list(pip_extra_args or [])
-    test_env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
-    result = {"done": True, "ok": False, "verdict": "incomplete", "reason": "",
-              "version": version, "new_failures": [], "preexisting_failures": [],
-              "conflicts": []}
-
-    def _pytest(venv_py, args):
-        cmd = [venv_py, "-m", "pytest", "-o", "addopts=", "-q", "-rfE", "-p", "no:cacheprovider"]
-        if args == test_args and _can_import(venv_py, "xdist"):
-            cmd += ["-n", "auto"]
-        cmd += args
-        return _stream_process(cmd, test_timeout, cwd=project_root, env=test_env)
-
-    work = tempfile.mkdtemp(prefix="baihe_upgrade_check_")
-    try:
-        yield {"line": "Creating a throwaway environment -- your real install isn't touched."}
-        trial_py, err = _make_throwaway_venv(work, "trial", python_executable, parent_dirs)
-        if err:
-            result["reason"] = f"couldn't create a throwaway environment: {err}"
-            yield result
-            return
-
-        yield {"line": f"Installing {spec} into it..."}
-        pip_lines, end = [], None
-        for item in _stream_process([python_executable, "-m", "pip", "--python", trial_py,
-                                     "install"] + pip_args, pip_timeout):
-            if "line" in item:
-                pip_lines.append(item["line"])
-                yield item
-            else:
-                end = item
-        if end["timed_out"]:
-            result["reason"] = f"installing {spec} took longer than {int(pip_timeout // 60)} minutes"
-            yield result
-            return
-        if end["returncode"] != 0:
-            if any("No space left on device" in line for line in pip_lines):
-                result["reason"] = "not enough disk space for the throwaway environment"
-            else:
-                result["reason"] = (f"{spec} couldn't be installed (no network, no such version, or "
-                                    f"a build failure -- see the output above)")
-            yield result
-            return
-        installed = _dist_version_in(trial_py, pip_name)
-        if not installed:
-            result["reason"] = f"{spec} reported success but isn't importable afterward"
-            yield result
-            return
-        result["version"] = installed
-        result["conflicts"] = _parse_pip_conflicts(pip_lines)
-
-        pytest_ok = True
-        for item in _ensure_pytest(trial_py, python_executable, pip_timeout):
-            if "line" in item:
-                yield item
-            else:
-                pytest_ok = item["ok"]
-        if not pytest_ok:
-            result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
-            yield result
-            return
-
-        yield {"line": f"Running this app's test suite against {pip_name} {installed}..."}
-        test_lines, end = [], None
-        for item in _pytest(trial_py, test_args):
-            if "line" in item:
-                test_lines.append(item["line"])
-                yield item
-            else:
-                end = item
-        failures = _parse_pytest_failures(test_lines)
-        if end["timed_out"]:
-            result["reason"] = f"the test suite took longer than {int(test_timeout // 60)} minutes"
-            yield result
-            return
-        if end["returncode"] == 0:
-            result.update(ok=True, verdict="safe",
-                          reason=f"every test passed against {pip_name} {installed}")
-            yield _flag_conflicts(result)
-            return
-        if end["returncode"] not in (1, 2) or not failures:
-            result["reason"] = (f"the test run itself didn't complete (pytest exit code "
-                                f"{end['returncode']}) -- see the output above")
-            yield result
-            return
-
-        yield {"line": f"{len(failures)} test(s) failed -- re-running them without {pip_name} "
-                       f"{installed} to see which already fail on the current version..."}
-        base_py, err = _make_throwaway_venv(work, "baseline", python_executable, parent_dirs)
-        if err:
-            result["reason"] = (f"{len(failures)} test(s) failed, but a comparison environment "
-                                f"couldn't be created to rule out already-failing ones: {err}")
-            result["new_failures"] = failures
-            yield result
-            return
-        pytest_ok = True
-        for item in _ensure_pytest(base_py, python_executable, pip_timeout):
-            if "line" in item:
-                yield item
-            else:
-                pytest_ok = item["ok"]
-        if not pytest_ok:
-            result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
-            result["new_failures"] = failures
-            yield result
-            return
-
-        base_lines, end = [], None
-        for item in _pytest(base_py, failures):
-            if "line" in item:
-                base_lines.append(item["line"])
-                yield item
-            else:
-                end = item
-        if end["timed_out"] or end["returncode"] not in (0, 1, 2):
-            result["reason"] = (f"{len(failures)} test(s) failed, but re-running them on the "
-                                f"current version didn't complete -- see the output above")
-            result["new_failures"] = failures
-            yield result
-            return
-        baseline = set(_parse_pytest_failures(base_lines))
-        new = [f for f in failures if f not in baseline]
-        pre = [f for f in failures if f in baseline]
-        result.update(new_failures=new, preexisting_failures=pre)
-        if new:
-            result.update(verdict="broken",
-                          reason=f"{len(new)} test(s) that pass on the current version fail "
-                                 f"against {pip_name} {installed}")
-        else:
-            result.update(ok=True, verdict="safe",
-                          reason=f"no new failures against {pip_name} {installed} ({len(pre)} "
-                                 f"test(s) already fail on the current version too)")
-        yield _flag_conflicts(result)
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-
-
-def get_gpu_status() -> dict:
-    """A live GPU/VRAM readout for Diagnostics' routine view -- {"available": bool, "name", "vram_used_gb", "vram_total_gb",
-    "torch_cuda_version", "message"}. "available" is False, with a plain
-    "message" (never an exception), for every case that isn't a real,
-    torch-visible CUDA device: torch not installed, torch installed but
-    can't see a GPU with no NVIDIA GPU on the machine, and torch installed
-    but CPU-only despite a real NVIDIA GPU being present (the same
-    footgun gpu_torch_mismatch() already detects, worded here as a plain
-    status message rather than a warning+action). "torch_cuda_version"
-    (torch.version.cuda -- what torch was built against, distinct from
-    whether a GPU is actually available right now) is included whenever
-    torch is installed, even when no GPU is available, since it's useful
-    context either way. Never imports torch if it isn't installed."""
-    if not check_dependency("torch"):
-        return {"available": False, "message": "PyTorch isn't installed -- GPU info unavailable."}
-    try:
-        import torch
-    except Exception:
-        return {"available": False, "message": "GPU info unavailable."}
-    torch_cuda_version = getattr(torch.version, "cuda", None)
-    try:
-        cuda_available = bool(torch.cuda.is_available())
-    except Exception:
-        cuda_available = False
-    if not cuda_available:
-        if shutil.which("nvidia-smi"):
-            message = ("A real NVIDIA GPU is on this machine, but the installed PyTorch build "
-                       "is CPU-only -- reinstall following pytorch.org's own selector for your "
-                       "driver (or use the Install GPU PyTorch button below).")
-        else:
-            message = "GPU info unavailable -- no CUDA-capable GPU detected."
-        return {"available": False, "torch_cuda_version": torch_cuda_version, "message": message}
-    try:
-        device_index = torch.cuda.current_device()
-        props = torch.cuda.get_device_properties(device_index)
-        return {
-            "available": True,
-            "name": props.name,
-            "vram_used_gb": torch.cuda.memory_allocated(device_index) / (1024 ** 3),
-            "vram_total_gb": props.total_memory / (1024 ** 3),
-            "torch_cuda_version": torch_cuda_version,
-        }
-    except Exception:
-        return {"available": False, "torch_cuda_version": torch_cuda_version,
-                "message": "GPU info unavailable."}
-
-
-def gpu_torch_mismatch() -> bool:
-    """True only when a real NVIDIA GPU is on this machine (nvidia-smi on
-    PATH) but the installed torch build can't see it -- the exact
-    CPU-only-wheel footgun traced to a bare `pip install
-    torch` always resolving to PyPI's default (non-CUDA) wheel. A
-    minimal, self-contained version of the same nvidia-smi-on-PATH
-    detection a fuller GPU/VRAM display will also use --
-    that display doesn't exist yet, but this button needs the
-    same signal regardless of which of the two lands first."""
-    if not shutil.which("nvidia-smi"):
-        return False
-    cuda = check_cuda()
-    return bool(cuda["torch_installed"]) and cuda["cuda_available"] is False
-
-
-# How busy the GPU actually is, straight from the driver --
-# independent of anything Baihe itself is tracking. background_jobs.py's
-# in-process guard and db.py's cross-process gpu_lock both only
-# know about GPU-touching work Baihe itself started; neither can see a
-# completely different application (Jellyfin doing hardware-accelerated
-# transcoding on the same card, say) using the same physical GPU. This is
-# the only signal that can.
-EXTERNAL_GPU_BUSY_UTIL_PERCENT = 50
-EXTERNAL_GPU_BUSY_MIN_FREE_MB = 1024
-
-
-def external_gpu_load() -> dict | None:
-    """Real utilization/VRAM for the first GPU nvidia-smi reports, or None
-    if nvidia-smi isn't on PATH or the query fails for any reason --
-    best-effort, same as the rest of this module's GPU detection, never
-    raises. Deliberately reads the driver directly rather than anything
-    torch-based, since torch may not even be installed/loaded at the
-    point this gets called (background_jobs.py checks this before a job
-    that would import torch has started)."""
-    if not shutil.which("nvidia-smi"):
-        return None
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, errors="replace", timeout=5, check=True)
-        line = result.stdout.strip().splitlines()[0]
-        util_percent, used_mb, total_mb = (float(x.strip()) for x in line.split(","))
-        return {"utilization_percent": util_percent, "memory_used_mb": used_mb,
-                "memory_total_mb": total_mb, "memory_free_mb": total_mb - used_mb}
-    except Exception:
-        return None
-
-
-def external_gpu_is_busy() -> bool:
-    """True if the GPU looks meaningfully loaded by *something* right now,
-    per nvidia-smi -- whether or not Baihe itself started it. False (never
-    blocks a job) if nvidia-smi isn't available: this is a belt-and-suspenders
-    check layered on top of Baihe's own two GPU locks, not a replacement for
-    either, so its absence shouldn't be treated as "GPU busy" any more than
-    it already is today."""
-    load = external_gpu_load()
-    if load is None:
-        return False
-    return (load["utilization_percent"] >= EXTERNAL_GPU_BUSY_UTIL_PERCENT or
-            load["memory_free_mb"] < EXTERNAL_GPU_BUSY_MIN_FREE_MB)
-
-
-# cu128, not cu124 -- confirmed directly against download.pytorch.org that
-# cu124's index only publishes wheels through cp313, nothing for cp314,
-# while cu128 already carries real Windows cp314 CUDA wheels (matches the
-# open pytorch/pytorch#169929 report of exactly this gap). Picked by the
-# running interpreter's own Python version below, not hardcoded to a
-# single value for every version, since CUDA-driver compatibility and
-# Python-ABI wheel availability vary independently.
-GPU_TORCH_CUDA_INDEX_BY_PYVER = {(3, 14): "cu128"}
-GPU_TORCH_CUDA_INDEX_DEFAULT = "cu128"
-
-
-def gpu_torch_cuda_index() -> str:
-    v = sys.version_info
-    return GPU_TORCH_CUDA_INDEX_BY_PYVER.get((v.major, v.minor), GPU_TORCH_CUDA_INDEX_DEFAULT)
-
-
-def stream_gpu_torch_reinstall(python_executable: str = None, project_root: str = None):
-    """Uninstalls the CPU-only torch/torchaudio, then reinstalls both from
-    PyTorch's own CUDA index for the running interpreter's Python version.
-    Reuses constraints.txt's existing torch<3/torchaudio<3 caps via pip's
-    own `-c` flag (rather than duplicating those version numbers here) so
-    this reinstall can't drift outside the range the rest of the app
-    already assumes. Yields the same {"line": ...}/{"done": ...} items as
-    stream_pip_install, across both subprocess calls in sequence -- only
-    the LAST item has "done", so a caller can tell the whole sequence
-    (uninstall + install) apart from either step finishing early."""
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    constraints_path = os.path.join(project_root, "constraints.txt")
-
-    for item in stream_pip_uninstall(["torch", "torchaudio"], python_executable):
-        if not item.get("done"):
-            yield item
-
-    index_url = f"https://download.pytorch.org/whl/{gpu_torch_cuda_index()}"
-    install_args = ["torch", "torchaudio", "--index-url", index_url]
-    if os.path.exists(constraints_path):
-        install_args += ["-c", constraints_path]
-    yield from stream_pip_install(install_args, python_executable)
-
-
-def stream_dependency_install(name: str, python_executable: str = None,
-                              project_root: str = None):
-    """Same shape as stream_pip_install, for Diagnostics' generic
-    per-dependency "Install" button. Routes `torch` specifically
-    through the same GPU-aware CUDA-index reinstall stream_gpu_torch_reinstall
-    already uses for the dedicated "Install GPU PyTorch" action, whenever a
-    real NVIDIA GPU is present -- a bare `pip install torch` always resolves
-    to the CPU-only PyPI wheel (the install-time footgun), and
-    the generic Install button would otherwise reproduce that exact gap
-    through a second path. Every other dependency, and torch on a
-    non-NVIDIA machine, installs exactly as stream_pip_install always did."""
-    not_offered = NOT_OFFERED_FOR_INSTALL.get(canonical_dist(pip_install_name(name)))
-    if not_offered:
-        yield {"line": f"{name}: {not_offered}"}
-        yield {"done": True, "ok": False, "returncode": None}
-        return
-    if name == "torch" and shutil.which("nvidia-smi"):
-        yield from stream_gpu_torch_reinstall(python_executable, project_root)
-    else:
-        yield from stream_pip_install([pip_install_name(name)], python_executable)
-
-
-# ---------------------------------------------------------------------------
-# GPU PyTorch setup (Diagnostics > "GPU PyTorch"). torch, torchvision and
-# torchaudio are built against each other: each torchvision/torchaudio
-# release requires one exact torch release, and pip resolving any of the
-# three on its own is how a CUDA torch gets swapped for a CPU one or a
-# torchvision ends up requiring a torch that isn't installed ("torchvision
-# 0.29.0 requires torch==2.14.0, but you have torch 2.11.0+cu128"). So the
-# app installs a matched triple, pinned exactly, from one fixed index, and
-# every other install/upgrade pins whatever torch family is installed.
-#
-# Sources (checked 2026-09-29):
-# - torch <-> torchvision pairs: the compatibility table in
-#   https://github.com/pytorch/vision/blob/main/README.md
-#   (2.13/0.28, 2.12/0.27, 2.11/0.26, 2.10/0.25, 2.9/0.24, 2.8/0.23).
-#   torchaudio's version equals torch's (https://pytorch.org/audio/main/installation.html).
-# - wheels actually published: https://download.pytorch.org/whl/cu128/torch/
-#   (and /torchvision/, /torchaudio/): 2.11.0+cu128 / 0.26.0+cu128 /
-#   2.11.0+cu128 is the newest cu128 triple, for CPython 3.10-3.14 on
-#   Windows and Linux; https://download.pytorch.org/whl/cpu/ has the same
-#   versions as +cpu.
-# - driver floor: NVIDIA's CUDA Toolkit release notes, "CUDA Toolkit and
-#   Corresponding Driver Versions" -- CUDA 12.8 GA needs >= 570.65 on
-#   Windows, >= 570.26 on Linux; minor-version compatibility lets CUDA 12.x
-#   run (without newer-GPU support or PTX JIT) from 525.60.13 / 528.33.
-#   https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html
-# Update this table (and constraints.txt's comment) when moving to a newer
-# CUDA index; nothing here is ever taken from a request.
-# ---------------------------------------------------------------------------
-
-TORCH_FAMILY = ("torch", "torchvision", "torchaudio")
-
-# variant -> the fixed index and the exact triple installed from it.
-TORCH_VARIANTS = {
-    "cu128": {
-        "label": "NVIDIA GPU (CUDA 12.8)",
-        "index_url": "https://download.pytorch.org/whl/cu128",
-        "versions": {"torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128",
-                     "torchaudio": "2.11.0+cu128"},
-        "needs_nvidia": True,
-    },
-    "cpu": {
-        "label": "CPU only (no NVIDIA GPU)",
-        "index_url": "https://download.pytorch.org/whl/cpu",
-        "versions": {"torch": "2.11.0+cpu", "torchvision": "0.26.0+cpu",
-                     "torchaudio": "2.11.0+cpu"},
-        "needs_nvidia": False,
-    },
-}
-TORCH_RECOMMENDED_VARIANT_GPU = "cu128"
-# CPython versions the triple above has wheels for (inclusive).
-TORCH_SUPPORTED_PYTHON = ((3, 10), (3, 14))
-
-# torch major.minor -> the torchvision major.minor built for it (README table above).
-TORCHVISION_FOR_TORCH = {"2.8": "0.23", "2.9": "0.24", "2.10": "0.25", "2.11": "0.26",
-                         "2.12": "0.27", "2.13": "0.28", "2.14": "0.29"}
-
-# NVIDIA driver needed by the cu128 wheels, per OS: "recommended" is CUDA
-# 12.8's own requirement; below "minimum" CUDA 12 can't run at all.
-NVIDIA_DRIVER_FOR_CU128 = {
-    "Windows": {"recommended": "570.65", "minimum": "528.33"},
-    "Linux": {"recommended": "570.26", "minimum": "525.60.13"},
-}
-
-TORCH_SETUP_TIMEOUT_SECONDS = 3600    # ~2.5 GB of CUDA wheels on a slow link
-TORCH_VERIFY_TIMEOUT_SECONDS = 180    # a cold `import torch` can take a while
-
-_VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.+!_-]{0,63}$")
-
-
-def _mm(version: str) -> str:
-    """"2.11.0+cu128" -> "2.11"."""
-    return ".".join(re.split(r"[.+]", version or "")[:2])
-
-
-def nvidia_driver_info():
-    """{"gpu_name", "driver_version"} for the first GPU nvidia-smi lists, or
-    None when nvidia-smi isn't on PATH or fails. Never raises; bounded by a
-    timeout like external_gpu_load."""
-    if not shutil.which("nvidia-smi"):
-        return None
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, errors="replace", timeout=5, check=True)
-        name, driver = (x.strip() for x in result.stdout.strip().splitlines()[0].rsplit(",", 1))
-        return {"gpu_name": name[:120], "driver_version": driver[:40]}
-    except Exception:
-        return None
-
-
-def driver_check(driver_version, system: str = None) -> dict:
-    """{"status": "ok"|"old"|"too_old"|"unknown", "recommended", "minimum"}
-    for the cu128 wheels on this OS. "old" works through CUDA's
-    minor-version compatibility (a warning); "too_old" can't run CUDA 12."""
-    system = system or platform.system()
-    need = NVIDIA_DRIVER_FOR_CU128.get(system, NVIDIA_DRIVER_FOR_CU128["Linux"])
-    out = {"recommended": need["recommended"], "minimum": need["minimum"]}
-    if not driver_version:
-        return {"status": "unknown", **out}
-    have = _version_sort_key(driver_version)
-    if have < _version_sort_key(need["minimum"]):
-        return {"status": "too_old", **out}
-    if have < _version_sort_key(need["recommended"]):
-        return {"status": "old", **out}
-    return {"status": "ok", **out}
-
-
-def _build_of(version):
-    """"cuda" for a +cuXXX local tag, "cpu" for +cpu, None when the version
-    carries no build tag (e.g. PyPI's Linux wheels) or isn't installed."""
-    if not version:
-        return None
-    tag = version.partition("+")[2].lower()
-    if tag.startswith("cu") or tag.startswith("rocm"):
-        return "cuda"
-    if tag == "cpu":
-        return "cpu"
-    return None
-
-
-def torch_family_versions() -> dict:
-    """{name: {"version", "build"}} for torch/torchvision/torchaudio, from
-    installed metadata only (no import, so it's right even after an install
-    in this same process)."""
-    out = {}
-    for name in TORCH_FAMILY:
-        version = get_installed_version(name)
-        out[name] = {"version": version, "build": _build_of(version)}
-    return out
-
-
-def torch_family_problems(versions: dict) -> list:
-    """Plain-English mismatches between installed torch, torchvision and
-    torchaudio: a torchvision/torchaudio built for another torch, or CUDA
-    and CPU builds mixed."""
-    torch_v = (versions.get("torch") or {}).get("version")
-    if not torch_v:
-        return [f"{n} is installed without torch." for n in TORCH_FAMILY[1:]
-                if (versions.get(n) or {}).get("version")]
-    problems = []
-    tv = (versions.get("torchvision") or {}).get("version")
-    want_tv = TORCHVISION_FOR_TORCH.get(_mm(torch_v))
-    if tv and want_tv and _mm(tv) != want_tv:
-        problems.append(f"torchvision {tv} doesn't match torch {torch_v} "
-                        f"(torch {_mm(torch_v)} needs torchvision {want_tv}.x).")
-    ta = (versions.get("torchaudio") or {}).get("version")
-    if ta and _mm(ta) != _mm(torch_v):
-        problems.append(f"torchaudio {ta} doesn't match torch {torch_v} "
-                        f"(it must be {_mm(torch_v)}.x).")
-    builds = {(versions.get(n) or {}).get("build") for n in TORCH_FAMILY} - {None}
-    if len(builds) > 1:
-        problems.append("CUDA and CPU builds are mixed; reinstall all three together.")
-    return problems
-
-
-def torch_pin_lines() -> list:
-    """Exact pins ("torch==2.11.0+cu128") for each installed torch-family
-    package, for a constraints file every other install/upgrade passes to
-    pip, so a package that depends on torch can't swap a CUDA build for a
-    CPU one or move torchvision off its torch. Versions come from local
-    metadata and are checked against a strict pattern before use."""
-    lines = []
-    for name in TORCH_FAMILY:
-        version = get_installed_version(name)
-        if version and _VERSION_RE.match(version):
-            lines.append(f"{name}=={version}")
-    return lines
-
-
-def torch_setup_pip_args(variant: str, project_root: str = None) -> list:
-    """Two pip argument lists (after `install`) for the matched triple of
-    `variant` (a TORCH_VARIANTS key): first `--force-reinstall --no-deps`
-    of all three pinned together, so pip downloads every wheel before it
-    replaces anything and torchvision/torchaudio can't resolve against
-    another torch; then the same pins without --force-reinstall to add
-    any missing dependency (nvidia-* wheels, sympy, pillow, ...). Both from
-    the variant's fixed index, with constraints.txt's caps. KeyError for an
-    unknown variant."""
-    spec = TORCH_VARIANTS[variant]
-    pins = [f"{n}=={spec['versions'][n]}" for n in TORCH_FAMILY]
-    tail = ["--index-url", spec["index_url"]]
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    constraints = os.path.join(project_root, "constraints.txt")
-    if os.path.exists(constraints):
-        tail += ["-c", constraints]
-    return [["--force-reinstall", "--no-deps", *pins, *tail], [*pins, *tail]]
-
-
-# Run by `python -c` after a setup, so the check sees the new wheels and not
-# the torch this process may already have imported. Prints one JSON line.
-TORCH_VERIFY_SCRIPT = """
-import json
-out = {}
-try:
-    import torch
-    out["torch"] = torch.__version__
-    out["cuda_build"] = torch.version.cuda
-    out["cuda_available"] = bool(torch.cuda.is_available())
-    if out["cuda_available"]:
-        out["device"] = torch.cuda.get_device_name(0)
-        torch.zeros(1, device="cuda")
-except Exception as e:
-    out["error"] = type(e).__name__ + ": " + str(e)[:300]
-for name in ("torchvision", "torchaudio"):
-    try:
-        out[name] = __import__(name).__version__
-    except Exception as e:
-        out[name + "_error"] = type(e).__name__ + ": " + str(e)[:300]
-print(json.dumps(out))
-"""
-
-
-def parse_torch_verify_output(stdout: str) -> dict:
-    """The JSON the verify script printed (its last line), or {"error"}."""
-    for line in reversed((stdout or "").strip().splitlines()):
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                data = json.loads(line)
-            except ValueError:
-                break
-            return data if isinstance(data, dict) else {"error": "unexpected output"}
-    return {"error": "the check printed nothing usable"}
-
-
-# ---------------------------------------------------------------------------
 # Installed versions and an honest "is there an update I may install?"
 # (Diagnostics > Packages). The PyPI read is a network call: callers run it
 # only from an explicit "Check for updates" click and cache the result. The
@@ -2086,7 +1284,7 @@ def _packaging():
     when these installs can run at all)."""
     try:
         from packaging import requirements, specifiers, version
-    except ImportError:          # pragma: no cover - depends on the environment
+    except ImportError:  # pragma: no cover - depends on the environment
         from pip._vendor.packaging import requirements, specifiers, version
     return version, specifiers, requirements
 
@@ -2109,19 +1307,15 @@ def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
     redirects and at most PYPI_JSON_MAX_BYTES read."""
     if not _DIST_NAME_RE.fullmatch(dist or ""):
         return None
-    import requests
     version_mod, _s, _r = _packaging()
     try:
-        from services import capped_body
-        resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
-                            timeout=timeout, headers={"Accept": "application/json"},
-                            stream=True, allow_redirects=False)
-        if resp.status_code != 200:
-            resp.close()
+        from lib import http
+        resp = http.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json", timeout=timeout,
+                        headers={"Accept": "application/json"}, max_bytes=PYPI_JSON_MAX_BYTES,
+                        guard=None)
+        if resp.status != 200:
             return None
-        body = capped_body.read_capped(resp, PYPI_JSON_MAX_BYTES, timeout * 3,
-                                       lambda: ValueError("PyPI response too large"))
-        releases = json.loads(body).get("releases") or {}
+        releases = json.loads(resp.body).get("releases") or {}
     except Exception:
         return None
     out = []
@@ -2244,9 +1438,6 @@ def classify_update(name: str, installed_version: str, releases, constraints: di
         return {"status": "update", "latest": str(latest), "target": str(allowed[-1]),
                 "reason": reason if allowed[-1] != latest else None}
     return {"status": "held_back", "latest": str(latest), "target": None, "reason": reason}
-
-
-TASK_ROLES = ("required", "recommended", "optional")
 
 
 def task_package_role(task: dict, name: str) -> str:

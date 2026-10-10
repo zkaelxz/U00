@@ -29,7 +29,7 @@ describe('speech coverage text', () => {
   })
 
   it('blocks without audio or while another job runs', () => {
-    expect(coverageBlocker(false, false)).toBe('Still needed: audio on this drama.')
+    expect(coverageBlocker(false, false)).toBe('Still needed: audio on this title.')
     expect(coverageBlocker(true, true)).toBe('Wait for the running job to finish.')
     expect(coverageBlocker(true, false)).toBeNull()
   })

@@ -1,5 +1,7 @@
+import { copyText } from '../../../../components/clipboard'
 import { compareSelectedProblem } from './compareTranscriptionLogic'
 import { retimeSelectedProblem } from './retimeLogic'
+import { retranscribeLinesProblem } from './retranscribeLinesLogic'
 import { formatLineNumbers } from './useLineSelection'
 
 export interface SelectionActionContext {
@@ -14,6 +16,8 @@ export interface SelectionActionContext {
   openCompare: () => void
   // Opens Review's Re-time with Qwen3 aligner section on the ticked lines.
   openRetime: () => void
+  // Opens Review's Re-transcribe section and starts it on exactly these lines.
+  openRetranscribe: (lineIds: number[]) => void
 }
 
 export interface SelectionAction {
@@ -32,12 +36,11 @@ export const SELECTION_ACTIONS: SelectionAction[] = [
     id: 'copy-line-numbers',
     label: 'Copy line numbers',
     run: async ({ lineNumbers, notify }) => {
-      try {
-        await navigator.clipboard.writeText(formatLineNumbers(lineNumbers))
-        notify(`Copied ${lineNumbers.length} line number${lineNumbers.length === 1 ? '' : 's'}.`)
-      } catch {
-        notify('Could not copy to the clipboard.')
-      }
+      notify(
+        (await copyText(formatLineNumbers(lineNumbers)))
+          ? `Copied ${lineNumbers.length} line number${lineNumbers.length === 1 ? '' : 's'}.`
+          : 'Could not copy to the clipboard.',
+      )
     },
   },
   {
@@ -51,5 +54,11 @@ export const SELECTION_ACTIONS: SelectionAction[] = [
     label: 'Re-time with Qwen3 aligner…',
     unavailable: ({ selectedIds }) => retimeSelectedProblem(selectedIds.length),
     run: ({ openRetime }) => openRetime(),
+  },
+  {
+    id: 're-transcribe',
+    label: 'Re-transcribe selected',
+    unavailable: ({ selectedIds }) => retranscribeLinesProblem(selectedIds.length),
+    run: ({ selectedIds, openRetranscribe }) => openRetranscribe(selectedIds),
   },
 ]

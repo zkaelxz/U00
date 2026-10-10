@@ -5,7 +5,8 @@
  *
  *   const dramas = useDramaList()   // useDramaList.ts
  *   <DramaPicker dramas={chapterImportDramas(dramas.items, comic)} value={id} onChange={setId}
- *                newDrama={{ title, language, comic }} onCreated={dramas.add} />
+ *                newDrama={{ title, language, comic }} onCreated={dramas.add}
+ *                hiddenCount={hiddenDramaCount(dramas.items, comic)} />
  */
 import { useState } from 'react'
 
@@ -16,7 +17,7 @@ import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
 import { SOURCE_LANGUAGES } from '../libraryForm'
-import { dramaLabel, newDramaRequest } from './urlImportFormat'
+import { dramaLabel, hiddenDramasNote, newDramaRequest } from './urlImportFormat'
 
 const NEW = 'new'
 
@@ -27,11 +28,13 @@ type Props = {
   // Offer "New drama…": the prefilled title and language, and whether it is a comic.
   newDrama?: { title: string; language: string | null; comic: boolean }
   onCreated?: (d: DramaSummary) => void
+  // Titles the caller filtered out of `dramas`; explains why they are not listed.
+  hiddenCount?: number
   disabled?: boolean
   help?: string
 }
 
-export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, disabled, help }: Props) {
+export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, hiddenCount = 0, disabled, help }: Props) {
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState(newDrama?.title ?? '')
   const [language, setLanguage] = useState(() => newDramaRequest('', newDrama?.language, false).source_language)
@@ -74,20 +77,21 @@ export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, disa
           disabled={disabled || !dramas}
           onChange={(e) => choose(e.target.value)}
         >
-          <option value="">{dramas ? 'Choose a drama…' : 'Loading…'}</option>
+          <option value="">{dramas ? 'Choose a title…' : 'Loading…'}</option>
           {(dramas ?? []).map((d) => (
             <option key={d.id} value={d.id}>
               {dramaLabel(d)}
             </option>
           ))}
-          {newDrama && <option value={NEW}>New drama…</option>}
+          {newDrama && <option value={NEW}>New title…</option>}
         </select>
       </Field>
       {dramas && dramas.length === 0 && !creating && (
-        <p className="muted">{newDrama ? `No ${kind} dramas yet. Choose “New drama…” to make one.` : 'No dramas can take this yet.'}</p>
+        <p className="muted">{newDrama ? `No ${kind} titles yet. Choose “New title…” to make one.` : 'No titles can take this yet.'}</p>
       )}
+      {newDrama && hiddenCount > 0 && !creating && <p className="muted">{hiddenDramasNote(hiddenCount, newDrama.comic)}</p>}
       {creating && newDrama && (
-        <div className="drama-new" role="group" aria-label="New drama">
+        <div className="drama-new" role="group" aria-label="New title">
           <Field label="Title">
             <input type="text" value={title} maxLength={300} onChange={(e) => setTitle(e.target.value)} />
           </Field>
@@ -101,11 +105,11 @@ export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, disa
             </select>
           </Field>
           <p className="muted">
-            Made as a {humanize('mediaType', newDramaRequest('', language, newDrama.comic).media_type).toLowerCase()} drama.
+            Made as a {humanize('mediaType', newDramaRequest('', language, newDrama.comic).media_type).toLowerCase()} title.
           </p>
           <div className="actions">
             <button type="button" className={buttonClass('secondary')} disabled={busy || !title.trim()} onClick={create}>
-              {busy ? 'Creating…' : 'Create drama'}
+              {busy ? 'Creating…' : 'Create title'}
             </button>
             <button type="button" className={buttonClass('ghost')} onClick={() => setCreating(false)}>
               Cancel

@@ -133,7 +133,10 @@ A GPU job is queued instead of started when an earlier GPU job is already waitin
 2. **Cross-process slots.** `try_take_gpu_slot(holder, description)` claims a row in
    `db.gpu_lock` via `db.try_acquire_gpu_lock` (`BEGIN IMMEDIATE`, so the read-then-write
    is atomic across processes). Holders are `ui:<job_id>` and `cli:<pid>`. A row not
-   heartbeated for `db.GPU_LOCK_STALE_SECONDS` (10 min) is abandoned and ignored. The
+   heartbeated for `db.GPU_LOCK_STALE_SECONDS` (10 min) is abandoned and ignored. At
+   startup a `ui:` row is also released at once when its job record was written after the
+   row was taken and names a dead owner pid (`gpu_lock_recovery_service`); a record older
+   than the row is a previous run's, so the row is left to expire. The
    table has at most `GPU_LOCK_MAX_SLOTS` (4) rows.
 3. **External load.** For the first holder (`check_external_load=True`, which UI jobs
    pass), `diagnostics.external_gpu_is_busy` reads nvidia-smi totals. A program Baihe
@@ -201,6 +204,8 @@ was not just promoted); `clear_job` removes a finished record, and for a live pr
 also stops the process; `cancel_line_jobs(drama_id)` cancels the line-writing jobs
 (`LINE_WRITING_JOB_PREFIXES`) before something replaces all of a title's lines. The CLI
 does the same plus the `job_records` flag for jobs run by the API.
+
+A GPU job's worker is started through `services/gpu_process_job.py`: `run_in_child` for a thread job whose GPU stage must be killable and whose next stage needs the parent (`comparetx_`, `fixflag_`); the worker may send each finished unit as `("item", x)` so a cancel or timeout keeps what was done. It runs the body under `run_worker` (own process group, a deadline watchdog that closes the result queue before `os._exit`, scratch folder as the temp dir). The child never reads the database: the parent resolves settings and passes plain values.
 
 A worker whose server dies is not left running: a process job started with
 `start_own_process_group()` ends itself when its parent is gone
@@ -322,7 +327,7 @@ Thread unless marked process.
 | `transcribe_<id>` | `transcribe_service` | process; thread for hardsub OCR | yes |
 | `diarize_<id>` | `diarization_service` (also chained from transcribe) | process | yes |
 | `autotune_<id>` | `transcribe_service` | process | yes |
-| `retranscribe_<id>` | `transcribe_service` | thread | yes |
+| `retranscribe_<id>` | `transcribe_service` (one line), `retranscribe_many_service` (the ticked lines or a gap's added lines, one model load) | process | yes |
 | `dub_<id>` | `dub_service` | process | when a local clone/TTS model is used |
 | `resegment_<id>`, `resegpreview_<id>` | `restructure_service` | process with Ollama, otherwise thread | with Ollama |
 | `resplit_<id>` | `restructure_service` | thread | yes |
@@ -333,7 +338,7 @@ Thread unless marked process.
 | `voiceref_<id>` | `voice_clone_service` | thread | no |
 | `ocrchapter_<id>`, `scanlate_<id>` | `novel_attach_service`, `scanlate_pages_service` | thread | yes |
 | `novel_glossary_<id>`, `lines_glossary_<id>` | `glossary_service` | thread | with Ollama |
-| `extract_audio_<id>`, `urlmedia_<id>`, `lncrawl_<id>`, `notion_export_<id>` | media upload, URL media, lncrawl and Notion services | thread | no |
+| `extract_audio_<id>`, `urlmedia_<id>`, `lncrawl_<id>` | media upload, URL media and lncrawl services | thread | no |
 | Sources: `sources_search`, `sources_save`, `sourceimport_<id>`, `sources_series_*`, `sources_signin_*` | `sources_*_service` | thread | no |
 | Library: `library_backup`, `library_db_backup`, `library_user_backup`, `library_auto_backup`, `library_export_zip`, `bulk_series_translate` | `library_admin_service`, `auto_backup_service` | thread | no |
 | `deno_install`, `upgrade_check`, `discover_*` | diagnostics and discover services | thread | no |
@@ -349,6 +354,7 @@ Routes in `api/routers/jobs_routes.py`, logic in `services/jobs_service.py`:
 | `GET /api/jobs` | `library.read` | every visible `job_records` row, newest started first (sweeps stale rows first) |
 | `GET /api/jobs/{id}` | `library.read` | one record |
 | `POST /api/jobs/{id}/cancel` | `jobs.cancel` | `cancel_job`: 404 unknown or not visible, 409 already finished, else `{cancel_requested, status}`; asynchronous |
+| `POST /api/jobs/{id}/force-stop` | `jobs.cancel` | `force_stop_job`: 404 unknown or not visible, 409 unless a thread job has been Cancelling for over a minute, else closes the record as `cancelled` and returns `{force_stopped, status, worker_still_running}`; the thread itself cannot be killed |
 | `POST /api/jobs/{id}/delete` | `local_only()` | removes one finished record (needs `confirm=true`; 409 if still active) |
 | `POST /api/jobs/clear-finished` | `local_only()` | removes every finished record (needs `confirm=true`) |
 

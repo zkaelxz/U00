@@ -18,6 +18,7 @@ import shutil
 import background_jobs
 import db
 import dub
+import dub_narration
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -309,6 +310,12 @@ def apply_dub_result(drama_id: int, result: dict) -> None:
     db.update_drama(drama_id, status="dubbed")
 
 
+def track_builder(is_narration: bool):
+    """The track-rendering function, looked up per call so the CLI sees
+    monkeypatched module attributes."""
+    return dub_narration.build_narration_track if is_narration else dub.build_dub_track
+
+
 def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max_speedup=None,
                   max_slowdown=None, narration_language=None,
                   keep_background: bool = False) -> dict:
@@ -370,16 +377,23 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
     clone_map = dub.clone_map_from_characters(
         chars, ddir, default_engine=tts_engine, speaker_labels={ln.speaker or None for ln in lines})
 
-    started = background_jobs.start_process_job(
-        job_id,
+    if is_narration:
         # Keyword-bound so background_jobs' trailing result_queue lands on the
         # worker's result_queue parameter (declared before these options).
-        functools.partial(dub.build_track_subprocess_worker, narrate_original=narrate_original,
-                          source_language=source_lang, background_source=background_source,
-                          separation_backend=separation_backend),
-        args=(lines, ddir, clone_map, is_narration, max_speedup, max_slowdown),
+        worker = functools.partial(dub_narration.build_narration_subprocess_worker,
+                                   narrate_original=narrate_original, source_language=source_lang)
+        worker_args = (lines, ddir, clone_map)
+    else:
+        worker = functools.partial(dub.build_track_subprocess_worker,
+                                   background_source=background_source,
+                                   separation_backend=separation_backend)
+        worker_args = (lines, ddir, clone_map, max_speedup, max_slowdown)
+
+    started = background_jobs.start_process_job(
+        job_id, worker, args=worker_args,
         gpu_touching=dub.clone_map_uses_local_model(clone_map),
         description=f"Dub generation (drama #{drama_id})",
+        kill_whole_tree=True, start_method="spawn",
         on_done=lambda _jid, result: apply_dub_result(drama_id, result))
     if not started:
         raise ConflictError(f"A dub job is already running for drama {drama_id}.")

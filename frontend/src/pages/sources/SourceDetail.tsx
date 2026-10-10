@@ -4,19 +4,22 @@ import { getSource, listAttempts, resetSourceHealth } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
-import type { SourceAttempt, SourceDetail as Detail, SourceHealth } from '../../types/sources'
+import type { ExtensionOnlyMark as Mark, SourceAttempt, SourceDetail as Detail, SourceHealth } from '../../types/sources'
 import { humanizeValue as humanize } from '../../components/labels'
+import { ExtensionOnlyMark } from './ExtensionOnlyMark'
 import { SourceAccess } from './SourceAccess'
-import { ago, healthLine, healthTooltip, isoTime, pausedFor, tierLines } from './sourcesFormat'
+import { accessMethodLabel, ago, healthLine, healthTooltip, isoTime, pausedFor, statusLabel, tierLines } from './sourcesFormat'
 
 type Props = {
   name: string
   onHealth: (name: string, h: SourceHealth) => void
   onSignin: (name: string, has: boolean) => void
+  // The extension-only marker was set or cleared.
+  onExtensionOnly?: (name: string, on: boolean) => void
 }
 
 /** A source's record, loaded when Details is opened. Information only. */
-export function SourceDetail({ name, onHealth, onSignin }: Props) {
+export function SourceDetail({ name, onHealth, onSignin, onExtensionOnly }: Props) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [resetting, setResetting] = useState(false)
@@ -35,6 +38,11 @@ export function SourceDetail({ name, onHealth, onSignin }: Props) {
 
   const refresh = useCallback(() => setReload((n) => n + 1), [])
   const signinChanged = useCallback((has: boolean) => onSignin(name, has), [name, onSignin])
+
+  function markChanged(mark: Mark) {
+    setDetail((d) => (d ? { ...d, ...mark } : d))
+    onExtensionOnly?.(name, mark.extension_only)
+  }
 
   async function tryNow() {
     setError(null)
@@ -59,9 +67,9 @@ export function SourceDetail({ name, onHealth, onSignin }: Props) {
   }
 
   const rows: [string, string][] = [
-    ['Status', humanize(detail.status)],
+    ['Status', statusLabel(detail)],
     ['Technical status', humanize(detail.technical_status)],
-    ['Access method', humanize(detail.access_method)],
+    ['Access method', accessMethodLabel(detail)],
     ['Content reached', humanize(detail.content_access_status)],
     ['Sign-in required', humanize(detail.authentication_required)],
     ['Purchase required', humanize(detail.purchase_required)],
@@ -84,7 +92,7 @@ export function SourceDetail({ name, onHealth, onSignin }: Props) {
         ))}
         <div>
           <dt>Access tiers</dt>
-          <dd>{tierLines(detail.tiers).join(' · ')}</dd>
+          <dd>{tierLines(detail.tiers, detail).join(' · ')}</dd>
         </div>
       </dl>
       <p className="muted" title={healthTooltip(detail.health_detail)}>{healthLine(detail.health_detail)}</p>
@@ -98,6 +106,7 @@ export function SourceDetail({ name, onHealth, onSignin }: Props) {
       )}
       {detail.auth_supported && <p>Sign-in: {detail.has_saved_signin ? 'saved' : 'none'}</p>}
       <SourceAccess detail={detail} onChanged={refresh} onSignin={signinChanged} />
+      <ExtensionOnlyMark detail={detail} onChanged={markChanged} />
       {terms.length > 0 && (
         <Section title="Terms notes" summary="Information only">
           <dl className="source-dl">

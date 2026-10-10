@@ -46,7 +46,7 @@ async function mockRun(page: Page, proposal: { proposed_zh: string; base_zh: str
   })
 }
 
-test('hidden when the drama has no audio', async ({ page }) => {
+test('hidden when the title has no audio', async ({ page }) => {
   await page.goto('/#/drama/3/review')
   await expect(rows(page)).toHaveCount(4)
   // wait for the config fetch to settle before asserting absence
@@ -184,7 +184,7 @@ test('a 409 on start is shown', async ({ page }) => {
   await page.route('**/api/transcribe/dramas/3/config', (route) =>
     route.fulfill({ json: { drama_id: 3, has_audio_pipeline: true, audio_available: true } }))
   await page.route('**/api/transcribe/dramas/3/lines/*/retranscribe', (route) =>
-    route.fulfill({ status: 409, json: { error: { code: 'conflict', message: "Another job is changing this drama's lines. Try again when it finishes." } } }))
+    route.fulfill({ status: 409, json: { error: { code: 'conflict', message: "Another job is changing this title's lines. Try again when it finishes." } } }))
 
   await page.goto('/#/drama/3/review')
   const row = await openDetails(page, 0)

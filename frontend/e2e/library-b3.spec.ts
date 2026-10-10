@@ -4,24 +4,24 @@ import { expect, test } from '@playwright/test'
 // e2e/serve_seeded_api.py. Anything that creates a drama deletes it again,
 // so the seeded three are unchanged afterwards.
 
-test('New drama sends the Summary (P06)', async ({ page }) => {
+test('New title sends the Summary (P06)', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New drama' }).click()
-  const sheet = page.getByRole('dialog', { name: 'New drama' })
-  await sheet.getByLabel('English title').fill('E2E Summary Drama')
+  await page.getByRole('button', { name: 'New title' }).click()
+  const sheet = page.getByRole('dialog', { name: 'New title' })
+  await sheet.getByLabel('English title').fill('E2E Summary Title')
   await sheet.getByText('Credits, summary, series and preset').click()
   await sheet.getByRole('textbox', { name: 'Summary' }).fill('  Two cultivators solve a mystery.  ')
   const req = page.waitForRequest((r) => r.url().endsWith('/api/dramas') && r.method() === 'POST')
-  await sheet.getByRole('button', { name: 'Create drama', exact: true }).click()
-  expect((await req).postDataJSON()).toMatchObject({ title_en: 'E2E Summary Drama', summary: 'Two cultivators solve a mystery.' })
+  await sheet.getByRole('button', { name: 'Create title', exact: true }).click()
+  expect((await req).postDataJSON()).toMatchObject({ title_en: 'E2E Summary Title', summary: 'Two cultivators solve a mystery.' })
   await expect(page).toHaveURL(/#\/drama\/\d+$/)
   await page.getByRole('link', { name: 'Back to Library' }).click()
-  await page.getByRole('button', { name: 'Details: E2E Summary Drama' }).click()
-  const detail = page.getByRole('dialog', { name: 'E2E Summary Drama' })
-  await detail.getByRole('button', { name: 'Delete drama…' }).click()
+  await page.getByRole('button', { name: 'Details: E2E Summary Title' }).click()
+  const detail = page.getByRole('dialog', { name: 'E2E Summary Title' })
+  await detail.getByRole('button', { name: 'Delete title…' }).click()
   await detail.getByLabel('Type DELETE to confirm').fill('DELETE')
   await detail.getByRole('button', { name: 'Delete permanently' }).click()
-  await expect(page.getByRole('dialog', { name: 'E2E Summary Drama' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'E2E Summary Title' })).toHaveCount(0)
 })
 
 const stats = {
@@ -36,15 +36,29 @@ const stats = {
 test('dashboard: API calls, cache-hit share, header stats line (L01)', async ({ page }) => {
   await page.route('**/api/library/stats', (r) => r.fulfill({ json: stats }))
   await page.goto('/')
-  await expect(page.getByTestId('stats')).toHaveText(
-    '5 dramas · 2875 of 4210 lines translated · $3.47 spent · 318 API calls · 30% cache hits',
-  )
+  await expect(page.getByTestId('stats')).toHaveText('5 titles · 2,875 of 4,210 lines · 1,335 left')
+  await page.getByText('$3.47 spent').click()
+  await expect(page.getByTestId('stats-usage')).toHaveText('318 API calls · 30% cache hits')
   await expect(page.getByTestId('stats-breakdown')).toHaveCount(0)
 })
 
-test('dashboard from the real API shows the call count', async ({ page }) => {
+// The e2e server's library is shared across specs, and lab-benchmark logs
+// real usage into it, so the fold's presence has to follow the API payload
+// rather than assume a pristine library.
+test('dashboard from the real API shows the line and a usage fold only when usage was logged', async ({ page }) => {
+  const reply = page.waitForResponse((r) => r.url().endsWith('/api/library/stats'))
   await page.goto('/')
-  await expect(page.getByTestId('stats')).toContainText(/\d+ API calls?/)
+  const { usage } = await (await reply).json()
+  await expect(page.getByTestId('stats')).toContainText(/\d+ titles? · [\d,]+ of [\d,]+ lines/)
+  await expect(page.locator('.stats-usage')).toHaveCount(usage.call_count || usage.estimated_cost_usd ? 1 : 0)
+})
+
+test('no usage fold when nothing was spent or called', async ({ page }) => {
+  const idle = { ...stats, usage: { ...stats.usage, call_count: 0, estimated_cost_usd: 0 } }
+  await page.route('**/api/library/stats', (r) => r.fulfill({ json: idle }))
+  await page.goto('/')
+  await expect(page.getByTestId('stats')).toBeVisible()
+  await expect(page.locator('.stats-usage')).toHaveCount(0)
 })
 
 const costs = {
@@ -58,8 +72,8 @@ test('Cost by drama: tokens, cache hits, and free engines labelled (L04)', async
   await page.route('**/api/library/costs', (r) => r.fulfill({ json: costs }))
   await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
-  await tools.locator('summary', { hasText: 'Cost by drama' }).click()
-  const rows = tools.getByRole('region', { name: 'Cost by drama' }).getByRole('listitem')
+  await tools.locator('summary', { hasText: 'Cost by title' }).click()
+  const rows = tools.getByRole('region', { name: 'Cost by title' }).getByRole('listitem')
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0)).toContainText('$3.47')
   await expect(rows.nth(0)).toContainText('540k in · 201k out · 30% cache hits · 212 calls')
@@ -80,7 +94,7 @@ const series = {
   ],
 }
 
-test('Series view: only 2+ dramas, types, shared counts, Open (L05)', async ({ page }) => {
+test('Series view: only 2+ titles, types, shared counts, Open (L05)', async ({ page }) => {
   await page.route('**/api/library/series', (r) => r.fulfill({ json: series }))
   await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
@@ -89,26 +103,26 @@ test('Series view: only 2+ dramas, types, shared counts, Open (L05)', async ({ p
   await expect(panel).not.toContainText('Lonely Series')
   await expect(panel).toContainText('Audio drama 1 · Manhua 1')
   await expect(panel).toContainText('14 shared characters · 1 glossary term')
-  const dramas = panel.getByRole('list', { name: 'Dramas in Mo Dao Zu Shi' }).getByRole('listitem')
+  const dramas = panel.getByRole('list', { name: 'Titles in Mo Dao Zu Shi' }).getByRole('listitem')
   await expect(dramas).toHaveCount(2)
   await expect(dramas.nth(1)).toContainText('Transcribed')
   await expect(panel.getByRole('link', { name: 'Open MDZS (manhua)' })).toHaveAttribute('href', '#/drama/4')
 })
 
-test('Series fold is hidden when no series has 2+ dramas (L05)', async ({ page }) => {
+test('Series fold is hidden when no series has 2+ titles (L05)', async ({ page }) => {
   await page.route('**/api/library/series', (r) =>
     r.fulfill({ json: { items: [series.items[1]] } }))
   await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
-  await expect(tools.locator('summary', { hasText: 'Cost by drama' }).or(tools.locator('summary', { hasText: 'Backup' })).first()).toBeVisible()
+  await expect(tools.locator('summary', { hasText: 'Cost by title' }).or(tools.locator('summary', { hasText: 'Backup' })).first()).toBeVisible()
   await expect(tools.locator('summary', { hasText: /^Series/ })).toHaveCount(0)
 })
 
 test('Create and auto-fill lands on the Source stage with Auto-fill open (P03)', async ({ page, request }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New drama' }).click()
-  const sheet = page.getByRole('dialog', { name: 'New drama' })
-  await sheet.getByLabel('English title').fill('E2E Autofill Drama')
+  await page.getByRole('button', { name: 'New title' }).click()
+  const sheet = page.getByRole('dialog', { name: 'New title' })
+  await sheet.getByLabel('English title').fill('E2E Autofill Title')
   const created = page.waitForResponse((r) => r.url().endsWith('/api/dramas') && r.request().method() === 'POST')
   await sheet.getByRole('button', { name: 'Create and auto-fill' }).click()
   const { id } = (await (await created).json()) as { id: number }

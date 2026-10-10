@@ -199,7 +199,9 @@ class TestUninstall:
                          r"\s*(//[^\n]*\n\s*)*DeleteTree\(UninstDataDir \+ '\\baihe_trash'[^\n]*\n\s*end;", step)
         assert step.count("'\\baihe_trash'") == 1
         assert re.search(r"if DeleteSettings and FileExists\(UninstDataDir \+ '\\\.env'\) then\s+"
-                         r"if DeleteFile\(UninstDataDir \+ '\\\.env'\)", step)
+                         r"if DeleteFile\(UninstDataDir \+ '\\\.env'\) then\s+"
+                         r"AddLine\(Removed, 'your settings and API keys \(\.env\)'\)\s+else\s+"
+                         r"AddLine\(Left, 'your settings and API keys \(\.env\) - couldn''t be deleted", step)
         assert re.search(r"if DeleteModels then\s+DeleteTree\(UninstDataDir \+ '\\model_cache'", step)
         # The whole data folder only on a clean uninstall of a folder Setup created.
         assert re.search(r"if CleanAll and UninstDataDirCreated then\s+begin\s+(//[^\n]*\s+)*"

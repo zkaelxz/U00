@@ -115,7 +115,7 @@ export function comicImportText(r: ComicUrlImportResult): string {
       ? 'Nothing was added yet. Check which images are the pages below, then import them.'
       : 'Baihe couldn’t be sure which images are the pages, so nothing was added.'
   }
-  return `Added ${plural(r.pages_added, 'page')} to the drama.`
+  return `Added ${plural(r.pages_added, 'page')} to the title.`
 }
 
 /** The heading of the "left out" list, or null when nothing was left out. */
@@ -230,11 +230,11 @@ export const importPages = (r: ExtractionReview, unticked: ReadonlySet<number>) 
 
 export function reviewImportText(r: ReviewImportResult): string {
   if (r.content_type === 'novel' && (r.pages_imported ?? 1) > 1) {
-    return `Added ${plural(r.pages_imported ?? 0, 'page')} (${plural(r.char_count ?? 0, 'character')}) to the drama’s novel text.`
+    return `Added ${plural(r.pages_imported ?? 0, 'page')} (${plural(r.char_count ?? 0, 'character')}) to the title’s novel text.`
   }
-  if (r.content_type === 'novel') return `Added ${plural(r.char_count ?? 0, 'character')} to the drama’s novel text.`
+  if (r.content_type === 'novel') return `Added ${plural(r.char_count ?? 0, 'character')} to the title’s novel text.`
   const skipped = r.skipped_count ? ` ${plural(r.skipped_count, 'image')} skipped (over a size limit or not PNG, JPEG or WebP).` : ''
-  return `Added ${plural(r.pages_added ?? 0, 'page')} to the drama.${skipped}`
+  return `Added ${plural(r.pages_added ?? 0, 'page')} to the title.${skipped}`
 }
 
 export const profileSavedText = (p: ProfileSaved) =>

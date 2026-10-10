@@ -99,13 +99,15 @@ import threading
 import time
 import uuid
 import zipfile
+import storage
 import zlib
 
 import background_jobs
-import core
 import db
+import segment_splitting
 import sensitivity_preset
 from db import fsync_dir as _fsync_dir
+from lib.link_new import link_new
 from services import delete_service
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
@@ -989,7 +991,7 @@ def _verify_snapshot(path: str):
     one: the restore zip checks, a readable manifest, a sound library.db
     whose dramas match the manifest."""
     las.validate_backup_file(path, check_disk=False, check_limits=False)
-    with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory() as tmp:
+    with zipfile.ZipFile(path) as zf, storage.job_workdir() as tmp:
         manifest = _read_manifest(zf)
         dest = extract_db(zf, tmp)
         with contextlib.closing(sqlite3.connect(ro_uri(dest), uri=True)) as conn:
@@ -1018,38 +1020,12 @@ def _place_copy(tmp: str, folder: str, now: datetime.datetime) -> str:
         path = os.path.join(folder, _copy_name(at))
         if not os.path.lexists(path):
             try:
-                _link_new(tmp, path)
+                link_new(tmp, path)
                 return path
             except FileExistsError:
                 pass
         at += datetime.timedelta(seconds=1)
     raise OSError("no free backup copy name")
-
-
-def _link_new(src: str, dest: str):
-    """Gives `src` the name `dest` without ever replacing a file there
-    (FileExistsError when one is there): a hard link, then src's name is
-    removed. A file system without hard links (FAT/exFAT drives, some
-    network shares) gets dest created exclusively first and src renamed
-    over that empty placeholder, which only this call can have made."""
-    try:
-        os.link(src, dest)
-    except FileExistsError:
-        raise
-    except (OSError, AttributeError, NotImplementedError):
-        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0))
-        os.close(fd)
-        try:
-            os.replace(src, dest)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.remove(dest)
-            raise
-        return
-    # The copy is in place under both names; a leftover partial name is
-    # swept by cleanup_stale_leftovers.
-    with contextlib.suppress(OSError):
-        os.remove(src)
 
 
 def _backup_job(job_id, include_media: bool):
@@ -1076,7 +1052,8 @@ def _backup_job(job_id, include_media: bool):
             owner = _identity(bump_from=floor)
         background_jobs.update_progress(job_id, 0.1, "Writing the backup...")
         las.write_backup_zip(tmp, include_media=include_media,
-                             manifest=lambda snap: _manifest_bytes(snap, include_media, owner))
+                             manifest=lambda snap: _manifest_bytes(snap, include_media, owner),
+                             should_cancel=lambda: background_jobs.is_cancel_requested(job_id))
         background_jobs.update_progress(job_id, 0.8, "Checking the backup...")
         _verify_snapshot(tmp)
         # On disk before any old copy is deleted: a power cut must not
@@ -1103,6 +1080,10 @@ def _backup_job(job_id, include_media: bool):
             except Exception as exc:
                 log.warning("Could not rotate the automatic backup copies: %s",
                             type(exc).__name__)
+    except background_jobs.JobCancelled:
+        # A cancel is not a failure: no error is recorded, and the finally
+        # below removes the partial archive.
+        raise
     except Exception as exc:
         log.warning("Automatic backup failed: %s", type(exc).__name__)
         _update_state(last_error=_FAILED)
@@ -1347,9 +1328,9 @@ def has_table(conn, table: str) -> bool:
 
 
 def _storable_words(value) -> bool:
-    """A line's word timings come in only within the size a transcription
-    stores (a file may be hand-made); their content is checked again on use."""
-    return isinstance(value, str) and len(value) <= core.MAX_STORED_WORD_BYTES
+    """Word timings stay within a transcription's size (a file may be
+    hand-made); their content is rechecked on use."""
+    return isinstance(value, str) and len(value) <= segment_splitting.MAX_STORED_WORD_BYTES
 
 
 def _insert(dst, table: str, row: dict, live_cols) -> int:
@@ -1511,7 +1492,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
     import_as (a backup from another library, see backup_import_service) =
     {"owner_user_id", "is_private", "series": {}, "media_dir"}: the owner
     and privacy come from it and never from the file, the series is always
-    new, the Notion page link is dropped, per-profile tables (profile ids
+    new, old `notion_page_id` is dropped, per-profile tables (profile ids
     mean something else here) are not copied, and each file
     reference (IMPORT_FILE_COLUMNS) is kept only when it names a file inside
     media_dir (None = no files imported, so all are cleared)."""
@@ -1683,7 +1664,7 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
     las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a drama")
     if job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
-    with las.maintenance("restoring a drama"), tempfile.TemporaryDirectory() as tmp:
+    with las.maintenance("restoring a drama"), storage.job_workdir() as tmp:
         db.recover_media_imports()
         staging = staged = None
         with _snapshot_lock:

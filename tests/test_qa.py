@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import qa
 import translate_engines as te
-from tests.http_fakes import StreamedBody
+from tests.http_fakes import StreamedBody, patch_post
 
 
 class TestAskAboutDrama:
@@ -66,7 +66,7 @@ class TestAskAboutDrama:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": "Gemini's answer."}]}}]}
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         result = qa.ask_about_drama("who is this?", [], {}, engine)
         assert result == "Gemini's answer."
@@ -78,7 +78,7 @@ class TestAskAboutDrama:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": "answer"}]}}]}
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key", free_tier=True)
         calls = []
         monkeypatch.setattr(engine, "_throttle_for_free_tier", lambda: calls.append(1))
@@ -95,11 +95,11 @@ class TestAskAboutDrama:
             def json(self):
                 return {"message": {"content": "Ollama's answer."}}
 
-        def fake_post(url, json=None, timeout=None, stream=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["url"] = url
             captured["json"] = json
             return FakeResponse()
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
 
         engine = te.OllamaEngine()
         result = qa.ask_about_drama("who is this?", [], {}, engine)
@@ -117,10 +117,10 @@ class TestAskAboutDrama:
             def json(self):
                 return {"message": {"content": "answer"}}
 
-        def fake_post(url, json=None, timeout=None, stream=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["json"] = json
             return FakeResponse()
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
 
         engine = te.OllamaEngine()
         qa.ask_about_drama("second question", [], {}, engine,

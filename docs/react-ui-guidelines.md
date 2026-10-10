@@ -20,7 +20,7 @@ Apply to every new or reworked React page. A reviewer can check each with a yes 
    (e.g. "Advanced: batch 20, context 6/3, no cost cap") so people see the state without opening it.
 5. **One line per setting.** Label left (or above on phones), control right, help as tooltip. No setting
    uses two lines except a textarea. Group related controls in a row (Max speed-up and Max slow-down on
-   one row, as Streamlit's `sp1, sp2` columns do).
+   one row).
 6. **Short labels, help in a tooltip.** Labels are 1-4 words plus a unit. Everything else goes in a
    `title`/`(?)` help control or inside `<details>`. No inline explanatory paragraphs in the default
    view. Error and blocking messages are the exception and stay inline.

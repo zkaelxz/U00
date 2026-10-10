@@ -13,7 +13,7 @@ export const ENDPOINTS: { name: EndpointName; label: string; placeholder: string
     name: 'ollama_url',
     label: 'Ollama URL',
     placeholder: 'http://127.0.0.1:11434',
-    help: 'Where the local Ollama server runs. Blank uses Ollama’s default on this PC.',
+    help: 'Where Ollama runs. Blank uses its default on this PC.',
   },
 ]
 
@@ -58,6 +58,16 @@ export function parseNumCtx(raw: string): Parsed<number> {
   if (!/^\d+$/.test(t)) return { ok: false, error: 'Enter a whole number of tokens, or 0.' }
   const n = Number(t)
   if (n > MAX_NUM_CTX) return { ok: false, error: `At most ${MAX_NUM_CTX.toLocaleString('en-US')}.` }
+  return { ok: true, value: n }
+}
+
+/** Keep-free memory in GB (mirrors settings_service._check_keep_free_gb). Blank means off. */
+export function parseKeepFreeGb(raw: string): Parsed<number> {
+  const t = raw.trim()
+  if (!t) return { ok: true, value: 0 }
+  if (!/^\d+(\.\d)?$/.test(t)) return { ok: false, error: 'Enter a number of GB like 4 or 2.5, or 0.' }
+  const n = Number(t)
+  if (n > 1024) return { ok: false, error: 'That is more memory than any PC has.' }
   return { ok: true, value: n }
 }
 

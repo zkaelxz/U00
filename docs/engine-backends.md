@@ -93,7 +93,7 @@ engine in the app: the key-free `FakeEngine` lives in `tests/fake_engine.py`
 Every `requests`-based provider call (OpenAI, Gemini, Ollama, the `llm_tasks`
 Gemini path, bulk batch polling, Groq transcription, `qa.py`) is made with
 `stream=True` and read through `engine_backends.shared.read_json_capped`. It
-streams the body through `services/capped_body.read_capped` (default 16 MB,
+streams the body through `lib/capped_body.read_capped` (default 16 MB,
 `PROVIDER_RESPONSE_MAX_BYTES`, plus a total deadline) and raises
 `ProviderResponseTooLarge` with no URL or header in the message; a non-2xx
 status raises `requests.HTTPError` without reading the body. The Anthropic and
@@ -125,6 +125,20 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
     `OPENAI_MODELS` if a run starts failing.
   - Ollama: runs `OLLAMA_MODELS` (Gemma 4) on your own GPU; free, private and
     unlimited. See the model sizes in `OLLAMA_MODELS` for what fits a 12 GB card.
+    The `OLLAMA_CLOUD_MODELS` tags (`gemma4:31b-cloud`, `gemma4:cloud`) are Ollama's hosted
+    models, reached through the same local server after `ollama signin`: no API key is
+    stored here, but the subtitle text is processed on Ollama's servers and free use is capped.
+    They are never a default or fallback, are skipped by the GPU/headroom checks
+    (`ollama_touches_local_gpu`, which also decides whether a job takes the GPU queue slot), and a 429 becomes `OllamaCloudLimitError`, which the normal
+    backoff retries. The direct `ollama.com/api` path (Bearer key) is not built. Any tag
+    ending `-cloud` or `:cloud` counts as hosted (`is_ollama_cloud_model`); the engine list
+    flags those. They are kept out of `ENGINE_MODEL_DICTS["ollama"]`, refused as a Diagnostics
+    default replacement, and ignored on read if a restored backup carries one as the default
+    (`model_override_for_default`). A household user needs `engines.paid` to use one: every
+    route that takes a client-chosen `model` passes it to `require_engines_allowed(request,
+    engine, model=...)` (or calls `require_cloud_model_allowed`), and a sweep test fails any
+    such route that doesn't. Routes that need `engines.paid` or are PC-only, and the
+    estimate / Ollama-check routes that never send text, are the listed exceptions.
   - Gemini free tier (`GEMINI_FREE_TIER_LIMITS`): Flash 10 requests/min and
     250/day; Flash-Lite 15/min and 1000/day; 250,000 tokens/min shared across
     models. Pro isn't available. The free-tier note drops these numbers. Google may use the text to improve its
@@ -205,6 +219,29 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
    (`gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
    `<think>` blocks in a reply are stripped before parsing; a separate
    `thinking` field is never read.
+8. **Thinking on translation runs.** Off by default for every run (Workspace,
+   bulk, CLI): `build_translation_context` sets `reply_without_thinking`, so
+   DeepSeek gets `thinking: disabled` and Ollama `think: false`
+   (`engine_backends/thinking.py`, shared with Live). A run that asks to "think
+   harder" (`thinking=True`, the Translate step's toggle, `cli.py translate
+   --thinking`) sends the explicit on form instead (`thinking: enabled`,
+   `think: true`). Engines without a request switch (Claude, Gemini, OpenAI,
+   the translation-only engines) are unchanged, and so are Reflect's passes and
+   a Claude/Gemini batch; the form says so. Comics are not covered: Scanlate calls
+   `call_llm_json`, which has no switch. The title's choice is kept in
+   `dramas.translate_thinking` (NULL = never chosen = off), written by
+   `save_style_toggles` once a run is accepted and read by
+   `build_translation_context` when a run begins (so retries, line AI and the
+   DeepSeek off-peak job use it too). `cli.py translate --thinking` /
+   `--no-thinking` saves the same column. Reasoning is never saved: `<think>` blocks are stripped
+   and `reasoning_content` / `thinking` fields are never read. Hidden reasoning
+   is billed inside the provider's output token count, so `usage_log` and the
+   spend history (`spend_history_service`) already include it with no new
+   field; the pre-run estimate is made from the visible text and is shown as a
+   lower bound when thinking is on. There is no translation output cache; the
+   per-line provenance settings hash gains `thinking` only for a thinking run,
+   so earlier hashes are unchanged and `TRANSLATE_PROMPT_VERSION` is not bumped
+   (the prompt text is the same).
 
 ## 3. Transcription (ASR)
 
@@ -218,14 +255,19 @@ root modules below.
 | `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; needs `qwen-asr`; batching (`qwen_asr_batch_size`) is honoured only on the tested qwen-asr version (`effective_qwen_batch_size`) |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 
-`BACKENDS` / `get_backend` and `EXPERIMENTAL_BACKENDS` in `asr_backend.py` are
-the registry. Groq is not in it: it is a flag on the Whisper path in
-`transcribe_service`.
+`BACKENDS` / `get_backend` in `asr_backend.py` are the registry: every
+selectable backend by its stored `asr_backend_choice`, and `get_backend` raises
+`ValueError` for an unknown name. There is no separate experimental list; the
+choices `transcribe_service` accepts are
+`asr_options_service.ASR_BACKEND_CHOICES`, and removed backends are marked by
+`asr_options_service.REMOVED_ASR_BACKENDS`. Groq is not in the registry: it is a
+flag on the Whisper path in `transcribe_service`.
 
-A title saved with a removed backend (`asr_options_service.REMOVED_ASR_BACKENDS`:
-`moss_td`) runs and displays as the default backend, with
-`removed_asr_backend_notice()` shown in the Transcribe stage and printed by the CLI.
-The saved value is not rewritten.
+A title saved with a removed backend (`REMOVED_ASR_BACKENDS`: `moss_td`) runs and
+displays as the backend a title with no saved choice gets
+(`asr_options_service.stored_asr_backend`: `qwen3_asr_long` or `whisper`, see
+below), with `removed_asr_backend_notice()` shown in the Transcribe stage and
+printed by the CLI. The saved value is not rewritten.
 
 Alignment is a separate choice (`alignment_method`): `whisper_diff` (the
 default, `core.align_transcript_to_timing`) or `qwen3_forced_align`
@@ -240,7 +282,8 @@ speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`
 (`asr_backend_choice` `qwen3_asr_vad`, opt-in) uses it to feed Qwen3 spans of
 at most about 15 s instead of Whisper's segments. `Qwen3ASRLongBackend`
 (`qwen3_asr_long`, the default for Chinese and Japanese titles that never chose
-a backend, when qwen-asr is installed) runs the same stages with gentler speech
+a backend, when qwen-asr, torch and faster-whisper are installed and Groq is off
+for the title; otherwise `whisper`) runs the same stages with gentler speech
 detection (threshold 0.35, no minimum span, 300 ms padding), spans packed into
 windows of up to 30 s, one line per sentence (`asr_backend.SENTENCE_SPLIT_RULES`) and
 the forced aligner always on, so line length comes from the text and aligned
@@ -250,6 +293,13 @@ The per-title "Split lines by sentences" option (`split_by_sentences`) does the
 same for Whisper and Qwen3 ASR: Whisper's speech detection splits only at 2 s
 pauses (`asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS`, faster-whisper's default) and the
 lines are cut by `asr_backend.SENTENCE_SPLIT_RULES` using Whisper's word timings.
+New Chinese and Japanese titles start with it on; existing titles keep their value.
+It has no effect on other backends (the Transcribe toggle says so).
+
+Every line cut goes through `long_line_split.split_long_segments`: sentence ends,
+then commas and spaces, then real word pauses, and last equal runs of characters
+with proportional times, flagged `timing_uncertain` ("times are approximate").
+Review's Re-split, Resegment and the transcribe-time split share that order.
 
 `mixed_language.py` backs the "mixed languages" option (`mixed_languages` in
 the ASR options): language is detected per speech span, the text's script is

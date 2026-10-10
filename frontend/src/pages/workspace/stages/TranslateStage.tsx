@@ -1,10 +1,8 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { getPresets, updateDramaMetadata } from '../../../api/library'
+import { updateDramaMetadata } from '../../../api/library'
 import {
-  applyTranslatePreset,
-  applyWorkflowTier,
   dismissTranslateErrors,
   getTranslateConfig,
   getTranslateEstimate,
@@ -23,7 +21,6 @@ import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
 import { isBulkJobId, translateJobIds } from '../stageJobIds'
 import { routeHref } from '../../../router'
-import type { LibraryPreset } from '../../../types/library'
 import type {
   TranslatePresetApplied,
   TranslateRunConfig,
@@ -46,33 +43,47 @@ import {
   initialForm,
   lineRanges,
   loadPresetStart,
+  restoreRunOptions,
+  runOptionsDraft,
   MAX_FALLBACKS,
   monthSpendText,
+  cloudModelNotice,
   ollamaWarning,
   reflectAvailable,
+  thinkingApplies,
+  thinkingHelp,
+  translateButtonLabel,
   PRESET_NAME_MAX,
-  savePresetStart,
   styleGuidance,
   validatePresetName,
   validateRun,
   withPresetEngine,
   withSavedEngine,
+  TRANSLATE_DRAFT_STAGE,
   type RunForm,
 } from '../translateForm'
+import { useStageDraft } from '../../../hooks/useStageDraft'
+import { StartFromPicker } from './StartFromPicker'
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
 import { engineNotesHelp, engineOptionLabel } from '../../../api/translate'
 import { GlossaryRetranslate } from './GlossaryRetranslate'
 import { GlossaryReview } from './GlossaryReview'
+import { useResumableScan } from './useGlossaryRun'
 import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
 import { translateBlocker } from './stageBlockers'
 import './translate.css'
-import { AI_ENGINE_LABEL, NOTHING_STARTS_HELP, NO_KEY_ENGINES_HELP } from '../../../helpText'
+import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
+
+const REVIEW_GLOSSARY_NOTE = 'Translate will first scan the transcript for glossary terms and show them for your approval, then translate.'
+const REVIEW_GLOSSARY_HELP = `Changes what the Translate button does. ${REVIEW_GLOSSARY_NOTE} The scan uses the engine saved for this title.`
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
-  const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown' : `about $${e.estimated_usd.toFixed(2)}`
+  const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown'
+    : e.estimate_is_lower_bound ? `at least $${e.estimated_usd.toFixed(2)} (thinking adds hidden output, so the real cost is higher)`
+      : `about $${e.estimated_usd.toFixed(2)}`
   const cap = e.effective_cap_usd !== null ? ` · cap $${e.effective_cap_usd.toFixed(2)}` : ''
   return (
     <span className="translate-estimate" data-testid="estimate">
@@ -103,100 +114,9 @@ function advancedSummary(f: RunForm, base: RunForm): string {
   if (f.fallbacks.length) parts.push(`${f.fallbacks.length} fallback${f.fallbacks.length === 1 ? '' : 's'}`)
   if (f.reflect) parts.push('reflect')
   if (f.bulk) parts.push('bulk')
+  if (f.thinking !== base.thinking) parts.push(f.thinking ? 'thinking on' : 'thinking off')
   if (f.force) parts.push('re-translate existing')
   return parts.length ? parts.join(' · ') : 'defaults'
-}
-
-function appliedText(t: WorkflowTierApplied): string {
-  const model = t.engine_model ? ` (${t.engine_model})` : ''
-  const name = t.tier.charAt(0).toUpperCase() + t.tier.slice(1)
-  const qc = t.auto_qc ? ` ${name} recommends Auto QC; run it from the Export stage.` : ''
-  return `Applied ${t.label}: ${humanize('engine', t.translation_engine)}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
-}
-
-// "Starting tier" + "Apply tier". Saves the tier's engine on the drama and
-// fills the form; never starts a run.
-function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onApplied: (t: WorkflowTierApplied) => void }) {
-  const { dramaId } = useStage()
-  const tiers = config.workflow_tiers ?? []
-  const [tier, setTier] = useState(() => (tiers.some((t) => t.key === 'standard') ? 'standard' : (tiers[0]?.key ?? '')))
-  const [applied, setApplied] = useState<WorkflowTierApplied | null>(null)
-  const [error, setError] = useState<unknown>(null)
-  const [pending, setPending] = useState(false)
-  if (!tiers.length) return null
-  const apply = () => {
-    setPending(true)
-    applyWorkflowTier(dramaId, tier).then(
-      (t) => {
-        setError(null)
-        setApplied(t)
-        onApplied(t)
-      },
-      setError,
-    ).finally(() => setPending(false))
-  }
-  return (
-    <div className="check-row translate-tier">
-      <Field label="Starting tier" help={`Sets engine, model and Reflect together (Draft: DeepSeek; Standard: Claude Sonnet; Release: Claude Opus with Reflect and Auto QC), and stays editable. ${NOTHING_STARTS_HELP}`}>
-        <select value={tier} onChange={(e) => setTier(e.target.value)}>
-          {tiers.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-        </select>
-      </Field>
-      <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending || !tier} onClick={apply}>Apply tier</button>
-      {applied && <span className="muted" role="status">{appliedText(applied)}</span>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </div>
-  )
-}
-
-// "Apply a preset" on an existing drama. Saves the
-// preset's engine on the drama, fills the form and keeps its values for later
-// visits (as a preset chosen at creation does); never starts a run.
-function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) => void }) {
-  const { dramaId } = useStage()
-  const [presets, setPresets] = useState<LibraryPreset[] | null>(null)
-  const [picked, setPicked] = useState('')
-  const [applied, setApplied] = useState<string | null>(null)
-  const [error, setError] = useState<unknown>(null)
-  const [pending, setPending] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    getPresets().then(
-      (r) => !cancelled && setPresets(r.items),
-      () => !cancelled && setPresets([]), // the list is optional here; the Library shows its own error
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  if (!presets?.length) return null
-  const apply = () => {
-    setPending(true)
-    applyTranslatePreset(dramaId, Number(picked))
-      .then(
-        (p) => {
-          setError(null)
-          savePresetStart(dramaId, p)
-          setApplied(`Applied preset "${p.name}". Nothing has started.`)
-          onApplied(p)
-        },
-        setError,
-      )
-      .finally(() => setPending(false))
-  }
-  return (
-    <div className="check-row translate-tier">
-      <Field label="Saved preset" help={`Fills in engine, model, style, English variant and guidance toggles from a saved preset. ${NOTHING_STARTS_HELP} Manage presets in the Library.`}>
-        <select value={picked} onChange={(e) => { setPicked(e.target.value); setApplied(null) }}>
-          <option value="">Choose a preset</option>
-          {presets.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-        </select>
-      </Field>
-      <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending || !picked} onClick={apply}>Apply preset</button>
-      {applied && <span className="muted" role="status">{applied}</span>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </div>
-  )
 }
 
 // "Save as preset". Captures engine, model, style,
@@ -236,7 +156,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
       {!open ? (
         <div className="check-row">
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
-          <span className="muted">Saves the engine, model, style, English variant and the two guidance toggles for any drama.</span>
+          <span className="muted">Saves the engine, model, style, English variant and the two guidance toggles for any title.</span>
           {saved && <span role="status">{saved}</span>}
         </div>
       ) : (
@@ -300,6 +220,7 @@ function RunPanel({
   onRecheckOllama,
   busy,
   bulkPending,
+  retryRef,
 }: {
   config: TranslateRunConfig
   onStarted: (id: string) => void
@@ -309,21 +230,54 @@ function RunPanel({
   busy: boolean
   // The running job is a bulk batch (the busy reason points to Bulk batches).
   bulkPending: boolean
+  // Set to the Translate action, so the stage's Last run card can run it again with this form.
+  retryRef: MutableRefObject<(() => void) | null>
 }) {
   const { dramaId, drama } = useStage()
   const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
+  // What the owner last chose for this title, restored after a reload.
+  const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSLATE_DRAFT_STAGE, {})
+  const [restored] = useState(() => restoreRunOptions(rawDraft, base, config))
+  // Bumped by Reset to defaults so the tier picker starts over too.
+  const [resets, setResets] = useState(0)
+  const [tierChoice, setTierChoice] = useState<string | null>(restored.tier)
   // Parity X28: review proposed glossary terms before the run starts.
   // reviewing counts presses (0 = closed) so each press extracts afresh.
-  const [reviewFirst, setReviewFirst] = useState(false)
+  const [reviewFirst, setReviewFirst] = useState(restored.reviewFirst && !!drama.series_id)
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
-  const [f, setF] = useState<RunForm>(base)
+  // A scan started before leaving the stage (or reloading) is picked up here.
+  // Only a stage opened with the option already on resumes; flipping it on later must not pop a stale scan open.
+  const [reviewOnMount] = useState(reviewFirst && canReview)
+  const resumable = useResumableScan(dramaId, reviewOnMount)
+  const [resumedFor, setResumedFor] = useState<number | null>(null)
+  const [resumeOpen, setResumeOpen] = useState(false)
+  useEffect(() => {
+    if (resumable && resumedFor !== dramaId) {
+      setResumedFor(dramaId)
+      setResumeOpen(true)
+      setReviewing(1)
+    }
+  }, [resumable, resumedFor, dramaId])
+  const [f, setF] = useState<RunForm>(restored.form)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [estimate, setEstimate] = useState<TranslateRunEstimate | null>(null)
   const [estimateError, setEstimateError] = useState<unknown>(null)
   const set = <K extends keyof RunForm>(k: K, v: RunForm[K]) => setF((s) => ({ ...s, [k]: v }))
+  useEffect(() => {
+    saveDraft(runOptionsDraft({ form: f, baseEngine: config.translation_engine, reviewFirst, tier: tierChoice ?? '' }))
+  }, [saveDraft, f, config.translation_engine, reviewFirst, tierChoice])
+  // Back to the title's saved engine and the Settings defaults; the draft for this title is dropped.
+  const resetToDefaults = () => {
+    clearDraft()
+    setF(base)
+    setTierChoice(null)
+    setReviewFirst(false)
+    setProblem(null)
+    setResets((n) => n + 1)
+  }
   // The two prompt toggles are saved for the title as soon as they change, so
   // every later run (retries, glossary re-translation, AI line actions, the
   // CLI) uses what is shown here, not a default.
@@ -352,6 +306,7 @@ function RunPanel({
   const effEngine = f.engine || config.translation_engine
   const canReflect = reflectAvailable(effEngine) && !(f.bulk && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
+  const scanFirst = reviewFirst && canReview
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
   const guidance = styleGuidance(config, f.style_preset)
   const blocker = translateBlocker(config.line_count, config.untranslated_count, f.force, f.forceConfirmed)
@@ -385,6 +340,7 @@ function RunPanel({
     if (bad) return
     if (reviewFirst && canReview && !afterReview) {
       setReviewNote(null)
+      setResumeOpen(false)
       setReviewing((n) => n + 1)
       return
     }
@@ -393,6 +349,9 @@ function RunPanel({
       onStarted(r.job_id)
     }, setError)
   }
+  useEffect(() => {
+    retryRef.current = () => start()
+  })
 
   return (
     <section className="panel" aria-label="Translate run">
@@ -418,11 +377,28 @@ function RunPanel({
           </select>
         </Field>
       </div>
+      <StartFromPicker
+        key={resets}
+        config={config}
+        initialTier={resets ? null : restored.tier}
+        onTierChange={setTierChoice}
+        onTierApplied={(t) => {
+          setF((s) => applyTierToForm(s, t, config))
+          onTierApplied(t)
+        }}
+        onPresetApplied={(p) => {
+          setF((s) => applyPresetToForm(s, p, config))
+          onPresetApplied(p)
+        }}
+      />
       {guidance && (
         <details className="style-guidance">
           <summary>What this style asks the translator for</summary>
           <p className="muted" data-testid="style-guidance">{guidance}</p>
         </details>
+      )}
+      {cloudModelNotice(engine, f.model) && (
+        <p className="warn" role="note" data-testid="cloud-model-notice">{cloudModelNotice(engine, f.model)}</p>
       )}
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
       <div className="translate-go">
@@ -433,7 +409,7 @@ function RunPanel({
           aria-describedby={blocker ? 'translate-blocker' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}
         >
-          Translate {lineCount} line{lineCount === 1 ? '' : 's'}
+          {translateButtonLabel(scanFirst, lineCount)}
         </button>
         {blocker && (
           <p className="stage-blocker" id="translate-blocker" data-testid="translate-blocker">
@@ -441,7 +417,7 @@ function RunPanel({
               <>
                 <span>Still needed: lines to translate.</span>
                 <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                  Go to Source
+                  Go to Media
                 </ButtonLink>
               </>
             )}
@@ -486,15 +462,18 @@ function RunPanel({
         <div className="setting-list">
           <Field
             label="Review glossary before translating"
-            help="Before the run starts, proposes glossary terms from the attached novel (or the source lines) with this drama's engine, so you can fix them first. A glossary mistake repeats on every line."
+            help={`${REVIEW_GLOSSARY_HELP} A glossary mistake repeats on every line.`}
           >
             <Toggle checked={reviewFirst} disabled={reviewing > 0} onChange={setReviewFirst} />
           </Field>
+          {reviewFirst && <p className="muted" data-testid="review-glossary-note">{REVIEW_GLOSSARY_NOTE}</p>}
         </div>
       )}
       {reviewing > 0 && (
         <GlossaryReview
           key={reviewing}
+          resume={resumeOpen}
+          engine={config.translation_engine}
           onStart={(note) => {
             setReviewing(0)
             setReviewNote(note)
@@ -514,23 +493,10 @@ function RunPanel({
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={estimateError} onDismiss={() => setEstimateError(null)} />
       {error instanceof ApiError && error.status === 409 && (
-        <p className="error" role="alert">A translate job is already running for this drama.</p>
+        <p className="error" role="alert">A translate job is already running for this title.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      <TierPicker
-        config={config}
-        onApplied={(t) => {
-          setF((s) => applyTierToForm(s, t, config))
-          onTierApplied(t)
-        }}
-      />
-      <PresetPicker
-        onApplied={(p) => {
-          setF((s) => applyPresetToForm(s, p, config))
-          onPresetApplied(p)
-        }}
-      />
-      <Section storageKey="translate.advanced" title="Advanced" summary={advancedSummary(f, base)}>
+      <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base)}>
         <div className="advanced-grid">
           <div className="advanced-wide">
             <Field label="Style note" help="Optional extra instruction for this run only.">
@@ -608,10 +574,13 @@ function RunPanel({
                 <Toggle checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(v) => set('reflect', v)} />
               </Field>
             )}
+            <Field label="Think harder on tricky text (slower, costs more)" help={thinkingHelp(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)}>
+              <Toggle checked={f.thinking && thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} disabled={!thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} onChange={(v) => set('thinking', v)} />
+            </Field>
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
                 label="Bulk"
-                help={`Send the whole drama as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.${!canBulk && !f.bulk ? ' Not with Reflect on this engine.' : ''}`}
+                help={`Send the whole title as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.${!canBulk && !f.bulk ? ' Not with Reflect on this engine.' : ''}`}
               >
                 <Toggle checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(v) => set('bulk', v)} />
               </Field>
@@ -624,7 +593,7 @@ function RunPanel({
             </Field>
             <Field
               label="Default ambiguous pronouns to she/her"
-              help={`A soft default, not a rule: Mandarin 他/她 sound the same, so where a pronoun is ambiguous the translator is told to write she/her. Context, an honorific, or a character's own pronouns (set under Characters) still win; a character set to he/him stays he/him.${savedNote}`}
+              help={`Mandarin 他/她 sound the same, so the translator is told to write she/her where a pronoun is ambiguous, and lines that still come out he/him for a speaker with no he/him set are asked again once, then flagged in Review. It applies to lines translated after you save it: turn on Re-translate existing to redo lines that already have English. It does not override characters set to he/him, nor an honorific or context that says male.${savedNote}`}
             >
               <Toggle checked={f.female_pronouns} onChange={(v) => saveToggle('female_pronouns', v)} />
             </Field>
@@ -634,6 +603,9 @@ function RunPanel({
             </Field>
           </div>
           <SavePreset f={f} defaultEngine={config.translation_engine} />
+          <div className="advanced-wide actions">
+            <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
+          </div>
         </div>
       </Section>
     </section>
@@ -686,6 +658,7 @@ export default function TranslateStage() {
   const [error, setError] = useState<unknown>(null)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   useReattachJob(translateJobIds(dramaId), adoptJob)
+  const retry = useRef<(() => void) | null>(null)
   const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
@@ -734,9 +707,15 @@ export default function TranslateStage() {
           onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
           onPresetApplied={(p) => setConfig((c) => (c ? withPresetEngine(c, p) : c))}
           onRecheckOllama={recheckOllama}
+          retryRef={retry}
         />
       )}
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        lastRun={{ dramaId, ids: translateJobIds(dramaId), retryFor: () => (config ? () => retry.current?.() : null) }}
+      />
       <BulkBatchesPanel reloadKey={reloads} />
       <NovelFilePanel kind="reference" busy={busy} onChanged={() => setReloads((n) => n + 1)} />
       <GlossaryPanel focusReady={config !== null || error !== null} />

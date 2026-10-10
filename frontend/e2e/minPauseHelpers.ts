@@ -3,9 +3,9 @@ import { openFoldFor } from './reviewFolds'
 import { openTranscribeOptions } from './sourceHelpers'
 
 export async function openAdvanced(page: Page) {
-  await openFoldFor(page, 'Advanced')
+  await openFoldFor(page, 'More options')
   await openTranscribeOptions(page)
-  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Advanced$/ }) }).first()
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^More options$/ }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
@@ -14,7 +14,8 @@ export async function openAdvanced(page: Page) {
 export async function editPauseAndSave(page: Page): Promise<Record<string, unknown>> {
   let saved = ''
   await page.route('**/api/transcribe/dramas/1/config', async (route) => {
-    const resp = await route.fetch()
+    // Always read with GET: route.fetch() would forward the POST and save into the shared library.
+    const resp = await route.fetch({ method: 'GET' })
     const cfg = await resp.json()
     if (route.request().method() === 'GET') {
       await route.fulfill({ response: resp, json: { ...cfg, min_pause_sec: 0.35 } })

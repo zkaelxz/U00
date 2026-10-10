@@ -21,7 +21,7 @@ async function mockNovelFiles(page: Page, opts: { uploadStatus?: number } = {}) 
       if (opts.uploadStatus) {
         return route.fulfill({
           status: opts.uploadStatus,
-          json: { error: { code: 'conflict', message: 'A job is running for this drama. Wait for it to finish or cancel it.' } },
+          json: { error: { code: 'conflict', message: 'A job is running for this title. Wait for it to finish or cancel it.' } },
         })
       }
       const replaced = store[kind].present
@@ -106,7 +106,7 @@ test('Source: uploading the raw novel refreshes the automatic prompt', async ({ 
   expect(uploads.map((u) => u.kind)).toEqual(['raw-novel'])
   const transcribe = page.getByRole('region', { name: 'Transcribe' })
   await openTranscribeOptions(page)
-  await transcribe.locator('.section-title', { hasText: 'Advanced' }).click()
+  await transcribe.locator('.section-title', { hasText: 'More options' }).click()
   await expect(page.getByTestId('auto-prompt')).toContainText('云隐宗、沈清疑')
 })
 

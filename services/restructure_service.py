@@ -42,12 +42,15 @@ from typing import Optional
 
 import background_jobs
 import core as core_module
+from segment_splitting import (MIN_WORD_GAP_SECONDS, SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, SplitRules, encode_line_words, line_word_index, line_words, span_words)
 import db
 import diarize
+import long_line_split
 import raw_transcript
 import resegment
 import subtitle_formats
 import translate_engines
+from engine_backends import llm_tasks
 from services import (diarization_service, drama_service, settings_service, transcribe_service,
                       translate_service)
 from services.review_lines_service import line_dict
@@ -135,17 +138,17 @@ def lines_fingerprint(lines) -> str:
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _commit(drama_id: int, current, new_lines, label: str) -> int:
-    """Snapshot `current` (fresh from the DB), then full-sync `new_lines`.
+def _commit(drama_id: int, current, new, label: str) -> int:
+    """Snapshot `current` (fresh from the DB), then full-sync `new`.
     Caller holds the drama lock and has already checked expected ids.
     Returns the snapshot's `history_id`, so the caller can offer an undo."""
     history_id = db.save_line_history_snapshot(drama_id, current, label)
     if db.load_line_ids(drama_id) != {ln.id for ln in current}:
         raise ConflictError("This drama's lines changed while saving -- nothing was changed; "
                             "reload and try again.")
-    for i, ln in enumerate(new_lines):
+    for i, ln in enumerate(new):
         ln.idx = i
-    db.save_lines(drama_id, new_lines)
+    translate_service.save_synced(drama_id, new)
     return history_id
 
 
@@ -248,9 +251,9 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             raise InvalidInputError("line_ids must be adjacent lines, in order.")
         head, rest = lines[first], lines[first + 1:first + len(line_ids)]
         # Joined only when every line's words are valid and in time order; else dropped.
-        words = core_module.line_words(head)
+        words = line_words(head)
         for ln in rest:
-            more = core_module.line_words(ln)
+            more = line_words(ln)
             words = (words + more if words and more and more[0]["start"] >= words[-1]["start"]
                      else None)
         for ln in rest:
@@ -265,7 +268,7 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             if ln.lang != head.lang:
                 head.lang = None
         head.end = max(head.end, rest[-1].end)
-        head.word_timings = core_module.encode_line_words(head.zh, words) if words else None
+        head.word_timings = encode_line_words(head.zh, words) if words else None
         return lines[:first + 1] + lines[first + len(line_ids):], [head]
     return structural_write(drama_id, expected_line_ids, "before merge", build, with_words=True)
 
@@ -307,9 +310,9 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
         en_first, en_second = ln.en, ""
         if en_at_char is not None:
             en_first, en_second = ln.en[:en_at_char].rstrip(), ln.en[en_at_char:].strip()
-        index = core_module.line_word_index(ln)
-        words = ([core_module.span_words(index, 0, at_char, pieces[0]),
-                  core_module.span_words(index, at_char, len(ln.zh), pieces[1])]
+        index = line_word_index(ln)
+        words = ([span_words(index, 0, at_char, pieces[0]),
+                  span_words(index, at_char, len(ln.zh), pieces[1])]
                  if index is not None else [None, None])
         second = core_module.Line(idx=0, start=cut, end=ln.end, zh=pieces[1], en=en_second,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
@@ -372,7 +375,8 @@ def preview_resegmentation(drama_id: int) -> dict:
             "changed": [{"line_id": ln.id, "idx": ln.idx, "zh": ln.zh, "pieces": list(p)}
                         for ln, p in changed],
             **_affected_counts(drama_id, lines, changed_ids),
-            "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"])}
+            "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"]),
+            "reason": long_line_split.resegment_reason(lines, language, changed)}
 
 
 def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
@@ -393,12 +397,27 @@ def _usage_logger(drama_id, engine_name, engine):
     return log
 
 
+def _raise_if_cancelled(job_id):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+
+
+def _bounded(job_id, engine):
+    if engine is None:
+        return contextlib.nullcontext()
+    return llm_tasks.bounded_job_calls(
+        job_id, lambda: background_jobs.is_cancel_requested(job_id),
+        deadline=llm_tasks.request_deadline_for(engine), lenient_empty=True)
+
+
 def _run_resegment_job(job_id, drama_id, lines, source_ids, language, engine, engine_name,
                        segments, script, min_pause):
     usage = _usage_logger(drama_id, engine_name, engine) if engine is not None else None
-    new_lines, changed = resegment.resegment_lines(lines, language, engine=engine,
-                                                   segments=segments, chinese_script=script,
-                                                   usage_cb=usage, min_pause=min_pause)
+    with _bounded(job_id, engine):
+        new_lines, changed = resegment.resegment_lines(
+            lines, language, engine=engine, segments=segments, chinese_script=script,
+            usage_cb=usage, min_pause=min_pause,
+            check_cancel=lambda: _raise_if_cancelled(job_id))
     result = {"changed": len(changed)}
     if changed:
         result.update(_apply_resegmented(drama_id, new_lines, source_ids))
@@ -465,7 +484,7 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
         started = background_jobs.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
-            description=desc, on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
+            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
     else:
         started = background_jobs.start_job(
             job_id, _run_resegment_job, job_id, drama_id, lines, expected_line_ids, language,
@@ -518,10 +537,11 @@ def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, eng
 
 def _run_llm_preview_job(job_id, drama_id, lines, language, engine, engine_name, segments,
                          script, min_pause):
-    new_lines, changed = resegment.resegment_lines(
-        [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
-        chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine),
-        min_pause=min_pause)
+    with _bounded(job_id, engine):
+        new_lines, changed = resegment.resegment_lines(
+            [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
+            chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine),
+            min_pause=min_pause, check_cancel=lambda: _raise_if_cancelled(job_id))
     _store_llm_preview(drama_id, lines, language, new_lines,
                        [(ln.id, ln.idx, ln.zh, p) for ln, p in changed], engine_name)
     background_jobs.set_result(job_id, {"line_count": len(new_lines)})
@@ -560,7 +580,7 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
         started = background_jobs.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
-            description=desc, on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
+            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
     else:
         started = background_jobs.start_job(
             job_id, _run_llm_preview_job, job_id, drama_id, lines, language, eng, engine_name,
@@ -711,25 +731,25 @@ class _Resplit:
     language: str = "zh"
     sensitivity: str = "normal"
     max_seconds: Optional[float] = None
-    min_pause: float = core_module.MIN_WORD_GAP_SECONDS
+    min_pause: float = MIN_WORD_GAP_SECONDS
 
     @property
     def label(self) -> str:
         return RESPLIT_SENSITIVITIES[self.sensitivity] + (
             f", {self.max_seconds:g} s cap" if self.max_seconds else "")
 
-    def rules(self, ln) -> Optional[core_module.SplitRules]:
+    def rules(self, ln) -> Optional[SplitRules]:
         """None is today's fixed 8 s / 40 CJK characters. The cap replaces the
         8 s limit rather than adding to it: a cap above 8 would otherwise do nothing."""
         if self.sensitivity == "normal" and not self.max_seconds:
             return None
-        seconds = self.max_seconds or core_module.SPLIT_MAX_SECONDS
+        seconds = self.max_seconds or SPLIT_MAX_SECONDS
         if self.sensitivity == "normal":
-            return core_module.SplitRules(seconds, core_module.SPLIT_MAX_CJK_CHARS, count_latin=False)
+            return SplitRules(seconds, SPLIT_MAX_CJK_CHARS, count_latin=False)
         if self.sensitivity == "more":
-            return core_module.SplitRules(
+            return SplitRules(
                 seconds, subtitle_formats.line_char_limit(ln.lang or self.language))
-        return core_module.SplitRules(self.max_seconds, None, per_sentence=True)
+        return SplitRules(self.max_seconds, None, per_sentence=True)
 
     def too_long(self, ln) -> bool:
         return len(ln.zh) > RESPLIT_MAX_CHARS and self.rules(ln) is not None
@@ -740,12 +760,11 @@ class _Resplit:
         seg = {"start": ln.start, "end": ln.end, "text": ln.zh}
         if self.too_long(ln):
             return [seg]
-        words = core_module.line_words(ln)
+        words = line_words(ln)
+        kw = {"rules": self.rules(ln), "min_pause": self.min_pause}
         if not words:
-            return core_module.split_long_segments([seg], rules=self.rules(ln),
-                                                   min_pause=self.min_pause)
-        pieces = core_module.split_long_segments([{**seg, "words": words}], rules=self.rules(ln),
-                                                 min_pause=self.min_pause)
+            return long_line_split.split_long_segments([seg], **kw)
+        pieces = long_line_split.split_long_segments([{**seg, "words": words}], **kw)
         # Word times tighten a piece to its speech, but the line's outer edges
         # may have been re-timed on purpose (by hand or a re-time run); the
         # Review split and the AI re-split keep them, so this does too.
@@ -771,20 +790,8 @@ def _resplit_plan(lines, cfg: _Resplit) -> dict:
 
 
 def _nothing_to_split(lines, cfg: _Resplit) -> str:
-    """Why a run cut nothing: lines over the limits with nowhere to cut are
-    not the same problem as no line being over them."""
-    stuck = 0
-    for ln in _resplit_candidates(lines):
-        if cfg.too_long(ln):
-            stuck += 1
-            continue
-        rules = cfg.rules(ln) or core_module.SplitRules(max_chars=core_module.SPLIT_MAX_CJK_CHARS,
-                                                         count_latin=False)
-        stuck += core_module.exceeds_limits({"start": ln.start, "end": ln.end, "text": ln.zh}, rules)
-    if stuck:
-        return (f"{stuck} line{'s' if stuck != 1 else ''} over the limits at {cfg.label} "
-                "sensitivity, but none has a sentence or comma break to cut at.")
-    return f"No line is over the limits at {cfg.label} sensitivity. {_RESPLIT_NEXT[cfg.sensitivity]}"
+    return long_line_split.nothing_to_split(_resplit_candidates(lines), cfg,
+                                            _RESPLIT_NEXT[cfg.sensitivity])
 
 
 def _resplit_snapshot(lines, plan) -> dict:
@@ -852,14 +859,14 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             aligned += ln.id in timed
             first, *rest = pieces
             ln.start, ln.end, ln.zh, ln.en = first["start"], first["end"], first["text"], ""
-            ln.word_timings = core_module.encode_line_words(first["text"], first.get("words"))
+            ln.word_timings = encode_line_words(first["text"], first.get("words"))
             if first.get("flag"):
                 ln.flag, ln.flag_note = first["flag"], first["flag_note"]
             new_pieces = [core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
                                            speaker=ln.speaker, speaker_manual=ln.speaker_manual,
                                            sfx=ln.sfx, lang=ln.lang, flag=p.get("flag"),
                                            flag_note=p.get("flag_note", ""),
-                                           word_timings=core_module.encode_line_words(
+                                           word_timings=encode_line_words(
                                                p["text"], p.get("words")))
                           for p in rest]
             new_lines.append(ln)

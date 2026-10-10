@@ -5,7 +5,7 @@ URL routes share.
 
 `check_public_url` runs in the request, before any job or fetch: http(s)
 only, no userinfo, at most 2000 characters, and every resolved address
-public (services.url_guard). Errors are fixed strings: a pasted URL
+public (lib.url_guard). Errors are fixed strings: a pasted URL
 can carry a signed token, so it is never echoed.
 
 `start_preview` wraps sources.front_door.preview in the fixed-id job
@@ -22,9 +22,10 @@ import re
 from urllib.parse import urlsplit
 
 import background_jobs
-from services import url_guard
+from lib import url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
+from services.sources_extension_service import require_url_not_extension_only
 from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import (URL_PREVIEW_JOB_ID, error_view, JobFailed,
                                              start_job)
@@ -161,5 +162,6 @@ def start_preview(url, local: bool = True) -> dict:
     """Starts `sources_url_preview` after the public-address check. `local`
     (a request at this PC) allows the signed-in profile and the browser."""
     url = check_public_url(url)
+    require_url_not_extension_only(url)
     return start_job(URL_PREVIEW_JOB_ID, _preview_job, URL_PREVIEW_JOB_ID, url, bool(local),
                   description="Sources URL preview")

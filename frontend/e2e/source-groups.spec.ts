@@ -66,6 +66,15 @@ test('a streamer VOD that already has novel text still shows Novel text', async 
   await expect(novel.getByTestId('novel-status')).toHaveText('Attached: 1,200 characters, 3 chapters.')
 })
 
+test('a video drama leads with Transcribe, open', async ({ page }) => {
+  await stubType(page, 'video_drama')
+  await page.goto('/#/drama/2/source')
+  await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  expect((await titles(page)).slice(0, 2)).toEqual(['Transcribe audio or video', 'Attach novel text (optional)'])
+  expect(await isOpen(page, 'Transcribe audio or video')).toBe(true)
+  expect(await isOpen(page, 'Attach novel text \\(optional\\)')).toBe(false)
+})
+
 test('a novel leads with Novel text, open, with raw and translation text labelled apart', async ({ page }) => {
   await stubType(page, 'novel')
   await page.goto('/#/drama/2/source')

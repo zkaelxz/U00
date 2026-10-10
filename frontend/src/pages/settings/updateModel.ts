@@ -8,15 +8,15 @@ import { formatBytes } from '../libraryAdmin/libraryAdmin'
 export const SMARTSCREEN_NOTE =
   'The installer is not code-signed. Windows may or may not show a warning before Setup opens.'
 export const HASH_NOTE =
-  'The download is checked against the SHA-256 published with the release. That catches a broken download; it is not a signature.'
+  'The download is checked against the release’s SHA-256. That catches a broken download; it is not a signature.'
 export const INSTALL_NOTE =
-  'Opens Setup. Baihe keeps running until you click Install there; then Setup stops Baihe (running jobs are cancelled), updates it and can start it again. Cancelling Setup changes nothing.'
+  'Opens Setup. Baihe keeps running until you click Install there. Then Setup stops Baihe (running jobs are cancelled), updates it and can restart it. Cancelling Setup changes nothing.'
 export const AUTO_CHECK_HELP = 'Looks for a newer version once a day. It never downloads or installs on its own.'
 export const SOURCE_CHECKOUT_NOTE = 'This copy runs from a source checkout: update it with git.'
 export const NO_INSTALLER_RELEASE_LINE = 'No installer release has been published yet.'
 export const NO_RELEASE_LINE =
-  "No release found. If the project's releases were made private, download the installer by hand from the releases page and check it against its .sha256 file."
-export const CUSTOM_SOURCE_NOTE = 'Custom update source: this PC checks a different repository than the default.'
+  "No release found. If releases were made private, download the installer by hand and check it against its .sha256 file."
+export const CUSTOM_SOURCE_NOTE = 'Custom update source: this PC checks a different repository.'
 
 export function versionLine(s: UpdateStatus): string {
   return s.current ? `Version ${s.current}` : 'Source checkout'

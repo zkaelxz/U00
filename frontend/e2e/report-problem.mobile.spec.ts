@@ -88,7 +88,7 @@ test('Report a problem on a phone: Copy a report and Saved reports fit, Deleteâ€
   await page.route('**/api/diagnostics/support-report', (r) => r.fulfill({ json: { report } }))
   await page.route('**/api/diagnostics/bug-reports', (r) => r.request().method() === 'GET'
     ? r.fulfill({ json: [{ id: 12, stamp: '20260929T100000Z', created_at: '2026-09-29 10:00:00 UTC',
-      summary: 'Export hangs on a long drama', route: '/drama/1/export', mode: 'lan',
+      summary: 'Export hangs on a long title', route: '/drama/1/export', mode: 'lan',
       has_screenshot: false, has_server_log: true }] })
     : r.abort())
   await page.goto('/#/library')

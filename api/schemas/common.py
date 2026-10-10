@@ -30,13 +30,14 @@ class ErrorResponse(BaseModel):
 
 class TranslateEngine(BaseModel):
     """One entry from translate_engines.ENGINES --
-    key_configured is a boolean only, never a key value (D2)."""
+    key_configured is a boolean only, never a key value."""
     name: str
     label: str
     free: bool
     models: Optional[List[str]] = None
     # Label for an offered model that has no built-in entry (id -> text).
     model_labels: Dict[str, str] = Field(default_factory=dict)
+    cloud_models: List[str] = Field(default_factory=list)
     key_configured: bool
 
 

@@ -339,11 +339,11 @@ def test_test_run_env_has_no_keys_and_uses_the_guard(monkeypatch):
     assert env["BAIHE_ASSISTANT_TEST_RUN"] == "1" and "PATH" in env
     seen = {}
 
-    class P:
-        returncode, stdout, stderr = 0, "1 passed", ""
-
     monkeypatch.setattr(svc, "_tracked_files", lambda: None)
-    monkeypatch.setattr(svc.subprocess, "run", lambda cmd, **kw: seen.update(cmd=cmd, **kw) or P())
+    monkeypatch.setattr(
+        svc.proc_run, "run_captured",
+        lambda cmd, timeout, **kw: seen.update(cmd=cmd, **kw) or svc.proc_run.CapturedRun(
+            0, "1 passed", "", False, False))
     assert svc.run_tool("run_tests", {"path": "tests/test_maintenance_assistant.py"})["ok"]
     assert "services.assistant_pytest_guard" in seen["cmd"]
     assert "ANTHROPIC_API_KEY" not in seen["env"]
@@ -485,6 +485,22 @@ def test_ollama_is_local_only_on_loopback(isolated_db, monkeypatch, url, local):
     if not local:
         with pytest.raises(svc.ConflictError):
             svc.require_cloud_consent("ollama")
+
+
+def test_ollama_cloud_model_is_not_local_and_needs_consent(isolated_db):
+    assert svc.cloud_consent_given("ollama", "gemma4:12b") is True
+    assert svc.cloud_consent_given("ollama", "gemma4:31b-cloud") is False
+    with pytest.raises(svc.ConflictError):
+        svc.require_cloud_consent("ollama", "gpt-oss:120b-cloud")
+
+
+def test_build_engine_refuses_a_saved_ollama_cloud_model_without_consent(isolated_db, monkeypatch):
+    svc.set_settings({"engine": "ollama", "model": "gemma4:cloud"})
+    assert svc._is_local_engine("ollama") is False
+    with pytest.raises(svc.ConflictError):
+        svc.build_engine()
+    with pytest.raises(svc.ConflictError):
+        svc.build_engine("ollama", "gpt-oss:120b-cloud")
 
 
 def test_ollama_consent_can_be_saved_for_a_remote_server(isolated_db, monkeypatch):

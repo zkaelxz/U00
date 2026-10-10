@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { ANSWER, mockAssistant } from './assistantMocks'
+import { ANSWER, mockAssistant, openSection } from './assistantMocks'
 import { navLink, openMenu, openSettingsGroups } from './settingsNav'
 
 // Desktop: the Maintenance assistant. Every /api/assistant call is mocked.
@@ -10,7 +10,7 @@ const SHOTS = '/tmp/claude-0/-home-user-U00/780be93c-8b60-5332-b9fb-fd0d9036666f
 test('nav link is hidden with Developer Mode off and appears once it is turned on in Settings', async ({ page }) => {
   const s = await mockAssistant(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   await openMenu(page)
   await expect(navLink(page, 'Settings')).toBeVisible()
   const toggle = page.getByRole('region', { name: 'Developer Mode' }).getByRole('switch', { name: 'Developer Mode' })
@@ -34,9 +34,9 @@ test('reached by URL with the mode off: a link that lands on the Developer Mode 
   await expect(page.getByRole('switch', { name: 'Developer Mode' })).toHaveCount(0)
   await page.getByRole('link', { name: 'Turn on in Settings' }).click()
   await expect(page).toHaveURL(/#\/settings\?section=developer-mode$/)
-  // The fold starts closed; the link opens it.
+  // The link lands on the System tab.
   const toggle = page.getByRole('region', { name: 'Developer Mode' }).getByRole('switch', { name: 'Developer Mode' })
-  await expect(page.locator('#settings-experimental > details')).toHaveJSProperty('open', true)
+  await expect(page.getByRole('tab', { name: 'System' })).toHaveAttribute('aria-selected', 'true')
   await expect(toggle).toBeInViewport()
   await toggle.click()
   await expect(toggle).toBeChecked()
@@ -51,8 +51,8 @@ test('from another device: PC only, no nav link, no Settings card', async ({ pag
   await expect(page.getByText('The maintenance assistant is available on the PC only.')).toBeVisible()
   await expect(navLink(page, 'Assistant')).toHaveCount(0)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
-  await expect(page.locator('#settings-jobs')).toBeVisible()
+  await openSettingsGroups(page, 'System')
+  await expect(page.locator('#settings-panel-system')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Developer Mode' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
@@ -64,6 +64,7 @@ test('ask: busy state, plain-text answer, tools used, patch not applied, add sug
   await page.goto('/#/assistant')
   await openMenu(page)
   await expect(navLink(page, 'Assistant')).toBeVisible()
+  await openSection(page, 'Tools')
   await expect(page.getByTestId('read-only-note')).toHaveText('Read-only: this assistant has no tool that changes files, git or settings.')
 
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
@@ -96,6 +97,7 @@ test('ask: busy state, plain-text answer, tools used, patch not applied, add sug
   const suggestion = chat.getByRole('list', { name: 'Suggested backlog items' }).getByRole('listitem')
   await suggestion.getByRole('button', { name: 'Add to backlog' }).click()
   await expect(suggestion.getByRole('button', { name: 'Added' })).toBeDisabled()
+  await openSection(page, 'Backlog')
   const backlog = page.getByRole('list', { name: 'Backlog items', exact: true })
   await expect(backlog.getByRole('listitem')).toHaveCount(2)
   await expect(backlog).toContainText('Dub skips lines with no speaker')
@@ -151,9 +153,10 @@ test('backlog: add, delete (two-step), clear all; changelog', async ({ page }) =
   const s = await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
   const card = page.getByRole('region', { name: 'Backlog' })
+  await expect(card.locator('.section-summary')).toHaveText('1 item')
+  await openSection(page, 'Backlog')
   const list = card.getByRole('list', { name: 'Backlog items', exact: true })
   await expect(list.getByRole('listitem')).toHaveCount(1)
-  await expect(card.locator('.card-meta')).toHaveText('1 item')
 
   await card.getByLabel('Kind').selectOption('feature')
   await card.getByLabel('New item').fill('A dark theme for the reader.')
@@ -172,6 +175,7 @@ test('backlog: add, delete (two-step), clear all; changelog', async ({ page }) =
   await expect(card.getByText('Nothing in the backlog yet.')).toBeVisible()
   expect(s.calls.find((c) => c.path === '/api/assistant/backlog/clear')?.body).toEqual({ confirm: true })
 
+  await openSection(page, 'Changelog')
   const log = page.getByRole('region', { name: 'Changelog' })
   await expect(log.getByLabel('To', { exact: true })).toHaveValue('HEAD')
   await log.getByLabel('From', { exact: true }).fill('v0.9')
@@ -191,6 +195,27 @@ test('desktop screenshot', async ({ page }) => {
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   await expect(chat.getByTestId('assistant-answer')).toBeVisible()
   await chat.getByText('Tools used (2)').click()
-  await page.getByRole('region', { name: 'Tools' }).getByText('What it can read').click()
+  await openSection(page, 'Tools')
   await page.screenshot({ path: `${SHOTS}/assistant-desktop.png`, fullPage: true })
+})
+
+test('sections: only Ask starts open, a toggle is remembered across a reload, the rest stay out of the way', async ({ page }) => {
+  const s = await mockAssistant(page, { developerMode: true })
+  await page.goto('/#/assistant')
+  const fold = (name: string) => page.getByRole('region', { name }).locator('details.section').first()
+  await expect(fold('Ask the assistant')).toHaveJSProperty('open', true)
+  for (const name of ['Backlog', 'Changelog', 'Tools']) await expect(fold(name)).toHaveJSProperty('open', false)
+  // The closed summary says what is inside without opening it.
+  await expect(page.getByRole('region', { name: 'Tools' }).locator('.section-summary')).toContainText('read-only tool')
+
+  await fold('Changelog').locator('summary').first().click()
+  await expect(fold('Changelog')).toHaveJSProperty('open', true)
+  await fold('Ask the assistant').locator('summary').first().click()
+  await expect(fold('Ask the assistant')).toHaveJSProperty('open', false)
+
+  await page.reload()
+  await expect(fold('Changelog')).toHaveJSProperty('open', true)
+  await expect(fold('Ask the assistant')).toHaveJSProperty('open', false)
+  await expect(fold('Backlog')).toHaveJSProperty('open', false)
+  expect(s.unmocked).toEqual([])
 })

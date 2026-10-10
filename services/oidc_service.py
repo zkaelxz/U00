@@ -42,7 +42,8 @@ import warnings
 from collections import OrderedDict
 from urllib.parse import urlencode, urlsplit
 
-from services import auth_service, capped_body
+from services import auth_service
+from lib import capped_body
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      RateLimitedError)
 

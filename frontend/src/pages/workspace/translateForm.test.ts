@@ -19,12 +19,19 @@ import {
   loadPresetStart,
   MAX_FALLBACKS,
   monthSpendText,
+  cloudModelNotice,
   ollamaWarning,
   parseCap,
   reflectAvailable,
   sameEngineKind,
+  thinkingApplies,
+  thinkingEngines,
+  thinkingHelp,
+  restoreRunOptions,
+  runOptionsDraft,
   savePresetStart,
   splitLines,
+  translateButtonLabel,
   styleGuidance,
   validatePresetName,
   TRANSLATION_ONLY,
@@ -122,6 +129,7 @@ describe('translate form', () => {
       batch_size: 20,
       job_cost_cap_usd: 1.5,
       fallback_chain: [{ engine: 'gemini' }],
+      thinking: false,
       default_female_pronouns: false,
       include_genre_notes: true,
     })
@@ -188,7 +196,7 @@ describe('preset start values', () => {
     expect(f).toMatchObject({ style_preset: 'natural', locale: 'en-US' })
   })
 
-  it('remembers per drama, keeps only style and locale, and clears on an empty preset', () => {
+  it('remembers per title, keeps only style and locale, and clears on an empty preset', () => {
     vi.stubGlobal('localStorage', memory())
     savePresetStart(3, { style_preset: 'wuxia', locale: 'en-GB' })
     expect(loadPresetStart(3)).toEqual({ style_preset: 'wuxia', locale: 'en-GB' })
@@ -235,7 +243,7 @@ describe('preset start values', () => {
     })
   })
 
-  it('prefills the preset model only when the drama engine offers it', () => {
+  it('prefills the preset model only when the title engine offers it', () => {
     const withEngines = {
       ...config,
       translation_engine: 'gemini',
@@ -416,5 +424,149 @@ describe('Ollama reachability warning (X24)', () => {
   it('stays quiet for other engines, even with a stale false', () => {
     expect(ollamaWarning('claude', false)).toBe(false)
     expect(ollamaWarning('', false)).toBe(false)
+  })
+})
+
+describe('think harder on tricky text', () => {
+  it('is off unless the title remembers it, and is sent explicitly either way', () => {
+    expect(initialForm(config).thinking).toBe(false)
+    const remembered = initialForm({ ...config, title_thinking: true })
+    expect(remembered.thinking).toBe(true)
+    expect(buildRunBody(remembered).thinking).toBe(true)
+    expect(buildRunBody({ ...remembered, thinking: false }).thinking).toBe(false)
+    expect(buildEstimateParams(remembered)).toMatchObject({ thinking: true })
+  })
+
+  it('applies only to engines with a request switch, and never to Reflect', () => {
+    expect(thinkingApplies('deepseek', false)).toBe(true)
+    expect(thinkingApplies('ollama', false)).toBe(true)
+    expect(thinkingApplies('claude', false)).toBe(false)
+    expect(thinkingApplies('deepseek', true)).toBe(false)
+    expect(thinkingApplies('claude', false, ['claude'])).toBe(true)
+  })
+
+  it('applies when any engine in the fallback chain has a switch', () => {
+    expect(thinkingApplies('claude', false, undefined, ['deepseek'])).toBe(true)
+    expect(thinkingApplies('claude', false, undefined, ['gemini', ''])).toBe(false)
+    expect(thinkingApplies('claude', true, undefined, ['deepseek'])).toBe(false)
+    expect(thinkingEngines('deepseek', ['claude', 'ollama'], false)).toEqual(['deepseek', 'ollama'])
+  })
+
+  it('names the engines it applies to, or the chain that has none', () => {
+    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).toMatch(/applies to deepseek, not to the other engines/)
+    expect(thinkingHelp('deepseek', false)).not.toMatch(/applies to/)
+    expect(thinkingHelp('claude', false, undefined, ['gemini'])).toMatch(/^claude and gemini have no thinking switch/)
+  })
+
+  it('says plainly what it costs, and plainly when it does nothing', () => {
+    expect(thinkingHelp('deepseek', false)).toMatch(/Off by default/)
+    expect(thinkingHelp('deepseek', false)).toMatch(/lower bound/)
+    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).not.toMatch(/lower bound/)
+    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).toMatch(/does not include it/)
+    expect(thinkingHelp('claude', false)).toBe(
+      'claude has no thinking switch, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.',
+    )
+    expect(thinkingHelp('deepseek', true)).toMatch(/^Reflect mode has no thinking switch/)
+  })
+})
+
+describe('cloud model notice', () => {
+  const engine = { cloud_models: ['gemma4:31b-cloud'] }
+  it('warns in plain words only for a cloud model', () => {
+    expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/off this PC/)
+    expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/limits/)
+  })
+  it('follows the server flag for a cloud tag that is not built in', () => {
+    expect(cloudModelNotice({ cloud_models: ['gpt-oss:120b-cloud'] }, 'gpt-oss:120b-cloud')).toMatch(/off this PC/)
+  })
+  it('stays quiet for local, empty and unknown engines', () => {
+    expect(cloudModelNotice(engine, 'gemma4:12b')).toBeNull()
+    expect(cloudModelNotice(engine, '')).toBeNull()
+    expect(cloudModelNotice(undefined, 'gemma4:31b-cloud')).toBeNull()
+  })
+})
+
+describe('remembered run options', () => {
+  // The per-drama draft store (hooks/useStageDraft) as the Translate stage sees it.
+  let drafts: Record<number, Record<string, unknown>> = {}
+  const cfg = {
+    ...config,
+    translation_engine: 'deepseek',
+    bulk_supported_engines: ['claude'],
+    engines: [{ name: 'deepseek', models: ['d1'] }, { name: 'claude', models: ['c1', 'c2'] }],
+  } as unknown as TranslateRunConfig
+  const save = (id: number, patch: object, extra: object = {}) => {
+    const out = runOptionsDraft({ form: { ...initialForm(cfg), ...patch }, baseEngine: 'deepseek', reviewFirst: false, tier: '', ...extra })
+    drafts[id] = JSON.parse(JSON.stringify(out)) as Record<string, unknown>
+  }
+  const restore = (id: number, c = cfg) => restoreRunOptions(drafts[id] ?? null, initialForm(c), c)
+
+  beforeEach(() => {
+    drafts = {}
+  })
+
+  it('saves and restores the choices, including the glossary toggle and tier', () => {
+    save(1, {
+      engine: 'claude', model: 'c2', style_preset: 'wuxia', locale: 'en-GB', style_note: 'keep puns',
+      batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5', thinking: true,
+    }, { reviewFirst: true, tier: 'release' })
+    const r = restore(1)
+    expect(r.form).toMatchObject({
+      engine: 'claude', model: 'c2', style_preset: 'wuxia', locale: 'en-GB', style_note: 'keep puns',
+      batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5', thinking: true,
+    })
+    expect(r.reviewFirst).toBe(true)
+    expect(r.tier).toBe('release')
+  })
+
+  it('never restores a pending re-translate or stores anything but plain choices', () => {
+    save(1, { force: true, forceConfirmed: true })
+    expect(restore(1).form).toMatchObject({ force: false, forceConfirmed: false })
+    const raw = JSON.stringify(drafts)
+    expect(raw).not.toMatch(/key|secret|force|pronouns|genre/i)
+  })
+
+  it('falls back to the defaults for values that are no longer valid', () => {
+    save(1, {
+      engine: 'gone', style_preset: 'gone', locale: 'fr-FR', batch_size: 'abc', cost_cap: '-3',
+    })
+    expect(restore(1).form).toEqual(initialForm(cfg))
+    save(2, { engine: 'claude', model: 'nope', fallbacks: ['claude', 'ghost'] })
+    expect(restore(2).form).toMatchObject({ engine: 'claude', model: '', fallbacks: [] })
+    save(3, { reflect: true, bulk: true, engine: 'claude' })
+    expect(restore(3).form).toMatchObject({ reflect: true, bulk: false })
+  })
+
+  it('clamps numbers to the field range', () => {
+    save(1, { batch_size: '500', context_window: '0', context_window_ahead: '101' })
+    expect(restore(1).form).toMatchObject({ batch_size: '60', context_window: '0', context_window_ahead: '100' })
+  })
+
+  it("lets the title's saved engine win when it changed since", () => {
+    save(1, { engine: 'claude', model: 'c1', style_preset: 'wuxia' })
+    const moved = { ...cfg, translation_engine: 'claude' } as TranslateRunConfig
+    expect(restore(1, moved).form).toMatchObject({ engine: '', model: '', style_preset: 'wuxia' })
+  })
+
+  it('keeps each title separate', () => {
+    save(1, { style_preset: 'wuxia' })
+    save(2, { locale: 'en-GB' })
+    expect(restore(1).form).toMatchObject({ style_preset: 'wuxia', locale: 'en-US' })
+    expect(restore(2).form).toMatchObject({ style_preset: 'natural', locale: 'en-GB' })
+    expect(restore(3).form).toEqual(initialForm(cfg))
+  })
+
+  it('ignores a draft without a form or with the wrong shapes', () => {
+    expect(restoreRunOptions(null, initialForm(cfg), cfg).form).toEqual(initialForm(cfg))
+    expect(restoreRunOptions({ reviewFirst: true }, initialForm(cfg), cfg)).toEqual({ form: initialForm(cfg), reviewFirst: false, tier: null })
+    expect(restoreRunOptions({ form: 'nope', tier: 3, reviewFirst: 'yes' }, initialForm(cfg), cfg)).toEqual({ form: initialForm(cfg), reviewFirst: false, tier: null })
+  })
+})
+
+describe('translate button label', () => {
+  it('says what the button does', () => {
+    expect(translateButtonLabel(false, 1)).toBe('Translate 1 line')
+    expect(translateButtonLabel(false, 4)).toBe('Translate 4 lines')
+    expect(translateButtonLabel(true, 4)).toBe('Scan glossary, then translate')
   })
 })

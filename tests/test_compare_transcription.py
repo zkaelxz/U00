@@ -16,7 +16,11 @@ import translate_engines
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import compare_transcription_service as svc, transcribe_service, translate_service
+from services import (compare_transcription_service as svc, gpu_process_job, transcribe_pipeline, transcribe_service,
+                      translate_service)
+from tests.gpu_inline import run_in_child_inline
+
+_REAL_RUN_IN_CHILD = gpu_process_job.run_in_child
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError,
                                      UnsupportedOperationError)
@@ -54,6 +58,7 @@ def _env(isolated_db, monkeypatch):
         calls["transcribe"].append({"model_size": model_size, **kw})
         return [{"start": 0.0, "end": 1.0, "text": f"{calls['text']}{len(calls['transcribe'])}"}]
 
+    monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
     monkeypatch.setattr(core, "extract_audio_slice", fake_slice)
     monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
     monkeypatch.setattr(core, "release_gpu_models", lambda: None)
@@ -210,22 +215,64 @@ class TestRun:
             svc.start_compare(did, ALL)
         assert svc.get_options(did)["has_audio"] is False
 
-    def test_cancel_mid_run_keeps_earlier_proposals(self, monkeypatch):
+    def test_cancel_after_hearing_keeps_earlier_proposals(self, monkeypatch):
+        """Hearing is one killable child; a cancel seen while the lines are
+        then worked through (translation needs this process) keeps the
+        proposals made so far."""
         did, _ = _drama(3)
-        seen = []
+        job_id = svc.compare_job_id(did)
+        real_progress = background_jobs.update_progress
 
-        def cancel_after_first(job_id):
-            return len(seen) >= 1
-        real = core.transcribe_for_timing
-
-        def tracking(*a, **k):
-            seen.append(1)
-            return real(*a, **k)
-        monkeypatch.setattr(core, "transcribe_for_timing", tracking)
-        monkeypatch.setattr(background_jobs, "is_cancel_requested", cancel_after_first)
+        def cancel_after_first_line(jid, frac, message=""):
+            if message == "Line 1 of 3":
+                background_jobs.request_cancel(job_id)
+            return real_progress(jid, frac, message)
+        monkeypatch.setattr(background_jobs, "update_progress", cancel_after_first_line)
         _run(did)
         res = svc.get_compare_result(did)
         assert len(res["proposals"]) == 1 and res["partial"] is True
+
+    def test_cancel_mid_hearing_keeps_the_lines_heard(self, monkeypatch):
+        """Cancel lands while the child is hearing line 2: lines 1 and 2 were
+        already heard, so they become proposals; line 3 is never heard."""
+        did, _ = _drama(3)
+        job_id = svc.compare_job_id(did)
+        real, heard_count = core.transcribe_for_timing, []
+
+        def cancel_while_hearing_second(path, *a, **kw):
+            heard = real(path, *a, **kw)
+            heard_count.append(1)
+            if len(heard_count) == 2:
+                background_jobs.request_cancel(job_id)
+            return heard
+        monkeypatch.setattr(core, "transcribe_for_timing", cancel_while_hearing_second)
+        _run(did)
+        res = svc.get_compare_result(did)
+        assert [p["number"] for p in res["proposals"]] == [1, 2]
+        assert res["partial"] is True
+
+    def test_timeout_mid_hearing_keeps_the_lines_heard(self, monkeypatch):
+        did, ids = _drama(3)
+
+        def times_out_after_one(job_id, body, args, *, timeout_s, on_item=None, **kw):
+            on_item({"line_id": ids[0], "text": "新的"})
+            raise gpu_process_job.ChildFailed(gpu_process_job.TIMEOUT_MESSAGE)
+        monkeypatch.setattr(gpu_process_job, "run_in_child", times_out_after_one)
+        _run(did)
+        res = svc.get_compare_result(did)
+        assert [p["number"] for p in res["proposals"]] == [1]
+        assert res["partial"] is True
+        assert gpu_process_job.TIMEOUT_MESSAGE in res["errors"]
+
+    def test_timeout_before_any_line_is_heard_errors_the_job(self, monkeypatch):
+        did, _ = _drama(2)
+
+        def times_out(job_id, body, args, *, timeout_s, on_item=None, **kw):
+            raise gpu_process_job.ChildFailed(gpu_process_job.TIMEOUT_MESSAGE)
+        monkeypatch.setattr(gpu_process_job, "run_in_child", times_out)
+        out = svc.start_compare(did, {"kind": "range", "from_number": 1, "to_number": 2})
+        job = _wait(out)
+        assert job["status"] == "error" and gpu_process_job.TIMEOUT_MESSAGE in job["error"]
 
     def test_cancel_before_first_line_has_no_result(self, monkeypatch):
         did, _ = _drama(2)
@@ -371,7 +418,7 @@ class TestMissingPackage:
         did, _ = _drama()
         by_id = {b["id"]: b for b in svc.get_options(did)["backends"]}
         assert by_id["whisper"]["available"] is False
-        assert by_id["whisper"]["reason"] == transcribe_service.MISSING_TRANSCRIPTION_MESSAGE
+        assert by_id["whisper"]["reason"] == transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE
         with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
             svc.start_compare(did, selection=ALL)
 
@@ -501,3 +548,38 @@ class TestApi:
         assert jobs_service.job_kind(res["job_id"]) == "transcribe"
         assert jobs_service.job_page(res["job_id"]) == "title"
         assert client.get(f"/api/transcribe/dramas/999999/compare-transcription/result").status_code == 404
+
+
+# ----- real process ---------------------------------------------------------
+
+def hung_hear(audio_path, windows, cfg, scratch_dir, result_queue):
+    """gpu_process_job body for the real-process test: a Whisper call that never returns."""
+    with open(os.environ["COMPARE_TEST_MARKER"], "w") as f:
+        f.write(str(os.getpid()))
+    time.sleep(600)
+
+
+def test_cancel_kills_the_hearing_process_within_bounded_time(monkeypatch, tmp_path):
+    from services import compare_hear_worker
+    marker = str(tmp_path / "started")
+    monkeypatch.setenv("COMPARE_TEST_MARKER", marker)
+    monkeypatch.setattr(gpu_process_job, "run_in_child", _REAL_RUN_IN_CHILD)
+    monkeypatch.setattr(compare_hear_worker, "hear_lines_worker", hung_hear)
+    did, _ = _drama(2)
+    out = svc.start_compare(did, ALL)
+    deadline = time.time() + 60
+    while not os.path.exists(marker):
+        assert time.time() < deadline, "the hearing process never started"
+        time.sleep(0.05)
+    pid = int(open(marker).read())
+    background_jobs.request_cancel(out["job_id"])
+    job = _wait(out)
+    assert job["result"] == {"failed_reason": "cancelled"}
+    deadline = time.time() + 10
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        assert time.time() < deadline, "the hearing process outlived Cancel"
+        time.sleep(0.05)

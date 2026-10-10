@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { JOB_RUNNING_MESSAGE } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { NO_AUDIO_MESSAGE, canRetranscribe, jobIsForLine, retranscribeMenuState, retranscribeOutcome } from './retranscribeLogic'
 
 const done = (result: Record<string, unknown> | null, outcome: 'ok' | 'failed' | 'cancelled' | 'partial' = 'ok') => ({
@@ -52,6 +52,7 @@ describe('retranscribeOutcome', () => {
     ['line_gone', /merged, split or deleted/],
     ['model_download', /could not be downloaded/],
     ['audio_slice', /could not be cut/],
+    ['timeout', /took too long/],
     ['something_else', /failed/],
   ])('explains failed_reason %s', (reason, text) => {
     const r = retranscribeOutcome(done({ line_id: 1, failed_reason: reason }, 'failed'))
