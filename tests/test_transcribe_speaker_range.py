@@ -2,6 +2,7 @@
 transcribing" (TranscribeRunRequest min_speakers/max_speakers). The range
 reaches the chained diarization job's worker options and its on_done hook,
 and bad combinations are refused before anything starts. No model runs."""
+import whisper_models
 import os
 
 import pytest
@@ -63,7 +64,7 @@ def test_the_chained_diarization_gets_the_range(isolated_db, monkeypatch):
                                       "error": None, "cancel_requested": False, "result": None}
     monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
-    monkeypatch.setattr(transcribe_service.core_module, "load_whisper_model",
+    monkeypatch.setattr(whisper_models, "load_whisper_model",
                         lambda *a, **k: object())  # never a real model
     on_done_args = []
     monkeypatch.setattr(diarization_service, "make_apply_on_done",

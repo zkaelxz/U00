@@ -13,6 +13,7 @@ import background_jobs
 import db
 from services import auto_backup_service as abs_
 from services import disk_usage_service as dus
+from services import disk_usage_trash_service as dts
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
@@ -247,7 +248,7 @@ class TestClear:
     def test_a_file_goes_to_trash_too(self, tree):
         res = dus.clear("library/source_cache/x.html", confirm=True, expected_size_bytes=400,
                         expected_file_count=1)
-        listed = dus.trash_list()["items"]
+        listed = dts.trash_list()["items"]
         assert [(i["id"], i["kind"], i["original_path_relative"]) for i in listed] == [
             (res["trash_id"], "file", "library/source_cache/x.html")]
 
@@ -932,10 +933,10 @@ def _abs(path, kw):
 
 def _empty(**over):
     """trash_empty with the count and size the list shows."""
-    seen = dus.trash_list()
+    seen = dts.trash_list()
     args = {"expected_item_count": seen["item_count"], "expected_size_bytes": seen["size_bytes"]}
     args.update(over)
-    return dus.trash_empty("DELETE", **args)
+    return dts.trash_empty("DELETE", **args)
 
 
 class TestTrashProtection:
@@ -982,7 +983,7 @@ class TestTrashProtection:
             pytest.skip("no symlinks here")
         with pytest.raises(ServiceError):
             _trash_one()
-        for call in (dus.trash_list, lambda: dus.trash_empty("DELETE", 0, 0)):
+        for call in (dts.trash_list, lambda: dts.trash_empty("DELETE", 0, 0)):
             with pytest.raises(ServiceError):
                 call()
         assert os.listdir(outside) == []
@@ -992,9 +993,9 @@ class TestTrashProtection:
 class TestTrashRestore:
     def test_restores_a_folder_to_its_old_place(self, tree, renames):
         done = _trash_one()
-        item = dus.trash_list()["items"][0]
+        item = dts.trash_list()["items"][0]
         assert item["restorable"] is True and item["size_bytes"] == 400
-        res = dus.trash_restore(done["trash_id"], confirm=True)
+        res = dts.trash_restore(done["trash_id"], confirm=True)
         assert res == {"name": "source_cache", "kind": "folder", "size_bytes": 400, "file_count": 1}
         assert os.path.getsize(os.path.join(tree, "library", "source_cache", "x.html")) == 400
         assert os.listdir(_trash_dir(tree)) == []
@@ -1002,26 +1003,26 @@ class TestTrashRestore:
 
     def test_restores_a_file(self, tree):
         done = _trash_one("library/source_cache/x.html")
-        dus.trash_restore(done["trash_id"], confirm=True)
+        dts.trash_restore(done["trash_id"], confirm=True)
         assert os.path.getsize(os.path.join(tree, "library", "source_cache", "x.html")) == 400
 
     def _conflict(self, trash_id):
         with pytest.raises(ConflictError) as exc:
-            dus.trash_restore(trash_id, confirm=True)
+            dts.trash_restore(trash_id, confirm=True)
         assert exc.value.details["reason"] == "cannot_restore"
         return exc.value.message
 
     def test_needs_confirm(self, tree):
         done = _trash_one()
         with pytest.raises(InvalidInputError):
-            dus.trash_restore(done["trash_id"])
+            dts.trash_restore(done["trash_id"])
         assert not os.path.exists(os.path.join(tree, "library", "source_cache"))
 
     def test_the_old_folder_is_gone_409(self, tree):
         done = _trash_one("library/dramas/1/dub_clips", 700, 1)
         import shutil
         shutil.rmtree(os.path.join(tree, "library", "dramas", "1"))
-        assert dus.trash_list()["items"][0]["restorable"] is False
+        assert dts.trash_list()["items"][0]["restorable"] is False
         assert "folder it came from is gone" in self._conflict(done["trash_id"])
         assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
 
@@ -1049,7 +1050,7 @@ class TestTrashRestore:
         done = _trash_one()
         monkeypatch.setattr(background_jobs, "active_job_ids", lambda: ["transcribe_1"])
         with pytest.raises(ConflictError) as exc:
-            dus.trash_restore(done["trash_id"], confirm=True)
+            dts.trash_restore(done["trash_id"], confirm=True)
         assert "running" in exc.value.message
         assert not os.path.exists(os.path.join(tree, "library", "source_cache"))
         assert background_jobs.exclusive_active() is False
@@ -1064,7 +1065,7 @@ class TestTrashRestore:
             data["original_path"] = original
             json.dump(data, open(manifest, "w", encoding="utf-8"))
             with pytest.raises(ConflictError):
-                dus.trash_restore(done["trash_id"], confirm=True)
+                dts.trash_restore(done["trash_id"], confirm=True)
         assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
         assert not os.path.exists(os.path.join(tree, "..", "escape"))
 
@@ -1072,23 +1073,23 @@ class TestTrashRestore:
         done = _trash_one()
         manifest = os.path.join(_trash_dir(tree), done["trash_id"], "manifest.json")
         open(manifest, "w").write("{not json")
-        item = dus.trash_list()["items"][0]
+        item = dts.trash_list()["items"][0]
         assert item["restorable"] is False and item["original_path_relative"] is None
         assert item["size_bytes"] == 400
         with pytest.raises(ConflictError):
-            dus.trash_restore(done["trash_id"], confirm=True)
+            dts.trash_restore(done["trash_id"], confirm=True)
 
     @pytest.mark.parametrize("bad", ["..", "../x", "a/b", "a\\b", "/etc", "C:\\x", "",
                                      "20260101-000000-abcdefg1", "20260101-000000-abcdef12\n"])
     def test_bad_ids_are_refused(self, tree, bad):
         with pytest.raises((InvalidInputError, NotFoundError)):
-            dus.trash_restore(bad, confirm=True)
+            dts.trash_restore(bad, confirm=True)
 
 
 
 class TestTrashPurge:
     def _purge(self, trash_id, size, word="DELETE"):
-        return dus.trash_purge(trash_id, confirm_text=word, expected_size_bytes=size)
+        return dts.trash_purge(trash_id, confirm_text=word, expected_size_bytes=size)
 
     def test_deletes_for_good_and_reports_freed(self, tree):
         done = _trash_one()
@@ -1104,7 +1105,7 @@ class TestTrashPurge:
         with pytest.raises(InvalidInputError):
             self._purge(done["trash_id"], 400, word)
         with pytest.raises(InvalidInputError):
-            dus.trash_empty(word)
+            dts.trash_empty(word)
         assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload", "x.html"))
 
     def test_changed_size_is_a_409(self, tree):
@@ -1156,7 +1157,7 @@ class TestTrashPurge:
         with pytest.raises(ConflictError):
             self._purge(done["trash_id"], 400)
         with pytest.raises(ConflictError):
-            dus.trash_empty("DELETE", 1, 400)
+            dts.trash_empty("DELETE", 1, 400)
         assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
         assert background_jobs.exclusive_active() is False
 
@@ -1176,7 +1177,7 @@ class TestTrashPurge:
             os.symlink(str(outside / "top.txt"), os.path.join(payload, "filelink"))
         except (OSError, NotImplementedError):
             pytest.skip("no symlinks here")
-        res = self._purge(done["trash_id"], dus.trash_list()["items"][0]["size_bytes"])
+        res = self._purge(done["trash_id"], dts.trash_list()["items"][0]["size_bytes"])
         assert res["freed_bytes"] >= 400
         assert not os.path.lexists(os.path.join(_trash_dir(tree), done["trash_id"]))
         assert (outside / "sub" / "f.txt").read_bytes() == b"precious"
@@ -1186,14 +1187,14 @@ class TestTrashPurge:
 
     def test_the_path_walk_never_enters_a_folder_swapped_for_a_link(self, tree, tmp_path,
                                                                     monkeypatch):
-        monkeypatch.setattr(dus, "_fd_walk_supported", lambda: False)     # the Windows walk
+        monkeypatch.setattr(dts, "_fd_walk_supported", lambda: False)     # the Windows walk
         outside = tmp_path / "other"
         outside.mkdir()
         (outside / "f.txt").write_bytes(b"precious")
         _write(os.path.join(tree, "library", "tmp", "deep", "a.bin"), 3)
         done = _trash_one("library/tmp", 3, 1)
         payload = os.path.join(_trash_dir(tree), done["trash_id"], "payload")
-        real_plain = dus._plain_dir
+        real_plain = dts._plain_dir
         state = {"n": 0}
 
         def swap_then_check(path):
@@ -1204,14 +1205,14 @@ class TestTrashPurge:
                 shutil.rmtree(path)
                 os.symlink(str(outside), path, target_is_directory=True)
             return real_plain(path)
-        dus._plain_dir = swap_then_check
+        dts._plain_dir = swap_then_check
         try:
             with pytest.raises(OSError):
-                dus._remove_tree(os.path.join(_trash_dir(tree), done["trash_id"]))
+                dts._remove_tree(os.path.join(_trash_dir(tree), done["trash_id"]))
         except (NotImplementedError,):
             pytest.skip("no symlinks here")
         finally:
-            dus._plain_dir = real_plain
+            dts._plain_dir = real_plain
         assert (outside / "f.txt").read_bytes() == b"precious"
         assert os.path.exists(payload)
 
@@ -1261,7 +1262,7 @@ class TestTrashPurge:
         assert os.path.exists(os.path.join(entry, "payload", "b.bin"))
         assert background_jobs.exclusive_active() is False
         # Its record went first, so a half-deleted payload can't be restored.
-        item = dus.trash_list()["items"][0]
+        item = dts.trash_list()["items"][0]
         assert item["restorable"] is False and item["original_path_relative"] is None
         monkeypatch.setattr(os, "unlink", real_unlink)
         assert self._purge(done["trash_id"], 2)["freed_bytes"] == 2
@@ -1304,7 +1305,7 @@ class TestTrashList:
     def test_newest_first_with_what_each_was(self, tree):
         a = _trash_one()
         b = _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
-        res = dus.trash_list()
+        res = dts.trash_list()
         assert [i["id"] for i in res["items"]] == sorted([a["trash_id"], b["trash_id"]], reverse=True)
         by = {i["id"]: i for i in res["items"]}
         assert by[a["trash_id"]]["original_path_relative"] == "library/source_cache"
@@ -1314,13 +1315,13 @@ class TestTrashList:
         assert tree not in json.dumps(res)
 
     def test_empty_when_there_is_no_trash_folder(self, tree):
-        assert dus.trash_list()["items"] == []
+        assert dts.trash_list()["items"] == []
 
     def test_a_running_scan_does_not_hide_the_list(self, tree):
         _trash_one()
         assert dus._scan_lock.acquire(blocking=False)
         try:
-            res = dus.trash_list()
+            res = dts.trash_list()
         finally:
             dus._scan_lock.release()
         assert res["item_count"] == 1 and res["items"][0]["size_bytes"] == 400
@@ -1331,9 +1332,9 @@ class TestTrashHardening:
         _write(os.path.join(tree, "library", "backups", "database", "library_20260101.db"), 50)
         for rel, size, files in (("library/backups/database", 50, 1), ("library/backups", 250, 2)):
             done = _trash_one(rel, size, files, confirm_irreplaceable=True)
-            item = dus.trash_list()["items"][0]
+            item = dts.trash_list()["items"][0]
             assert item["restorable"] is True
-            dus.trash_restore(done["trash_id"], confirm=True)
+            dts.trash_restore(done["trash_id"], confirm=True)
             assert os.path.exists(os.path.join(tree, rel))
         assert os.path.exists(os.path.join(tree, "library", "backups", "database",
                                            "library_20260101.db"))
@@ -1342,10 +1343,10 @@ class TestTrashHardening:
         done = _trash_one()
         entry = os.path.join(_trash_dir(tree), done["trash_id"])
         _write(os.path.join(entry, "payload", "library.db"), 10)
-        item = dus.trash_list()["items"][0]
+        item = dts.trash_list()["items"][0]
         assert item["restorable"] is False
         with pytest.raises(ConflictError) as exc:
-            dus.trash_restore(done["trash_id"], confirm=True)
+            dts.trash_restore(done["trash_id"], confirm=True)
         assert exc.value.details["reason"] == "cannot_restore"
         assert os.path.exists(os.path.join(entry, "payload", "library.db"))
 
@@ -1369,7 +1370,7 @@ class TestTrashHardening:
         with open(manifest, "w") as fh:
             fh.write("[" * 16000)
         assert dus._read_manifest(os.path.dirname(manifest)) is None
-        assert dus.trash_list()["items"][0]["original_path_relative"] is None
+        assert dts.trash_list()["items"][0]["original_path_relative"] is None
 
     def test_an_id_collision_never_touches_the_other_entry(self, tree, monkeypatch):
         first = _trash_one()
@@ -1395,16 +1396,16 @@ class TestTrashHardening:
     def test_restore_does_not_overwrite_something_that_appears_at_the_last_moment(
             self, tree, monkeypatch):
         done = _trash_one("library/source_cache/x.html")
-        real = dus._restore_target
+        real = dts._restore_target
 
         def target_then_squat(manifest, meas, ctx):
             dest, reason = real(manifest, meas, ctx)
             with open(dest, "wb") as fh:
                 fh.write(b"someone else's")
             return dest, reason
-        monkeypatch.setattr(dus, "_restore_target", target_then_squat)
+        monkeypatch.setattr(dts, "_restore_target", target_then_squat)
         with pytest.raises(ConflictError):
-            dus.trash_restore(done["trash_id"], confirm=True)
+            dts.trash_restore(done["trash_id"], confirm=True)
         assert open(os.path.join(tree, "library", "source_cache", "x.html"), "rb").read() \
             == b"someone else's"
         assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
@@ -1442,7 +1443,7 @@ class TestTrashHardening:
             return real_open(path, flags, *a, **k)
         monkeypatch.setattr(os, "open", open_after_swap)
         with pytest.raises(OSError):
-            dus._remove_tree(entry)
+            dts._remove_tree(entry)
         monkeypatch.setattr(os, "open", real_open)
         assert swapped and (outside / "f.txt").read_bytes() == b"precious"
 
@@ -1457,7 +1458,7 @@ class TestTrashHardening:
         except (OSError, NotImplementedError):
             pytest.skip("no symlinks here")
         with pytest.raises(OSError):
-            dus._clear_readonly(str(link))
+            dts._clear_readonly(str(link))
         assert oct(os.stat(target).st_mode & 0o777) == oct(0o444)
         folder = tmp_path / "d"
         folder.mkdir()
@@ -1465,9 +1466,9 @@ class TestTrashHardening:
         calls = []
         monkeypatch.setattr(os, "supports_follow_symlinks", set())
         monkeypatch.setattr(os, "chmod", lambda *a, **k: calls.append((a, k)))
-        dus._clear_readonly(str(folder))
+        dts._clear_readonly(str(folder))
         assert calls == []
-        dus._clear_readonly(str(target))
+        dts._clear_readonly(str(target))
         assert len(calls) == 1 and "follow_symlinks" not in calls[0][1]
         monkeypatch.undo()
         os.chmod(folder, 0o700)
@@ -1477,14 +1478,14 @@ class TestTrashHardening:
         a = _trash_one()
         b = _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
         monkeypatch.setattr(dus, "MAX_ENTRIES", 1)
-        res = dus.trash_list()
+        res = dts.trash_list()
         assert res["partial"] is True
         unknown = [i for i in res["items"] if i["size_bytes"] is None]
         assert len(unknown) == 1 and unknown[0]["file_count"] is None
         uid = unknown[0]["id"]
         with pytest.raises(ConflictError):          # a size was claimed that can't be verified
-            dus.trash_purge(uid, confirm_text="DELETE", expected_size_bytes=1)
-        assert dus.trash_purge(uid, confirm_text="DELETE", expected_size_bytes=None)
+            dts.trash_purge(uid, confirm_text="DELETE", expected_size_bytes=1)
+        assert dts.trash_purge(uid, confirm_text="DELETE", expected_size_bytes=None)
         assert uid in (a["trash_id"], b["trash_id"]) and uid not in os.listdir(_trash_dir(tree))
 
     def test_the_root_scan_walks_the_trash_once(self, tree, monkeypatch):
@@ -1510,6 +1511,6 @@ class TestTrashHardening:
             pytest.skip("no symlinks here")
         read = []
         real = dus._read_manifest
-        monkeypatch.setattr(dus, "_read_manifest", lambda e: (read.append(e), real(e))[1])
-        res = dus.trash_list()
+        monkeypatch.setattr(dts, "_read_manifest", lambda e: (read.append(e), real(e))[1])
+        res = dts.trash_list()
         assert res["item_count"] == 1 and fake not in read

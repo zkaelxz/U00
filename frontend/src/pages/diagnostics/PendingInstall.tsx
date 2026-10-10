@@ -22,13 +22,29 @@ export function needsPlanPanel(plan: PendingInstallPlan): boolean {
 export const RESTART_HELP =
   'Close Baihe (the "Stop Baihe Studio" shortcut, or close its server window) and open it again. Nothing is closed for you.'
 
+// Only "this server has no plan endpoint" (404) or "no answer at all" may skip the
+// preview. Anything else (a 409 while a job runs, a 403, a dry-run timeout, a
+// 5xx) means the check itself did not happen, and installing on files that may
+// be in use is what the preview exists to prevent.
+export function planCheckUnavailable(e: unknown): boolean {
+  if (e instanceof TypeError) return true
+  const err = e as { status?: number; code?: string } | null
+  return err?.status === 404 || (err?.status === 0 && err.code === 'network_error')
+}
+
+// A panel for a different set of packages must start unticked: an "I understand"
+// given for one downgrade is not consent for another.
+export const planPanelKey = (keys: string[]): string => keys.join('\u0000')
+
 export function pendingKeys(status: PendingInstallStatus | null): Set<string> {
   return new Set(status?.packages ?? [])
 }
 
 /** What would change, in plain words, and the buttons that start it. */
-export function InstallPlanPanel({ planned, onQueue, onCancel }: {
+export function InstallPlanPanel({ planned, queueing = false, onQueue, onCancel }: {
   planned: PlannedInstall
+  // The queue request is in flight: a second click would send it twice.
+  queueing?: boolean
   onQueue: (acceptRisk: boolean) => void
   onCancel: () => void
 }) {
@@ -60,7 +76,7 @@ export function InstallPlanPanel({ planned, onQueue, onCancel }: {
       )}
       <div className="actions">
         {!refused && (
-          <button type="button" className={buttonClass('primary', 'sm')} disabled={gated}
+          <button type="button" className={buttonClass('primary', 'sm')} disabled={gated || (restart && queueing)}
             onClick={() => (restart ? onQueue(understood) : planned.installNow())}>
             {restart ? 'Install when I restart Baihe' : 'Install now'}
           </button>

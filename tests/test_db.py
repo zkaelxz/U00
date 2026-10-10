@@ -1499,13 +1499,13 @@ class TestImportTimeSafety:
     @staticmethod
     def _copy_db_and_deps(temp_dir):
         # db.py imports core.py (for LINE_FIELDS), and core.py imports
-        # segment_splitting.py; all three are self-contained (stdlib-only), so
+        # segment_splitting.py and whisper_models.py; all four are self-contained (stdlib-only), so
         # copying them is enough to import db.py with a real, separate
         # interpreter, in a directory with nothing else in it -- the only way
         # to observe a genuinely fresh module import rather than the
         # already-imported module every other test in this process shares.
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for name in ("db.py", "core.py", "segment_splitting.py"):
+        for name in ("db.py", "core.py", "segment_splitting.py", "whisper_models.py"):
             shutil.copy(os.path.join(project_root, name), os.path.join(temp_dir, name))
         # db.py takes its library location from portable.data_dir() (Step 80b).
         shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
