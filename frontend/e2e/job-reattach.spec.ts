@@ -122,7 +122,7 @@ test('a running job the server flags as stalled says so next to Cancel', async (
   const panel = page.getByTestId('job-panel')
   await expect(panel.getByTestId('job-stuck')).toHaveText('No progress for a while. It may be stuck. All jobs')
   await expect(panel.getByTestId('job-status')).toHaveText('Running · Batch 2 of 5')
-  await expect(panel.getByRole('button', { name: 'Cancel job' })).toHaveClass(/btn-secondary/)
+  await expect(panel.getByRole('button', { name: /^Cancel / })).toHaveClass(/btn-secondary/)
 })
 
 test('a "running" record left by a crashed app does not lock Start', async ({ page }) => {

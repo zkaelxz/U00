@@ -1,10 +1,13 @@
 """
 job_process_kill.py -- stopping a background job's child process: terminate
-then kill, and killing a whole process group/tree. Re-exported by
-background_jobs, which is where callers and tests reach these names.
+then kill, and killing a worker's process group. kill_tree lives in
+lib/proc_kill.py; both are re-exported by background_jobs, which is where
+callers and tests reach these names (kill_tree here adds the app-log warning).
 """
 
 import os
+
+from lib import proc_kill
 
 
 def _warn_via_jobs(what, exc):
@@ -25,25 +28,7 @@ def _stop_process(proc):
 
 
 def kill_tree(proc):
-    """Kills proc and everything it started (it runs in its own process
-    group/session -- see run_cancellable), so a wrapper script's ffmpeg
-    grandchild can't keep the pipes open."""
-    import subprocess
-    try:
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                           capture_output=True, timeout=10)
-        else:
-            import signal
-            os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass   # the group already exited
-    except Exception as exc:
-        _warn_via_jobs(f"could not kill process tree {proc.pid}", exc)
-    try:
-        proc.kill()
-    except Exception as exc:
-        _warn_via_jobs(f"could not kill process {proc.pid}", exc)
+    return proc_kill.kill_tree(proc, warn=_warn_via_jobs)
 
 
 def _kill_worker_group(proc):

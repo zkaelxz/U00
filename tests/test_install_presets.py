@@ -71,7 +71,7 @@ def test_pip_cache_permission_hint(lines, hinted):
 
 
 def test_failed_install_returns_the_hint_even_though_output_is_redacted(monkeypatch):
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         yield {"line": WIN_LINE}
         yield {"returncode": 1, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
@@ -81,7 +81,7 @@ def test_failed_install_returns_the_hint_even_though_output_is_redacted(monkeypa
 
 
 def test_success_has_no_hint(monkeypatch):
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         yield {"line": WIN_LINE}
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)

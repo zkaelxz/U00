@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openTranscribeOptions } from './sourceHelpers'
+import { openTranscribeOptions, enableDeveloperMode } from './sourceHelpers'
 
 // The Transcribe card: a refused option is flagged on its own field, the
 // settings fold once the drama has lines, "Still needed" is a callout, and
@@ -47,13 +47,14 @@ test('a refused option is highlighted on its field, with the reason beside it', 
 })
 
 test('the form survives a reload, and Reset to defaults clears it', async ({ page }) => {
+  await enableDeveloperMode(page)
   // A fresh context: no draft and every fold closed.
   await page.goto('/#/drama/1/source')
   const card = page.getByRole('region', { name: 'Transcribe' })
   const beam = card.getByLabel('Beam size', { exact: true })
   await openTranscribeOptions(page)
   // Fresh storage: Advanced starts folded, and stays open across the reload below.
-  await card.locator('.section-title', { hasText: /^Advanced$/ }).first().click()
+  await card.locator('.section-title', { hasText: /^More options$/ }).first().click()
   await expect(beam).toBeVisible()
   const savedBeam = await beam.inputValue()
   await card.getByLabel('Source language').selectOption('ja')
@@ -108,7 +109,7 @@ test('an unnamed 422 shows the server sentence in the banner', async ({ page }) 
   await expect(page.locator('.error-banner')).toContainText('Unknown source_language.')
 })
 
-test('the language and Whisper model are always in view; speakers and advanced start folded', async ({ page }) => {
+test('the language and Whisper model are always in view; the options start folded', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   const card = page.getByRole('region', { name: 'Transcribe' })
   await expect(page.getByTestId('settings-summary')).toBeVisible()
@@ -116,20 +117,19 @@ test('the language and Whisper model are always in view; speakers and advanced s
   await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
   await expect(card.getByLabel('Expected speakers', { exact: true })).toBeHidden()
   await expect(card.getByLabel('Beam size', { exact: true })).toBeHidden()
-  await expect(card.locator('.section-title', { hasText: /^More options$/ })).toHaveCount(0)
   await expect(card.getByRole('heading', { name: 'Transcribe' })).toHaveCount(0)
   await shot(page, 'transcribe-folded-desktop')
-  await card.locator('.section-title', { hasText: /^Speakers$/ }).click()
+  await card.locator('.section-title', { hasText: /^More options$/ }).click()
   await expect(card.getByLabel('Expected speakers', { exact: true })).toBeVisible()
   // Remembered: still open after a reload. Section saves the state in its toggle
   // handler, which runs after the open attribute changes, so wait for the save.
   await expect
-    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.speakers')))
+    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.advanced')))
     .toBe('1')
   await page.reload()
   await expect(card.getByLabel('Expected speakers', { exact: true })).toBeVisible()
-  // Speakers and Advanced are siblings: opening one does not open the other.
-  await expect(card.getByLabel('Beam size', { exact: true })).toBeHidden()
+  // Developer Mode is off here, so the gated knobs are not in the DOM even with the fold open.
+  await expect(card.getByLabel('Beam size', { exact: true })).toHaveCount(0)
 })
 
 test('"Still needed" is a callout with its fix button', async ({ page }) => {
@@ -154,7 +154,7 @@ test('a running auto-tune shows elapsed time and an estimate', async ({ page }) 
   )
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).first().click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).first().click()
   await page.locator('.section-title', { hasText: /^Auto-tune min silence$/ }).click()
   await expect(page.getByTestId('autotune-elapsed')).toContainText(/0:0\d elapsed/)
   await expect(page.getByTestId('autotune-elapsed')).toContainText(/0:0[2-9] elapsed/)

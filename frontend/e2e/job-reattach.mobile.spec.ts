@@ -49,6 +49,6 @@ test('the Last run card and the stuck warning fit a phone', async ({ page }) => 
   }))
   await page.reload()
   await expect(page.getByTestId('job-stuck')).toContainText('It may be stuck.')
-  await expect(page.getByRole('button', { name: 'Cancel job' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Cancel / })).toBeVisible()
   expect(await fits(page)).toBe(true)
 })

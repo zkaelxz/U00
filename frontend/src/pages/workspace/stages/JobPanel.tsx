@@ -14,7 +14,7 @@ import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample 
 import { formatElapsed } from './autotuneGlossary'
 import { stripStallNote, stuckText, watchStuck, type StuckInfo } from './jobStuck'
 import { lastRunCounts, lastRunFor } from './lastRun'
-import { TERMINAL_STATUSES, jobFailed, jobOutcomeText } from '../../../types/jobs'
+import { TERMINAL_STATUSES, jobFailed, jobName, jobOutcomeText } from '../../../types/jobs'
 import './jobPanel.css'
 
 export interface LastRunProps {
@@ -176,13 +176,14 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
               {canCancel && (
                 <button
                   type="button"
-                  className={buttonClass('secondary')}
+                  className={buttonClass('secondary', 'sm', 'job-panel-cancel')}
+                  aria-label={`Cancel ${jobName(job)}`}
                   onClick={() => cancelJob(job.job_id).then(() => {
                     setCancelError(null)
                     onCancelled?.()
                   }, setCancelError)}
                 >
-                  Cancel job
+                  Cancel
                 </button>
               )}
             </div>

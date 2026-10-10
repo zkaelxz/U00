@@ -47,7 +47,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await run.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(page.getByTestId('estimate').or(page.getByRole('alert'))).toBeVisible()
 
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
 
   // Out-of-range values are caught before any request.
   await run.getByLabel('Batch size', { exact: true }).fill('500')
@@ -76,7 +76,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   })
   expect('line_ids' in bodies[0]).toBe(false)
 
-  await page.getByRole('button', { name: 'Cancel job' }).click()
+  await page.getByRole('button', { name: /^Cancel / }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
@@ -92,7 +92,7 @@ test('fallback engines: the rule is shown, only same-kind engines are offered, R
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   const group = run.getByTestId('fallback-engines')
   await expect(group).toContainText('Up to 2, tried in order only after the main engine keeps failing (it retries first).')
   await expect(group).toContainText('Not with Reflect or Bulk.')

@@ -52,6 +52,9 @@ def _clean(r):
     return r.json()
 
 
+_real_check_browser = diagnostics.check_browser
+
+
 @pytest.fixture
 def fakes(isolated_db, monkeypatch):
     """Everything the service reaches outside the process, faked dirty."""
@@ -91,7 +94,7 @@ def fakes(isolated_db, monkeypatch):
                         diagnostics.redact_for_support(f"Report\nERROR {DIRTY}"))
     calls = []
 
-    def fake_stream(cmd, timeout, cwd=None, env=None, cancel=None):
+    def fake_stream(cmd, timeout, cwd=None, env=None, cancel=None, **_kw):
         calls.append(("pip", cmd))
         yield {"line": DIRTY}
         yield {"returncode": 0, "timed_out": False}
@@ -115,11 +118,23 @@ def client(fakes):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
+@pytest.mark.parametrize("installed", [True, False])
+def test_setup_checks_report_the_playwright_package(client, monkeypatch, installed):
+    # Through the real check_browser so a dropped key can't hide behind a fake.
+    import browser_support
+    import page_fetch
+    monkeypatch.setattr(diagnostics, "check_browser", _real_check_browser)
+    monkeypatch.setattr(page_fetch, "browser_status", lambda: {"found": True, "name": "Chrome"})
+    monkeypatch.setattr(browser_support, "package_installed", lambda: installed)
+    b = _clean(client.get("/api/diagnostics/setup-checks"))
+    assert b["browser"]["package"] is installed
+
+
 def test_reads(client):
     b = _clean(client.get("/api/diagnostics/setup-checks"))
     assert b["python"] == {"version": "3.11.0", "ok": True}
     assert b["ffmpeg"]["found"] is True and b["js_runtime"] == {"found": True, "name": "deno"}
-    assert b["browser"] == {"found": True, "name": "Chrome", "package": None}
+    assert b["browser"] == {"found": True, "name": "Chrome", "package": False}
     assert "path" not in json.dumps(b)
     m = _clean(client.get("/api/diagnostics/model-cache"))
     assert m["hf_total_bytes"] == 10
@@ -152,7 +167,7 @@ def test_install_presets(client):
 
 
 def test_install_failure_hint(client, monkeypatch):
-    def fake_stream(cmd, timeout, cancel=None):
+    def fake_stream(cmd, timeout, cancel=None, **_kw):
         yield {"line": "ERROR: [Errno 13] Permission denied: "
                        "'C:\\users\\x\\appdata\\local\\pip\\cache\\wheels\\a.whl'"}
         yield {"returncode": 1, "timed_out": False, "cancelled": False}
