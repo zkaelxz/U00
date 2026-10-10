@@ -11,6 +11,7 @@ __all__ = [
     "SpeakerTimeSummary",
     "DiarizationConfig",
     "DiarizationRunResult",
+    "GpuRuntimeStatus",
     "SourceConfig",
     "SourceConfigUpdate",
     "TranscribeConfig",
