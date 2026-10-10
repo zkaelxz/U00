@@ -17,6 +17,7 @@ needs to know where a page came from:
 """
 
 import contextlib
+import hashlib
 import io
 import os
 import re
@@ -179,15 +180,19 @@ def _as_written(text: str) -> bytes:
     return text.replace("\n", os.linesep).encode("utf-8")
 
 
-def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "",
-                    url: str = "") -> str:
-    """Writes fetched novel text into the drama's raw-novel file, through
-    the same loader an uploaded .txt goes through. `url` is the page the
-    text came from, kept in the chapter manifest. Returns the path."""
+def _novel_block(text: str, heading: str) -> str:
     import core
     loaded = core.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
-    if heading:
-        loaded = f"{heading}\n\n{loaded}"
+    return f"{heading}\n\n{loaded}" if heading else loaded
+
+
+def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "",
+                    url: str = "", source: str = "") -> str:
+    """Writes fetched novel text into the drama's raw-novel file, through
+    the same loader an uploaded .txt goes through. `url` is the page the
+    text came from and `source` its site, kept in the chapter manifest.
+    Returns the path."""
+    loaded = _novel_block(text, heading)
     path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)
     mode = "a" if append and os.path.exists(path) else "w"
     offset = os.path.getsize(path) if mode == "a" else -1
@@ -195,8 +200,43 @@ def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str
         if mode == "a":
             f.write("\n\n")
         f.write(loaded)
-    _note_block(drama_id, offset, loaded, heading, "", url)
+    _note_block(drama_id, offset, loaded, heading, source, url)
     return path
+
+
+def _block_already_saved(drama_id: int, heading: str, block: bytes) -> bool:
+    """A manifest chapter with this title and byte length whose bytes hash
+    the same. The manifest is only a hint (see chapter_manifest), so the
+    bytes on disk are compared rather than its offsets trusted."""
+    known = chapter_manifest.load(drama_id)
+    if not known:
+        return False
+    title = (heading or "")[:chapter_manifest._MAX_TITLE]
+    digest = hashlib.sha256(block).digest()
+    try:
+        with open(chapter_manifest.raw_path(drama_id), "rb") as f:
+            for ch in known["chapters"]:
+                if ch["unsplit"] or ch["title"] != title or ch["length"] != len(block):
+                    continue
+                f.seek(ch["start"])
+                if hashlib.sha256(f.read(ch["length"])).digest() == digest:
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def append_novel_chapter_once(drama_id: int, text: str, heading: str, url: str = "",
+                              source: str = "") -> bool:
+    """Appends `text` as a new chapter unless the same chapter is already
+    in the file, so capturing one page twice adds nothing. Returns whether
+    it appended. Under the drama's page lock, like a chapter import's own
+    append, so the check and the write see the same file."""
+    with _page_lock(drama_id):
+        if _block_already_saved(drama_id, heading, _as_written(_novel_block(text, heading))):
+            return False
+        save_novel_text(drama_id, text, append=True, heading=heading, url=url, source=source)
+        return True
 
 
 # ---------------------------------------------------------------------------

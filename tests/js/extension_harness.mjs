@@ -158,7 +158,7 @@ async function content(scenario) {
   throw new Error(`unknown scenario ${scenario}`);
 }
 
-function loadBackground({ granted, response, fetchImpl }) {
+function loadBackground({ granted, response, fetchImpl, stored = {} }) {
   let listener = null;
   const fetchCalls = [];
   const sandbox = {
@@ -170,7 +170,7 @@ function loadBackground({ granted, response, fetchImpl }) {
     },
     chrome: {
       runtime: { onInstalled: { addListener() {} }, onMessage: { addListener: (fn) => { listener = fn; } } },
-      storage: { local: { remove() {}, get: async () => ({}), set: async () => {} } },
+      storage: { local: { remove() {}, get: async () => stored, set: async () => {} } },
       permissions: { contains: async ({ origins }) => granted(origins) },
     },
   };
@@ -327,8 +327,118 @@ async function background(scenario) {
   throw new Error(`unknown scenario ${scenario}`);
 }
 
+// A novel reader: paragraphs under one container, an optional selection, no page images
+// unless given. Returns the content script's API and what it asked the worker to send.
+function loadNovelPage({ paragraphs = [], selection = "", images = [], heading = "第三章 夜雨" }) {
+  const sent = [];
+  const box = { tagName: "DIV", parentElement: null };
+  const ps = paragraphs.map((text, i) => ({
+    tagName: "P", textContent: text, parentElement: box, index: i,
+    getBoundingClientRect: () => ({ top: i * 20, left: 0, width: 600, height: 20 }),
+    compareDocumentPosition(other) { return other.index > this.index ? 4 : 2; },
+  }));
+  const h1 = { textContent: `  ${heading}  ` };
+  const document = {
+    title: `${heading}_书名_小说网`, body: { innerText: "", appendChild() {} },
+    documentElement: { appendChild() {} }, images, head: { appendChild() {} },
+    querySelectorAll: (sel) => (sel === "p" ? ps : []),
+    querySelector: (sel) => (sel === "h1" ? h1 : null),
+    createElement: () => ({ style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
+    getElementById: () => null, addEventListener() {},
+  };
+  const sandbox = {
+    document, console, URL, setTimeout, clearTimeout, Promise, Map, Set, WeakMap, WeakSet, Math, Number,
+    String, Array, Error, Date, Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
+    getSelection: () => ({ toString: () => selection }),
+    getComputedStyle: () => ({ visibility: "visible", display: "block", opacity: "1" }),
+    MutationObserver: class { observe() {} disconnect() {} },
+    ResizeObserver: class { observe() {} disconnect() {} },
+    location: { href: "https://novel.example/ch/3", host: "novel.example" },
+    chrome: { runtime: { onMessage: { addListener() {} },
+      sendMessage: async (message) => { sent.push(message); return { ok: true, data: { saved: true } }; } } },
+  };
+  sandbox.window = sandbox;
+  sandbox.addEventListener = () => {};
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(read("content.js"), sandbox);
+  return { api: sandbox.__baihe, sent };
+}
+
+function loadPopupScript() {
+  const el = () => ({ addEventListener() {}, classList: { toggle() {} }, appendChild() {},
+    options: [], value: "", checked: true, textContent: "", hidden: false });
+  const sandbox = {
+    document: { getElementById: () => el(), querySelectorAll: () => [] },
+    chrome: { runtime: { sendMessage: async () => ({ ok: false, error: "x" }), onMessage: { addListener() {} } },
+              tabs: { query: async () => [] } },
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${read("site_access.js")}\n${read("popup.js")}\n;this.__popup = { novelButtonLabel, describeNovelSave, dramaTitles };`, sandbox);
+  return sandbox.__popup;
+}
+
+async function novel(scenario) {
+  const prose = ["雨下了一整夜。".repeat(20), "他推开门，看见院子里的灯还亮着。".repeat(10), "她没有回头。".repeat(20)];
+  switch (scenario) {
+    case "classify":
+      return {
+        prose: loadNovelPage({ paragraphs: prose }).api.isTextPage(),
+        comic: loadNovelPage({ paragraphs: prose, images: [fakeImg(IMG_URL)] }).api.isTextPage(),
+        short: loadNovelPage({ paragraphs: ["一句很短的话，只有这一点点而已，不到三百个字符的样子。"] }).api.isTextPage(),
+      };
+    case "selection_wins": {
+      const h = loadNovelPage({ paragraphs: prose, selection: "只要这一段。" });
+      const r = await h.api.saveNovelText({ dramaId: 4 });
+      return { sent: h.sent[0], fromSelection: r.data.fromSelection };
+    }
+    case "main_text": {
+      const h = loadNovelPage({ paragraphs: prose });
+      const r = await h.api.saveNovelText({ dramaId: 4 });
+      return { sent: h.sent[0], fromSelection: r.data.fromSelection };
+    }
+    case "long_heading": {
+      const h = loadNovelPage({ paragraphs: prose, heading: "a".repeat(199) + "😀" });
+      await h.api.saveNovelText({ dramaId: 4 });
+      return { heading: h.sent[0].heading };
+    }
+    case "over_cap": {
+      const h = loadNovelPage({ paragraphs: prose, selection: "字".repeat(200001) });
+      const r = await h.api.saveNovelText({ dramaId: 4 });
+      return { ok: r.ok, sentCount: h.sent.length };
+    }
+    case "worker": {
+      const post = async (url) => {
+        const calls = [];
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t" },
+          fetchImpl: async (target, options) => {
+            calls.push({ path: new URL(target).pathname, body: JSON.parse(options.body) });
+            return new Response(JSON.stringify({ saved: true }), { status: 200 });
+          },
+        });
+        await h.ask({ type: "saveNovelText", dramaId: 4, heading: "h", text: "正文", source: "s", url });
+        return calls[0];
+      };
+      return { public: await post("https://novel.example/ch/3"), private: await post("http://192.168.1.5/ch/3") };
+    }
+    case "popup_labels": {
+      const p = loadPopupScript();
+      p.dramaTitles.set("4", "书");
+      return {
+        none: p.novelButtonLabel("", ""), novel: p.novelButtonLabel("书", "novel"),
+        comic: p.novelButtonLabel("漫", "comic"),
+        saved: p.describeNovelSave({ saved: true, drama_id: 4, chars: 120, fromSelection: true }),
+        repeat: p.describeNovelSave({ saved: false, drama_id: 4 }),
+      };
+    }
+  }
+  throw new Error(`unknown scenario ${scenario}`);
+}
+
 const [kind, scenario] = process.argv.slice(2);
-const handlers = { content, background, popup };
+const handlers = { content, background, popup, novel };
 const result = await handlers[kind](scenario);
 process.stdout.write(JSON.stringify(result));
 process.exit(0);

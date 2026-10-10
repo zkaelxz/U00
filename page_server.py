@@ -662,11 +662,13 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._check_access()
             route = self.path.split("?")[0]
-            if route not in ("/page", "/pages", "/text"):
+            if route not in ("/page", "/pages", "/text", "/novel"):
                 raise EndpointError(404, "unknown endpoint")
             payload = self._parse_json(self._read_body())
-            if route == "/text":
-                self._send_json(200, self._run_text(payload))
+            if route in ("/text", "/novel"):
+                from services import extension_novel_service as novel
+                run = self._run_text if route == "/text" else novel.save_from_bridge
+                self._send_json(200, run(payload))
                 return
             images = payload.get("images")
             if not isinstance(images, list) or not images:
