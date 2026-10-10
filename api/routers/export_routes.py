@@ -50,10 +50,9 @@ def get_subtitle_text(
     text = export_service.generate_subtitle_text(
         drama_id, fmt, field, include_notes=include_notes,
         wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source)
-    filename = f"drama_{drama_id}_{field}.{fmt}"
     return Response(
         content=text, media_type=_MEDIA_TYPES[fmt],
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, field, fmt)})
 
 
 @router.post("/dramas/{drama_id}/flag-overlaps", dependencies=[require_permission("lines.edit")], response_model=FlagActionResult,
@@ -105,10 +104,9 @@ def post_flag_auto_qc(drama_id: int = Path(ge=1)):
                       422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def get_epub(drama_id: int = Path(ge=1), field: str = Query("en", pattern="^(en|zh)$")):
     data = export_service.generate_epub(drama_id, field=field)
-    filename = f"drama_{drama_id}_{field}.epub"
     return Response(
         content=data, media_type="application/epub+zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, field, "epub", "ebook")})
 
 
 @router.post("/dramas/{drama_id}/ass", dependencies=[require_permission("lines.read")],
@@ -121,10 +119,9 @@ def post_ass_text(req: AssExportRequest, drama_id: int = Path(ge=1)):
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
         wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)
-    filename = f"drama_{drama_id}_{req.field}.ass"
     return Response(
         content=text, media_type="text/x-ssa; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, req.field, "ass")})
 
 
 # Static path; every other route here lives under /dramas/..., so it can't be shadowed.

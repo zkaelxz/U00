@@ -90,7 +90,7 @@ export function MakeSubtitles() {
 
   const exportStep = useCallback(async (id: number) => {
     try {
-      const text = await getSubtitleText(id, { fmt: 'srt', field: 'en', includeNotes: false })
+      const { text } = await getSubtitleText(id, { fmt: 'srt', field: 'en', includeNotes: false })
       if (!text.trim()) throw new ApiError(404, { code: 'not_found', message: 'There are no English lines to export.' })
       setSrt(text)
       dispatch({ type: 'advance' })
@@ -167,7 +167,7 @@ export function MakeSubtitles() {
     if (dramaId === null) return
     setDownloadError(null)
     try {
-      const text = srt ?? await getSubtitleText(dramaId, { fmt: 'srt', field: 'en', includeNotes: false })
+      const text = srt ?? (await getSubtitleText(dramaId, { fmt: 'srt', field: 'en', includeNotes: false })).text
       downloadText(text, exportFilename(run.current.title, dramaId, 'en', 'srt'), SRT_MIME)
       void markExported(dramaId).catch(() => undefined)
     } catch (e) { setDownloadError(e) }

@@ -164,15 +164,19 @@ export function buildAssRequest(
 
 export const MAX_BASE_NAME = 100
 
-// Download name for a generated subtitle file. The name is chosen client-side
-// (Blob + <a download>); the API's own Content-Disposition name is not used.
-// Blank means the API's default shape, drama_<id>_<field>.
-export function exportFilename(base: string, dramaId: number, field: SubtitleField, ext: string): string {
+// Download name for a generated subtitle file, saved client-side (Blob +
+// <a download>). A name the user typed wins; blank means the server's
+// Content-Disposition name (title, episode, language), and only when the
+// response carried none, drama_<id>_<field>.
+export function exportFilename(
+  base: string, dramaId: number, field: SubtitleField, ext: string, serverName: string | null = null,
+): string {
   const clean = [...base.trim()]
     .map((c) => (c < ' ' || c === '\x7f' || '<>:"/\\|?*'.includes(c) ? '_' : c))
     .join('')
     .slice(0, MAX_BASE_NAME)
     .replace(/[.\s]+$/, '')
+  if (!clean && serverName) return serverName
   return `${clean || `drama_${dramaId}_${field}`}.${ext}`
 }
 

@@ -227,6 +227,7 @@ def _export_job(jid: str, drama_id: int, formats: list):
         background_jobs.update_progress(jid, 0.9, f"Writing the {fmt.upper()}")
         dest = artifact_service.output_path(drama_id, _KIND[fmt], _FILENAME[fmt])
         (_write_zip if fmt == "zip" else _write_pdf)(dest, files)
+        artifact_service.set_download_language(drama_id, _KIND[fmt], _FILENAME[fmt], "translated en")
     msg = f"Exported {len(files)} page(s)"
     if originals:
         msg += f" ({originals} without typeset text, as the original)"
