@@ -36,7 +36,7 @@ from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunRe
                          RetranscribeManyRequest, RetranscribeManyResult, RetranscribeManyStarted,
                          SpeechCoverageRunResult, SpeechCoverageStatus, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeGaps, TranscribeRunRequest, TranscribeRunResult)
-from services import (compare_transcription_service, retime_service, retranscribe_many_service,
+from services import (autotune_service, compare_transcription_service, retime_service, retranscribe_many_service,
                       speech_coverage_service, transcribe_gap_service, transcribe_service)
 from services.service_errors import ForbiddenError
 
@@ -104,7 +104,7 @@ def get_speech_coverage(drama_id: int = Path(ge=1)):
 
 
 # --- Auto-tune speech-splitting sensitivity -----------------
-# Local ASR only (transcribe_service.PAID_ENGINE_FUNCTIONS is empty), so no
+# Local ASR only (autotune_service.PAID_ENGINE_FUNCTIONS is empty), so no
 # engine gate. Results live in this process's job memory: the GET reads them
 # back and the apply only accepts a value that run measured.
 
@@ -113,7 +113,7 @@ def get_speech_coverage(drama_id: int = Path(ge=1)):
              responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
                         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_start_autotune(payload: AutotuneRunRequest, drama_id: int = Path(ge=1)):
-    return transcribe_service.start_autotune_run(
+    return autotune_service.start_autotune_run(
         drama_id, candidates=payload.candidates, initial_prompt=payload.initial_prompt,
         extra_names=payload.extra_names)
 
@@ -122,7 +122,7 @@ def post_start_autotune(payload: AutotuneRunRequest, drama_id: int = Path(ge=1))
             summary="Status and (when done) per-candidate scores of this drama's auto-tune run",
             responses={404: {"model": ErrorResponse}})
 def get_autotune(drama_id: int = Path(ge=1)):
-    s = transcribe_service.get_autotune_status(drama_id)
+    s = autotune_service.get_autotune_status(drama_id)
     result = s.get("result") or {}
     return {"job_id": s["job_id"], "status": s["status"], "progress": s.get("progress"),
             "message": s.get("message") or "", "results": result.get("results"),
@@ -134,7 +134,7 @@ def get_autotune(drama_id: int = Path(ge=1)):
              responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
 def post_apply_autotune(payload: AutotuneApplyRequest, drama_id: int = Path(ge=1)):
-    return transcribe_service.apply_autotune_candidate(drama_id, payload.candidate_ms)
+    return autotune_service.apply_autotune_candidate(drama_id, payload.candidate_ms)
 
 
 # --- Re-transcribe one line ----------------------------
