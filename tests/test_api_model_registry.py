@@ -92,7 +92,7 @@ def test_check_and_switch_are_pc_only(isolated_db):
 
 def test_check_flags_unlisted_model_without_leaking_key(isolated_db, monkeypatch):
     db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
-    monkeypatch.setattr(http, "pinned_get", lambda url, ip, headers, **kw: FakeResp({"data": [{"id": "claude-sonnet-5"}]}))
+    monkeypatch.setattr(http, "pinned_get", lambda url, ip, headers, *a, **kw: FakeResp({"data": [{"id": "claude-sonnet-5"}]}))
     r = _local().post("/api/models/check", headers=LOCAL_HDR)
     assert r.status_code == 200
     assert SECRET not in r.text
