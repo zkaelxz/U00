@@ -172,6 +172,36 @@ def test_second_start_conflicts_and_finished_is_cleared(fakes, monkeypatch):
     _wait("sources_search")
 
 
+def test_concurrent_starts_give_one_run_and_one_conflict(fakes, monkeypatch):
+    import threading
+    gate, runs, outcomes = threading.Event(), [], []
+    monkeypatch.setattr(svc, "_search_job", lambda *a: runs.append(a) or gate.wait(5))
+    # A finished entry under the id: the case where a start used to clear it.
+    svc.start_search("first")
+    gate.set()
+    _wait("sources_search")
+    runs.clear()
+    gate.clear()
+    barrier = threading.Barrier(2)
+
+    def start():
+        barrier.wait(5)
+        try:
+            outcomes.append(svc.start_search("abc"))
+        except ConflictError:
+            outcomes.append("409")
+
+    threads = [threading.Thread(target=start) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    gate.set()
+    _wait("sources_search")
+    assert sorted(map(str, outcomes)) == ["409", str({"job_id": "sources_search"})]
+    assert len(runs) == 1
+
+
 def test_result_idle_after_clear_and_404_for_foreign_ids(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     svc.start_search("abc")

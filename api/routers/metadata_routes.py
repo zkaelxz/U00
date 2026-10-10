@@ -1,7 +1,8 @@
 """
 api/routers/metadata_routes.py -- Media analysis and metadata auto-fill.
 See services/metadata_service.py: autofill returns a
-suggestion only; apply writes whitelisted fields. Romanize credits
+suggestion only; apply writes whitelisted fields. Autofill fetches a page
+and calls an LLM, so it takes a slot from the shared LLM cap. Romanize credits
 writes only the *_romanized fields; it is admin.library plus
 engines.paid for a paid engine, and takes a slot from the shared LLM cap
 (api/llm_slots.py; 429 when busy).
@@ -32,8 +33,9 @@ def analyze_media(drama_id: int = Path(ge=1)):
              responses=_ERRS)
 def autofill(payload: AutofillRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, payload.engine)
-    return metadata_service.autofill_suggestion(
-        drama_id, url=payload.url, page_text=payload.page_text, engine_name=payload.engine)
+    with llm_slot(request):
+        return metadata_service.autofill_suggestion(
+            drama_id, url=payload.url, page_text=payload.page_text, engine_name=payload.engine)
 
 
 @router.post("/dramas/{drama_id}/romanize-credits", dependencies=[require_permission("admin.library")],

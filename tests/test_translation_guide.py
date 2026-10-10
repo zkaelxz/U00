@@ -6,6 +6,8 @@ and hard term enforcement.
 
 import sys
 import os
+
+import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import glossary_io
@@ -304,6 +306,48 @@ class TestHardTermSubstitution:
         # Same substitutions as the plain-notes case, and banned_translations'
         # entry is left completely alone -- it isn't a `notes` variant.
         assert result == "Shen Qingyi met Shen Qingyi, not Totally Different Name."
+
+    def test_a_variant_inside_the_canonical_form_never_compounds(self):
+        terms = [{"term_translation": "Shen Qingyi", "notes": "Qingyi", "enforce_exact": True}]
+        once = tg.apply_hard_term_substitutions("Shen Qingyi smiled. Qingyi left.", terms)
+        assert once == "Shen Qingyi smiled. Shen Qingyi left."
+        assert tg.apply_hard_term_substitutions(once, terms) == once
+
+    def test_matches_whole_words_only(self):
+        terms = [{"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
+        result = tg.apply_hard_term_substitutions("In Berlin, Lin waved. LINE up.", terms)
+        assert result == "In Berlin, Lin Wan waved. LINE up."
+
+    def test_cjk_variants_need_no_word_boundary(self):
+        terms = [{"term_translation": "沈清仪", "notes": "清仪", "enforce_exact": True},
+                 {"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
+        result = tg.apply_hard_term_substitutions("我和清仪在Lin的家", terms)
+        assert result == "我和沈清仪在Lin Wan的家"
+
+    def test_variant_that_is_a_prefix_of_the_canonical_form(self):
+        terms = [{"term_translation": "Qingyi", "notes": "Qing", "enforce_exact": True}]
+        once = tg.apply_hard_term_substitutions("Qing and Qingyi and Qinghe", terms)
+        assert once == "Qingyi and Qingyi and Qinghe"
+        assert tg.apply_hard_term_substitutions(once, terms) == once
+
+    def test_free_text_notes_are_not_variants(self):
+        terms = [{"term_translation": "Lin Wan",
+                  "notes": "her childhood friend|Lyn Wan", "enforce_exact": True}]
+        result = tg.apply_hard_term_substitutions(
+            "Her childhood friend, Lyn Wan, came.", terms)
+        assert result == "Her childhood friend, Lin Wan, came."
+
+    @pytest.mark.parametrize("text", [
+        "Shen Qing Yi met Chen Qingyi in Berlin.", "Lin, Lin Wan and Qingyi.",
+        "QINGYI? shen qingyi!", "", "清仪 Lin",
+    ])
+    def test_idempotent(self, text):
+        terms = [{"term_translation": "Shen Qingyi", "notes": "Shen Qing Yi|Chen Qingyi|Qingyi",
+                  "enforce_exact": True},
+                 {"term_translation": "Lin Wan", "notes": "Lin|her friend", "enforce_exact": True},
+                 {"term_translation": "沈清仪", "notes": "清仪", "enforce_exact": True}]
+        once = tg.apply_hard_term_substitutions(text, terms)
+        assert tg.apply_hard_term_substitutions(once, terms) == once
 
 
 class TestLlmFunctionsGracefulFallback:

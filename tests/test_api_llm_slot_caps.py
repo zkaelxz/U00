@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 from api import llm_slots
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import discover_lookup_service, line_ai_service, translate_service
+from services import (discover_lookup_service, line_ai_service, metadata_service,
+                      translate_service)
 
 ROUTES = [
     ("/api/translate", {"text": "你好", "engine": "ollama", "source_language": "zh",
@@ -20,6 +21,8 @@ ROUTES = [
     ("/api/line-ai/dramas/1/lines/1/improve", {"engine": "ollama"}),
     ("/api/line-ai/dramas/1/lines/1/explain", {"engine": "ollama"}),
     ("/api/discover/translate-query", {"q": "hello", "engine": "ollama"}),
+    ("/api/discover/import-suggestion", {"url": "https://example.com/b", "engine": "ollama"}),
+    ("/api/metadata/dramas/1/autofill", {"page_text": "a page", "engine": "ollama"}),
 ]
 
 
@@ -35,6 +38,8 @@ def client(isolated_db, monkeypatch):
     monkeypatch.setattr(line_ai_service, "improve_line", boom)
     monkeypatch.setattr(line_ai_service, "explain_line", boom)
     monkeypatch.setattr(discover_lookup_service, "translate_query", boom)
+    monkeypatch.setattr(discover_lookup_service, "import_suggestion", boom)
+    monkeypatch.setattr(metadata_service, "autofill_suggestion", boom)
     c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     c.calls = calls
     return c

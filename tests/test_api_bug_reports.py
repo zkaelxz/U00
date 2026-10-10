@@ -202,13 +202,46 @@ def test_validation_422(client):
     assert client.get(f"{URL}/0").status_code == 422
 
 
-def test_cap_409(client, monkeypatch):
+def test_cap_409(fakes, monkeypatch):
     monkeypatch.setattr(svc, "MAX_REPORTS", 2)
-    assert _post(client).status_code == 200
-    assert _post(client).status_code == 200
-    r = _post(client)
+    app = create_app(ApiSettings(auth_mode="on"))
+    remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
+    kids = [_session(auth_service.add_user(f"kid{i}@example.com")) for i in range(3)]
+    assert _post(remote, headers=_h(kids[0])).status_code == 200
+    assert _post(remote, headers=_h(kids[1])).status_code == 200
+    r = _post(remote, headers=_h(kids[2]))
     assert r.status_code == 409
     _assert_clean(r.text)
+    # The shared cap counts remote reports only: the PC owner can still report.
+    assert _post(_local_on(app), headers=_h(kids[2])).status_code == 200
+
+
+def test_per_user_cap_leaves_others_able_to_report(fakes, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_REPORTS_PER_USER", 2)
+    app = create_app(ApiSettings(auth_mode="on"))
+    remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
+    noisy = _session(auth_service.add_user("noisy@example.com"))
+    other = _session(auth_service.add_user("other@example.com"))
+    assert _post(remote, headers=_h(noisy)).status_code == 200
+    assert _post(remote, headers=_h(noisy)).status_code == 200
+    r = _post(remote, headers=_h(noisy))
+    assert r.status_code == 409 and "PC owner" in r.json()["error"]["message"]
+    assert _post(remote, headers=_h(other)).status_code == 200
+    # Deleting one of theirs frees a place for the noisy user again.
+    item = next(i for i in svc.list_reports() if i["id"] == 1)
+    svc.delete_report(1, stamp=item["stamp"], confirm=True)
+    assert _post(remote, headers=_h(noisy)).status_code == 200
+
+
+def test_pc_reports_do_not_count_against_remote_caps(fakes, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_REPORTS", 1)
+    monkeypatch.setattr(svc, "MAX_REPORTS_PER_USER", 1)
+    for _ in range(3):
+        svc.create_report(_report())
+    assert svc.create_report(_report(), reporter="user:7")["id"] == 4
+    with pytest.raises(svc.ConflictError):
+        svc.create_report(_report(), reporter="user:8")
+    assert svc.create_report(_report())["id"] == 5
 
 
 def test_markdown_fence_survives_backticks(fakes):
@@ -369,14 +402,14 @@ def test_rate_limit_per_principal(client, monkeypatch):
 
 def test_cap_checked_before_server_work(fakes, monkeypatch):
     monkeypatch.setattr(svc, "MAX_REPORTS", 1)
-    svc.create_report(_report())
+    svc.create_report(_report(), reporter="user:1")
     calls = []
     monkeypatch.setattr(svc, "_log_tail", lambda: calls.append("log") or [])
     monkeypatch.setattr(svc, "_git_commit", lambda: calls.append("git"))
     monkeypatch.setattr(svc, "_setup_summary", lambda: calls.append("setup") or "")
     monkeypatch.setattr(svc, "_CACHE", {})
     with pytest.raises(svc.ConflictError):
-        svc.create_report(_report())
+        svc.create_report(_report(), reporter="user:2")
     assert calls == []
 
 
