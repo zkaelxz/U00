@@ -207,7 +207,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 
 - *Redact at write time.* Error text passes through
   `translate_engines.redact_secrets` (or `redact_for_storage`, which also strips
-  URL query strings) before it is stored, shown or logged: `background_jobs`
+  URL query strings) before it is stored, shown or logged: `jobs/store.py`
   (`_storage_text`, because `job_records` lands in backups), `auth_service`
   (`_scrub_detail` for `audit_log.detail_redacted`), `translate_run_service`
   (`last_translate_errors`), `sources/store.py`. API keys go in headers, never
@@ -238,11 +238,12 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 `db.save_job_record` so another process (the CLI, a restarted server) can see the
 last known state.
 
-- A failed mirror write is logged and never breaks the job.
+- A failed write never breaks the job; `jobs/store.py` shows it on the job
+  (`sync_error`) and retries it on the heartbeat.
 - A row is the *last written* state. A `running` row whose `updated_at` is old is
   suspect: the live process heartbeats its rows (`touch_job_records`), and
-  stale ones are closed by `close_stale_job_record` /
-  `close_orphaned_job_record` (`owner_pid`), driven by
+  stale ones are closed by `jobs/store.py` (`close_stale` /
+  `close_if_owner_gone`, by `owner_instance` or `owner_pid`), driven by
   `jobs_service.sweep_stale_job_records`.
 - `cancel_requested` lets another process ask a job to stop;
   `result_json` holds the redacted, allow-listed result.

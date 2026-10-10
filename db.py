@@ -863,7 +863,7 @@ def _create_job_tables(conn):
         -- written at status transitions (queued, started, finished), never on
         -- every progress tick. No resume: a job whose owning process dies is not
         -- restarted; its row is closed as cancelled by the owner_pid / heartbeat
-        -- sweep (close_orphaned_job_record, close_stale_job_record).
+        -- sweep (jobs/store.py).
         CREATE TABLE IF NOT EXISTS job_records (
             job_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
@@ -1041,6 +1041,11 @@ def _migrate_job_records_columns(conn):
     # cutoff (services/jobs_service.sweep_stale_job_records).
     if "owner_pid" not in jr_cols:
         _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN owner_pid INTEGER")
+    # Written by jobs/store.py.
+    for col, kind in (("kind", "TEXT"), ("owner_instance", "TEXT"), ("cancel_requested_at", "REAL"),
+                      ("detail_state", "TEXT"), ("sync_error", "TEXT")):
+        if col not in jr_cols:
+            _safe_alter(conn, f"ALTER TABLE job_records ADD COLUMN {col} {kind}")
 
 
 def _create_auth_tables(conn):
@@ -5178,37 +5183,6 @@ def touch_job_records(job_ids) -> None:
             "WHERE job_id = ? AND status IN ('queued', 'running')",
             [(now, j) for j in job_ids])
         conn.commit()
-
-
-def close_stale_job_record(job_id: str, cutoff: float, error: str = None) -> bool:
-    """Marks a queued/running row cancelled only if its owner has not
-    written or heartbeated since `cutoff` -- a single conditional UPDATE,
-    so a row the owner just finished ("done") or just touched is never
-    overwritten. `error`, if given, says why. Returns whether it closed
-    the row."""
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute(
-            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0, "
-            "error = COALESCE(?, error) "
-            "WHERE job_id = ? AND status IN ('queued', 'running') "
-            "AND COALESCE(updated_at, 0) < ?", (time.time(), error, job_id, cutoff))
-        conn.commit()
-        return cur.rowcount > 0
-
-
-def close_orphaned_job_record(job_id: str, owner_pid: int, error: str = None) -> bool:
-    """Marks a queued/running row cancelled if it still belongs to the
-    (exited) process `owner_pid`: one conditional UPDATE, so a new run of
-    the same job id by a live process is never closed. Returns whether it
-    closed the row."""
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute(
-            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0, "
-            "error = COALESCE(?, error) "
-            "WHERE job_id = ? AND status IN ('queued', 'running') AND owner_pid = ?",
-            (time.time(), error, job_id, owner_pid))
-        conn.commit()
-        return cur.rowcount > 0
 
 
 def is_job_record_cancel_requested(job_id: str) -> bool:

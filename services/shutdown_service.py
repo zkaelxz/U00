@@ -145,9 +145,13 @@ def stop_new_work() -> None:
 
 
 def stop_services() -> None:
-    """After the jobs: the browser-extension endpoint."""
+    """After the jobs: the browser-extension endpoint, then the rows of jobs
+    that did not stop in time, closed as interrupted while this process can
+    still write them (atexit is skipped when Windows ends the process)."""
     import page_server
+    from jobs import store
     _quietly(page_server.stop_server)
+    _quietly(store.flush_at_exit)
 
 
 def _begin():

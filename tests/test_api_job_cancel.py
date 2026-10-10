@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import db
+from jobs import store
 from api.api_config import ApiSettings
 from api.server import create_app
 
@@ -133,11 +134,11 @@ def test_stale_close_loses_to_a_late_heartbeat_or_done(isolated_db):
     _age("race", 3600)
     cutoff = time.time() - 900
     db.touch_job_records(["race"])                 # owner heartbeats in between
-    assert not db.close_stale_job_record("race", cutoff)
+    assert not store.close_stale("race", cutoff)
     assert db.get_job_record("race")["status"] == "running"
     db.save_job_record("race", "done")
     _age("race", 3600)
-    assert not db.close_stale_job_record("race", cutoff)
+    assert not store.close_stale("race", cutoff)
     assert db.get_job_record("race")["status"] == "done"
 
 
