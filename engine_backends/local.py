@@ -174,7 +174,9 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
 
     # guard=None: the address is the one the PC owner set in Settings.
     session = http.session(timeout=ollama_chat_timeout(str(payload.get("model") or "")),
-                           guard=None, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
+                           guard=None,
+                           # only a backstop: read_json_capped refuses at the exact cap
+                           max_bytes=PROVIDER_RESPONSE_MAX_BYTES + capped_body.DEFAULT_CHUNK,
                            adapter=_TrackingAdapter(track, release))
     box = {}
 

@@ -284,3 +284,66 @@ def test_session_cap_can_change_between_requests():
 def test_session_refuses_a_custom_adapter_with_a_guard():
     with pytest.raises(ValueError):
         http.session(timeout=5, max_bytes=1, guard=lambda u: "1.2.3.4", adapter=object())
+
+
+def test_session_never_reads_a_redirect_body_requests_would_buffer():
+    import io
+    import requests
+    from urllib3.response import HTTPResponse
+
+    class Bomb(io.RawIOBase):
+        read_calls = 0
+
+        def readinto(self, b):
+            Bomb.read_calls += 1
+            return 0
+
+    class Adapter(_FakeAdapter):
+        def send(self, request, **kw):
+            resp = super().send(request, **kw)
+            resp.raw = HTTPResponse(body=Bomb(), preload_content=False, status=302)
+            return resp
+
+    s = http.session(guard=lambda u: None, timeout=5, max_bytes=100)
+    s.mount("http://", Adapter((302, b"", {"Location": "/b"})))
+    assert s.get("http://a.example/", allow_redirects=False).status_code == 302
+    assert Bomb.read_calls == 0
+
+
+def test_a_pinned_get_does_not_buffer_a_redirect_body(monkeypatch):
+    import requests
+    seen = {}
+
+    def fake_send(self, request, **kw):
+        redirect = requests.Response()
+        redirect.status_code = 302
+        redirect.headers["Location"] = "/b"
+        seen["next"] = self.get_redirect_target(redirect)
+        return redirect
+
+    monkeypatch.setattr(requests.Session, "send", fake_send)
+    http.pinned_get("http://a.example/", None, {}, 5)
+    assert seen["next"] is None
+
+
+def test_session_trusts_the_environment_only_without_a_guard():
+    assert http.session(timeout=5, max_bytes=1, guard=lambda u: None).trust_env is False
+    assert http.session(timeout=5, max_bytes=1, guard=None).trust_env is True
+    assert http.session(timeout=5, max_bytes=1, guard=lambda u: None, trust_env=True).trust_env is True
+
+
+def test_session_level_credentials_do_not_follow_a_cross_origin_redirect():
+    s, adapter = _session((302, b"", {"Location": "http://b.example/"}), (200, b"", {}))
+    s.headers.update({"X-Api-Key": "k", "Cookie": "c=1", "X-Plain": "1"})
+    s.get("http://a.example/", allow_redirects=True)
+    first, second = adapter.sent[0][2], adapter.sent[1][2]
+    assert "X-Api-Key" in first and "Cookie" in first
+    assert "X-Api-Key" not in second and "Cookie" not in second and second["X-Plain"] == "1"
+
+
+def test_session_auth_is_refused_on_a_cross_origin_redirect():
+    s, adapter = _session((302, b"", {"Location": "http://b.example/"}), (200, b"", {}))
+    s.auth = ("user", "pw")
+    with pytest.raises(http.FetchError):
+        s.get("http://a.example/", allow_redirects=True)
+    assert len(adapter.sent) == 1

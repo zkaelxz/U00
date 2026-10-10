@@ -504,8 +504,6 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
     for _ in range(MAX_REDIRECTS + 1):
         _check_limits(limits, deadline_at)
         current = ascii_url(current)
-        # The session runs _guard on this hop and pins to the address it
-        # returns, unless a proxy connects for us.
         try:
             r = session.request(cur_method, current, headers=cur_headers, data=cur_data,
                                 timeout=timeout, allow_redirects=False, proxies=proxies,
@@ -517,6 +515,9 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
         if r.status_code not in _REDIRECT_CODES or not location:
             try:
                 content = _read_body(r, limits, deadline_at)
+            except lib_http.ResponseTooLarge:
+                # a refusal like _read_body's own, not a source-health fetch error
+                raise ResponseTooLarge() from None
             finally:
                 r.close()
             break
@@ -598,7 +599,6 @@ _tls = threading.local()
 
 
 def _guard(url: str) -> str:
-    """lib.http's per-hop guard with this module's errors: the address to pin to."""
     from lib import url_guard
     try:
         return url_guard.resolve_public(url)
@@ -611,7 +611,7 @@ def _guard(url: str) -> str:
 def _thread_session():
     if not hasattr(_tls, "session"):
         _tls.session = lib_http.session(timeout=DEFAULT_TIMEOUT, guard=_guard,
-                                        max_bytes=MAX_IMAGE_BYTES)
+                                        max_bytes=MAX_IMAGE_BYTES, trust_env=True)
     return _tls.session
 
 

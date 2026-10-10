@@ -101,6 +101,10 @@ def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
 
     session = requests.Session()
     session.trust_env = trust_env
+    # Session.send reads the whole body of a 3xx with a Location even with
+    # allow_redirects=False; this caller follows redirects itself and caps
+    # only the body it reads.
+    session.get_redirect_target = lambda resp: None
     if ip:
         parts = urlsplit(url)
         host = parts.hostname
@@ -315,10 +319,12 @@ class GuardedSession(requests.Session):
     requests, and a body that raises ResponseTooLarge past `max_bytes`.
     Responses are always streamed: the caller reads (and closes) them, so the
     cap is on what it reads, not a pre-read of the whole body. `max_bytes` can
-    be changed between requests on a session a thread keeps."""
+    be changed between requests on a session a thread keeps. `trust_env`
+    defaults to off with a guard (a proxy would connect to the name itself, so
+    the pin would not hold) and on without one; pass True to accept that."""
 
     def __init__(self, *, timeout, guard, max_bytes: int, max_redirects: int = MAX_REDIRECTS,
-                 trust_env: bool = True, adapter=None):
+                 trust_env: Optional[bool] = None, adapter=None):
         if adapter is not None and guard is not None:
             raise ValueError("a custom adapter cannot pin the address a guard validated")
         super().__init__()
@@ -326,10 +332,15 @@ class GuardedSession(requests.Session):
         self.guard = guard
         self.max_bytes = max_bytes
         self.max_redirects = max_redirects
-        self.trust_env = trust_env
+        self.trust_env = (guard is None) if trust_env is None else trust_env
         adapter = adapter or (PinningAdapter() if guard else HTTPAdapter())
         self.mount("http://", adapter)
         self.mount("https://", adapter)
+
+    def get_redirect_target(self, resp):
+        # Session.send would read a 3xx body without the cap before
+        # `send` wraps it; `request` reads Location itself.
+        return None
 
     def _guard_hop(self, url):
         """Run the guard and leave the pin for the adapter. The name is the
@@ -372,10 +383,18 @@ class GuardedSession(requests.Session):
             allow_redirects = self.guard is not None
         origin = _origin(url)
         for hop in range(self.max_redirects + 1):
+            hop_headers = _headers_for_hop(headers, origin, url)
+            if _origin(url) != origin:
+                # Session-level credentials are merged into every request;
+                # a None value drops the key in requests' header merge.
+                if self.auth:
+                    raise FetchError()
+                hop_headers = {**(hop_headers or {}),
+                               **{k: None for k in self.headers if _is_credential_header(k)}}
             self._guard_hop(url)
             try:
                 resp = super().request(method if hop == 0 else "GET", url, allow_redirects=False,
-                                       headers=_headers_for_hop(headers, origin, url),
+                                       headers=hop_headers,
                                        **(kw if hop == 0 else {"timeout": kw.get("timeout"),
                                                                "proxies": kw.get("proxies")}))
             finally:
