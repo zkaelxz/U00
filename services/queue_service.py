@@ -26,6 +26,7 @@ import re
 import tempfile
 import threading
 import time
+import uuid
 from typing import Optional
 
 import db
@@ -39,6 +40,8 @@ from services import (auth_service, artifact_service, export_service, jobs_servi
 QUEUE_KEY = "job_queue"
 QUEUE_VERSION = 1
 MAX_ITEMS = 200
+# One member can't fill the shared list and lock everyone else out.
+MAX_ITEMS_PER_MEMBER = 50
 STEPS = ("transcribe", "translate", "export")
 POLL_SECONDS = 5.0
 
@@ -52,6 +55,13 @@ _HHMM = re.compile(r"^([01][0-9]|2[0-3]):([0-5][0-9])$")
 _MAX_REASON = 300
 _STOPPED_AFTER_FAILURE = "Stopped because an item failed. Start the queue to go on."
 _INTERRUPTED = "Interrupted: Baihe stopped while this ran. Press Retry to run it again."
+_NO_CAP = ("Set a monthly spending cap (Settings > Spending) to run paid translation "
+           "from the queue.")
+
+# Marks the document as this process's. A document without it came from an
+# earlier run or a restored backup, and is settled before anything reads it,
+# so neither can resume work on its own.
+_INSTANCE = uuid.uuid4().hex
 
 _lock = threading.Lock()
 _log = logging.getLogger(__name__)
@@ -64,8 +74,9 @@ def _clock() -> float:
 # --- the document -----------------------------------------------------------
 
 def _empty() -> dict:
-    return {"version": QUEUE_VERSION, "state": IDLE, "stop_on_failure": False,
-            "schedule": None, "notice": None, "next_id": 1, "items": []}
+    return {"version": QUEUE_VERSION, "instance": _INSTANCE, "state": IDLE,
+            "stop_on_failure": False, "schedule": None, "notice": None, "next_id": 1,
+            "items": []}
 
 
 def _clean_item(raw) -> Optional[dict]:
@@ -86,7 +97,7 @@ def _clean_item(raw) -> Optional[dict]:
             "finished_at": raw.get("finished_at")}
 
 
-def _load() -> dict:
+def _load(now: float = None, settle: bool = False) -> dict:
     """Caller holds _lock. A stored document from another version, or one
     that is not a queue at all, starts an empty queue rather than guessing."""
     raw = db.get_app_setting(QUEUE_KEY, None)
@@ -105,10 +116,26 @@ def _load() -> dict:
                     if i is not None][:MAX_ITEMS]
     ids = [i["id"] for i in doc["items"]]
     doc["next_id"] = max([int(raw.get("next_id") or 1)] + [i + 1 for i in ids])
+    if settle or raw.get("instance") != _INSTANCE:
+        _settle(doc, _clock() if now is None else now)
     return doc
 
 
+def _settle(doc: dict, now: float) -> None:
+    """Nothing resumes in a new process: a running item is interrupted, the
+    queue stops, and a start time already passed becomes "missed"."""
+    for item in doc["items"]:
+        if item["status"] == RUNNING:
+            _finish(item, INTERRUPTED, _INTERRUPTED, now)
+    doc["state"] = IDLE
+    if doc["schedule"] and now >= doc["schedule"]["start_at"]:
+        doc["schedule"]["missed"] = True
+    doc["instance"] = _INSTANCE
+    doc["settled"] = True
+
+
 def _save(doc: dict) -> None:
+    doc.pop("settled", None)
     db.set_app_setting(QUEUE_KEY, doc)
 
 
@@ -247,6 +274,11 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool) -> dict:
         if len(doc["items"]) >= MAX_ITEMS:
             raise ConflictError(f"The queue holds at most {MAX_ITEMS} items. "
                                 "Clear finished items first.")
+        uid = ownership_service.user_id(principal)
+        if not _overrides(principal) and sum(
+                1 for i in doc["items"] if i["user_id"] == uid) >= MAX_ITEMS_PER_MEMBER:
+            raise ConflictError(f"You can have at most {MAX_ITEMS_PER_MEMBER} items in the "
+                                "queue. Clear your finished items first.")
         item = {"id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": ownership_service.user_id(principal),
                 "override": _overrides(principal), "added_at": _clock(),
@@ -402,6 +434,9 @@ def _check_translate_spend(drama_id: int) -> None:
     est = translate_run_service.estimate_translate_cost(drama_id)
     if not est["cap_applies"]:
         return
+    # Like the scheduled model re-evaluation: unattended paid work needs a ceiling.
+    if settings_service.get_monthly_cap_usd() <= 0:
+        raise UnsupportedOperationError(_NO_CAP)
     if est["monthly_refusal"]:
         _cap, refusal = translate_engines.resolve_cost_cap(
             None, settings_service.get_monthly_cap_usd(), db.get_month_spend())
@@ -494,13 +529,22 @@ def _start_item(item: dict) -> Optional[str]:
 # --- the runner --------------------------------------------------------------
 
 def _job_outcome(job_id: str):
-    """(finished, status, reason) for an item's job, read like the Jobs page."""
+    """(finished, status, reason) for an item's job, read like the Jobs page.
+    The in-memory state is checked first: it is the authority while the job
+    runs here, and the record can lag when a status write failed."""
+    import background_jobs
+    live = background_jobs.get_status(job_id)
+    if live and live.get("status") in ("queued", "running"):
+        return False, RUNNING, ""
     try:
         job = jobs_service.get_job(job_id)
     except NotFoundError:
         return True, FAILED, "The job's record was removed before its result could be read."
     if job["status"] in ("queued", "running"):
-        return False, RUNNING, ""
+        if not live:
+            return False, RUNNING, ""
+        job = {"status": live["status"], "error": live.get("error"), "outcome":
+               {"done": "ok", "error": "failed", "cancelled": "cancelled"}.get(live["status"])}
     outcome = job.get("outcome")
     if outcome == "failed":
         return True, FAILED, job.get("outcome_message") or job.get("error") or "The job failed."
@@ -522,18 +566,25 @@ def tick(now: float = None) -> None:
         return     # the stop cancels jobs; the next start marks the item interrupted
     now = _clock() if now is None else now
     with _lock:
-        doc = _load()
+        doc = _load(now)
+        changed = doc.get("settled", False)
         sched = doc["schedule"]
         if sched and not sched["missed"] and now >= sched["start_at"]:
             doc["schedule"] = None
             doc["state"] = ACTIVE
             doc["notice"] = None
-            _save(doc)
+            changed = True
         running = next((i for i in doc["items"] if i["status"] == RUNNING), None)
+        if running is not None and running["job_id"] is None:
+            # Only this thread starts items, and a start finishes before the
+            # next tick, so this claim's outcome was never written.
+            _finish(running, INTERRUPTED, "Interrupted: its start could not be recorded. "
+                    "Check the jobs list, then press Retry if needed.", now)
+            running, changed = None, True
         running_job = running["job_id"] if running else None
+        if changed:
+            _save(doc)
     if running is not None:
-        if running_job is None:
-            return     # claimed by a start still under way
         finished, status, reason = _job_outcome(running_job)
         if not finished:
             return
@@ -550,8 +601,11 @@ def tick(now: float = None) -> None:
 
 
 def _start_next(now: float) -> None:
+    import background_jobs
+    if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+        return     # a restore or cleanup holds the library: wait rather than skip everything
     with _lock:
-        doc = _load()
+        doc = _load(now)
         if doc["state"] != ACTIVE or any(i["status"] == RUNNING for i in doc["items"]):
             return
         item = next((i for i in doc["items"] if i["status"] == WAITING), None)
@@ -569,6 +623,8 @@ def _start_next(now: float) -> None:
             status = DONE
     except ServiceError as exc:
         status, reason = SKIPPED, str(exc)
+        if background_jobs.is_stopping():
+            status, reason = INTERRUPTED, ""
     except Exception as exc:     # a bug in a start path must not stop the queue
         _log.warning("Queue item %s did not start: %s", claimed["id"],
                      translate_engines.redact_secrets(str(exc)))
@@ -579,6 +635,8 @@ def _start_next(now: float) -> None:
         if item is not None:
             if status == RUNNING:
                 item["job_id"] = job_id
+            elif status == INTERRUPTED:
+                _finish(item, status, _INTERRUPTED, _clock())
             else:
                 _finish(item, status, reason and f"Skipped: {reason}", _clock())
                 item["job_id"] = job_id
@@ -588,24 +646,11 @@ def _start_next(now: float) -> None:
 
 
 def restore_at_startup(now: float = None) -> None:
-    """The queue as this process finds it: nothing resumes on its own."""
-    now = _clock() if now is None else now
+    """The queue as this process finds it: nothing resumes on its own. Every
+    read settles a document from another process anyway (`_load`), so a
+    failure here can't let old work resume; this only saves the result."""
     with _lock:
-        doc = _load()
-        for item in doc["items"]:
-            if item["status"] != RUNNING:
-                continue
-            finished, status, reason = (_job_outcome(item["job_id"]) if item["job_id"]
-                                        else (False, RUNNING, ""))
-            if finished and status == DONE:
-                _finish(item, DONE, reason, now)
-            else:
-                _finish(item, INTERRUPTED, _INTERRUPTED, now)
-        if doc["state"] != IDLE:
-            doc["state"] = IDLE
-        if doc["schedule"] and now >= doc["schedule"]["start_at"]:
-            doc["schedule"]["missed"] = True
-        _save(doc)
+        _save(_load(now, settle=True))
 
 
 _wake = threading.Event()
@@ -630,7 +675,7 @@ def start_runner() -> bool:
         return False
     try:
         restore_at_startup()
-    except Exception as exc:
+    except Exception as exc:     # _load settles the document on every read regardless
         _log.warning("Job queue restore failed: %s", translate_engines.redact_secrets(str(exc)))
     _stop.clear()
     _runner = threading.Thread(target=_loop, daemon=True, name="api-job-queue")

@@ -410,3 +410,80 @@ def test_a_transcribe_over_lines_needs_lines_edit_as_for_a_click(isolated_db):
     from services import ownership_service
     assert item["status"] == "skipped"
     assert item["reason"] == f"Skipped: {ownership_service._REPLACE_NEEDS_EDIT}"
+
+
+def test_a_restored_backup_document_never_resumes_on_its_own(jobs):
+    # A library restore swaps app_settings under the running server: the
+    # document from the backup says "running" and holds an unfired schedule.
+    a, b = _drama("A"), _drama("B")
+    db.set_app_setting(q.QUEUE_KEY, {
+        "version": 1, "instance": "an-earlier-process", "state": "running", "next_id": 3,
+        "schedule": {"time": "02:00", "start_at": 1_000.0, "missed": False},
+        "items": [{"id": 1, "drama_id": a, "step": "transcribe", "status": "running",
+                   "job_id": f"transcribe_{a}"},
+                  {"id": 2, "drama_id": b, "step": "transcribe", "status": "waiting"}]})
+    q.tick(now=2_000.0)
+    state = q.get_queue(None)
+    assert jobs.started == []
+    assert state["state"] == "idle" and state["schedule"]["missed"] is True
+    assert [i["status"] for i in state["items"]] == ["interrupted", "waiting"]
+
+
+def test_paid_translate_is_skipped_when_no_monthly_cap_is_set(jobs, cap, monkeypatch):
+    monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda name: "k")
+    did = _drama("Paid", engine="claude")
+    cap(0.0)
+    q.add_item(None, did, "translate", True)
+    q.start(None)
+    q.tick()
+    assert _items()[0]["reason"] == f"Skipped: {q._NO_CAP}"
+    assert jobs.started == []
+
+
+def test_a_restore_or_cleanup_hold_makes_the_queue_wait_not_skip(jobs):
+    did = _drama()
+    q.add_item(None, did, "transcribe", True)
+    q.start(None)
+    assert background_jobs.enter_maintenance()
+    try:
+        q.tick()
+        assert _items()[0]["status"] == "waiting" and jobs.started == []
+    finally:
+        background_jobs.exit_maintenance()
+    q.tick()
+    assert jobs.started == [f"transcribe_{did}"]
+
+
+def test_a_lagging_job_record_does_not_end_the_item_early(jobs):
+    a, b = _drama("A"), _drama("B")
+    q.add_item(None, a, "transcribe", True)
+    q.add_item(None, b, "transcribe", True)
+    q.start(None)
+    q.tick()
+    # As if the "running" write failed and the row kept an earlier run's status.
+    db.save_job_record(f"transcribe_{a}", "done")
+    q.tick()
+    assert jobs.started == [f"transcribe_{a}"]
+    assert _items()[0]["status"] == "running"
+
+
+def test_a_claim_whose_outcome_was_never_written_is_interrupted(jobs):
+    did = _drama()
+    q.add_item(None, did, "transcribe", True)
+    with q._lock:
+        doc = q._load()
+        doc["items"][0].update(status="running", job_id=None)
+        q._save(doc)
+    q.tick()
+    assert _items()[0]["status"] == "interrupted" and jobs.started == []
+
+
+def test_one_member_cannot_fill_the_shared_queue(jobs):
+    u = auth_service.add_user("a@example.com")
+    did = _drama("Mine", owner_user_id=u["id"], is_private=1)
+    member = {"user_id": u["id"], "is_admin": False, "permissions": ["jobs.start"]}
+    for _ in range(q.MAX_ITEMS_PER_MEMBER):
+        q.add_item(member, did, "export", False)
+    with pytest.raises(ConflictError):
+        q.add_item(member, did, "export", False)
+    q.add_item(None, did, "export", True)     # the owner still can

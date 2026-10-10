@@ -62,6 +62,6 @@ export function translateCostNote(engineLabel: string, paid: boolean, monthlyCap
   if (!paid) return `Uses ${engineLabel}, which is free.`
   const cap = monthlyCap > 0
     ? `It stops at your $${monthlyCap.toFixed(2)} monthly spending cap.`
-    : 'No monthly spending cap is set (Settings > Spending).'
+    : 'No monthly spending cap is set, so the queue will skip it: set one in Settings > Spending.'
   return `Uses ${engineLabel}. Uses your API key and costs money. ${cap}`
 }

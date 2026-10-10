@@ -50,7 +50,7 @@ describe('queueModel', () => {
 
   it('says a paid Translate uses your key and costs money, and names the cap', () => {
     expect(translateCostNote('Claude', true, 5)).toBe('Uses Claude. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
-    expect(translateCostNote('Claude', true, 0)).toContain('No monthly spending cap is set')
+    expect(translateCostNote('Claude', true, 0)).toContain('No monthly spending cap is set, so the queue will skip it')
     expect(translateCostNote('Ollama', false, 5)).toBe('Uses Ollama, which is free.')
   })
 })
