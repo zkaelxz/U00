@@ -214,7 +214,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `real_model_check_service.py`
 - `remote_health_service.py`
 - `restructure_service.py`
-- `retranscribe_worker.py` (the spawned worker and result hook of the one-line re-transcription; start, read and apply stay in transcribe_service)
+- `retranscribe_many_service.py` (Review's "Re-transcribe selected": start, read and apply of the many-line re-transcription; shares the one-line job's id)
+- `retranscribe_worker.py` (the spawned workers and result hooks of the one-line and many-line re-transcriptions; the one-line start, read and apply stay in transcribe_service)
 - `retime_service.py`
 - `review_extras_service.py`
 - `review_jobs_service.py`
@@ -246,6 +247,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `spend_history_service.py`
 - `stronger_engine_service.py`
 - `subtitle_import_service.py`
+- `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
 - `transcribe_service.py`
 - `translate_run_service.py`
 - `translate_service.py`
@@ -267,7 +269,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
