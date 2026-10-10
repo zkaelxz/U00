@@ -121,9 +121,7 @@ class TestForceStop:
 
         hung.release()
         assert hung.late_writes_done.wait(3)
-        assert _wait_for(lambda: not job_force_stop._live_abandoned("hung_g"))
-        bg.recheck_gpu_queue()
-        assert second.wait(5), "promoted once the abandoned thread has ended"
+        assert second.wait(5), "promoted by the abandoned thread's own finally, without the poller"
 
     def test_an_abandoned_worker_blocks_exclusive_holds_and_drama_checks(self, quiet_gpu):
         hung = HungJob("dub_77")

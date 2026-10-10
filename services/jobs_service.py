@@ -655,8 +655,7 @@ def cancel_job(job_id: str, principal=None) -> dict:
 
 def force_stop_job(job_id: str, principal=None) -> dict:
     """Closes the record of a thread job that ignored Cancel for over a
-    minute (or is stalled); same visibility and ownership rules as
-    cancel_job. Unknown/invisible -> NotFoundError; not eligible ->
+    minute; same visibility and ownership rules as cancel_job. Unknown/invisible -> NotFoundError; not eligible ->
     ConflictError. The worker thread itself cannot be killed (see
     job_force_stop), so `worker_still_running` says whether it is still alive."""
     record = db.get_job_record(job_id)

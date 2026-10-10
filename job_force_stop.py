@@ -55,9 +55,14 @@ def any_abandoned_alive_locked() -> bool:
 
 def abandoned_gpu_count_locked(exclude_job_id=None) -> int:
     """Caller holds background_jobs._lock. Live abandoned workers that still
-    hold the GPU, which the record-based running count no longer sees."""
+    hold the GPU, which the record-based running count no longer sees. The
+    calling thread is skipped: an abandoned worker is still alive while its
+    own `finally` releases the slot and promotes the queue, and counting
+    itself there would leave the next GPU job to the 20 s poller."""
+    me = threading.current_thread()
     return sum(1 for jid in list(_abandoned)
                if jid != exclude_job_id and _live_abandoned(jid) is not None
+               and _abandoned[jid] is not me
                and getattr(_abandoned[jid], "baihe_abandoned_gpu", False))
 
 
@@ -105,8 +110,9 @@ def can_force_stop(job: dict, now: float = None) -> bool:
 
 
 def force_stop(job_id: str) -> dict:
-    """Closes the record of a thread job that is Cancelling too long. Raises ConflictError when the job is not eligible, which also
-    makes a second call a no-op instead of a second release. Returns
+    """Closes the record of a thread job that is Cancelling too long. Raises
+    ConflictError when the job is not eligible, which also makes a second
+    call a no-op instead of a second release. Returns
     {"status", "worker_still_running"}."""
     import background_jobs as bj
     from services.service_errors import ConflictError
@@ -124,10 +130,7 @@ def force_stop(job_id: str) -> dict:
             worker.baihe_abandoned = True
             worker.baihe_abandoned_gpu = bool(job.get("gpu_touching"))
             _abandoned[job_id] = worker
-        cancelled = bool(job.get("cancel_requested"))
-        job["status"] = "cancelled" if cancelled else "error"
-        if not cancelled:
-            job["error"] = FORCE_STOPPED_MESSAGE
+        job["status"] = "cancelled"
         job["message"] = FORCE_STOPPED_MESSAGE
         job["finished_at"] = time.time()
         bj._mirror_locked(job_id)
