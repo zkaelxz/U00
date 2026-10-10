@@ -843,7 +843,6 @@ _CAPTURE_ALLOWED = {
     "video_export.py::replace_audio_with_dub": "pending: ffmpeg",
     # pending: separate tree-killing runners that should move onto lib.proc.
     "background_jobs.py::run_cancellable": "pending: own runner",
-    "services/browser_install_service.py::_run": "pending: own runner",
     "services/lncrawl_service.py::_run_process": "pending: own runner",
 }
 

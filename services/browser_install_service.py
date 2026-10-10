@@ -13,19 +13,17 @@ MB and fixed or redacted text, never a path.
 """
 
 import os
-import queue
 import re
 import shutil
-import subprocess
 import sys
 import threading
-import time
 from collections import deque
 
 import background_jobs
 import browser_support
 import diagnostics
 import translate_engines
+from lib.proc import stream_tree
 from services import diagnostics_gaps_service as gaps
 from services.service_errors import ConflictError
 
@@ -145,51 +143,16 @@ def _environment(folder: str) -> dict:
 
 
 def _run(cmd: list, env: dict, timeout: float, on_line, cancelled):
-    """Runs cmd in its own process group, feeding each output line to
-    on_line. Returns (returncode, timed_out, was_cancelled). The tree is
-    killed on timeout, cancel or any exit from here, and every wait after
-    that is bounded so a grandchild holding the pipe can't hang the job."""
-    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
-             else {"start_new_session": True})
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            encoding="utf-8", errors="replace", bufsize=1, env=env, **group)
-    lines, eof = queue.Queue(), object()
-
-    def _reader():
-        try:
-            for line in proc.stdout:
-                lines.put(line)
-        except (OSError, ValueError):
-            pass
-        finally:
-            lines.put(eof)
-    threading.Thread(target=_reader, daemon=True, name="browser-install-output").start()
-
-    deadline = time.monotonic() + timeout
-    timed_out = was_cancelled = False
-    try:
-        while True:
-            if cancelled():
-                was_cancelled = True
-                break
-            if time.monotonic() >= deadline:
-                timed_out = True
-                break
-            try:
-                item = lines.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            if item is eof:
-                break
-            on_line(item.rstrip("\n"))
-    finally:
-        if proc.poll() is None:
-            background_jobs.kill_tree(proc)
-        try:
-            returncode = proc.wait(timeout=KILL_DRAIN_SECONDS)
-        except subprocess.TimeoutExpired:
-            returncode = None
-    return returncode, timed_out, was_cancelled
+    """Runs cmd, feeding each output line to on_line. Returns
+    (returncode, timed_out, was_cancelled)."""
+    end = {"returncode": None, "timed_out": False, "cancelled": False}
+    for item in stream_tree(cmd, timeout, drain_seconds=KILL_DRAIN_SECONDS, env=env,
+                            cancel=cancelled):
+        if "line" in item:
+            on_line(item["line"])
+        else:
+            end = item
+    return end["returncode"], end["timed_out"], end["cancelled"]
 
 
 def _remove_partial(folder: str):

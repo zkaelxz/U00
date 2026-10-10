@@ -26,7 +26,7 @@ installer/wheels.lock.txt: refresh the installer lock separately (see
 docs/windows-installer-design.md). Pinning your real environment back is a
 manual step; the pip command is printed.
 
-Standard library only (uv is optional).
+Standard library plus the repo's lib/proc.py (uv is optional).
 """
 
 import argparse
@@ -34,12 +34,14 @@ import datetime
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# Run as `python scripts/dependency_canary.py`, sys.path[0] is scripts/, not the repo.
+sys.path.insert(0, str(REPO_ROOT))
+from lib.proc import run_captured  # noqa: E402
 NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 VERSION_RE = re.compile(r"^[A-Za-z0-9.+!_-]+$")
 
@@ -230,14 +232,13 @@ def venv_python(venv_dir) -> str:
 def _run(cmd, timeout, env, cwd=None):
     """(returncode, output). A timeout returns 124 with what was captured."""
     try:
-        p = subprocess.run(cmd, cwd=cwd, env=env, timeout=timeout, capture_output=True,
-                           text=True, encoding="utf-8", errors="replace")
-        return p.returncode, (p.stdout or "") + (p.stderr or "")
-    except subprocess.TimeoutExpired as e:
-        out = e.stdout if isinstance(e.stdout, str) else (e.stdout or b"").decode("utf-8", "replace")
-        return 124, out + f"\n[timed out after {timeout}s]"
+        p = run_captured(cmd, timeout, cwd=cwd, env=env)
     except OSError as e:
         return 127, str(e)
+    out = p.stdout + p.stderr
+    if p.timed_out:
+        return 124, out + f"\n[timed out after {timeout}s]"
+    return (p.returncode if p.returncode is not None else 1), out
 
 
 def uv_path():
