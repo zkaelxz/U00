@@ -354,13 +354,22 @@ test.describe('phone', () => {
     await expect(sheet).toBeVisible()
     await expect(sheet.getByLabel('Width')).toHaveCount(0)
     // The Field (i) help button is the shared pattern with a padded hit area.
-    const small = await sheet.locator('select, input:not([type=checkbox]), button:not(.field-help-btn), label:has(> input[type=checkbox])').evaluateAll((els) =>
+    const small = await sheet.locator('select, input:not([type=checkbox]), button:not(.field-help-btn, .toggle), label:has(> input[type=checkbox])').evaluateAll((els) =>
       els
         .filter((e) => (e as HTMLElement).offsetParent !== null)
         .map((e) => ({ h: window.hitHeight(e), t: (e.textContent ?? '').trim() || e.getAttribute('aria-label') }))
         .filter(({ h }) => h < 44),
     )
     expect(small).toEqual([])
+    // A Toggle's 24px box reaches 44px through its ::after, so probe what answers above and below its centre.
+    const reach = await sheet.getByRole('switch', { name: 'Spoiler-free' }).evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      const x = r.left + r.width / 2
+      const cy = r.top + r.height / 2
+      const mine = (y: number) => el.contains(document.elementFromPoint(x, y))
+      return mine(cy - 21.5) && mine(cy + 21.5)
+    })
+    expect(reach, 'Spoiler-free toggle hit area is under 44px').toBe(true)
     await expect(sheet.getByTestId('reader-metrics')).toContainText('90 lines')
     await sheet.getByLabel('Go to page').fill('2')
     await sheet.getByRole('button', { name: 'Go', exact: true }).tap()

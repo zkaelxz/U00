@@ -55,6 +55,10 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
   const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
   const errors = <><ErrorBanner error={continuing.error} /><ErrorBanner error={recent.error} /></>
+  // The shelf is the tallest thing above the list; holding its place until the
+  // two requests settle keeps the list from jumping down when they land.
+  const loading = !continuing.error && !recent.error && (continuing.data === null || recent.data === null)
+  if (loading) return <div className="continue-skeleton skeleton-block" aria-hidden="true" />
   if (!items.length) return errors
   const limit = phone ? 1 : 4
   const shown = all ? items : items.slice(0, limit)
@@ -104,6 +108,34 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
 
 
 const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: '' }
+
+const MAKE_SUBTITLES_PREF = 'library.makeSubtitles.open'
+
+// The Make subtitles card is the first-run action; once there are titles,
+// "New title" is the page's one primary, so the card folds to one line. It
+// stays mounted while folded so a run in progress isn't lost.
+function MakeSubtitlesPanel({ hasTitles }: { hasTitles: boolean }) {
+  const [pref, setPref] = usePersistedState(MAKE_SUBTITLES_PREF, '')
+  const open = !hasTitles || pref === 'open'
+  return (
+    <div className="make-subtitles-panel">
+      {hasTitles && (
+        <button
+          type="button"
+          className={`${buttonClass('ghost')} disclosure-toggle`}
+          aria-expanded={open}
+          aria-controls="make-subtitles-body"
+          onClick={() => setPref(open ? 'closed' : 'open')}
+        >
+          <span aria-hidden="true">{open ? '▾' : '▸'}</span> Make subtitles
+        </button>
+      )}
+      <div id="make-subtitles-body" hidden={!open}>
+        <MakeSubtitles />
+      </div>
+    </div>
+  )
+}
 
 // What has been typed into "New drama". The page keeps it, so closing the
 // Sheet (Esc, backdrop, ×) and reopening it doesn't lose the input; only a
@@ -311,7 +343,9 @@ export default function LibraryPage() {
         <div className="page-head-text">
           <h2 className="page-title">Library</h2>
           <ErrorBanner error={stats.error} />
-          {stats.data && <p className="page-meta" data-testid="stats">{libraryHeadline(stats.data)}</p>}
+          {stats.data
+            ? <p className="page-meta" data-testid="stats">{libraryHeadline(stats.data)}</p>
+            : !stats.error && <p className="page-meta stats-placeholder" aria-hidden="true" />}
           {stats.data && usageSpent(stats.data.usage) && (
             <details className="stats-usage">
               <summary>{usageSpent(stats.data.usage)}</summary>
@@ -335,7 +369,7 @@ export default function LibraryPage() {
 
       {showGetStarted(stats.data?.total_dramas, startedDismissed)
         ? <GetStarted onDismiss={() => setStartedDismissed(true)} />
-        : <MakeSubtitles />}
+        : <MakeSubtitlesPanel hasTitles={stats.data?.total_dramas !== 0} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
         <p className="muted" data-testid="member-empty-note">

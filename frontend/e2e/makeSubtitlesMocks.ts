@@ -27,8 +27,10 @@ export interface MakeSubtitlesMock {
 
 export async function mockMakeSubtitles(
   page: Page,
-  o: { libraryTotal?: number; failJob?: string; holdFirst?: boolean; holdUpload?: boolean; cancelledJob?: boolean } = {},
+  o: { libraryTotal?: number; folded?: boolean; failJob?: string; holdFirst?: boolean; holdUpload?: boolean; cancelledJob?: boolean } = {},
 ): Promise<MakeSubtitlesMock> {
+  // A library with titles folds the card; these specs drive the card itself.
+  if (!o.folded) await page.addInitScript(() => localStorage.setItem('baihe.pref.library.makeSubtitles.open', '"open"'))
   const m: MakeSubtitlesMock = { created: [], uploads: [], translateRuns: [], release: () => { held = false } }
   let held = o.holdFirst ?? false
   const started = new Set<string>()
