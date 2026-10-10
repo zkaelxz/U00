@@ -45,7 +45,6 @@ the auto-derived Translation Profile and a COMET scorer.
 """
 import functools
 import json
-import time
 import uuid
 
 import background_jobs
@@ -53,7 +52,10 @@ import benchmark
 import db
 import translate_engines
 from core import SOURCE_LANGUAGES
+from engine_backends import llm_tasks
 from services import settings_service, translate_service
+from services.benchmark_case_service import (redact, run_file_case as _run_file_case,
+                                                   run_translation as _run_translation)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -579,65 +581,6 @@ def _now() -> str:
     return datetime.datetime.utcnow().isoformat()
 
 
-def redact(text, key=None):
-    """Secrets (redact_secrets, plus the run's own key by value, since a key
-    without a recognisable prefix would otherwise slip through) and absolute
-    paths / the OS user name (diagnostics.redact_for_support, via
-    jobs_service's never-raising wrapper): errors are shown to remote admins."""
-    if not text:
-        return text
-    text = str(text)
-    if key and len(key) >= 8:
-        text = text.replace(key, "[redacted]")
-    from services import jobs_service
-    return jobs_service.redact_text(text)
-
-
-def _translation_context(case: dict) -> dict:
-    """The case's own source language, where every engine reads it (MT
-    engines from source_language, LLM prompts from drama_meta); an empty
-    context would make every engine treat Japanese/Korean as Chinese."""
-    lang = case.get("source_language") if case.get("source_language") in SOURCE_LANGUAGES else "zh"
-    return {"source_language": lang, "target_language": "en",
-            "drama_meta": {"source_language": lang}}
-
-
-def _run_translation(engine, case: dict, key: str = None) -> dict:
-    started = time.monotonic()
-    usage = None
-    try:
-        # Same retry as a normal translation: a transient 429/5xx shouldn't
-        # score 0 and skew the Arena.
-        ctx = _translation_context(case)
-        out = translate_engines.call_with_backoff(
-            lambda: engine.translate_batch([case.get("source_text") or ""], ctx))
-        output_text = out[0] if out else ""
-        error = None
-        usage = getattr(engine, "last_usage", None)
-    except Exception as exc:
-        output_text, error = "", redact(exc, key)
-    cost = 0.0
-    if usage:
-        cost = translate_engines.estimate_cost_for_engine(
-            engine, usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0,
-            usage.get("cache_read_tokens", 0) or 0, usage.get("cache_write_tokens", 0) or 0)
-    return {"output_text": output_text, "error": error, "cost_usd": cost, "usage": usage or {},
-            "duration_seconds": time.monotonic() - started}
-
-
-def _run_file_case(stage: str, cfg: dict, case: dict, use_gpu: bool) -> dict:
-    import os
-    if not case.get("input_filename"):
-        return {"output_text": "", "error": "This case has no input file.", "duration_seconds": 0.0}
-    prepared = dict(case, input_path=os.path.join(db.BENCHMARK_DIR, case["input_filename"]))
-    if stage == "transcription":
-        r = benchmark.run_transcription_case(prepared, whisper_size=cfg["model"], use_gpu=use_gpu)
-    else:
-        r = benchmark.run_ocr_case(prepared, backend=cfg["engine"])
-    r["error"] = redact(r.get("error"))
-    return r
-
-
 def _peak_vram_mb():
     try:
         import asr_benchmark
@@ -717,13 +660,23 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                 f"{cfg['engine']}{' ' + cfg['model'] if cfg.get('model') else ''}: "
                 f"{case.get('label') or case['id']}")
             if stage == "translation":
-                r = _run_translation(engine, case, api_key)
+                # Scope only for the cancel check: it lets call_with_backoff
+                # stop at its next retry instead of sleeping out a cancelled run.
+                with llm_tasks.bounded_llm_calls(
+                        job_id, lambda: background_jobs.is_cancel_requested(job_id)):
+                    r = _run_translation(engine, case, api_key)
                 if r["cost_usd"] or r["usage"]:
                     db.log_usage(None, cfg["engine"], getattr(engine, "model", cfg["model"]) or "",
                                  "benchmark", r["usage"].get("input_tokens", 0) or 0,
                                  r["usage"].get("output_tokens", 0) or 0, r["cost_usd"],
                                  r["usage"].get("cache_read_tokens", 0) or 0)
                 spent += r["cost_usd"]
+                # After the usage log: a request that finished and was billed
+                # while a cancel was pending still counts toward the cap.
+                if background_jobs.is_cancel_requested(job_id):
+                    # The interrupted case would be saved as an engine error.
+                    status = "cancelled"
+                    break
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu)
             score, metric, scorer = score_output(stage, r.get("output_text") or "",
