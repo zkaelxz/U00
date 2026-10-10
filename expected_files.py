@@ -59,6 +59,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "live_cue_feed.py",
     "live_cue_translation.py",
     "live_fetch.py",
+    "live_pipeline.py",
     "live_tokens.py",
     "live_translate.py",
     "live_whisper.py",

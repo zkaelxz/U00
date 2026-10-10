@@ -372,7 +372,8 @@ def warm_up(whisper_size: str, use_gpu: bool, progress_cb=None) -> None:
 
 # Rough VRAM faster-whisper needs per size (float16), for deciding whether a
 # failed first load is worth freeing Ollama again.
-_VRAM_NEEDED_MB = {"tiny": 1000, "base": 1000, "small": 2000, "medium": 3500}
+_VRAM_NEEDED_MB = {"tiny": 1000, "base": 1000, "small": 2000, "medium": 3500,
+                   "large-v3-turbo": 3500}
 _VRAM_NEEDED_LARGE_MB = 5500
 # A chunk that takes more than this many times its own audio is called out in
 # the status, so the owner sees a stall without opening the log.
@@ -435,10 +436,12 @@ class ChunkTiming:
     def whisper_done(self, took: float) -> None:
         self.whisper, self._whisper_done = took, time.monotonic()
 
-    def report(self, idx: int, note) -> None:
-        translate = time.monotonic() - (self._whisper_done or time.monotonic())
-        log_chunk(idx, self.audio, self.queued, self.whisper, translate, self.cold, note,
-                  self.use_gpu)
+    def report(self, idx: int, note, cues=None, queue_wait: float = 0.0, queue_depth: int = 0) -> float:
+        """The chunk's total seconds; queue_wait is time spent waiting for the
+        translation worker, kept out of the translate figure."""
+        translate = time.monotonic() - (self._whisper_done or time.monotonic()) - queue_wait
+        return log_chunk(idx, self.audio, self.queued, self.whisper, max(0.0, translate), self.cold,
+                         note, self.use_gpu, cues=cues, queue_wait=queue_wait, queue_depth=queue_depth)
 
 
 def warm_start(runner: "WhisperRunner", whisper_size: str, use_gpu: bool) -> float:
@@ -451,12 +454,13 @@ def warm_start(runner: "WhisperRunner", whisper_size: str, use_gpu: bool) -> flo
 
 
 def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: float,
-              cold: bool, note, use_gpu: bool = False) -> None:
+              cold: bool, note, use_gpu: bool = False, cues=None, queue_wait: float = 0.0,
+              queue_depth: int = 0) -> float:
     """One app-log line per chunk with where the time went, plus nvidia-smi's
     free/total VRAM when it can be read (numbers only: nothing to redact beyond
     what redact_secrets would pass anyway). A chunk far slower than its audio
     also gets a one-line status note."""
-    total = queued + whisper + translate
+    total = queued + whisper + queue_wait + translate
     slow = audio > 0 and total > SLOW_CHUNK_FACTOR * audio
     gpu = ""
     # nvidia-smi is a subprocess on the job thread: only worth it for a GPU run
@@ -470,7 +474,9 @@ def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: 
         except Exception:
             pass
     line = (f"chunk {idx}: {audio:.1f} s of audio; waited {queued:.1f} s, Whisper {whisper:.1f} s"
-            f"{' (model was not loaded yet)' if cold else ''}, translate {translate:.1f} s{gpu}")
+            f"{' (model was not loaded yet)' if cold else ''}, translate {translate:.1f} s"
+            + (f"; {cues} cues, translate queue wait {queue_wait:.1f} s, depth {queue_depth}"
+               if cues is not None else "") + gpu)
     try:
         from translate_engines import redact_secrets
         _log("info", "Live " + redact_secrets(line))
@@ -478,4 +484,6 @@ def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: 
         pass
     if slow:
         note(f"Chunk {idx} took {total:.0f} s for {audio:.0f} s of audio: waited {queued:.1f} s, "
-             f"Whisper {whisper:.1f} s, translate {translate:.1f} s{gpu}.", "slow-chunk")
+             f"Whisper {whisper:.1f} s, translate {translate:.1f} s"
+             f"{f' after {queue_wait:.1f} s in the queue' if queue_wait else ''}{gpu}.", "slow-chunk")
+    return total

@@ -19,6 +19,9 @@ WHISPER_MODELS = {
     "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
 }
 DEFAULT_WHISPER_SIZE = "large-v3-turbo"
+# Live's choices. small stays its default: Live has to keep up with the stream
+# on a CPU, and turbo takes about 1.5x small's time on the repo's CPU test.
+LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo")
 
 
 def release_gpu_models():

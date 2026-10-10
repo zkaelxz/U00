@@ -277,22 +277,32 @@ class TestWhisperThatNeverReturns:
         assert _wait(lambda: _texts("live_shape") == ["t1", "t3"])
         assert len(freed) == 1
 
-    def test_a_failing_or_slow_translator_never_blocks_the_next_chunks_whisper(
+    def test_whisper_starts_the_next_chunk_while_a_translation_is_held_then_it_fails(
             self, job, monkeypatch):
         stream, start, notes = job
-        seen = []
+        seen, next_whisper = [], threading.Event()
+        translating, release = threading.Event(), threading.Event()
 
         def whisper(path, **kw):
             seen.append(os.path.basename(path))
+            if len(seen) == 2:
+                next_whisper.set()
             return [{"start": 0.5, "end": 1.0, "text": f"t{len(seen)}"}]
+
+        class Held(Engine):
+            def translate_batch(self, lines, context):
+                translating.set()
+                release.wait(20)
+                return super().translate_batch(lines, context)
         monkeypatch.setattr(core, "transcribe_for_timing", whisper)
-        stream.add(2)
-        assert start("live_badtr", Engine(delay=0.05, fail=True))
-        for want in (1, 2, 3):
-            assert _wait(lambda: len(seen) >= want)
-            stream.add(1)
-        states = {c["translation"] for c in background_jobs.get_status("live_badtr")["result"]}
-        assert "failed" in states and states <= {"failed", "pending"}
+        stream.add(3)
+        assert start("live_badtr", Held(fail=True))
+        assert translating.wait(PROMPT)
+        assert next_whisper.wait(PROMPT) and not release.is_set()
+        release.set()
+        assert _wait(lambda: [c["translation"] for c in
+                                 background_jobs.get_status("live_badtr")["result"] or []]
+                     == ["failed", "failed"])
 
 
 class TestStopIsPrompt:

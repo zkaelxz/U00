@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
-  describeLiveError, feedCues, fmtTs, getLive, isActive, pickSession, startLive, statusLine, stopLive,
+  describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
 
@@ -202,5 +202,31 @@ describe('model choice', () => {
   })
   it('shows the model in the status line', () => {
     expect(statusLine({ status: 'running', message: 'Listening', model: 'qwen3:8b' }, 1)).toBe('Listening · 1 line · qwen3:8b')
+  })
+})
+
+describe('Whisper model choice', () => {
+  it('offers large-v3-turbo and keeps small as the default', () => {
+    expect(WHISPER_SIZES).toContain('large-v3-turbo')
+    expect(WHISPER_SIZES).toContain('medium')
+    expect(DEFAULT_FORM.whisper_size).toBe('small')
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', whisper_size: 'large-v3-turbo' }).whisper_size).toBe('large-v3-turbo')
+  })
+})
+
+describe('lagLine', () => {
+  const base = { lag_seconds: 0, processing_seconds: 0, translations_skipped: 0, chunks_measured: 0 }
+
+  it('says nothing before a chunk is measured', () => {
+    expect(lagLine(base)).toBeNull()
+    expect(lagLine({})).toBeNull()
+  })
+
+  it('gives the caption lag and the untranslated count as numbers', () => {
+    expect(lagLine({ ...base, chunks_measured: 2, lag_seconds: 27.4 })).toBe('Captions about 27 s behind the stream.')
+    expect(lagLine({ ...base, chunks_measured: 2, lag_seconds: 27.4, translations_skipped: 1 }))
+      .toBe('Captions about 27 s behind the stream. 1 line shown untranslated to keep up.')
+    expect(lagLine({ ...base, chunks_measured: 3, lag_seconds: 9, translations_skipped: 5 }))
+      .toBe('Captions about 9 s behind the stream. 5 lines shown untranslated to keep up.')
   })
 })

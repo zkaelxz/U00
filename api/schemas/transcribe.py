@@ -277,6 +277,14 @@ class LiveSessionStatus(BaseModel):
     model: Optional[str] = None
     progress: float
     notes: List[str] = []   # newest last: skipped chunks, catching up
+    segment_seconds: int = 0
+    # Seconds from the first word of the newest captioned chunk to its translation.
+    lag_seconds: float = 0.0
+    # Rolling median of a chunk's wait + Whisper + translate-queue wait + translate.
+    processing_seconds: float = 0.0
+    translations_skipped: int = 0   # lines shown untranslated to keep up
+    translate_queue: int = 0
+    chunks_measured: int = 0
     cues: List[LiveCue]
     next_index: int
 
@@ -292,6 +300,8 @@ class LiveSessionSummary(BaseModel):
 class LiveSessionStopped(BaseModel):
     session_id: str
     stopping: bool
+    # True: the session captions what it already captured, then ends; Stop again ends it at once.
+    finishing: bool = False
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,10 @@ import { mockEmbedHosts, ytFrame, ytHtml } from './liveVideoMocks'
 const YT = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
 
 async function startRunning(page: Page, url = YT, playerHtml?: string) {
+  // These specs drive the delay by hand; the automatic delay has its own spec.
+  await page.addInitScript(() => {
+    if (localStorage.getItem('baihe.pref.live.videoDelayAuto') === null) localStorage.setItem('baihe.pref.live.videoDelayAuto', 'false')
+  })
   const m = await mockLive(page)
   await mockEmbedHosts(page, playerHtml)
   const live = await openLive(page)
@@ -319,4 +323,28 @@ test('captions are not held while the player has not started', async ({ page }) 
   const { live } = await startRunning(page, YT, ytHtml(300, 0, { blockAll: true }))
   await live.getByLabel('Video delay', { exact: true }).fill('30')
   await expect(live.getByTestId('live-caption')).toContainText('Line 1:', { timeout: 10_000 })
+})
+
+test('the automatic delay is the chunk plus the measured processing, and the slider overrides it', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.videoDelayAuto', 'true'))
+  const { m, live } = await startRunning(page)
+  // Before a chunk is measured: the 20 s chunk plus the stated 8 s guess.
+  await expect(live.getByTestId('live-delay-mode')).toHaveText('Video delay: auto (about 28 s)')
+  await expect(live.getByLabel('Video delay', { exact: true })).toHaveValue('28')
+  m.state.figures = { segment_seconds: 20, processing_seconds: 12.4, lag_seconds: 32.4, chunks_measured: 2, translations_skipped: 0 }
+  m.state.cues = [cue(0), cue(1), cue(2)]
+  await expect(live.getByTestId('live-delay-mode')).toHaveText('Video delay: auto (about 32 s)')
+  await expect(live.getByTestId('live-lag')).toHaveText('Captions about 32 s behind the stream.')
+  await expect.poll(async () => (await cmds(page)).filter((c) => c.func === 'seekTo').at(-1)?.args[0]).toBe(268)
+  // A change within the settle tolerance does not seek the picture again.
+  m.state.figures = { ...m.state.figures, processing_seconds: 13.6, lag_seconds: 33.6 }
+  m.state.cues = [cue(0), cue(1), cue(2), cue(3)]
+  await expect(live.getByTestId('live-lag')).toHaveText('Captions about 34 s behind the stream.')
+  await expect(live.getByTestId('live-delay-mode')).toHaveText('Video delay: auto (about 32 s)')
+  // Moving the slider is the manual override it always was.
+  await live.getByLabel('Video delay', { exact: true }).fill('45')
+  await expect(live.getByTestId('live-delay-mode')).toHaveText('Video delay: 45 s, set by hand')
+  await expect(live.getByRole('switch', { name: 'Automatic video delay' })).toHaveAttribute('aria-checked', 'false')
+  await expect.poll(async () => (await cmds(page)).filter((c) => c.func === 'seekTo').at(-1)?.args[0]).toBe(255)
+  await page.screenshot({ path: `${SCREENS}/desktop-video-auto-delay.png`, fullPage: true })
 })

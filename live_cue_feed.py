@@ -6,9 +6,13 @@ client can match an update to the line it already shows by id and never by
 position in a reply. Cues are never trimmed or edited once done, so a
 client only re-reads cues still pending. Each cue carries its own translation state so one slow
 or failed line never hides the others."""
+import contextlib
+
 import background_jobs
 
 PENDING, DONE, FAILED, CANCELLED = "pending", "done", "failed", "cancelled"
+# Never sent for translation: the translation queue was full (live_pipeline).
+SKIPPED = "skipped"
 # The note CueTranslator puts in place of a translation it could not get.
 FAILED_PREFIX = "[translation failed"
 
@@ -36,24 +40,45 @@ def _finish(cue: dict, translated: str) -> None:
     cue["translation"] = FAILED if translated.startswith(FAILED_PREFIX) else DONE
 
 
-def translate_cues(cues: list, translator, checkpoint, on_stage=None, on_cues=None) -> None:
-    """Translates the cues in order, calling on_cues(cues) after each so the
-    transcript is already visible while the rest wait. A cancel leaves the
-    unfinished cues marked cancelled, published, and is re-raised."""
-    if on_cues:
-        on_cues(cues)
+def translate_cues(cues: list, translator, checkpoint, on_stage=None, on_cues=None,
+                   lock=None) -> None:
+    """Translates the chunk's cues in one id-keyed request, then one request per
+    cue only for those the reply left out or that failed, calling on_cues(cues)
+    after each change so the transcript is already visible while the rest wait.
+    A cancel leaves the unfinished cues marked cancelled, published, and is
+    re-raised. lock: held while cues change and are published, for a reader on
+    another thread."""
+    guard = lock if lock is not None else contextlib.nullcontext()
+
+    def publish():
+        if on_cues:
+            on_cues(cues)
+    with guard:
+        publish()
     try:
+        if len(cues) > 1:
+            if on_stage:
+                on_stage("translating")
+            found = translator.translate_chunk([c["text"] for c in cues])
+            if found:
+                with guard:
+                    for pos, translated in found.items():
+                        _finish(cues[pos], translated)
+                    publish()
         for cue in cues:
+            if cue["translation"] != PENDING:
+                continue
             checkpoint()
             if on_stage:
                 on_stage("translating")
-            _finish(cue, translator.translate(cue["text"]))
-            if on_cues:
-                on_cues(cues)
+            translated = translator.translate(cue["text"])
+            with guard:
+                _finish(cue, translated)
+                publish()
     except background_jobs.JobCancelled:
-        for cue in cues:
-            if cue["translation"] == PENDING:
-                cue["translation"] = CANCELLED
-        if on_cues:
-            on_cues(cues)
+        with guard:
+            for cue in cues:
+                if cue["translation"] == PENDING:
+                    cue["translation"] = CANCELLED
+            publish()
         raise
