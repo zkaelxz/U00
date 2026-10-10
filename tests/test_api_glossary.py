@@ -272,7 +272,8 @@ class TestImportExportBulk:
         r = client.get(_url(did, "export.csv"))
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("text/csv")
-        assert f'glossary_{did}.csv' in r.headers["content-disposition"]
+        assert "glossary%20%28en%29.csv" in r.headers["content-disposition"]
+        assert f"glossary_{did}" not in r.headers["content-disposition"]
         assert "沈清疑,Shen Qingyi,person_name,keep_pinyin,yes,hero" in r.text
         # round-trips through the importer
         other = _drama(isolated_db, "T")

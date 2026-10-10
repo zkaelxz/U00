@@ -108,6 +108,14 @@ describe('reader api', () => {
     expect(plain.filename).toBe('drama_4_vocab_sentence.apkg')
   })
 
+  it('names the sentence deck from filename* before filename', async () => {
+    const f = fakeFetch(200, new Blob(['deck']), [], {
+      'Content-Disposition':
+        "attachment; filename=\"_ - Anki deck with sentences.apkg\"; filename*=UTF-8''%E7%99%BD%E9%B9%A4%20-%20Anki%20deck%20with%20sentences.apkg",
+    })
+    expect((await downloadRichDeck(4, f)).filename).toBe('白鹤 - Anki deck with sentences.apkg')
+  })
+
   it('turns a failed deck download into an ApiError', async () => {
     const f = fakeFetch(429, { error: { code: 'rate_limited', message: 'busy' } }, [])
     const err = await downloadRichDeck(4, f).catch((e: unknown) => e)

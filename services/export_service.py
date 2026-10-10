@@ -108,6 +108,16 @@ def content_disposition(filename: str) -> str:
     return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(clean, safe='')}"
 
 
+def drama_disposition(drama_id: int, what: str, language: str, ext: str) -> str:
+    return content_disposition(download_filename(drama_id, what, language, ext))
+
+
+def dub_track_disposition(drama_id: int, track_name: str) -> str:
+    what = "narration track" if track_name.startswith("narration") else "dub track"
+    language = narration_language(db.get_drama(drama_id) or {})
+    return drama_disposition(drama_id, what, language, "wav")
+
+
 def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subtitles") -> str:
     drama = db.get_drama(drama_id) or {}
     what = f"bilingual {noun}" if field == "bilingual" else noun
