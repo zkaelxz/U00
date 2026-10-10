@@ -27,7 +27,7 @@ def _no_jobs(monkeypatch):
 
 
 def _fake_pip(monkeypatch, seen, lines=(), returncode=0, read_pins=None):
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         seen.append((cmd, timeout))
         if read_pins is not None and "-c" in cmd:
             for i, a in enumerate(cmd):

@@ -224,7 +224,7 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
     monkeypatch.setattr(svc, "_use_winget", lambda: True)
     ran = []
 
-    def fake_tree(cmd, timeout, cancel=None):
+    def fake_tree(cmd, timeout, cancel=None, **_kw):
         ran.append((cmd, timeout))
         yield {"line": f"Found Deno at {ABS_PATH} {SECRET}"}
         yield {"returncode": 0, "timed_out": False, "cancelled": False}
