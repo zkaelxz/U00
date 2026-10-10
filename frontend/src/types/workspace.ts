@@ -43,6 +43,8 @@ export interface TranscribeConfig {
   measured_diarize_runs?: number
   // False when faster-whisper isn't installed (transcription can't run).
   whisper_installed: boolean
+  // CUDA runtime DLLs Whisper needs on the GPU; "unknown" off Windows or without a CUDA device.
+  gpu_runtime: { status: 'ok' | 'missing' | 'unknown'; reason: string | null }
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
@@ -73,6 +75,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'measured_diarize_speed'
     | 'measured_diarize_runs'
     | 'whisper_installed'
+    | 'gpu_runtime'
     | 'has_video_source'
   >
 >

@@ -2,7 +2,7 @@
 diarization, autotune, re-transcribe and live sessions.
 """
 
-from typing import Annotated, Dict, List, Optional
+from typing import Annotated, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
@@ -112,6 +112,11 @@ class SourceConfigUpdate(BaseModel):
     transcript_mode: Optional[str] = None
 
 
+class GpuRuntimeStatus(BaseModel):
+    status: Literal["ok", "missing", "unknown"]
+    reason: Optional[str] = None
+
+
 class TranscribeConfig(BaseModel):
     """Read-only Transcript-stage summary for one drama -- which action the
     transcribe button would run (from the source config's transcript_mode)
@@ -136,6 +141,8 @@ class TranscribeConfig(BaseModel):
     measured_diarize_runs: int = 0
     # False when faster-whisper isn't installed, so a run can't start.
     whisper_installed: bool = True
+    # CUDA runtime DLLs Whisper needs on the GPU: status ok / missing / unknown, with fixed-text reason.
+    gpu_runtime: GpuRuntimeStatus = Field(default_factory=lambda: GpuRuntimeStatus(status="unknown"))
     beam_size: int
     min_silence_ms: int
     vad_threshold: float

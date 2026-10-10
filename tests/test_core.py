@@ -1204,3 +1204,50 @@ class TestSplitLongSegments:
         import core
         seg = self._seg("Pi is 3.14159 and e is 2.71828 which is nice", 0.0, 30.0)
         assert core.split_long_segments([seg], max_seconds=8) == [seg]
+
+
+class TestWhisperGpuRuntime:
+    @staticmethod
+    def _windows_with_gpu(monkeypatch, devices=1):
+        import sys, types
+        import core
+        monkeypatch.setattr(core.sys, "platform", "win32")
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_cuda_device_count = lambda: devices
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+
+    def test_present(self, monkeypatch):
+        import core
+        self._windows_with_gpu(monkeypatch)
+        loaded = []
+        assert core.whisper_gpu_runtime(loader=loaded.append) == {"status": "ok", "reason": None}
+        assert loaded == ["cublas64_12.dll"]
+
+    def test_missing_reason_has_no_path_or_raw_error(self, monkeypatch):
+        import core
+        self._windows_with_gpu(monkeypatch)
+
+        def loader(name):
+            raise OSError(r"[WinError 126] C:\Users\me\AppData\cublas64_12.dll not found")
+
+        result = core.whisper_gpu_runtime(loader=loader)
+        assert result["status"] == "missing"
+        assert result["reason"] == core.GPU_RUNTIME_MISSING_REASON
+        assert "\\" not in result["reason"] and ":" not in result["reason"] and "WinError" not in result["reason"]
+
+    def test_unknown_off_windows(self, monkeypatch):
+        import core
+        monkeypatch.setattr(core.sys, "platform", "linux")
+        assert core.whisper_gpu_runtime(loader=lambda n: 1 / 0) == {"status": "unknown", "reason": None}
+
+    def test_unknown_without_ctranslate2(self, monkeypatch):
+        import sys
+        import core
+        monkeypatch.setattr(core.sys, "platform", "win32")
+        monkeypatch.setitem(sys.modules, "ctranslate2", None)
+        assert core.whisper_gpu_runtime(loader=lambda n: 1 / 0)["status"] == "unknown"
+
+    def test_unknown_without_cuda_device(self, monkeypatch):
+        import core
+        self._windows_with_gpu(monkeypatch, devices=0)
+        assert core.whisper_gpu_runtime(loader=lambda n: 1 / 0)["status"] == "unknown"
