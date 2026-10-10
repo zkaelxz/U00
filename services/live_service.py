@@ -1,9 +1,10 @@
 """
 services/live_service.py -- Live capture sessions (spec
-docs/specs/discover-sources-live-api-spec.md section 4, L-1, polling only).
+docs/archive/discover-sources-live-api-spec.md section 4, L-1, polling only).
 
 A session is one background job (`live_<uuid>`) running
-live_translate.run_live_job in its own tempfile.mkdtemp directory, which is
+live_translate.run_live_job in its own folder under the library temp
+folder (storage.new_workdir, owned by the session id), which is
 removed when the job ends (done, error, cancel -- including a cancel while
 still queued). Every start gets its own id and directory, use_gpu reaches the
 pipeline, and max_minutes is a hard stop.
@@ -27,7 +28,6 @@ capability; stop is gated like jobs.cancel.
 import functools
 import re
 import shutil
-import tempfile
 import threading
 import uuid
 from typing import Optional
@@ -35,10 +35,11 @@ from typing import Optional
 import background_jobs
 import live_cue_feed
 import live_translate
+import storage
 import translate_engines
 from core import SOURCE_LANGUAGES
 from services import (egress_proxy, job_stage_service, jobs_service, ownership_service,
-                      settings_service, translate_service, url_guard)
+                      run_settings_service, settings_service, translate_service, url_guard)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -49,13 +50,16 @@ from services.service_errors import (
 )
 
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
-SEGMENT_RANGE = (10, 60)
+SEGMENT_RANGE = (3, 60)
 OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
+# Kept per session, newest last: the skipped-chunk and catch-up events the status
+# line would otherwise overwrite a second later.
+MAX_NOTES = 6
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -152,12 +156,37 @@ def check_ollama(model: Optional[str] = None) -> dict:
     return {"ok": True, "model": model, "message": None}
 
 
+def add_note(session_id: str, text: str, key: Optional[str] = None) -> None:
+    """Keeps a short event for the session's status. The text is fixed wording
+    the job composes from numbers, passed through clean_message anyway. A note
+    with a key replaces the earlier one with that key and becomes the newest,
+    so a running count of skips is never the first note to scroll out."""
+    with _lock:
+        entry = _sessions.get(session_id)
+        if entry is not None:
+            notes = entry.setdefault("notes", [])
+            if key is not None:
+                keyed = entry.setdefault("note_keys", {})
+                if keyed.get(key) in notes:
+                    notes.remove(keyed[key])
+                keyed[key] = clean_message(text)
+            notes.append(clean_message(text))
+            del notes[:-MAX_NOTES]
+
+
 def _remove_dir(session_id: str):
     with _lock:
         entry = _sessions.get(session_id)
         path = entry.pop("dir", None) if entry else None
     if path:
         shutil.rmtree(path, ignore_errors=True)
+
+
+def _previous_whisper_call():
+    """Label of an abandoned Whisper call of an earlier session that is still
+    decoding: starting beside it would load a second model copy."""
+    import live_whisper
+    return live_whisper.outstanding_label()
 
 
 def _active_session_locked():
@@ -203,7 +232,7 @@ def _make_target(session_id: str):
                 live_translate.run_live_job(
                     *args, proxy=proxy.url,
                     report_stage=functools.partial(job_stage_service.set_stage, session_id),
-                    **kwargs)
+                    report_note=functools.partial(add_note, session_id), **kwargs)
         finally:
             job_stage_service.clear_stage(session_id)
             _remove_dir(session_id)
@@ -260,10 +289,24 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     with _lock:
         if _active_session_locked() is not None:
             raise ConflictError("A live session is already running. Stop it first.")
+        if _previous_whisper_call() is not None:
+            raise ConflictError("The previous session's Whisper call is still finishing. "
+                                "Try again in a moment.")
     engine_name, eng = _build_engine(engine, model)
 
     session_id = f"live_{uuid.uuid4().hex}"
-    out_dir = tempfile.mkdtemp(prefix="baihe_live_")
+    out_dir = storage.new_workdir(session_id)
+    # Held until the job is registered: before that nothing owns the folder, so
+    # a "clean temp now" in the gap would delete it.
+    with storage.holding(out_dir):
+        return _start_registered(session_id, out_dir, url, source_language, whisper_size,
+                                 segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
+                                 use_gpu, use_saved_cookies, reply_without_thinking)
+
+
+def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
+                      overlap_seconds, max_minutes, eng, engine_name, use_gpu,
+                      use_saved_cookies, reply_without_thinking):
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
@@ -272,6 +315,10 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         if _active_session_locked() is not None:
             shutil.rmtree(out_dir, ignore_errors=True)
             raise ConflictError("A live session is already running. Stop it first.")
+        if _previous_whisper_call() is not None:
+            shutil.rmtree(out_dir, ignore_errors=True)
+            raise ConflictError("The previous session's Whisper call is still finishing. "
+                                "Try again in a moment.")
         if len(_sessions) >= MAX_SESSIONS:
             # Forget the oldest finished sessions (dicts keep insertion order).
             for sid in list(_sessions):
@@ -293,6 +340,12 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
+            run_settings=run_settings_service.build(
+                engine=engine_name, model=getattr(eng, "model", None),
+                whisper_size=whisper_size, source_language=source_language,
+                segment_seconds=segment_seconds, overlap_seconds=overlap_seconds,
+                use_gpu=bool(use_gpu), reply_without_thinking=bool(reply_without_thinking),
+                max_minutes=max_minutes),
             gpu_touching=bool(use_gpu), description=f"Live capture (local Whisper, {engine_name}"
             f"{' ' + eng.model if getattr(eng, 'model', None) else ''})")
     except Exception:
@@ -382,6 +435,7 @@ def get_session(session_id, after=0, principal=None) -> dict:
     return {"session_id": session_id, "status": status, "message": message,
             "engine": entry.get("engine"), "model": entry.get("model"),
             "progress": float((job or {}).get("progress") or 0.0),
+            "notes": list(entry.get("notes") or ()),
             "cues": out, "next_index": max(after, len(cues))}
 
 

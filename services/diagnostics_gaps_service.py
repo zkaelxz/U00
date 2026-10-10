@@ -28,6 +28,8 @@ import time
 import background_jobs
 import db
 import diagnostics
+import job_process_run
+from job_process_run import stream_tree
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
 
 LOG_TAIL_DEFAULT = 50
@@ -313,70 +315,6 @@ def _torch_setup_commands(variant: str) -> list:
             for args in diagnostics.torch_setup_pip_args(variant, default_project_root())]
 
 
-KILL_DRAIN_SECONDS = 5.0
-
-
-def stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS):
-    """Like diagnostics._stream_process ({"line"} per output line, then
-    {"returncode", "timed_out"}), but pip runs in its own process group and
-    on timeout (or if the caller stops early) the whole tree is killed
-    with background_jobs.kill_tree, not only pip itself.
-
-    Every wait is bounded, like background_jobs.run_cancellable's
-    kill_timeout: output is read on a helper thread, so a grandchild that
-    survives the kill (or outlives pip) and keeps the pipe open can hold
-    this for at most `drain_seconds` after the kill or after pip exits,
-    never forever. returncode is None if pip could not be reaped."""
-    import queue
-    import subprocess
-    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
-             else {"start_new_session": True})
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            encoding="utf-8", errors="replace", bufsize=1, **group)
-    lines, eof = queue.Queue(), object()
-
-    def _reader():
-        try:
-            for line in proc.stdout:
-                lines.put(line)
-        except (OSError, ValueError):
-            pass
-        finally:
-            lines.put(eof)
-    threading.Thread(target=_reader, daemon=True, name="pip-output").start()
-
-    deadline = time.monotonic() + timeout
-    timed_out, stop_by = False, None
-    try:
-        while True:
-            now = time.monotonic()
-            if stop_by is None:
-                if now >= deadline:
-                    timed_out = True
-                    background_jobs.kill_tree(proc)
-                    stop_by = now + drain_seconds
-                elif proc.poll() is not None:
-                    stop_by = now + drain_seconds     # pip exited; finish reading
-            if stop_by is not None and now >= stop_by:
-                break
-            limit = deadline if stop_by is None else stop_by
-            try:
-                item = lines.get(timeout=max(0.01, min(0.5, limit - now)))
-            except queue.Empty:
-                continue
-            if item is eof:
-                break
-            yield {"line": item.rstrip("\n")}
-    finally:
-        if proc.poll() is None:
-            background_jobs.kill_tree(proc)
-        try:
-            returncode = proc.wait(timeout=drain_seconds)
-        except subprocess.TimeoutExpired:
-            returncode = None
-    yield {"returncode": returncode, "timed_out": timed_out}
-
-
 _TORCH_CONSTRAINT_RE = re.compile(r"\(constraint\)\s+(torch|torchvision|torchaudio)==",
                                   re.IGNORECASE)
 
@@ -396,13 +334,27 @@ def torch_conflict_hint(lines, pins: list) -> str:
     return None
 
 
-def _run_commands(cmds: list, torch_pins: list = None, sox_watch=None) -> dict:
-    """Runs each (command, timeout) through _stream_tree; ok only if every
+def _cancel_probe(job_id):
+    """None outside a job; inside one, a callable that is true once the
+    user pressed Cancel (also seen from another process, via job_records)."""
+    return None if job_id is None else (lambda: background_jobs.is_cancel_requested(job_id))
+
+
+def _run_commands(cmds: list, torch_pins: list = None, sox_watch=None, job_id: str = None) -> dict:
+    """Runs each (command, timeout) through stream_tree; ok only if every
     one exits 0 in time. Stops at the first failure. `sox_watch` (a
-    diagnostics.SoxBuildWatch) sees every raw output line."""
+    diagnostics.SoxBuildWatch) sees every raw output line. With a `job_id`,
+    Cancel is honoured before each command and while one runs (the whole
+    pip process tree is killed; raises JobCancelled), and each redacted
+    output line becomes the job's message."""
+    cancel = _cancel_probe(job_id)
+    stream_kwargs = {} if cancel is None else {"cancel": cancel}
     tail, ok, hint, raw = [], True, None, []
-    for cmd, timeout in cmds:
-        for item in stream_tree(cmd, timeout):
+    for n, (cmd, timeout) in enumerate(cmds):
+        if cancel is not None and cancel():
+            raise background_jobs.JobCancelled(job_id)
+        frac = 0.05 + 0.85 * n / len(cmds)
+        for item in stream_tree(cmd, timeout, **stream_kwargs):
             if "line" in item:
                 if sox_watch:
                     sox_watch.feed(item["line"])
@@ -410,8 +362,13 @@ def _run_commands(cmds: list, torch_pins: list = None, sox_watch=None) -> dict:
                 hint = hint or diagnostics.pip_cache_permission_hint([item["line"]])
                 if torch_pins:
                     raw = (raw + [item["line"]])[-200:]
-                tail = (tail + [_redact(item["line"])])[-_ADMIN_OUTPUT_TAIL:]
+                shown = _redact(item["line"])
+                tail = (tail + [shown])[-_ADMIN_OUTPUT_TAIL:]
+                if job_id is not None and shown.strip():
+                    background_jobs.update_progress(job_id, frac, shown[:200])
             elif "returncode" in item:
+                if item.get("cancelled"):
+                    raise background_jobs.JobCancelled(job_id)
                 ok = ok and item["returncode"] == 0 and not item.get("timed_out")
                 if item.get("timed_out"):
                     tail = (tail + ["(stopped: pip took too long)"])[-_ADMIN_OUTPUT_TAIL:]
@@ -448,13 +405,15 @@ def _under_install_hold(fn):
         background_jobs.release_exclusive()
 
 
-def _run_pip(name: str, confirm, cmds_for, sox_watch=None) -> dict:
-    """One whitelisted package's pip run under the install hold. Unless the
+def _run_pip(name: str, confirm, cmds_for, sox_watch=None, job_id: str = None) -> dict:
+    """One whitelisted package's pip run under the install hold (a job holds
+    it itself and was guarded when it started: pass its `job_id`). Unless the
     package is itself torch/torchvision/torchaudio, every command also gets
     a constraints file pinning the installed torch family exactly, so pip
     refuses (before changing anything) a package that needs another torch
     instead of replacing a CUDA torch with a CPU one or moving torchvision."""
-    guard(confirm)
+    if job_id is None:
+        guard(confirm)
     if name not in installable_packages():
         raise AdminActionUnknownPackage("Unknown or non-installable package.")
 
@@ -462,17 +421,17 @@ def _run_pip(name: str, confirm, cmds_for, sox_watch=None) -> dict:
         cmds = cmds_for(name)
         pins = [] if name in diagnostics.TORCH_FAMILY else diagnostics.torch_pin_lines()
         if not pins:
-            return _run_commands(cmds, sox_watch=sox_watch)
+            return _run_commands(cmds, sox_watch=sox_watch, job_id=job_id)
         path = _write_torch_pins(pins)
         try:
             return _run_commands([(cmd + ["-c", path], t) for cmd, t in cmds],
-                                 torch_pins=pins, sox_watch=sox_watch)
+                                 torch_pins=pins, sox_watch=sox_watch, job_id=job_id)
         finally:
             try:
                 os.remove(path)
             except OSError:
                 pass
-    result = _under_install_hold(run)
+    result = run() if job_id is not None else _under_install_hold(run)
     result["package"] = name
     return result
 
@@ -483,14 +442,14 @@ def _qwen_asr_fallback_commands(_name: str) -> list:
             for args in diagnostics.qwen_asr_fallback_pip_args()]
 
 
-def _install_qwen_asr(confirm) -> dict:
+def _install_qwen_asr(confirm, job_id: str = None) -> dict:
     """The normal install; if it fails building `sox` (see
     diagnostics.QWEN_ASR_FALLBACK_DEPS), installs qwen-asr without it."""
     watch = diagnostics.SoxBuildWatch()
-    result = _run_pip("qwen-asr", confirm, _install_commands, sox_watch=watch)
+    result = _run_pip("qwen-asr", confirm, _install_commands, sox_watch=watch, job_id=job_id)
     if result["ok"] or not watch.failed:
         return result
-    retry = _run_pip("qwen-asr", confirm, _qwen_asr_fallback_commands)
+    retry = _run_pip("qwen-asr", confirm, _qwen_asr_fallback_commands, job_id=job_id)
     note = "Installing Qwen3-ASR without its `sox` dependency, which Baihe doesn't use."
     retry["output_tail"] = ([note] + retry["output_tail"])[-_ADMIN_OUTPUT_TAIL:]
     if not retry["ok"]:
@@ -498,11 +457,14 @@ def _install_qwen_asr(confirm) -> dict:
     return retry
 
 
-def install_dependency(name: str, confirm: bool = False) -> dict:
+def install_dependency(name: str, confirm: bool = False, job_id: str = None) -> dict:
+    """Runs the install and returns its result. `job_id`: running as that
+    background job, which already holds the library and passed the start
+    checks (see diagnostics_installs_service.start_dependency_install)."""
     try:
         if name == "qwen-asr":
-            return _install_qwen_asr(confirm)
-        return _run_pip(name, confirm, _install_commands)
+            return _install_qwen_asr(confirm, job_id)
+        return _run_pip(name, confirm, _install_commands, job_id=job_id)
     finally:
         _clear_update_cache()      # a new package can hold back (or allow) others
 
@@ -653,7 +615,7 @@ def _check_package_updates_now() -> dict:
 _VERIFY_LOCK = threading.Lock()
 
 
-def verify_torch(blocking: bool = True) -> dict:
+def verify_torch(blocking: bool = True, cancel=None) -> dict:
     """Imports torch/torchvision/torchaudio in a fresh interpreter (this
     process may hold an older torch) and reports versions and whether CUDA
     works. Error text is redacted. One check at a time: blocking=False
@@ -661,20 +623,22 @@ def verify_torch(blocking: bool = True) -> dict:
     if not _VERIFY_LOCK.acquire(blocking=blocking):
         raise AdminActionStale("A CUDA check is already running; try again in a moment.")
     try:
-        return _verify_torch_once()
+        return _verify_torch_once(cancel) if cancel else _verify_torch_once()
     finally:
         _VERIFY_LOCK.release()
 
 
-def _verify_torch_once() -> dict:
-    import subprocess
+def _verify_torch_once(cancel=None) -> dict:
     try:
-        proc = subprocess.run([sys.executable, "-c", diagnostics.TORCH_VERIFY_SCRIPT],
-                              capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=diagnostics.TORCH_VERIFY_TIMEOUT_SECONDS)
-        data = diagnostics.parse_torch_verify_output(proc.stdout)
-    except subprocess.TimeoutExpired:
-        data = {"error": "importing torch took too long"}
+        proc = job_process_run.run_captured(
+            [sys.executable, "-c", diagnostics.TORCH_VERIFY_SCRIPT],
+            diagnostics.TORCH_VERIFY_TIMEOUT_SECONDS, cancel=cancel)
+        if proc.timed_out:
+            data = {"error": "importing torch took too long"}
+        elif proc.cancelled:
+            data = {"error": "cancelled"}
+        else:
+            data = diagnostics.parse_torch_verify_output(proc.stdout)
     except OSError as e:
         data = {"error": type(e).__name__}
     out = {k: data.get(k) for k in ("torch", "torchvision", "torchaudio", "cuda_build",
@@ -749,14 +713,12 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
     }
 
 
-def setup_gpu_torch(variant: str = None, confirm: bool = False) -> dict:
-    """Installs the matched torch/torchvision/torchaudio triple for
-    `variant` (a diagnostics.TORCH_VARIANTS key; default: CUDA when an
-    NVIDIA GPU answers, else CPU) from its fixed index, then verifies it in
-    a fresh interpreter. Refuses (422) without an NVIDIA GPU for a CUDA
+def prepare_gpu_torch_setup(variant: str = None, confirm: bool = False) -> str:
+    """The checks before a GPU PyTorch setup starts; returns the variant to
+    install (a diagnostics.TORCH_VARIANTS key; default: CUDA when an NVIDIA
+    GPU answers, else CPU). Refuses (422) without an NVIDIA GPU for a CUDA
     variant, with a driver too old for CUDA 12, or on a Python the wheels
-    don't cover. ok only when pip succeeded and the new torch imports as
-    the expected version (and, for CUDA, sees the GPU)."""
+    don't cover."""
     guard(confirm)
     nvidia = diagnostics.nvidia_driver_info()
     if variant is None:
@@ -780,13 +742,32 @@ def setup_gpu_torch(variant: str = None, confirm: bool = False) -> dict:
                 f"NVIDIA driver {nvidia['driver_version']} is too old for CUDA 12.8 "
                 f"(needs at least {drv['minimum']}, recommended {drv['recommended']}). "
                 "Update the driver from nvidia.com, then try again.")
+    return variant
+
+
+def setup_gpu_torch(variant: str = None, confirm: bool = False, job_id: str = None) -> dict:
+    """Installs the matched torch/torchvision/torchaudio triple for
+    `variant` from its fixed index, then verifies it in a fresh interpreter
+    (see prepare_gpu_torch_setup for the refusals). ok only when pip
+    succeeded and the new torch imports as the expected version (and, for
+    CUDA, sees the GPU). `job_id`: running as that background job, which
+    holds the library and already passed prepare_gpu_torch_setup."""
+    if job_id is None:
+        variant = prepare_gpu_torch_setup(variant, confirm)
+    spec = diagnostics.TORCH_VARIANTS[variant]
+    cancel = _cancel_probe(job_id)
 
     def run():
-        result = _run_commands(_torch_setup_commands(variant))
-        result["verify"] = verify_torch() if result["ok"] else None
+        result = _run_commands(_torch_setup_commands(variant), job_id=job_id)
+        if not result["ok"]:
+            result["verify"] = None
+            return result
+        result["verify"] = verify_torch(cancel=cancel) if cancel else verify_torch()
+        if cancel is not None and cancel():
+            raise background_jobs.JobCancelled(job_id)
         return result
     try:
-        result = _under_install_hold(run)
+        result = run() if job_id is not None else _under_install_hold(run)
     finally:
         _clear_update_cache()
     verify = result["verify"]

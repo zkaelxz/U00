@@ -146,8 +146,9 @@ describe('packages', () => {
 
   it('announces a running install or upgrade, never a reset', () => {
     expect(busyLine({ kind: 'install', name: 'jieba' })).toBe(
-      'Installing jieba… this can take several minutes. Keep this tab open.')
-    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toMatch(/^Updating jieba…/)
+      'Installing jieba… this can take several minutes. Cancel it below if needed.')
+    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toBe(
+      'Updating jieba… this can take several minutes. Keep this tab open.')
     expect(busyLine({ kind: 'reset', name: 'library' })).toBeNull()
     expect(busyLine(null)).toBeNull()
   })

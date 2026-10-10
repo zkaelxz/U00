@@ -2,6 +2,7 @@
 services/diagnostics_gaps_service.py. Every check that could reach pip,
 Hugging Face, ffmpeg or the library is faked; no network, no install."""
 import json
+import time
 
 import pytest
 
@@ -18,6 +19,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from services import diagnostics_gaps_service as svc
+from services import diagnostics_installs_service as installs
 from services import settings_service
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
@@ -26,6 +28,22 @@ ABS_PATH = "/home/someone/private/library/drama.mp4"
 DIRTY = f"failed with {SECRET} token {HF_TOKEN} at {ABS_PATH}"
 REMOTE = "https://baihe.example.com"
 RUNNING = {"on": False}   # what the faked "any job running here or elsewhere" check answers
+
+
+def _wait_install_job(timeout=10):
+    end = time.time() + timeout
+    while time.time() < end:
+        job = background_jobs.get_status(installs.DEPENDENCY_JOB_ID)
+        if job and job["status"] not in ("running", "queued"):
+            return
+        time.sleep(0.02)
+    raise AssertionError("install job did not finish")
+
+
+def _install_result(client):
+    """Waits for the install job to end, then reads the install state."""
+    _wait_install_job()
+    return _clean(client.get("/api/diagnostics/dependency-install"))
 
 
 def _clean(r):
@@ -76,7 +94,7 @@ def fakes(isolated_db, monkeypatch):
                         diagnostics.redact_for_support(f"Report\nERROR {DIRTY}"))
     calls = []
 
-    def fake_stream(cmd, timeout, cwd=None, env=None):
+    def fake_stream(cmd, timeout, cwd=None, env=None, cancel=None):
         calls.append(("pip", cmd))
         yield {"line": DIRTY}
         yield {"returncode": 0, "timed_out": False}
@@ -84,12 +102,15 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(svc, "stream_tree", fake_stream)
     monkeypatch.setattr(diagnostics, "nvidia_driver_info",
                         lambda: {"gpu_name": "NVIDIA GeForce RTX 3080 Ti", "driver_version": "580.97"})
-    monkeypatch.setattr(svc, "verify_torch", lambda blocking=True: {
+    monkeypatch.setattr(svc, "verify_torch", lambda blocking=True, cancel=None: {
         "torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128", "torchaudio": "2.11.0+cu128",
         "cuda_build": "12.8", "cuda_available": True, "device": "RTX", "error": None})
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
-    return calls
+    background_jobs.clear_job(installs.DEPENDENCY_JOB_ID)
+    installs._DEPENDENCY.update(kind=None, package=None, last=None)
+    yield calls
+    background_jobs.clear_job(installs.DEPENDENCY_JOB_ID)
 
 
 @pytest.fixture
@@ -146,13 +167,15 @@ def test_install_presets(client):
 
 
 def test_install_failure_hint(client, monkeypatch):
-    def fake_stream(cmd, timeout):
+    def fake_stream(cmd, timeout, cancel=None):
         yield {"line": "ERROR: [Errno 13] Permission denied: "
                        "'C:\\users\\x\\appdata\\local\\pip\\cache\\wheels\\a.whl'"}
-        yield {"returncode": 1, "timed_out": False}
+        yield {"returncode": 1, "timed_out": False, "cancelled": False}
     monkeypatch.setattr(svc, "stream_tree", fake_stream)
-    b = client.post("/api/diagnostics/dependencies/jieba/install", json={"confirm": True}).json()
-    assert b["ok"] is False and "pip\\cache" in b["hint"]
+    client.post("/api/diagnostics/dependencies/jieba/install", json={"confirm": True})
+    b = _install_result(client)
+    assert b["result"]["ok"] is False and "pip\\cache" in b["result"]["hint"]
+    assert b["job"]["status"] == "error"
 
 
 def test_log_bounds_422(client):
@@ -161,12 +184,22 @@ def test_log_bounds_422(client):
     assert client.get("/api/diagnostics/log?keyword=" + "a" * 101).status_code == 422
 
 
-def test_install_and_upgrade(client, fakes):
-    for action in ("install", "upgrade"):
-        r = client.post(f"/api/diagnostics/dependencies/pydub/{action}", json={"confirm": True})
-        b = _clean(r)
-        assert r.status_code == 200 and b["ok"] is True and b["package"] == "pydub"
+def test_install_runs_as_a_job_and_upgrade_stays_synchronous(client, fakes):
+    r = client.post("/api/diagnostics/dependencies/pydub/install", json={"confirm": True})
+    assert r.status_code == 200 and r.json() == {"job_id": "dependency_install", "started": True}
+    b = _install_result(client)
+    assert b["kind"] == "package" and b["package"] == "pydub"
+    assert b["result"]["ok"] is True and b["result"]["package"] == "pydub"
+    assert b["job"]["status"] == "done" and not background_jobs.exclusive_active()
+    r = client.post("/api/diagnostics/dependencies/pydub/upgrade", json={"confirm": True})
+    b = _clean(r)
+    assert r.status_code == 200 and b["ok"] is True and b["package"] == "pydub"
     assert len(fakes) == 2
+
+
+def test_install_state_before_any_install(client):
+    b = _clean(client.get("/api/diagnostics/dependency-install"))
+    assert b["result"] is None and b["job"] is None and b["job_id"] == "dependency_install"
 
 
 def test_install_refusals(client, fakes, monkeypatch):
@@ -213,7 +246,8 @@ def _h(s):
 READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
          "/api/diagnostics/pyannote",
          "/api/diagnostics/log", "/api/diagnostics/support-report",
-         "/api/diagnostics/install-presets", "/api/diagnostics/gpu-torch")
+         "/api/diagnostics/install-presets", "/api/diagnostics/gpu-torch",
+         "/api/diagnostics/dependency-install")
 WRITES = (("/api/diagnostics/dependencies/pydub/install", {"confirm": True}),
           ("/api/diagnostics/gpu-torch/setup", {"confirm": True, "variant": "cu128"}),
           ("/api/diagnostics/dependencies/pydub/upgrade", {"confirm": True}),
@@ -231,8 +265,10 @@ def test_gpu_torch_status_and_setup(client, fakes):
     assert client.post("/api/diagnostics/gpu-torch/check", json={}).status_code == 409
     RUNNING["on"] = False
     r = client.post("/api/diagnostics/gpu-torch/setup", json={"confirm": True})
-    out = _clean(r)
-    assert r.status_code == 200 and out["ok"] is True and out["variant"] == "cu128"
+    assert r.status_code == 200 and r.json()["started"] is True
+    state = _install_result(client)
+    out = state["result"]
+    assert state["kind"] == "gpu_torch" and out["ok"] is True and out["variant"] == "cu128"
     assert out["verify"]["torch"] == "2.11.0+cu128"
     assert len(fakes) == 2        # force-reinstall --no-deps, then the deps pass
 
@@ -283,6 +319,8 @@ def test_auth_on_writes_are_pc_only(fakes):
     assert fakes == []
     for path, body in WRITES:
         assert local.post(path, json=body).status_code == 200, path
+        if "/install" in path or "gpu-torch/setup" in path:
+            _wait_install_job()      # one install at a time
     assert ("reset",) in fakes
 
 

@@ -2,6 +2,8 @@
 
 import threading
 
+WAIT_POLL_SECONDS = 0.2
+
 
 class Limiter:
     """Concurrency gate shared by every client of one source. Each client
@@ -21,14 +23,17 @@ class Limiter:
     def active(self) -> int:
         return len(self._held)
 
-    def at(self, limit: int):
-        return _Entry(self, max(1, int(limit)))
+    def at(self, limit: int, on_wait=None):
+        """on_wait runs every WAIT_POLL_SECONDS while the entry waits; it
+        raises to give up (a cancel), which leaves the queue cleanly."""
+        return _Entry(self, max(1, int(limit)), on_wait)
 
 
 class _Entry:
-    def __init__(self, gate: Limiter, limit: int):
+    def __init__(self, gate: Limiter, limit: int, on_wait=None):
         self._gate = gate
         self._limit = limit
+        self._on_wait = on_wait
 
     def __enter__(self):
         g = self._gate
@@ -36,7 +41,9 @@ class _Entry:
             g._waiting.append(self._limit)
             try:
                 while len(g._held) >= min([*g._held, *g._waiting]):
-                    g._cond.wait()
+                    g._cond.wait(WAIT_POLL_SECONDS if self._on_wait else None)
+                    if self._on_wait:
+                        self._on_wait()
             finally:
                 g._waiting.remove(self._limit)
                 # A departing strict waiter may be what was holding others back.

@@ -47,6 +47,7 @@ import time
 import action_tiers
 import db
 import diagnostics
+import job_process_run
 from services import diagnostics_gaps_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
@@ -728,12 +729,9 @@ def tool_run_tests(args: dict) -> str:
     try:
         cmd = [sys.executable, "-m", "pytest", "-q", "-o", "addopts=", "-p", "no:cacheprovider",
                "-p", "services.assistant_pytest_guard", "--no-header", "-rfE", path]
-        try:
-            proc = subprocess.run(cmd, cwd=repo_root(), capture_output=True, text=True,
-                                  encoding="utf-8", errors="replace",
-                                  timeout=TEST_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL,
-                                  env=_test_env())
-        except subprocess.TimeoutExpired:
+        proc = job_process_run.run_captured(cmd, TEST_TIMEOUT_SECONDS, cwd=repo_root(),
+                                            env=_test_env())
+        if proc.timed_out:
             return f"The test run took over {TEST_TIMEOUT_SECONDS} seconds and was stopped."
         output = (proc.stdout or "") + (proc.stderr or "")
         tail = "\n".join(output.strip().splitlines()[-60:])

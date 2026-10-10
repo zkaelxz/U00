@@ -464,7 +464,7 @@ def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
     # declared expectation, never itself tested=True) must not permanently
     # block a real confirmed result from updating access_method -- several
     # adapters preset a non-None default here (bilibili_manga.py,
-    # mangaz.py, manhuaku.py), which the old `is None` check could never
+    # manhuaku.py), which the old `is None` check could never
     # overwrite. Update it when there's no confirmed access_method yet,
     # when the one on record was never actually tested, or when this
     # tier is strictly preferred (earlier in the ladder) over it.

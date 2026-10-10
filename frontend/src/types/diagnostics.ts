@@ -208,11 +208,6 @@ export interface DiagnosticsGpuTorchStatus {
   probe: DiagnosticsTorchVerify | null
 }
 
-export interface DiagnosticsGpuTorchSetupResult extends DiagnosticsInstallResult {
-  variant: string
-  verify: DiagnosticsTorchVerify | null
-}
-
 export interface DiagnosticsResetResult {
   ok: boolean
   reset_at: number

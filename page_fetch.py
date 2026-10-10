@@ -28,6 +28,7 @@ from contextlib import contextmanager
 import browser_support
 from browser_support import BROWSER_MISSING, PACKAGE_MISSING
 from page_scroll import scroll_through_and_settle
+import storage
 
 # Root containers common to SPA frameworks. Their presence alongside
 # very little text is a strong signal the content hasn't rendered.
@@ -501,7 +502,7 @@ def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500):
     site's rendering itself.
     """
     sync_playwright = _require_playwright()
-    with sync_playwright() as p:
+    with storage.playwright_session(sync_playwright) as p:
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
@@ -585,7 +586,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
                                        response.headers.get("content-type", ""),
                                        body, max_body_bytes))
 
-    with sync_playwright() as p:
+    with storage.playwright_session(sync_playwright) as p:
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             page.on("response", on_response)
@@ -610,7 +611,7 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     responsive-redirect script reacting to the resulting resize event) --
     that isn't fatal, just settled with another wait."""
     sync_playwright = _require_playwright()
-    with sync_playwright() as p:
+    with storage.playwright_session(sync_playwright) as p:
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="networkidle")
@@ -802,7 +803,7 @@ def _launch_persistent(profile_dir: str, headless: bool):
     browser's own user agent is kept -- the same browser the person signed
     in with, not a disguised one."""
     sync_playwright = _require_playwright()
-    pw = sync_playwright().start()
+    pw, release = storage.playwright_start(sync_playwright)
     proxy = None
     try:
         proxy = _PinningProxy()
@@ -812,10 +813,18 @@ def _launch_persistent(profile_dir: str, headless: bool):
     except Exception:
         if proxy is not None:
             proxy.stop()
-        pw.stop()
+        try:
+            pw.stop()
+        finally:
+            release()
         raise
     _PROXIES[id(context)] = proxy
+    _TEMP_RELEASES[id(context)] = release
     return pw, context
+
+
+# id(persistent context) -> removes the driver's temp folder (run in _shut)
+_TEMP_RELEASES = {}
 
 
 def _shut(pw, context):
@@ -825,6 +834,9 @@ def _shut(pw, context):
                 fn()
         except Exception:
             pass
+    release = _TEMP_RELEASES.pop(id(context), None)
+    if release is not None:
+        release()
     proxy = _PROXIES.pop(id(context), None)
     if proxy is not None:
         proxy.stop()
