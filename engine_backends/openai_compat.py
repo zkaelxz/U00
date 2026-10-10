@@ -1,7 +1,5 @@
 """DeepSeek and OpenAI engines (OpenAI-style chat APIs)."""
 
-import json
-
 from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_listed_extra_models
 from .prompts import build_batch_user_message, build_stable_system_text
 from .local import strip_ollama_thinking
@@ -79,11 +77,11 @@ class DeepSeekEngine:
 
 
 # ---------------------------------------------------------------------------
-# OpenAI -- plain Chat Completions REST call, key in an Authorization header
+# OpenAI -- Chat Completions REST call through lib.http, key in an Authorization header
 # ---------------------------------------------------------------------------
 
 class OpenAIEngine:
-    """OpenAI's Chat Completions endpoint called with `requests` (no SDK, so
+    """OpenAI's Chat Completions endpoint called through lib.http (no SDK, so
     no extra dependency). It has no `.client` on purpose: call_llm_json and
     qa._dispatch_chat reach it through chat()."""
     name = "openai"

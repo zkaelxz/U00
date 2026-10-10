@@ -66,8 +66,12 @@ def patch_post(monkeypatch, fake_post):
     stream=) through lib.http's one connection call, and keep `requests.post`
     patched too for engines that still call it directly."""
     from lib import http
+    seen = []
 
     def fake(url, ip, headers, timeout=None, method="GET", **kw):
+        # What lib.http really passed; the fake_post signature stays the legacy one.
+        seen.append({"url": url, "method": method, "timeout": timeout, **kw})
         return fake_post(url, headers=headers, json=kw.get("json"), timeout=timeout, stream=True)
     monkeypatch.setattr("requests.post", fake_post)
     monkeypatch.setattr(http, "pinned_get", fake)
+    return seen

@@ -8,6 +8,7 @@ from .shared import (
     ContentModerationBlocked,
     _cancellable_sleep,
     _empty_usage,
+    ProviderRedirected,
     _is_rate_limit_error,
     redact_secrets,
 )
@@ -66,6 +67,8 @@ def is_transient_fallback_error(e: Exception) -> bool:
         return False
     if _is_rate_limit_error(e):
         return True
+    if isinstance(e, ProviderRedirected):  # repeats identically; switch engines instead
+        return False
     return isinstance(e, FetchError) or any(
         hint in cls.__name__.lower()
         for cls in type(e).__mro__ for hint in _TRANSIENT_NAME_HINTS)
