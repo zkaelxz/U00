@@ -11,6 +11,7 @@ import { useLineSelectionContext } from './LineSelectionContext'
 import {
   applyItems, applyNote, failureSummary, retranscribeLinesOutcome, retranscribeLinesProblem,
 } from './retranscribeLinesLogic'
+import { buttonClass } from '../../../../components/uiClasses'
 
 // Opens the section; with lineIds it also starts the run on exactly those lines
 // ("Transcribe this gap", "Add line and transcribe"), without lineIds the section
@@ -139,7 +140,7 @@ export function RetranscribeLines({
             <button type="button" onClick={() => start(selectedIds)} disabled={busy || applying || !!blocked}>
               {busy ? 'Re-transcribing…' : 'Re-transcribe selected'}
             </button>
-            {active && job && <button type="button" onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
+            {active && job && <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
           </div>
           {blocked && !busy && <p className="muted" data-testid="retranscribe-lines-blocked">{blocked}</p>}
           <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />

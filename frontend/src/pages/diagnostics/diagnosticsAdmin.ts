@@ -43,7 +43,7 @@ export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): stri
 /** Why Reset library can't run now, or null. */
 export function resetBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
   if (busy && busy.kind !== 'reset') return 'Wait for the install to finish.'
-  if (jobsActive) return 'Stop running jobs first (see Jobs above).'
+  if (jobsActive) return 'Stop running jobs first.'
   return null
 }
 

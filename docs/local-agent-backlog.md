@@ -103,3 +103,9 @@ otherwise (CLAUDE.md "How to work").
 - Rules: every redirect hop checked; capped reads; error text through `redact_secrets`; API responses carry no URLs.
 - Tests: SSRF cases (private ranges, redirects to loopback, DNS rebinding), `tests/test_api_permissions.py`.
 - Done: Opus security review run on the diff; residual risks written down.
+
+### B8 One subprocess runner, next wave
+- Why: `lib/proc.py` is the runner; these callers still have their own capture or tree-kill code.
+- Scope: `services/lncrawl_service.py::_run_process` (needs runner options for an on-start hook, a per-tick stop check for workdir size and output cap, and a custom kill for its Windows job object; 49 tests), `background_jobs.run_cancellable`, the ffmpeg callers (`video_export.py` 6, `core.py`, `dub.py`, `dub_narration.py`, `hardsub_ocr.py`, two `services/*_decode*`), the probes in `diagnostics.py` (10 raw calls) and `installer/smoke_child.py` (7), and `installer/postinstall.py::_run` (stdlib-only, writes to a log file; check that `lib/` ships in the installer first).
+- Rules: shrink `_CAPTURE_ALLOWED` by every site moved, never add; every child keeps a timeout; UTF-8 with `errors="replace"`.
+- Done: zero call sites outside `lib/proc.py`, then retire the guard.

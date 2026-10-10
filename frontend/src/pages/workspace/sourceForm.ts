@@ -224,29 +224,57 @@ export interface AdvancedValues {
   split_by_sentences: boolean
   use_groq: boolean
   prompt: string
+  // Absent from older callers: reads as the default.
+  hardsub_ocr_backend?: string
+  // Picks the hardsub OCR default; absent reads as a non-Chinese language.
+  source_language?: string
 }
 
-export function advancedSummary(v: AdvancedValues): string {
+// ocr.default_hardsub_backend: PaddleOCR for Chinese, Tesseract otherwise.
+const defaultHardsubBackend = (language?: string) => (language === 'zh' ? 'paddle' : 'tesseract')
+const hardsubChanged = (v: AdvancedValues) => (v.hardsub_ocr_backend ?? defaultHardsubBackend(v.source_language)) !== defaultHardsubBackend(v.source_language)
+
+// The knobs only Developer Mode shows. Their values still ride along in every save and run.
+export function developerOptionsChanged(v: AdvancedValues): number {
+  return [
+    Number(v.beam_size) !== 5,
+    Number(v.vad_threshold) !== 0.5,
+    Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC,
+    v.separation_backend !== 'auto',
+    hardsubChanged(v),
+    Number(v.hardsub_interval_sec) !== 1,
+    v.whisper_repeat_guard,
+  ].filter(Boolean).length
+}
+
+// With developerMode off the hidden knobs are not listed one by one: they collapse into a count.
+export function advancedSummary(v: AdvancedValues, developerMode = true): string {
   const parts: string[] = []
-  if (Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
+  if (developerMode && Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
   if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
   if (Number(v.min_pause_sec) !== MIN_PAUSE_SEC_DEFAULT) parts.push(`split pause ${v.min_pause_sec} s`)
-  if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
+  if (developerMode && Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
   if (v.sensitivity_preset === 'sensitive') parts.push('more sensitive')
-  if (Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
+  if (developerMode && Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
     parts.push(`hallucination guard ${v.hallucination_silence_sec} s`)
   }
-  if (Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
+  if (developerMode && Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
   if (v.alignment_method !== 'whisper_diff') parts.push(v.alignment_method)
   if (v.asr_backend_choice !== 'whisper') parts.push(v.asr_backend_choice)
-  if (v.separation_backend !== 'auto') parts.push(`separation ${v.separation_backend}`)
+  if (developerMode && v.separation_backend !== 'auto') parts.push(`separation ${v.separation_backend}`)
   if (v.separate_vocals_first) parts.push('separate vocals')
   if (v.realign_long_segments) parts.push('realign')
   if (v.whisper_fast_mode) parts.push('fast mode')
-  if (v.whisper_repeat_guard) parts.push('repeat guard')
+  if (developerMode && v.whisper_repeat_guard) parts.push('repeat guard')
   if (v.split_by_sentences) parts.push('lines by sentence')
   if (v.use_groq) parts.push('Groq')
   if (v.prompt.trim()) parts.push('replacement prompt')
+  if (developerMode) {
+    if (hardsubChanged(v)) parts.push(`hardsub OCR ${v.hardsub_ocr_backend}`)
+  } else {
+    const hidden = developerOptionsChanged(v)
+    if (hidden) parts.push(`${hidden} developer option${hidden === 1 ? '' : 's'} changed`)
+  }
   return parts.length ? parts.join(' · ') : 'defaults'
 }
 

@@ -94,7 +94,7 @@ def fakes(isolated_db, monkeypatch):
                         diagnostics.redact_for_support(f"Report\nERROR {DIRTY}"))
     calls = []
 
-    def fake_stream(cmd, timeout, cwd=None, env=None, cancel=None):
+    def fake_stream(cmd, timeout, cwd=None, env=None, cancel=None, **_kw):
         calls.append(("pip", cmd))
         yield {"line": DIRTY}
         yield {"returncode": 0, "timed_out": False}
@@ -167,7 +167,7 @@ def test_install_presets(client):
 
 
 def test_install_failure_hint(client, monkeypatch):
-    def fake_stream(cmd, timeout, cancel=None):
+    def fake_stream(cmd, timeout, cancel=None, **_kw):
         yield {"line": "ERROR: [Errno 13] Permission denied: "
                        "'C:\\users\\x\\appdata\\local\\pip\\cache\\wheels\\a.whl'"}
         yield {"returncode": 1, "timed_out": False, "cancelled": False}

@@ -797,20 +797,21 @@ class TestModuleSize:
 
 
 # ---------------------------------------------------------------------------
-# Capturing subprocess calls go through job_process_run.
+# Capturing subprocess calls go through lib.proc.
 # ---------------------------------------------------------------------------
 
 # subprocess.run(capture_output=True) / Popen(stdout=PIPE) kill only the
 # child on a timeout, and on Windows wait for the pipe again with no limit,
 # so a grandchild that holds it can hang the caller. Anything long-running
-# whose output is read goes through job_process_run (own process group, tree
+# whose output is read goes through lib.proc (own process group, tree
 # kill on timeout or cancel, bounded drain). Dev tooling is not scanned.
+# Retired when there are zero call sites outside lib/proc.py.
 _CAPTURE_SCAN_SKIP = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv",
                       "__pycache__", "installer", "scripts", "tools"}
 _SUBPROCESS_CALLS = {"run", "Popen", "check_output", "check_call", "call"}
 
 # "path::function" -> why it may capture directly. Only short probes belong
-# here; a long-running command uses job_process_run. The "pending" entries
+# here; a long-running command uses lib.proc. The "pending" entries
 # are known gaps with a timeout= but no tree kill; the list only shrinks
 # (a stale entry fails the test below).
 _CAPTURE_ALLOWED = {
@@ -826,7 +827,7 @@ _CAPTURE_ALLOWED = {
     "services/line_provenance_service.py::software_version": "probe: git describe",
     "services/maintenance_assistant_service.py::_git": "probe: read-only git",
     "services/maintenance_assistant_service.py::_tracked_files": "probe: git ls-files",
-    "job_process_kill.py::kill_tree": "taskkill, 10 s",
+    "lib/proc_kill.py::kill_tree": "taskkill, 10 s",
     # pending: ffmpeg runs bounded by timeout= only.
     "core.py::extract_audio_from_video": "pending: ffmpeg",
     "core.py::extract_audio_slice": "pending: ffmpeg",
@@ -841,9 +842,8 @@ _CAPTURE_ALLOWED = {
     "video_export.py::burn_ass": "pending: ffmpeg",
     "video_export.py::mux_soft_subtitles": "pending: ffmpeg",
     "video_export.py::replace_audio_with_dub": "pending: ffmpeg",
-    # pending: separate tree-killing runners that should move onto job_process_run.
+    # pending: separate tree-killing runners that should move onto lib.proc (see B8 in docs/local-agent-backlog.md).
     "background_jobs.py::run_cancellable": "pending: own runner",
-    "services/browser_install_service.py::_run": "pending: own runner",
     "services/lncrawl_service.py::_run_process": "pending: own runner",
 }
 
@@ -934,7 +934,7 @@ class TestCapturingSubprocessCallsUseTheRunner:
             dirs[:] = [d for d in dirs if d not in _CAPTURE_SCAN_SKIP]
             for name in files:
                 rel = os.path.relpath(os.path.join(root, name), PROJECT_ROOT).replace(os.sep, "/")
-                if not name.endswith(".py") or name.startswith("test_") or rel == "job_process_run.py":
+                if not name.endswith(".py") or name.startswith("test_") or rel == "lib/proc.py":
                     continue
                 with open(os.path.join(root, name), encoding="utf-8") as f:
                     for fn, n in _count_capturing_subprocess_calls(f.read()).items():
@@ -946,8 +946,8 @@ class TestCapturingSubprocessCallsUseTheRunner:
         new = sorted(k for k, n in self._scan().items()
                      if k not in _CAPTURE_ALLOWED or n > _CAPTURE_MAX_CALLS.get(k, 1))
         assert new == [], (
-            f"subprocess call capturing output outside job_process_run: {new}. A command that can run "
-            "for more than a few seconds uses job_process_run.run_captured / stream_tree "
+            f"subprocess call capturing output outside lib.proc: {new}. A command that can run "
+            "for more than a few seconds uses lib.proc.run_captured / stream_tree "
             "(tree kill on timeout and cancel, bounded drain); a short probe is added to "
             "_CAPTURE_ALLOWED with its reason.")
 

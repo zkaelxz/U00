@@ -34,7 +34,7 @@ async function guard(page: Page): Promise<string[]> {
   return unmocked
 }
 
-test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll', async ({ page }) => {
+test('Diagnostics on a phone: 44px targets, no sideways scroll', async ({ page }) => {
   const unmocked = await guard(page)
   // No task groups here, so a missing package is installed one by one from "Not installed".
   // The server's own report says yt-dlp is installed on a machine that has it, and then there is no Install button.
@@ -62,10 +62,8 @@ test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll
   await mockDependencyInstall(page, () => ({ ok: false, output_tail: [`ERROR: ${long}`] }))
 
   await page.goto('/#/diagnostics')
-  // The jobs summary is a banner with a 44px link to the Jobs page.
-  const banner = page.getByTestId('jobs-summary')
-  await expect(banner).toContainText('1 running, 1 failed')
-  expect((await hitHeight(banner.getByRole('link', { name: 'Open Jobs' })))).toBeGreaterThanOrEqual(44)
+  // Jobs live in the header menu and on the Jobs page, not on Diagnostics.
+  await expect(page.getByTestId('jobs-summary')).toHaveCount(0)
 
   await page.locator('summary', { hasText: /^Log/ }).click()
   await expect(page.getByLabel('Log lines')).toContainText('INFO fine')

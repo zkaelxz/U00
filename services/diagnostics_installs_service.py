@@ -45,9 +45,10 @@ import zipfile
 from urllib.parse import urljoin, urlsplit
 
 import background_jobs
+import job_process_kill
 import db
 import diagnostics
-import job_process_run
+from lib import proc as proc_run
 from services import diagnostics_gaps_service as gaps
 from services import drama_service
 from services.service_errors import ConflictError
@@ -224,9 +225,10 @@ def _deno_job():
 
 def _run_winget(say) -> bool:
     returncode, timed_out = None, False
-    for item in job_process_run.stream_tree(
+    for item in proc_run.stream_tree(
             list(_WINGET_CMD), WINGET_TIMEOUT_SECONDS,
-            cancel=lambda: background_jobs.is_cancel_requested(DENO_JOB_ID)):
+            cancel=lambda: background_jobs.is_cancel_requested(DENO_JOB_ID),
+            warn=job_process_kill._warn_via_jobs):
         if "line" in item:
             if item["line"].strip():
                 say(0.5, item["line"])

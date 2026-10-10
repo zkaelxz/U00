@@ -370,7 +370,7 @@ export function CompareTranscription({
             {busy ? 'Comparing…' : 'Compare'}
           </button>
           {active && job && (
-            <button type="button" onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>
           )}
           <button
             type="button"

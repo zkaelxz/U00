@@ -56,7 +56,7 @@ def _ensure_cedict():
         return
     import gzip
     os.makedirs(os.path.dirname(CEDICT_PATH), exist_ok=True)
-    from services import capped_body
+    from lib import capped_body
     with urllib.request.urlopen(CEDICT_URL, timeout=30) as resp:
         packed = capped_body.read_capped(
             _ChunkedResponse(resp), CEDICT_MAX_DOWNLOAD_BYTES, CEDICT_DOWNLOAD_DEADLINE_SECONDS,
