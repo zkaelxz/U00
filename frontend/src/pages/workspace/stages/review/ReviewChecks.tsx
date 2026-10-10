@@ -157,7 +157,7 @@ function CoverageSection({ coverage, pacing, onGoTo }: {
         <div>
           <h4>Pacing</h4>
           <p className="muted review-hint-text">The translation is a poor fit for the line's time slot, worst first.</p>
-          <div role="group" aria-label="Pacing kinds">
+          <div role="group" aria-label="Pacing kinds" className="review-kinds">
             {kinds.map((k) => (
               <button
                 key={k.issue}
