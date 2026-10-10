@@ -84,6 +84,36 @@ test('a refused start is explained', async ({ page }) => {
   expect(m.unmocked).toEqual([])
 })
 
+test('a 403 while polling stops the polling and says why', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 0 }]
+  let reads = 0
+  await page.route(`**/api/live/sessions/${SID}?*`, (route) => {
+    reads += 1
+    return route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
+  })
+  const live = await openLive(page)
+  await expect(live.getByRole('alert')).toContainText('owner')
+  // The event stream failing over to polling re-reads once; after that, no timer.
+  await page.waitForTimeout(1000)
+  const seen = reads
+  await page.waitForTimeout(5000)
+  expect(reads).toBe(seen)
+})
+
+test('repeated read failures are surfaced, and clear when the feed returns', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 0 }]
+  let fail = true
+  await page.route(`**/api/live/sessions/${SID}?*`, (route) => fail
+    ? route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Boom.' } } })
+    : route.fulfill({ json: { session_id: SID, status: 'running', message: 'Listening', model: null, progress: 0, notes: [], cues: [], next_index: 0 } }))
+  const live = await openLive(page)
+  await expect(live.getByRole('alert')).toBeVisible({ timeout: 20_000 })
+  fail = false
+  await expect(live.getByRole('alert')).toHaveCount(0, { timeout: 10_000 })
+})
+
 test('Start stays disabled until the engine list has loaded', async ({ page }) => {
   await mockLive(page)
   let release: () => void = () => {}

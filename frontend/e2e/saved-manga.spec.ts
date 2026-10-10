@@ -54,8 +54,51 @@ test('lists saved series, reads a chapter, continues where it left off', async (
   // The view setting is kept for the series.
   await expect(page.getByTestId('comic-page')).toHaveCount(1)
 
+  // Chapter 2 was only opened, not read: Continue stays where the reader left chapter 1.
   await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: SERIES }).click()
-  await expect(page.getByRole('list', { name: 'Chapters' })).toContainText('Chapter 2 · reading, page 1')
+  await expect(page.getByRole('list', { name: 'Chapters' })).toContainText('Chapter 1 · reading, page 4')
+  expect(s.unmocked).toEqual([])
+})
+
+const continueLink = (page: Page) => page.getByRole('list', { name: 'Saved series' }).getByRole('link', { name: 'Continue' })
+
+test('opening a chapter without moving leaves Continue where it was', async ({ page }) => {
+  const s = await mockManga(page)
+  await page.goto('/#/manga/MangaK/Test%20Camp/0001%20Chapter%201?page=2')
+  await expect(label(page)).toHaveText('Page 2 of 4')
+  await page.keyboard.press('ArrowRight')
+  await expect(label(page)).toHaveText('Page 3 of 4')
+
+  // Peek at the start of chapter 1 and at chapter 2, touching nothing.
+  await page.goto('/#/manga/MangaK/Test%20Camp/0002%20Chapter%202?page=1')
+  await expect(label(page)).toHaveText('Page 1 of 3')
+  await page.goto('/#/manga/MangaK/Test%20Camp/0001%20Chapter%201?page=1')
+  await expect(label(page)).toHaveText('Page 1 of 4')
+  await page.goto('/#/manga')
+  await expect(continueLink(page)).toHaveAttribute('href', /0001%20Chapter%201\?page=3$/)
+  expect(s.unmocked).toEqual([])
+})
+
+test('pages without dimensions: Continue follows a wheel scroll, not the placeholder layout', async ({ page }) => {
+  const s = await mockManga(page)
+  await page.route(/\/api\/saved-comics\/pages\?/, (route) => route.fulfill({
+    json: {
+      chapter: '0001 Chapter 1', title: 'Chapter 1', number: 1, source: 'MangaK', series: 'Test Camp',
+      pages: [1, 2, 3, 4].map((n) => ({ page: n, width: null, height: null })),
+      prev_chapter: null, next_chapter: null,
+    },
+  }))
+  await page.goto('/#/manga/MangaK/Test%20Camp/0001%20Chapter%201?page=1')
+  await expect(page.getByTestId('comic-page')).toHaveCount(4)
+  await expect(page.getByTestId('comic-page').first().locator('img')).not.toHaveAttribute('width', /.+/)
+  await expect(page.getByTestId('comic-page').first()).toBeVisible()
+  // Before any scroll nothing is saved, whatever the layout puts mid-screen.
+  const saved = () => page.evaluate(() => Object.keys(localStorage).filter((k) => k.includes('manga.last.')).length)
+  expect(await saved()).toBe(0)
+
+  await page.mouse.move(200, 300)
+  await page.mouse.wheel(0, 1500)
+  await expect.poll(saved).toBe(1)
   expect(s.unmocked).toEqual([])
 })
 
