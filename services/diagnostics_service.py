@@ -20,6 +20,7 @@ import os
 import background_jobs
 import db
 import diagnostics
+import diagnostics_report
 import diagnostics_torch
 import applog
 
@@ -30,14 +31,14 @@ def _job_summary(job_id: str, job: dict) -> dict:
     """A redacted, HTTP-safe view of one job's tracked state -- never the
     raw `result` (arbitrary, possibly non-serializable job output) and
     never an unredacted `message`/`error` (could echo a stored API
-    error verbatim, the exact thing `diagnostics.redact_for_support`
+    error verbatim, the exact thing `diagnostics_report.redact_for_support`
     exists to strip)."""
     return {
         "job_id": job_id,
         "status": job.get("status"),
         "progress": job.get("progress"),
-        "message": diagnostics.redact_for_support(job.get("message") or ""),
-        "error": diagnostics.redact_for_support(job.get("error") or "") or None,
+        "message": diagnostics_report.redact_for_support(job.get("message") or ""),
+        "error": diagnostics_report.redact_for_support(job.get("error") or "") or None,
         "description": job.get("description"),
         "gpu_touching": bool(job.get("gpu_touching")),
         "started_at": job.get("started_at"),
@@ -50,7 +51,7 @@ def get_diagnostics_overview() -> dict:
     model_engine_versions, running_jobs, recent_log_lines} -- the same
     facts Diagnostics' own routine view already shows, reusing its
     existing functions rather than recomputing anything. Log lines are
-    redacted with diagnostics.redact_for_support, as in the support
+    redacted with diagnostics_report.redact_for_support, as in the support
     report."""
     running = background_jobs.list_running_jobs()
     import core
@@ -63,7 +64,7 @@ def get_diagnostics_overview() -> dict:
         "file_completeness": diagnostics.check_file_completeness(PROJECT_ROOT),
         "library_writable": diagnostics.check_library_writable(db.LIBRARY_DIR),
         "gpu": gpu,
-        "model_engine_versions": diagnostics.get_model_engine_versions(),
+        "model_engine_versions": diagnostics_report.get_model_engine_versions(),
         "running_jobs": [_job_summary(jid, j) for jid, j in running.items()],
-        "recent_log_lines": [diagnostics.redact_for_support(ln) for ln in applog.tail(50)],
+        "recent_log_lines": [diagnostics_report.redact_for_support(ln) for ln in applog.tail(50)],
     }

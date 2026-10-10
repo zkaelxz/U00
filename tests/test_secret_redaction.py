@@ -1,8 +1,8 @@
 """B-26: every provider key format the app resolves is redacted by both
-translate_engines.redact_secrets and diagnostics.redact_for_support."""
+translate_engines.redact_secrets and diagnostics_report.redact_for_support."""
 import pytest
 
-import diagnostics
+import diagnostics_report
 import translate_engines
 
 SECRETS = {
@@ -15,7 +15,7 @@ SECRETS = {
     "anthropic": "sk-ant-api03-" + "Ab12Cd34Ef56Gh78Ij90Kl12",
 }
 
-REDACTORS = [translate_engines.redact_secrets, diagnostics.redact_for_support]
+REDACTORS = [translate_engines.redact_secrets, diagnostics_report.redact_for_support]
 
 
 @pytest.mark.parametrize("redactor", REDACTORS)

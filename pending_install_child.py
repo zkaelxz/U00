@@ -2,7 +2,7 @@
 pending_install_child.py -- the two jobs pending_install.py hands to a
 short-lived child process, so the apply step itself never imports the app
 (see that module). `derive KEYS` prints the pip command re-derived from the
-registry; `redact PATH` cleans the text file at PATH for storage with diagnostics.redact_for_support.
+registry; `redact PATH` cleans the text file at PATH for storage with diagnostics_report.redact_for_support.
 """
 
 import json
@@ -22,8 +22,8 @@ def derive(arg: str) -> dict:
 
 
 def redact(text: str) -> dict:
-    import diagnostics
-    return {"lines": diagnostics.redact_for_support(text).splitlines()}
+    import diagnostics_report
+    return {"lines": diagnostics_report.redact_for_support(text).splitlines()}
 
 
 def main(argv) -> int:

@@ -4,7 +4,7 @@ per-engine Test. Mocked throughout: no network, no real keys."""
 import pytest
 
 import db
-import diagnostics
+import diagnostics_report
 import translate_engines
 from services import engine_routing_service as routing
 from services import line_ai_service, settings_service, translate_run_service
@@ -141,7 +141,7 @@ class TestEngineTest:
         def fake(engine, api_key=None, model=None, base_url=None):
             calls.append((engine, api_key))
             return {"engine": engine, "ok": True, "error": None}
-        monkeypatch.setattr(diagnostics, "check_engine_reachable", fake)
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable", fake)
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: SECRET)
         monkeypatch.setattr(settings_service, "key_status", lambda *a, **k: {"claude": True})
         out = routing.test_engine("claude")
@@ -150,7 +150,7 @@ class TestEngineTest:
         assert SECRET not in repr(out)
 
     def test_bad_key_reports_a_redacted_failure(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(diagnostics, "check_engine_reachable", lambda *a, **k: {
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable", lambda *a, **k: {
             "engine": "claude", "ok": False,
             "error": f"AuthenticationError: invalid x-api-key {SECRET}"})
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: SECRET)
@@ -173,7 +173,7 @@ class TestEngineTest:
         assert out["status"] == "failed" and SECRET not in repr(out)
 
     def test_no_key_is_refused_before_any_call(self, isolated_db, no_keys, monkeypatch):
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: pytest.fail("no call without a key"))
         with pytest.raises(DependencyUnavailableError):
             routing.test_engine("gemini")
@@ -183,7 +183,7 @@ class TestEngineTest:
         import threading
         release = threading.Event()
         monkeypatch.setattr(routing, "TEST_TIMEOUT_S", 0.05)
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: release.wait(5) and {"ok": True})
         try:
             out = routing.test_engine("fake")
@@ -196,7 +196,7 @@ class TestEngineTest:
         from services.service_errors import ConflictError
         release = threading.Event()
         monkeypatch.setattr(routing, "TEST_TIMEOUT_S", 0.05)
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: release.wait(5) and {"ok": True})
         try:
             routing.test_engine("fake")
@@ -213,21 +213,21 @@ class TestEngineTest:
         def fake(*a, **k):
             settings_service.set_engine_key("claude", "sk-new-value-123", env_path=env)
             return {"ok": True, "error": None}
-        monkeypatch.setattr(diagnostics, "check_engine_reachable", fake)
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable", fake)
         routing.test_engine("claude")
         assert routing._last_test("claude") is None
 
     def test_an_engine_with_a_test_block_is_not_tested(self, isolated_db, monkeypatch):
         from services.service_errors import UnsupportedOperationError
         monkeypatch.setitem(routing._NO_TEST, "fake_mt", "Downloads a large model on first use.")
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: pytest.fail("would download a model"))
         with pytest.raises(UnsupportedOperationError):
             routing.test_engine("fake_mt")
         assert routing.engine_status("fake_mt")["test_blocked"]
 
     def test_saving_a_key_forgets_the_last_test(self, isolated_db, tmp_path, monkeypatch):
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: {"ok": True, "error": None})
         routing.test_engine("fake")
         assert routing.engine_status("fake")["status"] == "working"
@@ -277,7 +277,7 @@ class TestRoutes:
                            json={"engine": "claude"}).status_code == 404
 
     def test_engine_test_route(self, client, monkeypatch):
-        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+        monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: {"ok": True, "error": None})
         r = client.post("/api/settings/engine-routing/engines/fake/test", json={})
         assert r.status_code == 200 and r.json()["status"] == "working"
