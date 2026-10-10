@@ -187,8 +187,8 @@ def preview_find_replace(drama_id: int, find: str, replace: str,
     contains another repeat, an alternation or a backreference (`(a+)+`,
     `(a|aa)+`, `(\\w+)\\1+`) or that have more than MAX_OPEN_REPEATS
     open-ended repeats are rejected, and only the first
-    MAX_REGEX_MATCH_CHARS characters of each line are matched. The API layer should still stay authenticated/
-    local-only."""
+    MAX_REGEX_MATCH_CHARS characters of each line are matched. The API
+    layer should still stay authenticated/local-only."""
     if not find:
         raise InvalidInputError("Enter text to find.")
     replace = replace or ""
