@@ -83,10 +83,17 @@ def _top_levels(files) -> set:
 
 
 def dist_in_use(name: str, modules=None, lookup=None, norm=_norm) -> bool:
-    """True when this process has the package's compiled files loaded, or has
-    imported a top-level module of a distribution that ships compiled files
-    (its helper DLLs are then loaded too, though sys.modules doesn't list
-    them). Pure-Python files aren't held open, so they never count."""
+    """True when replacing this package in place could fail on a held file.
+
+    A distribution that ships compiled files counts as in use when one of them
+    is loaded, or when any of its top-level modules is imported. The second
+    test is conservative on purpose: Windows keeps a loaded extension's helper
+    DLLs open, and sys.modules doesn't list them, so an imported top level is
+    the only sign they may be loaded. The cost is that upgrading such a
+    package, numpy for one, while this process has it imported is queued as an
+    install at restart. The benefit is that pip is never run in place against
+    a locked file and left half-way. Pure-Python distributions hold nothing
+    open and never count."""
     import importlib.metadata as md
     modules = sys.modules if modules is None else modules
     try:

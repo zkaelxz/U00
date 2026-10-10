@@ -377,3 +377,11 @@ def test_a_rehashed_file_with_bad_types_reads_as_invalid(data, edit):
     path.write_text(json.dumps(doc))
     assert pi.read_pending() == (None, "invalid")
     assert pi.status()["problem"] == "invalid"
+
+
+def test_the_stored_tail_is_exactly_the_tail_constant_and_the_capture_keeps_more():
+    many = [f"line {i}" for i in range(pi.CAPTURE_LINES * 2)]
+    rc, lines, _ = pi.run_capture(
+        [sys.executable, "-c", "print('\\n'.join(f'line {i}' for i in range(%d)))" % len(many)], 30)
+    assert lines == many[-pi.CAPTURE_LINES:] and pi.CAPTURE_LINES > pi.TAIL_LINES
+    assert len(pi._redacted_tail(lines)) == pi.TAIL_LINES
