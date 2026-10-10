@@ -69,3 +69,21 @@ test('PC admin still gets every item with its switch', async ({ page }) => {
   await expect(page.getByTestId('sharing-drama:5')).toBeVisible()
   await expect(page.getByTestId('remote-admin-sharing-note')).toHaveCount(0)
 })
+
+test('member: Diagnostics shows the not-allowed state and asks the server nothing', async ({ page }) => {
+  const unmocked = await mock(page, ['library.read'])
+  await page.goto('/#/diagnostics')
+  await expect(page.getByTestId('diagnostics-not-allowed')).toBeVisible()
+  expect(unmocked.filter((u) => u.includes('/api/diagnostics'))).toEqual([])
+})
+
+test('member: Quick translate is disabled with a reason and no Settings link', async ({ page }) => {
+  await mock(page, ['library.read'])
+  await page.route('**/api/translate/engines', (r) => r.fulfill({ json: {
+    items: [{ name: 'claude', label: 'Claude', free: false, models: null, key_configured: true }], default_engine: 'claude',
+  } }))
+  await page.route('**/api/translate/history*', (r) => r.fulfill({ json: { items: [] } }))
+  await page.goto('/#/translate')
+  await expect(page.getByRole('button', { name: 'Translate', exact: true })).toBeDisabled()
+  await expect(page.getByText("Quick translate isn't allowed for this account. Ask the PC owner.")).toBeVisible()
+})

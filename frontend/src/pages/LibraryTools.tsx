@@ -16,6 +16,7 @@ import { SharingControl } from '../components/SharingControl'
 import { VoiceBankPlayButton } from '../components/VoiceBankPlayButton'
 import { countDramas, dramaName, parseTime, readHref, workspaceHref } from '../components/libraryView'
 import { buttonClass } from '../components/uiClasses'
+import { useHolds } from '../hooks/useHolds'
 import { useLoad } from '../hooks/useLoad'
 import { PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
@@ -108,6 +109,8 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
   const [busyId, setBusyId] = useState<number | null>(null)
   const [renamingId, setRenamingId] = useState<number | null>(null)
   const [error, setError] = useState<unknown>(null)
+  // Renaming needs admin.library; deleting is PC only (pc).
+  const canRename = useHolds('admin.library')
   const run = (id: number) => {
     setBusyId(id)
     setError(null)
@@ -132,7 +135,9 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
                 <span>{x.name} <span className="muted">{x.meta}</span></span>
                 <span className="row-actions">
                   {extra?.(x.id, x.name)}
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Rename ${x.name}`} onClick={() => setRenamingId(x.id)}>Rename</button>
+                  {canRename && (
+                    <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Rename ${x.name}`} onClick={() => setRenamingId(x.id)}>Rename</button>
+                  )}
                   {pc !== 'remote' && <ConfirmButton name={x.name} busy={busyId === x.id} onConfirm={() => run(x.id)} />}
                 </span>
               </>
@@ -141,6 +146,7 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
         ))}
       </ul>
       <p className="muted">{pc === 'remote' ? PC_ONLY_DELETE_NOTE : help}</p>
+      {!canRename && !!items?.length && <p className="muted" data-testid="no-rename-note">Renaming is for the library admin.</p>}
       <ErrorBanner error={error} describe={{ pcOnly: true }} />
     </>
   )

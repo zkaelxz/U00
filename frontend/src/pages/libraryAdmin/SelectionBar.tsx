@@ -5,6 +5,7 @@ import { bulkDelete, bulkSetStatus, bulkSetTag, bulkTranslate, startExport } fro
 import type { DramaSummary } from '../../api/types'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { TypedConfirm } from '../../components/TypedConfirm'
+import { useHolds } from '../../hooks/useHolds'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { statusLabel, tagLabel } from '../../labels'
 import {
@@ -45,6 +46,7 @@ const translateError = (e: unknown): string | null => {
 }
 
 const PC_ONLY_NOTE = 'Delete and export are PC only.'
+const NO_EDIT_NOTE = 'Changing status and lists is for the library admin.'
 // PC-only calls (delete, export): a 403 means "not at the main PC".
 const PC_ONLY_ERR = { pcOnly: true, serverText: true } as const
 
@@ -70,6 +72,8 @@ export function SelectionBar({
   const toTranslate = translatableIds(selected)
   const toExport = exportableIds(selected)
   const local = pc !== 'remote'
+  // The server refuses status and list changes without admin.library.
+  const canEdit = useHolds('admin.library')
   const name = (id: number) => {
     const d = items.find((x) => x.id === id)
     return d ? titleOf(d) : `#${id}`
@@ -147,9 +151,11 @@ export function SelectionBar({
   const translateReason = reason(!toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
   const exportReason = reason(local && !toExport.length && n > 0, 'export-needs', EXPORT_NEEDS)
   const pcReason = reason(!local, 'pc-only-note', PC_ONLY_NOTE)
+  const editReason = reason(!canEdit, 'no-edit-note', NO_EDIT_NOTE)
 
   const actions = (
     <div className="bar-actions">
+      {canEdit && <>
       <div className="bar-group">
         <select aria-label="New status" value={status} onChange={(e) => setStatus(e.target.value as LibraryStatus)}>
           {LIBRARY_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
@@ -169,6 +175,8 @@ export function SelectionBar({
           Remove from list
         </button>
       </div>
+      </>}
+      {phone && editReason}
       <div className="bar-group">
         <button
           type="button"
@@ -213,6 +221,7 @@ export function SelectionBar({
       {!phone && translateReason}
       {!phone && exportReason}
       {!phone && pcReason}
+      {!phone && editReason}
       <AdminJobLine job={translate} busyText="Translating…" />
       {translateMsg ? <p className="error" role="alert">{translateMsg}</p> : <ErrorBanner error={translate.startError} />}
       {skips && <p className="muted">{skips}</p>}
