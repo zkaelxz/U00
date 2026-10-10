@@ -31,7 +31,7 @@ STATE_KEYS = {
 # dynamic key in another file has to be added here with its reason.
 DYNAMIC_KEYS = {
     ("background_jobs.py", "key"):
-        "helper argument; callers pass gpu_limit_enabled, gpu_max_parallel, notify_on_completion",
+        "the _setting helper's own read; its callers are checked by test_background_jobs_setting_calls_are_declared",
     ("services/settings_service.py", "settings_schema.BY_KEY[key].store_key"):
         "the schema writer: the store_key of a declared, validated row",
     ("services/settings_service.py", "setting.store_key"):
@@ -157,6 +157,16 @@ class TestEveryKeyIsDeclared:
             f"test's STATE_KEYS / DYNAMIC_KEYS): {undeclared}")
         assert set(DYNAMIC_KEYS) == used_dynamic, "a DYNAMIC_KEYS entry no longer matches a call"
 
+    def test_background_jobs_setting_calls_are_declared(self):
+        # The DYNAMIC_KEYS exemption for background_jobs.py covers only the _setting
+        # helper's body, so every caller must still pass a declared literal key.
+        text = _read("background_jobs.py")
+        keys = [_first_argument(text, m.end() - 1) for m in re.finditer(r"\b_setting\(", text)]
+        calls = [k for k in keys if k != "key"]
+        assert calls, "no _setting( callers found; the guard is stale"
+        known = _store_keys()
+        assert [k for k in calls if k.strip('"') not in known or not k.startswith('"')] == []
+
     def test_state_keys_are_not_also_rows(self):
         assert not set(STATE_KEYS) & _store_keys()
 
@@ -216,7 +226,9 @@ class TestWritesAndReadsAgree:
 
     def test_constants_match(self):
         import memory_headroom
+        import background_jobs
         assert schema._KEEP_FREE_GB_MAX == memory_headroom.MAX_KEEP_FREE_GB
+        assert schema.BY_KEY["gpu_max_parallel"].max == background_jobs.GPU_MAX_PARALLEL_LIMIT
 
     @pytest.mark.parametrize("name", sorted(
         s.key for s in schema.SETTINGS if s.store_key.startswith("pref.")))
