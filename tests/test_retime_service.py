@@ -20,6 +20,7 @@ from services import (jobs_service, ownership_service, restructure_service, reti
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
+from tests.saved_settings import patch_setting
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +28,7 @@ def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
     monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature: None)
     monkeypatch.setattr(core, "release_gpu_models", lambda: None)
-    monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+    patch_setting(monkeypatch, "use_gpu", True)
     calls = {"groups": [], "languages": [], "use_gpu": [], "shift": -0.4,
              "fail_text": None, "on_device": "GPU", "fallback": None}
 

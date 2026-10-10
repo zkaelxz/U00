@@ -129,7 +129,7 @@ class TestRunAndReport:
         svc.add_candidate("fake_good")
         _run_now()
         assert svc.get_production()["engine"] == "ollama"
-        assert settings_service.get_default_engine() == "ollama"
+        assert settings_service.get("default_engine") == "ollama"
         assert db.list_model_candidates("translation")[0]["status"] == "candidate"
 
     def test_promotion_needs_explicit_confirm(self, world):
@@ -141,7 +141,7 @@ class TestRunAndReport:
         out = svc.promote(c["id"], confirm=True, reason="scored higher")
         assert out["production"]["engine"] == "fake_good"
         assert out["default_engine_changed"] is True
-        assert settings_service.get_default_engine() == "fake_good"
+        assert settings_service.get("default_engine") == "fake_good"
         (d,) = svc.list_decisions()["decisions"]
         assert d["decision"] == "promoted" and d["scores"]["aggregate_score"] is not None
         with pytest.raises(ConflictError):

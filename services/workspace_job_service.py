@@ -142,7 +142,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     character_names = tguide.build_speaker_labels(
         db.list_characters_with_series_names(drama_id),
         db.list_series_characters(_series_id) if _series_id else [])
-    scene_aware = settings_service.get_preference("scene_aware_batches")
+    scene_aware = settings_service.get("scene_aware_batches")
     # What produced each line, and per-stage timing.
     provenance = line_provenance_service.translate_run_tracker(
         drama_id, lines, engine, engine_choice, glossary_terms, locale=locale,
@@ -1109,7 +1109,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         ollama_base_url, allow_paid=allow_paid_summary)
     # The Settings default the single-title form starts from, so a title
     # translated in bulk matches one translated alone.
-    style_note = settings_service.get_preference("default_style_note") or ""
+    style_note = settings_service.get("default_style_note") or ""
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}, "partial": {}, "cancelled": False}
@@ -1134,7 +1134,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             results["skipped_no_lines"].append(did)
             continue
 
-        engine_choice = drama.get("translation_engine") or settings_service.get_default_engine()
+        engine_choice = drama.get("translation_engine") or settings_service.get("default_engine")
         # expected_engines: what the caller was checked against; an engine
         # changed since then is skipped rather than used unchecked.
         if (engine_choice not in translate_engines.ENGINES
@@ -1197,7 +1197,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             per_job_id, run_translate_job,
             per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
             default_locale, glossary_terms, style_guidelines, engine_choice, style_preset,
-            defaults["context_window"], settings_service.get_ollama_num_ctx_override() or None,
+            defaults["context_window"], settings_service.get("ollama_num_ctx_override") or None,
             cost_cap_usd=cost_cap,
             context_window_ahead=defaults["context_window_ahead"],
             batch_size=defaults["batch_size"],

@@ -106,7 +106,7 @@ def get_options(drama_id: int) -> dict:
         "saved_alignment_method": drama.get("alignment_method") or "whisper_diff",
         "whisper_sizes": sizes,
         "backends": backends,
-        "translation_engine": drama.get("translation_engine") or settings_service.get_default_engine(),
+        "translation_engine": drama.get("translation_engine") or settings_service.get("default_engine"),
     }
 
 
@@ -174,7 +174,7 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if (gemini_free_tier and engine_name == "gemini"
@@ -213,7 +213,7 @@ def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
     if not translate:
         return out
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    engine_name = engine or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = engine or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     free_tier = engine_name == "gemini" and gemini_free_tier
@@ -277,8 +277,8 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
                                                job_cost_cap_usd)
         translation = {"engine": engine, "engine_choice": name, "cost_cap_usd": cap,
                        "retranslate_current": bool(retranslate_current),
-                       "locale": settings_service.get_preference("default_locale"),
-                       "style_note": settings_service.get_preference("default_style_note") or ""}
+                       "locale": settings_service.get("default_locale"),
+                       "style_note": settings_service.get("default_style_note") or ""}
     tuning = transcribe_service._DEFAULT_TUNING
     started = background_jobs.start_job(
         job_id, run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
@@ -291,7 +291,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "hallucination_silence_sec": transcribe_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
-         "use_gpu": settings_service.get_use_gpu()},
+         "use_gpu": settings_service.get("use_gpu")},
         translation, gpu_touching=True,
         description=f"Comparing transcription of {len(picked)} line(s) (drama #{drama_id})")
     if not started:

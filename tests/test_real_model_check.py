@@ -10,6 +10,7 @@ import translate_engines
 from services import asr_options_service, settings_service
 from services import diagnostics_gaps_service as gaps
 from services import real_model_check_service as svc
+from tests.saved_settings import patch_setting
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
 
@@ -78,7 +79,7 @@ def asr(monkeypatch):
     import core
     state = {"backend": _Backend(), "cached": True}
     monkeypatch.setattr(asr_options_service, "stored_asr_backend", lambda d: "whisper")
-    monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+    patch_setting(monkeypatch, "use_gpu", True)
     monkeypatch.setattr(svc, "_installed", lambda m: True)
     monkeypatch.setattr(core, "is_whisper_model_cached", lambda size: state["cached"])
     monkeypatch.setattr(asr_backend, "get_backend", lambda name: state["backend"])
@@ -452,7 +453,7 @@ def qwen(monkeypatch):
     monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
     state = {"backend": _QwenBackend(), "repos": ["Qwen/Qwen3-ASR-1.7B", "Qwen/Qwen3-ForcedAligner-0.6B"]}
     monkeypatch.setattr(asr_options_service, "stored_asr_backend", lambda d: "qwen3_asr_long")
-    monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+    patch_setting(monkeypatch, "use_gpu", True)
     monkeypatch.setattr(svc, "_installed", lambda m: True)
     monkeypatch.setattr(asr_backend, "get_backend", lambda name: state["backend"])
     monkeypatch.setattr(svc.diagnostics, "scan_hf_cache",

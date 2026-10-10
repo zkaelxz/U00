@@ -7,6 +7,7 @@ from lib import http
 import os
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -59,7 +60,7 @@ def setup(isolated_db, monkeypatch):
     db.update_drama(drama, author="Someone")
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda name, *a, **kw: KEY if name == "gemini" else None)
-    monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: False)
+    patch_setting(monkeypatch, "gemini_free_tier", False)
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **kw: 0.0)
     data = _response(
         {"title_en": {"value": "New Title", "confidence": "low"},
@@ -257,7 +258,7 @@ def test_refresh_spends_a_new_search(setup):
 
 def test_paid_search_refused_on_free_tier_key(setup, monkeypatch):
     drama, fake = setup
-    monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: True)
+    patch_setting(monkeypatch, "gemini_free_tier", True)
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD})
     with pytest.raises(ConflictError):
         mrs.research(drama, allow_paid=True)

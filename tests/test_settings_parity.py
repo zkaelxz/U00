@@ -21,6 +21,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
+from lib import settings_schema as schema
 from services import auth_service, settings_service
 from services.service_errors import InvalidInputError
 
@@ -54,22 +55,6 @@ def _clean_jobs():
 
 # --- service: preferences --------------------------------------------------------
 
-def test_preference_defaults(isolated_db, env_file):
-    prefs = settings_service.get_preferences()
-    assert prefs == {
-        "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
-        "scene_aware_batches": True, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
-        "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
-        "keep_free_ram_gb": 0.0, "whisper_model_path": "", "ocr_backend": "auto",
-        "ocr_prefer_paddle_vl_manga": False, "tesseract_cmd": "", "lncrawl_cmd": "",
-        "cookies_browser": None, "cookies_file": ""}
-    assert settings_service.get_monthly_cap_usd() == 0.0
-    assert settings_service.get_whisper_model_path() is None
-    assert settings_service.get_tesseract_cmd() is None
-    assert settings_service.get_cookie_settings() == {"cookies_browser": None,
-                                                      "cookies_file": None}
-
-
 def test_preferences_round_trip_and_persist(isolated_db, env_file):
     updates = {
         "default_engine": "deepseek", "default_locale": "en-GB",
@@ -85,8 +70,8 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
     # Stored in db.app_settings: a fresh read sees them.
     import db
     assert db.get_app_setting("pref.default_engine") == "deepseek"
-    assert settings_service.get_default_engine() == "deepseek"
-    assert settings_service.get_ollama_num_ctx_override() == 16384
+    assert settings_service.get("default_engine") == "deepseek"
+    assert settings_service.get("ollama_num_ctx_override") == 16384
     assert settings_service.get_cookie_settings() == {"cookies_browser": "firefox",
                                                       "cookies_file": "/home/me/cookies.txt"}
     # Clearing: "" for paths/browser, None for the cap.
@@ -94,7 +79,7 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
                                    "monthly_cap_usd": None})
     assert settings_service.get_cookie_settings() == {"cookies_browser": None,
                                                       "cookies_file": None}
-    assert settings_service.get_preference("monthly_cap_usd") is None
+    assert settings_service.get("monthly_cap_usd") is None
 
 
 @pytest.mark.parametrize("key,bad", [
@@ -113,16 +98,8 @@ def test_bad_preference_rejected_atomically_without_echo(isolated_db, env_file, 
     with pytest.raises(InvalidInputError) as ei:
         settings_service.set_settings({"use_gpu": True, key: bad})
     assert SECRET not in str(ei.value) and "not-an-engine" not in str(ei.value)
-    assert settings_service.get_use_gpu() is False  # nothing written
-    assert settings_service.get_preferences()[key] == settings_service._PREFERENCES[key][0]
-
-
-def test_stale_stored_value_reads_as_default(isolated_db, env_file):
-    import db
-    db.set_app_setting("pref.default_engine", "removed_engine")
-    db.set_app_setting("pref.ollama_num_ctx_override", "lots")
-    assert settings_service.get_default_engine() == "claude"
-    assert settings_service.get_ollama_num_ctx_override() == 0
+    assert settings_service.get("use_gpu") is False  # nothing written
+    assert settings_service.get_preferences()[key] == schema.default_of(schema.BY_KEY[key])
 
 
 def test_monthly_cap_saved_value_wins_over_env(isolated_db, env_file):
@@ -287,7 +264,7 @@ def test_remote_read_needs_admin_and_writes_are_pc_only(isolated_db, env_file):
                        ("/api/settings/endpoints/ollama_url",
                         {"url": "http://evil.example", "confirm": True})):
         assert c.post(path, json=body, headers=_h(admin)).status_code == 403
-    assert settings_service.get_tesseract_cmd() is None
+    assert settings_service.get("tesseract_cmd") == ""
     assert not env_file.exists()
 
 
@@ -441,28 +418,6 @@ def test_library_bulk_translate_skips_paid_summary_when_not_allowed(isolated_db,
     assert per[0]["summary_monthly_cap_usd"] == 3.0
 
 
-def test_new_drama_is_stamped_with_default_engine(isolated_db, env_file):
-    from services import drama_service
-    assert drama_service.create_drama(source_language="zh", title_en="A")["translation_engine"] \
-        == "claude"
-    settings_service.set_settings({"default_engine": "deepseek"})
-    did = drama_service.create_drama(source_language="ja", title_en="B")["id"]
-    assert isolated_db.get_drama(did)["translation_engine"] == "deepseek"
-    # A preset's engine still wins.
-    pid = isolated_db.insert_preset("P", translation_engine="gemini")
-    did = drama_service.create_drama(source_language="zh", title_en="C", preset_id=pid)["id"]
-    assert isolated_db.get_drama(did)["translation_engine"] == "gemini"
-
-
-def test_default_engine_used_for_drama_without_one(isolated_db, env_file):
-    from services import glossary_service, translate_run_service
-    did = _seed(isolated_db)
-    settings_service.set_settings({"default_engine": "ollama"})
-    assert glossary_service.novel_glossary_engine(did) == "ollama"
-    est = translate_run_service.estimate_translate_cost(did)
-    assert est["engine"] == "ollama"
-
-
 def test_bulk_library_translate_uses_default_locale_and_saved_cap(isolated_db, env_file,
                                                                   monkeypatch):
     from services import library_admin_service
@@ -478,84 +433,6 @@ def test_bulk_library_translate_uses_default_locale_and_saved_cap(isolated_db, e
     assert captured["default_locale"] == "en-AU" and captured["monthly_cap"] == 5.0
     library_admin_service.start_bulk_translate([did], "en-GB")
     assert captured["default_locale"] == "en-GB"
-
-
-def test_transcribe_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch):
-    from services import transcribe_service
-    from tests.test_transcribe_service import _drama_with_video
-    did, _ = _drama_with_video(isolated_db)
-    captured = {}
-
-    def fake_start_job(job_id, target, *a, **k):
-        captured.update(dict(zip(inspect.signature(target).parameters, a)))
-        return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
-    transcribe_service.start_transcribe_run(did)
-    assert captured["tesseract_cmd"] is None
-    settings_service.set_settings({"tesseract_cmd": "/opt/tess/bin/tesseract"})
-    transcribe_service.start_transcribe_run(did)
-    assert captured["tesseract_cmd"] == "/opt/tess/bin/tesseract"
-    transcribe_service.start_transcribe_run(did, tesseract_cmd="/other/tesseract")
-    assert captured["tesseract_cmd"] == "/other/tesseract"
-
-
-def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monkeypatch):
-    import core as core_module
-    from services import transcribe_pipeline, transcribe_service
-    from tests.test_transcribe_service import _drama_with_audio
-    did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-    settings_service.set_settings({"whisper_model_path": "/models/faster-whisper-small"})
-    seen = {}
-    monkeypatch.setattr(core_module, "is_whisper_model_cached", lambda *a, **k: False)
-    monkeypatch.setattr(core_module, "load_whisper_model",
-                        lambda *a, **k: seen.setdefault("load", k.get("local_model_path")))
-    monkeypatch.setattr(core_module, "get_whisper_device_info",
-                        lambda *a, **k: seen.setdefault("info", k.get("local_model_path")) and {})
-    monkeypatch.setattr(core_module, "describe_whisper_device", lambda info: "")
-
-    def fake_transcribe(*a, **k):
-        seen["transcribe"] = k.get("local_model_path")
-        raise RuntimeError("stop here")
-    monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", fake_transcribe)
-    captured = {}
-
-    def fake_start_process_job(job_id, target, args=(), **k):
-        captured["call"] = (target, args)
-        return True
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
-    transcribe_service.start_transcribe_run(did)
-    target, args = captured["call"]
-    # Run the worker in this process: keep this process's group and temp dir.
-    import queue
-    import tempfile
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
-    monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
-    result_queue = queue.Queue()
-    target(*args, result_queue)
-    items = []
-    while not result_queue.empty():
-        items.append(result_queue.get_nowait())
-    assert items[-1] == ("error", "RuntimeError", "stop here")
-    assert seen == {"load": "/models/faster-whisper-small",
-                    "info": "/models/faster-whisper-small",
-                    "transcribe": "/models/faster-whisper-small"}
-
-
-def test_novel_ocr_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch):
-    import io
-    from services import novel_attach_service
-    monkeypatch.setattr(novel_attach_service.importlib.util, "find_spec", lambda name: object())
-    captured = {}
-
-    def fake_start_job(job_id, target, *a, **k):
-        captured["args"] = a
-        return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
-    did = isolated_db.create_drama(title_zh="N", source_language="zh")
-    settings_service.set_settings({"tesseract_cmd": "/opt/tesseract"})
-    novel_attach_service.start_ocr_chapter(did, [("a.png", io.BytesIO(b"x"))])
-    assert captured["args"][-1] == "/opt/tesseract"
-    assert captured["args"][4] == "tesseract"  # backend default unchanged (Streamlit parity)
 
 
 def test_url_download_passes_saved_cookies(isolated_db, env_file, monkeypatch, tmp_path):

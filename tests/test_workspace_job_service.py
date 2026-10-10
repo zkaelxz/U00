@@ -4,6 +4,7 @@ function (a guard against a move or rename dropping one).
 """
 
 import services.workspace_job_service as wjs
+from tests.saved_settings import patch_setting
 
 
 def test_every_moved_workspace_function_is_exported():
@@ -236,10 +237,6 @@ def test_fix_flagged_reads_each_lines_language(isolated_db, monkeypatch):
 
 
 def test_bulk_passes_the_settings_default_style_note(isolated_db, monkeypatch):
-    from services import settings_service
-    real = settings_service.get_preference
-    monkeypatch.setattr(settings_service, "get_preference",
-                        lambda name: "Keep honorifics." if name == "default_style_note"
-                        else real(name))
+    patch_setting(monkeypatch, "default_style_note", "Keep honorifics.")
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "claude", "audio_drama")
     assert seen["args"][5] == "Keep honorifics."

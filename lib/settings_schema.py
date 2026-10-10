@@ -17,8 +17,8 @@ TYPES = ("bool", "int", "float", "text", "choice", "path", "json")
 SCOPES = ("app", "title", "developer")
 WRITERS = ("pc_owner", "admin", "member")
 
-# Repeated from services/settings_service and memory_headroom, which lib may
-# not import; tests/test_settings_schema.py fails if they drift apart.
+# Repeated from memory_headroom, which lib may not import;
+# tests/test_settings_schema.py fails if they drift apart.
 _PATH_MAX = 1024
 _STYLE_NOTE_MAX = 2000
 _NUM_CTX_MAX = 1_048_576
@@ -244,6 +244,27 @@ def _check_json(s: Setting, raw):
     return raw
 
 
+def _parse(s: Setting, raw, choices):
+    if s.type == "bool":
+        if not isinstance(raw, bool):
+            raise ValueError("not true or false")
+        return raw
+    if s.type in ("int", "float"):
+        if s.clamp:
+            n = int(raw)
+            return max(int(s.min), min(n, int(s.max)))
+        return _check_number(s, raw)
+    if s.type == "choice":
+        # Not stripped: " claude" is not an engine, as in the old validators.
+        if not isinstance(raw, str) or (choices is not None and raw not in choices):
+            raise ValueError("not an allowed choice")
+        return raw or default_of(s)
+    if s.type in ("text", "path"):
+        value = _check_text(s, raw)
+        return value if value or s.default is not None else default_of(s)
+    return _check_json(s, raw)
+
+
 def coerce(key: str, raw, choices=None):
     """The typed value for a stored `raw`, or the declared default when `raw` is
     missing, the wrong type, out of range or not one of `choices`.
@@ -256,23 +277,31 @@ def coerce(key: str, raw, choices=None):
     if raw is None:
         return default_of(s)
     try:
-        if s.type == "bool":
-            if not isinstance(raw, bool):
-                raise ValueError("not true or false")
-            return raw
-        if s.type in ("int", "float"):
-            if s.clamp:
-                n = int(raw)
-                return max(int(s.min), min(n, int(s.max)))
-            return _check_number(s, raw)
-        if s.type == "choice":
-            # Not stripped: " claude" is not an engine, as in the old validators.
-            if not isinstance(raw, str) or (choices is not None and raw not in choices):
-                raise ValueError("not an allowed choice")
-            return raw or default_of(s)
-        if s.type in ("text", "path"):
-            value = _check_text(s, raw)
-            return value if value or s.default is not None else default_of(s)
-        return _check_json(s, raw)
+        return _parse(s, raw, choices)
     except (TypeError, ValueError, OverflowError):
         return default_of(s)
+
+
+def validate(key: str, raw, choices=None):
+    """The cleaned value to store for a write of `raw`, or ValueError(reason).
+
+    Stricter than `coerce`, which forgives a bad stored row: a write is refused,
+    and an unset value (None) puts the default back, except for a switch or a
+    choice that has a default to fall back to, which must be given. A choice
+    whose default is None (cookies_browser) is cleared by None or "".
+    """
+    s = BY_KEY[key]
+    if s.clamp and (isinstance(raw, bool) or not isinstance(raw, int)):
+        raise ValueError("not a whole number")
+    if raw is None:
+        if s.type == "bool":
+            raise ValueError("not true or false")
+        if s.type == "choice" and s.default is not None:
+            raise ValueError("not an allowed choice")
+        return default_of(s)
+    if s.type == "choice" and s.default is None and raw == "":
+        return None
+    try:
+        return _parse(s, raw, choices)
+    except OverflowError:
+        raise ValueError("not a number") from None

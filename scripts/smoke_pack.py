@@ -217,7 +217,7 @@ def _whisper_model_path():
     a model already on disk is loaded instead of downloaded. None when unset."""
     with contextlib.suppress(Exception):
         from services import settings_service
-        return settings_service.get_whisper_model_path()
+        return settings_service.get("whisper_model_path") or None
     return None
 
 

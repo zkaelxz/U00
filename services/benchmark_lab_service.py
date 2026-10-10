@@ -419,7 +419,7 @@ def get_options() -> dict:
 
 def _cap_applies(engine: str) -> bool:
     return engine in _CAP_ENGINES and not (
-        engine == "gemini" and settings_service.get_gemini_free_tier())
+        engine == "gemini" and settings_service.get("gemini_free_tier"))
 
 
 def check_config(stage: str, cfg) -> dict:
@@ -547,7 +547,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         raise ConflictError("A benchmark run is already going.")
     if background_jobs.exclusive_active() or background_jobs.maintenance_active():
         raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
-    use_gpu = settings_service.get_use_gpu() if use_gpu is None else bool(use_gpu)
+    use_gpu = settings_service.get("use_gpu") if use_gpu is None else bool(use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
     case_filter = json.dumps({"tier": tier, "set_name": set_name,
                               "case_ids": sorted(case_ids) if case_ids else None})
@@ -622,7 +622,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
             try:
                 engine = translate_engines.get_engine(
                     cfg["engine"], api_key, cfg["model"],
-                    free_tier=cfg["engine"] == "gemini" and settings_service.get_gemini_free_tier(),
+                    free_tier=cfg["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
                     base_url=(settings_service.resolve_key("ollama_url") or None)
                     if cfg["engine"] == "ollama" else None)
             except Exception as exc:

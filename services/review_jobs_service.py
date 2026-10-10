@@ -120,7 +120,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
         raise UnsupportedOperationError("This drama has no lines yet.")
     if precheck:
         precheck(lines)
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if not allow_translation_only and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
@@ -228,11 +228,11 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
         audio = drama.get("audio_filename")
         audio_path = os.path.join(db.drama_dir(drama["id"]), audio) if audio else None
         args = (lines, audio_path, transcribe_service.stored_whisper_size(drama),
-                settings_service.get_use_gpu(), drama.get("source_language") or "zh", eng, name)
+                settings_service.get("use_gpu"), drama.get("source_language") or "zh", eng, name)
         # Settings' defaults, as `cli.py translate` resolves them.
         return args, {"cost_cap_usd": cap,
-                      "locale": settings_service.get_preference("default_locale"),
-                      "style_note": settings_service.get_preference("default_style_note") or "",
+                      "locale": settings_service.get("default_locale"),
+                      "style_note": settings_service.get("default_style_note") or "",
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
                       "gpu_touching": bool(audio_path) or translate_engines.ollama_touches_local_gpu(name, model)}

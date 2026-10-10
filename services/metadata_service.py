@@ -214,7 +214,7 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
         return {"drama_id": drama_id, "suggestion": {}, "found": False}
     try:
         engine = translate_engines.get_engine(
-            engine_name, api_key, free_tier=settings_service.get_gemini_free_tier(),
+            engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
         found = metadata_lookup.extract_metadata_llm(text, engine)
@@ -261,7 +261,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
         raise MissingKeyError(engine_name)
     try:
         engine = translate_engines.get_engine(
-            engine_name, api_key, free_tier=settings_service.get_gemini_free_tier(),
+            engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
 
