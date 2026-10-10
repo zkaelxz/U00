@@ -140,3 +140,14 @@ cd frontend && npx tsc --noEmit && npx vitest run    # when frontend files chang
 Then re-read the diff for: a frozen file that grew, a comment with a PR or
 step id, a route without a permission, an HTTP call without `timeout=`, an
 error message that could carry a path or key, a lock holding a blocking call.
+
+### 9. Review sessions stalled on "open the issue?"
+
+**Symptom.** Five whole-codebase review sessions finished their reading and
+then sat in `need_input`, asking whether to open the GitHub issue. Their
+drafts lived only in their containers; archiving them lost the work.
+
+**Lesson.** A session that must post to GitHub is created with
+`permission_mode: acceptEdits` and its brief says the post is pre-approved.
+Before archiving a `need_input` session, read its last message: if it holds
+a deliverable, relaunch with the fix to the brief first.
