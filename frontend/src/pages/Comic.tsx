@@ -129,7 +129,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const requested = useRef(new Set<number>())
 
   useEffect(() => {
-    api.getDrama(id).then((d) => setTitle(d.title_en || d.title_zh || `Drama #${d.id}`), () => setTitle(null))
+    api.getDrama(id).then((d) => setTitle(d.title_en || d.title_zh || `Title #${d.id}`), () => setTitle(null))
     comicApi.pages(id).then(setData, setError)
     comicApi.progress(id).then(
       (p) => {

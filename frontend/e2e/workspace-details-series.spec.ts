@@ -90,7 +90,7 @@ test('Edit details "+ New series…" sends the name and then shows the new serie
   await expect(page.getByRole('button', { name: 'Save details' })).toBeDisabled()
 })
 
-test('the glossary box explains a drama without a series and creates one in one tap', async ({ page }) => {
+test('the glossary box explains a title without a series and creates one in one tap', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: null })
   await page.goto('/#/drama/2/translate')
   const box = page.getByTestId('series-assign')
@@ -102,7 +102,7 @@ test('the glossary box explains a drama without a series and creates one in one 
   await expect(page.getByRole('button', { name: /^Add (a )?term$/ })).toBeEnabled()
 })
 
-test('the glossary box can move the drama to another series', async ({ page }) => {
+test('the glossary box can move the title to another series', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: 41 })
   await page.goto('/#/drama/2/translate')
   const box = page.getByTestId('series-assign')

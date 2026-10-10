@@ -43,7 +43,7 @@ export function suggestBlockers(
   const novel = novelGlossaryBlocker(dramaId, seriesId, hasNovel !== false)
   const lines =
     novelGlossaryBlocker(dramaId, seriesId, true) ??
-    (hasLines === false ? { text: 'Still needed: transcript lines', link: 'transcribe it on Source', href } : null)
+    (hasLines === false ? { text: 'Still needed: transcript lines', link: 'transcribe it on Media', href } : null)
   return { novel, lines }
 }
 

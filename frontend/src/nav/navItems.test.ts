@@ -41,7 +41,7 @@ const personas: Record<string, NavContext> = {
 
 const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-const ALL = ['Library', 'Library tools', 'Translate text', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
+const ALL = ['Library', 'Library tools', 'Quick translate', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
 
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
@@ -117,14 +117,14 @@ describe('left rail', () => {
     expect(visibleRailGroups(owner).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
       ['Find and add', ['Sources', 'Discover']],
-      ['Tools', ['Translate text', 'Live']],
+      ['Tools', ['Quick translate', 'Live']],
       ['System', ['Jobs', 'Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
     ])
   })
 
   it('household member: no Admin, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
-    expect(labelsOf).toEqual(['Library', 'Library tools', 'Sources', 'Discover', 'Translate text', 'Live', 'Jobs', 'Settings'])
+    expect(labelsOf).toEqual(['Library', 'Library tools', 'Sources', 'Discover', 'Quick translate', 'Live', 'Jobs', 'Settings'])
   })
 
   it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab but not Admin', () => {
@@ -163,7 +163,7 @@ describe('left rail', () => {
     ['library tools', { name: 'library-tools' }, ['Library tools']],
     ['diagnostics', { name: 'diagnostics' }, ['Diagnostics']],
     ['benchmark', { name: 'benchmark' }, ['Benchmark Lab']],
-    ['translate', { name: 'translate' }, ['Translate text']],
+    ['translate', { name: 'translate' }, ['Quick translate']],
   ])('%s marks exactly one rail item current', (_name, route, expected) => {
     expect(railCurrent({ ...owner, developerMode: true }, route)).toEqual(expected)
   })

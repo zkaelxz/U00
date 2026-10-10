@@ -30,7 +30,7 @@ const SHAPE = { language: '', count: 0, on: false, list: [] as string[] }
 describe('stage draft store', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('round-trips a form under one versioned key per drama and stage', () => {
+  it('round-trips a form under one versioned key per title and stage', () => {
     const s = memory()
     expect(readDraft(s, 1, 'transcribe')).toBeNull()
     expect(writeDraft(s, 1, 'transcribe', { language: 'ja', on: true })).toBe(true)
@@ -42,7 +42,7 @@ describe('stage draft store', () => {
     expect(readDraft(s, 1, 'transcribe')).toBeNull()
   })
 
-  it('keeps dramas and stages apart', () => {
+  it('keeps titles and stages apart', () => {
     const s = memory()
     writeDraft(s, 1, 'transcribe', { language: 'ja' })
     writeDraft(s, 1, 'translate', { engine: 'claude' })

@@ -75,14 +75,14 @@ test('keep-background is disabled when unavailable, and 503 shows a plain banner
   await expect(page.getByRole('alert')).toContainText('not installed or not reachable')
 })
 
-test('nothing speakable blocks the run button on the seeded drama', async ({ page }) => {
+test('nothing speakable blocks the run button on the seeded title', async ({ page }) => {
   await page.goto('/#/drama/1/dub')
   await expect(page.getByTestId('dub-summary')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Generate dub' })).toBeDisabled()
   // Rule 22: the reason links to where the text comes from.
   const reason = page.getByTestId('dub-settings')
   await expect(reason).toContainText('There is no text to speak yet.')
-  await reason.getByRole('link', { name: 'Go to Source' }).click()
+  await reason.getByRole('link', { name: 'Go to Media' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/source$/)
 })
 

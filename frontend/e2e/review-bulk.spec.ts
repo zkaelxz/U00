@@ -83,7 +83,7 @@ test('Bulk sends bulk only when switched on, then shows the pending batch and th
   // The help says what Bulk costs and what it pauses (focus opens it, as a tap does).
   await row.getByRole('button', { name: 'Help: Bulk' }).focus()
   await expect(row.getByRole('tooltip')).toContainText('up to 24 hours')
-  await expect(row.getByRole('tooltip')).toContainText('restoring a version and deleting the drama are refused')
+  await expect(row.getByRole('tooltip')).toContainText('restoring a version and deleting the title are refused')
 
   // On: only this check sends bulk, and the warning shows before starting.
   await bulk.click()

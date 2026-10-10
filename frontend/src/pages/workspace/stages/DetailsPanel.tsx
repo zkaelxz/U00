@@ -164,7 +164,7 @@ export function DetailsPanel({ openSignal, onAddCredits }: { openSignal?: number
             {kind === 'audio' && <ContentModeField />}
             <Field
               label="Series"
-              help={`${SERIES_HELP} A drama taken out of a private series stays private.`}
+              help={`${SERIES_HELP} A title taken out of a private series stays private.`}
               error={errors.series_id}
             >
               <select value={form.series_id} onChange={set('series_id')}>
@@ -178,7 +178,7 @@ export function DetailsPanel({ openSignal, onAddCredits }: { openSignal?: number
             {form.series_id === NEW_SERIES && (
               <Field
                 label={FIELD_LABELS.new_series_name}
-                help="Created when you save. If a series with this name already exists, the drama joins it."
+                help="Created when you save. If a series with this name already exists, the title joins it."
                 error={errors.new_series_name}
               >
                 <input value={form.new_series_name} maxLength={300} onChange={set('new_series_name')} />
@@ -200,7 +200,7 @@ export function DetailsPanel({ openSignal, onAddCredits }: { openSignal?: number
               </select>
             </Field>
             {kind !== 'audio' && count('chapter_count', 'How many chapters the original has. Leave empty if unknown.')}
-            {count('episode_number', 'Orders this drama within its series, so the next episode gets this one\'s running summary. Leave empty to use the date added.')}
+            {count('episode_number', 'Orders this title within its series, so the next episode gets this one\'s running summary. Leave empty to use the date added.')}
           </div>
           <Field label="Summary" error={errors.summary}>
             <textarea rows={3} value={form.summary} onChange={set('summary')} />
@@ -212,7 +212,7 @@ export function DetailsPanel({ openSignal, onAddCredits }: { openSignal?: number
             summary="Link, tags, episode summary"
             defaultOpen={!!(form.source_url || form.custom_tags || form.episode_summary)}
           >
-            {text('source_url', 'The public listing or info page this drama came from. Shown without any ?query part, which can hold a download token.', 'url')}
+            {text('source_url', 'The public listing or info page this title came from. Shown without any ?query part, which can hold a download token.', 'url')}
             {text('custom_tags', 'Comma-separated, e.g. bl, favorite.')}
             <Field
               label={FIELD_LABELS.episode_summary}

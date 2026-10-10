@@ -25,7 +25,7 @@ test.describe('selection bar (real API)', () => {
     ids.push(await createDrama(page, 'Admin E2E One'), await createDrama(page, 'Admin E2E Two'))
     await page.goto('/')
     await page.getByLabel('Search title or summary').fill('Admin E2E')
-    await expect(page.getByTestId('drama-count')).toHaveText('2 dramas')
+    await expect(page.getByTestId('drama-count')).toHaveText('2 titles')
     // List view: Select shows the checkbox column (select mode works in both views).
     await page.getByRole('radio', { name: 'List' }).check()
     await expect(page.getByRole('checkbox', { name: 'Select Admin E2E One' })).toHaveCount(0)
@@ -44,16 +44,16 @@ test.describe('selection bar (real API)', () => {
     await expect(page.locator('tbody tr', { hasText: 'Admin E2E' }).filter({ hasText: 'translated' })).toHaveCount(2)
 
     await expect(bar.getByRole('button', { name: 'Translate 0' })).toBeDisabled()
-    await expect(bar).toContainText("Still needed: a selected drama with status 'aligned'.")
+    await expect(bar).toContainText("Still needed: a selected title with status 'aligned'.")
 
     await bar.getByRole('button', { name: 'Delete…' }).click()
-    await expect(bar).toContainText('Permanently deletes 2 dramas with their lines and files. No undo.')
+    await expect(bar).toContainText('Permanently deletes 2 titles with their lines and files. No undo.')
     const confirm = bar.getByRole('button', { name: 'Delete 2' })
     await bar.getByLabel(/Type DELETE to confirm/).fill('delete')
     await expect(confirm).toBeDisabled()
     await bar.getByLabel(/Type DELETE to confirm/).fill('DELETE')
     await confirm.click()
-    await expect(page.getByTestId('drama-count')).toHaveText('0 dramas')
+    await expect(page.getByTestId('drama-count')).toHaveText('0 titles')
     await expect(page.getByRole('region', { name: 'Selection' })).toHaveCount(0)
     // The result outlives the bar.
     await expect(page.getByTestId('bulk-result')).toContainText('Deleted 2.')
@@ -152,7 +152,7 @@ test.describe('Backup & storage (mocked)', () => {
     await expect(go).toBeDisabled()
     await page.getByLabel(/Type CLEAN to confirm/).fill('CLEAN')
     await go.click()
-    await expect(page.getByText('Freed 2.3 GB. 1 drama skipped (job running).')).toBeVisible()
+    await expect(page.getByText('Freed 2.3 GB. 1 title skipped (job running).')).toBeVisible()
     expect(cleanBody).toEqual({ preset: 'balanced', confirm: true, confirm_text: 'CLEAN' })
   })
 
@@ -177,7 +177,7 @@ test.describe('Backup & storage (mocked)', () => {
     await page.getByRole('button', { name: 'Details: Signal' }).click()
     const detail = page.getByRole('dialog', { name: 'Signal' })
     await expect(detail).toContainText('Deleting is PC only.')
-    await expect(detail.getByRole('button', { name: 'Delete drama…' })).toHaveCount(0)
+    await expect(detail.getByRole('button', { name: 'Delete title…' })).toHaveCount(0)
   })
 })
 
@@ -195,7 +195,7 @@ test('preset delete is two-step: first press makes no call, second sends confirm
   })
   await page.goto('/#/library-tools')
   await presetsSummary(page).click()
-  await expect(page.getByText('Dramas that used it keep their settings.')).toBeVisible()
+  await expect(page.getByText('Titles that used it keep their settings.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Delete Wuxia preset' }).click()
   const confirm = page.getByRole('button', { name: 'Confirm delete Wuxia preset' })

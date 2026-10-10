@@ -31,12 +31,12 @@ describe('api client', () => {
 
   it('turns the API error shape into an ApiError', async () => {
     const err = await api
-      .getDrama(9, fakeFetch(404, { error: { code: 'not_found', message: 'No drama with id 9.' } }))
+      .getDrama(9, fakeFetch(404, { error: { code: 'not_found', message: 'No title with id 9.' } }))
       .catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(404)
     expect(err.code).toBe('not_found')
-    expect(err.message).toBe('No drama with id 9.')
+    expect(err.message).toBe('No title with id 9.')
   })
 
   it('copes with a non-JSON error body', async () => {

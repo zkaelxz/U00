@@ -251,7 +251,7 @@ function AnalyzeBody({ hasMedia, onNeedMedia }: { hasMedia: boolean; onNeedMedia
                   Use this content type
                 </button>
               ) : (
-                result.content_type_guess === drama.media_type && <p className="muted">This drama already uses it.</p>
+                result.content_type_guess === drama.media_type && <p className="muted">This title already uses it.</p>
               )}
             </div>
           )}

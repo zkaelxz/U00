@@ -8,8 +8,8 @@ export const SHARE_DEFAULT_LABEL = 'New items I create are shared with the house
 /** The plain line under the share-by-default switch. */
 export function shareDefaultHelp(on: boolean, admin: boolean): string {
   const now = on
-    ? 'On: new dramas and series you create can be seen by everyone in the household.'
-    : 'Off: new dramas and series you create are private to you (admins can still see them).'
+    ? 'On: new titles and series you create can be seen by everyone in the household.'
+    : 'Off: new titles and series you create are private to you (admins can still see them).'
   const existing = admin
     ? 'This only affects new items. Change existing ones one at a time in the list below.'
     : 'This only affects new items. An admin can change existing ones one at a time.'
@@ -39,12 +39,12 @@ export function statusLabel(item: SharingItem): 'Shared' | 'Private' {
 }
 
 export function itemTitle(item: SharingItem): string {
-  return item.title.trim() || (item.kind === 'series' ? 'Untitled series' : 'Untitled drama')
+  return item.title.trim() || (item.kind === 'series' ? 'Untitled series' : 'Untitled')
 }
 
 export function seriesNote(item: SharingItem): string {
   const name = item.series_name?.trim() || 'its series'
-  return `In the series “${name}”. Dramas in a series follow the series; change the series instead.`
+  return `In the series “${name}”. Titles in a series follow the series; change the series instead.`
 }
 
 /** Apply a flip the server confirmed; a series also updates its dramas. */

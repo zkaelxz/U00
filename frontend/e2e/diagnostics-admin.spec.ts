@@ -224,7 +224,7 @@ test('reset: exact RESET, sends the confirm word, then says so with a link', asy
   await page.goto('/#/diagnostics')
   await openSection(page, /^Danger zone/)
   const zone = page.locator('.danger-zone')
-  await expect(zone).toContainText('Currently 12 dramas, 48,210 lines.')
+  await expect(zone).toContainText('Currently 12 titles, 48,210 lines.')
   const button = zone.getByRole('button', { name: 'Reset library' })
   await zone.getByLabel(/Type RESET to confirm/).fill('reset')
   await expect(button).toBeDisabled()

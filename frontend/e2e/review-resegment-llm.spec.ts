@@ -36,7 +36,7 @@ test('previews with AI, shows before → after, and Apply needs the typed confir
   await expect(items.nth(0)).toContainText(PREVIEW.changed[0].zh)
   await expect(items.nth(0).getByRole('list').locator('li')).toHaveText(['你好我的朋友', '今天天气真的很好'])
   await expect(items.nth(1).getByRole('list').locator('li')).toHaveText(['我们一起去公园散步', '然后吃晚饭吧'])
-  await expect(shown).toContainText('logged with this drama’s usage')
+  await expect(shown).toContainText('logged with this title’s usage')
   await expect(shown).toContainText('1 translation and 1 flag on the lines being split will be dropped.')
 
   // Apply stays off until the word is typed, then sends only the preview's ids.
@@ -72,7 +72,7 @@ test('a server refusal for want of confirm asks for it; lines changed says previ
       if (reply === 1) {
         return route.fulfill({ status: 422, json: { error: { code: 'validation_error', message: 'Re-segmenting would clear translations, flags or notes on the lines being split -- pass confirm=true.' } } })
       }
-      return route.fulfill({ status: 409, json: { error: { code: 'conflict', message: "This drama's lines changed since the preview -- run the preview again." } } })
+      return route.fulfill({ status: 409, json: { error: { code: 'conflict', message: "This title's lines changed since the preview -- run the preview again." } } })
     },
   })
   const group = await openAiStructure(page)
@@ -153,12 +153,12 @@ test('a refusal the apply job finds at run time asks for the typed confirm', asy
   expect(calls.applies.map((b) => b.confirm)).toEqual([false, true])
 })
 
-test('Preview with AI waits while another job runs on the drama (no paid call)', async ({ page }) => {
+test('Preview with AI waits while another job runs on the title (no paid call)', async ({ page }) => {
   const calls = await mockAiResegment(page)
   await page.route('**/api/jobs', (route) =>
     route.fulfill({ json: { items: [{ job_id: 'bulk_flag_3', status: 'running', progress: null, message: '', error: null, description: null, gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1 }], count: 1 } }))
   const group = await openAiStructure(page)
   await expect(group.getByRole('button', { name: 'Preview with AI' })).toBeDisabled()
-  await expect(group.getByTestId('resegment-ai-wait')).toContainText('A job is running on this drama.')
+  await expect(group.getByTestId('resegment-ai-wait')).toContainText('A job is running on this title.')
   expect(calls.previewStarts).toEqual([])
 })

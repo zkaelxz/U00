@@ -28,7 +28,7 @@ test('shows Make subtitles with the Discover and Sources links, and dismisses fo
   await expect(page.getByRole('region', { name: 'Get started' })).toHaveCount(0)
 })
 
-test('a library with a drama never shows the first-run view', async ({ page }) => {
+test('a library with a title never shows the first-run view', async ({ page }) => {
   await mockFirstRun(page, 1)
   await page.goto('/')
   await expect(page.getByTestId('stats')).toBeVisible()

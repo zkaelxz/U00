@@ -56,8 +56,8 @@ describe('stage states (P16)', () => {
   })
 })
 
-describe('drama switch state reset', () => {
-  it('never returns state fetched for another drama', () => {
+describe('title switch state reset', () => {
+  it('never returns state fetched for another title', () => {
     const state = { id: 1, drama: { id: 1 } as DramaDetail }
     expect(pickForId(state, 1)).toBe(state)
     expect(pickForId(state, 2)).toBeNull()
@@ -140,7 +140,7 @@ describe('source stage drafts', () => {
     extraNames: 'p', override: 'full prompt',
   }
 
-  it('the Transcribe draft round-trips per drama, with the prompt override and the changed Advanced values', () => {
+  it('the Transcribe draft round-trips per title, with the prompt override and the changed Advanced values', () => {
     const s = memory()
     writeDraft(s, 1, TRANSCRIBE_DRAFT_STAGE, { ...state, advanced: { beam_size: '8' } })
     const raw = readDraft(s, 1, TRANSCRIBE_DRAFT_STAGE)

@@ -75,8 +75,8 @@ export function SeriesAssign() {
       {current === '' ? (
         <div className="series-assign-empty" role="note">
           <p>
-            <strong>This drama isn't in a series, so it can't hold glossary terms.</strong>{' '}
-            Terms belong to a series and are shared by every drama in it.
+            <strong>This title isn't in a series, so it can't hold glossary terms.</strong>{' '}
+            Terms belong to a series and are shared by every title in it.
           </p>
           {title && (
             <button type="button" className={buttonClass('primary', 'sm')} disabled={busy} onClick={() => save(NEW_SERIES, title)}>
@@ -86,11 +86,11 @@ export function SeriesAssign() {
         </div>
       ) : (
         <p className="muted" data-testid="series-assign-current">
-          Terms are shared by every drama in <strong>{name}</strong>.
+          Terms are shared by every title in <strong>{name}</strong>.
         </p>
       )}
       <div className="series-assign-row">
-        <Field label="Series" help="Changing it here is the same as Series in Edit details (Source stage).">
+        <Field label="Series" help="Changing it here is the same as Series in Edit details (Media stage).">
           <select value={choice} disabled={busy} onChange={(e) => { setProblem(null); setChoice(e.target.value) }}>
             <option value="">No series</option>
             {!listed && <option value={current}>{name}</option>}

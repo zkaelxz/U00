@@ -65,7 +65,7 @@ test('redo this page, redo all needs a second press, export gives a download', a
   expect(s.unmocked).toEqual([])
 })
 
-test('an empty drama shows the upload panel; picking files uploads them', async ({ page }) => {
+test('an empty title shows the upload panel; picking files uploads them', async ({ page }) => {
   const s = await mockScanlate(page, { pageCount: 0, lastPage: 1 })
   await page.goto('/#/comic/7')
   const panel = page.getByRole('region', { name: 'Translate pages' })

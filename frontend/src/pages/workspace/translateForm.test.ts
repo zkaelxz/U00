@@ -196,7 +196,7 @@ describe('preset start values', () => {
     expect(f).toMatchObject({ style_preset: 'natural', locale: 'en-US' })
   })
 
-  it('remembers per drama, keeps only style and locale, and clears on an empty preset', () => {
+  it('remembers per title, keeps only style and locale, and clears on an empty preset', () => {
     vi.stubGlobal('localStorage', memory())
     savePresetStart(3, { style_preset: 'wuxia', locale: 'en-GB' })
     expect(loadPresetStart(3)).toEqual({ style_preset: 'wuxia', locale: 'en-GB' })
@@ -243,7 +243,7 @@ describe('preset start values', () => {
     })
   })
 
-  it('prefills the preset model only when the drama engine offers it', () => {
+  it('prefills the preset model only when the title engine offers it', () => {
     const withEngines = {
       ...config,
       translation_engine: 'gemini',
@@ -548,7 +548,7 @@ describe('remembered run options', () => {
     expect(restore(1, moved).form).toMatchObject({ engine: '', model: '', style_preset: 'wuxia' })
   })
 
-  it('keeps each drama separate', () => {
+  it('keeps each title separate', () => {
     save(1, { style_preset: 'wuxia' })
     save(2, { locale: 'en-GB' })
     expect(restore(1).form).toMatchObject({ style_preset: 'wuxia', locale: 'en-US' })

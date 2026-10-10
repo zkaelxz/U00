@@ -22,7 +22,7 @@ export function ExportTextResult({ text, filename, mime }: { text: string; filen
   }
 
   if (!text.trim()) {
-    return <p className="muted" data-testid="export-empty">Nothing to export yet: this drama has no lines.</p>
+    return <p className="muted" data-testid="export-empty">Nothing to export yet: this title has no lines.</p>
   }
   return (
     <div className="export-result">

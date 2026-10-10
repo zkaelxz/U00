@@ -241,7 +241,7 @@ test.describe('desktop', () => {
     await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
     await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
-    await expect(review).toContainText("this drama's source lines")
+    await expect(review).toContainText("this title's source lines")
     await expect(review.getByRole('button', { name: 'Add 1 term and start translation' })).toBeVisible()
     expect(starts).toEqual(['lines'])
     await review.getByRole('button', { name: 'Cancel' }).click()

@@ -15,7 +15,7 @@ describe('sharing api', () => {
     expect(r.mock.mock.calls[0][0]).toBe('/api/sharing/items?offset=20&limit=10')
   })
 
-  it('flips a drama or a series by its own path', async () => {
+  it('flips a title or a series by its own path', async () => {
     const d = reply(200, { kind: 'drama', id: 3, is_private: true })
     await setItemPrivate('drama', 3, true, d.f)
     const [url, init] = d.mock.mock.calls[0]

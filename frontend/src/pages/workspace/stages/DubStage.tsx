@@ -148,7 +148,7 @@ export default function DubStage() {
             <span>{blocker ?? (busy ? busyText : dubSettingsLine(cfg, form))}</span>
             {cfg.speakable_line_count === 0 && (
               <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                Go to Source
+                Go to Media
               </ButtonLink>
             )}
           </p>

@@ -34,7 +34,7 @@ export function defineComicWorkspaceTests() {
       await expect(page.getByText('Comics are translated bubble by bubble in Scanlate, not as text lines.')).toBeVisible()
       await expect(open).toHaveAttribute('href', /#\/comic\/1$/)
       expect((await open.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-      await expect(page.getByText('Go to Source')).toHaveCount(0)
+      await expect(page.getByText('Go to Media')).toHaveCount(0)
     })
   }
 

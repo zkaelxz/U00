@@ -9,7 +9,7 @@ function reply(status: number, body: unknown) {
 }
 
 describe('stronger engine api', () => {
-  it('GETs the suggestions for a drama', async () => {
+  it('GETs the suggestions for a title', async () => {
     const body = { drama_id: 3, engine: 'claude', current_engine: 'deepseek', available: true, reason_labels: {}, lines: [] }
     const { mock, f } = reply(200, body)
     expect(await getStrongerSuggestions(3, f)).toEqual(body)

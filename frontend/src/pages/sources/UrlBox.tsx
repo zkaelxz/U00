@@ -295,7 +295,7 @@ function VideoImport({ url, html, identify }: { url: string; html: string | null
         value={dramaId}
         onChange={choose}
         disabled={busy}
-        help="Audio drama or streamer VOD dramas only."
+        help="Audio drama or streamer VOD titles only."
       />
       <ErrorBanner error={dramas.error ?? mediaError} />
       {identify && <IdentifyMedia url={url} html={html} disabled={busy} onPick={setPicked} />}

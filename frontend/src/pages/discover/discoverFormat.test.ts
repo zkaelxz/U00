@@ -135,7 +135,7 @@ describe('links and errors', () => {
     expect(sourceLabel('', 'not a url')).toBe('not a url')
   })
 
-  it('reads the existing drama id from an import 409', () => {
+  it('reads the existing title id from an import 409', () => {
     expect(existingDramaId({ status: 409, details: { drama_id: 4 } })).toBe(4)
     expect(existingDramaId({ status: 409, details: {} })).toBeNull()
     expect(existingDramaId({ status: 404, details: { drama_id: 4 } })).toBeNull()

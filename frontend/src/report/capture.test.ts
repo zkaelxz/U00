@@ -87,7 +87,7 @@ describe('failed API calls', () => {
 
   it('the shared client records method, path, status and code, never bodies or headers', async () => {
     const f = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      error: { code: 'not_found', message: 'No drama "My secret title".' },
+      error: { code: 'not_found', message: 'No title "My secret title".' },
     }), { status: 404 })) as unknown as typeof fetch
     await expect(postJson('/api/review/dramas/3/lines?q=secret', { text: 'line text body' }, f)).rejects.toThrow()
     const down = vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) as unknown as typeof fetch

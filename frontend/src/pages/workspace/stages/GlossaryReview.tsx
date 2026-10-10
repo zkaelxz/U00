@@ -128,7 +128,7 @@ function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { sou
     const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000)
     return () => window.clearInterval(id)
   }, [active])
-  const from = source === 'novel' ? 'the attached novel' : "this drama's source lines"
+  const from = source === 'novel' ? 'the attached novel' : "this title's source lines"
 
   const cancel = () => {
     // Stop a paid extraction nobody is waiting for.

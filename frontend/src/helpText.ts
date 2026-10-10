@@ -12,6 +12,6 @@ export const TRANSLATION_ENGINE_LABEL = 'Translation engine'
 
 export const NO_KEY_ENGINES_HELP = 'Engines marked (no key) cannot run.'
 
-export const SERIES_HELP = 'Dramas in one series share characters and glossary.'
+export const SERIES_HELP = 'Titles in one series share characters and glossary.'
 
 export const NOTHING_STARTS_HELP = 'Nothing starts until you press Translate.'

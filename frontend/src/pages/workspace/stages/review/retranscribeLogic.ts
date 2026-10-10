@@ -9,7 +9,7 @@ export function canRetranscribe(
   return !!cfg && cfg.has_audio_pipeline && cfg.audio_available
 }
 
-export const NO_AUDIO_MESSAGE = 'Needs this drama’s audio or video.'
+export const NO_AUDIO_MESSAGE = 'Needs this title’s audio or video.'
 
 // The sheet's "Re-transcribe…" item: same availability as the editor's button,
 // plus the job guard the sheet's other source-changing items use.

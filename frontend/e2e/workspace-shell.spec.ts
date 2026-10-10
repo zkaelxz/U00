@@ -21,7 +21,7 @@ test('stage tabs show a tick, a dot or a ring by state, with the reason as the d
   await expect(mark('dub')).toHaveText('○')
   await expect(mark('export')).toHaveText('○')
   // The mark is decoration: the link's name is still its label.
-  await expect(nav.getByRole('link', { name: 'Source', exact: true })).toBeVisible()
+  await expect(nav.getByRole('link', { name: 'Media', exact: true })).toBeVisible()
   await expect(nav.getByRole('link', { name: /^Dub/ })).toHaveAttribute('title', 'Dub: Needs lines first')
   await expect(nav.getByRole('link', { name: /^Review/ })).toHaveAttribute('title', 'Review: Not done yet · 1 flagged')
 })
@@ -30,7 +30,7 @@ test('with no progress read there are no marks and no counts', async ({ page }) 
   await page.route('**/api/workflow/dramas/1/progress', (route) =>
     route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
   await page.goto('/#/drama/1/source')
-  await expect(page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Source', exact: true })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Media', exact: true })).toBeVisible()
   await expect(page.locator('nav.stage-tabs .stage-mark')).toHaveCount(0)
   await expect(page.locator('nav.stage-tabs .stage-count:not(:empty)')).toHaveCount(0)
 })
@@ -48,11 +48,11 @@ test('header: Back to Library, status, media type, line count and Read are all s
   await expect(page).toHaveURL(/#\/library$|#\/$|\/$/)
 })
 
-test('a drama the API hides from this user reads as not found and no stage loads', async ({ page }) => {
-  const notFound = { error: { code: 'not_found', message: 'No drama with id 77.' } }
+test('a title the API hides from this user reads as not found and no stage loads', async ({ page }) => {
+  const notFound = { error: { code: 'not_found', message: 'No title with id 77.' } }
   await page.route('**/api/**/dramas/77**', (route) => route.fulfill({ status: 404, json: notFound }))
   await page.goto('/#/drama/77/review')
   await expect(page.getByRole('alert').first()).toContainText('could not be found')
-  await expect(page.getByTestId('drama-title')).toHaveText('Drama #77')
+  await expect(page.getByTestId('drama-title')).toHaveText('Title #77')
   await expect(page.getByRole('region', { name: 'Review' })).toHaveCount(0)
 })

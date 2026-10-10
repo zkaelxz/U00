@@ -56,7 +56,7 @@ export async function mockTranscription(page: Page, installedNow: boolean | (() 
   await page.route('**/api/diagnostics/install-presets', (r) => { const installed = state(); return r.fulfill({
     json: {
       tasks: [{
-        id: 'transcribe', group: 'Audio', label: 'Transcribe speech (Whisper)', help: 'Turn a drama\'s audio into timed lines.',
+        id: 'transcribe', group: 'Audio', label: 'Transcribe speech (Whisper)', help: 'Turn a title\'s audio into timed lines.',
         packages: ['faster_whisper'], installed_count: installed ? 1 : 0, to_install: installed ? [] : ['faster_whisper'],
         approx_mb: 80,
       }],

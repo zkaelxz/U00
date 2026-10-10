@@ -169,7 +169,7 @@ function NotesSection({ dramaId }: { dramaId: number }) {
   return (
     <Section title="My notes" storageKey="reader.notes" summary={saved ? 'Has notes' : 'Empty'}>
       <ErrorBanner error={loadError} />
-      <Field label="Notes" help="Notes for this drama. Anyone with access to this library can see them. Saved when you press Save.">
+      <Field label="Notes" help="Notes for this title. Anyone with access to this library can see them. Saved when you press Save.">
         <textarea
           rows={5}
           maxLength={100_000}
@@ -219,7 +219,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   useEffect(() => {
     api.getDrama(id).then(
       (d) => {
-        setTitle(d.title_en || d.title_zh || `Drama #${d.id}`)
+        setTitle(d.title_en || d.title_zh || `Title #${d.id}`)
         if (d.source_language) setSourceLanguage(d.source_language)
         setMediaType(d.media_type)
       },
@@ -371,7 +371,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       {empty ? (
         <section className="panel">
           <p>No lines to read yet.</p>
-          <a href={workspaceHref}>Add lines on Source</a>
+          <a href={workspaceHref}>Add lines on Media</a>
         </section>
       ) : (
         <>

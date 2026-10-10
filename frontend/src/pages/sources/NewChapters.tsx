@@ -217,7 +217,7 @@ export function NewChapters({
                         onChange={(e) => link(t, e.target.value)}
                       >
                         <option value="">None</option>
-                        {current && <option value={t.drama_id!}>Drama #{t.drama_id}</option>}
+                        {current && <option value={t.drama_id!}>Title #{t.drama_id}</option>}
                         {choices.map((d) => (
                           <option key={d.id} value={d.id}>
                             {dramaLabel(d)}

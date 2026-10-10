@@ -21,7 +21,7 @@ async function mockNovelFiles(page: Page, opts: { uploadStatus?: number } = {}) 
       if (opts.uploadStatus) {
         return route.fulfill({
           status: opts.uploadStatus,
-          json: { error: { code: 'conflict', message: 'A job is running for this drama. Wait for it to finish or cancel it.' } },
+          json: { error: { code: 'conflict', message: 'A job is running for this title. Wait for it to finish or cancel it.' } },
         })
       }
       const replaced = store[kind].present
