@@ -213,7 +213,7 @@ def test_a_cancelling_on_item_surfaces_as_a_cancel(isolated_db):
     channel = _LateChannel(("item", {"n": 1}), now)
     with pytest.raises(background_jobs.JobCancelled):
         gpu_process_job._await_child(
-            "gpujob_oncancel", _FakeProc(now + 30), channel, 0.01, now + 30, on_item)
+            "gpujob_oncancel", _FakeProc(now + 30), channel, 0.01, now + 30, now + 30, on_item)
 
 
 def test_a_huge_item_from_a_real_child_arrives_whole(isolated_db):
