@@ -4,6 +4,7 @@ chunk-to-line reconstruction, model-loading fallback/error classification),
 exercised against fake qwen_asr/torch modules and a monkeypatched audio
 slicer, since the real model needs a GPU/network this sandbox doesn't have.
 """
+import whisper_models
 import os
 import sys
 import types
@@ -479,7 +480,7 @@ class TestLoadQwen3Aligner:
         seen = self._load(from_pretrained, use_gpu=True)
         assert seen["device"] == ["CPU"]
         import core
-        assert "no kernel image" in core.short_reason(seen["fallback"][0])
+        assert "no kernel image" in whisper_models.short_reason(seen["fallback"][0])
 
     def test_device_is_reported_without_a_fallback_otherwise(self):
         ok = lambda model_id, dtype, device_map: object()
@@ -495,7 +496,7 @@ class TestLoadQwen3Aligner:
         importlib.reload(forced_align)
         forced_align._aligner_model_cache.clear()
 
-        from core import ModelDownloadError
+        from whisper_models import ModelDownloadError
         with pytest.raises(ModelDownloadError):
             forced_align.load_qwen3_aligner(use_gpu=False)
 

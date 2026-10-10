@@ -23,6 +23,7 @@ import functools
 import background_jobs
 import bulk_translate
 import core as core_module
+import whisper_models
 import db
 import sensitivity_preset as presets
 import storage
@@ -95,7 +96,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),
                   transcribe_pipeline._model_loading_message(
-                      size, core_module.is_whisper_model_cached(size)),
+                      size, whisper_models.is_whisper_model_cached(size)),
                   retranscribe_timeout_s(sum(w[2] - w[1] for w in windows)), scratch_dir),
             gpu_touching=True,
             description=f"Re-transcribing {len(windows)} lines (drama #{drama_id})",

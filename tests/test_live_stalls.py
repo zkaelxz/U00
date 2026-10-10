@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
 import core
+import whisper_models
 import live_audio
 import live_translate as lt
 import live_whisper
@@ -106,7 +107,7 @@ def job(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(live_whisper, "ABANDON_GRACE_SECONDS", 0.05)
     # Dropping the cached model must never be how a stuck call is handled.
     released = []
-    monkeypatch.setattr(core, "release_gpu_models", lambda: released.append(1))
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: released.append(1))
     notes = []
     session = {"dir": None, "engine": "x"}
     out_dir = str(tmp_path / "chunks")
@@ -168,7 +169,7 @@ def _fake_model_cache(monkeypatch):
             loads.append(size)
             cache[size] = object()
         return cache[size]
-    monkeypatch.setattr(core, "load_whisper_model", load)
+    monkeypatch.setattr(whisper_models, "load_whisper_model", load)
     return load, loads
 
 
@@ -210,7 +211,7 @@ class TestWhisperThatNeverReturns:
         live_counts, calls = [], []
 
         def whisper(path, **kw):
-            core.load_whisper_model("small")
+            whisper_models.load_whisper_model("small")
             calls.append(path)
             live_counts.append(_live_whisper_threads())
             if len(calls) == 1:
@@ -219,7 +220,7 @@ class TestWhisperThatNeverReturns:
             return [{"start": 0.5, "end": 1.0, "text": f"t{len(calls)}"}]
         monkeypatch.setattr(core, "transcribe_for_timing", whisper)
         monkeypatch.setattr(live_whisper, "warm_up",
-                            lambda size, gpu, cb=None: core.load_whisper_model(size))
+                            lambda size, gpu, cb=None: whisper_models.load_whisper_model(size))
         stream.add(2)
         assert start("live_one", Engine())
         assert _wait(lambda: len(calls) == 1)
@@ -476,7 +477,7 @@ class TestWhisperRunner:
                         yielded.append(i)
                         yield Seg(i)
                 return gen(), type("I", (), {"duration": 1000})()
-        monkeypatch.setattr(core, "load_whisper_model", lambda *a, **k: Model())
+        monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: Model())
         wav = tmp_path / "a.wav"
         _wav(wav, 1)
         runner = self._runner(clock=TickingClock())
@@ -679,7 +680,7 @@ class TestWarmStart:
         entered = []
 
         def stuck_load(size, gpu, cb=None):
-            core.load_whisper_model(size)
+            whisper_models.load_whisper_model(size)
             entered.append(1)
             release.wait(20)
         monkeypatch.setattr(live_whisper, "warm_up", stuck_load)
@@ -720,7 +721,7 @@ class TestWarmStart:
                     seen["consumed"] = True
                     yield "segment"
                 return gen(), None
-        monkeypatch.setattr(core, "load_whisper_model", lambda size, use_gpu=False, **k: Model())
+        monkeypatch.setattr(whisper_models, "load_whisper_model", lambda size, use_gpu=False, **k: Model())
         # transcribe_for_timing always enables the VAD filter, so it must not be the path.
         monkeypatch.setattr(core, "transcribe_for_timing",
                             lambda *a, **k: pytest.fail("the warm-up must call the model directly"))
