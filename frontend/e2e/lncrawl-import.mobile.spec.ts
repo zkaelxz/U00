@@ -20,7 +20,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 test('lightnovel-crawler import fits a phone with 44px controls', async ({ page }) => {
   await page.route('**/api/novel/lncrawl', (route) => route.fulfill({ json: { installed: true, path_configured: false } }))
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: /^Novel text$/ }).click()
+  await page.locator('.section-title', { hasText: /^Attach novel text \(optional\)$/ }).click()
   await page.locator('.section-title', { hasText: /^Import with lightnovel-crawler$/ }).click()
   await page.getByLabel('Novel address', { exact: true }).fill('https://novels.example.com/book/1')
   await page.getByLabel('Chapters', { exact: true }).selectOption('last')

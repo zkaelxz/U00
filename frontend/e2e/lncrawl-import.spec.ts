@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// "Import with lightnovel-crawler" in Source > Novel text. The
+// "Import with lightnovel-crawler" in Source > Attach novel text (optional). The
 // lncrawl endpoints and the job are mocked (real lncrawl never runs); the
 // drama read hits the real seeded API.
 
@@ -12,7 +12,7 @@ async function mockStatus(page: Page, installed: boolean) {
 
 async function openNovel(page: Page) {
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: /^Novel text$/ }).click()
+  await page.locator('.section-title', { hasText: /^Attach novel text \(optional\)$/ }).click()
 }
 
 test('hidden when lightnovel-crawler is not installed', async ({ page }) => {

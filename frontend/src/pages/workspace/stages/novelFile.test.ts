@@ -7,6 +7,7 @@ import {
   epubSizeProblem,
   novelFileStatusLine,
   novelFileSummary,
+  novelSections,
   pasteProblem,
   pastedCount,
 } from './novelFile'
@@ -69,5 +70,32 @@ describe('epubSizeProblem', () => {
     expect(epubSizeProblem({ name: 'b.EPUB', size: MAX_NOVEL_EPUB_BYTES })).toBeNull()
     expect(epubSizeProblem({ name: 'b.epub', size: MAX_NOVEL_EPUB_BYTES + 1 })).toMatch(/50 MB limit for EPUB/)
     expect(epubSizeProblem({ name: 'b.txt', size: MAX_NOVEL_EPUB_BYTES + 1 })).toBeNull()
+  })
+})
+
+describe('novelSections', () => {
+  const none = { text: false, raw: false }
+
+  it('hides the novel UI on a streamer VOD with no novel', () => {
+    expect(novelSections('audio', 'streamer_vod', 'streamer_vod', none)).toBe('hidden')
+    expect(novelSections('audio', 'other', 'streamer_vod', none)).toBe('hidden')
+    expect(novelSections('audio', 'streamer_vod', null, null)).toBe('hidden')
+  })
+
+  it('shows the full panels once text or a raw novel exists', () => {
+    expect(novelSections('audio', 'streamer_vod', 'streamer_vod', { text: true, raw: false })).toBe('full')
+    expect(novelSections('audio', 'audio_drama', 'audio_drama', { text: false, raw: true })).toBe('full')
+  })
+
+  it('offers one optional row to other titles with nothing attached', () => {
+    expect(novelSections('audio', 'audio_drama', 'audio_drama', none)).toBe('optional')
+    expect(novelSections('audio', 'audio_drama', null, null)).toBe('optional')
+  })
+
+  it('always shows the full panels for novels, comics and novel narration', () => {
+    expect(novelSections('novel', 'novel', null, none)).toBe('full')
+    expect(novelSections('comic', 'manga', null, none)).toBe('full')
+    expect(novelSections('audio', 'novel_narration', null, none)).toBe('full')
+    expect(novelSections('audio', 'audio_drama', 'novel_narration', none)).toBe('full')
   })
 })
