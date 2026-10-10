@@ -7,6 +7,7 @@ B1 DATA-LOSS (Opus; after #1068 + #1073 merge, i.e. after gate 1) files: workspa
  MUST #1088 H1,H2,H3: sources.db in auto-backup (SQLite backup API), carry live copy, migrate staged copy, quick_check
  SHOULD #1088 14 (vanished file; already in small-must-fixes-oct10, skip duplicate)
  CHEAP #1088 4,5,6,18,20,21; #1124 M3,L8; #1098 L7
+ CLEAN remove db._grant_lines_read_for_reader_page and its test (inert with default grants; owner 2026-10-10: remove inert code)
 B2 TRANSLATION ENGINES (Sonnet; after #1174 and #883 merge) files: engine_backends/*, translate_engines, bulk translate
  MUST #1096 H2 (max_tokens, keep complete pairs); SHOULD H3, M9, #1102 M8, #1103 H1 (after #910, merged: unblocked)
  CHEAP #1096 M8,M10,M14,M15,M16,18,21; #1106 M2; Lead B2,B3,B4,B6,C4,D-M2,D-L2
