@@ -17,12 +17,20 @@ local_only route (the Ollama address in Settings); the connection is then not pi
 not followed unless `allow_redirects=True` is passed. A redirect to another
 origin never carries the caller's credential headers.
 
+`session()` is the same front door for callers that need a real
+`requests.Session` (keep-alive, a cookie jar, their own adapter) and read the
+body themselves: see GuardedSession.
+
 Standard library plus `requests`.
 """
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin, urlsplit
+
+import requests
+from requests.adapters import HTTPAdapter
 
 from lib import capped_body, url_guard
 from lib.errors import DependencyUnavailableError, InvalidInputError
@@ -93,6 +101,10 @@ def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
 
     session = requests.Session()
     session.trust_env = trust_env
+    # Session.send reads the whole body of a 3xx with a Location even with
+    # allow_redirects=False; this caller follows redirects itself and caps
+    # only the body it reads.
+    session.get_redirect_target = lambda resp: None
     if ip:
         parts = urlsplit(url)
         host = parts.hostname
@@ -226,3 +238,177 @@ def get(url: str, *, timeout: float, max_bytes: int, **kw) -> Response:
 
 def post(url: str, *, timeout: float, max_bytes: int, **kw) -> Response:
     return request("POST", url, timeout=timeout, max_bytes=max_bytes, **kw)
+
+
+_pin = threading.local()
+
+
+class PinningAdapter(HTTPAdapter):
+    """Connects to the address GuardedSession.send validated for this request
+    instead of resolving the name again. The request URL is restored before
+    requests extracts cookies, so the cookie jar and Response.url still see
+    the real host; SNI and the certificate check use the real name."""
+
+    def build_connection_pool_key_attributes(self, request, verify, cert=None):
+        host_params, pool_kwargs = super().build_connection_pool_key_attributes(
+            request, verify, cert)
+        name = getattr(request, "_pinned_name", None)
+        if name and host_params.get("scheme") == "https":
+            pool_kwargs["server_hostname"] = name
+            pool_kwargs["assert_hostname"] = name
+        return host_params, pool_kwargs
+
+    def send(self, request, **kw):
+        pin = getattr(_pin, "value", None)
+        if not pin or not pin[1]:
+            return super().send(request, **kw)
+        from requests.utils import select_proxy
+        parts = urlsplit(request.url)
+        name, ip = pin
+        if (parts.hostname or "").lower() != name:
+            raise FetchError()  # fail closed: never send unpinned to a name the guard did not check
+        if select_proxy(request.url, kw.get("proxies") or {}):
+            return super().send(request, **kw)  # the proxy connects; the name was validated
+        original = request.url
+        ip_host = f"[{ip}]" if ":" in ip else ip
+        request.url = parts._replace(netloc=ip_host + (f":{parts.port}" if parts.port else "")).geturl()
+        request.headers["Host"] = parts.netloc.rsplit("@", 1)[-1]
+        request._pinned_name = name
+        try:
+            resp = super().send(request, **kw)
+        finally:
+            request.url = original
+        resp.url = original
+        return resp
+
+
+class _CappedRaw:
+    """Counts the bytes handed out of a response's urllib3 body and refuses
+    the one that passes the cap, whichever way the caller reads it."""
+
+    def __init__(self, raw, max_bytes: int):
+        self._raw = raw
+        self._left = max_bytes
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+    def _take(self, data):
+        self._left -= len(data or b"")
+        if self._left < 0:
+            self._raw.close()
+            raise ResponseTooLarge()
+        return data
+
+    def read(self, *args, **kw):
+        return self._take(self._raw.read(*args, **kw))
+
+    def read1(self, *args, **kw):
+        return self._take(self._raw.read1(*args, **kw))
+
+    def stream(self, *args, **kw):
+        for chunk in self._raw.stream(*args, **kw):
+            yield self._take(chunk)
+
+
+class GuardedSession(requests.Session):
+    """A Session whose every request, through `request`, `get`, `post` or a
+    bare `send`, has: a timeout (the session's when the caller gives none or
+    None), `guard` run on every hop with the connection pinned to the address
+    it returns, redirects followed by hand (or not at all) and never by
+    requests, and a body that raises ResponseTooLarge past `max_bytes`.
+    Responses are always streamed: the caller reads (and closes) them, so the
+    cap is on what it reads, not a pre-read of the whole body. `max_bytes` can
+    be changed between requests on a session a thread keeps. `trust_env`
+    defaults to off with a guard (a proxy would connect to the name itself, so
+    the pin would not hold) and on without one; pass True to accept that."""
+
+    def __init__(self, *, timeout, guard, max_bytes: int, max_redirects: int = MAX_REDIRECTS,
+                 trust_env: Optional[bool] = None, adapter=None):
+        if adapter is not None and guard is not None:
+            raise ValueError("a custom adapter cannot pin the address a guard validated")
+        super().__init__()
+        self.timeout = timeout
+        self.guard = guard
+        self.max_bytes = max_bytes
+        self.max_redirects = max_redirects
+        self.trust_env = (guard is None) if trust_env is None else trust_env
+        adapter = adapter or (PinningAdapter() if guard else HTTPAdapter())
+        self.mount("http://", adapter)
+        self.mount("https://", adapter)
+
+    def get_redirect_target(self, resp):
+        # Session.send would read a 3xx body without the cap before
+        # `send` wraps it; `request` reads Location itself.
+        return None
+
+    def _guard_hop(self, url):
+        """Run the guard and leave the pin for the adapter. The name is the
+        one the guard saw: if requests sends a different one, the adapter
+        refuses."""
+        ip = self.guard(url) if self.guard else None
+        _pin.value = ((urlsplit(url).hostname or "").lower(), ip)
+
+    def send(self, request, **kw):
+        kw["allow_redirects"] = False
+        kw["stream"] = True
+        if kw.get("timeout") is None:
+            kw["timeout"] = self.timeout
+        # `request` has already guarded the URL it was given; only a bare
+        # send guards here.
+        guarded = getattr(_pin, "value", None) is not None
+        if not guarded:
+            self._guard_hop(request.url)
+        try:
+            resp = super().send(request, **kw)
+        finally:
+            if not guarded:
+                _pin.value = None
+        resp.raw = _CappedRaw(resp.raw, self.max_bytes)
+        return resp
+
+    # requests' get and options default allow_redirects to True; here the
+    # default depends on the guard.
+    def get(self, url, **kw):
+        return self.request("GET", url, **kw)
+
+    def options(self, url, **kw):
+        return self.request("OPTIONS", url, **kw)
+
+    def request(self, method, url, *, allow_redirects=None, headers=None, **kw):
+        """`allow_redirects` defaults to True with a guard and False without
+        one, as in `request()` above; a followed hop is a GET and carries no
+        credential header to another origin."""
+        if allow_redirects is None:
+            allow_redirects = self.guard is not None
+        origin = _origin(url)
+        for hop in range(self.max_redirects + 1):
+            hop_headers = _headers_for_hop(headers, origin, url)
+            if _origin(url) != origin:
+                # Session-level credentials are merged into every request;
+                # a None value drops the key in requests' header merge.
+                if self.auth:
+                    raise FetchError()
+                hop_headers = {**(hop_headers or {}),
+                               **{k: None for k in self.headers if _is_credential_header(k)}}
+            self._guard_hop(url)
+            try:
+                resp = super().request(method if hop == 0 else "GET", url, allow_redirects=False,
+                                       headers=hop_headers,
+                                       **(kw if hop == 0 else {"timeout": kw.get("timeout"),
+                                                               "proxies": kw.get("proxies")}))
+            finally:
+                _pin.value = None
+            location = resp.headers.get("Location")
+            if not (allow_redirects and location and resp.status_code in _REDIRECT_CODES):
+                return resp
+            resp.close()
+            url = urljoin(url, location)
+        raise FetchError()  # too many redirects
+
+
+def session(*, timeout, guard: Optional[Callable[[str], Optional[str]]] = check_public,
+            max_bytes: int, **kw) -> GuardedSession:
+    """A guarded requests.Session; see GuardedSession. `guard` is as for
+    `request()`: it gets each hop's URL and returns the address to pin to."""
+    return GuardedSession(timeout=timeout, guard=guard, max_bytes=max_bytes, **kw)

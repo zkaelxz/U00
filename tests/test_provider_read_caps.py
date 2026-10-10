@@ -344,3 +344,31 @@ class TestEngineTransport:
             call()
         assert all(not u.startswith("http://elsewhere") for u, _ in calls)
         assert len(calls) == 2  # each attempt is one request, never a second hop
+
+
+class TestLocalChatSessionCap:
+    def test_an_oversized_ollama_reply_is_the_provider_refusal_not_the_session_cap(self, monkeypatch):
+        import io
+        from urllib3.response import HTTPResponse
+
+        class Adapter:
+            def send(self, request, **kw):
+                resp = requests.Response()
+                resp.status_code, resp.url, resp.request = 200, request.url, request
+                body = b"x" * (shared.PROVIDER_RESPONSE_MAX_BYTES + 1)
+                resp.raw = HTTPResponse(body=io.BytesIO(body), preload_content=False, status=200)
+                return resp
+
+            def close(self):
+                pass
+
+        real = http.session
+
+        def session(**kw):
+            s = real(**kw)
+            s.mount("http://", Adapter())
+            return s
+
+        monkeypatch.setattr(local.http, "session", session)
+        with pytest.raises(shared.ProviderResponseTooLarge):
+            local._ollama_chat_abortable("http://127.0.0.1:11434", {"model": "m"}, lambda: False)

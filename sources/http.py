@@ -36,6 +36,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
+from lib import http as lib_http
 from translate_engines import safe_url
 
 from . import charset_sniff, detect, health, pacing, store
@@ -483,12 +484,11 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
     The body is streamed under `limits` (FetchLimits: size caps, an overall
     deadline for the whole request, cancel between chunks); every response
     is closed."""
-    from lib import url_guard
-
     limits = limits or FetchLimits()
     deadline_at = limits.clock() + float(limits.deadline)
 
     session = _thread_session()
+    session.max_bytes = max(limits.max_page_bytes, limits.max_image_bytes)
     # Route through a configured proxy, if one is set. Applied
     # here rather than baked into the session (session.proxies would
     # persist across a settings change within the same thread/process
@@ -505,26 +505,19 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
         _check_limits(limits, deadline_at)
         current = ascii_url(current)
         try:
-            ip = url_guard.resolve_public(current)
-        except url_guard.UnsafeURLError:
-            raise UnsafeRedirect(REDIRECT_REFUSED) from None
-        except url_guard.URLResolveError as e:
-            raise _resolve_error(e) from None
-        host = (urlsplit(current).hostname or "").lower()
-        # The adapter decides from the proxies requests actually uses
-        # whether to pin; it refuses on any host mismatch.
-        _tls.pin = (host, ip)
-        try:
             r = session.request(cur_method, current, headers=cur_headers, data=cur_data,
                                 timeout=timeout, allow_redirects=False, proxies=proxies,
                                 stream=True)
-        finally:
-            _tls.pin = None
+        except lib_http.FetchError:  # the adapter refused a host the guard did not validate
+            raise UnsafeRedirect(REDIRECT_REFUSED) from None
         hops.append(r)
         location = (r.headers or {}).get("Location") or (r.headers or {}).get("location")
         if r.status_code not in _REDIRECT_CODES or not location:
             try:
                 content = _read_body(r, limits, deadline_at)
+            except lib_http.ResponseTooLarge:
+                # a refusal like _read_body's own, not a source-health fetch error
+                raise ResponseTooLarge() from None
             finally:
                 r.close()
             break
@@ -599,63 +592,26 @@ def _resolve_error(exc):
         return ConnectionError(str(exc))
 
 
-def _pinning_adapter():
-    """An HTTPAdapter that, while `_tls.pin` names this request's host,
-    connects to the validated IP instead of re-resolving the name (the
-    request URL is restored before the session extracts cookies, so the
-    cookie jar and Response.url still see the real host)."""
-    from requests.adapters import HTTPAdapter
-
-    class _PinningAdapter(HTTPAdapter):
-        def build_connection_pool_key_attributes(self, request, verify, cert=None):
-            host_params, pool_kwargs = super().build_connection_pool_key_attributes(
-                request, verify, cert)
-            name = getattr(request, "_baihe_pinned_name", None)
-            if name and host_params.get("scheme") == "https":
-                pool_kwargs["server_hostname"] = name
-                pool_kwargs["assert_hostname"] = name
-            return host_params, pool_kwargs
-
-        def send(self, request, **kw):
-            pin = getattr(_tls, "pin", None)
-            if not pin:
-                return super().send(request, **kw)
-            from requests.utils import select_proxy
-            parts = urlsplit(request.url)
-            name, ip = pin
-            if (parts.hostname or "").lower() != name:
-                # Fail closed: never send unpinned to a name we didn't check.
-                raise UnsafeRedirect(REDIRECT_REFUSED)
-            if select_proxy(request.url, kw.get("proxies") or {}):
-                # A proxy connects for us: the target was validated by name.
-                return super().send(request, **kw)
-            original = request.url
-            ip_host = f"[{ip}]" if ":" in ip else ip
-            request.url = parts._replace(netloc=ip_host + (f":{parts.port}" if parts.port else "")).geturl()
-            request.headers["Host"] = parts.netloc.rsplit("@", 1)[-1]
-            request._baihe_pinned_name = name
-            try:
-                resp = super().send(request, **kw)
-            finally:
-                request.url = original
-            resp.url = original
-            return resp
-
-    return _PinningAdapter()
-
-
 # One requests.Session per thread: Session is not documented as thread-safe,
 # and fetches run on several threads at once (registry.multi_search's pool,
 # background jobs, the chapter-check scheduler).
 _tls = threading.local()
 
 
+def _guard(url: str) -> str:
+    from lib import url_guard
+    try:
+        return url_guard.resolve_public(url)
+    except url_guard.UnsafeURLError:
+        raise UnsafeRedirect(REDIRECT_REFUSED) from None
+    except url_guard.URLResolveError as e:
+        raise _resolve_error(e) from None
+
+
 def _thread_session():
-    import requests
     if not hasattr(_tls, "session"):
-        _tls.session = requests.Session()
-        _tls.session.mount("http://", _pinning_adapter())
-        _tls.session.mount("https://", _pinning_adapter())
+        _tls.session = lib_http.session(timeout=DEFAULT_TIMEOUT, guard=_guard,
+                                        max_bytes=MAX_IMAGE_BYTES, trust_env=True)
     return _tls.session
 
 

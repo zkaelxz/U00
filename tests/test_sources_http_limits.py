@@ -54,6 +54,7 @@ class FakeSession:
         self.responses, self.calls = list(responses), []
 
     def request(self, method, url, **kw):
+        http._guard(url)  # the real session guards every hop
         self.calls.append((method, url, kw))
         return self.responses.pop(0)
 
@@ -354,3 +355,8 @@ def test_preview_endless_empty_deflate_blocks_cancel_ends_the_job(api, net):
     st = _preview(api)
     assert st["status"] == "cancelled"
     assert resp.closed and resp.raw.reads < 10
+
+
+def test_thread_session_is_the_guarded_front_door_session():
+    s = http._thread_session()
+    assert s.guard is http._guard and s.timeout and s.max_bytes >= http.MAX_IMAGE_BYTES
