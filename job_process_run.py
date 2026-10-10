@@ -108,11 +108,15 @@ def stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SEC
     {"returncode", "timed_out", "cancelled"}. The tree is killed when
     `timeout` passes, when `cancel()` turns true, or when the caller stops
     iterating."""
-    for tag, payload in _events(cmd, timeout, drain_seconds, cancel, True, cwd, env):
-        if tag == "end":
-            yield payload
-        else:
-            yield {"line": payload.rstrip("\n")}
+    events = _events(cmd, timeout, drain_seconds, cancel, True, cwd, env)
+    try:
+        for tag, payload in events:
+            if tag == "end":
+                yield payload
+            else:
+                yield {"line": payload.rstrip("\n")}
+    finally:
+        events.close()      # kills the tree now, not whenever the generator is collected
 
 
 @dataclass
