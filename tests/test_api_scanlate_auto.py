@@ -599,6 +599,53 @@ def test_cancel_between_pages(client, monkeypatch):
     assert seen == [p1] and len(db.load_bubbles(p1)) == 1 and db.load_bubbles(p2) == []
 
 
+def _cancel_while_lock_held(jid, call):
+    """Runs `call` in a thread while the pipeline lock is held elsewhere, then
+    cancels the job; returns what the thread raised and how long it took."""
+    _put_job(jid)
+    raised, lock = [], pages_svc.pipeline_lock()
+
+    def worker():
+        try:
+            call()
+        except BaseException as exc:
+            raised.append(exc)
+    with lock:
+        t = threading.Thread(target=worker)
+        t.start()
+        time.sleep(0.3)
+        assert t.is_alive()
+        background_jobs.request_cancel(jid)
+        started = time.monotonic()
+        t.join(3)
+        assert not t.is_alive()
+    return raised, time.monotonic() - started
+
+
+def test_cancel_ends_the_wait_for_the_pipeline_lock_in_a_run(isolated_db, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page",
+                        lambda *a, **k: pytest.fail("detect ran without the lock"))
+    drama = db.get_drama(did)
+    raised, took = _cancel_while_lock_held(
+        f"scanlate_{did}", lambda: run_svc._process_page(
+            did, drama, pid, "all", None, "fake",
+            {"detect_backend": "auto", "ocr_backend": None}, None, f"scanlate_{did}"))
+    assert [type(e) for e in raised] == [background_jobs.JobCancelled] and took < 1
+
+
+def test_cancel_ends_the_wait_for_the_pipeline_lock_in_a_render(isolated_db):
+    from services import scanlate_render_service as render_svc
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(5, translated_text="hi")])
+    jid = f"scanlate_{did}"
+    raised, took = _cancel_while_lock_held(
+        jid, lambda: render_svc.render_page(did, pid, cancel_check=lambda: render_svc.check_cancel(jid)))
+    assert [type(e) for e in raised] == [background_jobs.JobCancelled] and took < 1
+
+
 def test_run_refusals(client, monkeypatch):
     from services import translate_service
     did = _drama()

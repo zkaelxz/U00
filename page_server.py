@@ -346,8 +346,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     into a drama first so the library keeps the real page and its
     bubbles.
 
-    Runs under `_PIPELINE_LOCK` -- see this module's docstring on
-    `scanlate`'s unlocked model caches.
+    Detection and OCR run under `_PIPELINE_LOCK` -- see this module's
+    docstring on `scanlate`'s unlocked model caches. Translation does not.
     """
     import db
     import scanlate
@@ -372,94 +372,100 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     reused_rev = 0
     temp_path = None
 
-    with PIPELINE_LOCK:
-        if store and drama is not None:
-            page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
-            if page is not None:
-                # Re-reading would replace bubbles the person corrected in
-                # Scanlate; a page without bubbles has nothing to lose.
-                # Capture sends no chapter labels, so an identical page
-                # shared by two chapters (credits) is reused, not added.
-                # Rev before bubbles: a write in between fails the rev check.
-                reused_rev = int((db.get_page(page["id"]) or {}).get("rev") or 0)
-                saved = db.load_bubbles(page["id"])
-                if saved:
-                    reuse_notes = _translate_missing(saved, page["id"], drama, drama_id, source_url, config)
-                    return page_capture_checks.reused_page_response(
-                        data, saved, reuse_notes, int(drama_id), page["id"])
-            newly_stored = page is None
-            if newly_stored:
-                page = _store_page(int(drama_id), data, ext)
-            image_path = os.path.join(db.drama_dir(int(drama_id)), page["filename"])
-        else:
-            # Overlay-only: the person is reading, not importing, so the
-            # bytes never enter the library. Cleaned up below whatever
-            # happens, since the pipeline reads it several times.
-            import tempfile
-            fd, temp_path = tempfile.mkstemp(suffix=ext, prefix="baihe_page_")
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(data)
-            image_path = temp_path
-            if store and drama is None:
-                notes.append(["warning", "no drama chosen, so this page was not saved"])
+    reuse_saved = None
+    try:
+        with PIPELINE_LOCK:
+            if store and drama is not None:
+                page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
+                if page is not None:
+                    # Re-reading would replace bubbles the person corrected in
+                    # Scanlate; a page without bubbles has nothing to lose.
+                    # Capture sends no chapter labels, so an identical page
+                    # shared by two chapters (credits) is reused, not added.
+                    # Rev before bubbles: a write in between fails the rev check.
+                    reused_rev = int((db.get_page(page["id"]) or {}).get("rev") or 0)
+                    reuse_saved = db.load_bubbles(page["id"]) or None
+                if reuse_saved is None:
+                    newly_stored = page is None
+                    if newly_stored:
+                        page = _store_page(int(drama_id), data, ext)
+                    image_path = os.path.join(db.drama_dir(int(drama_id)), page["filename"])
+            else:
+                # Overlay-only: the person is reading, not importing, so the
+                # bytes never enter the library. Cleaned up below whatever
+                # happens, since the pipeline reads it several times.
+                import tempfile
+                fd, temp_path = tempfile.mkstemp(suffix=ext, prefix="baihe_page_")
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+                image_path = temp_path
+                if store and drama is None:
+                    notes.append(["warning", "no drama chosen, so this page was not saved"])
 
-        try:
-            lang = _page_source_language(drama, source_language)
-            bubbles, detect_notes = scanlate.detect_and_ocr_page(
-                image_path, lang,
-                detect_backend=config.get("detect_backend") or "auto",
-                hf_token=config.get("hf_token") or None,
-                ocr_backend=config.get("ocr_backend") or None,
-                tesseract_cmd=config.get("tesseract_cmd") or None,
-                prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
-                page_id=(page or {}).get("id"))
-            # Detector/OCR notes can quote a Hugging Face download error;
-            # the saved HF token now reaches that call, so redact them.
-            notes.extend([[n[0], translate_engines.redact_secrets(str(n[1]))]
-                          for n in (detect_notes or [])])
+            if reuse_saved is None:
+                try:
+                    lang = _page_source_language(drama, source_language)
+                    bubbles, detect_notes = scanlate.detect_and_ocr_page(
+                        image_path, lang,
+                        detect_backend=config.get("detect_backend") or "auto",
+                        hf_token=config.get("hf_token") or None,
+                        ocr_backend=config.get("ocr_backend") or None,
+                        tesseract_cmd=config.get("tesseract_cmd") or None,
+                        prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
+                        page_id=(page or {}).get("id"))
+                finally:
+                    if temp_path:
+                        try:
+                            os.remove(temp_path)
+                        except OSError:
+                            pass
 
-            engine = _build_engine(config)
-            if bubbles and engine is not None:
-                glossary = (db.list_glossary_terms(drama["series_id"])
-                            if drama and drama.get("series_id") else None)
-                key = str(drama_id) if drama_id else f"url:{source_url}"
+        # Only detection and OCR touch the shared model caches; an LLM call
+        # under the lock would stall every other page and a Cancel.
+        if reuse_saved is not None:
+            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config)
+            return page_capture_checks.reused_page_response(
+                data, reuse_saved, reuse_notes, int(drama_id), page["id"])
+
+        # Detector/OCR notes can quote a Hugging Face download error;
+        # the saved HF token now reaches that call, so redact them.
+        notes.extend([[n[0], translate_engines.redact_secrets(str(n[1]))]
+                      for n in (detect_notes or [])])
+        engine = _build_engine(config)
+        if bubbles and engine is not None:
+            glossary = (db.list_glossary_terms(drama["series_id"])
+                        if drama and drama.get("series_id") else None)
+            key = str(drama_id) if drama_id else f"url:{source_url}"
+            with _context_lock:
+                previous = _contexts.get(key, "")
+            try:
+                new_context = scanlate.translate_page_bubbles(
+                    bubbles, engine, drama or {}, previous_context=previous,
+                    glossary_terms=glossary, usage_cb=_usage_cb(drama, config, engine))
                 with _context_lock:
-                    previous = _contexts.get(key, "")
-                try:
-                    new_context = scanlate.translate_page_bubbles(
-                        bubbles, engine, drama or {}, previous_context=previous,
-                        glossary_terms=glossary, usage_cb=_usage_cb(drama, config, engine))
-                    with _context_lock:
-                        _contexts[key] = new_context
-                except Exception as e:
-                    # The OCR text is still real and still useful, so it
-                    # is returned rather than thrown away -- the same
-                    # choice the Scanlate pipeline makes on this failure.
-                    notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
-                                             "the source text below was still read"])
-            elif bubbles and engine is None:
-                notes.append(_no_engine_note(config, "read"))
-
-            if page is not None:
-                notes.extend(page_capture_checks.save_read_bubbles(
-                    page["id"], bubbles, newly_stored, reused_rev))
-        except BaseException:
-            # A page whose reading failed must not stay behind as an empty
-            # page: the caller reports it as not delivered, and a retry
-            # would add it a second time.
-            if page is not None and newly_stored:
-                from sources import pipeline
-                try:
-                    pipeline._discard_pages(int(drama_id), [page["id"]])
-                except Exception:
-                    pass
-            raise
-        finally:
-            if temp_path:
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    pass
+                    _contexts[key] = new_context
+            except Exception as e:
+                # The OCR text is still real and still useful, so it
+                # is returned rather than thrown away -- the same
+                # choice the Scanlate pipeline makes on this failure.
+                notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
+                                         "the source text below was still read"])
+        elif bubbles and engine is None:
+            notes.append(_no_engine_note(config, "read"))
+        if page is not None:
+            notes.extend(page_capture_checks.save_read_bubbles(
+                page["id"], bubbles, newly_stored, reused_rev))
+    except BaseException:
+        # A page whose reading failed must not stay behind as an empty
+        # page: the caller reports it as not delivered, and a retry
+        # would add it a second time.
+        if page is not None and newly_stored:
+            from sources import pipeline
+            try:
+                pipeline._discard_pages(int(drama_id), [page["id"]])
+            except Exception:
+                pass
+        raise
 
     width, height = page_capture_checks.image_size(data)
     return {
@@ -549,31 +555,6 @@ def _usage_cb(drama, config, engine):
                      "extension_translate", inp, out,
                      translate_engines.estimate_cost_for_engine(engine, inp, out))
     return log
-
-
-def select_page_images(images, page_url: str):
-    """Which of the sent images are real pages, decided by
-    `sources/generic_import.py`'s existing filter -- size floor, aspect
-    and width clustering, duplicate and third-party rejection -- rather
-    than by a second implementation in JavaScript that would drift from
-    it.
-
-    `images`: list of dicts with `url`, `content` and `content_type`.
-    Returns `(kept, rejected)`, each a list of `(image, reason)` pairs
-    where `reason` is `""` for kept ones.
-    """
-    from sources import generic_import
-    candidates = []
-    for order, image in enumerate(images):
-        c = generic_import.ImageCandidate(image.get("url") or page_url, order)
-        c.content = image.get("content") or b""
-        generic_import.measure(c)
-        candidates.append(c)
-    kept, rejected = generic_import.filter_page_images(candidates, page_url)
-    kept_set = {c.order for c in kept}
-    return ([images[c.order] for c in kept],
-            [(images[c.order], c.reject_reason) for c in rejected
-             if c.order not in kept_set])
 
 
 # -- HTTP --------------------------------------------------------------
@@ -765,7 +746,7 @@ class _Handler(BaseHTTPRequestHandler):
         # the very image the person picked.
         skipped = []
         if len(decoded) > 1 and payload.get("filter_pages", True):
-            decoded, rejected = select_page_images(decoded, source_url)
+            decoded, rejected = page_capture_checks.select_page_images(decoded, source_url)
             skipped = [{"key": image["key"], "url": image["url"], "reason": reason}
                        for image, reason in rejected]
             if not decoded:

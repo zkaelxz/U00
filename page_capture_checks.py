@@ -166,3 +166,28 @@ def log_page_failure(e: Exception) -> None:
                              translate_engines.redact_secrets(str(e))[:300])
     except Exception:
         pass
+
+
+def select_page_images(images, page_url: str):
+    """Which of the sent images are real pages, decided by
+    `sources/generic_import.py`'s existing filter -- size floor, aspect
+    and width clustering, duplicate and third-party rejection -- rather
+    than by a second implementation in JavaScript that would drift from
+    it.
+
+    `images`: list of dicts with `url`, `content` and `content_type`.
+    Returns `(kept, rejected)`, each a list of `(image, reason)` pairs
+    where `reason` is `""` for kept ones.
+    """
+    from sources import generic_import
+    candidates = []
+    for order, image in enumerate(images):
+        c = generic_import.ImageCandidate(image.get("url") or page_url, order)
+        c.content = image.get("content") or b""
+        generic_import.measure(c)
+        candidates.append(c)
+    kept, rejected = generic_import.filter_page_images(candidates, page_url)
+    kept_set = {c.order for c in kept}
+    return ([images[c.order] for c in kept],
+            [(images[c.order], c.reject_reason) for c in rejected
+             if c.order not in kept_set])
