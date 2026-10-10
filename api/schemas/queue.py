@@ -10,14 +10,14 @@ from pydantic import BaseModel, Field
 __all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueMove",
            "QueueScheduleSet", "QueuePolicy"]
 
-QueueStep = Literal["transcribe", "translate", "export"]
+_QueueStep = Literal["transcribe", "translate", "export"]
 
 
 class QueueItem(BaseModel):
     id: int
     drama_id: int
     title: str
-    step: QueueStep
+    step: _QueueStep
     status: Literal["waiting", "running", "done", "failed", "skipped", "interrupted", "cancelled"]
     reason: Optional[str] = None
     job_id: Optional[str] = None
@@ -52,7 +52,7 @@ class QueueState(BaseModel):
 
 class QueueAddItem(BaseModel):
     drama_id: int = Field(ge=1, lt=2**63)
-    step: QueueStep
+    step: _QueueStep
 
 
 class QueueMove(BaseModel):
