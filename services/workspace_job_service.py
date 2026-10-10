@@ -566,8 +566,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     # (the cost-cap break below is a clean, expected stop, not a
     # failure, but the same `finally` covers it too).
     errors = []
-    # Lines heard before a cancel or a timeout are still fixed and saved, the
-    # rest stay flagged; translation below needs this process.
+    # Lines heard before a timeout are fixed and saved; after a Cancel their
+    # text is saved but not translated (no paid calls), so they stay flagged.
     total_flagged = len(flagged)
     heard_entries, cancelled, hearing_error = [], False, None
     if flagged and audio_path and os.path.exists(audio_path):
@@ -594,7 +594,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 ln.en = ln.zh
                 ln.flag, ln.flag_note = None, ""
                 fixed_count += 1
-            elif ln.zh.strip():
+            elif ln.zh.strip() and not cancelled:
                 try:
                     translated = engine.translate_batch(
                         [ln.zh], {**base_context,
