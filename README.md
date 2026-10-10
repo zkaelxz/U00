@@ -56,7 +56,7 @@ Run `BaiheStudio-Setup-<version>.exe` (built by the "Windows Installer" workflow
    .\setup.bat
    ```
    It checks for Git, Python 3.12, ffmpeg (with the subtitles filter) and, only if the app's screens still have to be built, Node.js 22 or newer, and installs what is missing with `winget` (it may ask for permission; the script needs no admin rights). It only reports the NVIDIA driver; install that yourself from <https://www.nvidia.com/drivers> if you want GPU features.
-4. **Open a new window after any install.** Windows doesn't find newly installed programs in the window that installed them. Close it, open a new PowerShell, `cd` back into the Baihe folder and run `.\setup.bat` again until it ends with **Ready**.
+4. **Open a new window after any install.** Windows doesn't find newly installed programs in the window that installed them. Close it, open a new PowerShell, `cd` back into the Baihe folder and run `.\setup.bat` again. It is safe to run twice: anything `winget` already lists is reported as "already installed" and skipped. Stop when it ends with **Ready** or with "Everything is installed. Open a NEW window so PATH updates, then run start.bat."
 5. **Build the screens and start.** The first run creates the Python environment, installs dependencies, builds the app's screens and checks ffmpeg and CUDA. It takes several minutes:
    ```
    .\start.bat --build-frontend
