@@ -62,7 +62,8 @@ class Response:
     ok: bool = field(init=False)
 
     def __post_init__(self):
-        self.ok = 200 <= self.status < 400
+        # A 3xx that reaches here was not followed (guard=None), so its body is empty.
+        self.ok = 200 <= self.status < 300
 
     def text(self) -> str:
         try:
@@ -168,7 +169,8 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
             trust_env: bool = True, clock=None, **kwargs) -> Response:
     """`timeout` is seconds, or a (connect, read) pair. `deadline` is the total
     seconds for all hops and the body (default 3 x the longer `timeout`). Extra `kwargs` (params, json, data, files) go to requests
-    and are sent on the first hop only; a redirect is followed as a GET.
+    and are sent on the first hop; a 307/308 keeps the method and body, any other
+    redirect is followed as a bodiless GET.
     `allow_redirects` defaults to True with a guard and False without one.
     A body over `max_bytes` raises ResponseTooLarge, or is cut when
     `truncate` is set; with `max_error_bytes`, a 4xx/5xx body is cut to that
@@ -185,6 +187,7 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
     if allow_redirects is None:
         allow_redirects = guard is not None
     session_kw = {} if trust_env else {"trust_env": False}
+    hop_method, hop_kwargs = method, kwargs
     for hop in range(max_redirects + 1):
         remaining = deadline - (clock() - started)
         if remaining <= 0:
@@ -192,8 +195,7 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
         ip = guard(current) if guard else None
         try:
             resp = pinned_get(current, ip, _headers_for_hop(headers, origin, current), _clamp(timeout, remaining),
-                              method if hop == 0 else "GET", **session_kw,
-                              **(kwargs if hop == 0 else {}))
+                              hop_method, **session_kw, **hop_kwargs)
         except requests.RequestException:
             raise FetchError() from None
         location = resp.headers.get("Location")
@@ -202,6 +204,11 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
             if not location:
                 raise FetchError()
             current = urljoin(current, location)
+            if resp.status_code in (307, 308):
+                # Location already carries the query; resending params would double it.
+                hop_kwargs = {k: v for k, v in hop_kwargs.items() if k != "params"}
+            else:
+                hop_method, hop_kwargs = "GET", {}
             continue
         try:
             left = max(deadline - (clock() - started), 0)
@@ -215,7 +222,8 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
             raise
         except Exception:
             raise FetchError() from None
-        return Response(resp.status_code, dict(resp.headers), body, current,
+        from requests.structures import CaseInsensitiveDict  # callers coming from requests use .get("content-type")
+        return Response(resp.status_code, CaseInsensitiveDict(resp.headers), body, current,
                         getattr(resp, "encoding", None) or "utf-8")
     raise FetchError()  # too many redirects
 
