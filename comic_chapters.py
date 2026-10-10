@@ -42,7 +42,7 @@ _REPLACE_DELAY = 0.05
 MAX_TITLE = 200
 MAX_URL = 2000
 UNKNOWN_ID = "unknown"
-_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _WIN_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>]*|\\\\[^\s\"'<>]+")
 _locks = {}
 _locks_guard = threading.Lock()
@@ -61,7 +61,7 @@ def _lock(drama_id: int) -> threading.RLock:
 
 
 def _text(value, limit=MAX_TITLE) -> str:
-    return _CONTROL.sub(" ", str(value or "")).strip()[:limit]
+    return CONTROL_CHARS.sub(" ", str(value or "")).strip()[:limit]
 
 
 def _title(value) -> str:

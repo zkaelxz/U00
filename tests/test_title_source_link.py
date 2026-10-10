@@ -92,6 +92,16 @@ def test_set_source_url_once_never_overwrites(isolated_db):
     assert _source_url(empty) == "https://novel.example/a"
 
 
+def test_owner_link_saved_after_a_stale_read_survives(isolated_db, monkeypatch):
+    did = db.create_drama(title_en="N", media_type="novel")
+    stale = db.get_drama(did)
+    db.update_drama(did, source_url="https://mine.example/x")
+    with monkeypatch.context() as m:
+        m.setattr(db, "get_drama", lambda _id: stale)
+        assert drama_service.set_source_url_once(did, "https://novel.example/book/7") is False
+    assert _source_url(did) == "https://mine.example/x"
+
+
 def test_series_import_sets_the_link_once_and_keeps_the_owners(isolated_db, job):
     did = db.create_drama(title_en="N", media_type="novel")
     _text_run(job, did, series_url="https://novel.example/book/7?sig=abc")
@@ -152,6 +162,7 @@ def test_review_import_sets_the_link_and_chapter_link(client, env):
     ("https://site.example/%E7%AC%AC5%E8%AF%9D/", "第5话"),
     ("https://site.example/", ""),
     ("ftp://site.example/a", ""),
+    ("https://site.example/%00ch%1b%7f-1", "ch 1"),
 ])
 def test_title_from_url(url, label):
     assert adaptive.title_from_url(url) == label
