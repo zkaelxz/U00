@@ -17,7 +17,7 @@ import translate_engines as te
 from core import Line
 from lib import http
 from tests import fake_engine
-from tests.http_fakes import StreamedBody
+from tests.http_fakes import StreamedBody, patch_post
 
 
 class RateLimitError(Exception):
@@ -1016,7 +1016,7 @@ class TestGeminiEngine:
             captured["json"] = json
             return FakeResponse()
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest")
         result = engine.translate_batch(["你好", "再见"], {})
 
@@ -1044,7 +1044,7 @@ class TestGeminiEngine:
             captured["json"] = json
             return FakeResponse()
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         engine = te.GeminiEngine("fake-key")
         engine.translate_batch(["x"], {"recent_context": [("她来了", "She came.")]})
 
@@ -1066,7 +1066,7 @@ class TestGeminiEngine:
             captured["json"] = json
             return FakeResponse()
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         engine = te.GeminiEngine("fake-key")
         result = engine.translate_batch(["你好"], {"speaker_labels": ["Xiaoling"]})
 
@@ -1090,7 +1090,7 @@ class TestGeminiEngine:
             captured["json"] = json
             return FakeResponse()
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         lines = [Line(idx=0, start=0, end=1, zh="你好", speaker="SPEAKER_00")]
         te.translate_lines_with_engine(
             lines, te.GeminiEngine("fake-key"), drama_meta={},
@@ -1116,7 +1116,7 @@ class TestGeminiEngine:
                 return FakeResponse('{"1": "First."}')  # line 2 missing
             return FakeResponse('{"2": "Second."}')  # retry recovers it
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         engine = te.GeminiEngine("fake-key")
         result = engine.translate_batch(["a", "b"], {})
 
@@ -1131,7 +1131,7 @@ class TestGeminiEngine:
                 return {"candidates": [{"content": {"parts": [{"text": "[]"}]}}]}
                 # No usageMetadata key at all.
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         engine.translate_batch(["x"], {})
         assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0,
@@ -1150,7 +1150,7 @@ class TestGeminiEngine:
                 return {"promptFeedback": {"blockReason": "SAFETY"}}
 
         monkeypatch.setattr("time.sleep", lambda *_: None)
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         with pytest.raises(te.ContentModerationBlocked) as exc_info:
             engine.translate_batch(["a graphic passage"], {})
@@ -1169,7 +1169,7 @@ class TestGeminiEngine:
                 return {"candidates": [{"finishReason": "PROHIBITED_CONTENT"}]}
 
         monkeypatch.setattr("time.sleep", lambda *_: None)
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         with pytest.raises(te.ContentModerationBlocked) as exc_info:
             engine.translate_batch(["a graphic passage"], {})
@@ -1290,7 +1290,7 @@ class TestGeminiRateStatus:
         def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             return resp
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
 
     def test_reads_real_header_values_when_present(self, monkeypatch):
         self._post_with_headers(monkeypatch, {
@@ -1429,21 +1429,21 @@ class TestOllamaEngine:
 
     def test_sends_a_format_json_schema_for_structured_output(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {})
         assert captured["json"]["format"] == te._OLLAMA_ID_KEYED_JSON_SCHEMA
 
     def test_num_ctx_is_never_below_the_floor_for_a_short_prompt(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {})
         assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
 
     def test_num_ctx_grows_with_a_much_longer_prompt(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         long_glossary = [{"term_original": "x" * 200, "term_translation": "y"} for _ in range(200)]
         engine.translate_batch(["你好"], {"glossary_terms": long_glossary})
@@ -1451,7 +1451,7 @@ class TestOllamaEngine:
 
     def test_override_can_raise_num_ctx_above_the_estimate(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {"ollama_num_ctx_override": 100_000})
         assert captured["json"]["options"]["num_ctx"] == 100_000
@@ -1461,14 +1461,14 @@ class TestOllamaEngine:
         would silently reintroduce the exact truncation bug this exists
         to prevent -- the larger of the two must always win."""
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {"ollama_num_ctx_override": 1})
         assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
 
     def test_request_has_a_timeout(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {})
         assert captured["timeout"] is not None
@@ -1480,7 +1480,7 @@ class TestOllamaUnavailableErrors:
 
         def refuse(url, json=None, timeout=None, stream=None):
             raise requests.ConnectionError(f"refused {url}")
-        monkeypatch.setattr("requests.post", refuse)
+        patch_post(monkeypatch, refuse)
         engine = te.OllamaEngine(base_url="http://10.1.2.3:11434")
         with pytest.raises(te.OllamaUnavailableError) as batch:
             engine.translate_batch(["你好"], {})
@@ -1514,7 +1514,7 @@ class TestOllamaUnavailableErrors:
                 self.closed = True
 
         resp = Dropped()
-        monkeypatch.setattr("requests.post", lambda *a, **k: resp)
+        patch_post(monkeypatch, lambda *a, **k: resp)
         engine = te.OllamaEngine(base_url="http://192.168.7.9:11434")
         with pytest.raises(te.OllamaUnavailableError) as info:
             engine.translate_batch(["你好"], {})
@@ -1840,7 +1840,7 @@ class TestCallLlmJson:
                     "usageMetadata": {"promptTokenCount": 15, "candidatesTokenCount": 3},
                 }
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
 
         result = te.call_llm_json(
@@ -1859,7 +1859,7 @@ class TestCallLlmJson:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": "answer"}]}}]}
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key", free_tier=True)
         calls = []
         monkeypatch.setattr(engine, "_throttle_for_free_tier", lambda: calls.append(1))
@@ -1893,7 +1893,7 @@ class TestCallLlmJson:
             captured["json"] = json
             captured["timeout"] = timeout
             return FakeResponse()
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
 
         engine = te.OllamaEngine()
         usage = {}
@@ -1928,7 +1928,7 @@ class TestCallLlmJson:
             def json(self):
                 return {"candidates": []}  # no content at all
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         result = te.call_llm_json(engine, "prompt", fallback="fallback-value")
         assert result == "fallback-value"
@@ -1993,7 +1993,7 @@ class TestCheckConsistencyLlm:
             def json(self):
                 return {"candidates": []}  # no content at all
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
         issues, failed_batches, total_batches = te.check_consistency_llm(
             lines, te.GeminiEngine("fake-key"))
@@ -2272,7 +2272,7 @@ class TestTagSpeakersLlm:
             def json(self):
                 return {"message": {"content": '{"1": "Xiaoling", "2": "Narrator"}'}}
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.OllamaEngine()
         labels = te.tag_speakers_by_id({1: "你好", 2: "那天下着雨。"}, engine)
         assert labels == {1: "Xiaoling", 2: "Narrator"}
@@ -2726,7 +2726,7 @@ class TestStablePromptPrefix:
             bodies.append(json)
             return FakeResponse(json)
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         te.translate_lines_with_engine(_six_lines(), te.GeminiEngine("k"), {}, batch_size=2,
                                        novel_reference="Ref.")
         assert len(bodies) == 3
@@ -2965,8 +2965,8 @@ class TestGemini31FlashLite:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
 
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
-                            captured.update(url=url) or FakeResponse())
+        patch_post(monkeypatch, lambda url, headers=None, json=None, timeout=None, stream=None:
+                   captured.update(url=url) or FakeResponse())
         engine = te.get_engine("gemini", "k", "gemini-3.1-flash-lite")
         assert engine.translate_batch(["你好"], {}) == ["Hi."]
         assert captured["url"].endswith("/models/gemini-3.1-flash-lite:generateContent")

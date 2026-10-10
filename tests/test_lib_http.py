@@ -146,3 +146,27 @@ def test_an_error_body_is_cut_to_max_error_bytes_and_keeps_its_status(monkeypatc
 def test_an_unknown_charset_falls_back_to_utf8():
     r = http.Response(200, {}, "é".encode(), "http://a/", encoding="bogus-charset")
     assert r.text() == "é"
+
+
+def test_a_connect_read_timeout_pair_is_passed_on_and_bounded_by_the_deadline(monkeypatch):
+    seen = []
+
+    def fake(url, ip, headers, timeout=None, method="GET", **kw):
+        seen.append((timeout, kw))
+        return Resp(200, b"{}")
+    monkeypatch.setattr(http, "pinned_get", fake)
+    http.get("http://a.example/", timeout=(3.05, 20), max_bytes=100, guard=None, deadline=10)
+    connect, read = seen[0][0]
+    assert connect == 3.05 and 9 < read <= 10
+
+
+def test_trust_env_is_only_passed_when_turned_off(monkeypatch):
+    seen = []
+
+    def fake(url, ip, headers, timeout=None, method="GET", **kw):
+        seen.append(kw)
+        return Resp(200, b"{}")
+    monkeypatch.setattr(http, "pinned_get", fake)
+    http.get("http://a.example/", timeout=5, max_bytes=100, guard=None)
+    http.get("http://a.example/", timeout=5, max_bytes=100, guard=None, trust_env=False)
+    assert seen == [{}, {"trust_env": False}]

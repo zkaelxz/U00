@@ -43,7 +43,7 @@ from urllib.parse import urlsplit
 
 import db
 from services import settings_service
-from lib import capped_body
+from lib import http
 from services.auth_service import SlidingWindowRateLimiter
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
@@ -140,40 +140,32 @@ def _check_target(url: str):
             raise InvalidInputError("That address is this app's own port, not SearXNG.")
 
 
-def _read_capped(resp) -> bytes:
-    """The body, at most MAX_RESPONSE_BYTES and READ_DEADLINE seconds in all."""
-    return capped_body.read_capped(resp, MAX_RESPONSE_BYTES, READ_DEADLINE,
-                                   lambda: DependencyUnavailableError(_BAD_REPLY))
-
-
 def _query_server(base_url: str, query: str) -> dict:
-    import requests
     _check_target(base_url)
-    session = requests.Session()
-    session.trust_env = False  # a proxy would reach the LAN server on our behalf
     try:
-        resp = session.get(base_url + "/search",
-                           params={"q": query, "format": "json"},
-                           headers={"Accept": "application/json", "Accept-Language": "en",
-                                    "User-Agent": "Baihe-Subtitler"},
-                           timeout=HTTP_TIMEOUT, allow_redirects=False, stream=True)
-        try:
-            if 300 <= resp.status_code < 400:
-                raise DependencyUnavailableError(_REDIRECTED)
-            if resp.status_code == 403:
-                raise DependencyUnavailableError(_NO_JSON)
-            if resp.status_code == 429:
-                raise DependencyUnavailableError(_LIMITED)
-            if resp.status_code >= 400:
-                log.info("SearXNG answered HTTP %s", resp.status_code)
-                raise DependencyUnavailableError(_UNREACHABLE)
-            body = _read_capped(resp)
-        finally:
-            resp.close()
-    except requests.RequestException:
+        # guard=None: the address is the owner's own SearXNG, set through a
+        # local_only route and often on the LAN. Redirects are not followed.
+        resp = http.get(base_url + "/search",
+                        params={"q": query, "format": "json"},
+                        headers={"Accept": "application/json", "Accept-Language": "en",
+                                 "User-Agent": "Baihe-Subtitler"},
+                        timeout=HTTP_TIMEOUT, deadline=READ_DEADLINE,
+                        max_bytes=MAX_RESPONSE_BYTES, max_error_bytes=1,
+                        guard=None, trust_env=False)  # a proxy would reach the LAN server
+    except (http.ResponseTooLarge, http.ResponseTooSlow):
+        raise DependencyUnavailableError(_BAD_REPLY) from None
+    except http.FetchError:
         raise DependencyUnavailableError(_UNREACHABLE) from None
-    finally:
-        session.close()
+    if 300 <= resp.status < 400:
+        raise DependencyUnavailableError(_REDIRECTED)
+    if resp.status == 403:
+        raise DependencyUnavailableError(_NO_JSON)
+    if resp.status == 429:
+        raise DependencyUnavailableError(_LIMITED)
+    if resp.status >= 400:
+        log.info("SearXNG answered HTTP %s", resp.status)
+        raise DependencyUnavailableError(_UNREACHABLE)
+    body = resp.body
     try:
         data = json.loads(body.decode("utf-8")) if body else None
     except (ValueError, UnicodeDecodeError):

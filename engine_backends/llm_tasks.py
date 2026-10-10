@@ -21,7 +21,7 @@ from .shared import (
     call_with_backoff,
     extract_first_json_value,
     parse_json_array,
-    read_json_capped,
+    post_json,
     redact_secrets,
     request_translations_with_retry,
     SDK_REQUEST_TIMEOUT,
@@ -388,14 +388,12 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
         return (content or "").strip()
 
     if isinstance(engine, GeminiEngine):
-        import requests
         engine._throttle_for_free_tier()
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{engine.model}:generateContent")
-        resp = call_with_backoff(lambda: requests.post(
-            url, headers={"x-goog-api-key": engine.api_key},
-            json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=120, stream=True))
-        data = read_json_capped(resp, 120)
+        data, _ = call_with_backoff(lambda: post_json(
+            url, {"contents": [{"parts": [{"text": prompt}]}]}, timeout=120,
+            headers={"x-goog-api-key": engine.api_key}, label="Gemini"))
         usage = data.get("usageMetadata") or {}
         if usage_cb:
             usage_cb(usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0))

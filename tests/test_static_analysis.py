@@ -81,10 +81,6 @@ class TestHttpCallsHaveTimeouts:
         problems = {f: lines for f, lines in problems.items() if lines}
         assert problems == {}, f"requests call(s) missing timeout= at line(s): {problems}"
 
-    def test_qa(self):
-        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "qa.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
     def test_bulk_translate(self):
         problems = _find_requests_calls_missing_timeout(
             os.path.join(PROJECT_ROOT, "bulk_translate.py"))

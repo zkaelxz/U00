@@ -25,6 +25,8 @@ URL = "http://192.168.1.30:8888"
 
 
 class Resp:
+    headers = {}
+
     def __init__(self, status=200, data=None, raw=None):
         self.status_code = status
         self._body = raw if raw is not None else (json.dumps(data).encode() if data is not None
@@ -52,8 +54,8 @@ class FakeSearx:
     def __init__(self):
         self.trust_env = True
 
-    def get(self, url, params=None, headers=None, timeout=None, allow_redirects=True,
-            stream=False):
+    def request(self, method, url, params=None, headers=None, timeout=None, allow_redirects=True,
+                stream=False):
         FakeSearx.calls.append({"url": url, "params": dict(params or {}), "timeout": timeout,
                                 "allow_redirects": allow_redirects, "stream": stream,
                                 "trust_env": self.trust_env})
@@ -343,10 +345,6 @@ def test_test_connection_works_while_off(fake):
     assert ws.test_connection() == {"ok": True, "result_count": 2}
 
 
-def test_requests_have_timeouts():
-    from tests.test_static_analysis import _find_requests_calls_missing_timeout
-    path = ws.__file__
-    assert _find_requests_calls_missing_timeout(path, session_verbs=True) == []
 
 
 # --- routes -------------------------------------------------------------------------

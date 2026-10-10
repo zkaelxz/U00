@@ -318,3 +318,12 @@ def test_api_schema_refuses_a_third_fallback(isolated_db, engines):
         "engine": "claude",
         "fallback_chain": [{"engine": "deepseek"}, {"engine": "gemini"}, {"engine": "ollama"}]})
     assert r.status_code == 422
+
+
+def test_a_lib_http_fetch_error_is_a_transient_fallback_error():
+    from engine_backends.fallback import is_fallback_error, is_transient_fallback_error
+    from lib import http
+
+    err = http.FetchError("The provider could not be reached.")
+    assert is_fallback_error(err) and is_transient_fallback_error(err)
+    assert not is_fallback_error(ValueError("bug"))

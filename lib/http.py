@@ -21,7 +21,7 @@ Standard library plus `requests`.
 """
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Optional
+from typing import Callable, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin, urlsplit
 
 from lib import capped_body, url_guard
@@ -83,13 +83,16 @@ def check_public(url: str) -> str:
 
 
 def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
-               timeout: float = DEFAULT_TIMEOUT, method: str = "GET", **kwargs):
+               timeout: float = DEFAULT_TIMEOUT, method: str = "GET",
+               trust_env: bool = True, **kwargs):
     """Streamed request connecting to the validated `ip` (not a fresh DNS
-    lookup), or an ordinary request when `ip` is None."""
+    lookup), or an ordinary request when `ip` is None. `trust_env=False` keeps
+    environment proxies out of it (a LAN or loopback address)."""
     import requests
     from requests.adapters import HTTPAdapter
 
     session = requests.Session()
+    session.trust_env = trust_env
     if ip:
         parts = urlsplit(url)
         host = parts.hostname
@@ -113,6 +116,12 @@ def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
         session.mount(f"{parts.scheme}://", _PinnedAdapter())
     return session.request(method, url, headers=headers, timeout=timeout,
                            allow_redirects=False, stream=True, **kwargs)
+
+
+def _clamp(timeout, remaining: float):
+    if isinstance(timeout, tuple):
+        return tuple(min(t, remaining) for t in timeout)
+    return min(timeout, remaining)
 
 
 def _origin(url: str):
@@ -151,36 +160,40 @@ def _read_truncated(resp, cap_bytes, deadline_seconds, clock) -> bytes:
     return bytes(body)
 
 
-def request(method: str, url: str, *, timeout: float, max_bytes: int,
+def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]], max_bytes: int,
             deadline: Optional[float] = None, headers: Optional[dict] = None,
             allow_redirects: Optional[bool] = None, max_redirects: int = MAX_REDIRECTS,
             guard: Optional[Callable[[str], Optional[str]]] = check_public,
             truncate: bool = False, max_error_bytes: Optional[int] = None,
-            clock=None, **kwargs) -> Response:
-    """`deadline` is the total seconds for all hops and the body (default
-    3 x `timeout`). Extra `kwargs` (params, json, data, files) go to requests
+            trust_env: bool = True, clock=None, **kwargs) -> Response:
+    """`timeout` is seconds, or a (connect, read) pair. `deadline` is the total
+    seconds for all hops and the body (default 3 x the longer `timeout`). Extra `kwargs` (params, json, data, files) go to requests
     and are sent on the first hop only; a redirect is followed as a GET.
     `allow_redirects` defaults to True with a guard and False without one.
     A body over `max_bytes` raises ResponseTooLarge, or is cut when
     `truncate` is set; with `max_error_bytes`, a 4xx/5xx body is cut to that
-    instead of refused, so a vendor's error text stays small and keeps its status."""
+    instead of refused, so a vendor's error text stays small and keeps its status.
+    `trust_env=False` bypasses environment proxies, for an address a proxy
+    must not be asked to reach (loopback, the user's LAN server)."""
     import requests
 
     clock = clock or time.monotonic
-    deadline = 3 * timeout if deadline is None else deadline
+    deadline = 3 * (max(timeout) if isinstance(timeout, tuple) else timeout) if deadline is None else deadline
     started = clock()
     current = url
     origin = _origin(url)
     if allow_redirects is None:
         allow_redirects = guard is not None
+    session_kw = {} if trust_env else {"trust_env": False}
     for hop in range(max_redirects + 1):
         remaining = deadline - (clock() - started)
         if remaining <= 0:
             raise ResponseTooSlow()
         ip = guard(current) if guard else None
         try:
-            resp = pinned_get(current, ip, _headers_for_hop(headers, origin, current), min(timeout, remaining),
-                              method if hop == 0 else "GET", **(kwargs if hop == 0 else {}))
+            resp = pinned_get(current, ip, _headers_for_hop(headers, origin, current), _clamp(timeout, remaining),
+                              method if hop == 0 else "GET", **session_kw,
+                              **(kwargs if hop == 0 else {}))
         except requests.RequestException:
             raise FetchError() from None
         location = resp.headers.get("Location")

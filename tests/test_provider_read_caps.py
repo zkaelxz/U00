@@ -1,6 +1,7 @@
 """Byte caps on the raw HTTP replies of the LLM engines, Q&A, bulk Gemini
 batches and Groq transcription. No network: requests is faked."""
 from lib import http
+from tests.http_fakes import patch_post
 import pytest
 import requests
 import urllib3
@@ -49,7 +50,7 @@ def posts(monkeypatch):
         def fake(*args, **kwargs):
             calls.append(kwargs)
             return resp
-        monkeypatch.setattr(requests, "post", fake)
+        patch_post(monkeypatch, fake)
         monkeypatch.setattr(requests, "get", fake)
         return resp
     install.calls = calls
@@ -260,3 +261,86 @@ class TestGroq:
     def test_segments_still_parsed(self, posts, tmp_path):
         posts(StreamResp(b'{"segments": [{"start": 0, "end": 1, "text": " hi "}]}'))
         assert self._transcribe(tmp_path) == [{"start": 0, "end": 1, "text": "hi"}]
+
+
+class TestEngineTransport:
+    """The plain-POST engines go through lib.http inside call_with_backoff; the
+    exception types must keep driving its retry decisions."""
+
+    GEMINI_OK = b'{"candidates": [{"content": {"parts": [{"text": "{\\"1\\": \\"Hi\\"}"}]}}]}'
+    OPENAI_OK = b'{"choices": [{"message": {"content": "hi"}}]}'
+    OLLAMA_OK = b'{"message": {"content": "hi"}}'
+
+    CALLERS = {
+        "openai": (lambda: shared.call_with_backoff(lambda: openai_compat.OpenAIEngine(SECRET).chat(
+            [{"role": "user", "content": "hi"}])), OPENAI_OK),
+        "gemini_batch": (lambda: shared.call_with_backoff(lambda: gemini.GeminiEngine(SECRET).translate_batch(
+            ["你好"], {"line_ids": [1]})), GEMINI_OK),
+        "gemini_task": (lambda: llm_tasks.call_llm_json(gemini.GeminiEngine(SECRET), "p"), GEMINI_OK),
+        "qa_gemini": (lambda: qa.dispatch_chat("s", [{"role": "user", "content": "q"}],
+                                               gemini.GeminiEngine(SECRET)), GEMINI_OK),
+        "qa_ollama": (lambda: qa.dispatch_chat("s", [{"role": "user", "content": "q"}],
+                                               local.OllamaEngine()), OLLAMA_OK),
+    }
+
+    @pytest.fixture
+    def wire(self, monkeypatch):
+        """Each call to lib.http's connection function pops the next step: an
+        exception to raise or a response to return."""
+        steps, calls = [], []
+        monkeypatch.setattr(shared, "_cancellable_sleep", lambda s: None)
+
+        def fake(url, ip, headers, timeout=None, method="GET", **kw):
+            calls.append((url, headers))
+            step = steps.pop(0)
+            if isinstance(step, Exception):
+                raise step
+            return step
+        monkeypatch.setattr(http, "pinned_get", fake)
+        return steps, calls
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_transport_error_is_retried_once(self, wire, name):
+        steps, calls = wire
+        call, ok = self.CALLERS[name]
+        steps[:] = [requests.ConnectionError("boom"), StreamResp(ok)]
+        call()
+        assert len(calls) == 2
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_persistent_transport_error_surfaces_without_the_url_or_key(self, wire, name):
+        steps, calls = wire
+        call, _ = self.CALLERS[name]
+        steps[:] = [requests.ConnectionError(f"https://x/?key={SECRET}")] * 5
+        with pytest.raises(http.FetchError) as exc:
+            call()
+        assert len(calls) == 2 and SECRET not in str(exc.value)
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_401_is_not_backed_off(self, wire, name):
+        steps, calls = wire
+        call, _ = self.CALLERS[name]
+        steps[:] = [StreamResp(b'{"error": {"message": "bad key"}}', status=401)] * 5
+        with pytest.raises(requests.HTTPError) as exc:
+            call()
+        assert exc.value.response.status_code == 401
+        assert len(calls) == 2  # the one quick retry, not the rate-limit ladder
+        assert SECRET not in str(exc.value)
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_429_backs_off_until_it_succeeds(self, wire, name):
+        steps, calls = wire
+        call, ok = self.CALLERS[name]
+        steps[:] = [StreamResp(b"{}", status=429)] * 3 + [StreamResp(ok)]
+        call()
+        assert len(calls) == 4
+
+    @pytest.mark.parametrize("name", CALLERS)
+    def test_a_redirect_is_not_followed_and_the_key_goes_nowhere_else(self, wire, name):
+        steps, calls = wire
+        call, _ = self.CALLERS[name]
+        steps[:] = [StreamResp(b"", status=302, headers={"Location": "http://elsewhere.example/x"})] * 5
+        with pytest.raises(Exception):
+            call()
+        assert all(not u.startswith("http://elsewhere") for u, _ in calls)
+        assert len(calls) == 2  # each attempt is one request, never a second hop

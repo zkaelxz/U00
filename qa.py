@@ -7,7 +7,7 @@ not a general chatbot, it only knows what's in the lines you give it.
 """
 
 from translate_engines import (call_with_backoff, GeminiEngine, OllamaEngine, OpenAIEngine,
-                               estimate_ollama_num_ctx, read_json_capped)
+                               estimate_ollama_num_ctx, post_json)
 
 
 def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: int = 300,
@@ -72,18 +72,15 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
         # directly) -- same request shape, folding the running chat history
         # into one prompt since generateContent's own multi-turn "contents"
         # format isn't worth the extra plumbing for this one caller.
-        import requests
         engine._throttle_for_free_tier()
         history_text = "\n\n".join(
             f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{engine.model}:generateContent")
-        resp = call_with_backoff(lambda: requests.post(
-            url, headers={"x-goog-api-key": engine.api_key},
-            json={"systemInstruction": {"parts": [{"text": system_prompt}]},
+        data, _ = call_with_backoff(lambda: post_json(
+            url, {"systemInstruction": {"parts": [{"text": system_prompt}]},
                   "contents": [{"parts": [{"text": history_text}]}]}, timeout=120,
-            stream=True))
-        data = read_json_capped(resp, 120)
+            headers={"x-goog-api-key": engine.api_key}, label="Gemini"))
         try:
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
         except (KeyError, IndexError):
@@ -95,10 +92,9 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
         # Same reasoning as Gemini above: no .client, so it fell through
         # to the generic decline message and Q&A silently didn't work
         # with Ollama at all.
-        import requests
         history_text = "\n\n".join(
             f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
-        resp = call_with_backoff(lambda: requests.post(f"{engine.base_url}/api/chat", json={
+        data, _ = call_with_backoff(lambda: post_json(f"{engine.base_url}/api/chat", {
             "model": engine.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -106,6 +102,6 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
             ],
             "stream": False,
             "options": {"num_ctx": estimate_ollama_num_ctx(system_prompt, history_text)},
-        }, timeout=300, stream=True))
-        return read_json_capped(resp, 300)["message"]["content"].strip()
+        }, timeout=300, label="Ollama"))
+        return data["message"]["content"].strip()
     return "This engine doesn't support chat-style Q&A."
