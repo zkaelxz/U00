@@ -60,7 +60,8 @@ def post_baihehub_search(body: DiscoverBaihehubSearchRequest):
              responses=_ERRS)
 def post_import_suggestion(body: DiscoverImportSuggestionRequest, request: Request):
     require_engines_allowed(request, body.engine)
-    return svc.import_suggestion(body.url, body.engine)
+    with llm_slot(request):
+        return svc.import_suggestion(body.url, body.engine)
 
 
 @router.post("/bulk-extract", dependencies=[require_permission("media.import_url")],

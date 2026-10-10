@@ -87,7 +87,14 @@ export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, hidd
         </select>
       </Field>
       {dramas && dramas.length === 0 && !creating && (
-        <p className="muted">{newDrama ? `No ${kind} titles yet. Choose “New title…” to make one.` : 'No titles can take this yet.'}</p>
+        <div className="actions">
+          <span className="muted">{newDrama ? `No ${kind} titles yet.` : 'No titles can take this yet.'}</span>
+          {newDrama && (
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={disabled} onClick={() => setCreating(true)}>
+              New title
+            </button>
+          )}
+        </div>
       )}
       {newDrama && hiddenCount > 0 && !creating && <p className="muted">{hiddenDramasNote(hiddenCount, newDrama.comic)}</p>}
       {creating && newDrama && (

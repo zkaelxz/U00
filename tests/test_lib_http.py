@@ -170,3 +170,51 @@ def test_trust_env_is_only_passed_when_turned_off(monkeypatch):
     http.get("http://a.example/", timeout=5, max_bytes=100, guard=None)
     http.get("http://a.example/", timeout=5, max_bytes=100, guard=None, trust_env=False)
     assert seen == [{}, {"trust_env": False}]
+
+
+@pytest.mark.parametrize("status,ok", [(200, True), (204, True), (301, False), (302, False),
+                                       (307, False), (404, False), (500, False)])
+def test_ok_is_true_only_for_2xx(status, ok):
+    assert http.Response(status, {}, b"", "http://a.example/").ok is ok
+
+
+def test_an_unfollowed_redirect_from_an_unguarded_call_is_not_ok(monkeypatch):
+    _serve(monkeypatch, Resp(302, headers={"Location": "http://proxy.example/"}))
+    assert not http.get("http://a.example/", timeout=5, max_bytes=100, guard=None).ok
+
+
+def test_response_headers_are_case_insensitive(monkeypatch):
+    _serve(monkeypatch, Resp(200, b"x", headers={"Content-Type": "text/html"}))
+    headers = _get().headers
+    assert headers.get("Content-Type") == "text/html"
+    assert headers.get("content-type") == "text/html"
+
+
+def _serve_calls(monkeypatch, *responses):
+    it, calls = iter(responses), []
+
+    def fake(url, ip, headers, timeout=None, method="GET", **kw):
+        calls.append((url, method, headers, kw))
+        return next(it)
+    monkeypatch.setattr(http, "pinned_get", fake)
+    return calls
+
+
+@pytest.mark.parametrize("status", [307, 308])
+def test_a_307_or_308_keeps_the_post_method_and_body(monkeypatch, status):
+    calls = _serve_calls(monkeypatch, Resp(status, headers={"Location": "https://other.example/x"}),
+                         Resp(200, b"ok"))
+    http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+              headers={"Authorization": "k", "Accept": "a/b"}, json={"q": 1})
+    assert [c[1] for c in calls] == ["POST", "POST"]
+    assert calls[1][3] == {"json": {"q": 1}}
+    assert calls[1][2] == {"Accept": "a/b"}  # credentials still stripped cross-origin
+
+
+@pytest.mark.parametrize("status", [301, 302, 303])
+def test_a_301_302_or_303_becomes_a_bodiless_get(monkeypatch, status):
+    calls = _serve_calls(monkeypatch, Resp(status, headers={"Location": "/next"}), Resp(200, b"ok"))
+    http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+              json={"q": 1})
+    assert [c[1] for c in calls] == ["POST", "GET"]
+    assert calls[1][3] == {}
