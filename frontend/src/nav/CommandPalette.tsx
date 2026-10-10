@@ -6,6 +6,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 
+import { trapTabWithin, useModalDialog } from '../hooks/useModalDialog'
 import type { Route } from '../router'
 import type { NavContext } from './navItems'
 import { filterEntries, isPaletteShortcut, paletteEntries } from './palette'
@@ -15,29 +16,13 @@ const FOCUSABLE = 'input, button:not([disabled])'
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 const SHORTCUT_LABEL = IS_MAC ? '⌘K' : 'Ctrl+K'
 
-// A modal dialog lets Tab leave through the browser's own UI; wrap so it cycles inside.
-function trapTab(e: KeyboardEvent<HTMLDialogElement>) {
-  if (e.key !== 'Tab') return
-  // The close button is display:none beside a keyboard, and must not count as the last stop.
-  const items = [...e.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0)
-  if (items.length === 0) return
-  const first = items[0]
-  const last = items[items.length - 1]
-  const at = document.activeElement
-  if (e.shiftKey && (at === first || at === e.currentTarget)) {
-    e.preventDefault()
-    last.focus()
-  } else if (!e.shiftKey && at === last) {
-    e.preventDefault()
-    first.focus()
-  }
-}
+const trapTab = trapTabWithin(FOCUSABLE)
 
 export function CommandPalette({ route, context }: { route: Route; context: NavContext }) {
   const [open, setOpen] = useState(false)
   const opener = useRef<HTMLElement | null>(null)
   const button = useRef<HTMLButtonElement>(null)
-  const dialog = useRef<HTMLDialogElement>(null)
+  const dialog = useModalDialog(open)
 
   const show = () => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : button.current
@@ -48,13 +33,6 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
     // After the dialog closes: the page is inert while a modal is open.
     requestAnimationFrame(() => (opener.current?.isConnected ? opener.current : button.current)?.focus())
   }
-
-  useEffect(() => {
-    const d = dialog.current
-    if (!d) return
-    if (open && !d.open) d.showModal()
-    else if (!open && d.open) d.close()
-  }, [open])
 
   // Held in a ref so the document listener is attached once.
   const toggle = useRef(() => {})
