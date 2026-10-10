@@ -169,9 +169,36 @@ def _tag_hint(tag) -> str:
 # Image URLs sitting as text inside inline scripts (a reader's page
 # manifest, a JSON-LD block, a framework data blob) -- common on lazy
 # readers whose <img> tags are only filled in by script.
-_MANIFEST_URL = re.compile(
-    r"""(?:https?:)?(?:\\?/){2}[^\s"'<>()]+?\.(?:jpe?g|png|webp|gif|avif)(?:\?[^\s"'<>()]*)?""",
-    re.I)
+#
+# A URL is a "//" start, then at most MANIFEST_URL_MAX_PATH characters up to
+# the first image extension, then an optional query, all inside one run of
+# characters no URL can contain. A single regex for that retries the path
+# from every "//" in a long run, which is quadratic on a script full of
+# slashes; the scanner below finds each start's extension once instead.
+MANIFEST_URL_MAX_PATH = 2048
+MAX_SCRIPT_SCAN_CHARS = 2_000_000          # all of a page's script text, in total
+_URL_RUN = re.compile(r"""[^\s"'<>()]+""")
+_URL_START = re.compile(r"(?:https?:)?(?:\\?/){2}", re.I)
+_URL_EXT = re.compile(r"""\.(?:jpe?g|png|webp|gif|avif)(?:\?[^\s"'<>()]*)?""", re.I)
+
+
+def _manifest_urls(text: str):
+    for run in _URL_RUN.finditer(text):
+        run = run.group(0)
+        pos = 0
+        while True:
+            start = _URL_START.search(run, pos)
+            if not start:
+                break
+            ext = _URL_EXT.search(run, start.end() + 1)
+            if not ext:
+                break                   # a later start can only search further right
+            if ext.start() - start.end() > MANIFEST_URL_MAX_PATH:
+                # Starts before this point can't reach `ext`, the nearest extension.
+                pos = max(start.start() + 1, ext.start() - MANIFEST_URL_MAX_PATH - 16)
+                continue
+            yield run[start.start():ext.end()]
+            pos = ext.end()
 
 
 def manifest_candidates(html: str, page_url: str, skip=()) -> list:
@@ -182,10 +209,14 @@ def manifest_candidates(html: str, page_url: str, skip=()) -> list:
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html or "", "html.parser")
     seen, out = set(skip), []
+    budget = MAX_SCRIPT_SCAN_CHARS
     for script in soup.find_all("script"):
-        body = script.string or script.get_text() or ""
-        for m in _MANIFEST_URL.finditer(body):
-            raw = m.group(0).replace("\\/", "/")
+        if budget <= 0:
+            break
+        body = (script.string or script.get_text() or "")[:budget]
+        budget -= len(body)
+        for raw in _manifest_urls(body):
+            raw = raw.replace("\\/", "/")
             if raw.startswith("//"):
                 raw = (urlsplit(page_url).scheme or "https") + ":" + raw
             absolute = urljoin(page_url, raw)
@@ -354,14 +385,15 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
 
 @dataclass
 class DownloadBudget:
-    """Optional caps for download_candidates, shared across every call for
+    """Caps for download_candidates, shared across every call for
     one page: how many downloads may be attempted (a failed or timed-out
     one counts too) and how many bytes may be kept in total (the per-image
     byte cap is the client's own). With a budget, a response that says it
     is neither an image nor a generic binary is refused, and so is one
     whose header (read without decoding) shows a type outside
-    `allowed_formats` or more than `max_image_pixels`. Used by the API's
-    pasted-URL comic import (services/page_import_limits.py)."""
+    `allowed_formats` or more than `max_image_pixels`. Built from
+    services/page_import_limits.py by the API's pasted-URL comic import and
+    by default_budget()."""
     max_images: int
     max_total_bytes: int
     max_image_pixels: int = 0            # 0 = no pixel check
@@ -395,29 +427,61 @@ def _refused_by_budget(c: ImageCandidate, resp, budget: DownloadBudget) -> str:
     return ""
 
 
+def default_budget() -> DownloadBudget:
+    """The page-upload rules the pasted-URL import applies, for a caller
+    that brings no budget of its own: without one, a page could keep up to
+    MAX_CANDIDATES images of the client's per-image cap each in memory."""
+    from services import page_import_limits as limits
+    return DownloadBudget(limits.MAX_FILES_PER_IMPORT, limits.MAX_IMPORT_BYTES,
+                          max_image_pixels=limits.MAX_IMAGE_PIXELS,
+                          allowed_formats=limits.ALLOWED_IMAGE_TYPES)
+
+
+def image_referer(image_url: str, page_url: str) -> str:
+    """The Referer for an image on `page_url`: the whole page URL for the
+    page's own origin, only its origin for any other host, so a chapter
+    URL's path and query (which can carry tokens) never reach a third-party
+    image server. Image CDNs that check the Referer check the site, not the
+    page."""
+    image, page = urlsplit(image_url), urlsplit(page_url)
+    try:
+        same = (image.scheme, image.hostname, image.port) == (page.scheme, page.hostname, page.port)
+        port = page.port
+    except ValueError:                              # a malformed port
+        same, port = False, None
+    if same:
+        return page_url
+    host = page.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    return f"{page.scheme}://{host}{f':{port}' if port else ''}/"
+
+
 def download_candidates(candidates, page_url: str, client, budget: DownloadBudget = None) -> None:
     """The resource downloader: fetches and measures each candidate not
-    fetched yet, through the paced client (and within `budget`, if given)."""
+    fetched yet, through the paced client and within `budget` (by default
+    `default_budget()`)."""
+    if budget is None:
+        budget = default_budget()
     for c in candidates:
         if c.content or c.reject_reason:
             continue
-        if budget is not None:
-            if budget.images >= budget.max_images:
-                c.reject_reason = "not downloaded (too many images on the page)"
-                continue
-            budget.images += 1                  # every attempt counts, even a failed one
+        if budget.images >= budget.max_images:
+            c.reject_reason = "not downloaded (too many images on the page)"
+            continue
+        budget.images += 1                      # every attempt counts, even a failed one
         try:
-            resp = client.get(c.url, classify_body=False, headers={"Referer": page_url},
+            resp = client.get(c.url, classify_body=False,
+                              headers={"Referer": image_referer(c.url, page_url)},
                               action=f"Checking image {c.order + 1}/{len(candidates)}")
         except SourceError as e:
             c.reject_reason = f"couldn't download ({e.reason.value})"
             continue
-        if budget is not None:
-            refused = _refused_by_budget(c, resp, budget)
-            if refused:
-                c.reject_reason = refused
-                continue
-            budget.total_bytes += len(resp.content)
+        refused = _refused_by_budget(c, resp, budget)
+        if refused:
+            c.reject_reason = refused
+            continue
+        budget.total_bytes += len(resp.content)
         c.content = resp.content
         measure(c)
 
@@ -474,11 +538,50 @@ _DROP_HINT = re.compile(r"comment|sidebar|footer|header|nav|menu|breadcrumb|shar
                         r"advert|\bads?\b|recommend|login|copyright", re.I)
 
 
-def _link_text_len(el) -> int:
-    return sum(len(a.get_text(" ", strip=True)) for a in el.find_all("a"))
+# A container is a candidate only within these; their text still counts
+# towards the containers above them.
+MAX_TEXT_CONTAINERS = 5000
+MAX_TEXT_DEPTH = 200
 
 
-def _best_by_descendant_text(containers):
+def _text_sizes(soup) -> dict:
+    """id(tag) -> (text, p_text, a_text, depth) for every tag, in one pass:
+    `text` is len(tag.get_text(" ", strip=True)), `p_text`/`a_text` the sum
+    of that over the <p>/<a> tags beneath it. Asking each container
+    separately re-walks every subtree, which is quadratic on deeply nested
+    markup."""
+    from bs4 import CData, NavigableString, Tag
+    nodes = list(soup.descendants)
+    depth = {id(soup): 0}
+    for node in nodes:
+        if isinstance(node, Tag):
+            depth[id(node)] = depth[id(node.parent)] + 1
+    chars, strings, p_text, a_text, out = {}, {}, {}, {}, {}
+    for node in reversed(nodes):                    # every subtree before its root
+        pid = id(node.parent)
+        if isinstance(node, Tag):
+            nid = id(node)
+            n = strings.get(nid, 0)
+            text = chars.get(nid, 0) + max(n - 1, 0)    # stripped strings joined by " "
+            below_p, below_a = p_text.get(nid, 0), a_text.get(nid, 0)
+            out[nid] = (text, below_p, below_a, depth[nid])
+            chars[pid] = chars.get(pid, 0) + chars.get(nid, 0)
+            strings[pid] = strings.get(pid, 0) + n
+            p_text[pid] = p_text.get(pid, 0) + below_p + (text if node.name == "p" else 0)
+            a_text[pid] = a_text.get(pid, 0) + below_a + (text if node.name == "a" else 0)
+        elif type(node) in (NavigableString, CData):  # what get_text() reads
+            stripped = len(node.strip())
+            if stripped:
+                chars[pid] = chars.get(pid, 0) + stripped
+                strings[pid] = strings.get(pid, 0) + 1
+    return out
+
+
+def _direct_text_len(el) -> int:
+    return sum(len(s.strip()) for s in el.find_all(string=True, recursive=False))
+
+
+def _best_by_descendant_text(containers, sizes):
     """The container holding the most prose *anywhere* beneath it, not
     just in its direct children.
 
@@ -490,13 +593,11 @@ def _best_by_descendant_text(containers):
     """
     best, best_score, best_size, best_depth = None, 0, 0, None
     for el in containers:
-        paras = [p.get_text(" ", strip=True) for p in el.find_all("p")]
-        direct = [s.strip() for s in el.find_all(string=True, recursive=False) if s.strip()]
-        size = sum(len(p) for p in paras) + sum(len(s) for s in direct)
-        score = size - _link_text_len(el)
+        _text, paras, links, depth = sizes[id(el)]
+        size = paras + _direct_text_len(el)
+        score = size - links
         if score <= 0:
             continue
-        depth = len(list(el.parents))
         shallower_tie = score == best_score and best_depth is not None and depth < best_depth
         if score > best_score or shallower_tie:
             best, best_score, best_size, best_depth = el, score, size, depth
@@ -518,12 +619,13 @@ def extract_main_text_heuristic(html: str) -> str:
     for t in doomed:
         if not t.decomposed:
             t.decompose()
-    containers = soup.find_all(["article", "div", "section", "main", "td"])
+    sizes = _text_sizes(soup)
+    containers = [el for el in soup.find_all(["article", "div", "section", "main", "td"])
+                  if sizes[id(el)][3] <= MAX_TEXT_DEPTH][:MAX_TEXT_CONTAINERS]
     best, best_len = None, 0
     for el in containers:
-        paras = [p.get_text(" ", strip=True) for p in el.find_all("p", recursive=False)]
-        direct = [s.strip() for s in el.find_all(string=True, recursive=False) if s.strip()]
-        size = sum(len(p) for p in paras) + sum(len(s) for s in direct)
+        paras = sum(sizes[id(p)][0] for p in el.find_all("p", recursive=False))
+        size = paras + _direct_text_len(el)
         if size > best_len:
             best, best_len = el, size
     # The scan above counts only a container's *direct* children, which
@@ -540,7 +642,7 @@ def extract_main_text_heuristic(html: str) -> str:
     # always runs and only wins when it finds *substantially* more prose,
     # so a marginal difference can't flip a page that already extracted
     # correctly.
-    alt, alt_len = _best_by_descendant_text(containers)
+    alt, alt_len = _best_by_descendant_text(containers, sizes)
     if alt is not None and alt_len > best_len * 1.5:
         best = alt
     if best is None:

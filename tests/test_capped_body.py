@@ -1,4 +1,8 @@
 """lib/capped_body.read_capped: cap, declared length, deadline, close."""
+import socket
+import threading
+import time
+
 import pytest
 
 from lib import capped_body
@@ -127,3 +131,58 @@ def test_reads_an_httpx_response():
     assert resp.is_closed
     assert capped_body.read_capped(httpx.Response(200, stream=httpx.ByteStream(b"ok")),
                                    5, 10.0, Boom) == b"ok"
+
+
+@pytest.fixture
+def dripping_server():
+    """A loopback HTTP server that declares a large body and sends it one
+    byte every 0.2 s, so no single read ever times out."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    stop = threading.Event()
+
+    def handle(conn):
+        with conn:
+            conn.recv(4096)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n")
+            try:
+                while not stop.wait(0.2):
+                    conn.sendall(b"x")
+            except OSError:
+                pass
+
+    def serve():
+        while not stop.is_set():
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=handle, args=(conn,), daemon=True).start()
+
+    threading.Thread(target=serve, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.getsockname()[1]}/"
+    stop.set()
+    srv.close()
+
+
+class TooSlow(Exception):
+    pass
+
+
+def test_the_deadline_stops_a_real_dripping_requests_body(dripping_server):
+    requests = pytest.importorskip("requests")
+    resp = requests.get(dripping_server, stream=True, timeout=5)
+    started = time.monotonic()
+    with pytest.raises(TooSlow):
+        capped_body.read_capped(resp, 10**6, 1.0, Boom, make_deadline_error=TooSlow)
+    assert time.monotonic() - started < 4
+
+
+def test_the_deadline_stops_a_real_dripping_httpx_body(dripping_server):
+    httpx = pytest.importorskip("httpx")
+    with httpx.Client(timeout=5) as client, client.stream("GET", dripping_server) as resp:
+        started = time.monotonic()
+        with pytest.raises(TooSlow):
+            capped_body.read_capped(resp, 10**6, 1.0, Boom, make_deadline_error=TooSlow)
+        assert time.monotonic() - started < 4
