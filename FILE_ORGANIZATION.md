@@ -11,7 +11,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
 | `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush) | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records` |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`) | `translate_engines.py` re-exports it |
@@ -163,6 +163,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `http.py` (the one outbound GET/POST: guard on every redirect hop, pinned connection, byte cap, total deadline, fixed-text errors)
 - `proc.py` (the one runner for external commands whose output is read: own process group, tree kill on timeout or cancel, bounded output drain)
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
+- `gzip_text.py` (`pack`/`unpack`: gzip for stored text that readers must take in both plain and compressed form, with a capped inflate)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
@@ -179,6 +180,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `auto_backup_service.py`
 - `autotune_service.py` (the "Auto-tune" speech-splitting sensitivity process job: start, status, apply a measured candidate)
 - `backup_import_service.py`
+- `backup_space_check.py` (the automatic backup's free-space check before it writes a copy)
 - `benchmark_case_service.py`
 - `benchmark_lab_service.py`
 - `blocked_retry_service.py`
@@ -201,6 +203,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `disk_usage_clips_service.py`
 - `disk_usage_links.py`
 - `disk_usage_service.py`
+- `disk_usage_title_sizes.py` (each title's size split into originals, raw transcripts, line-history snapshots and regenerable files)
 - `disk_usage_trash_service.py` (Trash list, Restore, purge and empty)
 - `temp_cleanup_service.py`
 - `drama_service.py`
@@ -314,7 +317,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `disk_usage.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/

@@ -3077,3 +3077,82 @@ class TestSharedBackupHelpers:
 def _read_bytes(path):
     with open(path, "rb") as fh:
         return fh.read()
+
+
+class TestDiskSpaceCheck:
+    """Before writing a copy the backup compares the target drive's free
+    space with 1.2x the expected size (the last successful copy's size, or
+    the library's when there is none); short of it the run is skipped, the
+    warning is recorded like a failure and nothing is pruned."""
+
+    Usage = collections.namedtuple("usage", "total used free")
+
+    def _free(self, monkeypatch, free):
+        from services import backup_space_check
+        monkeypatch.setattr(backup_space_check.shutil, "disk_usage",
+                            lambda p: self.Usage(10 ** 12, 0, free))
+
+    def _folder(self):
+        return sorted(os.listdir(_default_dir()))
+
+    def test_too_little_space_skips_records_and_prunes_nothing(self, isolated_db, monkeypatch):
+        db.create_drama(title_en="A")
+        _snap()
+        last = abs_._get_state()
+        size = os.path.getsize(_default_path())
+        before = {n: _read(os.path.join(_default_dir(), n)) for n in self._folder()}
+        self._free(monkeypatch, int(size * 1.19))
+        writes = []
+        monkeypatch.setattr(las, "write_backup_zip", lambda *a, **k: writes.append(a))
+        monkeypatch.setattr(abs_, "_prune", lambda *a: writes.append("prune"))
+        with pytest.raises(RuntimeError) as e:
+            abs_._backup_job(abs_.JOB_ID, False)
+        assert writes == []
+        assert {n: _read(os.path.join(_default_dir(), n)) for n in self._folder()} == before
+        state = abs_._get_state()
+        from services import backup_space_check
+        assert state["last_error"] == backup_space_check.LOW_SPACE == str(e.value)
+        assert state["last_success_at"] == last["last_success_at"]
+        assert abs_.settings_overview()["last_error"] == backup_space_check.LOW_SPACE
+        assert db.LIBRARY_DIR not in backup_space_check.LOW_SPACE
+        _enable()
+        assert not abs_.is_due()          # retried like a failed run, not every hour
+
+    def test_enough_space_backs_up_and_records_the_copy_size(self, isolated_db, monkeypatch):
+        db.create_drama(title_en="A")
+        _snap()
+        size = os.path.getsize(_default_path())
+        self._free(monkeypatch, int(size * 1.21) + 1)
+        _snap()
+        state = abs_._get_state()
+        assert state["last_error"] is None
+        assert state["last_copy_size"] == os.path.getsize(_default_path())
+        assert state["last_copy_kind"] == "db-only"
+
+    def test_first_copy_is_measured_against_the_database(self, isolated_db, monkeypatch):
+        db.create_drama(title_en="A")
+        self._free(monkeypatch, os.path.getsize(db.DB_PATH))
+        with pytest.raises(RuntimeError):
+            abs_._backup_job(abs_.JOB_ID, False)
+        assert os.listdir(_default_dir()) == []
+
+    def test_a_copy_of_the_other_kind_is_measured_against_the_library(self, isolated_db,
+                                                                      monkeypatch):
+        did = db.create_drama(title_en="A")
+        _snap()
+        with open(os.path.join(db.drama_dir(did), "audio.wav"), "wb") as fh:
+            fh.write(b"x" * 2_000_000)
+        self._free(monkeypatch, 2_000_000)
+        with pytest.raises(RuntimeError):
+            abs_._backup_job(abs_.JOB_ID, True)
+        assert len(_copy_names()) == 1
+
+    def test_unreadable_free_space_never_blocks(self, isolated_db, monkeypatch):
+        from services import backup_space_check
+        db.create_drama(title_en="A")
+
+        def no_info(path):
+            raise OSError("not supported")
+        monkeypatch.setattr(backup_space_check.shutil, "disk_usage", no_info)
+        _snap()
+        assert len(_copy_names()) == 1

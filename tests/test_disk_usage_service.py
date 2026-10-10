@@ -6,6 +6,7 @@ Temp folders only.
 
 import json
 import os
+import shutil
 
 import pytest
 
@@ -1514,3 +1515,81 @@ class TestTrashHardening:
         monkeypatch.setattr(dts, "_read_manifest", lambda e: (read.append(e), real(e))[1])
         res = dts.trash_list()
         assert res["item_count"] == 1 and fake not in read
+
+
+class TestTitleSizes:
+    """Each title in library/dramas is split by kind: originals, raw
+    transcripts, line-history snapshots (database) and regenerable files."""
+
+    def _title(self):
+        did = db.create_drama(title_en="T", source_video_filename="source.mp4",
+                              audio_filename="audio.wav",
+                              novel_reference_filename="novel_reference.txt")
+        d = os.path.join(db.DRAMAS_DIR, str(did))
+        shutil.rmtree(d, ignore_errors=True)     # the tree fixture's folders "1" and "2"
+        for rel, size in [("source.mp4", 100), ("audio.wav", 200), ("novel_reference.txt", 30),
+                          ("raw_novel_context.txt", 40), ("kept_media/replaced-1.mp4", 50),
+                          ("pages/0001.png", 60),
+                          ("pages/typeset_0001.png", 7), ("dub_clips/a.wav", 8),
+                          ("ocr_page.png", 9), ("stray.tmp", 1),
+                          ("raw_transcript.json", 11),
+                          ("raw_transcript.20260101T000000000000Z.json.gz", 12),
+                          ("subtitles.srt", 1000)]:
+            _write(os.path.join(d, rel), size)
+        from core import Line
+        for i in range(4):
+            db.save_line_history_snapshot(did, [Line(idx=0, start=0, end=1, zh=f"第{i}版")],
+                                          "s")
+        return did
+
+    def _history_bytes(self, did):
+        import contextlib
+        with contextlib.closing(db.get_conn()) as c:
+            return sum(len(r[0] if isinstance(r[0], bytes) else r[0].encode("utf-8"))
+                       for r in c.execute("SELECT snapshot_json FROM line_history "
+                                          "WHERE drama_id = ?", (did,)))
+
+    def test_each_title_is_split_by_kind(self, tree):
+        did = self._title()
+        sizes = _item(dus.scan("library/dramas"), str(did))["title_sizes"]
+        assert sizes == {"originals_bytes": 100 + 200 + 30 + 40 + 50 + 60,
+                         "raw_transcript_bytes": 11 + 12,
+                         "history_bytes": self._history_bytes(did),
+                         "regenerable_bytes": 7 + 8 + 9 + 1,
+                         "complete": True}
+        assert sizes["history_bytes"] > 0
+
+    def test_a_folder_with_no_title_row_still_gets_its_files_split(self, tree):
+        sizes = _item(dus.scan("library/dramas"), "1")["title_sizes"]
+        assert sizes["regenerable_bytes"] == 700 + 300
+        assert sizes["history_bytes"] == 0 and sizes["raw_transcript_bytes"] == 0
+
+    def test_only_title_folders_carry_the_split(self, tree):
+        did = self._title()
+        assert _item(dus.scan(""), "library")["title_sizes"] is None
+        assert all(i["title_sizes"] is None for i in dus.scan("library")["items"])
+        assert all(i["title_sizes"] is None
+                   for i in dus.scan(f"library/dramas/{did}")["items"])
+        _write(os.path.join(db.DRAMAS_DIR, "notes.txt"), 5)
+        assert _item(dus.scan("library/dramas"), "notes.txt")["title_sizes"] is None
+
+    def test_links_inside_a_title_are_never_followed(self, tree, tmp_path):
+        did = self._title()
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        (outside / "big.wav").write_bytes(b"x" * 50_000)
+        d = os.path.join(db.DRAMAS_DIR, str(did))
+        try:
+            os.symlink(str(outside), os.path.join(d, "kept_media", "linked"))
+            os.symlink(str(outside / "big.wav"), os.path.join(d, "source_link.mp4"))
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable")
+        sizes = _item(dus.scan("library/dramas"), str(did))["title_sizes"]
+        assert sizes["originals_bytes"] == 100 + 200 + 30 + 40 + 50 + 60
+
+    def test_a_cut_walk_is_reported_incomplete(self, tree, monkeypatch):
+        did = self._title()
+        from services import disk_usage_title_sizes as dts_
+        monkeypatch.setattr(dts_, "MAX_ENTRIES", 3)
+        sizes = _item(dus.scan("library/dramas"), str(did))["title_sizes"]
+        assert sizes["complete"] is False

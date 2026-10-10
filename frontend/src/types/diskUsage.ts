@@ -9,6 +9,17 @@ export type DiskUsageMovable = {
   what: 'backups' | null
 }
 
+// A title folder's size by kind (set only when library/dramas is listed). Numbers only.
+export type DiskUsageTitleSizes = {
+  originals_bytes: number
+  raw_transcript_bytes: number
+  // Line-history snapshots, as stored in the database (not part of size_bytes).
+  history_bytes: number
+  regenerable_bytes: number
+  // False when a limit cut the walk short: the file sizes are lower bounds.
+  complete: boolean
+}
+
 export type DiskUsageItem = {
   name: string
   path: string
@@ -31,6 +42,7 @@ export type DiskUsageItem = {
   irreplaceable: boolean
   irreplaceable_note: string | null
   movable: DiskUsageMovable
+  title_sizes: DiskUsageTitleSizes | null
 }
 
 export type DiskUsageTrashSummary = { size_bytes: number; item_count: number; partial: boolean }

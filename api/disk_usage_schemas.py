@@ -10,6 +10,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
+from api.schemas.disk_usage import DiskUsageTitleSizes
+
 
 class DiskUsageRegenerable(BaseModel):
     label: str
@@ -50,6 +52,8 @@ class DiskUsageItem(BaseModel):
                                                    "clearing needs an extra confirm.")
     irreplaceable_note: Optional[str] = None
     movable: DiskUsageMovable
+    title_sizes: Optional[DiskUsageTitleSizes] = Field(
+        None, description="Set on each title folder when library/dramas is listed.")
 
 
 class DiskUsageTrashSummary(BaseModel):

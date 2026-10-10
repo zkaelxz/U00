@@ -4,10 +4,20 @@ on disk next to the drama (R1-lite).
 
 Lines get edited, merged, split and re-transcribed; this file never does.
 The first run writes drama_dir/raw_transcript.json; every later run writes
-raw_transcript.<timestamp>.json instead -- nothing here ever overwrites or
-rewrites an existing file. The Review step reads the newest one back to
-show "what did the transcription originally say for this line?" and to
-restore a single line's text from it.
+raw_transcript.<timestamp>.json instead -- nothing here ever overwrites an
+existing file. The Review step reads the newest one back to show "what did
+the transcription originally say for this line?" and to restore a single
+line's text from it.
+
+Retention: so re-transcribing a title many times can't grow its folder
+without limit, while every run stays reachable, the first run (the true
+original) and the newest KEEP_NEWEST_PLAIN stay plain JSON and the runs in
+between are gzip-compressed in place to <name>.json.gz -- never deleted. A
+run is compressed into a hidden temp file, renamed to its .gz name and read
+back; only when it matches the plain file byte for byte is the plain file
+removed. Writing, retention and the readers here take the title's lock, so
+nothing is compressed while this process reads it; a plain file another
+process still has open is simply removed at a later run.
 
 Each file also carries a "settings" object (build_run_settings): what the
 run was configured with, so two runs can be compared later. Files written
@@ -15,16 +25,47 @@ before it existed have no "settings" key; every reader must treat it as
 optional.
 """
 
+import contextlib
 import datetime
 import functools
 import glob
 import json
+import logging
 import os
+import re
 import subprocess
+import threading
+import time
+import uuid
 
 import sensitivity_preset as presets
+from lib import gzip_text
+
+log = logging.getLogger(__name__)
 
 RAW_NAME = "raw_transcript.json"
+KEEP_NEWEST_PLAIN = 5
+GZ_SUFFIX = ".gz"
+_TMP_PREFIX = ".raw_transcript."
+# A temp file this old belongs to no running compression (one takes seconds).
+_STALE_TMP_SECONDS = 3600
+_RUN_NAME_RE = re.compile(r"raw_transcript(\.[^/\\]+)?\.json(\.gz)?")
+
+_locks_guard = threading.Lock()
+_locks = {}
+
+
+def title_lock(drama_dir: str) -> threading.RLock:
+    """The one lock for a title's raw transcripts: held while a run is
+    written and retention runs, and while a reader opens a run."""
+    key = os.path.normcase(os.path.abspath(drama_dir))
+    with _locks_guard:
+        return _locks.setdefault(key, threading.RLock())
+
+
+def is_run_name(name: str) -> bool:
+    """A raw transcript run's file name, plain or compressed."""
+    return bool(_RUN_NAME_RE.fullmatch(name))
 
 # The only keys a run's "settings" object may hold. Everything is a number,
 # a boolean, a short enum-like string or a length: never a key, token, path,
@@ -153,35 +194,138 @@ def write_raw_transcript(drama_dir: str, segments, lines, backend: str, model: s
     }
     if settings is not None:
         payload["settings"] = settings
+    with title_lock(drama_dir):
+        path = _write_new(drama_dir, payload)
+        try:
+            apply_retention(drama_dir)
+        except Exception as exc:
+            # The run itself is saved; retention is tried again after the next one.
+            log.warning("Could not compress older raw transcripts: %s", type(exc).__name__)
+    return path
+
+
+def _write_new(drama_dir: str, payload: dict) -> str:
     path = os.path.join(drama_dir, RAW_NAME)
     n = 0
     while True:
-        try:
-            with open(path, "x", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
-            return path
-        except FileExistsError:
-            stamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
-            n += 1
-            path = os.path.join(drama_dir, f"raw_transcript.{stamp}{'' if n == 1 else f'-{n}'}.json")
+        # A .gz of the same name counts as taken: retention may have
+        # compressed the run that held it.
+        if not os.path.exists(path + GZ_SUFFIX):
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
+                return path
+            except FileExistsError:
+                pass
+        stamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+        n += 1
+        path = os.path.join(drama_dir, f"raw_transcript.{stamp}{'' if n == 1 else f'-{n}'}.json")
+
+
+def _run_key(path: str) -> str:
+    name = os.path.basename(path)
+    return name[:-len(GZ_SUFFIX)] if name.endswith(GZ_SUFFIX) else name
 
 
 def list_raw_transcripts(drama_dir: str) -> list:
-    """Paths oldest first: raw_transcript.json, then the timestamped runs
-    (their names sort chronologically)."""
+    """Paths oldest first, plain (.json) or compressed (.json.gz):
+    raw_transcript.json, then the timestamped runs (their names sort
+    chronologically). A run present in both forms (its plain file couldn't
+    be removed yet) is listed once, as the plain file."""
     first = os.path.join(drama_dir, RAW_NAME)
-    later = sorted(glob.glob(os.path.join(drama_dir, "raw_transcript.*.json")))
-    return ([first] if os.path.exists(first) else []) + later
+    by_run = {}
+    for path in (glob.glob(os.path.join(drama_dir, "raw_transcript.*.json"))
+                 + glob.glob(os.path.join(drama_dir, "raw_transcript.*.json" + GZ_SUFFIX))):
+        key = _run_key(path)
+        if key not in by_run or not path.endswith(GZ_SUFFIX):
+            by_run[key] = path
+    if os.path.exists(first):
+        head = [first]
+    elif os.path.exists(first + GZ_SUFFIX):
+        head = [first + GZ_SUFFIX]
+    else:
+        head = []
+    return head + [by_run[k] for k in sorted(by_run)]
+
+
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        data = f.read()
+    return gzip_text.gunzip_bytes(data) if path.endswith(GZ_SUFFIX) else data
+
+
+def read_raw_transcript(path: str) -> dict:
+    """One run's transcript, plain or compressed."""
+    return json.loads(_read_bytes(path).decode("utf-8"))
 
 
 def load_latest(drama_dir: str):
     """The most recent run's transcript -- the one the drama's current
     lines came from -- or None if there isn't one."""
-    paths = list_raw_transcripts(drama_dir)
-    if not paths:
-        return None
-    with open(paths[-1], encoding="utf-8") as f:
-        return json.load(f)
+    with title_lock(drama_dir):
+        paths = list_raw_transcripts(drama_dir)
+        if not paths:
+            return None
+        return read_raw_transcript(paths[-1])
+
+
+def _same_content(packed_path: str, plain: bytes) -> bool:
+    try:
+        return _read_bytes(packed_path) == plain
+    except (OSError, ValueError):
+        return False
+
+
+def _compress(plain_path: str) -> None:
+    """Compresses one plain run next to itself, then removes the plain file
+    only once the .gz reads back identical. An existing .gz (left by an
+    earlier run whose plain file couldn't be removed) is reused if it
+    matches and replaced if it doesn't."""
+    with open(plain_path, "rb") as f:
+        plain = f.read()
+    packed_path = plain_path + GZ_SUFFIX
+    if not _same_content(packed_path, plain):
+        folder = os.path.dirname(plain_path)
+        tmp = os.path.join(folder, f"{_TMP_PREFIX}{uuid.uuid4().hex}.json.gz.tmp")
+        try:
+            with open(tmp, "xb") as f:
+                f.write(gzip_text.pack_bytes(plain))
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, packed_path)
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+        if not _same_content(packed_path, plain):
+            with contextlib.suppress(OSError):
+                os.remove(packed_path)
+            log.warning("A compressed raw transcript didn't read back the same; kept it plain")
+            return
+    try:
+        os.remove(plain_path)
+    except OSError:
+        # In use elsewhere (another process reading it on Windows): both
+        # forms stay, readers take the plain one, a later run removes it.
+        pass
+
+
+def _remove_stale_temp(drama_dir: str) -> None:
+    now = time.time()
+    for path in glob.glob(os.path.join(drama_dir, _TMP_PREFIX + "*.tmp")):
+        with contextlib.suppress(OSError):
+            if now - os.path.getmtime(path) > _STALE_TMP_SECONDS:
+                os.remove(path)
+
+
+def apply_retention(drama_dir: str) -> None:
+    """Compresses every run but the first and the newest KEEP_NEWEST_PLAIN.
+    Deletes no run. Takes the title's lock."""
+    with title_lock(drama_dir):
+        _remove_stale_temp(drama_dir)
+        paths = list_raw_transcripts(drama_dir)
+        for path in paths[1:-KEEP_NEWEST_PLAIN]:
+            if not path.endswith(GZ_SUFFIX):
+                _compress(path)
 
 
 def original_text_for_line(raw: dict, line) -> str:

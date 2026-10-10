@@ -16,7 +16,8 @@ few rotating copies, plus restoring a single drama from any of them.
   SQLite quick_check + manifest), flushed to disk, and only then linked
   into place under a name no file has (never over an existing file). Only
   after that are old copies pruned. A failed backup or failed check never
-  deletes anything.
+  deletes anything; nor does a run skipped for want of free space
+  (services/backup_space_check.py).
 - Ownership: each library has a random id, made once and kept in
   app_settings (IDENTITY_KEY) with the time it was made, a sequence number
   that goes up by one for every copy it writes, and the (sequence, name)
@@ -107,7 +108,9 @@ import db
 import segment_splitting
 import sensitivity_preset
 from db import fsync_dir as _fsync_dir
+from lib import gzip_text
 from lib.link_new import link_new
+from services import backup_space_check as space
 from services import delete_service
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
@@ -1028,6 +1031,10 @@ def _place_copy(tmp: str, folder: str, now: datetime.datetime) -> str:
     raise OSError("no free backup copy name")
 
 
+class _LowSpace(Exception):
+    pass
+
+
 def _backup_job(job_id, include_media: bool):
     now = _now()
     started = _iso(now)
@@ -1035,6 +1042,8 @@ def _backup_job(job_id, include_media: bool):
     tmp = None
     try:
         target = _target_dir(create=True)
+        if not space.has_room(target, include_media, _get_state()):
+            raise _LowSpace()
         fd, tmp = tempfile.mkstemp(prefix=".baihe_snapshot.partial-", suffix=".zip",
                                    dir=target)
         os.close(fd)
@@ -1085,16 +1094,18 @@ def _backup_job(job_id, include_media: bool):
         # below removes the partial archive.
         raise
     except Exception as exc:
+        error = space.LOW_SPACE if isinstance(exc, _LowSpace) else _FAILED
         log.warning("Automatic backup failed: %s", type(exc).__name__)
-        _update_state(last_error=_FAILED)
-        raise RuntimeError(_FAILED) from None
+        _update_state(last_error=error)
+        raise RuntimeError(error) from None
     finally:
         if tmp is not None:
             with contextlib.suppress(OSError):
                 os.remove(tmp)
-    _update_state(last_success_at=started, last_error=None)
-    background_jobs.set_result(job_id, {"size": size,
-                                        "kind": "full" if include_media else "db-only"})
+    kind = space.copy_kind(include_media)
+    _update_state(last_success_at=started, last_error=None, last_copy_size=size,
+                  last_copy_kind=kind)
+    background_jobs.set_result(job_id, {"size": size, "kind": kind})
     background_jobs.update_progress(job_id, 1.0, "Backup ready.")
 
 
@@ -1282,6 +1293,7 @@ _SKIPPED_TABLES = {
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
+_MAX_LINES_JSON = 64 * 1024 ** 2    # older line_history values are gzip (db.PLAIN_SNAPSHOTS)
 SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
                    "glossary_dismissals")
 # Columns naming a file in the drama folder, with the one subfolder the app
@@ -1385,7 +1397,7 @@ def _remap_json_lines(value, line_map, import_as=None):
     (restoring the version writes it back into lines), and a value that
     isn't a list of lines becomes an empty list."""
     try:
-        items = json.loads(value) if value else None
+        items = json.loads(gzip_text.unpack(value, _MAX_LINES_JSON)) if value else None
     except (ValueError, RecursionError):
         return value if import_as is None else "[]"
     if not isinstance(items, list):

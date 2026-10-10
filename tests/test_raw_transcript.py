@@ -177,3 +177,117 @@ class TestRunSettings:
         assert set(s) == set(rt.SETTINGS_KEYS)
         assert s["whisper_size"] == "small" and s["beam_size"] == 9 and s["min_silence_ms"] == 700
         assert s["transcript_mode"] == "have_transcript" and s["asr_backend"] == "whisper"
+
+
+def _runs(ddir, n):
+    """n runs, each with its own text; returns their paths oldest first."""
+    for i in range(n):
+        rt.write_raw_transcript(ddir, [{"start": 0, "end": 1, "text": f"run{i}"}],
+                                [Line(idx=0, start=0, end=1, zh=f"run{i}")], backend="whisper")
+    return rt.list_raw_transcripts(ddir)
+
+
+def _texts(ddir):
+    return [rt.read_raw_transcript(p)["text"] for p in rt.list_raw_transcripts(ddir)]
+
+
+class TestRetention:
+    def test_keeps_the_first_and_newest_five_plain_and_compresses_the_rest(self, tmp_path):
+        ddir = str(tmp_path)
+        paths = _runs(ddir, 9)
+        names = [os.path.basename(p) for p in paths]
+        assert len(paths) == 9 and names[0] == "raw_transcript.json"
+        plain = [n for n in names if n.endswith(".json")]
+        packed = [n for n in names if n.endswith(".json.gz")]
+        assert plain == [names[0]] + names[-rt.KEEP_NEWEST_PLAIN:]
+        assert packed == names[1:4]
+        # Nothing is deleted: every run is still there, in order, readable.
+        assert _texts(ddir) == [f"run{i}" for i in range(9)]
+        for n in packed:
+            assert not os.path.exists(os.path.join(ddir, n[:-3]))
+        assert not [n for n in os.listdir(ddir) if n.startswith(".")]
+
+    def test_a_compressed_run_reads_back_byte_for_byte(self, tmp_path):
+        ddir = str(tmp_path)
+        _runs(ddir, 2)
+        second = rt.list_raw_transcripts(ddir)[1]
+        before = _bytes(second)
+        _runs(ddir, 6)
+        packed = rt.list_raw_transcripts(ddir)[1]
+        assert packed == second + ".gz"
+        import gzip
+        assert gzip.decompress(_bytes(packed)) == before
+
+    def test_the_newest_reader_still_finds_the_newest_run(self, tmp_path):
+        ddir = str(tmp_path)
+        _runs(ddir, 12)
+        assert rt.load_latest(ddir)["text"] == "run11"
+
+    def test_six_runs_or_fewer_stay_plain(self, tmp_path):
+        ddir = str(tmp_path)
+        paths = _runs(ddir, 6)
+        assert all(p.endswith(".json") for p in paths)
+
+    def test_a_failed_check_keeps_the_plain_file_and_drops_the_copy(self, tmp_path, monkeypatch):
+        ddir = str(tmp_path)
+        _runs(ddir, 6)
+        monkeypatch.setattr(rt, "_same_content", lambda *a: False)
+        _runs(ddir, 1)
+        names = os.listdir(ddir)
+        assert len(names) == 7 and all(n.endswith(".json") for n in names)
+        assert _texts(ddir) == [f"run{i}" for i in range(6)] + ["run0"]
+
+    def test_a_plain_file_that_cant_be_removed_is_listed_once_and_removed_later(
+            self, tmp_path, monkeypatch):
+        ddir = str(tmp_path)
+        _runs(ddir, 6)
+        real_remove = os.remove
+
+        def locked(path):
+            raise PermissionError("in use")
+        monkeypatch.setattr(rt.os, "remove", locked)
+        _runs(ddir, 1)
+        second = os.path.join(ddir, os.path.basename(rt.list_raw_transcripts(ddir)[1]))
+        assert second.endswith(".json")      # the plain file is preferred while both exist
+        assert os.path.exists(second + ".gz")
+        assert len(rt.list_raw_transcripts(ddir)) == 7
+        monkeypatch.setattr(rt.os, "remove", real_remove)
+        rt.apply_retention(ddir)
+        assert not os.path.exists(second) and os.path.exists(second + ".gz")
+        assert len(rt.list_raw_transcripts(ddir)) == 7
+
+    def test_a_retention_error_never_fails_the_run(self, tmp_path, monkeypatch):
+        ddir = str(tmp_path)
+        _runs(ddir, 6)
+
+        def boom(*a):
+            raise OSError("disk hiccup")
+        monkeypatch.setattr(rt, "_compress", boom)
+        path = rt.write_raw_transcript(ddir, SEGMENTS, [], backend="whisper")
+        assert rt.load_latest(ddir)["text"] == rt.read_raw_transcript(path)["text"]
+        assert len(rt.list_raw_transcripts(ddir)) == 7
+
+    def test_retention_waits_for_a_reader_of_the_same_title(self, tmp_path):
+        import threading
+        ddir = str(tmp_path)
+        _runs(ddir, 6)
+        with rt.title_lock(ddir):
+            t = threading.Thread(target=_runs, args=(ddir, 1))
+            t.start()
+            t.join(timeout=0.3)
+            assert t.is_alive()
+            assert not [n for n in os.listdir(ddir) if n.endswith(".gz")]
+        t.join(timeout=10)
+        assert not t.is_alive()
+        assert len([n for n in os.listdir(ddir) if n.endswith(".gz")]) == 1
+
+    def test_an_old_leftover_temp_file_is_removed(self, tmp_path):
+        ddir = str(tmp_path)
+        _runs(ddir, 1)
+        stale = os.path.join(ddir, ".raw_transcript.abc.json.gz.tmp")
+        fresh = os.path.join(ddir, ".raw_transcript.def.json.gz.tmp")
+        for p in (stale, fresh):
+            open(p, "wb").close()
+        os.utime(stale, (1, 1))
+        rt.apply_retention(ddir)
+        assert not os.path.exists(stale) and os.path.exists(fresh)

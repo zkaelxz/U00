@@ -23,6 +23,7 @@ import weakref
 from typing import List
 
 import portable
+from lib import gzip_text
 
 # Next to the code for a source checkout; the per-user data folder for an
 # installed copy (portable.data_dir()).
@@ -4627,6 +4628,9 @@ def delete_preset(preset_id: int):
 # 9,000-line title. Past it the remaining lines are saved without words, so a
 # restore re-splits them proportionally rather than growing every snapshot.
 MAX_SNAPSHOT_WORD_BYTES = 4_000_000
+# Older snapshots are rarely opened, so they are kept gzip-compressed (a BLOB
+# in the same column; get_line_history_snapshot reads both forms).
+PLAIN_SNAPSHOTS = 3
 
 
 def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int = 10):
@@ -4676,6 +4680,13 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
         if len(ids) > keep_last:
             old_ids = [r["id"] for r in ids[keep_last:]]
             conn.executemany("DELETE FROM line_history WHERE id = ?", [(i,) for i in old_ids])
+        for old_id, text in conn.execute(
+                "SELECT id, snapshot_json FROM line_history WHERE typeof(snapshot_json) = 'text' "
+                "AND id IN (SELECT id FROM line_history WHERE drama_id = ? ORDER BY created_at DESC,"
+                " id DESC LIMIT -1 OFFSET ?)", (drama_id, PLAIN_SNAPSHOTS)).fetchall():
+            packed = gzip_text.pack(text)
+            if gzip_text.unpack(packed) == text:
+                conn.execute("UPDATE line_history SET snapshot_json = ? WHERE id = ?", (packed, old_id))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -4701,7 +4712,7 @@ def get_line_history_snapshot(history_id: int):
         row = conn.execute("SELECT snapshot_json FROM line_history WHERE id = ?", (history_id,)).fetchone()
     if not row:
         return None
-    return json.loads(row["snapshot_json"])
+    return json.loads(gzip_text.unpack(row["snapshot_json"]))
 
 
 # ---------------------------------------------------------------------------

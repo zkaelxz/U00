@@ -4,7 +4,7 @@ import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
   CLIP_BATCH_SIZE, clipBatches, clipsDoneBeforeError, describeClipsStopped, sumClipResults,
-  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
+  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, titleSizesText, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
@@ -12,7 +12,7 @@ const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
   percent_of_parent: 40, modified_at: null, is_link: false, contains_link: false, linked_bytes: null, linked_files: null, linked_complete: null,
   complete: true, protected: false,
   protected_reason: null, regenerable: null, irreplaceable: false, irreplaceable_note: null,
-  movable: { supported: false, reason: 'Fixed place.', what: null }, ...over,
+  movable: { supported: false, reason: 'Fixed place.', what: null }, title_sizes: null, ...over,
 })
 const scan = { busy_reason: null }
 
@@ -182,5 +182,20 @@ describe('clip batches and partial failures', () => {
   it('says "Moved N of M" and why it stopped', () => {
     expect(describeClipsStopped({ moved_count: 502, moved_bytes: 2000, skipped: [{ id: 'a', reason: 'changed' }] }, 1001, 'A job is running.'))
       .toBe('Moved 502 of 1,001 clips (2.0 KB) to Trash; stopped because A job is running. 1 clip skipped. You can restore them from Trash.')
+  })
+})
+
+describe('title size by kind', () => {
+  const sizes = { originals_bytes: 20_000_000_000, raw_transcript_bytes: 3_100_000, history_bytes: 420_000, regenerable_bytes: 800_000_000, complete: true }
+  it('lists originals, raw transcripts, line history and rebuildable files', () => {
+    expect(titleSizesText(sizes)).toBe(
+      'Originals 20.0 GB · raw transcripts 3.1 MB · line history 420.0 KB (in the database) · rebuildable files 800.0 MB')
+  })
+  it('marks the file sizes as lower bounds when the walk was cut short', () => {
+    expect(titleSizesText({ ...sizes, complete: false })).toBe(
+      'Originals at least 20.0 GB · raw transcripts at least 3.1 MB · line history 420.0 KB (in the database) · rebuildable files at least 800.0 MB')
+  })
+  it('says nothing for an item that is not a title', () => {
+    expect(titleSizesText(null)).toBeNull()
   })
 })
