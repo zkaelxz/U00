@@ -68,7 +68,7 @@ test('shows readiness and generates subtitle and ASS text', async ({ page }) => 
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByTestId('export-text')).toContainText('[Script Info]')
-  await expect(page.getByTestId('export-download')).toHaveAttribute('download', 'drama_1_en.ass')
+  await expect(page.getByTestId('export-download')).toHaveAttribute('download', 'Grandmaster of Demonic Cultivation - subtitles (en).ass')
 })
 
 test('bad ASS settings are explained before any request', async ({ page }) => {

@@ -35,7 +35,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('system', 'performance', 'Performance', 'gpu use gpu limit jobs at once parallel unload ollama graphics'),
   e('system', 'loaded-models', 'Loaded models', 'memory vram unload ollama whisper'),
   e('system', 'auto-resume', 'Resume interrupted batches', 'bulk auto resume startup translation batches'),
-  e('system', 'advanced', 'Advanced', 'ocr offline models downloads uploads server addresses'),
+  e('system', 'advanced', 'Advanced', 'ocr offline models memory to keep free downloads uploads server addresses'),
   e('system', 'advanced', 'Ollama URL', 'ollama server address endpoint local model'),
   e('system', 'advanced', 'Ollama context window', 'num_ctx tokens offline performance'),
   e('system', 'advanced', 'Offline Whisper model folder', 'faster-whisper hugging face'),

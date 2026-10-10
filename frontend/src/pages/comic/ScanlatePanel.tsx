@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { scanlateApi, scanlateExportUrl } from '../../api/scanlate'
+import { engineOptionLabel, engineShortName } from '../../api/translate'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -119,6 +120,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }
 
   const blocked = runBlockedReason(config, engine)
   const usable = usableEngines(config)
+  const selectedEngine = usable.find((e) => e.name === engine)
 
   // "This chapter" only when the title has more than one chapter.
   const chapterScope = scope === 'chapter' && scopes?.chapter ? scopes.chapter : null
@@ -242,12 +244,15 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }
       )}
 
       <div className="scanlate-run-row">
-        <Field label={AI_ENGINE_LABEL} help="Keys stay on the PC; engines without a key are not listed.">
+        <Field
+          label={AI_ENGINE_LABEL}
+          help={`Keys stay on the PC; engines without a key are not listed.${selectedEngine ? ` ${engineShortName(selectedEngine)}: ${selectedEngine.label}` : ''}`}
+        >
           <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={!usable.length}>
             {usable.length === 0 && <option value="">No engine has a key</option>}
             {usable.map((e) => (
               <option key={e.name} value={e.name}>
-                {e.label}
+                {engineOptionLabel(e)}
               </option>
             ))}
           </select>
