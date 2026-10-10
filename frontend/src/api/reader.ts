@@ -26,6 +26,7 @@ import type {
   RichDeckDownload,
 } from '../types/reader'
 import { apiUrl, fetchBody, getJson, postJson } from './client'
+import { dispositionFilename } from './export'
 
 type Fetch = typeof fetch
 
@@ -66,11 +67,6 @@ export function readerEngines(all: TranslateEngine[]): TranslateEngine[] {
   return all.filter((e) => e.key_configured && !TRANSLATION_ONLY.has(e.name))
 }
 
-function headerFilename(resp: Response, fallback: string): string {
-  const m = /filename="([^"]+)"/.exec(resp.headers.get('Content-Disposition') ?? '')
-  return m ? m[1] : fallback
-}
-
 // The sentence-card deck is fetched rather than linked so the page can read
 // X-Audio-Omitted (no media.stream: text-only deck) and X-Cards-Capped.
 export async function downloadRichDeck(id: number, fetchImpl?: Fetch): Promise<RichDeckDownload> {
@@ -83,7 +79,7 @@ export async function downloadRichDeck(id: number, fetchImpl?: Fetch): Promise<R
   const capped = resp.headers.get('X-Cards-Capped')
   return {
     blob: await resp.blob(),
-    filename: headerFilename(resp, `drama_${id}_vocab_sentence.apkg`),
+    filename: dispositionFilename(resp.headers.get('Content-Disposition')) ?? `drama_${id}_vocab_sentence.apkg`,
     audioOmitted: resp.headers.get('X-Audio-Omitted') === 'true',
     cardsCapped: capped && /^\d+$/.test(capped) ? Number(capped) : null,
   }
