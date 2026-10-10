@@ -128,9 +128,16 @@ def _classify(report: list, installed: dict) -> list:
             kind = "install"
         else:
             new, old = _vkey(version), _vkey(have)
-            if new is None or old is None or new == old:
+            if new is None or old is None:
+                if version == have:
+                    continue
+                # pip's report lists only what it will install, so pip replaces
+                # this even though neither direction can be told.
+                kind = "change"
+            elif new == old:
                 continue
-            kind = "upgrade" if new > old else "downgrade"
+            else:
+                kind = "upgrade" if new > old else "downgrade"
         changes.append({"name": name, "from": have, "to": version, "kind": kind})
     return changes
 

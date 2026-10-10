@@ -88,9 +88,20 @@ def queue(packages, confirm: bool = False, accept_risk: bool = False) -> dict:
     install; a plan with a hard block, or a risk not accepted, is refused."""
     if confirm is not True:
         raise gaps.AdminActionUnconfirmed("Confirmation required.")
-    if background_jobs.exclusive_held():
+    # A merged queue runs a fresh dry run, so it takes the preview's lock and re-check.
+    if background_jobs.exclusive_held() or not _PREVIEW_LOCK.acquire(blocking=False):
         raise ConflictError("An install, restore or another preview is in progress; "
                             "try again in a moment.")
+    try:
+        if background_jobs.exclusive_held():
+            raise ConflictError("An install, restore or another preview is in progress; "
+                                "try again in a moment.")
+        return _queue(packages, accept_risk)
+    finally:
+        _PREVIEW_LOCK.release()
+
+
+def _queue(packages, accept_risk: bool) -> dict:
     current, _problem = pending_install.read_pending()
     queued = (current or {}).get("packages", [])
     # The queue runs as one pip command, so it is planned (clash check, risks)

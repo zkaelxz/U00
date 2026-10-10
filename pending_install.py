@@ -45,6 +45,7 @@ TAIL_LINES = 40
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 _VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.!_-]{0,63}$")      # no "+": local builds aren't on PyPI
 LOCK_TOUCH_SECONDS = 30
+_PINS_RE = re.compile(r"^baihe-torch-pins-[A-Za-z0-9_]+\.txt$")      # install_registry.write_torch_pins
 # Mirrors diagnostics.PIP_INSTALL_FLAGS, which this stdlib-only module cannot import;
 # a test keeps the two equal.
 _PIP_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
@@ -314,17 +315,16 @@ def _release_lock() -> None:
 
 def apply_running() -> bool:
     """True while a live apply holds the lock (a stale one doesn't count)."""
-    try:
-        mtime = os.path.getmtime(_path("lock"))
-    except OSError:
-        return False
-    if time.time() - mtime >= OVERALL_SECONDS + 120:
-        return False
+    # The OS lock first: a clock stepped forward must not age out a lock still held.
     fd, busy = _try_hold(create=False)
     if busy:
         return True
     if fd is not None:
         _close_held(fd)
+    try:
+        mtime = os.path.getmtime(_path("lock"))
+    except OSError:
+        return False
     return _record_live(_read_json("lock") or {}, mtime)
 
 
@@ -361,7 +361,7 @@ def run_capture(argv: list, timeout: float, echo: bool = False):
         if time.monotonic() - touched[0] >= LOCK_TOUCH_SECONDS:
             touched[0] = time.monotonic()
             try:
-                fd = _LOCK["fd"]
+                fd = _LOCK.get("fd")
                 if fd is not None and not _CURRENT["stop"]:     # the watchdog may be closing it
                     _write_held(fd)             # Windows can't utime a file with an open handle
                 else:
@@ -423,22 +423,33 @@ def _argv_accepted(argv) -> bool:
             or argv[1:4] != ["-m", "pip", "install"]
             or not all(isinstance(a, str) for a in argv)):
         return False
-    allowed_dirs = [os.path.normcase(os.path.realpath(d))
-                    for d in (state_dir(), tempfile.gettempdir(),
-                              os.path.dirname(os.path.abspath(__file__)))]
+    # pip reads options such as --extra-index-url from a constraints file, so
+    # only the app's own file and a torch pins file may follow -c.
+    app_constraints = _norm(os.path.join(os.path.dirname(os.path.abspath(__file__)), "constraints.txt"))
     rest, i = argv[4:], 0
     while i < len(rest):
         arg = rest[i]
         if arg in _PIP_FLAGS or _NAME_RE.match(arg):
             i += 1
         elif arg == "-c" and i + 1 < len(rest):
-            path = os.path.normcase(os.path.realpath(rest[i + 1]))
-            if not any(os.path.dirname(path) == d for d in allowed_dirs):
+            if not (_norm(rest[i + 1]) == app_constraints or _is_pins_file(rest[i + 1])):
                 return False
             i += 2
         else:
             return False
     return True
+
+
+def _norm(path: str) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _is_pins_file(path) -> bool:
+    """A torch pins file as install_registry.write_torch_pins names it. The
+    shared temp dir alone is not enough: anyone can write there."""
+    return (isinstance(path, str)
+            and os.path.dirname(_norm(path)) == _norm(tempfile.gettempdir())
+            and bool(_PINS_RE.match(os.path.basename(os.path.realpath(path)))))
 
 
 def snapshot() -> dict:
@@ -488,7 +499,11 @@ def _acquire_lock(wait_until: float, sleep=time.sleep) -> bool:
         fd, _busy = _try_hold(create=True)
         if fd is not None:
             if not _left_by_live_start(fd):
-                _write_held(fd)
+                try:
+                    _write_held(fd)
+                except BaseException:
+                    _close_held(fd)
+                    raise
                 _LOCK["fd"] = fd
                 return True
             _close_held(fd)
@@ -549,6 +564,7 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
     if not _acquire_lock(started + wait_seconds):
         return {"ran": False, "locked": True}
     deadline = time.time() + OVERALL_SECONDS     # the lock wait is not part of the install's budget
+    temp_files = []
     try:
         payload, problem = read_pending()
         if payload is None:
@@ -571,6 +587,9 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
                 "message": (plan or {}).get("message") or
                            "The queued install was not run: the package list was not accepted. "
                            "Nothing was changed."}, [])}
+        # Read from the child's stdout like argv, so only a pins-shaped file is deleted.
+        if isinstance(plan.get("temp_files"), list):
+            temp_files = [p for p in plan["temp_files"] if _is_pins_file(p)]
         argv = plan.get("argv")
         if not _argv_accepted(argv):
             return {"ran": True, **_finish({
@@ -585,14 +604,7 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
         argv[1:1] = _python()[1:]
         if echo:
             print("Installing the packages you queued: " + ", ".join(keys), flush=True)
-        try:
-            rc, lines, timed_out = run_capture(argv, min(PIP_SECONDS, deadline - time.time()), echo)
-        finally:
-            for path in plan.get("temp_files", []):
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+        rc, lines, timed_out = run_capture(argv, min(PIP_SECONDS, deadline - time.time()), echo)
         if rc == 0 and not timed_out:
             return {"ran": True, **_finish({
                 "status": "ok", "packages": keys, "restored": [], "restore_failed": [],
@@ -617,6 +629,11 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
             "status": "timed_out" if timed_out else "failed", "packages": keys,
             "restored": restored, "restore_failed": failed, "message": head + tail}, lines)}
     finally:
+        for path in temp_files:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
         _release_lock()
 
 

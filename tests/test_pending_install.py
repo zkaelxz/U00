@@ -15,6 +15,15 @@ import pending_install_child as child
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+@pytest.fixture(autouse=True)
+def _no_lock_outlives_its_test():
+    # A held fd left in _LOCK points the next test's lock refresh at a dead file.
+    yield
+    pi._release_lock()
+    pi._LOCK.clear()
+    pi._LOCK["fd"] = None
+
+
 @pytest.fixture
 def data(tmp_path, monkeypatch):
     monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path))
@@ -443,6 +452,9 @@ def test_redact_hides_paths_and_secrets():
 def test_the_real_child_process_round_trips():
     doc = pi.child_json("derive", "paddleocr")
     assert doc["ok"] is True and doc["argv"][1:4] == ["-m", "pip", "install"]
+    assert pi._argv_accepted(doc["argv"])
+    for path in doc["temp_files"]:
+        os.remove(path)
     assert pi.child_json("derive", "evil")["ok"] is False
 
 
@@ -596,3 +608,108 @@ def test_a_rehashed_file_with_bad_types_reads_as_invalid(data, edit):
     path.write_text(json.dumps(doc))
     assert pi.read_pending() == (None, "invalid")
     assert pi.status()["problem"] == "invalid"
+
+
+def _good_argv():
+    return [sys.executable, "-m", "pip", "install", *pi._PIP_FLAGS, "paddleocr"]
+
+
+def test_only_the_app_constraints_and_a_torch_pins_file_may_follow_c(data):
+    import tempfile
+    tmp = tempfile.gettempdir()
+    app = os.path.join(ROOT, "constraints.txt")
+    pins = os.path.join(tmp, "baihe-torch-pins-abc123.txt")
+    assert pi._argv_accepted(_good_argv() + ["-c", app, "-c", pins])
+    # pip's constraints parser takes options such as --extra-index-url, and the temp dir is shared.
+    for path in (os.path.join(tmp, "x.txt"), os.path.join(tmp, "baihe-torch-pins-x.txt.evil"),
+                 os.path.join(tmp, "baihe-torch-pins-.txt"), os.path.join(pi.state_dir(), "constraints.txt"),
+                 os.path.join(ROOT, "requirements.txt"), os.path.join(tmp, "constraints.txt")):
+        assert not pi._argv_accepted(_good_argv() + ["-c", path]), path
+
+
+def test_the_refusal_still_removes_the_pins_file_and_nothing_else(data, monkeypatch, tmp_path):
+    import tempfile
+    fd, pins = tempfile.mkstemp(prefix="baihe-torch-pins-", suffix=".txt")
+    os.close(fd)
+    other = tmp_path / "keep.txt"
+    other.write_text("x")
+    try:
+        pi.write_pending(["paddleocr"])
+        fake = Fake(monkeypatch, [], derive={"ok": True, "temp_files": [pins, str(other), 7],
+                                             "argv": _good_argv() + ["-c", "/etc/passwd"]})
+        assert pi.apply()["status"] == "refused" and fake.runs == []
+        assert not os.path.exists(pins) and other.exists()
+    finally:
+        if os.path.exists(pins):
+            os.remove(pins)
+
+
+def test_a_run_removes_only_temp_files_shaped_like_the_pins_file(data, monkeypatch, tmp_path):
+    import tempfile
+    fd, pins = tempfile.mkstemp(prefix="baihe-torch-pins-", suffix=".txt")
+    os.close(fd)
+    other = tmp_path / "keep.txt"
+    other.write_text("x")
+    try:
+        pi.write_pending(["paddleocr"])
+        fake = Fake(monkeypatch, [{}], derive={"ok": True, "temp_files": [pins, str(other)],
+                                               "argv": _good_argv() + ["-c", pins]})
+        assert pi.apply()["status"] == "ok" and len(fake.runs) == 1
+        assert not os.path.exists(pins) and other.exists()
+    finally:
+        if os.path.exists(pins):
+            os.remove(pins)
+
+
+def test_a_held_lock_reads_as_running_even_after_the_clock_jumps(data, monkeypatch):
+    assert pi._acquire_lock(time.time()) is True
+    later = time.time() + pi.OVERALL_SECONDS + 3600
+    monkeypatch.setattr(pi.time, "time", lambda: later)
+    assert pi.apply_running() is True
+    assert pi.wait_while_running(later - 1) is False
+
+
+def test_a_silent_pip_keeps_a_held_lock_fresh_through_its_fd(data, monkeypatch):
+    assert pi._acquire_lock(time.time()) is True
+    lock = data / "pending_install" / "apply.lock"
+    old = time.time() - pi.OVERALL_SECONDS - 600
+    lock.write_text(json.dumps({"pid": os.getpid(), "time": int(old)}))
+    os.utime(lock, (old, old))
+    clock = iter([0.0, 31.0, 32.0])
+    monkeypatch.setattr(pi.time, "monotonic", lambda: next(clock))
+    utimes = []
+    monkeypatch.setattr(pi.os, "utime", lambda *a, **k: utimes.append(a))
+
+    def silent_pip(argv, timeout, cancel):
+        cancel()
+        yield {"returncode": 0, "timed_out": False}
+    monkeypatch.setattr(pi, "stream_tree", silent_pip)
+    pi.run_capture(["x"], 5)
+    doc = json.loads(lock.read_text())
+    assert utimes == [] and doc["pid"] == os.getpid() and doc["time"] > old + 600
+    assert time.time() - os.path.getmtime(lock) < 60
+
+
+def test_the_lock_refresh_survives_the_watchdog_emptying_the_holder(data, monkeypatch):
+    os.makedirs(data / "pending_install")
+    pi._LOCK.clear()        # the watchdog's release pops "fd" before it resets it
+    clock = iter([0.0, 31.0, 32.0])
+    monkeypatch.setattr(pi.time, "monotonic", lambda: next(clock))
+
+    def silent_pip(argv, timeout, cancel):
+        cancel()
+        yield {"returncode": 0, "timed_out": False}
+    monkeypatch.setattr(pi, "stream_tree", silent_pip)
+    assert pi.run_capture(["x"], 5)[0] == 0
+
+
+def test_a_failed_lock_write_does_not_keep_the_os_lock(data, monkeypatch):
+    def no_space(fd):
+        raise OSError("disk full")
+    monkeypatch.setattr(pi, "_write_held", no_space)
+    with pytest.raises(OSError):
+        pi._acquire_lock(time.time())
+    assert pi._LOCK["fd"] is None
+    fd, busy = pi._try_hold(create=False)
+    assert busy is False and fd is not None
+    pi._close_held(fd)
