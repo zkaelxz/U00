@@ -153,7 +153,6 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
     load can take minutes), and a blocked read has no other way to be woken.
     Closing the connection also tells Ollama to stop generating, which frees
     the GPU for whatever runs next."""
-    import requests
     # The tracking adapter is live_fetch's: it keeps every socket (even one
     # still in its TLS handshake or awaiting headers) reachable for shutdown.
     from live_fetch import _TrackingAdapter, _shutdown
@@ -173,10 +172,10 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
             sockets.discard(sock)
             sock.close()
 
-    session = requests.Session()
-    adapter = _TrackingAdapter(track, release)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
+    # guard=None: the address is the one the PC owner set in Settings.
+    session = http.session(timeout=ollama_chat_timeout(str(payload.get("model") or "")),
+                           guard=None, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
+                           adapter=_TrackingAdapter(track, release))
     box = {}
 
     def work():

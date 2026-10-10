@@ -170,3 +170,117 @@ def test_trust_env_is_only_passed_when_turned_off(monkeypatch):
     http.get("http://a.example/", timeout=5, max_bytes=100, guard=None)
     http.get("http://a.example/", timeout=5, max_bytes=100, guard=None, trust_env=False)
     assert seen == [{}, {"trust_env": False}]
+
+
+# --- session(): the same rules for callers that need a real requests.Session ---
+
+class _FakeAdapter:
+    """Stands in for the network: answers each request from `plan` and records
+    what the session sent."""
+
+    def __init__(self, *plan):
+        self.plan, self.sent = list(plan), []
+
+    def send(self, request, **kw):
+        import io
+        import requests
+        from urllib3.response import HTTPResponse
+        status, body, headers = self.plan.pop(0)
+        self.sent.append((request.url, kw, dict(request.headers)))
+        resp = requests.Response()
+        resp.status_code, resp.url, resp.request = status, request.url, request
+        resp.headers.update(headers)
+        resp.raw = HTTPResponse(body=io.BytesIO(body), preload_content=False, status=status)
+        return resp
+
+    def close(self):
+        pass
+
+
+def _session(*plan, **kw):
+    kw.setdefault("guard", lambda u: None)
+    kw.setdefault("timeout", 7)
+    kw.setdefault("max_bytes", 100)
+    s = http.session(**kw)
+    adapter = _FakeAdapter(*plan)
+    s.mount("http://", adapter)
+    return s, adapter
+
+
+def test_session_redirect_to_a_private_address_is_refused():
+    def guard(url):
+        if "10.0.0.1" in url:
+            raise InvalidInputError("private")
+        return "1.2.3.4"
+    s, adapter = _session((302, b"", {"Location": "http://10.0.0.1/x"}), guard=guard)
+    with pytest.raises(InvalidInputError):
+        s.get("http://a.example/")
+    assert [u for u, _, _ in adapter.sent] == ["http://a.example/"]  # the private hop was never sent
+
+
+def test_session_default_guard_refuses_a_loopback_url():
+    s = http.session(timeout=5, max_bytes=10)
+    with pytest.raises(InvalidInputError):
+        s.get("http://127.0.0.1/")
+
+
+def test_session_guards_every_hop_and_a_bare_send():
+    seen = []
+    s, adapter = _session((302, b"", {"Location": "/b"}), (200, b"ok", {}),
+                          guard=lambda u: seen.append(u))
+    assert s.get("http://a.example/").content == b"ok"
+    assert seen == ["http://a.example/", "http://a.example/b"]
+    s.mount("http://", _FakeAdapter((200, b"", {})))
+    s.send(s.prepare_request(__import__("requests").Request("GET", "http://c.example/")))
+    assert seen[-1] == "http://c.example/"
+
+
+def test_session_always_sets_a_timeout():
+    s, adapter = _session((200, b"", {}), (200, b"", {}), (200, b"", {}))
+    s.get("http://a.example/")
+    s.get("http://a.example/", timeout=None)
+    s.get("http://a.example/", timeout=(1, 2))
+    assert [kw["timeout"] for _, kw, _ in adapter.sent] == [7, 7, (1, 2)]
+
+
+def test_session_does_not_follow_redirects_without_a_guard_unless_asked():
+    s, adapter = _session((302, b"", {"Location": "/b"}), guard=None)
+    assert s.get("http://a.example/").status_code == 302 and len(adapter.sent) == 1
+    s, adapter = _session((302, b"", {"Location": "/b"}), (200, b"", {}), guard=None)
+    assert s.get("http://a.example/", allow_redirects=True).status_code == 200
+
+
+def test_session_stops_after_too_many_redirects():
+    hop = (302, b"", {"Location": "/again"})
+    s, _ = _session(*[hop] * 5, max_redirects=2)
+    with pytest.raises(http.FetchError):
+        s.get("http://a.example/", allow_redirects=True)
+
+
+def test_session_credential_headers_do_not_follow_a_cross_origin_redirect():
+    s, adapter = _session((302, b"", {"Location": "http://b.example/"}), (200, b"", {}))
+    s.get("http://a.example/", headers={"Authorization": "x", "X-Plain": "1"}, allow_redirects=True)
+    first, second = adapter.sent[0][2], adapter.sent[1][2]
+    assert "Authorization" in first and "Authorization" not in second and second["X-Plain"] == "1"
+
+
+def test_session_cap_is_enforced_on_a_streamed_body_however_it_is_read():
+    for read in (lambda r: r.content, lambda r: list(r.iter_content(10)),
+                 lambda r: r.raw.read(1000), lambda r: r.raw.read1(1000)):
+        s, _ = _session((200, b"x" * 101, {}))
+        with pytest.raises(http.ResponseTooLarge):
+            read(s.get("http://a.example/"))
+    s, _ = _session((200, b"x" * 100, {}))
+    assert s.get("http://a.example/").content == b"x" * 100
+
+
+def test_session_cap_can_change_between_requests():
+    s, _ = _session((200, b"x" * 50, {}))
+    s.max_bytes = 10
+    with pytest.raises(http.ResponseTooLarge):
+        s.get("http://a.example/").content
+
+
+def test_session_refuses_a_custom_adapter_with_a_guard():
+    with pytest.raises(ValueError):
+        http.session(timeout=5, max_bytes=1, guard=lambda u: "1.2.3.4", adapter=object())

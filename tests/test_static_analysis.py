@@ -742,7 +742,7 @@ OVERSIZED_MODULE_BYTES = {
     "services/workspace_job_service.py": 65747,
     "services/maintenance_assistant_service.py": 61272,
     "services/library_admin_service.py": 55556,
-    "sources/http.py": 49816,
+    "sources/http.py": 47816,
     "services/restructure_service.py": 52468,
     "sources/ai_extract.py": 50796,
     "services/translate_run_service.py": 45837,
