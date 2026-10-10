@@ -2,3 +2,7 @@ docs/archive/
 assets/
 frontend/package-lock.json
 installer/wheels.lock.txt
+docs/session-harvest/
+reports/
+research_notes/
+language_pack_data/

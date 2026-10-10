@@ -45,3 +45,15 @@ Thumbs.db
 
 # Chromium that Diagnostics > Install browser support downloads
 playwright_browsers/
+
+# Personal Claude Code permission overrides
+.claude/settings.local.json
+
+# Test, coverage and lint caches
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Any stray tool log (the two named above are the server's own)
+*.log
