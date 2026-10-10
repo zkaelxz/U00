@@ -413,6 +413,12 @@ class TestRetryOnDifferentEngineInvariants:
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a, **k: "k")
         monkeypatch.setattr("requests.post", lambda *a, **k: _OllamaResp())
         monkeypatch.setattr("requests.get", lambda *a, **k: _OllamaResp())
+        # A Translate job closes Ollama requests on Cancel through the abortable
+        # path, which opens its own session; route it to the patched post.
+        import requests
+        from engine_backends import local
+        monkeypatch.setattr(local, "_ollama_chat_abortable", lambda base_url, payload, check:
+                            local._ollama_chat_request(requests.post, base_url, payload))
         out = translate_run_service.start_translate_run(did, engine_name="ollama",
                                                         line_ids=[lines[0].id])
         job = _wait(out["job_id"])

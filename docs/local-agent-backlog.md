@@ -30,6 +30,7 @@ first. **FREE-TIER-OK** = bigger but well bounded; a free Claude/Codex session w
 | 16 | Thinking toggle for bulk translation (live translation already has reply-without-thinking, draft #985) | `engine_backends/local.py`, `bulk_translate.py`, settings, `cli.py`, UI | ~150 | medium | NEEDS-SUBSCRIPTION | App and CLI parity, engines, settings across more than four files; brief B5 |
 | 17 | Jellyfin-aware GPU headroom (extends "Keep free" settings, draft #984) | GPU slot code, `services/`, settings | ~120 | medium-high | NEEDS-SUBSCRIPTION | GPU slots and concurrency; brief B6 |
 | 18 | Hardening PR for live capture's `media.import_url` before household users get it (owner decision 2026-10-06; its scope isn't recorded) | `services/egress_proxy.py`, `services/live_fetch.py`, `docs/remote-access-decision.md` | unknown | high | NEEDS-SUBSCRIPTION | SSRF and remote access; Opus security review; brief B7 |
+| 19 | Bound the AI calls #1026 left unbounded: wrap each direct `engine.translate_batch` / client call in `llm_tasks.call_batch_bounded` or run it under `bounded_llm_calls` (no retries added) | `services/workspace_job_service.py`, `services/blocked_retry_service.py`, `services/compare_transcription_service.py`, `services/benchmark_lab_service.py`, `navigator.py`, `title_library.py`, `benchmark.py`, `live_cue_translation.py`, `qa.py` | ~40 | low-medium | FREE-TIER-OK | One call site per commit; each gets a hung-engine test like `tests/test_bounded_by_default.py` |
 
 ## Open compliance items
 
