@@ -418,6 +418,12 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     background_jobs.set_result(job_id, result)
 
 
+def _cancel_check(job_id):
+    """Also used by retime_service's aligner call."""
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+
+
 def _translate_into(proposal, ln, engine, context, character_names, translation, drama_id,
                     language, errors) -> float:
     """Translates the candidate (and the current text when it has no English
