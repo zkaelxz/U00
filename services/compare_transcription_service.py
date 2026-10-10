@@ -327,7 +327,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     lines = [ln for ln in db.load_line_objects(drama_id) if ln.id in wanted]
     proposals, errors = [], []
     gpu_fallback = []
-    spent, cap_reached, cancelled = 0.0, None, False
+    spent, cap_reached, cancelled, timed_out = 0.0, None, False, False
     context = character_names = None
     engine = translation["engine"] if translation else None
     if translation:
@@ -350,24 +350,34 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     if windows:
         # The GPU work runs in its own process so Cancel kills it instead of
         # waiting for a model call; translation below needs this process.
+        entries = []
         try:
             heard = gpu_process_job.run_in_child(
                 job_id, compare_hear_worker.hear_lines_worker, (audio_path, windows, cfg),
                 timeout_s=retranscribe_worker.retranscribe_timeout_s(
-                    sum(w[3] - w[2] for w in windows)))
+                    sum(w[3] - w[2] for w in windows), len(windows)),
+                on_item=entries.append)
         except background_jobs.JobCancelled:
             cancelled = True
-            lines = []
-        else:
-            heard_by_id = {entry["line_id"]: entry for entry in heard["lines"]}
-            failed_reason = heard.get("failed_reason")
-            detail = jobs_service.scrub_text(heard.get("detail") or "") or None
-            if heard.get("gpu_fallback"):
-                gpu_fallback.append(heard["gpu_fallback"])
-            notice = {k: v for k, v in heard.items() if k == "ollama_notice"}
+            heard = {}
+        except gpu_process_job.ChildFailed as exc:
+            # What was heard before the child ended stays usable.
+            if not entries:
+                raise
+            errors.append(str(exc))
+            timed_out = True
+            heard = {}
+        heard_by_id = {entry["line_id"]: entry for entry in entries}
+        failed_reason = heard.get("failed_reason")
+        detail = jobs_service.scrub_text(heard.get("detail") or "") or None
+        if heard.get("gpu_fallback"):
+            gpu_fallback.append(heard["gpu_fallback"])
+        notice = {k: v for k, v in heard.items() if k == "ollama_notice"}
     try:
         for n, ln in enumerate(lines):
-            if background_jobs.is_cancel_requested(job_id):
+            # Already cancelled while hearing: the lines heard still become
+            # proposals, so the flag is not re-read here.
+            if not cancelled and background_jobs.is_cancel_requested(job_id):
                 cancelled = True
                 break
             background_jobs.update_progress(
@@ -391,7 +401,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                         "candidate_zh": heard[:_MAX_TEXT_CHARS], "current_en": ln.en or "",
                         "candidate_en": "", "translated": False}
             proposals.append(proposal)
-            if translation:
+            if translation and not (cancelled or timed_out):
                 if cap_reached is None and translation["cost_cap_usd"] is not None \
                         and spent >= translation["cost_cap_usd"]:
                     cap_reached = spent
@@ -403,7 +413,8 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     result = {"proposals": proposals, "line_count": len(lines), "candidate_count": len(proposals),
               "errors": errors[:20], "cap_reached": cap_reached,
               "asr_backend": cfg["backend"], "whisper_size": cfg["whisper_size"],
-              "translated": bool(translation), "partial": bool(cancelled or cap_reached),
+              "translated": bool(translation),
+              "partial": bool(cancelled or timed_out or cap_reached),
               **notice}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]

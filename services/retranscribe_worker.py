@@ -25,14 +25,18 @@ _SLICE_TIMEOUT_S = 120
 # part is generous.
 _BASE_TIMEOUT_S = 1800
 _PER_AUDIO_S = 10
+# Whisper pads every clip to 30 s, so a call costs about the same however
+# short the line; on CPU that is 10-30 s a call.
+_PER_WINDOW_S = 60
 
 
-def retranscribe_timeout_s(window_seconds: float) -> float:
+def retranscribe_timeout_s(window_seconds: float, window_count: int = 1) -> float:
     """How long the worker may run before it gives up. The base also covers a
     first-use model download, so it never depends on whether a half-fetched
     model folder looks cached; Cancel is always available for a download the
     user no longer wants."""
-    return _BASE_TIMEOUT_S + _PER_AUDIO_S * max(0.0, window_seconds)
+    return (_BASE_TIMEOUT_S + _PER_AUDIO_S * max(0.0, window_seconds)
+            + _PER_WINDOW_S * max(1, window_count))
 
 
 def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_fallback,

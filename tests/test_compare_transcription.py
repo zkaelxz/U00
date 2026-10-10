@@ -220,16 +220,59 @@ class TestRun:
         then worked through (translation needs this process) keeps the
         proposals made so far."""
         did, _ = _drama(3)
-        checks = []
+        job_id = svc.compare_job_id(did)
+        real_progress = background_jobs.update_progress
 
-        def cancel_on_third_check(job_id):
-            checks.append(1)
-            # 1: before the child; 2 and 3: the first two lines of the loop.
-            return len(checks) >= 3
-        monkeypatch.setattr(background_jobs, "is_cancel_requested", cancel_on_third_check)
+        def cancel_after_first_line(jid, frac, message=""):
+            if message == "Line 1 of 3":
+                background_jobs.request_cancel(job_id)
+            return real_progress(jid, frac, message)
+        monkeypatch.setattr(background_jobs, "update_progress", cancel_after_first_line)
         _run(did)
         res = svc.get_compare_result(did)
         assert len(res["proposals"]) == 1 and res["partial"] is True
+
+    def test_cancel_mid_hearing_keeps_the_lines_heard(self, monkeypatch):
+        """Cancel lands while the child is hearing line 2: lines 1 and 2 were
+        already heard, so they become proposals; line 3 is never heard."""
+        did, _ = _drama(3)
+        job_id = svc.compare_job_id(did)
+        real, heard_count = core.transcribe_for_timing, []
+
+        def cancel_while_hearing_second(path, *a, **kw):
+            heard = real(path, *a, **kw)
+            heard_count.append(1)
+            if len(heard_count) == 2:
+                background_jobs.request_cancel(job_id)
+            return heard
+        monkeypatch.setattr(core, "transcribe_for_timing", cancel_while_hearing_second)
+        _run(did)
+        res = svc.get_compare_result(did)
+        assert [p["number"] for p in res["proposals"]] == [1, 2]
+        assert res["partial"] is True
+
+    def test_timeout_mid_hearing_keeps_the_lines_heard(self, monkeypatch):
+        did, ids = _drama(3)
+
+        def times_out_after_one(job_id, body, args, *, timeout_s, on_item=None, **kw):
+            on_item({"line_id": ids[0], "text": "新的"})
+            raise gpu_process_job.ChildFailed(gpu_process_job.TIMEOUT_MESSAGE)
+        monkeypatch.setattr(gpu_process_job, "run_in_child", times_out_after_one)
+        _run(did)
+        res = svc.get_compare_result(did)
+        assert [p["number"] for p in res["proposals"]] == [1]
+        assert res["partial"] is True
+        assert gpu_process_job.TIMEOUT_MESSAGE in res["errors"]
+
+    def test_timeout_before_any_line_is_heard_errors_the_job(self, monkeypatch):
+        did, _ = _drama(2)
+
+        def times_out(job_id, body, args, *, timeout_s, on_item=None, **kw):
+            raise gpu_process_job.ChildFailed(gpu_process_job.TIMEOUT_MESSAGE)
+        monkeypatch.setattr(gpu_process_job, "run_in_child", times_out)
+        out = svc.start_compare(did, {"kind": "range", "from_number": 1, "to_number": 2})
+        job = _wait(out)
+        assert job["status"] == "error" and gpu_process_job.TIMEOUT_MESSAGE in job["error"]
 
     def test_cancel_before_first_line_has_no_result(self, monkeypatch):
         did, _ = _drama(2)

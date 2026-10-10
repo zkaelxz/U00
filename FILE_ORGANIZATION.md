@@ -233,7 +233,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `restructure_service.py`
 - `retranscribe_many_service.py` (Review's "Re-transcribe selected": start, read and apply of the many-line re-transcription; shares the one-line job's id)
 - `retranscribe_worker.py` (the spawned workers and result hooks of the one-line and many-line re-transcriptions; the one-line start, read and apply stay in transcribe_service)
-- `gpu_process_job.py` (the shared GPU process-job shape: `start_gpu_process_job` in the parent, `run_worker` with the deadline watchdog in the child)
+- `gpu_process_job.py` (the shared GPU process-job shape: `run_in_child` in the parent, `run_worker` with the deadline watchdog in the child)
 - `compare_hear_worker.py` (the spawned worker that cuts and hears the chosen lines for compare transcription, so Cancel can kill it)
 - `retime_service.py`
 - `review_extras_service.py`

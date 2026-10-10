@@ -567,7 +567,10 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
         background_jobs.run_cancellable(job_id, cmd, cwd=ddir, timeout=EXTRACT_TIMEOUT_SECONDS)
         failed = _SAVE_FAILED
         from services import transcribe_service
-        media_seconds = transcribe_service._audio_duration_seconds(part_path)
+        # Probed before install_media moves the file, and only when a
+        # transcription will follow and need its deadline.
+        media_seconds = (transcribe_service._audio_duration_seconds(part_path)
+                         if transcribe_options is not None else None)
         install_media(drama_id, {"source_video_filename": (staged, "source", ext),
                                  "audio_filename": (part_path, "audio", ".wav")})
     except BaseException as exc:
@@ -594,17 +597,20 @@ def _follow_job(job_id, child_id, deadline_s):
     forwards a cancel to it; a child error or cancel ends job_id the same way.
     A queued child is removed outright by cancel_queued, so once a cancel
     has been forwarded a vanished child also counts as cancelled. A child
-    still going after deadline_s seconds is stopped and job_id ends as an
-    error, so this job can't wait forever."""
+    still going after deadline_s seconds of running is stopped and job_id ends
+    as an error, so this job can't wait forever. Time spent queued behind
+    another title's GPU job doesn't count: the clock starts when it runs."""
     forwarded = False
     give_up_at = time.monotonic() + deadline_s
     while True:
-        if time.monotonic() >= give_up_at:
+        child = background_jobs.get_status(child_id) or {}
+        status = child.get("status")
+        if status == "queued":
+            give_up_at = time.monotonic() + deadline_s
+        elif time.monotonic() >= give_up_at:
             if not background_jobs.cancel_queued(child_id):
                 background_jobs.request_cancel(child_id)
             raise RuntimeError(FOLLOW_TIMEOUT_MESSAGE)
-        child = background_jobs.get_status(child_id) or {}
-        status = child.get("status")
         if status not in ("running", "queued"):
             break
         if background_jobs.is_cancel_requested(job_id) and not forwarded:

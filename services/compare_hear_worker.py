@@ -39,15 +39,27 @@ def hear(slice_path: str, cfg: dict, language, on_fallback) -> str:
     return " ".join((s.get("text") or "").strip() for s in segments or []).strip()
 
 
+class _LineSink:
+    """Sends each finished line to the parent as it is made."""
+
+    def __init__(self, result_queue):
+        self._queue = result_queue
+
+    def append(self, entry):
+        self._queue.put(("item", entry))
+
+
 def hear_lines_worker(audio_path, windows, cfg, scratch_dir, result_queue):
     """gpu_process_job body. `windows` is [(line_id, number, start, end,
-    language)]. Puts ("ok", {"lines": [{"line_id", "text"} or {"line_id",
-    "error"}], optional "gpu_fallback", plus the Ollama notice}); a model
+    language)]. Puts each line as ("item", {"line_id", "text"} or {"line_id",
+    "error"}) when it is heard, so a cancel or timeout keeps the earlier ones,
+    then ("ok", {optional "gpu_fallback", plus the Ollama notice}); a model
     download or missing backend ends the run at once (every line would fail
-    the same way) with "failed_reason" and "detail" beside the lines heard so
-    far. Writes nothing to the database."""
+    the same way) with "failed_reason" and "detail". Writes nothing to the
+    database."""
     slice_path = os.path.join(scratch_dir, "line.wav")
-    gpu_fallback, lines, fatal = [], [], {}
+    gpu_fallback, fatal = [], {}
+    lines = _LineSink(result_queue)
     for n, (line_id, number, start, end, language) in enumerate(windows):
         background_jobs.report_progress(
             result_queue, n / len(windows), f"Hearing line {n + 1} of {len(windows)}")
@@ -81,7 +93,7 @@ def hear_lines_worker(audio_path, windows, cfg, scratch_dir, result_queue):
         finally:
             if os.path.exists(slice_path):
                 os.remove(slice_path)
-    outcome = {"lines": lines, **fatal, **ollama_unload.take_notice_result()}
+    outcome = {**fatal, **ollama_unload.take_notice_result()}
     if gpu_fallback:
         outcome["gpu_fallback"] = gpu_fallback[0]
     result_queue.put(("ok", outcome))

@@ -1,12 +1,16 @@
-"""services/gpu_process_job: the shared GPU process-job shape, with real
-spawned workers (Cancel ends the job and the worker is gone; the deadline
-ends it with a plain message)."""
+"""services/gpu_process_job.run_in_child with real spawned children: a large
+result, a raising body, the deadline, Cancel, per-line items, and the
+parent-side deadline for a child that never starts its own timer. The
+retranscribe_timeout_s formula is pinned here too."""
 import os
+import threading
 import time
+
+import pytest
 
 import background_jobs
 import storage
-from services import gpu_process_job
+from services import gpu_process_job, retranscribe_worker
 
 
 def hang_body(marker, scratch_dir, result_queue):
@@ -16,10 +20,18 @@ def hang_body(marker, scratch_dir, result_queue):
     time.sleep(600)
 
 
-def quick_body(value, scratch_dir, result_queue):
-    with open(os.path.join(scratch_dir, "x.tmp"), "w") as f:
-        f.write("scratch")
-    result_queue.put(("ok", {"value": value}))
+def big_body(size, scratch_dir, result_queue):
+    result_queue.put(("ok", {"blob": "x" * size}))
+
+
+def raising_body(secret, scratch_dir, result_queue):
+    raise ValueError(f"boom token={secret}")
+
+
+def items_then_hang_body(marker, scratch_dir, result_queue):
+    result_queue.put(("item", {"n": 1}))
+    result_queue.put(("item", {"n": 2}))
+    hang_body(marker, scratch_dir, result_queue)
 
 
 def wait_until(predicate, what, timeout=60):
@@ -29,63 +41,84 @@ def wait_until(predicate, what, timeout=60):
         time.sleep(0.05)
 
 
-def ended(job_id):
-    return background_jobs.get_status(job_id)["status"] not in ("running", "queued")
+def pid_gone(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
 
 
 def scratch_dirs(job_id):
     return [d for d in os.listdir(storage.temp_root()) if d.startswith(job_id)]
 
 
-def test_cancel_kills_the_worker_within_bounded_time(isolated_db, tmp_path):
+def test_a_large_result_comes_back_through_the_result_file(isolated_db):
+    result = gpu_process_job.run_in_child(
+        "gpujob_big", big_body, (50_000,), timeout_s=60)
+    assert len(result["blob"]) == 50_000
+    assert not scratch_dirs("gpujob_big")
+
+
+def test_a_raising_body_becomes_a_plain_redacted_child_failed(isolated_db):
+    secret = "sk-ant-api03-" + "a" * 40
+    with pytest.raises(gpu_process_job.ChildFailed) as err:
+        gpu_process_job.run_in_child("gpujob_raise", raising_body, (secret,), timeout_s=60)
+    assert "boom" in str(err.value) and secret not in str(err.value)
+    assert not scratch_dirs("gpujob_raise")
+
+
+def test_the_worker_deadline_ends_the_run_and_the_worker_is_gone(isolated_db, tmp_path):
     marker = str(tmp_path / "started")
-    assert gpu_process_job.start_gpu_process_job(
-        "gpujob_1", hang_body, (marker,), drama_id=1, kind="Hanging", timeout_s=300)
-    wait_until(lambda: os.path.exists(marker), "the worker never started")
-    proc = background_jobs.get_status("gpujob_1")["process"]
-    background_jobs.request_cancel("gpujob_1")
-    wait_until(lambda: ended("gpujob_1"), "Cancel did not end the job")
-    assert background_jobs.get_status("gpujob_1")["status"] == "cancelled"
-    proc.join(10)
-    assert not proc.is_alive()
-    background_jobs.wait_for_job_threads(10)
-    wait_until(lambda: not scratch_dirs("gpujob_1"), "scratch folder left behind", 10)
+    started = time.monotonic()
+    with pytest.raises(gpu_process_job.ChildFailed) as err:
+        gpu_process_job.run_in_child("gpujob_timeout", hang_body, (marker,), timeout_s=2)
+    assert time.monotonic() - started < 30
+    assert str(err.value) == gpu_process_job.TIMEOUT_MESSAGE
+    assert str(tmp_path) not in str(err.value)
+    wait_until(lambda: pid_gone(int(open(marker).read())), "the worker outlived the run", 10)
+    assert not scratch_dirs("gpujob_timeout")
 
 
-def test_the_worker_deadline_ends_the_job_with_a_plain_message(isolated_db, tmp_path):
+def test_the_parent_deadline_frees_a_child_that_never_starts_its_timer(
+        isolated_db, tmp_path, monkeypatch):
+    # With no grace and a long worker timeout only the parent's deadline can fire.
+    monkeypatch.setattr(gpu_process_job, "PARENT_GRACE_S", -298)
     marker = str(tmp_path / "started")
-    assert gpu_process_job.start_gpu_process_job(
-        "gpujob_2", hang_body, (marker,), kind="Hanging", timeout_s=2)
-    wait_until(lambda: ended("gpujob_2"), "the deadline did not end the job")
-    job = background_jobs.get_status("gpujob_2")
-    assert job["status"] == "error"
-    assert gpu_process_job.TIMEOUT_MESSAGE in job["error"]
-    assert str(tmp_path) not in job["error"]
-    proc = job["process"]
-    proc.join(10)
-    assert not proc.is_alive()
+    started = time.monotonic()
+    with pytest.raises(gpu_process_job.ChildFailed) as err:
+        gpu_process_job.run_in_child("gpujob_parent", hang_body, (marker,), timeout_s=300)
+    assert time.monotonic() - started < 30
+    assert str(err.value) == gpu_process_job.TIMEOUT_MESSAGE
+    wait_until(lambda: pid_gone(int(open(marker).read())), "the worker outlived the run", 10)
 
 
-def test_a_result_reaches_on_done_and_scratch_is_removed(isolated_db):
-    seen, finished = [], []
-    assert gpu_process_job.start_gpu_process_job(
-        "gpujob_3", quick_body, (7,), kind="Quick", timeout_s=60,
-        on_done=lambda job_id, result: seen.append(result),
-        on_finish=finished.append)
-    wait_until(lambda: ended("gpujob_3"), "the job never ended")
-    background_jobs.wait_for_job_threads(10)
-    assert background_jobs.get_status("gpujob_3")["status"] == "done"
-    assert seen == [{"value": 7}] and finished == ["gpujob_3"]
-    assert not scratch_dirs("gpujob_3")
-
-
-def test_a_refused_start_leaves_no_scratch_folder(isolated_db, tmp_path):
+def test_cancel_kills_the_worker_and_keeps_the_items_already_sent(isolated_db, tmp_path):
     marker = str(tmp_path / "started")
-    assert gpu_process_job.start_gpu_process_job(
-        "gpujob_4", hang_body, (marker,), kind="Hanging", timeout_s=300)
-    assert not gpu_process_job.start_gpu_process_job(
-        "gpujob_4", hang_body, (marker,), kind="Hanging", timeout_s=300)
-    assert len(scratch_dirs("gpujob_4")) == 1
-    background_jobs.request_cancel("gpujob_4")
-    wait_until(lambda: ended("gpujob_4"), "Cancel did not end the job")
-    background_jobs.wait_for_job_threads(10)
+    items, outcome = [], []
+
+    def job():
+        try:
+            gpu_process_job.run_in_child(
+                "gpujob_cancel", items_then_hang_body, (marker,), timeout_s=300,
+                on_item=items.append)
+        except background_jobs.JobCancelled:
+            outcome.append("cancelled")
+    assert background_jobs.start_job("gpujob_cancel", job, description="Hanging")
+    wait_until(lambda: os.path.exists(marker) and len(items) == 2, "worker never got going")
+    pid = int(open(marker).read())
+    background_jobs.request_cancel("gpujob_cancel")
+    background_jobs.wait_for_job_threads(30)
+    assert outcome == ["cancelled"] and items == [{"n": 1}, {"n": 2}]
+    wait_until(lambda: pid_gone(pid), "Cancel did not kill the worker", 10)
+    assert not scratch_dirs("gpujob_cancel")
+
+
+def test_timeout_formula_has_a_per_line_term_and_scales_with_audio():
+    fn = retranscribe_worker.retranscribe_timeout_s
+    assert fn(0.0) >= 1800
+    assert fn(100.0, 1) - fn(0.0, 1) == 100 * retranscribe_worker._PER_AUDIO_S
+    # Whisper pads each clip to 30 s, so 200 one-second lines need far more
+    # than their 200 s of audio suggests.
+    assert fn(200.0, 200) - fn(200.0, 1) == 199 * retranscribe_worker._PER_WINDOW_S
+    assert fn(200.0, 200) >= 1800 + 200 * 30

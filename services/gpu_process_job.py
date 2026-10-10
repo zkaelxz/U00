@@ -1,20 +1,21 @@
 """One shape for a GPU job that runs in its own process, so Cancel kills the
 process instead of waiting for a model call that has no safe point to stop at.
 
-Parent side: start_gpu_process_job() starts the job (spawn, GPU slot, the whole
-process tree killed on cancel) with a scratch folder removed when it ends.
+Parent side: run_in_child() runs the worker in a spawned child (the whole
+process tree killed on cancel or timeout) with a scratch folder removed when it
+ends.
 Worker side: run_worker() is what every such worker runs inside: own process
 group, a watchdog that ends the process at the deadline, scratch as the temp
 folder. Kept free of the services that use it so the spawned child imports only
 what it needs."""
 
-import functools
 import multiprocessing
 import os
 import queue
 import shutil
 import tempfile
 import threading
+import time
 
 import background_jobs
 import job_process_kill
@@ -23,6 +24,10 @@ import storage
 from translate_engines import redact_secrets
 
 TIMEOUT_MESSAGE = "This job took too long and was stopped."
+# The child's own watchdog normally reports the deadline first; the parent
+# waits this much longer so a child that hangs before the watchdog starts
+# (a stuck import) still frees the GPU slot without a Cancel.
+PARENT_GRACE_S = 30
 
 
 def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=None):
@@ -61,50 +66,10 @@ def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=N
 
 
 def process_entry(body, timeout_s, scratch_dir, *args_and_queue):
-    """The process target start_gpu_process_job starts: top level and plain
-    arguments so it pickles under spawn. args_and_queue ends with the result
-    queue, which start_process_job appends."""
+    """The process target run_in_child starts: top level and plain arguments so
+    it pickles under spawn. args_and_queue ends with the result queue."""
     *args, result_queue = args_and_queue
     run_worker(body, timeout_s, scratch_dir, result_queue, tuple(args))
-
-
-def remove_scratch(scratch_dir, then=None, job_id=None):
-    """on_finish: removes the scratch folder, then runs the caller's own."""
-    shutil.rmtree(scratch_dir, ignore_errors=True)
-    if then is not None:
-        then(job_id)
-
-
-def start_gpu_process_job(job_id, body, args, *, drama_id=None, kind, timeout_s,
-                          kill_whole_tree=True, on_done=None, on_finish=None,
-                          initial_result=None):
-    """Starts `body` as a GPU process job; False (nothing started, nothing left
-    behind) when the id is already queued or running, like start_process_job.
-
-    body is a top-level function called as body(*args, scratch_dir,
-    result_queue) in the child; args must pickle. It writes nothing to the
-    database: it puts ("ok", plain result) and the parent's on_done(job_id,
-    result) applies it. `kind` is the label shown for the job; timeout_s the
-    worker's own deadline (the job then ends with an error saying it took too
-    long). on_finish(job_id) runs after the scratch folder is removed.
-    Raises what start_process_job raises."""
-    scratch_dir = storage.new_workdir(job_id)
-    description = f"{kind} (drama #{drama_id})" if drama_id is not None else kind
-    try:
-        started = background_jobs.start_process_job(
-            job_id, process_entry, args=(body, timeout_s, scratch_dir, *args),
-            gpu_touching=True, description=description, on_done=on_done,
-            on_finish=functools.partial(remove_scratch, scratch_dir, on_finish),
-            kill_whole_tree=kill_whole_tree,
-            # Spawn, not Linux's default fork: a forked child of a process
-            # that has already initialised CUDA cannot use the GPU.
-            start_method="spawn", initial_result=initial_result)
-    except BaseException:
-        shutil.rmtree(scratch_dir, ignore_errors=True)
-        raise
-    if not started:
-        shutil.rmtree(scratch_dir, ignore_errors=True)
-    return started
 
 
 class ChildFailed(Exception):
@@ -112,23 +77,31 @@ class ChildFailed(Exception):
     is plain and redacted, safe to store in a job error."""
 
 
-def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25):
+def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
     """For a job that stays a thread job (its next stage needs the parent: the
     database, a translation engine) but whose GPU stage must be killable.
     Runs body(*args, scratch_dir, result_queue) in a spawned child under the
     job's own GPU slot and returns the "ok" result. Blocks, applying the
     child's progress to the job; raises background_jobs.JobCancelled as soon
     as Cancel is seen, after the child and what it started are gone, and
-    ChildFailed for an error, the deadline or a child that died silently."""
+    ChildFailed for an error, the deadline or a child that died silently.
+
+    A body that puts ("item", x) for each unit of work it finishes has
+    on_item(x) called in the parent as they arrive, so a caller keeps what was
+    done when the run ends early by cancel or timeout."""
     context = multiprocessing.get_context("spawn")
     channel = job_process_result.wrap_queue(context.Queue(), job_id)
     scratch_dir = storage.new_workdir(job_id)
     proc = context.Process(
-        target=process_entry, args=(body, timeout_s, scratch_dir, *args, channel), daemon=True)
+        target=process_entry, args=(body, timeout_s, scratch_dir, *args, channel),
+        daemon=True)
     clean = False
     try:
+        # Spawn, not Linux's default fork: a forked child of a process that
+        # has already initialised CUDA cannot use the GPU.
         proc.start()
-        result = _await_child(job_id, proc, channel, poll_s)
+        result = _await_child(job_id, proc, channel, poll_s,
+                              time.monotonic() + timeout_s + PARENT_GRACE_S, on_item)
         clean = True
         return result
     finally:
@@ -140,11 +113,13 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25):
         shutil.rmtree(scratch_dir, ignore_errors=True)
 
 
-def _await_child(job_id, proc, channel, poll_s):
+def _await_child(job_id, proc, channel, poll_s, deadline, on_item):
     gone = False
     while True:
         if background_jobs.is_cancel_requested(job_id):
             raise background_jobs.JobCancelled(job_id)
+        if time.monotonic() > deadline:
+            raise ChildFailed(TIMEOUT_MESSAGE)
         try:
             item = channel.get(timeout=poll_s)
         except queue.Empty:
@@ -155,7 +130,13 @@ def _await_child(job_id, proc, channel, poll_s):
                 raise ChildFailed(background_jobs.WORKER_LOST_MESSAGE)
             gone = True
             continue
+        except OSError:
+            raise ChildFailed(job_process_result.RESULT_FILE_ERROR) from None
         if background_jobs._apply_progress_item(job_id, item):
+            continue
+        if item and item[0] == "item":
+            if on_item is not None:
+                on_item(item[1])
             continue
         if item and item[0] == "ok":
             return item[1]
