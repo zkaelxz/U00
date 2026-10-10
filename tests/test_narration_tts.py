@@ -1,12 +1,11 @@
 """
 tests/test_narration_tts.py -- Step 11b: novel narration TTS quality.
 
-Four new local voice engines (OmniVoice incl. voice design, GPT-SoVITS,
-Chatterbox, TADA), each character's engine picked in the database and
-routed by dub.clone_map_from_characters; Chatterbox's delivery driven by
-emotion.py's tags; build_narration_track's longer TTS units (several
-subtitle-sized lines per call), its warm-up-then-thread-pool generation,
-and the M4B audiobook export with chapter markers.
+The OmniVoice engine (incl. voice design), each character's engine picked in
+the database and routed by dub.clone_map_from_characters;
+build_narration_track's longer TTS units (several subtitle-sized lines per
+call), its one-clip-at-a-time generation, and the M4B audiobook export with
+chapter markers.
 
 None of the engines, torch, soundfile, pydub or ffmpeg are needed: each is
 faked at its own import boundary, the same way tests/test_dub.py does.
@@ -16,11 +15,8 @@ import re
 import shutil
 import subprocess
 import sys
-import threading
-import time
 import types
 import wave
-from concurrent.futures import Future
 
 import numpy as np
 import pytest
@@ -29,11 +25,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import core
 import dub
-import emotion
+import dub_narration
 from core import Line
 
 
 # --------------------------------------------------------------- fakes
+
+VOICE = {"engine": "omnivoice", "instruct": "female, young adult, moderate pitch"}
+# Every speaker label the narration tests use.
+NARRATORS = {label: dict(VOICE) for label in ("A", "B", "N", "AB", None)}
 
 def _unsigned(name):
     """A clip filename without its Step 11e content signature:
@@ -182,160 +182,6 @@ class TestOmniVoice:
         assert len(loaded) == 1
 
 
-class TestChatterbox:
-    def _install(self, monkeypatch):
-        generated = []
-
-        class FakeChatterbox:
-            sr = 24000
-
-            def __init__(self):
-                self.conds = "builtin-voice"
-
-            @classmethod
-            def from_pretrained(cls, device):
-                return cls()
-
-            def generate(self, text, audio_prompt_path=None, exaggeration=0.5):
-                # The real generate() stores a given clip's voice on the model.
-                if audio_prompt_path:
-                    self.conds = ("clip", audio_prompt_path)
-                generated.append((text, self.conds, exaggeration))
-                return FakeTensor()
-
-        pkg = types.ModuleType("chatterbox")
-        tts = types.ModuleType("chatterbox.tts")
-        tts.ChatterboxTTS = FakeChatterbox
-        monkeypatch.setitem(sys.modules, "chatterbox", pkg)
-        monkeypatch.setitem(sys.modules, "chatterbox.tts", tts)
-        monkeypatch.setattr(dub, "_chatterbox", None)
-        return generated
-
-    def test_passes_exaggeration_through(self, monkeypatch, tmp_path, fake_soundfile, fake_torch):
-        generated = self._install(monkeypatch)
-        dub.synthesize_line_chatterbox("Get out!", str(tmp_path / "a.wav"), exaggeration=0.68)
-        assert generated == [("Get out!", "builtin-voice", 0.68)]
-        assert fake_soundfile[0][1] == 24000
-
-    def test_a_character_with_no_clip_never_inherits_the_previous_clip_voice(
-            self, monkeypatch, tmp_path, fake_soundfile, fake_torch):
-        generated = self._install(monkeypatch)
-        dub.synthesize_line_chatterbox("A speaks.", str(tmp_path / "a.wav"), ref_audio_path="/refs/a.wav")
-        dub.synthesize_line_chatterbox("B speaks.", str(tmp_path / "b.wav"))
-        assert generated[0][1] == ("clip", "/refs/a.wav")
-        assert generated[1][1] == "builtin-voice"
-
-
-class TestTada:
-    def _install(self, monkeypatch, wav=None):
-        encoder_loads, encodes, generated = [], [], []
-
-        class FakeEncoder:
-            @classmethod
-            def from_pretrained(cls, repo, subfolder=None, **kwargs):
-                encoder_loads.append(kwargs)
-                return cls()
-
-            def to(self, device):
-                return self
-
-            def __call__(self, audio, sample_rate=None, **kwargs):
-                encodes.append((sample_rate, kwargs))
-                return "prompt"
-
-        class FakeTada:
-            @classmethod
-            def from_pretrained(cls, repo, torch_dtype=None):
-                return cls()
-
-            def to(self, device):
-                return self
-
-            def generate(self, prompt, text):
-                generated.append((prompt, text))
-                return types.SimpleNamespace(audio=[wav])
-
-        for name, attrs in (("tada", {}), ("tada.modules", {}),
-                            ("tada.modules.encoder", {"Encoder": FakeEncoder}),
-                            ("tada.modules.tada", {"TadaForCausalLM": FakeTada})):
-            mod = types.ModuleType(name)
-            for k, v in attrs.items():
-                setattr(mod, k, v)
-            monkeypatch.setitem(sys.modules, name, mod)
-        monkeypatch.setattr(dub, "_tada", {"model": None, "encoders": {}, "prompts": {}})
-        return encoder_loads, encodes, generated
-
-    def test_encodes_each_clip_once_and_uses_the_chinese_aligner(
-            self, monkeypatch, tmp_path, fake_soundfile, fake_torch):
-        encoder_loads, encodes, generated = self._install(monkeypatch, wav=FakeTensor())
-        for i in range(2):
-            dub.synthesize_line_tada(f"Line {i}.", "/refs/a.wav", "你好", str(tmp_path / f"{i}.wav"),
-                                     ref_language="zh")
-        assert encoder_loads == [{"language": "ch"}]
-        assert encodes == [(16000, {"text": ["你好"]})]  # cached for the second line
-        assert generated == [("prompt", "Line 0."), ("prompt", "Line 1.")]
-
-    def test_no_audio_back_is_an_error_not_a_silent_empty_clip(
-            self, monkeypatch, tmp_path, fake_soundfile, fake_torch):
-        self._install(monkeypatch, wav=None)
-        with pytest.raises(RuntimeError, match="no audio"):
-            dub.synthesize_line_tada("Hi.", "/refs/a.wav", "", str(tmp_path / "a.wav"), ref_language="ko")
-
-
-class _FakeStream:
-    """A streamed requests.Response: a status, a body in chunks, close()."""
-    def __init__(self, status_code, body, headers=None, chunk=1024):
-        self.status_code, self._body, self.headers = status_code, body, headers or {}
-        self._chunk = chunk
-        self.closed = False
-
-    def iter_content(self, size):
-        for i in range(0, len(self._body), self._chunk):
-            yield self._body[i:i + self._chunk]
-
-    def close(self):
-        self.closed = True
-
-
-class TestGptSovits:
-    def test_posts_to_the_local_server_with_a_timeout(self, monkeypatch, tmp_path):
-        import requests
-        posted = {}
-
-        def fake_post(url, json=None, timeout=None, stream=False):
-            posted.update(url=url, json=json, timeout=timeout)
-            return _FakeStream(200, b"RIFFwav")
-        monkeypatch.setattr(requests, "post", fake_post)
-
-        out = str(tmp_path / "a.wav")
-        dub.synthesize_line_gpt_sovits("Hello.", "refs/a.wav", "你好", out, ref_language="zh",
-                                       base_url="http://127.0.0.1:9880/")
-        assert posted["url"] == "http://127.0.0.1:9880/tts"
-        assert posted["timeout"]
-        assert posted["json"]["text"] == "Hello."
-        assert posted["json"]["text_lang"] == "en"
-        assert posted["json"]["prompt_lang"] == "zh"
-        assert posted["json"]["prompt_text"] == "你好"
-        assert os.path.isabs(posted["json"]["ref_audio_path"])
-        assert open(out, "rb").read() == b"RIFFwav"
-
-    def test_a_server_error_raises_with_its_message(self, monkeypatch, tmp_path):
-        import requests
-        monkeypatch.setattr(requests, "post", lambda url, json=None, timeout=None, stream=False:
-                            _FakeStream(400, b'{"message": "ref audio too long"}'))
-        with pytest.raises(RuntimeError, match="ref audio too long"):
-            dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(tmp_path / "a.wav"))
-
-    def test_server_not_running_says_how_to_start_it(self, monkeypatch, tmp_path):
-        import requests
-
-        def refuse(url, json=None, timeout=None, stream=False):
-            raise requests.ConnectionError("refused")
-        monkeypatch.setattr(requests, "post", refuse)
-        with pytest.raises(RuntimeError, match="api_v2.py"):
-            dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(tmp_path / "a.wav"))
-
-
 # ---------------------------------------------- per-character engine routing
 
 class TestCloneMapFromCharacters:
@@ -345,29 +191,23 @@ class TestCloneMapFromCharacters:
         row.update(kw)
         return row
 
-    def test_legacy_character_with_a_clip_still_clones_with_f5tts(self):
-        m = dub.clone_map_from_characters([self._char("A", ref_audio_filename="a.wav", ref_text="你好")],
-                                          "/d")
-        assert m == {"A": {"engine": "f5tts", "ref_audio": os.path.join("/d", "a.wav"), "ref_text": "你好"}}
+    def test_a_character_with_a_clip_and_no_engine_follows_the_runs_engine(self):
+        chars = [self._char("A", ref_audio_filename="a.wav", ref_text="你好")]
+        m = dub.clone_map_from_characters(chars, "/d")
+        assert m == {"A": {"engine": "omnivoice", "ref_audio": os.path.join("/d", "a.wav"), "ref_text": "你好"}}
+        m = dub.clone_map_from_characters(chars, "/d", default_engine="tada")
+        assert m == {}  # a removed run engine voices nobody
 
-    def test_each_engine_gets_what_it_needs(self):
-        chars = [
-            self._char("O", ref_audio_filename="o.wav", clone_engine="omnivoice"),
-            self._char("G", ref_audio_filename="g.wav", ref_text="t", clone_engine="gpt_sovits"),
-            self._char("C", ref_audio_filename="c.wav", clone_engine="chatterbox"),
-            self._char("T", ref_audio_filename="t.wav", clone_engine="tada"),
-        ]
-        m = dub.clone_map_from_characters(chars, "/d", gpt_sovits_url="http://gpu-box:9880",
-                                          ref_language="ja")
-        assert m["O"]["engine"] == "omnivoice"
-        assert m["G"] == {"engine": "gpt_sovits", "ref_audio": os.path.join("/d", "g.wav"), "ref_text": "t",
-                          "ref_language": "ja", "base_url": "http://gpu-box:9880"}
-        assert m["C"]["engine"] == "chatterbox" and m["C"]["ref_audio"] == os.path.join("/d", "c.wav")
-        assert m["T"]["ref_language"] == "ja"
+    @pytest.mark.parametrize("stored", ["f5tts", "f5", "edge_tts", "offline", "tada", "chatterbox",
+                                        "gpt_sovits"])
+    def test_a_character_stored_with_a_removed_engine_is_not_cloned_by_another_one(self, stored):
+        chars = [self._char("A", ref_audio_filename="a.wav", ref_text="你好", clone_engine=stored)]
+        assert dub.clone_map_from_characters(chars, "/d") == {}
+        assert dub.removed_engine_message(stored) in dub.engine_blockers(chars, "omnivoice")[0]
 
     def test_a_removed_hosted_clone_is_no_clone_at_all(self):
-        # Step 11d: a character cloned with the removed hosted engine falls
-        # back to plain TTS instead of crashing a dub job...
+        # A character cloned with the removed hosted engine is simply not
+        # in the map, instead of crashing a dub job...
         m = dub.clone_map_from_characters([self._char("A", elevenlabs_voice_id="v1")], "/d")
         assert m == {}
 
@@ -395,53 +235,41 @@ class TestCloneMapFromCharacters:
         assert m == {"Hero": {"engine": "omnivoice", "instruct": "male, young adult, low pitch"},
                      "Aunt": {"engine": "omnivoice", "instruct": "female, elderly, british accent"}}
 
-    def test_chatterbox_with_no_clip_uses_its_builtin_voice(self):
-        m = dub.clone_map_from_characters([self._char("N", clone_engine="chatterbox")], "/d")
-        assert m == {"N": {"engine": "chatterbox", "ref_audio": None}}
-
-    def test_nothing_set_means_plain_tts(self):
+    def test_nothing_set_means_no_entry_for_the_character_itself(self):
         assert dub.clone_map_from_characters([self._char("N", clone_engine="omnivoice")], "/d") == {}
 
     def test_gpu_slot_only_for_local_engines(self):
         assert dub.clone_map_uses_local_model({"A": {"engine": "omnivoice", "instruct": "x"}})
-        assert dub.clone_map_uses_local_model({"A": {"ref_audio": "a", "ref_text": ""}})  # legacy F5
+        assert not dub.clone_map_uses_local_model({"A": {"ref_audio": "a", "ref_text": ""}})
         assert not dub.clone_map_uses_local_model({})
 
 
 class TestEngineSelectionFollowsTheClonePattern:
-    """Same shape as test_dub.TestBuildDubTrackClonePriority's F5-TTS
-    case, for each new engine, through both track builders."""
+    """Each clone-map entry reaches its engine's synthesize function,
+    through both track builders."""
 
     @pytest.fixture
     def calls(self, monkeypatch):
         calls = []
-        for name in ("synthesize_line_omnivoice", "synthesize_line_gpt_sovits",
-                     "synthesize_line_chatterbox", "synthesize_line_tada",
-                     "synthesize_line_cloned", "synthesize_line"):
-            monkeypatch.setattr(dub, name, _touch_synth(calls, name))
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _touch_synth(calls, "synthesize_line_omnivoice"))
         return calls
 
     CASES = [
         ({"engine": "omnivoice", "ref_audio": "/r/a.wav", "ref_text": "你好"}, "synthesize_line_omnivoice"),
         ({"engine": "omnivoice", "instruct": "female, whisper"}, "synthesize_line_omnivoice"),
-        ({"engine": "gpt_sovits", "ref_audio": "/r/a.wav", "ref_text": "你好", "ref_language": "zh",
-          "base_url": "http://x:9880"}, "synthesize_line_gpt_sovits"),
-        ({"engine": "chatterbox", "ref_audio": None}, "synthesize_line_chatterbox"),
-        ({"engine": "tada", "ref_audio": "/r/a.wav", "ref_text": "你好", "ref_language": "zh"},
-         "synthesize_line_tada"),
     ]
 
     @pytest.mark.parametrize("clone,expected", CASES)
     def test_dub_track(self, clone, expected, calls, fake_pydub, tmp_path):
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), {}, character_clone_map={"A": clone})
+        _, errors = dub.build_dub_track(lines, str(tmp_path), {"A": clone})
         assert errors == []
         assert [c[0] for c in calls] == [expected]
 
     @pytest.mark.parametrize("clone,expected", CASES)
     def test_narration_track(self, clone, expected, calls, fake_pydub, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="x", en="Hello", speaker="A")]
-        _, errors = dub.build_narration_track(lines, str(tmp_path), {}, character_clone_map={"A": clone})
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"A": clone})
         assert errors == []
         assert [c[0] for c in calls] == [expected]
 
@@ -450,64 +278,10 @@ class TestEngineSelectionFollowsTheClonePattern:
                      "Aunt": {"engine": "omnivoice", "instruct": "female, elderly"}}
         lines = [Line(idx=0, start=0, end=0, zh="x", en="I'm off.", speaker="Hero"),
                  Line(idx=1, start=0, end=0, zh="y", en="Take care.", speaker="Aunt")]
-        dub.build_narration_track(lines, str(tmp_path), {}, character_clone_map=clone_map)
+        dub_narration.build_narration_track(lines, str(tmp_path), clone_map)
         assert [(c[1][0], c[2]["instruct"]) for c in calls] == [
             ("I'm off.", "male, low pitch"), ("Take care.", "female, elderly")]
         assert all(c[2].get("ref_audio_path") is None for c in calls)
-
-
-# ------------------------------------------------------- emotion -> delivery
-
-class TestChatterboxExaggeration:
-    def test_no_detected_emotion_is_the_neutral_default(self):
-        assert emotion.chatterbox_exaggeration(None) == emotion.CHATTERBOX_NEUTRAL_EXAGGERATION == 0.5
-        assert emotion.chatterbox_exaggeration({}) == 0.5
-        assert emotion.chatterbox_exaggeration({"emotion": "neutral", "intensity": 1.0}) == 0.5
-        assert emotion.chatterbox_exaggeration({"emotion": "not-a-tag", "intensity": 0.9}) == 0.5
-
-    @pytest.mark.parametrize("tag", sorted(emotion.EMOTION_TAGS))
-    @pytest.mark.parametrize("intensity", [0.0, 0.3, 0.7, 1.0, 5.0, -2.0, "junk", None])
-    def test_always_inside_the_recommended_range(self, tag, intensity):
-        value = emotion.chatterbox_exaggeration({"emotion": tag, "intensity": intensity})
-        assert 0.4 <= value <= 0.7
-
-    def test_high_intensity_anger_reaches_the_top_and_calm_sits_low(self):
-        assert emotion.chatterbox_exaggeration({"emotion": "angry", "intensity": 1.0}) == 0.7
-        assert emotion.chatterbox_exaggeration({"emotion": "sad", "intensity": 1.0}) == 0.4
-
-    def test_intensity_scales_the_distance_from_neutral(self):
-        mild = emotion.chatterbox_exaggeration({"emotion": "angry", "intensity": 0.2})
-        strong = emotion.chatterbox_exaggeration({"emotion": "angry", "intensity": 0.9})
-        assert 0.5 < mild < strong
-
-    def _chatterbox_calls(self, monkeypatch):
-        calls = []
-
-        def fake(text, out_path, ref_audio_path=None, exaggeration=0.5):
-            calls.append((text, exaggeration))
-            open(out_path, "w").close()
-        monkeypatch.setattr(dub, "synthesize_line_chatterbox", fake)
-        return calls
-
-    def test_dub_track_voices_each_line_with_its_detected_emotion(self, monkeypatch, fake_pydub, tmp_path):
-        calls = self._chatterbox_calls(monkeypatch)
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="Get out!", speaker="A"),
-                 Line(idx=1, start=1, end=2, zh="y", en="Fine.", speaker="A")]
-        dub.build_dub_track(lines, str(tmp_path), {},
-                            character_clone_map={"A": {"engine": "chatterbox", "ref_audio": None}},
-                            emotion_map={0: {"emotion": "angry", "intensity": 1.0}})
-        assert calls == [("Get out!", 0.7), ("Fine.", 0.5)]
-
-    def test_narration_never_blends_two_different_deliveries_into_one_call(
-            self, monkeypatch, fake_pydub, tmp_path):
-        calls = self._chatterbox_calls(monkeypatch)
-        lines = [Line(idx=0, start=0, end=0, zh="a", en="Calm one.", speaker="A"),
-                 Line(idx=1, start=0, end=0, zh="b", en="Calm two.", speaker="A"),
-                 Line(idx=2, start=0, end=0, zh="c", en="GET OUT!", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {},
-                                  character_clone_map={"A": {"engine": "chatterbox", "ref_audio": None}},
-                                  emotion_map={2: {"emotion": "angry", "intensity": 1.0}})
-        assert calls == [("Calm one. Calm two.", 0.5), ("GET OUT!", 0.7)]
 
 
 # ------------------------------------------ TTS unit longer than a subtitle cue
@@ -517,10 +291,10 @@ class TestNarrationTTSUnits:
     def synth_calls(self, monkeypatch):
         calls = []
 
-        def fake(text, voice, out_path, rate="+0%"):
+        def fake(text, out_path, **kwargs):
             calls.append(text)
             open(out_path, "w").close()
-        monkeypatch.setattr(dub, "synthesize_line", fake)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", fake)
         return calls
 
     def test_one_tts_call_covers_several_subtitle_cues(self, synth_calls, fake_pydub, tmp_path):
@@ -528,7 +302,7 @@ class TestNarrationTTSUnits:
         lines = [Line(idx=0, start=0, end=0, zh="一", en="She opened the door.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="二", en="Rain.", speaker="N"),
                  Line(idx=2, start=0, end=0, zh="三", en="Nothing but rain, all night.", speaker="N")]
-        dub.build_narration_track(lines, str(tmp_path), {}, gap_ms=350)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
 
         assert synth_calls == ["She opened the door. Rain. Nothing but rain, all night."]
         # the audio unit is longer than every exported cue for the same passage
@@ -545,133 +319,87 @@ class TestNarrationTTSUnits:
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="B"),
                  Line(idx=2, start=0, end=0, zh="c", en="Three.", speaker="B")]
-        dub.build_narration_track(lines, str(tmp_path), {})
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert synth_calls == ["One.", "Two. Three."]
 
     def test_unit_stays_inside_the_character_budget(self, synth_calls, fake_pydub, tmp_path, monkeypatch):
-        monkeypatch.setattr(dub, "NARRATION_TTS_MAX_CHARS", 12)
+        monkeypatch.setattr(dub_narration, "NARRATION_TTS_MAX_CHARS", 12)
         lines = [Line(idx=i, start=0, end=0, zh=str(i), en=f"Line {i}.", speaker="N") for i in range(3)]
-        dub.build_narration_track(lines, str(tmp_path), {})
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert synth_calls == ["Line 0.", "Line 1.", "Line 2."]  # "Line 0. Line 1." is 15 chars
 
     def test_never_crosses_a_paragraph_of_the_source_text(self, synth_calls, fake_pydub, tmp_path):
-        (tmp_path / dub.NOVEL_SOURCE_FILENAME).write_text("第一段。第一段后半。\n\n第二段。", encoding="utf-8")
+        (tmp_path / dub_narration.NOVEL_SOURCE_FILENAME).write_text("第一段。第一段后半。\n\n第二段。", encoding="utf-8")
         lines = [Line(idx=0, start=0, end=0, zh="第一段。", en="Para one.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="第一段后半。", en="Still para one.", speaker="N"),
                  Line(idx=2, start=0, end=0, zh="第二段。", en="Para two.", speaker="N")]
-        dub.build_narration_track(lines, str(tmp_path), {})
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert synth_calls == ["Para one. Still para one.", "Para two."]
 
     def test_a_chapter_heading_is_always_its_own_unit(self, synth_calls, fake_pydub, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="前文。", en="Before.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="第二章 雨夜", en="Chapter 2: A Rainy Night", speaker="N"),
                  Line(idx=2, start=0, end=0, zh="正文。", en="After.", speaker="N")]
-        dub.build_narration_track(lines, str(tmp_path), {})
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert synth_calls == ["Before.", "Chapter 2: A Rainy Night", "After."]
 
     def test_a_failed_unit_leaves_each_of_its_lines_a_silent_gap(self, monkeypatch, fake_pydub, tmp_path):
-        monkeypatch.setattr(dub, "synthesize_line", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
+                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="N")]
-        _, errors = dub.build_narration_track(lines, str(tmp_path), {}, gap_ms=350)
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
         assert [e["line_idx"] for e in errors] == [0, 1]
         assert lines[1].end == pytest.approx(0.7)
         assert not any(f.endswith(".partial.wav") for f in os.listdir(tmp_path / "dub_clips"))
 
 
-# ----------------------------------------------- parallel generation
+# ----------------------------------------------- one clip at a time
 
-class _RecordingPool:
-    """Stands in for ThreadPoolExecutor: runs each task inline, recording
-    that it went through the pool."""
-    instances = []
-
-    def __init__(self, max_workers=None):
-        self.max_workers = max_workers
-        _RecordingPool.instances.append(self)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def submit(self, fn, *args):
-        _RecordingPool.in_pool = True
-        future = Future()
-        try:
-            future.set_result(fn(*args))
-        finally:
-            _RecordingPool.in_pool = False
-        return future
-
-
-class TestParallelNarration:
-    @pytest.fixture
-    def pool(self, monkeypatch):
-        _RecordingPool.instances = []
-        _RecordingPool.in_pool = False
-        monkeypatch.setattr(dub, "ThreadPoolExecutor", _RecordingPool)
-        return _RecordingPool
-
+class TestSequentialNarration:
     def _alternating(self, n, prefix="Line"):
         # alternating speakers, so every line is its own unit
         return [Line(idx=i, start=0, end=0, zh=str(i), en=f"{prefix} {i}.", speaker="AB"[i % 2])
                 for i in range(n)]
 
-    def test_warm_up_then_pool_skipping_existing_clips(self, pool, monkeypatch, fake_pydub, tmp_path):
-        events = []
+    def test_no_thread_pool_remains(self):
+        assert not hasattr(dub, "ThreadPoolExecutor") and not hasattr(dub, "PARALLEL_SAFE_ENGINES")
+        assert not hasattr(dub, "NARRATION_MAX_WORKERS")
 
-        def fake(text, voice, out_path, rate="+0%"):
-            events.append((text, pool.in_pool))
+    def test_existing_clips_are_reused_and_the_rest_generated_in_line_order(
+            self, monkeypatch, fake_pydub, tmp_path):
+        spoken = []
+
+        def fake(text, out_path, **kwargs):
+            spoken.append(text)
             open(out_path, "w").close()
-        monkeypatch.setattr(dub, "synthesize_line", fake)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", fake)
         os.makedirs(tmp_path / "dub_clips")
-        previous = f"line_0001_{dub.clip_signature('Line 1.', {'engine': 'edge_tts', 'voice': 'en-US-AvaNeural'})}.wav"
+        previous = f"line_0001_{dub.clip_signature('Line 1.', VOICE)}.wav"
         (tmp_path / "dub_clips" / previous).write_text("from a previous run")
 
         lines = self._alternating(8)
-        _, errors = dub.build_narration_track(lines, str(tmp_path), {}, max_workers=4)
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
 
         assert errors == []
-        assert "Line 1." not in [t for t, _ in events]  # reused, not regenerated
-        warm_up = dub.NARRATION_WARMUP_CLIPS
-        assert [in_pool for _, in_pool in events] == [False] * warm_up + [True] * (7 - warm_up)
-        assert len(pool.instances) == 1 and pool.instances[0].max_workers == 4
-        # assembly still follows line order, whatever order clips finished in
+        assert spoken == [f"Line {i}." for i in range(8) if i != 1]  # reused, not regenerated
         assert [ln.start for ln in lines] == sorted(ln.start for ln in lines)
         assert lines[1].dub_filename == os.path.join("dub_clips", previous)
 
-    def test_gpt_sovits_is_forced_single_threaded(self, pool, monkeypatch, fake_pydub, tmp_path):
-        events = []
-
-        def fake(text, ref_audio_path, ref_text, out_path, ref_language="zh", text_lang="en", base_url=None):
-            events.append(pool.in_pool)
-            open(out_path, "w").close()
-        monkeypatch.setattr(dub, "synthesize_line_gpt_sovits", fake)
-        clone = {"engine": "gpt_sovits", "ref_audio": "/r.wav", "ref_text": "", "ref_language": "zh"}
-        lines = self._alternating(8)
-        dub.build_narration_track(lines, str(tmp_path), {}, character_clone_map={"A": clone, "B": clone})
-        assert len(events) == 8 and not any(events)
-        assert pool.instances == []  # nothing even reached a pool
+    def test_a_speaker_with_no_voice_is_a_failed_unit_not_a_crash(self, monkeypatch, fake_pydub, tmp_path):
+        spoken = []
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
+                            lambda text, out_path, **kw: spoken.append(text) or open(out_path, "w").close())
+        lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="A"),
+                 Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="B")]
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"A": dict(VOICE)}, gap_ms=350)
+        assert spoken == ["One."]
+        assert errors == [{"line_idx": 1, "error": dub.NO_VOICE_ERROR}]
+        assert lines[1].end == pytest.approx(lines[1].start + 0.35)
 
     @pytest.mark.parametrize("engine", sorted(dub.LOCAL_MODEL_ENGINES))
-    def test_no_local_model_engine_is_parallelized(self, engine):
-        assert engine not in dub.PARALLEL_SAFE_ENGINES
-
-    def test_real_threads_generate_everything_and_assemble_in_order(self, monkeypatch, fake_pydub, tmp_path):
-        threads = set()
-
-        def slow(text, voice, out_path, rate="+0%"):
-            threads.add(threading.get_ident())
-            time.sleep(0.02)
-            open(out_path, "w").close()
-        monkeypatch.setattr(dub, "synthesize_line", slow)
-        lines = self._alternating(12)
-        _, errors = dub.build_narration_track(lines, str(tmp_path), {}, gap_ms=100, max_workers=4)
-        assert errors == []
-        assert len(threads) > 1
-        assert [ln.start for ln in lines] == pytest.approx([i * 1.1 for i in range(12)])
+    def test_every_engine_runs_on_the_gpu_slot(self, engine):
+        assert dub.clone_map_uses_local_model({"A": {"engine": engine}})
 
 
 # ------------------------------------------------------ paragraphs & M4B
@@ -701,25 +429,25 @@ class TestNarrationChapters:
     def test_the_novels_own_chapter_headings_win(self):
         lines = self._timed([("第一章 开始", "Chapter 1: The Start"), ("正文。", "Body."),
                              ("第二章 雨", "Chapter 2: Rain"), ("正文。", "More.")])
-        assert dub.narration_chapters(lines, paragraph_ends={0, 1, 2, 3}) == [
+        assert dub_narration.narration_chapters(lines, paragraph_ends={0, 1, 2, 3}) == [
             (0.0, "Chapter 1: The Start"), (2.0, "Chapter 2: Rain")]
 
     def test_text_before_the_first_heading_gets_its_own_chapter(self):
         lines = self._timed([("楔子前的话。", "A note first."), ("第一章", "Chapter 1")])
-        assert [s for s, _ in dub.narration_chapters(lines)] == [0.0, 1.0]
+        assert [s for s, _ in dub_narration.narration_chapters(lines)] == [0.0, 1.0]
 
     def test_otherwise_one_chapter_per_paragraph(self):
         lines = self._timed([("甲。", "A."), ("乙。", "B."), ("丙。", "C.")])
-        assert [s for s, _ in dub.narration_chapters(lines, paragraph_ends={1, 2})] == [0.0, 2.0]
+        assert [s for s, _ in dub_narration.narration_chapters(lines, paragraph_ends={1, 2})] == [0.0, 2.0]
 
     def test_without_paragraph_info_one_per_generated_clip(self):
         lines = self._timed([("甲。", "A."), ("乙。", "B."), ("丙。", "C.")])
         lines[1].dub_filename = lines[0].dub_filename  # lines 0-1 shared one clip
-        assert [s for s, _ in dub.narration_chapters(lines)] == [0.0, 2.0]
+        assert [s for s, _ in dub_narration.narration_chapters(lines)] == [0.0, 2.0]
 
     def test_long_titles_are_trimmed(self):
         lines = self._timed([("甲。", "word " * 40)])
-        assert len(dub.narration_chapters(lines)[0][1]) == 60
+        assert len(dub_narration.narration_chapters(lines)[0][1]) == 60
 
     @pytest.mark.parametrize("zh,en", [
         ("第一章", ""), ("第十二章 雨夜", ""), ("第3回：重逢", ""), ("第二卷", ""), ("楔子", ""),
@@ -727,7 +455,7 @@ class TestNarrationChapters:
         ("", "CHAPTER 3"),
     ])
     def test_real_headings(self, zh, en):
-        assert dub.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))
+        assert dub_narration.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))
 
     @pytest.mark.parametrize("zh,en", [
         ("第一次见面的时候，她笑得很开心，" * 3, "The first time..."),
@@ -737,23 +465,23 @@ class TestNarrationChapters:
         ("", "Prologue to a disaster, really."),
     ])
     def test_ordinary_sentences_are_not_headings(self, zh, en):
-        assert not dub.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))
+        assert not dub_narration.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))
 
 
 class TestFfmetadata:
     def test_chapters_run_back_to_back_to_the_end(self):
-        meta = dub.narration_ffmetadata([(0.0, "One"), (2.5, "Two")], 6000, title="My Novel")
+        meta = dub_narration.narration_ffmetadata([(0.0, "One"), (2.5, "Two")], 6000, title="My Novel")
         assert meta.splitlines() == [
             ";FFMETADATA1", "title=My Novel",
             "[CHAPTER]", "TIMEBASE=1/1000", "START=0", "END=2500", "title=One",
             "[CHAPTER]", "TIMEBASE=1/1000", "START=2500", "END=6000", "title=Two"]
 
     def test_special_characters_are_escaped(self):
-        meta = dub.narration_ffmetadata([(0.0, "a=b; #c \\ d")], 1000)
+        meta = dub_narration.narration_ffmetadata([(0.0, "a=b; #c \\ d")], 1000)
         assert "title=a\\=b\\; \\#c \\\\ d" in meta
 
     def test_same_instant_markers_are_collapsed(self):
-        meta = dub.narration_ffmetadata([(0.0, "A"), (0.0, "B"), (1.0, "C")], 2000)
+        meta = dub_narration.narration_ffmetadata([(0.0, "A"), (0.0, "B"), (1.0, "C")], 2000)
         assert meta.count("[CHAPTER]") == 2
 
 
@@ -769,18 +497,18 @@ class TestExportM4b:
     def test_chapters_match_the_narrations_paragraph_breaks(self, monkeypatch, fake_pydub, tmp_path):
         """End to end: narrate, then export -- the chapter markers land on the
         first line of each paragraph, at the timing narration gave it."""
-        monkeypatch.setattr(dub, "synthesize_line",
-                            lambda text, voice, out_path, rate="+0%": open(out_path, "w").close())
-        (tmp_path / dub.NOVEL_SOURCE_FILENAME).write_text("一。二。\n三。", encoding="utf-8")
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
+                            lambda text, out_path, **kw: open(out_path, "w").close())
+        (tmp_path / dub_narration.NOVEL_SOURCE_FILENAME).write_text("一。二。\n三。", encoding="utf-8")
         lines = [Line(idx=0, start=0, end=0, zh="一。", en="One."),
                  Line(idx=1, start=0, end=0, zh="二。", en="Two."),
                  Line(idx=2, start=0, end=0, zh="三。", en="Three.")]
-        dub.build_narration_track(lines, str(tmp_path), {}, gap_ms=350)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
         _write_wav(tmp_path / "narration_track.wav", 3.0)
 
         ran = []
         monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: ran.append(cmd))
-        out = dub.export_narration_m4b(lines, str(tmp_path), title="Story")
+        out = dub_narration.export_narration_m4b(lines, str(tmp_path), title="Story")
 
         assert out == str(tmp_path / "narration.m4b")
         cmd = ran[0]
@@ -794,7 +522,7 @@ class TestExportM4b:
 
     def test_needs_the_narration_first(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="generate the narration"):
-            dub.export_narration_m4b([], str(tmp_path))
+            dub_narration.export_narration_m4b([], str(tmp_path))
 
     @pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")),
                         reason="needs real ffmpeg/ffprobe")
@@ -803,43 +531,9 @@ class TestExportM4b:
         _write_wav(tmp_path / "narration_track.wav", 4.0)
         lines = [Line(idx=0, start=0.0, end=1.5, zh="第一章", en="Chapter 1", dub_filename="a"),
                  Line(idx=1, start=2.0, end=3.5, zh="第二章", en="Chapter 2", dub_filename="b")]
-        out = dub.export_narration_m4b(lines, str(tmp_path), title="T")
+        out = dub_narration.export_narration_m4b(lines, str(tmp_path), title="T")
         probe = subprocess.run(["ffprobe", "-v", "error", "-show_chapters", "-print_format", "json", out],
                                capture_output=True, text=True, check=True)
         chapters = json.loads(probe.stdout)["chapters"]
         assert [c["tags"]["title"] for c in chapters] == ["Chapter 1", "Chapter 2"]
         assert float(chapters[1]["start_time"]) == pytest.approx(2.0)
-
-
-class TestGptSovitsResponseCap:
-    def _post(self, monkeypatch, resp):
-        import requests
-        monkeypatch.setattr(requests, "post", lambda url, json=None, timeout=None, stream=False: resp)
-
-    def test_audio_over_the_cap_is_refused_and_nothing_is_written(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(dub, "GPT_SOVITS_AUDIO_MAX_BYTES", 100)
-        resp = _FakeStream(200, b"x" * 500)
-        self._post(monkeypatch, resp)
-        out = tmp_path / "a.wav"
-        with pytest.raises(RuntimeError, match="more audio"):
-            dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(out))
-        assert not out.exists() and resp.closed
-
-    def test_a_declared_length_over_the_cap_is_refused_before_reading(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(dub, "GPT_SOVITS_AUDIO_MAX_BYTES", 100)
-        resp = _FakeStream(200, b"", headers={"Content-Length": "5000"})
-        self._post(monkeypatch, resp)
-        with pytest.raises(RuntimeError, match="more audio"):
-            dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(tmp_path / "a.wav"))
-
-    def test_an_oversized_error_body_is_refused(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(dub, "GPT_SOVITS_ERROR_MAX_BYTES", 100)
-        self._post(monkeypatch, _FakeStream(500, b"e" * 500))
-        with pytest.raises(RuntimeError, match="more audio"):
-            dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(tmp_path / "a.wav"))
-
-    def test_audio_under_the_cap_still_downloads_whole(self, monkeypatch, tmp_path):
-        self._post(monkeypatch, _FakeStream(200, b"x" * 5000))
-        out = tmp_path / "a.wav"
-        dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(out))
-        assert out.read_bytes() == b"x" * 5000

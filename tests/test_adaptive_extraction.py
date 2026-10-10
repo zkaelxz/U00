@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from sources import adaptive, ai_extract as ax, generic_import, profiles, store
+from sources import adaptive, ai_extract as ax, generic_import, novel_follow, profiles, store
 
 from .sources_helpers import ScriptedTransport, html as html_resp, make_client
 
@@ -709,7 +709,7 @@ class TestDiagnostics:
 # ---------------------------------------------------------------------------
 
 class TestFollowNovel:
-    """adaptive.follow_novel: one client, page by page, stopping cleanly."""
+    """novel_follow.follow_novel: one client, page by page, stopping cleanly."""
 
     @staticmethod
     def _routes(*numbers, **over):
@@ -723,7 +723,7 @@ class TestFollowNovel:
         clock = clock or FakeClock()
         transport = ScriptedTransport(routes, clock)
         client = make_client("generic", transport, clock, max_retries=0, **(policy or {}))
-        out = adaptive.follow_novel(chapter_url(12), max_pages, client=client,
+        out = novel_follow.follow_novel(chapter_url(12), max_pages, client=client,
                                     allow_browser=False, allow_signed_in=False, **kw)
         return out, transport
 
@@ -735,10 +735,20 @@ class TestFollowNovel:
         assert out.stop == "cap" and t.urls() == [chapter_url(n) for n in (12, 13, 14)]
         assert out.pages[0].text == out.first.text
 
+    def test_patching_import_novel_on_novel_follow_reaches_follow_novel(self, monkeypatch):
+        class Reached(Exception):
+            pass
+
+        def fake(*a, **kw):
+            raise Reached
+        monkeypatch.setattr(novel_follow, "import_novel", fake)
+        with pytest.raises(Reached):
+            novel_follow.follow_novel(chapter_url(12), 2)
+
     def test_cap_is_bounded(self, isolated_db):
         out, t = self._follow(self._routes(12, 13), max_pages=0)
         assert out.stop == "cap" and len(out.pages) == 1 and len(t.calls) == 1
-        assert adaptive.MAX_FOLLOW_PAGES == 50
+        assert novel_follow.MAX_FOLLOW_PAGES == 50
 
     def test_stops_when_a_page_has_no_next_link(self, isolated_db):
         last = chapter_html(13).replace('<a id="next" href="/book/77/1014.html">下一章</a>', "")
@@ -756,9 +766,9 @@ class TestFollowNovel:
         me = chapter_html(12).replace("/book/77/1013.html", "/book/77/1012.html")
         out, t = self._follow({chapter_url(12): html_resp(me)})
         assert out.stop in ("cycle", "no_next") and len(out.pages) == 1 and len(t.calls) == 1
-        seen = {adaptive._follow_key(chapter_url(12))}
-        assert adaptive._unfollowable(chapter_url(12) + "#x", chapter_url(11), seen) == "cycle"
-        assert adaptive._unfollowable("http://novel.example/book/77/1012.html/",
+        seen = {novel_follow._follow_key(chapter_url(12))}
+        assert novel_follow._unfollowable(chapter_url(12) + "#x", chapter_url(11), seen) == "cycle"
+        assert novel_follow._unfollowable("http://novel.example/book/77/1012.html/",
                                       "http://novel.example/book/77/1011.html", seen) == "cycle"
 
     def test_stops_at_another_host(self, isolated_db):
@@ -769,13 +779,13 @@ class TestFollowNovel:
         out, t = self._follow({chapter_url(12): html_resp(away),
                                "https://m.novel.example/book/77/1013.html": html_resp(chapter_html(13))})
         assert out.stop == "other_host" and len(out.pages) == 1 and len(t.calls) == 1
-        assert adaptive._unfollowable("ftp://novel.example/2", chapter_url(11), set()) == "other_host"
+        assert novel_follow._unfollowable("ftp://novel.example/2", chapter_url(11), set()) == "other_host"
 
     def test_another_port_is_another_host(self):
         here = "https://novel.example/book/1.html"
-        assert adaptive._unfollowable("https://novel.example:8443/book/2.html", here, set()) == "other_host"
-        assert adaptive._unfollowable("https://novel.example:443/book/2.html", here, set()) is None
-        assert adaptive._unfollowable("https://novel.example:99999/book/2.html", here,
+        assert novel_follow._unfollowable("https://novel.example:8443/book/2.html", here, set()) == "other_host"
+        assert novel_follow._unfollowable("https://novel.example:443/book/2.html", here, set()) is None
+        assert novel_follow._unfollowable("https://novel.example:99999/book/2.html", here,
                                       set()) == "other_host"
 
     def test_never_downgrades_from_https_to_http(self, isolated_db):
@@ -785,7 +795,7 @@ class TestFollowNovel:
                                "http://www.novel.example/book/77/1013.html": html_resp(chapter_html(13))})
         assert out.stop == "downgrade" and len(out.pages) == 1 and len(t.calls) == 1
         # An upgrade is fine.
-        assert adaptive._unfollowable("https://novel.example/book/2.html",
+        assert novel_follow._unfollowable("https://novel.example/book/2.html",
                                       "http://novel.example/book/1.html", set()) is None
 
     def test_never_follows_a_sign_in_or_age_check_link(self):
@@ -796,9 +806,9 @@ class TestFollowNovel:
                   "https://novel.example/chapter/2/unlock.html", "https://novel.example/pay?ch=2",
                   "https://novel.example/purchase/2", "https://novel.example/subscribe/77",
                   "https://novel.example/checkout", "https://novel.example/sign-out"):
-            assert adaptive._unfollowable(u, here, set()) == "gate", u
+            assert novel_follow._unfollowable(u, here, set()) == "gate", u
         for u in ("https://novel.example/author/2", "https://novel.example/book/payload/2.html"):
-            assert adaptive._unfollowable(u, here, set()) is None, u
+            assert novel_follow._unfollowable(u, here, set()) is None, u
 
     def test_url_check_refusal_stops_before_any_request(self, isolated_db):
         out, t = self._follow(self._routes(12, 13), url_check=lambda u: u == chapter_url(12))

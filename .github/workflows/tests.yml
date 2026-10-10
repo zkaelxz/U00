@@ -26,6 +26,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A pull request that only changes free-form notes (reports, research notes,
+  # the session harvest) runs the quick guards and the repo-wide word scan and
+  # skips the long jobs: nothing in them reads those files. Anything else, and
+  # every push to the base branch, runs everything. A skipped job counts as
+  # passed for branch protection.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      notes_only: ${{ steps.diff.outputs.notes_only }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Is this change notes only
+        id: diff
+        run: |
+          notes_only=false
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            # The checkout is the merge commit; its first parent is the base.
+            files=$(git diff --name-only HEAD^1 HEAD)
+            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '^(reports/|research_notes/|docs/session-harvest/)'; then
+              notes_only=true
+            fi
+          fi
+          echo "notes_only=$notes_only" >> "$GITHUB_OUTPUT"
+
   # Real observed duration (GitHub Actions run history, 2026-09-28, 3 runs):
   # install ~20-26s, `python run_tests.py` ~5m17s-5m34s, job total
   # ~5m45s-6m13s. By 2026-09-29 the suite had grown to 9-15 min serially
@@ -35,7 +64,41 @@ jobs:
   # the parallel run took 10-15 min and one was cancelled at 94% at the old
   # 15 minute limit; 25 minutes gives headroom without letting a hung job
   # run indefinitely. The parallel run now takes about 14 minutes.
+  # The quick guards (permissions, size allowlist, static analysis, file
+  # organization, split guards, db migrations list) in about a minute, so a
+  # PR that breaks a rule is red long before the full suite finishes.
+  guards:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-core.txt
+            constraints.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
+
+      - name: Quick guards
+        run: python run_tests.py -q -n auto tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py
+
+      # The one full-suite test that reads every file in the repo, so a notes
+      # file naming something the code has removed still fails before merge.
+      - name: Repo-wide word scan (notes-only changes)
+        if: needs.changes.outputs.notes_only == 'true'
+        run: python run_tests.py -q tests/test_dub.py::TestHostedCloningRemoved::test_no_references_remain
+
   test:
+    needs: changes
+    if: needs.changes.outputs.notes_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -59,8 +122,20 @@ jobs:
       - name: Check requirements, constraints and installer lock agree
         run: python scripts/check_constraints.py
 
+      # Tests that failed on this branch's last run go first, so a red run
+      # shows its failure in the first minute instead of the sixteenth. The
+      # cache falls back to the base branch's entry on a fresh branch.
+      - name: Restore last-failed list
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: .pytest_cache
+          key: pytest-lastfailed-${{ github.head_ref || github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            pytest-lastfailed-${{ github.head_ref || github.ref_name }}-
+            pytest-lastfailed-${{ github.base_ref || 'baihe-subtitler' }}-
+
       - name: Run tests
-        run: python run_tests.py -q -n auto --durations=25
+        run: python run_tests.py -q -n auto --ff --durations=25
 
   # The React frontend: typecheck + production build, unit tests and lint.
   # The browser (Playwright) tests run in the separate four-shard `e2e` job
@@ -70,6 +145,8 @@ jobs:
   # (8-9 minutes), which is why its limit is 20 minutes; the limit is
   # now only headroom against a hung install or build.
   frontend:
+    needs: changes
+    if: needs.changes.outputs.notes_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -110,6 +187,8 @@ jobs:
   # shard starts its own seeded API and library, so specs that share state keep
   # running together exactly as they did in the single-worker run.
   e2e:
+    needs: changes
+    if: needs.changes.outputs.notes_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:

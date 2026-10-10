@@ -18,7 +18,8 @@ depend on context only a person reading the story can settle.
 import re
 import json
 from core import LANGUAGE_NAMES
-from translate_engines import call_llm_json, parse_json_array
+from glossary_io import TERM_CATEGORIES, TERM_POLICIES
+from translate_engines import PRONOUN_DEFAULT_MARKER, call_llm_json, parse_json_array
 
 
 # ---------------------------------------------------------------------------
@@ -67,65 +68,6 @@ STYLE_PRESETS = {
 
 
 # ---------------------------------------------------------------------------
-# Term categories and handling policies
-# ---------------------------------------------------------------------------
-
-TERM_CATEGORIES = {
-    "person_name": "Personal name (given/full name)",
-    "courtesy_name": "Courtesy name (字) / art name (号)",
-    "clan_sect": "Clan, sect, or school (宗/门/派/family name)",
-    "title_rank": "Title or rank (王爷, 少主, 掌门, 陛下)",
-    "honorific": "Honorific / form of address (师姐, 姐姐, 前辈, 道友)",
-    "cultivation_realm": "Cultivation realm or stage (筑基, 金丹, 元婴)",
-    "place": "Place name (city, palace, mountain, pavilion)",
-    "artifact": "Weapon, artifact, or treasure",
-    "technique": "Technique, skill, or spell name",
-    "culture_item": "Food, clothing, custom, or cultural object",
-    "concept": "Philosophical or untranslatable concept (道, 缘分, 气)",
-    "other": "Other recurring term",
-}
-
-TERM_POLICIES = {
-    "keep_pinyin": {
-        "label": "Keep as pinyin",
-        "example": "沈清疑 → Shen Qingyi",
-        "guidance": "Romanize as pinyin. Do not translate the literal meaning of the characters.",
-    },
-    "translate_meaning": {
-        "label": "Translate the meaning",
-        "example": "听雨阁 → Listening Rain Pavilion",
-        "guidance": "Translate the semantic meaning into natural English.",
-    },
-    "hybrid": {
-        "label": "Hybrid (pinyin + translated category word)",
-        "example": "云隐宗 → Yunyin Sect",
-        "guidance": (
-            "Keep the distinctive proper-noun part as pinyin, but translate the "
-            "category word (宗 → Sect, 阁 → Pavilion, 城 → City). This is the most "
-            "common convention for sects and organizations."
-        ),
-    },
-    "keep_with_note": {
-        "label": "Keep original + translation note",
-        "example": "道 → dao [note: the Way]",
-        "guidance": (
-            "Keep the romanized original because no English equivalent carries the "
-            "full meaning, and flag it for a translation note on first appearance."
-        ),
-    },
-    "contextual": {
-        "label": "Depends on context",
-        "example": "姐姐 → 'jiejie' (intimate address) or 'older sister' (literal)",
-        "guidance": (
-            "Decide per occurrence based on how it's being used. Note especially that "
-            "kinship terms between non-relatives are common as forms of address and "
-            "carry intimacy/hierarchy that a literal sibling translation would lose."
-        ),
-    },
-}
-
-
-# ---------------------------------------------------------------------------
 # Baseline craft guidance -- the parts that apply regardless of settings
 # ---------------------------------------------------------------------------
 
@@ -164,8 +106,8 @@ Genre notes (baihe / GL):
   consistent English pet name.
 """
 
-FEMALE_PRONOUN_DEFAULT_GUIDANCE = """
-Pronoun default: unless context, an honorific, or a character's known gender
+FEMALE_PRONOUN_DEFAULT_GUIDANCE = f"""
+{PRONOUN_DEFAULT_MARKER} unless context, an honorific, or a character's known gender
 (see below, if given) says otherwise, default an ambiguous third-person
 reference to female (she/her/hers) -- most baihe/GL casts are entirely or
 almost entirely women, and spoken Mandarin doesn't distinguish 他/她/它
@@ -207,7 +149,8 @@ def _series_pronouns_by_name(series_characters) -> dict:
             for sc in (series_characters or []) if normalize_pronouns(sc.get("gender"))}
 
 
-def build_character_gender_hints(series_characters, drama_characters=None) -> str:
+def build_character_gender_hints(series_characters, drama_characters=None,
+                                 default_female_pronouns: bool = False) -> str:
     """series_characters: rows from db.list_series_characters() (pronoun
     text in their `gender` column). drama_characters: rows from
     db.list_characters_with_series_names() (pronoun text in `pronouns`),
@@ -217,6 +160,10 @@ def build_character_gender_hints(series_characters, drama_characters=None) -> st
     rather than from Mandarin's homophone-ambiguous 他/她/它. Empty
     string if nobody has pronouns set -- callers should skip adding this
     block entirely rather than inject an empty header.
+
+    default_female_pronouns: also says what a speaker or character NOT listed
+    gets (she/her), so a block naming only the he/him characters can't read
+    as "everyone else is male". Never changes a listed character's pronouns.
     """
     series_by_name = _series_pronouns_by_name(series_characters)
     merged = {}
@@ -235,6 +182,9 @@ def build_character_gender_hints(series_characters, drama_characters=None) -> st
              "accordingly, overriding any other default):"]
     for name, p in merged.values():
         lines.append(f"  {name}: {p}")
+    if default_female_pronouns:
+        lines.append("  Any speaker or character not listed here: she/her, unless context "
+                     "or an honorific says otherwise.")
     return "\n".join(lines)
 
 
@@ -529,6 +479,34 @@ def format_notes_as_markdown(notes, drama_title: str = "") -> str:
     return header + "\n\n".join(sections) + "\n"
 
 
+# Kana, CJK ideographs and Hangul count as letters to Python's \w, but CJK
+# text has no spaces between words, so only a Latin-script edge of a variant
+# needs a word boundary.
+_CJK_CHARS = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff"
+_NON_CJK_WORD = f"[^\\W{_CJK_CHARS}]"
+_CJK_RE = re.compile(f"[{_CJK_CHARS}]")
+
+
+def _variant_pattern(variant: str) -> str:
+    head = ""
+    if re.match(r"\w", variant[0]) and not _CJK_RE.match(variant[0]):
+        head = f"(?<!{_NON_CJK_WORD})"
+    tail = ""
+    if re.match(r"\w", variant[-1]) and not _CJK_RE.match(variant[-1]):
+        tail = f"(?!{_NON_CJK_WORD})"
+    return head + re.escape(variant) + tail
+
+
+def _is_free_text_note(variant: str, canonical: str) -> bool:
+    """`notes` doubles as the variant list and a free-text note ("her
+    childhood friend"); a spaced phrase longer than the name is a note,
+    unless it is just the name spaced differently ("Shen Qing Yi")."""
+    if not re.search(r"\s", variant) or len(variant) <= len(canonical):
+        return False
+    squash = lambda t: re.sub(r"[\s\-]+", "", t).casefold()
+    return squash(variant) != squash(canonical)
+
+
 def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
     """
     Hard find-replace for terms marked as non-negotiable (LunaTranslator's
@@ -537,20 +515,45 @@ def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
     character names.
 
     Applied to the TRANSLATED output, replacing any variant the model
-    produced with the canonical form. Longest terms first, so a longer
-    term containing a shorter one isn't partially clobbered.
+    produced with the canonical form. Idempotent, because it runs again
+    over lines it already corrected: a variant matches whole words only
+    ("Lin" never inside "Berlin"), and a match that lies inside a canonical
+    form already in the text is left alone ("Qingyi" inside "Shen Qingyi").
+    Longer variants win where two could match at the same place.
     """
     # enforce_exact terms only, with variants from `notes`. A glossary term's
     # banned_translations are separate and flag-only (auto_qc.build_banned_terms
     # flags the line for review); never rewrite text from them here.
-    enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
-    for t in sorted(enforced, key=lambda x: len(x.get("term_translation") or ""), reverse=True):
-        canonical = t.get("term_translation")
-        variants = [v.strip() for v in (t.get("notes") or "").split("|") if v.strip()]
-        for v in variants:
-            if v and v != canonical:
-                text = re.sub(re.escape(v), canonical, text, flags=re.IGNORECASE)
-    return text
+    enforced = [t for t in (glossary_terms or [])
+                if t.get("enforce_exact") and t.get("term_translation")]
+    if not text or not enforced:
+        return text
+    canonical_of = {}
+    for t in sorted(enforced, key=lambda x: len(x["term_translation"]), reverse=True):
+        canonical = t["term_translation"]
+        for v in (t.get("notes") or "").split("|"):
+            v = v.strip()
+            if v and v != canonical and not _is_free_text_note(v, canonical):
+                canonical_of.setdefault(v.casefold(), (v, canonical))
+    if not canonical_of:
+        return text
+    variants = sorted(canonical_of.values(), key=lambda vc: len(vc[0]), reverse=True)
+    pattern = re.compile("|".join(_variant_pattern(v) for v, _ in variants), re.IGNORECASE)
+    protected = [(m.start(), m.end())
+                 for canonical in {t["term_translation"] for t in enforced}
+                 for m in re.finditer(re.escape(canonical), text)]
+    out, pos, scan = [], 0, 0
+    while True:
+        m = pattern.search(text, scan)
+        if m is None:
+            break
+        if any(s <= m.start() and m.end() <= e for s, e in protected):
+            scan = m.start() + 1
+            continue
+        out += [text[pos:m.start()], canonical_of[m.group(0).casefold()][1]]
+        pos = scan = m.end()
+    out.append(text[pos:])
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -669,123 +672,20 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
                     continue
                 e["category"] = e.get("category") if e.get("category") in TERM_CATEGORIES else "other"
                 e["policy"] = e.get("policy") if e.get("policy") in TERM_POLICIES else "keep_pinyin"
-                # later windows refine earlier proposals rather than duplicating
+                # later windows refine earlier proposals rather than duplicating,
+                # but the earlier renderings stay visible: a term rendered
+                # differently per window is the inconsistency a reviewer should see.
+                seen = all_terms.get(e["term"])
+                e["windows"] = (seen["windows"] if seen else 0) + 1
+                renderings = list(seen["renderings"]) if seen else []
+                rendering = str(e.get("suggested_translation") or "").strip()
+                if rendering and rendering not in renderings:
+                    renderings.append(rendering)
+                e["renderings"] = renderings
                 all_terms[e["term"]] = e
         if progress_cb:
             progress_cb((i + 1) / total)
     return list(all_terms.values())
-
-
-# ---------------------------------------------------------------------------
-# Glossary file import / export
-# ---------------------------------------------------------------------------
-
-GLOSSARY_COLUMNS = ["term_original", "term_translation", "category", "policy",
-                    "enforce_exact", "notes"]
-
-
-def parse_glossary_file(content: str, filename: str = ""):
-    """
-    Reads a glossary you already have. Accepts CSV, TSV, or JSON, and is
-    lenient about column naming -- a two-column sheet of term/translation
-    works, and anything extra is picked up if the header matches.
-
-    Returns (entries, warnings) so import problems are visible rather
-    than silently dropping rows.
-    """
-    import csv
-    import io as _io
-
-    content = (content or "").strip()
-    if not content:
-        return [], ["File is empty."]
-
-    warnings = []
-    entries = []
-
-    if filename.lower().endswith(".json") or content.startswith("["):
-        try:
-            data = json.loads(content)
-            if not isinstance(data, list):
-                return [], ["JSON must be a list of term objects."]
-            for row in data:
-                if isinstance(row, dict) and row.get("term_original"):
-                    entries.append(row)
-                else:
-                    warnings.append(f"Skipped a row without 'term_original': {str(row)[:60]}")
-        except json.JSONDecodeError as e:
-            return [], [f"Couldn't parse JSON: {e}"]
-    else:
-        delimiter = "\t" if (filename.lower().endswith(".tsv") or "\t" in content.split("\n")[0]) else ","
-        reader = csv.reader(_io.StringIO(content), delimiter=delimiter)
-        rows = [r for r in reader if any(c.strip() for c in r)]
-        if not rows:
-            return [], ["No rows found."]
-
-        header = [h.strip().lower().replace(" ", "_") for h in rows[0]]
-        # A header is only a header if it names at least one known column.
-        has_header = any(h in GLOSSARY_COLUMNS or h in ("term", "translation", "original", "english")
-                         for h in header)
-        alias = {"term": "term_original", "original": "term_original",
-                 "translation": "term_translation", "english": "term_translation"}
-
-        if has_header:
-            cols = [alias.get(h, h) for h in header]
-            body = rows[1:]
-        else:
-            cols = ["term_original", "term_translation"]
-            body = rows
-            warnings.append("No header row detected -- assuming column 1 = original term, "
-                            "column 2 = translation.")
-
-        for i, row in enumerate(body, start=2 if has_header else 1):
-            entry = {}
-            for j, col in enumerate(cols):
-                if j < len(row) and col in GLOSSARY_COLUMNS:
-                    entry[col] = row[j].strip()
-            if not entry.get("term_original"):
-                warnings.append(f"Row {i}: no original term, skipped.")
-                continue
-            entries.append(entry)
-
-    # Normalise and validate so a bad category can't corrupt the glossary
-    cleaned = []
-    for e in entries:
-        cat = e.get("category")
-        pol = e.get("policy")
-        if cat and cat not in TERM_CATEGORIES:
-            warnings.append(f"{e['term_original']}: unknown category '{cat}', set to 'other'.")
-            cat = "other"
-        if pol and pol not in TERM_POLICIES:
-            warnings.append(f"{e['term_original']}: unknown policy '{pol}', set to 'keep_pinyin'.")
-            pol = "keep_pinyin"
-        enforce = str(e.get("enforce_exact", "")).strip().lower() in ("1", "true", "yes", "y")
-        cleaned.append({
-            "term_original": e["term_original"].strip(),
-            "term_translation": (e.get("term_translation") or "").strip(),
-            "category": cat or "other",
-            "policy": pol or "keep_pinyin",
-            "enforce_exact": enforce,
-            "notes": (e.get("notes") or "").strip(),
-        })
-    return cleaned, warnings
-
-
-def glossary_to_csv(terms) -> str:
-    """Exports a glossary as CSV -- for backup, for editing in a
-    spreadsheet, or for sharing with someone translating the same series."""
-    import csv
-    import io as _io
-    buf = _io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(GLOSSARY_COLUMNS)
-    for t in terms:
-        writer.writerow([
-            t.get("term_original", ""), t.get("term_translation", ""),
-            t.get("category", ""), t.get("policy", ""),
-            "yes" if t.get("enforce_exact") else "", t.get("notes", ""),
-        ])
-    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------

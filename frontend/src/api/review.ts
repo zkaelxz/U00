@@ -2,6 +2,7 @@ import type {
   ApplyResult,
   FindReplaceRequest,
   HistoryItem,
+  HistorySnapshot,
   LineFilter,
   LineExplanation,
   LineImprovement,
@@ -34,7 +35,7 @@ import type {
   LineGrammar,
   ShortenResult,
 } from '../types/review'
-import { apiUrl, deleteJson, fetchBody, getJson, postJson } from './client'
+import { apiUrl, deleteJson, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -79,6 +80,9 @@ export const deleteNote = (id: number, noteId: number, f?: Fetch) =>
   deleteJson<NoteDeleteResult>(`${lines(id)}/notes/${noteId}`, f)
 
 export const listHistory = (id: number, f?: Fetch) => getJson<HistoryItem[]>(`${review(id)}/history`, f)
+
+export const getHistorySnapshot = (id: number, historyId: number, f?: Fetch) =>
+  getJson<HistorySnapshot>(`${review(id)}/history/${historyId}`, f)
 
 export const listVersions = (id: number, f?: Fetch) => getJson<VersionItem[]>(`${review(id)}/versions`, f)
 
@@ -143,10 +147,6 @@ export const lineAlternatives = (id: number, lineId: number, f?: Fetch) =>
 
 export const lineGrammar = (id: number, lineId: number, f?: Fetch) =>
   postJson<LineGrammar>(`${lineAi(id, lineId)}/grammar`, {}, f)
-
-// Review parity R19: an MP3 of the line's source text (edge-tts on the PC).
-export const pronounceLine = (id: number, lineId: number, f?: Fetch) =>
-  fetchBody(`${lineAi(id, lineId)}/pronounce`, { method: 'POST', headers: { Accept: 'audio/mpeg' } }, (r) => r.blob(), f)
 
 // Review parity R28: rewrites only "en" of the too-long lines, after a
 // line-history snapshot; a line edited meanwhile is skipped as stale. The

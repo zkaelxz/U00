@@ -2,7 +2,7 @@
 import { useState } from 'react'
 
 import { generateChangelog } from '../../api/assistant'
-import { Card } from '../../components/Card'
+import { Section } from '../../components/Section'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { ChangelogResponse } from '../../types/assistant'
@@ -37,7 +37,8 @@ export function ChangelogCard({ engine, model, onModeOff }: Props) {
   }
 
   return (
-    <Card title="Changelog" meta="Summarise the commits between two versions." aria-label="Changelog">
+    <section aria-label="Changelog">
+      <Section title="Changelog" summary="Summarise the commits between two versions" storageKey="assistant.changelog">
       <form
         className="assistant-changelog-form"
         onSubmit={(e) => {
@@ -70,6 +71,7 @@ export function ChangelogCard({ engine, model, onModeOff }: Props) {
           <CopyButton text={result.changelog} label="Copy changelog" />
         </div>
       )}
-    </Card>
+      </Section>
+    </section>
   )
 }

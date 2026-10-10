@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { getDenoStatus, getUpgradeCheck, installDeno, testUpgrade } from './diagnosticsInstalls'
+import {
+  cancelDependencyInstall, getDenoStatus, getDependencyInstall, getUpgradeCheck, installDeno, testUpgrade,
+} from './diagnosticsInstalls'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 import { voiceBankAudioUrl } from './voiceBankAudio'
 
@@ -40,6 +42,16 @@ describe('diagnostics installs api', () => {
     expect(JSON.parse(init.body)).toEqual({ confirm: true, target: '4.0.1' })
     expect(localHeader(init)).toBe('1')
     expect(getPcMode()).toBe('remote')
+  })
+
+  it('reads the install job state and cancels it through the jobs API', async () => {
+    const { mock, f } = reply(200, {})
+    await getDependencyInstall(f)
+    await cancelDependencyInstall(f)
+    expect(mock.mock.calls.map((c) => [c[0], c[1]?.method ?? 'GET'])).toEqual([
+      ['/api/diagnostics/dependency-install', 'GET'],
+      ['/api/jobs/dependency_install/cancel', 'POST'],
+    ])
   })
 
   it('voice-bank audio URL', () => {

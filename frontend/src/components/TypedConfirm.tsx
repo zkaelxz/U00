@@ -11,6 +11,7 @@ import { useId, useState, type ReactNode } from 'react'
 
 import { typedMatches } from './typedConfirmMatch'
 import './typedConfirm.css'
+import { buttonClass } from './uiClasses'
 
 type TypedConfirmProps = {
   word: string
@@ -21,7 +22,7 @@ type TypedConfirmProps = {
   action: string
   busy?: boolean
   // A reason the action cannot run right now; shown and the button disabled.
-  blocked?: string | null
+  blocked?: ReactNode
   onConfirm: () => void
   onCancel?: () => void
   children?: ReactNode
@@ -66,7 +67,7 @@ export function TypedConfirm({ word, exact, autoFocus, action, busy, blocked, on
           {busy ? 'Working…' : action}
         </button>
         {onCancel && (
-          <button type="button" className="link" onClick={onCancel}>
+          <button type="button" className={buttonClass('ghost')} onClick={onCancel}>
             Cancel
           </button>
         )}

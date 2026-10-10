@@ -13,8 +13,8 @@ import {
 } from './characterForm'
 
 const entry: CharacterEntry = {
-  speaker_label: 'SPEAKER_00', character_name: 'Lin', pronouns: 'she/her', tts_voice: 'v1',
-  offline_voice: '', clone_engine: 'xtts', voice_design: '', has_ref_audio: true,
+  speaker_label: 'SPEAKER_00', character_name: 'Lin', pronouns: 'she/her',
+  clone_engine: 'xtts', voice_design: '', has_ref_audio: true,
   ref_text_present: true, series_character_id: null, series_character_name: '', line_count: 4,
 }
 

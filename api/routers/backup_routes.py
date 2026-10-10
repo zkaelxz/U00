@@ -17,7 +17,7 @@ the dramas list and the restore use the service's default pick, or answer
 can't be told for sure.
 The two import
 routes read their multipart body themselves so the upload cap
-(BAIHE_MAX_UPLOAD_MB) is enforced before the body is spooled.
+(the upload limit) is enforced before the body is spooled.
 """
 
 from typing import Optional
@@ -37,6 +37,7 @@ from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.schemas import ErrorResponse
 from services import auto_backup_service as abs_
 from services import backup_import_service as bis
+from services import drama_restore_service as drs
 from services import media_upload_service
 from services.service_errors import InvalidInputError
 
@@ -91,7 +92,7 @@ def get_snapshot_dramas(snapshot: Optional[str] = Query(None, min_length=1, max_
                      "409 choose_copy when no copy is named and none is the clear default)")
 def post_restore_drama(body: RestoreDramaRequest, request: Request):
     principal = getattr(request.state, "principal", None) or {}
-    return abs_.restore_drama(body.drama_id, confirm=body.confirm,
+    return drs.restore_drama(body.drama_id, confirm=body.confirm,
                               confirm_text=body.confirm_text,
                               actor_id=principal.get("user_id"), snapshot=body.snapshot)
 
@@ -109,7 +110,6 @@ def post_delete_snapshot(body: DeleteSnapshotRequest):
 
 # Room for the multipart boundaries and the small form fields.
 _MULTIPART_OVERHEAD = 64 * 1024
-_UPLOAD_TOO_LARGE = "The uploaded file is too large."
 _FORM_HELP = ("Send the backup as multipart/form-data: a 'file' part, plus drama_ids, "
               "confirm and confirm_text for an import.")
 _LIST_BODY = {"requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
@@ -123,7 +123,7 @@ _IMPORT_BODY = {"requestBody": {"required": True, "content": {"multipart/form-da
 
 
 async def _read_form(request: Request, max_fields: int):
-    """The multipart form, refused (413) past BAIHE_MAX_UPLOAD_MB: the
+    """The multipart form, refused (413) past the upload limit: the
     Content-Length is checked before any of the body is read (chunked
     bodies are refused) and the body stream itself is counted."""
     if "transfer-encoding" in request.headers:
@@ -134,12 +134,12 @@ async def _read_form(request: Request, max_fields: int):
         raise InvalidInputError("An upload needs a Content-Length.")
     cap = media_upload_service.max_upload_bytes() + _MULTIPART_OVERHEAD
     if length > cap:
-        raise StarletteHTTPException(413, _UPLOAD_TOO_LARGE)
+        raise StarletteHTTPException(413, media_upload_service.too_large_message(cap - _MULTIPART_OVERHEAD))
     try:
         return await capped(request, cap).form(max_files=1, max_fields=max_fields,
                                                 max_part_size=1024)
     except BodyTooLarge:
-        raise StarletteHTTPException(413, _UPLOAD_TOO_LARGE)
+        raise StarletteHTTPException(413, media_upload_service.too_large_message(cap - _MULTIPART_OVERHEAD))
     except (MultiPartException, StarletteHTTPException):
         raise InvalidInputError(_FORM_HELP) from None
 

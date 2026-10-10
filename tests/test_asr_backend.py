@@ -6,6 +6,7 @@ re-transcription logic, exercised against fake qwen_asr/torch modules
 and a monkeypatched audio slicer, since the real model needs a GPU/
 network this sandbox doesn't have.
 """
+import whisper_models
 import os
 import sys
 import types
@@ -99,6 +100,20 @@ class TestQwen3ASRBackendTranscription:
         assert [(r["start"], r["end"]) for r in result] == [(0.0, 2.0), (2.0, 5.0)]
         assert all(r["text"] == "qwen3 text" for r in result)
         assert calls == ["Japanese", "Japanese"]
+
+    def test_rewritten_text_drops_the_whisper_words_that_no_longer_match_it(self, monkeypatch):
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+        words = [{"start": 0.0, "end": 1.0, "word": "whisper"}]
+        whisper_segments = [{"start": 0.0, "end": 2.0, "text": "whisper", "words": words}]
+
+        class FakeModel:
+            def transcribe(self, audio, language):
+                return [FakeResult("qwen3 text")]
+
+        monkeypatch.setattr(ab, "load_qwen3_asr", lambda use_gpu=False, model_size="1.7B": FakeModel())
+        result = ab.Qwen3ASRBackend().transcribe("/fake.wav", "ja", whisper_segments=whisper_segments)
+        assert result == [{"start": 0.0, "end": 2.0, "text": "qwen3 text"}]
 
     def test_oversized_segment_falls_back_to_whisper_text_for_that_segment_only(self, monkeypatch):
         import asr_backend as ab
@@ -233,7 +248,7 @@ class TestLoadQwen3Asr:
         seen = self._load(from_pretrained, use_gpu=True)
         assert seen["device"] == ["CPU"]
         import core
-        reason = core.short_reason(seen["fallback"][0])
+        reason = whisper_models.short_reason(seen["fallback"][0])
         assert "CUBLAS_STATUS_NOT_INITIALIZED" in reason
         assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in reason
         assert "\n" not in reason and len(reason) <= 200
@@ -262,6 +277,6 @@ class TestLoadQwen3Asr:
         importlib.reload(asr_backend)
         asr_backend._asr_model_cache.clear()
 
-        from core import ModelDownloadError
+        from whisper_models import ModelDownloadError
         with pytest.raises(ModelDownloadError):
             asr_backend.load_qwen3_asr(use_gpu=False)

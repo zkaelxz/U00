@@ -2,14 +2,14 @@
 api/routers/reader_routes.py -- the Reader's API (prefix /api/reader).
 
 The page HTML route was added later (GET .../page), served for a
-sandboxed iframe from cached definitions only. Route batch 2B (M4) adds
-the rest of the Reader, over `services/reader_service.py`
+sandboxed iframe from cached definitions only. The rest of the Reader is over
+`services/reader_service.py`
 (its module docstring holds the permission contract, decided by the user
 on 2026-09-29):
 
 - reads (overview, notes, media availability, vocab list, wiki list):
   `library.read`;
-- caption tracks and every export (vocab CSV,
+- the page, caption tracks and every export (vocab CSV,
   .apkg, wiki Markdown): `lines.read`;
 - reader-data writes (progress, notes, lookup, rich-export queue, clear
   wiki): `lines.edit`;
@@ -30,8 +30,8 @@ shared with the Review blocked-line retry). The service bounds the work
 inside one request (recap input, wiki chunks per call, rich cards and
 ffmpeg time). The rich .apkg only embeds audio clips for a caller holding
 `media.stream` (media bytes need it); otherwise the deck is text-only and
-the response carries `X-Audio-Omitted: true`. Downloads use generic ASCII names (`drama_<id>_...`), never
-the drama title or a path. Media files themselves are played through
+the response carries `X-Audio-Omitted: true`. Downloads are named like the Export UI's (`<Title> - vocabulary.csv`) through
+`export_service.content_disposition`, never a path. Media files themselves are played through
 /api/media and /api/dub; `media_file_path` is not exposed here, nor is
 the series glossary (the glossary routes cover it).
 """
@@ -50,7 +50,7 @@ from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderEx
                          ReaderRichExportResult, ReaderScopedLlmRequest, ReaderVocabList,
                          ReaderWhoRequest, ReaderWikiClearRequest, ReaderWikiClearResult,
                          ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult)
-from services import reader_service
+from services import export_service, reader_service
 from services.service_errors import ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/api/reader", tags=["reader"])
@@ -77,21 +77,21 @@ def _holds(request: Request, permission: str) -> bool:
     return permission in principal.get("permissions", ())
 
 
-def _download(content, media_type: str, filename: str) -> Response:
+def _download(content, media_type: str, disposition: str) -> Response:
     return Response(content=content, media_type=media_type,
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"',
+                    headers={"Content-Disposition": disposition,
                              "X-Content-Type-Options": "nosniff"})
 
 
-def _require_llm_allowed(request: Request, engine: Optional[str]):
+def _require_llm_allowed(request: Request, engine: Optional[str], model: Optional[str] = None):
     """For a route whose declared permission isn't jobs.start (the lookup):
     an LLM call still needs jobs.start, then the paid-engine check."""
     if not _holds(request, "jobs.start"):
         raise ForbiddenError("Not allowed.")
-    require_engines_allowed(request, engine)
+    require_engines_allowed(request, engine, model=model)
 
 
-@router.get("/dramas/{drama_id}/page", dependencies=[require_permission("library.read")], response_model=ReaderPageResponse,
+@router.get("/dramas/{drama_id}/page", dependencies=[require_permission("lines.read")], response_model=ReaderPageResponse,
             summary="One page of a drama's Reader view, definitions from cache only",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_reader_page(
@@ -164,7 +164,7 @@ def get_caption_track(track: Track, drama_id: int = Path(ge=1)):
 def post_lookup(body: ReaderLookupRequest, request: Request, drama_id: int = Path(ge=1)):
     if not body.use_llm:
         return reader_service.lookup_page_definitions(drama_id, body.page, body.chapter_size)
-    _require_llm_allowed(request, body.engine)
+    _require_llm_allowed(request, body.engine, body.model)
     with _llm_slot(request):
         return reader_service.lookup_page_definitions(
             drama_id, body.page, body.chapter_size, use_llm=True,
@@ -189,7 +189,8 @@ def post_vocab_rich(body: ReaderRichExportRequest, drama_id: int = Path(ge=1)):
             responses={200: {"content": {"text/csv": {}}}, **_READ_ERRS})
 def get_vocab_csv(drama_id: int = Path(ge=1)):
     out = reader_service.export_vocab_csv(drama_id)
-    return _download(out["content"], "text/csv; charset=utf-8", f"drama_{drama_id}_vocab.csv")
+    return _download(out["content"], "text/csv; charset=utf-8",
+                     export_service.drama_disposition(drama_id, "vocabulary", "", "csv"))
 
 
 @router.get("/dramas/{drama_id}/vocab/export.apkg", dependencies=[require_permission("lines.read")],
@@ -199,14 +200,15 @@ def get_vocab_csv(drama_id: int = Path(ge=1)):
                        429: {"model": ErrorResponse}, 503: {"model": ErrorResponse},
                        **_READ_ERRS})
 def get_vocab_apkg(request: Request, drama_id: int = Path(ge=1), rich: bool = Query(False)):
-    name = f"drama_{drama_id}_vocab_sentence.apkg" if rich else f"drama_{drama_id}_vocab.apkg"
+    disposition = export_service.drama_disposition(
+        drama_id, "Anki deck with sentences" if rich else "Anki deck", "", "apkg")
     if not rich:
         out = reader_service.export_vocab_apkg(drama_id)
-        return _download(out["content"], "application/octet-stream", name)
+        return _download(out["content"], "application/octet-stream", disposition)
     with _llm_slot(request):
         out = reader_service.export_vocab_apkg(
             drama_id, rich=True, include_audio=_holds(request, "media.stream"))
-    resp = _download(out["content"], "application/octet-stream", name)
+    resp = _download(out["content"], "application/octet-stream", disposition)
     if out.get("audio_omitted"):
         resp.headers["X-Audio-Omitted"] = "true"
     if out.get("cards_capped"):
@@ -220,7 +222,7 @@ def get_vocab_apkg(request: Request, drama_id: int = Path(ge=1), rich: bool = Qu
              summary="Who is this character (spoiler-scoped when up_to_line_idx is set)",
              responses=_LLM_ERRS)
 def post_story_who(body: ReaderWhoRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.who_is_character(drama_id, body.name, body.up_to_line_idx,
                                                engine_name=body.engine, model=body.model)
@@ -229,7 +231,7 @@ def post_story_who(body: ReaderWhoRequest, request: Request, drama_id: int = Pat
 @router.post("/dramas/{drama_id}/story/explain", dependencies=[require_permission("jobs.start")], response_model=ReaderAnswer,
              summary="Explain a reference or phrase", responses=_LLM_ERRS)
 def post_story_explain(body: ReaderExplainRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.explain_reference(drama_id, body.phrase, body.up_to_line_idx,
                                                 engine_name=body.engine, model=body.model)
@@ -238,7 +240,7 @@ def post_story_explain(body: ReaderExplainRequest, request: Request, drama_id: i
 @router.post("/dramas/{drama_id}/story/recap", dependencies=[require_permission("jobs.start")], response_model=ReaderRecap,
              summary="Recap what came before a page", responses=_LLM_ERRS)
 def post_story_recap(body: ReaderRecapRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.recap(drama_id, body.page, body.chapter_size,
                                     engine_name=body.engine, model=body.model)
@@ -248,7 +250,7 @@ def post_story_recap(body: ReaderRecapRequest, request: Request, drama_id: int =
              summary="Character relationship map (with Mermaid text)", responses=_LLM_ERRS)
 def post_story_relationships(body: ReaderScopedLlmRequest, request: Request,
                              drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.relationship_map(drama_id, body.up_to_line_idx,
                                                engine_name=body.engine, model=body.model)
@@ -269,7 +271,7 @@ def get_wiki(drama_id: int = Path(ge=1),
              summary="Extract wiki entries from the lines up to the boundary (LLM)",
              responses=_LLM_ERRS)
 def post_wiki_update(body: ReaderWikiUpdateRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.update_wiki(drama_id, body.up_to_line_idx,
                                           engine_name=body.engine, model=body.model,
@@ -291,7 +293,7 @@ def get_wiki_markdown(drama_id: int = Path(ge=1),
                       entry_type: Optional[str] = Query(None, max_length=40)):
     out = reader_service.export_wiki_markdown(drama_id, up_to_line_idx, entry_type)
     return _download(out["content"], "text/markdown; charset=utf-8",
-                     f"drama_{drama_id}_universe_wiki.md")
+                     export_service.drama_disposition(drama_id, "universe wiki", "", "md"))
 
 
 # --- Q&A -------------------------------------------------------------------------
@@ -300,7 +302,7 @@ def get_wiki_markdown(drama_id: int = Path(ge=1),
              summary="One grounded Q&A turn (stateless; the client sends the history)",
              responses=_LLM_ERRS)
 def post_ask(body: ReaderAskRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     history = [t.model_dump() for t in body.chat_history]
     with _llm_slot(request):
         return reader_service.ask_about_drama(drama_id, body.question, history,

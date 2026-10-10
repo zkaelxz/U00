@@ -20,6 +20,9 @@ test('translate all pages, follow the job, then read the typeset pages', async (
   const engine = panel.getByLabel('AI engine', { exact: true })
   await expect(engine).toHaveValue('ollama')
   await expect(engine.locator('option')).toHaveCount(1)
+  // The closed select shows the engine's name; its description is in the field help.
+  await expect(engine.locator('option')).toHaveText('Ollama (local)')
+  await expect(panel.locator('.field-help-text', { hasText: 'Keys stay on the PC' })).toContainText('Ollama (local): Ollama (free, local)')
 
   await panel.getByRole('button', { name: 'Translate all pages' }).click()
   await expect(panel.getByTestId('job-status')).toHaveText(/Done · Pages: 3 translated\./)
@@ -43,7 +46,14 @@ test('redo this page, redo all needs a second press, export gives a download', a
   await expect(page.getByTestId('comic-page-label')).toHaveText('Page 2 of 3')
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
+  // A page's hand-edited text boxes are replaced, so the first press only asks.
   await panel.getByRole('button', { name: 'Redo page 2' }).click()
+  expect(s.runs).toEqual([])
+  await panel.getByRole('button', { name: 'Redo page 2' }).press('Escape')
+  await expect(panel.getByRole('button', { name: 'Replace text on page 2' })).toHaveCount(0)
+  expect(s.runs).toEqual([])
+  await panel.getByRole('button', { name: 'Redo page 2' }).click()
+  await panel.getByRole('button', { name: 'Replace text on page 2' }).click()
   await expect(panel.getByTestId('job-status')).toHaveText(/Done/)
   expect(s.runs.at(-1)).toMatchObject({ mode: 'page', page_id: 7 * 100 + 2 })
 
@@ -62,7 +72,7 @@ test('redo this page, redo all needs a second press, export gives a download', a
   expect(s.unmocked).toEqual([])
 })
 
-test('an empty drama shows the upload panel; picking files uploads them', async ({ page }) => {
+test('an empty title shows the upload panel; picking files uploads them', async ({ page }) => {
   const s = await mockScanlate(page, { pageCount: 0, lastPage: 1 })
   await page.goto('/#/comic/7')
   const panel = page.getByRole('region', { name: 'Translate pages' })

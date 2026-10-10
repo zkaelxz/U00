@@ -19,9 +19,9 @@ export const canOfferDeno = (s: DiagnosticsDenoStatus): boolean =>
 export function denoNote(s: DiagnosticsDenoStatus): string | null {
   if (jobRunning(s.job)) return null
   if (s.deno_installed && !s.deno_on_path)
-    return 'Deno is installed but Baihe cannot see it yet. Restart Baihe (and its terminal) so it is found on PATH.'
+    return "Deno is installed, but Baihe can't find it on PATH yet. Restart Baihe (and its terminal)."
   if (!s.runtime_found && !s.can_install)
-    return 'There is no Deno download for this system here. Install Deno, Node, Bun or QuickJS yourself.'
+    return 'No Deno download exists for this system. Install Deno, Node, Bun or QuickJS yourself.'
   return null
 }
 

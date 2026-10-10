@@ -18,7 +18,8 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { SigninResult, SourceDetail, SourceTier, TierTestResult } from '../../types/sources'
-import { TIER_TESTS, pageUrlProblem, tierLabel, tierTestLine } from './sourcesFormat'
+import { TIER_TESTS, tierLabel, tierTestLine } from './sourcesFormat'
+import { pageUrlProblem } from './sourcesSettings'
 import { useSourcesJob } from './useSourcesJob'
 
 type Props = {

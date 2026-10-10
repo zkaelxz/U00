@@ -81,11 +81,10 @@ export async function mockAiResegment(
           engines: [
             { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
             { name: 'gemini', label: 'Gemini', free: false, models: ['flash', 'pro'], key_configured: true },
-            { name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true },
           ],
           month_spend: 1.25,
           monthly_cap_usd: 20,
-          cap_applies_by_engine: { claude: true, gemini: true, nllb: true },
+          cap_applies_by_engine: { claude: true, gemini: true },
         },
       })
     }),
@@ -97,7 +96,7 @@ export async function mockAiResegment(
     }
     return calls.previewStarts.length
       ? route.fulfill({ json: preview })
-      : route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No LLM re-segmentation preview is ready for this drama.' } } })
+      : route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No LLM re-segmentation preview is ready for this title.' } } })
   })
   await page.route('**/api/jobs/resegpreview_3', (route) => route.fulfill({ json: job('resegpreview_3', 'done') }))
   await page.route('**/api/jobs/resegment_3', (route) => route.fulfill({ json: job('resegment_3', 'done') }))

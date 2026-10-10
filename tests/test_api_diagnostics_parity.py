@@ -1,5 +1,5 @@
 """Diagnostics parity (react-misc-parity): ffmpeg libass in the setup
-checks (Q01), deleting a cached model or Piper voice (Q14, PC only). Every scan/delete is faked; no network, no files
+checks (Q01), deleting a cached model (Q14, PC only). Every scan/delete is faked; no network, no files
 outside the throwaway library."""
 import subprocess
 
@@ -29,12 +29,8 @@ def cache(monkeypatch):
     deleted = []
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda *a, **k: [
         {"repo_id": "org/model", "repo_type": "model", "revision": REV, "size_bytes": 10}])
-    monkeypatch.setattr(diagnostics, "scan_piper_voices", lambda *a, **k: [
-        {"voice": "en_US-amy-medium", "size_bytes": 5}])
     monkeypatch.setattr(diagnostics, "delete_hf_cache_revision",
                         lambda rev, *a, **k: deleted.append(rev) or True)
-    monkeypatch.setattr(diagnostics, "delete_piper_voice",
-                        lambda v, *a, **k: deleted.append(v) or True)
     monkeypatch.setattr(diagnostics, "scan_model_folder", lambda kind, *a, **k: [
         {"name": {"torch": "htdemucs.th", "audio_separator": "model.ckpt"}[kind], "size_bytes": 7}])
     monkeypatch.setattr(diagnostics, "delete_model_folder_entry",
@@ -73,9 +69,7 @@ class TestModelCacheDelete:
         assert cache == []
         r = client.post(url, json={"confirm": True})
         assert r.status_code == 200 and r.json() == {"deleted": True, "name": REV}
-        r = client.post("/api/diagnostics/model-cache/piper/en_US-amy-medium/delete", json={"confirm": True})
-        assert r.status_code == 200 and r.json()["name"] == "en_US-amy-medium"
-        assert cache == [REV, "en_US-amy-medium"]
+        assert cache == [REV]
 
     def test_model_folder_files_delete_only_listed_names(self, client, cache):
         base = "/api/diagnostics/model-cache/files"
@@ -98,10 +92,8 @@ class TestModelCacheDelete:
                            json={"confirm": True}).status_code == 404
         assert client.post("/api/diagnostics/model-cache/hf/abc/delete",
                            json={"confirm": True}).status_code == 422
-        assert client.post("/api/diagnostics/model-cache/piper/other/delete",
-                           json={"confirm": True}).status_code == 404
-        assert client.post("/api/diagnostics/model-cache/piper/..%2Fetc/delete",
-                           json={"confirm": True}).status_code in (404, 405, 422)
+        assert client.post("/api/diagnostics/model-cache/piper/en_US-amy-medium/delete",
+                           json={"confirm": True}).status_code in (404, 405)
         assert cache == []
 
     def test_refused_while_a_job_runs(self, client, cache, monkeypatch):
@@ -112,9 +104,9 @@ class TestModelCacheDelete:
     def test_holds_the_library_while_deleting(self, client, cache, monkeypatch):
         import background_jobs
         seen = []
-        monkeypatch.setattr(diagnostics, "delete_piper_voice",
+        monkeypatch.setattr(diagnostics, "delete_hf_cache_revision",
                             lambda v, *a, **k: seen.append(background_jobs.exclusive_active()) or True)
-        r = client.post("/api/diagnostics/model-cache/piper/en_US-amy-medium/delete", json={"confirm": True})
+        r = client.post(f"/api/diagnostics/model-cache/hf/{REV}/delete", json={"confirm": True})
         assert r.status_code == 200 and seen == [True]
         assert not background_jobs.exclusive_active()          # released afterwards
         assert background_jobs.acquire_exclusive("test hold")
@@ -125,8 +117,8 @@ class TestModelCacheDelete:
             background_jobs.release_exclusive()
 
     def test_failed_delete_is_reported(self, client, cache, monkeypatch):
-        monkeypatch.setattr(diagnostics, "delete_piper_voice", lambda *a, **k: False)
-        r = client.post("/api/diagnostics/model-cache/piper/en_US-amy-medium/delete", json={"confirm": True})
+        monkeypatch.setattr(diagnostics, "delete_hf_cache_revision", lambda *a, **k: False)
+        r = client.post(f"/api/diagnostics/model-cache/hf/{REV}/delete", json={"confirm": True})
         assert r.status_code >= 400
 
     def test_pc_only(self, isolated_db, cache):

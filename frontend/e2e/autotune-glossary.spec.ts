@@ -27,7 +27,7 @@ async function shot(page: Page, name: string) {
 
 async function openSection(page: Page, title: string) {
   await openFoldFor(page, title)
-  if (['Advanced', 'Speakers', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
+  if (['More options', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
@@ -59,12 +59,12 @@ const done = (results: { candidate_ms: number; long_lines: number; total_lines: 
 })
 
 test.describe('Auto-tune min silence', () => {
-  test('is disabled with its reason when the drama has no audio', async ({ page }) => {
+  test('is disabled with its reason when the title has no audio', async ({ page }) => {
     await page.goto('/#/drama/1/source')
-    await openSection(page, 'Advanced')
+    await openSection(page, 'More options')
     await openSection(page, 'Auto-tune min silence')
     await expect(page.getByRole('button', { name: 'Start auto-tune' })).toBeDisabled()
-    await expect(page.getByTestId('autotune')).toContainText('Still needed: audio on this drama.')
+    await expect(page.getByTestId('autotune')).toContainText('Still needed: audio on this title.')
   })
 
   test('runs, shows progress with Cancel, then results, and Use posts candidate_ms', async ({ page }) => {
@@ -104,7 +104,7 @@ test.describe('Auto-tune min silence', () => {
     })
 
     await page.goto('/#/drama/1/source')
-    await openSection(page, 'Advanced')
+    await openSection(page, 'More options')
     await openSection(page, 'Auto-tune min silence')
     const start = page.getByRole('button', { name: 'Start auto-tune' })
     await expect(start).toBeEnabled()
@@ -136,10 +136,10 @@ test.describe('Auto-tune min silence', () => {
       route.fulfill({ json: done([{ candidate_ms: 800, long_lines: 1, total_lines: 10 }]) }),
     )
     await page.route('**/api/transcribe/dramas/1/autotune/apply', (route) =>
-      route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished auto-tune results for this drama.' } } }),
+      route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished auto-tune results for this title.' } } }),
     )
     await page.goto('/#/drama/1/source')
-    await openSection(page, 'Advanced')
+    await openSection(page, 'More options')
     await openSection(page, 'Auto-tune min silence')
     await page.getByRole('button', { name: 'Use 800 ms' }).click()
     await expect(page.getByRole('alert').filter({ hasText: 'Run auto-tune again (results are kept only until the app restarts).' })).toBeVisible()
@@ -159,7 +159,7 @@ test.describe('Glossary from novel', () => {
     await openSection(page, 'Glossary')
     const bar = page.getByTestId('lines-glossary')
     await expect(bar.getByRole('button', { name: 'Suggest terms', exact: true })).toBeDisabled()
-    await expect(bar.getByTestId('suggest-reason-novel')).toContainText('Still needed: a series for this drama')
+    await expect(bar.getByTestId('suggest-reason-novel')).toContainText('Still needed: a series for this title')
     await expect(bar.getByTestId('suggest-reason-novel').getByRole('link', { name: 'set it in Details' })).toHaveAttribute('href', '#/drama/1/source')
   })
 
@@ -198,7 +198,7 @@ test.describe('Glossary from novel', () => {
         return route.fulfill({ json: { job_id: 'novelglossary_1', status: 'running', progress: 0.42, message: '', proposals: null, run_id: 'run-1' } })
       }
       const prop = (term: string, en: string, already = false) => ({
-        term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name', already_in_glossary: already,
+        term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name', already_in_glossary: already, occurrences: 3, alternatives: [], confidence: 'high',
       })
       return route.fulfill({
         json: {
@@ -289,7 +289,7 @@ test.describe('Glossary from novel', () => {
       route.fulfill({
         json: {
           job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', run_id: 'run-7',
-          proposals: [{ term: '江澄', suggested_translation: 'Jiang Cheng', category: null, policy: null, reason: '', already_in_glossary: true }],
+          proposals: [{ term: '江澄', suggested_translation: 'Jiang Cheng', category: null, policy: null, reason: '', already_in_glossary: true , occurrences: 3, alternatives: [], confidence: 'high'}],
         },
       }),
     )
@@ -320,18 +320,90 @@ test.describe('Glossary from novel', () => {
       route.fulfill({
         json: {
           job_id: 'novelglossary_1', status: 'done', progress: 1, message: '',
-          proposals: [{ term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false }],
+          proposals: [{ term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false , occurrences: 3, alternatives: [], confidence: 'high'}],
         },
       }),
     )
     await page.route('**/api/glossary/dramas/1/from-novel/apply', (route) =>
-      route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished glossary extraction for this drama.' } } }),
+      route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished glossary extraction for this title.' } } }),
     )
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
     await suggestFrom(page, 'Novel')
     await page.getByRole('button', { name: 'Add 1 term to series glossary' }).click()
     await expect(page.getByRole('alert').filter({ hasText: 'Run the extraction again (results are kept only until the app restarts).' })).toBeVisible()
+  })
+})
+
+test.describe('Glossary proposal confidence and ignore list', () => {
+  const prop = (term: string, en: string, confidence: 'high' | 'low', occurrences: number, alternatives: string[] = []) => ({
+    term, suggested_translation: en, category: 'person', policy: 'keep', reason: '', already_in_glossary: false,
+    occurrences, alternatives, confidence,
+  })
+
+  // Both proposals are listed until the ignore POST lands, as the server filters them.
+  async function mockNovel(page: Page, ignoredRef: { terms: string[]; bodies: string[] }) {
+    await inSeries(page)
+    await page.route('**/api/novel/dramas/1/status', (route) =>
+      route.fulfill({ json: { drama_id: 1, has_novel_text: true, char_count: 900, chapters: 3, ocr_running: false } }),
+    )
+    await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
+    await page.route('**/api/glossary/dramas/1/from-novel', (route) => {
+      if (route.request().method() === 'POST') return route.fulfill({ json: { job_id: 'novelglossary_1', engine: 'claude', paired: false } })
+      const all = [prop('魏婴', 'Wei Ying', 'high', 12), prop('蓝湛', 'Lan Zhan', 'high', 9), prop('云深', 'Cloud', 'low', 2, ['Deep Clouds'])]
+      return route.fulfill({
+        json: { job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', run_id: 'run-1', proposals: all.filter((p) => !ignoredRef.terms.includes(p.term)) },
+      })
+    })
+    await page.route('**/api/glossary/dramas/1/dismissals**', (route) => {
+      const url = route.request().url()
+      if (route.request().method() === 'GET') {
+        return route.fulfill({ json: { dismissals: ignoredRef.terms.map((term) => ({ term, created_at: null })) } })
+      }
+      const { terms } = JSON.parse(route.request().postData() ?? '{}')
+      ignoredRef.bodies.push(route.request().postData() ?? '')
+      ignoredRef.terms = url.endsWith('/restore')
+        ? ignoredRef.terms.filter((t) => !terms.includes(t))
+        : [...ignoredRef.terms, ...terms]
+      return route.fulfill({ json: { changed: terms.length } })
+    })
+  }
+
+  test('shows seen counts and bands, selects all High, ignores and restores', async ({ page }) => {
+    const ignored = { terms: [] as string[], bodies: [] as string[] }
+    await mockNovel(page, ignored)
+    let applyBody = ''
+    await page.route('**/api/glossary/dramas/1/from-novel/apply', (route) => {
+      applyBody = route.request().postData() ?? ''
+      return route.fulfill({ json: { added: ['魏婴', '蓝湛'], overwritten: [], skipped_existing: [], unknown: [] } })
+    })
+    await page.goto('/#/drama/1/translate')
+    await openSection(page, 'Glossary')
+    await suggestFrom(page, 'Novel')
+
+    const rows = page.getByTestId('novel-glossary-proposals').locator('tbody tr')
+    await expect(rows).toHaveCount(3)
+    await expect(rows.nth(0)).toContainText('12×')
+    await expect(rows.nth(0)).toContainText('High')
+    await expect(rows.nth(2)).toContainText('2× · also: Deep Clouds')
+    await expect(rows.nth(2)).toContainText('Low')
+
+    await page.getByLabel('Select 魏婴').uncheck()
+    await page.getByRole('button', { name: 'Select all High (2)' }).click()
+    await expect(page.getByLabel('Select 魏婴')).toBeChecked()
+    await expect(page.getByLabel('Select 云深')).not.toBeChecked()
+
+    await page.getByRole('button', { name: 'Ignore 云深' }).click()
+    await expect(rows).toHaveCount(2)
+    expect(JSON.parse(ignored.bodies[0])).toEqual({ terms: ['云深'] })
+    await page.getByRole('button', { name: 'Ignored (1)' }).click()
+    await page.getByRole('button', { name: 'Restore 云深' }).click()
+    await expect(rows).toHaveCount(3)
+    await expect(page.getByRole('button', { name: /^Ignored/ })).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Select all High (2)' }).click()
+    await page.getByRole('button', { name: 'Add 2 terms to series glossary' }).click()
+    expect(JSON.parse(applyBody)).toEqual({ terms: ['魏婴', '蓝湛'], run_id: 'run-1' })
   })
 })
 

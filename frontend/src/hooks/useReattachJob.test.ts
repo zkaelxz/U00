@@ -69,7 +69,7 @@ describe('reattachActiveJob', () => {
     expect(attach).toHaveBeenCalledWith('live')
   })
 
-  it('does not attach after cancel (unmount or drama change)', async () => {
+  it('does not attach after cancel (unmount or title change)', async () => {
     const attach = vi.fn()
     const cancel = reattachActiveJob(['x'], { fetchJob: jobs({ x: 'running' }), attach })
     cancel()

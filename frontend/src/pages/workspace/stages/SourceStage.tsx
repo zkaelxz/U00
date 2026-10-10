@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
+import { formatBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
@@ -13,17 +14,40 @@ import { writeSectionOpen } from '../../../components/sectionStorage'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
-import { usePersistedState } from '../../../hooks/usePersistedState'
-import { checkUploadFile, sourceJobIds, UPLOAD_EXTENSIONS } from '../sourceForm'
+import { PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
+import { useStageDraft } from '../../../hooks/useStageDraft'
+import {
+  checkUploadFile,
+  isUploadLimitProblem,
+  isVideoFile,
+  SOURCE_DRAFT_SHAPE,
+  SOURCE_DRAFT_STAGE,
+  sourceJobIds,
+  UPLOAD_EXTENSIONS,
+  UPLOAD_LIMIT_SETTINGS_HREF,
+  SWITCHES_FROM_BURNED_IN,
+  UPLOAD_SETS_VIDEO_ASIDE,
+} from '../sourceForm'
 import { useStage } from '../StageContext'
 import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
+import { NovelChaptersPanel } from './NovelChaptersPanel'
+import { SubtitleImport } from './SubtitleImport'
 import { NovelPanel } from './NovelPanel'
+import { novelSections } from './novelFile'
+import { useNovelPresence } from './novelFileEvents'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
-import { mediaFileInputId } from './stageBlockers'
+import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
+
+// Nothing clears kept_media on its own, so say how much it holds wherever a
+// replace or remove would add to it or might be expected to free it.
+const keptMediaNote = (m: MediaStatus | null) =>
+  m && m.kept_media_files > 0
+    ? `Old copies kept in this title's folder: ${m.kept_media_files} file${m.kept_media_files === 1 ? '' : 's'}, ` +
+      `${formatBytes(m.kept_media_bytes)}. Removing audio/video doesn't delete them; clear them in Library tools → Disk usage.`
+    : null
 
 export default function SourceStage() {
   const { dramaId, drama, onJobDone } = useStage()
@@ -32,13 +56,22 @@ export default function SourceStage() {
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [replace, setReplace] = useState(false)
+  // The server says the drama has audio/video even if the status we read did not.
+  const [serverHasMedia, setServerHasMedia] = useState(false)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  const transcribeRetry = useRef<(() => void) | null>(null)
   const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
   const [removeError, setRemoveError] = useState<unknown>(null)
-  // "Upload a file" or "From a URL", remembered per viewer.
-  const [from, setFrom] = usePersistedState<'file' | 'url'>('source.mediaFrom', 'file')
+  // "Upload a file" or "From a URL", remembered for this title.
+  const { draft, save: saveDraft } = useStageDraft(dramaId, SOURCE_DRAFT_STAGE, SOURCE_DRAFT_SHAPE)
+  const [from, setFrom] = useState<'file' | 'url'>(draft.from === 'url' ? 'url' : 'file')
+  useEffect(() => {
+    saveDraft({ from })
+  }, [saveDraft, from])
   const fromUrl = from === 'url'
 
   // Arriving from Library "Create and auto-fill" must show the Auto-fill panel,
@@ -102,11 +135,19 @@ export default function SourceStage() {
     setFile(f && !problem ? f : null)
   }
 
+  const hasMedia = !!media && (media.has_audio || media.has_source_video)
+  const mustConfirm = hasMedia || serverHasMedia
+  const confirmReplace = mustConfirm && replace
+
   const upload = () => {
-    if (!file) return
-    uploadMedia(dramaId, file).then(
+    if (!file || uploading || (mustConfirm && !replace)) return
+    setUploading(true)
+    uploadMedia(dramaId, file, confirmReplace).then(
       (r) => {
+        setUploading(false)
         setError(null)
+        setReplace(false)
+        setServerHasMedia(false)
         const mb = (r.size / (1024 * 1024)).toFixed(1)
         setFile(null)
         if (r.job_id) {
@@ -119,11 +160,14 @@ export default function SourceStage() {
         setReloads((n) => n + 1)
         onJobDone()
       },
-      setError,
+      (e: unknown) => {
+        setUploading(false)
+        if (needsReplaceConfirm(e)) setServerHasMedia(true)
+        setError(e)
+      },
     )
   }
 
-  const hasMedia = !!media && (media.has_audio || media.has_source_video)
   const remove = () => {
     setUploaded(null)
     setRemoveError(null)
@@ -166,6 +210,8 @@ export default function SourceStage() {
             dramaId={dramaId}
             contentMode={drama.content_mode}
             hasAudio={media.has_audio}
+            hasSourceVideo={media.has_source_video}
+            readsBurnedInSubtitles={media.reads_burned_in_subtitles}
             busy={busy}
             onStarted={(id) => {
               setUploaded(null)
@@ -183,9 +229,26 @@ export default function SourceStage() {
             disabled={!media}
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />
-          <button type="button" className={buttonClass('secondary')} disabled={!file || busy} onClick={upload}>
-            Upload
+          <button
+            type="button"
+            className={buttonClass('secondary')}
+            disabled={!file || busy || uploading || (mustConfirm && !replace)}
+            onClick={upload}
+          >
+            {uploading ? 'Uploading...' : 'Upload'}
           </button>
+          {mustConfirm && (
+            <label>
+              <input type="checkbox" id={replaceBoxId(dramaId)} checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+              Replace the current audio/video (the old file is kept in this title's folder)
+            </label>
+          )}
+          {mustConfirm && media?.has_source_video && !(file && isVideoFile(file.name)) && (
+            <p className="muted" data-testid="replace-sets-video-aside">
+              {UPLOAD_SETS_VIDEO_ASIDE}
+              {media.reads_burned_in_subtitles && SWITCHES_FROM_BURNED_IN}
+            </p>
+          )}
         </div>
       )}
       {hasMedia && pc === 'local' && (
@@ -201,8 +264,21 @@ export default function SourceStage() {
         </div>
       )}
       {hasMedia && pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
+      {(mustConfirm || hasMedia) && keptMediaNote(media) && (
+        <p className="muted" data-testid="kept-media">{keptMediaNote(media)}</p>
+      )}
       <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
-      {fileProblem && <p className="error" role="alert">{fileProblem}</p>}
+      {fileProblem && (
+        <p className="error" role="alert">
+          {fileProblem}
+          {isUploadLimitProblem(fileProblem) && (
+            <>
+              {' '}
+              <a href={UPLOAD_LIMIT_SETTINGS_HREF}>Change it in Settings &gt; System &gt; Uploads</a>.
+            </>
+          )}
+        </p>
+      )}
       {uploaded && <p role="status">{uploaded}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </>
@@ -210,6 +286,13 @@ export default function SourceStage() {
 
   // The workflow for the drama's media type comes first and opens by default.
   const kind = mediaKind(drama.media_type)
+  const novelPresence = useNovelPresence(dramaId, reloads)
+  const presenceSections = novelSections(kind, drama.media_type, drama.content_mode, novelPresence)
+  // Saving a raw novel from the optional row must not move that panel to Transcribe under the
+  // viewer's hands, so the row stays until the page is reloaded or another title is opened.
+  const [optionalFor, setOptionalFor] = useState<number | null>(null)
+  if (novelPresence && presenceSections === 'optional' && optionalFor !== dramaId) setOptionalFor(dramaId)
+  const sections = presenceSections === 'full' && optionalFor === dramaId && kind === 'audio' ? 'optional' : presenceSections
   const transcribe = (
     <Section
       key="transcribe"
@@ -219,20 +302,42 @@ export default function SourceStage() {
       title="Transcribe audio or video"
       summary={hasMedia ? 'audio attached' : 'upload or download a file'}
     >
-      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy}
-        onJobStarted={(id, expected) => {
+      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace}
+        replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
+        showRawNovel={sections === 'full'}
+        retryRef={transcribeRetry}
+        onJobStarted={(id, expected, sentFile) => {
+          // Otherwise every later run would upload the same file again and keep another full copy.
+          if (sentFile) {
+            setFile(null)
+            setReplace(false)
+            setServerHasMedia(false)
+            // An audio file is in place already, so the badges and notes are stale.
+            setReloads((n) => n + 1)
+          }
           setExpectedSeconds(expected ?? null)
           setJobId(id)
         }}
       />
     </Section>
   )
-  const novel = (
+  const novel = sections !== 'hidden' && (
     <div key="novel" className="source-group">
-      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
+      {kind === 'novel' && <NovelChaptersPanel />}
+      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} optional={sections === 'optional'} />
     </div>
   )
-  const groups = kind === 'audio' ? [transcribe, novel] : [novel, transcribe]
+  const subtitles = (
+    <Section
+      key="subtitles"
+      storageKey="source.group.subtitles"
+      title="Import subtitle file"
+      summary={pc === 'remote' ? PC_ONLY_SUMMARY : 'SRT, VTT, ASS or LRC'}
+    >
+      <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
+    </Section>
+  )
+  const groups = kind === 'audio' ? [transcribe, novel, subtitles] : [novel, transcribe, subtitles]
 
   return (
     <div className="stage-source">
@@ -246,7 +351,19 @@ export default function SourceStage() {
         <DetailsPanel openSignal={revealDetails} onAddCredits={addCredits} />
         <FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} liveEta={jobId.startsWith('transcribe_')} expectedSeconds={expectedSeconds} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        liveEta={!!jobId?.startsWith('transcribe_')}
+        expectedSeconds={expectedSeconds}
+        lastRun={{
+          dramaId,
+          ids: sourceJobIds(dramaId),
+          // Only a transcription has a form here to run again.
+          retryFor: (j) => (j.job_id.startsWith('transcribe_') ? () => transcribeRetry.current?.() : null),
+        }}
+      />
     </div>
   )
 }

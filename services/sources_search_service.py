@@ -28,8 +28,9 @@ from services import ownership_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
                                      UnsupportedOperationError)
+from services.sources_extension_service import require_not_extension_only
 from services.sources_registry_service import require_source, scrub, scrub_any, safe_url
-from sources import chapter_order, generic_import, health, ladder, registry
+from sources import chapter_order, extension_marker, generic_import, health, ladder, registry
 from sources.http import Cancelled, ResponseRefused
 from sources.models import (ChallengeDetected, ContentHidden, FailureReason, NotSupportedError,
                             SourceError, SourceUnavailable, TermsProhibited)
@@ -161,16 +162,14 @@ def enabled_source(name: str):
     cls = require_source(name)
     if not registry.is_enabled(name):
         raise UnsupportedOperationError("That source is switched off.")
+    require_not_extension_only(name)
     return cls
 
 
 def start_job(job_id: str, target, *args, description: str):
-    status = background_jobs.get_status(job_id)
-    if status and status.get("status") in ("running", "queued"):
-        raise ConflictError("A request like this is already running.",
-                            details={"job_id": job_id})
-    if status:
-        background_jobs.clear_job(job_id)
+    # background_jobs.start_job checks for a running or queued entry and
+    # replaces a finished one under its own lock; clearing the old entry
+    # here first could drop another request's run that started in between.
     if not background_jobs.start_job(job_id, target, *args, description=description):
         raise ConflictError("A request like this is already running.",
                             details={"job_id": job_id})
@@ -206,7 +205,9 @@ class _Recording:
 
 def _search_job(job_id: str, query: str, names):
     cancelled = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
-    adapters = registry.enabled_adapters(cancel_check=cancelled)
+    marked = extension_marker.marked_sources()
+    adapters = [a for a in registry.enabled_adapters(cancel_check=cancelled)
+                if a.name not in marked]   # skipped quietly: a search can't read them
     if names is not None:
         adapters = [a for a in adapters if a.name in names]
     raised = {}
@@ -239,7 +240,7 @@ def _search_job(job_id: str, query: str, names):
 
 def start_search(query, sources=None) -> dict:
     """Starts the fixed-id `sources_search` job. 409 if one is running; a
-    finished one is cleared first. `sources` (names) limits the search to
+    finished one is replaced. `sources` (names) limits the search to
     those enabled sources; unknown names are 404, switched-off ones 400."""
     query = plain_text(query, "The search text", MAX_QUERY_LEN)
     names = None

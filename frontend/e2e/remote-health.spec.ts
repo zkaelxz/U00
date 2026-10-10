@@ -98,6 +98,7 @@ test('Away from the PC (household listener): no banner and no request', async ({
   const m = await mockPage(page, CRITICAL, false)
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Baihe Studio' })).toBeVisible()
+  // Proving a non-event: the health read would come from a mount effect, so give it a window.
   await page.waitForTimeout(500)
   expect(m.reads).toBe(0)
   await expect(page.getByTestId('remote-health-banner')).toHaveCount(0)

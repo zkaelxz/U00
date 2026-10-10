@@ -7,6 +7,10 @@ import type {
   CompareResult,
   CompareRunRequest,
   CompareRunResult,
+  RetimeApplyRequest,
+  RetimeApplyResult,
+  RetimeResult,
+  RetimeRunRequest,
   DiarizationConfig,
   JobStarted,
   LncrawlImportRequest,
@@ -16,11 +20,19 @@ import type {
   NovelAttachResult,
   NovelMode,
   NovelStatus,
+  GapAddLinesRequest,
+  GapAddLinesResult,
   RetranscribeApplyRequest,
   RetranscribeApplyResult,
   RetranscribeLineRequest,
   RetranscribeLineResult,
+  RetranscribeManyApplyItem,
+  RetranscribeManyApplyResult,
+  RetranscribeManyRequest,
+  RetranscribeManyResult,
+  RetranscribeManyStarted,
   RetranscribeResult,
+  TranscribeGaps,
   TranscribeConfig,
   TranscribeConfigUpdate,
   TranscribeRunRequest,
@@ -35,9 +47,12 @@ type Fetch = typeof fetch
 export const getMediaStatus = (id: number, f?: Fetch) =>
   getJson<MediaStatus>(`/api/media/dramas/${id}/status`, f)
 
-export const uploadMedia = (id: number, file: File, f?: Fetch) => {
+// confirmReplace: the drama already has audio/video (the server refuses with
+// 422 reason "confirm_replace_audio" otherwise); the old file is kept.
+export const uploadMedia = (id: number, file: File, confirmReplace: boolean, f?: Fetch) => {
   const form = new FormData()
   form.append('file', file)
+  if (confirmReplace) form.append('confirm_replace_audio', 'true')
   return postMultipart<MediaUploadResult>(`/api/media/dramas/${id}/upload`, form, f)
 }
 
@@ -46,10 +61,12 @@ export const uploadAndTranscribe = (
   id: number,
   file: File,
   opts: TranscribeRunRequest,
+  confirmReplace: boolean,
   f?: Fetch,
 ) => {
   const form = new FormData()
   form.append('file', file)
+  if (confirmReplace) form.append('confirm_replace_audio', 'true')
   for (const [key, value] of Object.entries(opts)) {
     if (value !== undefined && value !== null) form.append(key, String(value))
   }
@@ -161,6 +178,29 @@ export const getRetranscribeResult = (id: number, lineId: number, f?: Fetch) =>
 export const applyRetranscribeLine = (id: number, lineId: number, req: RetranscribeApplyRequest, f?: Fetch) =>
   postJson<RetranscribeApplyResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe/apply`, req, f)
 
+// Review > Re-transcribe selected: one job re-hears the ticked lines' windows and
+// proposes text (GET result, raw); apply writes the chosen ones and clears their English.
+const retranscribeLinesBase = (id: number) => `/api/transcribe/dramas/${id}/retranscribe-lines`
+
+export const startRetranscribeLines = (id: number, req: RetranscribeManyRequest, f?: Fetch) =>
+  postJson<RetranscribeManyStarted>(retranscribeLinesBase(id), req, f)
+
+export const getRetranscribeLinesResult = (id: number, f?: Fetch) =>
+  getJson<RetranscribeManyResult>(retranscribeLinesBase(id), f)
+
+export const applyRetranscribeLines = (
+  id: number,
+  req: { job_id: string; items: RetranscribeManyApplyItem[] },
+  f?: Fetch,
+) => postJson<RetranscribeManyApplyResult>(`${retranscribeLinesBase(id)}/apply`, req, f)
+
+// Stretches no line covers (from the saved lines; speech marked when the coverage check ran).
+export const getTranscribeGaps = (id: number, signal?: AbortSignal, f: Fetch = fetch) =>
+  getJson<TranscribeGaps>(`/api/transcribe/dramas/${id}/gaps`, (input, init) => f(input, { ...init, signal }))
+
+export const addGapLines = (id: number, req: GapAddLinesRequest, f?: Fetch) =>
+  postJson<GapAddLinesResult>(`/api/transcribe/dramas/${id}/gaps/add-lines`, req, f)
+
 // Review > Compare transcription: re-hear chosen lines with other settings,
 // proposals only (GET result), written per line by apply.
 const compareBase = (id: number) => `/api/transcribe/dramas/${id}/compare-transcription`
@@ -181,3 +221,14 @@ export const applyCompare = (id: number, req: CompareApplyRequest, f?: Fetch) =>
 // P16/P17: the drama's current stage and per-stage state for the stage bar.
 export const getWorkflowProgress = (id: number, f?: Fetch) =>
   getJson<WorkflowProgress>(`/api/workflow/dramas/${id}/progress`, f)
+
+// Review > Re-time with the Qwen3 aligner: new start/end for lines that already exist.
+const retimeBase = (id: number) => `/api/transcribe/dramas/${id}/retime`
+
+export const startRetime = (id: number, req: RetimeRunRequest, f?: Fetch) =>
+  postJson<CompareRunResult>(`${retimeBase(id)}/run`, req, f)
+
+export const getRetimeResult = (id: number, f?: Fetch) => getJson<RetimeResult>(`${retimeBase(id)}/result`, f)
+
+export const applyRetime = (id: number, req: RetimeApplyRequest, f?: Fetch) =>
+  postJson<RetimeApplyResult>(`${retimeBase(id)}/apply`, req, f)

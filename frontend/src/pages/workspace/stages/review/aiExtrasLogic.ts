@@ -2,6 +2,8 @@
 import { idxFromLineNumber, lineNumber } from '../../../../lineNumber'
 import type {
   BurnPreviewClip,
+  EnCleanupPreview,
+  EnCleanupResult,
   MergeShortOptions,
   MergeShortPreview,
   SenseVoiceTags,
@@ -17,6 +19,9 @@ const MERGE_LIMITS: Record<keyof MergeShortOptions, [number, number]> = {
 }
 
 export type MergeForm = Record<keyof MergeShortOptions, string>
+
+// The Merge short lines form's draft (hooks/useStageDraft, stage "review.merge"); its shape is mergeFormDefaults().
+export const MERGE_DRAFT_STAGE = 'review.merge'
 
 export const mergeFormDefaults = (): MergeForm => ({
   min_duration: String(MERGE_DEFAULTS.min_duration),
@@ -54,6 +59,16 @@ export function mergeSummary(p: Pick<MergeShortPreview, 'line_count_before' | 'l
   return `${p.line_count_before} → ${p.line_count_after} lines: ${n} merge${n === 1 ? '' : 's'}.`
 }
 
+export function cleanupSummary(p: Pick<EnCleanupPreview, 'lines_scanned' | 'lines_changed'>): string {
+  if (p.lines_changed === 0) return `No common errors found (${p.lines_scanned} lines checked).`
+  return `${p.lines_changed} of ${p.lines_scanned} lines would change.`
+}
+
+export function cleanupDone(r: EnCleanupResult): string {
+  const kept = r.stale > 0 ? ` ${r.stale} edited meanwhile and kept as they are.` : ''
+  return `Fixed ${r.applied} line${r.applied === 1 ? '' : 's'}.${kept} The previous text is in Records → Line history.`
+}
+
 export function styleSummary(s: StyleState): string {
   if (!s.profile) {
     return s.edit_count >= s.min_samples
@@ -82,7 +97,7 @@ export function resolveLineNumber(
   if (!m) return { error: 'Enter a line number, e.g. 12.' }
   const idx = idxFromLineNumber(Number(m[1]))
   const line = lines.find((l) => l.idx === idx)
-  return line ? { lineId: line.id } : { error: `No line #${m[1]} in this drama.` }
+  return line ? { lineId: line.id } : { error: `No line #${m[1]} in this title.` }
 }
 
 export function fmtSeconds(s: number | null | undefined): string {

@@ -15,8 +15,9 @@ import pytest
 
 import translate_engines as te
 from core import Line
+from lib import http
 from tests import fake_engine
-from tests.http_fakes import StreamedBody
+from tests.http_fakes import StreamedBody, patch_post
 
 
 class RateLimitError(Exception):
@@ -68,7 +69,7 @@ class TestBackoffCancelAndDeadlines:
         lines = [Line(idx=0, start=0, end=1, zh="a")]
         _, errors = te.translate_lines_with_engine(
             lines, Engine(), {}, cancel_check_cb=lambda: cancelled["v"])
-        assert len(errors) == 1 and lines[0].en == ""
+        assert errors == [] and lines[0].en == ""  # a cancel is not a failed batch
 
     def test_429_text_match_ignores_other_numbers_and_known_statuses(self):
         assert te._is_rate_limit_error(Exception("HTTP 429 Too Many Requests"))
@@ -146,6 +147,15 @@ class TestCallWithBackoff:
 
     def test_is_rate_limit_error_detects_status_code(self):
         assert te._is_rate_limit_error(RateLimitError("x")) is True
+
+    @pytest.mark.parametrize("status", [503, 529])
+    def test_overloaded_statuses_get_a_backoff_too(self, status):
+        # The SDK clients never retry on their own, so this is the only retry
+        # an overloaded provider gets.
+        err = type("ServerError", (Exception,), {"status_code": status})("x")
+        assert te._is_rate_limit_error(err) is True
+        assert te._is_rate_limit_error(
+            type("ServerError", (Exception,), {"status_code": 500})("x")) is False
 
     def test_is_rate_limit_error_rejects_generic_errors(self):
         assert te._is_rate_limit_error(GenericError("x")) is False
@@ -490,6 +500,30 @@ class TestEstimateCost:
         assert abs(large - small * 10) < 0.0001  # linear scaling
 
 
+class TestClaude55Pricing:
+    def test_new_ids_use_their_own_table_rows(self):
+        assert te.estimate_cost("claude-sonnet-5-5", 1_000_000, 500_000) == pytest.approx(2.0 + 5.0)
+        assert te.estimate_cost("claude-opus-5-5", 1_000_000, 500_000) == pytest.approx(4.0 + 10.0)
+
+    def test_opus_5_5_costs_less_than_opus_4_8(self):
+        assert (te.estimate_cost("claude-opus-5-5", 1_000_000, 1_000_000)
+                < te.estimate_cost("claude-opus-4-8", 1_000_000, 1_000_000))
+
+    def test_sonnet_5_5_costs_the_same_as_sonnet_5(self):
+        assert (te.estimate_cost("claude-sonnet-5-5", 1_000_000, 1_000_000)
+                == te.estimate_cost("claude-sonnet-5", 1_000_000, 1_000_000))
+
+    def test_cache_read_is_never_estimated_below_the_published_rate(self):
+        # Anthropic bills 5.5 cache reads at 5% of input; the flat 10% factor
+        # must stay at or above that so cost caps are not undercut.
+        full = te.estimate_cost("claude-opus-5-5", 1_000_000, 0)
+        cached = te.estimate_cost("claude-opus-5-5", 1_000_000, 0, cache_read_tokens=1_000_000)
+        assert cached >= full * 0.05
+
+    def test_an_unknown_claude_id_is_still_costed_at_its_tier_ceiling(self):
+        assert te.estimate_cost("claude-opus-9-9", 1_000_000, 0) == pytest.approx(5.0)
+
+
 class TestRecentContextInPrompt:
     def test_recent_context_included_when_provided(self):
         block = te.build_batch_context(recent_context=[("她昨天来了", "She came yesterday.")])
@@ -705,19 +739,6 @@ class TestPerLineLanguage:
         finally:
             tp.call_llm_json = orig
         assert "(spoken in Korean) a" in prompts[0]
-
-    def test_nllb_translates_each_language_with_its_own_pipeline(self):
-        eng = te.NLLBEngine()
-        used = []
-
-        def fake_pipeline(src, tgt="en"):
-            return lambda texts: [{"translation_text": f"{src}:{t}"} for t in texts]
-
-        eng._get_pipeline = lambda src, tgt="en": (used.append(src), fake_pipeline(src, tgt))[1]
-        out = eng.translate_batch(["a", "b", "c"], {"source_language": "ja",
-                                                    "line_languages": [None, "ko", None]})
-        assert out == ["ja:a", "ko:b", "ja:c"]
-        assert sorted(used) == ["ja", "ko"]
 
 
 class TestBuildNumberedLines:
@@ -995,7 +1016,7 @@ class TestGeminiEngine:
             captured["json"] = json
             return FakeResponse()
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest")
         result = engine.translate_batch(["你好", "再见"], {})
 
@@ -1023,7 +1044,7 @@ class TestGeminiEngine:
             captured["json"] = json
             return FakeResponse()
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         engine = te.GeminiEngine("fake-key")
         engine.translate_batch(["x"], {"recent_context": [("她来了", "She came.")]})
 
@@ -1045,7 +1066,7 @@ class TestGeminiEngine:
             captured["json"] = json
             return FakeResponse()
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         engine = te.GeminiEngine("fake-key")
         result = engine.translate_batch(["你好"], {"speaker_labels": ["Xiaoling"]})
 
@@ -1069,7 +1090,7 @@ class TestGeminiEngine:
             captured["json"] = json
             return FakeResponse()
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         lines = [Line(idx=0, start=0, end=1, zh="你好", speaker="SPEAKER_00")]
         te.translate_lines_with_engine(
             lines, te.GeminiEngine("fake-key"), drama_meta={},
@@ -1095,7 +1116,7 @@ class TestGeminiEngine:
                 return FakeResponse('{"1": "First."}')  # line 2 missing
             return FakeResponse('{"2": "Second."}')  # retry recovers it
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         engine = te.GeminiEngine("fake-key")
         result = engine.translate_batch(["a", "b"], {})
 
@@ -1110,7 +1131,7 @@ class TestGeminiEngine:
                 return {"candidates": [{"content": {"parts": [{"text": "[]"}]}}]}
                 # No usageMetadata key at all.
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         engine.translate_batch(["x"], {})
         assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0,
@@ -1129,7 +1150,7 @@ class TestGeminiEngine:
                 return {"promptFeedback": {"blockReason": "SAFETY"}}
 
         monkeypatch.setattr("time.sleep", lambda *_: None)
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         with pytest.raises(te.ContentModerationBlocked) as exc_info:
             engine.translate_batch(["a graphic passage"], {})
@@ -1148,7 +1169,7 @@ class TestGeminiEngine:
                 return {"candidates": [{"finishReason": "PROHIBITED_CONTENT"}]}
 
         monkeypatch.setattr("time.sleep", lambda *_: None)
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         with pytest.raises(te.ContentModerationBlocked) as exc_info:
             engine.translate_batch(["a graphic passage"], {})
@@ -1269,7 +1290,7 @@ class TestGeminiRateStatus:
         def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             return resp
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
 
     def test_reads_real_header_values_when_present(self, monkeypatch):
         self._post_with_headers(monkeypatch, {
@@ -1408,21 +1429,21 @@ class TestOllamaEngine:
 
     def test_sends_a_format_json_schema_for_structured_output(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {})
         assert captured["json"]["format"] == te._OLLAMA_ID_KEYED_JSON_SCHEMA
 
     def test_num_ctx_is_never_below_the_floor_for_a_short_prompt(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {})
         assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
 
     def test_num_ctx_grows_with_a_much_longer_prompt(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         long_glossary = [{"term_original": "x" * 200, "term_translation": "y"} for _ in range(200)]
         engine.translate_batch(["你好"], {"glossary_terms": long_glossary})
@@ -1430,7 +1451,7 @@ class TestOllamaEngine:
 
     def test_override_can_raise_num_ctx_above_the_estimate(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {"ollama_num_ctx_override": 100_000})
         assert captured["json"]["options"]["num_ctx"] == 100_000
@@ -1440,14 +1461,14 @@ class TestOllamaEngine:
         would silently reintroduce the exact truncation bug this exists
         to prevent -- the larger of the two must always win."""
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {"ollama_num_ctx_override": 1})
         assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
 
     def test_request_has_a_timeout(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {})
         assert captured["timeout"] is not None
@@ -1459,7 +1480,7 @@ class TestOllamaUnavailableErrors:
 
         def refuse(url, json=None, timeout=None, stream=None):
             raise requests.ConnectionError(f"refused {url}")
-        monkeypatch.setattr("requests.post", refuse)
+        patch_post(monkeypatch, refuse)
         engine = te.OllamaEngine(base_url="http://10.1.2.3:11434")
         with pytest.raises(te.OllamaUnavailableError) as batch:
             engine.translate_batch(["你好"], {})
@@ -1493,13 +1514,58 @@ class TestOllamaUnavailableErrors:
                 self.closed = True
 
         resp = Dropped()
-        monkeypatch.setattr("requests.post", lambda *a, **k: resp)
+        patch_post(monkeypatch, lambda *a, **k: resp)
         engine = te.OllamaEngine(base_url="http://192.168.7.9:11434")
         with pytest.raises(te.OllamaUnavailableError) as info:
             engine.translate_batch(["你好"], {})
         assert info.value.reason == "ollama_unreachable"
         assert "192.168" not in str(info.value)
         assert resp.closed
+
+
+class TestOllamaModelInstalledCheck:
+    class Resp:
+        def __init__(self, status, body=b'{"models": [{"name": "m:1b"}]}', headers=None):
+            self.status_code, self.body, self.headers = status, body, headers or {}
+        def iter_content(self, size):
+            return iter([self.body])
+        def close(self):
+            pass
+
+    def _serve(self, monkeypatch, *replies):
+        calls, queue = [], list(replies)
+        monkeypatch.setattr(http, "pinned_get",
+                            lambda url, *a, **kw: calls.append(url) or queue.pop(0))
+        return calls
+
+    def test_follows_a_308_to_the_model_list(self, monkeypatch):
+        calls = self._serve(monkeypatch,
+                            self.Resp(308, headers={"Location": "http://proxy.local/api/tags"}),
+                            self.Resp(200))
+        te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        assert calls[-1] == "http://proxy.local/api/tags"
+
+    @pytest.mark.parametrize("status", [301, 404, 500])
+    def test_a_non_2xx_final_answer_means_unreachable(self, monkeypatch, status):
+        self._serve(monkeypatch, self.Resp(status))
+        with pytest.raises(te.OllamaUnavailableError) as exc:
+            te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        assert exc.value.reason == "ollama_unreachable"
+
+    def test_an_unsettled_redirect_means_unreachable(self, monkeypatch):
+        loop = self.Resp(308, headers={"Location": "http://localhost:11434/api/tags"})
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: loop)
+        with pytest.raises(te.OllamaUnavailableError):
+            te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+
+
+class TestDisplayUrlEncodedTokens:
+    @pytest.mark.parametrize("path", ["/dl/AbC%2Bxyz%3D" + "q" * 28 + "/file", "/dl/" + "A%2D" * 20 + "/f"])
+    def test_percent_encoded_token_segment_is_dropped(self, path):
+        assert te.display_url(f"https://cdn.example{path}") == "https://cdn.example/"
+
+    def test_ordinary_encoded_name_is_kept(self):
+        assert te.display_url("https://cdn.example/a%20b/c.html") == "https://cdn.example/a%20b/c.html"
 
 
 class TestOllamaReachability:
@@ -1517,38 +1583,68 @@ class TestOllamaReachability:
     def _fake_get(self, ok=True, raises=None):
         captured = {}
 
-        def fake_get(url, timeout=None, stream=None):
+        def fake_get(url, ip=None, headers=None, timeout=None, method="GET", **kw):
             captured["url"] = url
             captured["timeout"] = timeout
+            captured["ip"] = ip
             if raises:
                 raise raises
-            return type("Resp", (), {"ok": ok, "close": lambda self: None})()
+            return type("Resp", (), {"status_code": 200 if ok else 503, "headers": {},
+                                     "iter_content": lambda self, size: iter([b"x"]),
+                                     "close": lambda self: None})()
         return fake_get, captured
 
     def test_true_when_the_server_responds_ok(self, monkeypatch):
         fake_get, captured = self._fake_get(ok=True)
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         assert te.check_ollama_reachable("http://localhost:11434") is True
         assert captured["url"] == "http://localhost:11434/api/tags"
         assert captured["timeout"] is not None
+        assert captured["ip"] is None  # the user's own Ollama address: never the public guard
 
     def test_false_when_the_server_responds_with_an_error_status(self, monkeypatch):
         fake_get, _ = self._fake_get(ok=False)
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
+        assert te.check_ollama_reachable("http://localhost:11434") is False
+
+    def test_follows_a_redirect_like_the_chat_call_does(self, monkeypatch):
+        calls = []
+
+        class Resp:
+            def __init__(self, status, headers=None):
+                self.status_code, self.headers = status, headers or {}
+            def iter_content(self, size):
+                return iter([b"x"])
+            def close(self):
+                pass
+        replies = [Resp(308, {"Location": "http://proxy.local/api/tags"}), Resp(200)]
+        monkeypatch.setattr(http, "pinned_get", lambda url, *a, **kw: calls.append(url) or replies.pop(0))
+        assert te.check_ollama_reachable("http://localhost:11434") is True
+        assert calls == ["http://localhost:11434/api/tags", "http://proxy.local/api/tags"]
+
+    def test_false_when_a_redirect_never_settles(self, monkeypatch):
+        class Loop:
+            status_code = 308
+            headers = {"Location": "http://localhost:11434/api/tags"}
+            def iter_content(self, size):
+                return iter([])
+            def close(self):
+                pass
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: Loop())
         assert te.check_ollama_reachable("http://localhost:11434") is False
 
     def test_false_when_the_connection_fails(self, monkeypatch):
         fake_get, _ = self._fake_get(raises=ConnectionError("refused"))
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         assert te.check_ollama_reachable("http://localhost:11434") is False
 
     def test_result_is_cached_briefly_not_rechecked_every_call(self, monkeypatch):
         fake_get, _ = self._fake_get(ok=True)
         calls = {"n": 0}
-        def counting_get(url, timeout=None, stream=None):
+        def counting_get(url, ip, headers, timeout=None, method="GET", **kw):
             calls["n"] += 1
-            return fake_get(url, timeout=timeout)
-        monkeypatch.setattr("requests.get", counting_get)
+            return fake_get(url, ip, headers, timeout=timeout)
+        monkeypatch.setattr(http, "pinned_get", counting_get)
 
         te.check_ollama_reachable("http://localhost:11434")
         te.check_ollama_reachable("http://localhost:11434")
@@ -1557,179 +1653,84 @@ class TestOllamaReachability:
         assert calls["n"] == 1
 
     def test_a_different_base_url_is_cached_separately(self, monkeypatch):
-        monkeypatch.setattr("requests.get", self._fake_get(ok=True)[0])
+        monkeypatch.setattr(http, "pinned_get", self._fake_get(ok=True)[0])
         te.check_ollama_reachable("http://localhost:11434")
         # A second, different URL must still be checked fresh, not
         # short-circuited by the first URL's cache entry.
         fake_get_down, _ = self._fake_get(ok=False)
-        monkeypatch.setattr("requests.get", fake_get_down)
+        monkeypatch.setattr(http, "pinned_get", fake_get_down)
         assert te.check_ollama_reachable("http://otherhost:9999") is False
 
     def test_trailing_slash_in_base_url_is_normalized(self, monkeypatch):
         fake_get, captured = self._fake_get(ok=True)
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         te.check_ollama_reachable("http://localhost:11434/")
         assert captured["url"] == "http://localhost:11434/api/tags"
 
 
-class TestNLLBEngine:
-    """NLLBEngine: fully local/offline MT via Meta's NLLB-200. transformers
-    is a real installed dependency in this environment, but downloading an
-    actual model isn't something a test suite should do -- transformers.pipeline
-    is faked at that boundary, the same way GeminiEngine's tests fake
-    requests.post rather than hitting a real API."""
+class TestNLLBRemoved:
+    """NLLB-200 was removed: the name stays only so saved data that names it
+    is refused with the removed-engine message instead of "Unknown engine"."""
 
-    def _install_fake_pipeline(self, monkeypatch):
-        import sys, types
-        captured = {}
+    def test_is_no_longer_registered_or_exported(self):
+        assert "nllb" not in te.ENGINES
+        assert "nllb" not in te.ENGINE_NOTES
+        assert "nllb" not in te.ENGINE_CAPABILITIES
+        assert "nllb" not in te.FREE_ENGINES | te.KEYLESS_ENGINES
+        for gone in ("NLLBEngine", "NLLB_MODELS", "_NLLB_LANG_CODES", "_nllb_pipeline_cache"):
+            assert not hasattr(te, gone)
 
-        class FakePipeline:
-            def __init__(self, task, model, src_lang, tgt_lang):
-                captured["task"] = task
-                captured["model"] = model
-                captured["src_lang"] = src_lang
-                captured["tgt_lang"] = tgt_lang
-
-            def __call__(self, texts):
-                return [{"translation_text": f"EN:{t}"} for t in texts]
-
-        fake_module = types.ModuleType("transformers")
-        fake_module.pipeline = lambda task, model, src_lang, tgt_lang: FakePipeline(
-            task, model, src_lang, tgt_lang)
-        monkeypatch.setitem(sys.modules, "transformers", fake_module)
-        return captured
-
-    def setup_method(self):
-        te._nllb_pipeline_cache.clear()
-
-    def test_translates_and_defaults_to_chinese_simplified(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine()
-        result = engine.translate_batch(["你好", "再见"], {})
-        assert result == ["EN:你好", "EN:再见"]
-        assert captured["src_lang"] == "zho_Hans"
-        assert captured["tgt_lang"] == "eng_Latn"
-        assert captured["model"] == "facebook/nllb-200-distilled-600M"
-
-    def test_japanese_source_language_maps_to_nllb_code(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine()
-        engine.translate_batch(["こんにちは"], {"source_language": "ja"})
-        assert captured["src_lang"] == "jpn_Jpan"
-
-    def test_korean_source_language_maps_to_nllb_code(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine()
-        engine.translate_batch(["안녕"], {"source_language": "ko"})
-        assert captured["src_lang"] == "kor_Hang"
-
-    def test_custom_model_size_is_used(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine(model="facebook/nllb-200-distilled-1.3B")
-        engine.translate_batch(["你好"], {})
-        assert captured["model"] == "facebook/nllb-200-distilled-1.3B"
-
-    def test_needs_no_api_key(self):
-        # Must not raise/require anything -- api_key is accepted but unused.
-        engine = te.NLLBEngine(api_key=None)
-        assert engine.model_name == "facebook/nllb-200-distilled-600M"
-
-    def test_pipeline_is_cached_per_model_and_language(self, monkeypatch):
-        import sys, types
-        build_calls = []
-
-        class FakePipeline:
-            def __call__(self, texts):
-                return [{"translation_text": f"EN:{t}"} for t in texts]
-
-        def fake_pipeline_factory(task, model, src_lang, tgt_lang):
-            build_calls.append((model, src_lang))
-            return FakePipeline()
-
-        fake_module = types.ModuleType("transformers")
-        fake_module.pipeline = fake_pipeline_factory
-        monkeypatch.setitem(sys.modules, "transformers", fake_module)
-
-        engine = te.NLLBEngine()
-        engine.translate_batch(["a"], {"source_language": "zh"})
-        engine.translate_batch(["b"], {"source_language": "zh"})
-        engine.translate_batch(["c"], {"source_language": "ja"})
-
-        assert len(build_calls) == 2  # zh built once and reused; ja built separately
-
-    def test_is_registered_in_engines_and_notes(self):
-        assert te.ENGINES["nllb"] is te.NLLBEngine
-        assert "nllb" in te.ENGINE_NOTES
-
-    def test_defaults_to_english_target(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        te.NLLBEngine().translate_batch(["你好"], {})
-        assert captured["tgt_lang"] == "eng_Latn"
-
-    def test_step_26b_english_source_and_chinese_target_reach_nllb(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine()
-        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
-        assert captured["src_lang"] == "eng_Latn"
-        assert captured["tgt_lang"] == "zho_Hans"
-
-    def test_step_26b_reverse_pipeline_is_cached_separately_from_forward(self, monkeypatch):
-        """The (model, source, target) pair, not just source, decides
-        which cached pipeline is reused -- otherwise English -> Chinese
-        would collide with the existing Chinese -> English pipeline."""
-        import sys, types
-        build_calls = []
-
-        class FakePipeline:
-            def __call__(self, texts):
-                return [{"translation_text": f"OUT:{t}"} for t in texts]
-
-        fake_module = types.ModuleType("transformers")
-        fake_module.pipeline = lambda task, model, src_lang, tgt_lang: (
-            build_calls.append((src_lang, tgt_lang)) or FakePipeline())
-        monkeypatch.setitem(sys.modules, "transformers", fake_module)
-
-        engine = te.NLLBEngine()
-        engine.translate_batch(["你好"], {"source_language": "zh", "target_language": "en"})
-        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
-        assert len(build_calls) == 2
-        assert ("zho_Hans", "eng_Latn") in build_calls
-        assert ("eng_Latn", "zho_Hans") in build_calls
+    def test_is_refused_with_the_removed_engine_message(self):
+        assert "nllb" in te.REMOVED_ENGINES
+        assert te.unknown_engine_message("nllb") == "The nllb engine was removed. Pick another engine."
+        assert te.unknown_engine_message("nope") == "Unknown engine."
 
 
 class TestFreeEngineLabelling:
     """Step 1d item 4: every free-to-use option is clearly labelled as
-    such (test_offline, ollama, nllb always; gemini only
+    such (test_offline, ollama always; gemini only
     when the per-session "free-tier key" setting is on), and paid
     engines keep their normal descriptions."""
 
     def test_free_engines_set_matches_the_roadmap_table(self):
-        assert te.FREE_ENGINES == {"fake", "ollama", "nllb"}
+        assert te.FREE_ENGINES == {"fake", "fake_mt", "ollama"}
 
     def test_gemini_is_not_unconditionally_free(self):
         # Gemini reuses one engine for free and paid keys -- whether a
         # given key is free depends on a setting, not the engine itself.
         assert "gemini" not in te.FREE_ENGINES
 
-    def test_every_free_engine_note_is_marked(self):
+    def test_every_free_engine_note_says_free(self):
         for name in te.FREE_ENGINES:
-            assert "🧪" in te.ENGINE_NOTES[name]
+            assert te.ENGINE_NOTES[name].startswith("Free")
             assert te.engine_picker_label(name) == te.ENGINE_NOTES[name]
 
-    def test_paid_engine_notes_are_unmarked(self):
-        for name in ("claude", "deepseek"):
-            assert "🧪" not in te.ENGINE_NOTES[name]
+    def test_paid_engine_notes_say_paid(self):
+        for name in ("claude", "deepseek", "openai"):
+            assert te.ENGINE_NOTES[name].startswith("Paid")
+
+    def test_ollama_note_names_local_gemma_4(self):
+        note = te.ENGINE_NOTES["ollama"]
+        assert "Gemma 4" in note and "GPU" in note and "private" in note and "Free" in note
+        assert "testing" not in note and "lower quality" not in note
+
+    def test_every_note_fits_the_narrow_dropdown(self):
+        for name in te.ENGINES:
+            assert 0 < len(te.ENGINE_NOTES[name]) <= 80, name
+        assert len(te.GEMINI_FREE_TIER_NOTE) <= 80
+
+    def test_note_models_match_the_model_lists(self):
+        assert "claude-sonnet-5-5" in te.CLAUDE_MODELS and "claude-opus-5-5" in te.CLAUDE_MODELS
+        assert all(m.startswith("gemma4") for m in te.OLLAMA_MODELS)
 
     def test_gemini_label_is_plain_by_default(self):
         assert te.engine_picker_label("gemini") == te.ENGINE_NOTES["gemini"]
-        assert "🧪" not in te.engine_picker_label("gemini", gemini_free_tier=False)
+        assert "Free" not in te.engine_picker_label("gemini", gemini_free_tier=False)
 
     def test_gemini_label_switches_when_free_tier_is_on(self):
         label = te.engine_picker_label("gemini", gemini_free_tier=True)
-        assert "🧪" in label
-        assert str(te.GEMINI_FREE_TIER_LIMITS["flash"]["rpm"]) in label
-        assert str(te.GEMINI_FREE_TIER_LIMITS["flash-lite"]["rpm"]) in label
-        assert "Pro" in label
+        assert label.startswith("Free")
+        assert "Google may use your text" in label
 
     def test_free_tier_flag_never_changes_other_engines_labels(self):
         for name in te.ENGINES:
@@ -1874,7 +1875,7 @@ class TestCallLlmJson:
                 self.chat = self
                 self.completions = self
 
-            def create(self, model, messages):
+            def create(self, model, messages, max_tokens):
                 return FakeResponse()
 
         result = te.call_llm_json(
@@ -1896,7 +1897,7 @@ class TestCallLlmJson:
                     "usageMetadata": {"promptTokenCount": 15, "candidatesTokenCount": 3},
                 }
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
 
         result = te.call_llm_json(
@@ -1915,7 +1916,7 @@ class TestCallLlmJson:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": "answer"}]}}]}
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key", free_tier=True)
         calls = []
         monkeypatch.setattr(engine, "_throttle_for_free_tier", lambda: calls.append(1))
@@ -1949,7 +1950,7 @@ class TestCallLlmJson:
             captured["json"] = json
             captured["timeout"] = timeout
             return FakeResponse()
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
 
         engine = te.OllamaEngine()
         usage = {}
@@ -1964,16 +1965,16 @@ class TestCallLlmJson:
         assert captured["timeout"] is not None
 
     def test_an_engine_with_no_recognized_shape_raises_a_clear_error(self):
-        """NLLB (translation-only, no .client,
+        """A translation-only engine (no .client,
         not Gemini/Ollama/test_offline) used to silently return the bare
         fallback here too -- the same "looks like it worked, did
         nothing" failure mode as the Ollama bug above, just for a
         different set of engines. Now raises instead of pretending to
         have produced a real (empty) result."""
         class FakeTranslationOnlyEngine:
-            name = "nllb"
+            name = "fake_mt"
 
-        with pytest.raises(RuntimeError, match="nllb can't run this feature"):
+        with pytest.raises(RuntimeError, match="fake_mt can't run this feature"):
             te.call_llm_json(FakeTranslationOnlyEngine(), "prompt", fallback="[]")
 
     def test_a_malformed_gemini_response_returns_fallback(self, monkeypatch):
@@ -1984,7 +1985,7 @@ class TestCallLlmJson:
             def json(self):
                 return {"candidates": []}  # no content at all
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         result = te.call_llm_json(engine, "prompt", fallback="fallback-value")
         assert result == "fallback-value"
@@ -2049,7 +2050,7 @@ class TestCheckConsistencyLlm:
             def json(self):
                 return {"candidates": []}  # no content at all
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
         issues, failed_batches, total_batches = te.check_consistency_llm(
             lines, te.GeminiEngine("fake-key"))
@@ -2328,7 +2329,7 @@ class TestTagSpeakersLlm:
             def json(self):
                 return {"message": {"content": '{"1": "Xiaoling", "2": "Narrator"}'}}
 
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         engine = te.OllamaEngine()
         labels = te.tag_speakers_by_id({1: "你好", 2: "那天下着雨。"}, engine)
         assert labels == {1: "Xiaoling", 2: "Narrator"}
@@ -2754,6 +2755,22 @@ class TestStablePromptPrefix:
         assert "Reference novel text." in system[-1]["text"]
         assert all("cache_control" not in b for b in system[:-1])
 
+    def test_a_cut_down_novel_leaves_the_breakpoint_on_the_instructions(self):
+        filler = "\n\n".join(f"Paragraph {i} about nothing much at all." * 20 for i in range(40))
+        novel = f"Su Shan opened the gate.\n\n{filler}\n\nLin Wan closed the book."
+        lines = [Line(idx=i, start=i, end=i + 1, zh=zh, id=100 + i)
+                 for i, zh in enumerate(["苏杉来了", "苏杉走了", "林婉来了", "林婉走了"])]
+        engine = _claude_engine_with_fake_client()
+        te.translate_lines_with_engine(
+            lines, engine, {"title_en": "Drama"}, batch_size=2, novel_reference=novel,
+            glossary_terms=[{"term_original": "苏杉", "term_translation": "Su Shan"},
+                            {"term_original": "林婉", "term_translation": "Lin Wan"}])
+        first, second = (c["system"] for c in engine.client.messages.calls)
+        assert first[1]["text"] != second[1]["text"]   # per-batch excerpts
+        assert repr(first[0]) == repr(second[0])
+        assert first[0]["cache_control"] == {"type": "ephemeral"}
+        assert all("cache_control" not in s[1] for s in (first, second))
+
     def test_without_a_novel_reference_the_instructions_block_is_cached(self):
         blocks = te.build_claude_system_blocks({"drama_meta": {}})
         assert len(blocks) == 1
@@ -2782,7 +2799,7 @@ class TestStablePromptPrefix:
             bodies.append(json)
             return FakeResponse(json)
 
-        monkeypatch.setattr("requests.post", fake_post)
+        patch_post(monkeypatch, fake_post)
         te.translate_lines_with_engine(_six_lines(), te.GeminiEngine("k"), {}, batch_size=2,
                                        novel_reference="Ref.")
         assert len(bodies) == 3
@@ -3021,8 +3038,8 @@ class TestGemini31FlashLite:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
 
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
-                            captured.update(url=url) or FakeResponse())
+        patch_post(monkeypatch, lambda url, headers=None, json=None, timeout=None, stream=None:
+                   captured.update(url=url) or FakeResponse())
         engine = te.get_engine("gemini", "k", "gemini-3.1-flash-lite")
         assert engine.translate_batch(["你好"], {}) == ["Hi."]
         assert captured["url"].endswith("/models/gemini-3.1-flash-lite:generateContent")

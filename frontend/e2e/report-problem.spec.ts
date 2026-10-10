@@ -41,7 +41,7 @@ const SAVED = {
   stamp: '20260929T100000Z',
   issue_markdown: '## What happened\n\nThe list went blank.\n\n## Server\n\nServer details are saved with the report on the PC.\n',
   what_happened: 'The list went blank.',
-  expected: 'My dramas.',
+  expected: 'My titles.',
   title: '[Bug] The list went blank.',
 }
 
@@ -90,14 +90,14 @@ test('Report a problem: send, saved as #N, copy, GitHub link', async ({ page, co
   expect(posted).toBeNull()
 
   await dialog.getByLabel(/What happened\?/).fill('The list went blank.')
-  await dialog.getByLabel('What did you expect?').fill('My dramas.')
+  await dialog.getByLabel('What did you expect?').fill('My titles.')
   await dialog.getByLabel(/Screenshot/).setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: PNG })
   await shot(page, 'desktop-dialog')
   await dialog.getByRole('button', { name: 'Send report' }).click()
 
   await expect(dialog.getByRole('status')).toHaveText('Saved as report #7.')
   const body = reportPart(posted!)
-  expect(body).toMatchObject({ what_happened: 'The list went blank.', expected: 'My dramas.', include_server_log: true,
+  expect(body).toMatchObject({ what_happened: 'The list went blank.', expected: 'My titles.', include_server_log: true,
     route: '/diagnostics', mode: 'pc' })
   expect((body.route_history as { route: string }[]).map((r) => r.route)).toEqual(['/library', '/diagnostics'])
   expect(body.failed_requests).toEqual(expect.arrayContaining([
@@ -231,7 +231,7 @@ test('Report a problem > Copy a report: one press builds and copies it; the prev
 
   await card.getByRole('button', { name: 'Copy report' }).click()
   await expect(card.getByTestId('report-note')).toHaveText('Copied. Paste it into your bug report.')
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(REPORT)
+  expect((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n')).toBe(REPORT)
   expect(builds).toBe(1)
 
   await card.locator('summary', { hasText: "What's in it" }).click()

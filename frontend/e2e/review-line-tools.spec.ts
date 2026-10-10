@@ -7,7 +7,7 @@ import { openFoldFor } from './reviewFolds'
 import { clearReviewResults } from './reviewResultsSeed'
 
 // Review per-line tools and navigation: flagged lines across pages (R08),
-// alternatives (R17), grammar (R18), pronounce (R19), translation-memory
+// alternatives (R17), grammar (R18), translation-memory
 // accept/dismiss per line (R11), note -> line (R43), restore the original
 // transcript text (R24) and auto-shorten (R28). Drama 3 gets 45 lines, so the
 // second flagged line is on page 2. Navigation and line edits use the real
@@ -19,7 +19,7 @@ const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library'
 const shotDir = path.join(repoRoot, 'frontend', 'test-results', 'review-line-tools')
 
 function python(code: string): string {
-  return execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot }).toString()
+  return execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot, env: { ...process.env, PYTHONIOENCODING: 'utf-8' }, encoding: 'utf8' })
 }
 
 const LONG = 'this translation has far too many words to be said in a second and a half of time at all'
@@ -110,7 +110,7 @@ test('alternatives: use one, saved through the line patch', async ({ page }) => 
   expect(python(`print([r['en'] for r in db.load_lines(3)][0])`).trim()).toBe('First line')
 })
 
-test('grammar lists the parts; pronounce plays a clip', async ({ page }) => {
+test('grammar lists the parts', async ({ page }) => {
   await page.route('**/api/line-ai/dramas/3/lines/*/grammar', (route) =>
     route.fulfill({ json: {
       line_id: ids[2], zh: '句子2', engine: 'x', model: null,
@@ -119,21 +119,11 @@ test('grammar lists the parts; pronounce plays a clip', async ({ page }) => {
         { word: '2', reading: 'èr', meaning: 'two', function: 'numeral' },
       ],
     } }))
-  let pronounced = 0
-  await page.route('**/api/line-ai/dramas/3/lines/*/pronounce', (route) => {
-    pronounced += 1
-    expect(route.request().method()).toBe('POST')
-    return route.fulfill({ status: 200, contentType: 'audio/mpeg', body: Buffer.from('ID3fake') })
-  })
   await open(page)
   const r = await sheetItem(page, 2, 'Grammar breakdown (AI)')
   await expect(r.getByTestId('line-grammar')).toContainText('jùzi')
   await expect(r.getByTestId('line-grammar').locator('li')).toHaveCount(2)
   await r.getByRole('button', { name: 'Hide grammar' }).click()
-
-  await sheetItem(page, 2, 'Pronounce the source')
-  await expect(r.getByTestId('pronounce-audio')).toHaveAttribute('src', /^blob:/)
-  expect(pronounced).toBe(1)
 })
 
 test('an AI tool without a key points to Settings', async ({ page }) => {

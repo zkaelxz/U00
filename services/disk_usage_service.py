@@ -11,8 +11,12 @@ folder itself.
 
 Scan: the immediate children of one folder with recursive size and file
 count, measured by a bounded walk (MAX_ENTRIES entries or MAX_SECONDS, then
-`partial`). Symlinks and Windows junctions are counted as the link itself and
-never entered. Nothing is cached: every call walks the disk again.
+`partial`). Symlinks, Windows junctions and folders on another volume are
+counted as the link itself and never entered, so a folder's size is what lives
+inside it. What they point at is measured apart (services/disk_usage_links.py,
+same budget, shown as `linked_bytes`, never a path), so a folder reads the same
+from its parent and when opened. Nothing is cached: every call walks the disk
+again.
 
 Clear and move are server-enforced, not only hidden in the UI:
 - protected: the data folder itself, the live SQLite files (and -wal, -shm,
@@ -36,10 +40,8 @@ Clear and move are server-enforced, not only hidden in the UI:
 - Restore puts a trashed item back at its original relative path when the
   parent is still there, the destination is free and passes the same checks
   as clear.
-- Purge and empty are the ONLY permanent deletes in this module. They touch
-  only <data>/baihe_trash/<id> (id matched by a strict pattern, real path
-  checked, no link at the root or at the entry), need the typed word DELETE,
-  and walk the entry without following links (_remove_tree).
+- Purge and empty (services/disk_usage_trash_service.py, with the Trash list
+  and Restore) are the ONLY permanent deletes in the feature.
 - Unused voice clips: the files in a title's voice_refs/ that no speaker points
   to, offered by opaque id (no name or path in a response) and moved to Trash
   through the same rename as clear, each re-checked under the library hold.
@@ -52,8 +54,6 @@ Clear and move are server-enforced, not only hidden in the UI:
 import contextlib
 import datetime
 import errno
-import hashlib
-import hmac
 import json
 import os
 import re
@@ -68,6 +68,7 @@ import db
 import portable
 import storage
 from services import auto_backup_service as abs_
+from services import disk_usage_links
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
@@ -122,7 +123,7 @@ _LIBRARY_FOLDERS = {
     "source_review_tmp": ("Import review scratch", "Images kept while an import review is open."),
     "updates": ("Downloaded updates", "Installers already downloaded; download again if needed."),
     "logs": ("Log files", "Diagnostic logs; new ones are written as the app runs."),
-    "piper_voices": ("Downloaded voices", "Text-to-speech voices; downloaded again when used."),
+    "piper_voices": ("Old voices", "Voices of the removed Piper engine; unused."),
 }
 _REPLACEABLE_FOLDERS = {
     "voice_bank": "Your saved voice samples.",
@@ -296,6 +297,7 @@ class _Ctx:
         self.root_reason = _root_blocker(self.root)
         self.backup_real = _backup_folder_real()
         self.top_level = _baihe_top_level_names()
+        self.linked = None      # set by a scan only; clear and restore never measure link targets
 
 
 def _under_backups(parts) -> bool:
@@ -311,12 +313,14 @@ def _flag_name(name: str, parts_of_parent) -> bool:
 
 
 class _Measured:
-    __slots__ = ("size", "files", "flagged", "unreadable", "has_link", "deepest")
+    __slots__ = ("size", "files", "flagged", "unreadable", "has_link", "deepest", "links", "links_cut")
 
     def __init__(self, base_len: int = 0):
         self.deepest = base_len
         self.size = self.files = 0
         self.flagged = self.unreadable = self.has_link = False
+        self.links = []
+        self.links_cut = False
 
 
 # --------------------------------------------------------------------------
@@ -361,6 +365,15 @@ def _unopenable_name(path: str, name: str) -> bool:
     long-path support), or a name ending in a dot or space (Windows rewrites
     it to another name)."""
     return len(path) >= MAX_PATH or name.endswith((".", " "))
+
+
+def _device_differs(st, ref_dev) -> bool:
+    """True only when both device numbers are known and differ. On Windows
+    os.DirEntry.stat() always reports st_dev 0 (only os.stat/os.lstat fill it),
+    so 0 means "unknown", not "another volume"; reading it as a different
+    device would turn every Windows folder into a link. Windows junctions and
+    mounted volumes are reparse points, which _is_link_stat already catches."""
+    return bool(ref_dev) and bool(st.st_dev) and st.st_dev != ref_dev
 
 
 def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
@@ -415,9 +428,13 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
                 # A folder on another volume (a POSIX mount point) is refused
                 # like a Windows junction: Clear must never move or delete
                 # what lives on a different disk.
-                link = _is_link_stat(st) or (stat.S_ISDIR(st.st_mode) and root_dev is not None and st.st_dev != root_dev)
+                link = _is_link_stat(st) or (stat.S_ISDIR(st.st_mode) and _device_differs(st, root_dev))
                 if link:
                     m.has_link = True
+                    if len(m.links) < disk_usage_links.MAX_LINK_TARGETS:
+                        m.links.append(entry.path)
+                    else:
+                        m.links_cut = True
                 if stat.S_ISDIR(st.st_mode) and not link:
                     stack.append((entry.path, cur_parts + (entry.name,)))
                     continue
@@ -544,6 +561,18 @@ def _movable(parts: tuple, real: str, protected: bool, ctx: _Ctx):
     return {"supported": False, "reason": reason, "what": None}
 
 
+def _on_another_volume(path: str, st) -> bool:
+    """A real folder on a different volume than the folder holding it (a POSIX
+    mount point). _measure counts one as a link from its parent's side, so it
+    has to be one from its own side too, or the two views disagree."""
+    if not stat.S_ISDIR(st.st_mode):
+        return False
+    try:
+        return _device_differs(st, os.lstat(os.path.dirname(path)).st_dev)
+    except OSError:
+        return False
+
+
 def _iso(ts: float):
     try:
         return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).isoformat()
@@ -554,17 +583,20 @@ def _iso(ts: float):
 def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx, measured=None) -> dict:
     """The public record of one item. `path` is the verified absolute path.
     `measured` is a _Measured already taken for this folder (not walked again)."""
-    is_link = _is_link_stat(st)
+    is_link = _is_link_stat(st) or _on_another_volume(path, st)
     is_dir = stat.S_ISDIR(st.st_mode) and not is_link
     unreadable = has_link = flagged = False
     deepest = len(path)
+    link_paths, links_cut = ([path] if is_link else []), False
     if is_dir:
         m = measured or _measure(path, parts, budget)
         size, files, flagged = m.size, m.files, m.flagged
         unreadable, has_link, deepest = m.unreadable, m.has_link, m.deepest
+        link_paths, links_cut = m.links, m.links_cut
     else:
         size, files = st.st_size, 1
         flagged = _flag_name(parts[-1], parts[:-1]) if parts else False
+    linked = ctx.linked.of(link_paths, budget, links_cut) if ctx.linked else None
     real = os.path.realpath(path)
     protected, reason = _protection(parts, real, flagged, ctx)
     if is_link:
@@ -583,6 +615,9 @@ def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx, measured=
         "modified_at": _iso(st.st_mtime),
         "is_link": is_link,
         "contains_link": has_link,
+        "linked_bytes": linked[0] if linked else None,
+        "linked_files": linked[1] if linked else None,
+        "linked_complete": linked[2] if linked else None,
         "complete": not budget.hit and not unreadable,
         "protected": protected,
         "protected_reason": reason,
@@ -625,6 +660,8 @@ def _scan(path) -> dict:
         raise InvalidInputError("That item is a file, not a folder.")
     budget = _Budget()
     ctx = _Ctx()
+    ctx.linked = disk_usage_links.LinkedSizes(
+        ctx.root, [ctx.program, *_home_dirs()], _within, _measure)
     trash_info, trash_measured = _trash_totals()
     items = []
     entries = []
@@ -680,6 +717,9 @@ def _scan(path) -> dict:
         "parent": "/".join(parts[:-1]) if parts else None,
         "total_bytes": total,
         "file_count": sum(i["file_count"] for i in items),
+        "linked_bytes": sum(i["linked_bytes"] or 0 for i in items),
+        "linked_files": sum(i["linked_files"] or 0 for i in items),
+        "linked_complete": all(i["linked_complete"] is not False for i in items),
         "items": items,
         "not_shown": not_shown,
         "partial": bool(reason),
@@ -994,35 +1034,6 @@ def _measure_payload(entry: str, budget: _Budget, parts=()) -> dict:
     return out
 
 
-def _restore_target(manifest: dict, meas: dict, ctx: _Ctx):
-    """(destination path, None) when the payload may go back where it came
-    from, else (None, plain reason). The same checks clear makes, on the
-    original place: every folder on the way re-resolved with no links, the
-    place free, and not protected."""
-    parts = manifest["parts"]
-    if meas["kind"] is None:
-        return None, "The trashed item is missing, so it can't be restored."
-    if meas["kind"] != manifest["kind"]:
-        return None, "The trashed item doesn't match its record, so it can't be restored."
-    if meas["unreadable"] or meas["has_link"]:
-        return None, "It holds a link or couldn't be read fully, so it can't be put back from here."
-    try:
-        parent = _resolve(parts[:-1])
-    except NotFoundError:
-        return None, "The folder it came from is gone. Create it again, or delete the item from Trash."
-    except InvalidInputError:
-        return None, "The folder it came from can't be used (it is, or sits behind, a link)."
-    if not os.path.isdir(parent):
-        return None, "The folder it came from is no longer a folder."
-    dest = os.path.join(parent, parts[-1])
-    if os.path.lexists(dest):
-        return None, "Something with the same name is already in its old place."
-    protected, reason = _protection(tuple(parts), dest, meas["flagged"], ctx)
-    if protected:
-        return None, reason or "Its old place is protected."
-    return dest, None
-
-
 def _trash_entries(trash: str):
     """(id, entry path) of the ordinary folders directly in the Trash folder
     whose names are Baihe's ids, newest first. Each one is checked with
@@ -1069,40 +1080,6 @@ def _trash_totals():
     except ServiceError:
         m.unreadable = True
         return {"size_bytes": 0, "item_count": 0, "partial": True}, m
-
-
-def trash_list() -> dict:
-    """Every entry in Trash with what it was, its measured size and whether
-    Restore would work now. A read-only walk with its own budget; it does not
-    take the scan's lock, so a running scan never hides the list. An entry the
-    walk budget didn't reach has no size (None), never the manifest's."""
-    trash = _trash_root()
-    budget = _Budget()
-    ctx = _Ctx()
-    items = []
-    total = 0
-    entries = _trash_entries(trash) if trash else []
-    for trash_id, entry in entries:
-        manifest = _read_manifest(entry)
-        size = files = None
-        restorable = False
-        kind = (manifest or {}).get("kind")
-        if not budget.hit:
-            meas = _measure_payload(entry, budget, manifest["parts"] if manifest else ())
-            if not budget.hit:
-                size, files = meas["size"], meas["files"]
-                restorable = bool(manifest) and _restore_target(manifest, meas, ctx)[1] is None
-                kind = kind or meas["kind"]
-        total += size or 0
-        items.append({
-            "id": trash_id,
-            "original_path_relative": "/".join(manifest["parts"]) if manifest else None,
-            "kind": kind, "size_bytes": size, "file_count": files,
-            "trashed_at": manifest["trashed_at"] if manifest else None,
-            "restorable": restorable,
-        })
-    return {"items": items, "size_bytes": total, "item_count": len(items),
-            "partial": bool(budget.hit), "busy_reason": busy_reason()}
 
 
 def _drop_entry_shell(entry: str) -> None:
@@ -1153,279 +1130,6 @@ def _rename_no_overwrite(src: str, dst: str, kind: str) -> None:
         _rename(src, dst)
         return
     os.unlink(src)
-
-
-def trash_restore(trash_id, confirm=False) -> dict:
-    """Puts a Trash entry back at its original relative path with one atomic
-    rename. 409 with a plain reason when the original folder is gone, the
-    place is taken, it would be protected, or a job is running."""
-    _require_confirm(confirm)
-    with _changing("Disk usage restore"):
-        trash = _trash_root()
-        if trash is None:
-            raise NotFoundError("That item is no longer in Trash.")
-        entry = _entry_path(trash_id, trash)
-        manifest = _read_manifest(entry)
-        if manifest is None:
-            raise ConflictError("This Trash item's record is missing or damaged, so it can't "
-                                "be restored. You can still delete it.",
-                                details={"reason": "cannot_restore"})
-        budget = _Budget()
-        meas = _measure_payload(entry, budget, manifest["parts"])
-        if budget.hit:
-            raise ConflictError("This is too large to check completely before restoring.",
-                                details={"reason": "cannot_restore"})
-        dest, reason = _restore_target(manifest, meas, _Ctx())
-        if reason:
-            raise ConflictError(reason, details={"reason": "cannot_restore"})
-        payload = os.path.join(entry, TRASH_PAYLOAD)
-        if (not _same_volume(payload, os.path.dirname(dest))
-                or _too_deep(meas["deepest"], payload, dest)):
-            raise ConflictError("It can't be put back there from here (another drive, or the "
-                                "path would be too long).", details={"reason": "cannot_restore"})
-        try:
-            _rename_no_overwrite(payload, dest, manifest["kind"])
-        except OSError:
-            raise ConflictError("Couldn't put it back (it may be in use), so nothing was "
-                                "changed.", details={"reason": "cannot_restore"}) from None
-        _drop_entry_shell(entry)
-        return {"name": manifest["parts"][-1], "kind": manifest["kind"],
-                "size_bytes": meas["size"], "file_count": meas["files"]}
-
-
-def _require_word(text) -> None:
-    if not isinstance(text, str) or text != TRASH_WORD:
-        raise InvalidInputError(f"Type {TRASH_WORD} in capital letters to confirm.")
-
-
-def _plain_dir(path: str) -> bool:
-    try:
-        st = os.lstat(path)
-    except OSError:
-        return False
-    return (stat.S_ISDIR(st.st_mode) and not _is_link_stat(st)
-            and _norm(os.path.realpath(path)) == _norm(path))
-
-
-def _clear_readonly(path: str) -> None:
-    """Drops the read-only bit (Windows refuses to delete such a file or
-    folder) of something just seen as an ordinary file or folder, never of a link."""
-    st = os.lstat(path)
-    if _is_link_stat(st):
-        raise OSError("link")
-    mode = stat.S_IREAD | stat.S_IWRITE | (stat.S_IEXEC if stat.S_ISDIR(st.st_mode) else 0)
-    if os.chmod in os.supports_follow_symlinks:
-        os.chmod(path, mode, follow_symlinks=False)
-    elif stat.S_ISREG(st.st_mode):
-        os.chmod(path, mode)
-    # else: without no-follow chmod only a plain file is changed, never a
-    # folder that could have been swapped for a link since the lstat.
-
-
-_FD_WALK_MAX_DEPTH = 200
-
-
-_FD_WALK = (os.name == "posix" and hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")
-            and all(f in os.supports_dir_fd for f in (os.open, os.stat, os.unlink, os.rmdir)))
-
-
-def _fd_walk_supported() -> bool:
-    return _FD_WALK
-
-
-def _remove_children_fd(dirfd: int, depth: int) -> None:
-    """Deletes everything inside the folder open as `dirfd`. Every step is
-    relative to an open folder, so a folder swapped for a link after it was
-    listed can't redirect a delete: a link is unlinked itself and a folder is
-    only entered by opening it without following links and checking it is the
-    one that was seen."""
-    if depth > _FD_WALK_MAX_DEPTH:
-        raise OSError("too deep")
-    try:
-        names = os.listdir(dirfd)
-    except PermissionError:
-        os.fchmod(dirfd, stat.S_IRWXU)
-        names = os.listdir(dirfd)
-    here = os.fstat(dirfd).st_dev
-    for name in names:
-        if name in ("", ".", "..") or "/" in name:
-            raise OSError("unexpected name")
-        st = os.stat(name, dir_fd=dirfd, follow_symlinks=False)
-        if stat.S_ISDIR(st.st_mode):
-            if st.st_dev != here:
-                raise OSError("folder on another volume")
-            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dirfd)
-            try:
-                seen = os.fstat(fd)
-                if (seen.st_dev, seen.st_ino) != (st.st_dev, st.st_ino):
-                    raise OSError("folder changed")
-                _remove_children_fd(fd, depth + 1)
-            finally:
-                os.close(fd)
-            try:
-                os.rmdir(name, dir_fd=dirfd)
-            except PermissionError:
-                os.fchmod(dirfd, stat.S_IRWXU)
-                os.rmdir(name, dir_fd=dirfd)
-        else:
-            try:
-                os.unlink(name, dir_fd=dirfd)
-            except PermissionError:
-                os.fchmod(dirfd, stat.S_IRWXU)
-                os.unlink(name, dir_fd=dirfd)
-
-
-def _remove_tree_fd(top: str) -> None:
-    top = os.path.abspath(top)
-    parent_fd = os.open(os.path.dirname(top), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        name = os.path.basename(top)
-        st = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        if not stat.S_ISDIR(st.st_mode):
-            raise OSError("not an ordinary folder")
-        fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
-        try:
-            seen = os.fstat(fd)
-            if (seen.st_dev, seen.st_ino) != (st.st_dev, st.st_ino):
-                raise OSError("folder changed")
-            _remove_children_fd(fd, 0)
-        finally:
-            os.close(fd)
-        os.rmdir(name, dir_fd=parent_fd)
-    finally:
-        os.close(parent_fd)
-
-
-def _remove_tree(top: str) -> None:
-    """PERMANENT DELETE: removes `top` and everything in it, never following a
-    link. On POSIX the walk is relative to open folders (_remove_tree_fd). On
-    Windows it goes path by path with a check before each step, so a folder
-    swapped for a junction between the check and the delete is a residual
-    window; closing it needs write access to the Trash folder, i.e. the
-    owner's own account or an equivalent one. Links are unlinked themselves (a directory link or junction with
-    rmdir, never entered); folders are listed only after being seen as
-    ordinary folders with no link on the way; files lose a read-only bit when
-    Windows needs that; folders are removed bottom-up. Raises OSError at the
-    first thing that can't be removed (what is left stays)."""
-    if _fd_walk_supported():
-        _remove_tree_fd(top)
-        return
-    top = os.path.abspath(top)
-    folders = []
-    stack = [top]
-    while stack:
-        cur = stack.pop()
-        if not _plain_dir(cur) or not _within(cur, top):
-            raise OSError("not an ordinary folder")
-        folders.append(cur)
-        with os.scandir(cur) as it:
-            children = [(e.path, e.name) for e in it]
-        for path, name in children:
-            if os.path.dirname(path) != cur or name in ("", ".", ".."):
-                raise OSError("unexpected name")
-            st = os.lstat(path)
-            if _is_link_stat(st):
-                try:
-                    os.unlink(path)
-                except OSError:
-                    os.rmdir(path)
-            elif stat.S_ISDIR(st.st_mode):
-                stack.append(path)
-            else:
-                try:
-                    os.unlink(path)
-                except PermissionError:
-                    _clear_readonly(path)
-                    os.unlink(path)
-    for folder in reversed(folders):
-        try:
-            os.rmdir(folder)
-        except PermissionError:
-            _clear_readonly(folder)
-            os.rmdir(folder)
-
-
-def _delete_entry(entry: str) -> None:
-    """PERMANENT DELETE of one validated Trash entry. The manifest goes first,
-    so an entry that fails halfway can't be restored from a partial payload."""
-    manifest = os.path.join(entry, TRASH_MANIFEST)
-    try:
-        os.unlink(manifest)
-    except FileNotFoundError:
-        pass
-    except PermissionError:
-        _clear_readonly(manifest)
-        os.unlink(manifest)
-    _remove_tree(entry)
-    if os.path.lexists(entry):
-        raise OSError("still there")
-
-
-def trash_purge(trash_id, confirm_text=None, expected_size_bytes=None) -> dict:
-    """PERMANENT DELETE of one Trash entry. Needs the typed word and the size
-    the person saw (409 when it changed); frees the space."""
-    _require_word(confirm_text)
-    unknown = expected_size_bytes is None       # the list showed "size unknown"
-    if not unknown and (not isinstance(expected_size_bytes, int)
-                        or isinstance(expected_size_bytes, bool)):
-        raise InvalidInputError("Send the size you were shown.")
-    with _changing("Disk usage delete from Trash"):
-        trash = _trash_root()
-        if trash is None:
-            raise NotFoundError("That item is no longer in Trash.")
-        entry = _entry_path(trash_id, trash)
-        budget = _Budget()
-        meas = _measure_payload(entry, budget)
-        if budget.hit and not unknown:
-            raise ConflictError("This is too large to check completely before deleting.",
-                                details={"reason": "changed"})
-        if not unknown and meas["size"] != expected_size_bytes:
-            raise ConflictError("This Trash item changed since you looked. Reload the list "
-                                "and check again.",
-                                details={"reason": "changed", "size_bytes": meas["size"],
-                                         "file_count": meas["files"]})
-        try:
-            _delete_entry(entry)
-        except OSError:
-            raise ServiceError(TRASH_DELETE_FAILED) from None
-        return {"freed_bytes": meas["size"], "file_count": meas["files"]}
-
-
-def trash_empty(confirm_text=None, expected_item_count=None, expected_size_bytes=None) -> dict:
-    """PERMANENT DELETE of every entry in Trash (typed word needed). The count
-    and total size the person saw must still match (409 `changed`), and a
-    Trash too large to measure completely can't be emptied this way. Entries
-    that can't be removed stay; `failed` counts them. Anything in the Trash
-    folder that isn't one of Baihe's entries is left alone."""
-    _require_word(confirm_text)
-    for v in (expected_item_count, expected_size_bytes):
-        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
-            raise InvalidInputError("Send the item count and size you were shown.")
-    with _changing("Disk usage empty Trash"):
-        trash = _trash_root()
-        entries = _trash_entries(trash) if trash else []
-        budget = _Budget()
-        sizes = {}
-        for trash_id, entry in entries:
-            sizes[trash_id] = _measure_payload(entry, budget)["size"]
-            if budget.hit:
-                raise ConflictError("The Trash is too large to check completely. Delete its "
-                                    "items one at a time.", details={"reason": "changed"})
-        if len(entries) != expected_item_count or sum(sizes.values()) != expected_size_bytes:
-            raise ConflictError("The Trash changed since you looked. Reload the list and check "
-                                "again.", details={"reason": "changed", "item_count": len(entries),
-                                                   "size_bytes": sum(sizes.values())})
-        freed = removed = failed = 0
-        for trash_id, _path in entries:
-            try:
-                entry = _entry_path(trash_id, trash)
-                _delete_entry(entry)
-            except (ServiceError, InvalidInputError, NotFoundError, OSError):
-                failed += 1
-                continue
-            freed += sizes[trash_id]
-            removed += 1
-        return {"freed_bytes": freed, "removed": removed, "failed": failed}
 
 
 # --------------------------------------------------------------------------
@@ -1483,189 +1187,3 @@ def move(path, destination, confirm=False) -> dict:
                 "name": item["name"]}
     finally:
         _op_lock.release()
-
-
-# --------------------------------------------------------------------------
-# Unused voice clips: list, and move to Trash
-# --------------------------------------------------------------------------
-# Only the two kinds of file the app writes into a title's voice_refs/
-# (uploads and picked candidates) are ever offered. Voice-bank copies are
-# written to the title's root folder instead, so they are not scanned. Nothing in
-# a response names a file or a path: a clip is addressed by an id that only
-# this process can compute, so a client can't ask for a file it wasn't shown.
-
-VOICE_REFS_DIRNAME = "voice_refs"
-MAX_CLIP_BATCH = 500
-_CLIP_NAME_RE = re.compile(
-    r"clone_ref_[0-9a-f]{32}\.(wav|mp3|m4a|flac|ogg)|clone_pick_[0-9a-f]{32}\.wav",
-    re.IGNORECASE)
-_CLIP_ID_RE = re.compile(r"[0-9a-f]{32}")
-_CLIP_KEY = secrets.token_bytes(32)     # ids die with the process; the list is fetched again
-
-
-def _clip_id(drama_id: int, name: str) -> str:
-    return hmac.new(_CLIP_KEY, f"{drama_id}\0{name}".encode("utf-8"), hashlib.sha256).hexdigest()[:32]
-
-
-def _ref_key(stored) -> str:
-    """How a stored clip name is compared: its last part only, ignoring case.
-    Deliberately looser than the name voice_refs/ holds (a bare name, a
-    'voice_refs/' prefix and a Windows separator all match), because a clip
-    that is wrongly kept costs a few MB and one that is wrongly offered costs
-    a voice."""
-    return str(stored).replace("\\", "/").rsplit("/", 1)[-1].casefold()
-
-
-def _clips_held_by_undo(drama_id: int) -> set:
-    """Last-name-part keys (see _ref_key) of clips a live "merge two speakers"
-    undo record can bring back after the merge cleared the source's Characters
-    row: until the undo expires or is used, no row points at them, yet undoing
-    would link them again."""
-    return {_ref_key(c) for c in db.live_speaker_merge_undo_clips(drama_id, time.time())}
-
-
-def _clip_still_unused(drama_id: int, name: str) -> bool:
-    """Fresh answer, read when asked. False on any doubt, including an
-    unreadable database."""
-    from services import voice_clone_service
-    try:
-        if voice_clone_service._clip_reading_job_active(drama_id):
-            return False
-        key = name.casefold()
-        if key in _clips_held_by_undo(drama_id):
-            return False
-        return not any(_ref_key(r.get("ref_audio_filename") or "") == key
-                       for r in db.list_characters(drama_id) if r.get("ref_audio_filename"))
-    except Exception:
-        return False
-
-
-def _unused_clips_of(drama_id: int, ctx: _Ctx):
-    """[{name, parts, size, mtime}] for one title's unreferenced clips, or
-    None when a job that reads clips is running for it. Empty when the folder
-    is missing, a link, or can't be read."""
-    from services import voice_clone_service
-    lib = os.path.dirname(os.path.abspath(db.LIBRARY_DIR))
-    folder = os.path.join(db.DRAMAS_DIR, str(drama_id), VOICE_REFS_DIRNAME)
-    try:
-        folder_parts = split_rel(os.path.relpath(os.path.abspath(folder), lib))
-        _resolve(folder_parts)
-        if voice_clone_service._clip_reading_job_active(drama_id):
-            return None
-        used = {_ref_key(r["ref_audio_filename"]) for r in db.list_characters(drama_id)
-                if r.get("ref_audio_filename")} | _clips_held_by_undo(drama_id)
-        entries = list(os.scandir(os.path.join(ctx.root, *folder_parts)))
-    except (ServiceError, OSError, ValueError):
-        return []
-    out = []
-    for e in entries:
-        if not _CLIP_NAME_RE.fullmatch(e.name) or e.name.casefold() in used:
-            continue
-        try:
-            st = e.stat(follow_symlinks=False)
-            parts = split_rel("/".join(folder_parts + [e.name]))
-        except (OSError, ServiceError):
-            continue
-        if stat.S_ISREG(st.st_mode) and not _is_link_stat(st):
-            out.append({"name": e.name, "parts": parts, "size": st.st_size, "mtime": st.st_mtime})
-    return out
-
-
-def _unused_clip_index() -> tuple:
-    """({id: (drama_id, name, parts, size)}, titles, titles_in_use), where
-    `titles` is [(title, [clip, ...])] for every title with something to
-    offer. One pass over the library; the same code serves list and remove."""
-    ctx = _Ctx()
-    index, titles, in_use = {}, [], 0
-    for drama in db.list_dramas():
-        found = _unused_clips_of(drama["id"], ctx)
-        if found is None:
-            in_use += 1
-            continue
-        for c in found:
-            c["id"] = _clip_id(drama["id"], c["name"])
-            index[c["id"]] = (drama["id"], c["name"], c["parts"], c["size"])
-        if found:
-            titles.append((drama.get("title_en") or drama.get("title_zh") or "",
-                           sorted(found, key=lambda c: c["name"])))
-    return index, titles, in_use
-
-
-def unused_voice_clips() -> dict:
-    """Clips in each title's voice_refs/ that no speaker points to, with no
-    file name or path in the result. Titles with a dub, narration or
-    audiobook job running are left out and counted in `titles_in_use`."""
-    _, titles, in_use = _unused_clip_index()
-    shown, total_bytes, total_count = [], 0, 0
-    for title, clips in titles:
-        rows = []
-        for c in clips:
-            rows.append({"id": c["id"], "file_type": os.path.splitext(c["name"])[1][1:].lower(),
-                         "size_bytes": c["size"], "modified_at": _iso(c["mtime"])})
-        shown.append({"title": title, "size_bytes": sum(c["size"] for c in clips), "clips": rows})
-        total_bytes += shown[-1]["size_bytes"]
-        total_count += len(rows)
-    return {"titles": shown, "total_bytes": total_bytes, "total_count": total_count,
-            "titles_in_use": in_use, "busy_reason": busy_reason()}
-
-
-def trash_unused_voice_clips(clips, confirm=False) -> dict:
-    """Moves the named clips (each with the size that was shown) into Trash,
-    where they can be restored. Every clip is looked up and checked again
-    under the library hold, so one that was picked for a speaker, changed, or
-    whose title started a clip-reading job since the list is skipped, not
-    moved. A busy library or a failed move stops the batch: the error's details carry
-    moved_count, moved_bytes and skipped for what was done before it."""
-    _require_confirm(confirm)
-    if not isinstance(clips, list) or not clips or len(clips) > MAX_CLIP_BATCH:
-        raise InvalidInputError(f"Choose between 1 and {MAX_CLIP_BATCH} clips.")
-    wanted = []
-    for c in clips:
-        cid, size = (c or {}).get("id"), (c or {}).get("expected_size_bytes")
-        if (not isinstance(cid, str) or not _CLIP_ID_RE.fullmatch(cid) or isinstance(size, bool)
-                or not isinstance(size, int) or size < 0):
-            raise InvalidInputError("That isn't a clip from the list.")
-        wanted.append((cid, size))
-    if len({cid for cid, _ in wanted}) != len(wanted):
-        raise InvalidInputError("A clip is listed twice.")
-    from services import voice_clone_service
-    moved_bytes, moved, skipped = 0, 0, []
-    with _changing("Disk usage voice clips"):
-        if _root_blocker(_root()):
-            # Checked here so the clips aren't reported as "changed": every
-            # path is protected when the data folder is a drive root or a
-            # home folder, and the person needs to hear that.
-            raise InvalidInputError(ROOT_TOO_BROAD)
-        index, _titles, _in_use = _unused_clip_index()
-        try:
-            for cid, expected in wanted:
-                hit = index.get(cid)
-                if hit is None:
-                    skipped.append({"id": cid, "reason": "no_longer_unused"})
-                    continue
-                drama_id, name, parts, _size = hit
-                try:
-                    parts, real, item = _inspect_for_change("/".join(parts), "moving it")
-                    if item["kind"] != "file" or item["size_bytes"] != expected:
-                        raise ConflictError(CHANGED, details={"reason": "changed"})
-                    # The title's clip lock makes "no speaker points at it" and
-                    # the rename one step against a pick or upload.
-                    with voice_clone_service.clip_lock(drama_id):
-                        _move_to_trash(parts, real, item,
-                                       still_ok=lambda d=drama_id, n=name: _clip_still_unused(d, n))
-                except ConflictError as exc:
-                    if (exc.details or {}).get("reason") != "changed":
-                        raise
-                    skipped.append({"id": cid, "reason": "changed"})
-                    continue
-                except (NotFoundError, InvalidInputError):
-                    skipped.append({"id": cid, "reason": "changed"})
-                    continue
-                moved += 1
-                moved_bytes += item["size_bytes"]
-        except ServiceError as exc:
-            # What was already moved stays moved; say so with the failure.
-            raise type(exc)(exc.message, details={
-                **(exc.details or {}), "moved_count": moved, "moved_bytes": moved_bytes,
-                "skipped": skipped}) from None
-    return {"moved_count": moved, "moved_bytes": moved_bytes, "skipped": skipped}

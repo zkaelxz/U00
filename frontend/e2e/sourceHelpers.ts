@@ -6,3 +6,12 @@ import { expect, type Page } from '@playwright/test'
 export async function openTranscribeOptions(page: Page) {
   await expect(page.getByTestId('settings-summary')).toBeVisible()
 }
+
+// Turns Developer Mode on for this page: the Transcribe knobs it gates (beam size, VAD threshold and so on) are
+// only in the DOM then. The setting is server-side and PC-only, so the read is answered here.
+export async function enableDeveloperMode(page: Page) {
+  await page.route('**/api/assistant/settings', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ json: { developer_mode: true, engine: null, model: null, engine_choices: [] } })
+      : route.fallback())
+}

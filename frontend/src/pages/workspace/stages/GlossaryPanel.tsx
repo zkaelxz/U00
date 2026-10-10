@@ -18,6 +18,7 @@ import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
+import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
 import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
@@ -117,7 +118,7 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
   const [error, setError] = useState<unknown>(null)
   const label = scope === 'project' ? 'Project instructions' : 'Series instructions'
   return (
-    <div>
+    <div className="stack">
       <Field label={label}>
         <textarea
           rows={3}
@@ -128,19 +129,21 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
           }}
         />
       </Field>
-      <button
-        type="button"
-        className={buttonClass('secondary', 'sm')}
-        onClick={() =>
-          saveInstructions(dramaId, scope, text).then(() => {
-            setError(null)
-            setSaved(true)
-          }, setError)
-        }
-      >
-        Save {scope} instructions
-      </button>
-      {saved && <span role="status"> Saved.</span>}
+      <div className="actions">
+        <button
+          type="button"
+          className={buttonClass('secondary', 'sm')}
+          onClick={() =>
+            saveInstructions(dramaId, scope, text).then(() => {
+              setError(null)
+              setSaved(true)
+            }, setError)
+          }
+        >
+          Save {scope} instructions
+        </button>
+        {saved && <span role="status">Saved.</span>}
+      </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </div>
   )
@@ -152,7 +155,9 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
   const seriesId = drama.series_id ?? null
   const [terms, setTerms] = useState<GlossaryTerm[] | null>(null)
   const [catalogues, setCatalogues] = useState<GlossaryCatalogues | null>(null)
-  const [instructions, setInstructions] = useState<{ project: string; series: string } | null>(null)
+  // seriesId is the series the text was read for: the series editor waits
+  // for the new series' text so it can't save the old one over it.
+  const [instructions, setInstructions] = useState<{ project: string; series: string; seriesId: number | null } | null>(null)
   const [editing, setEditing] = useState<TermForm | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [saveError, setSaveError] = useState<unknown>(null)
@@ -192,7 +197,7 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       ([c, i]) => {
         if (cancelled) return
         setCatalogues(c)
-        setInstructions({ project: i.project_instructions, series: i.series_instructions })
+        setInstructions({ project: i.project_instructions, series: i.series_instructions, seriesId })
       },
       (e: unknown) => !cancelled && setError(e),
     )
@@ -273,7 +278,7 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       {showStart && !editing && (
         <div className="glossary-start" role="group" aria-label="Start your glossary" data-testid="glossary-start">
           <h4>Start your glossary</h4>
-          <p className="muted">Terms belong to the drama's series.</p>
+          <p className="muted">Terms belong to the title's series.</p>
           <div className="glossary-start-actions">
             <button
               type="button"
@@ -382,10 +387,17 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
       <GlossaryImport openSignal={importSignal} hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />
+      <LanguagePacks
+        glossarySources={(terms ?? []).map((t) => t.term_original)}
+        hasSeries={seriesId != null}
+        onAdded={() => setReloads((n) => n + 1)}
+      />
       {instructions && (
         <>
-          <InstructionsEditor scope="project" initial={instructions.project} />
-          <InstructionsEditor scope="series" initial={instructions.series} />
+          <InstructionsEditor key="project" scope="project" initial={instructions.project} />
+          {instructions.seriesId === seriesId && (
+            <InstructionsEditor key={`series-${seriesId ?? 'none'}`} scope="series" initial={instructions.series} />
+          )}
         </>
       )}
       </div>

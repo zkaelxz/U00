@@ -6,7 +6,7 @@ import { ApiError } from '../../api/client'
 import { isRegionsError, orderedLines, type RegionsState } from './comicLogic'
 
 export function ComicLines({ page, state }: { page: number; state: RegionsState | undefined | 'none' }) {
-  if (state === 'none') return <p className="muted">No text found on page {page}.</p>
+  if (state === 'none') return <p className="muted">No text found on page {page}. If it has not been read yet, run Translate / detect on this page.</p>
   if (!state) return <p className="muted">Loading page {page} text…</p>
   if (isRegionsError(state)) {
     const forbidden = state.error instanceof ApiError && state.error.status === 403
@@ -17,7 +17,7 @@ export function ComicLines({ page, state }: { page: number; state: RegionsState 
     )
   }
   const lines = orderedLines(state.regions)
-  if (lines.length === 0) return <p className="muted">No text found on page {page}.</p>
+  if (lines.length === 0) return <p className="muted">No text found on page {page}. If it has not been read yet, run Translate / detect on this page.</p>
   return (
     <ol className="comic-lines" data-testid="comic-lines">
       {lines.map((l, i) => (

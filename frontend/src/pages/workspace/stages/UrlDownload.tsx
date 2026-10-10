@@ -3,12 +3,12 @@
  * POST /api/media/dramas/{id}/download-url, PC only). Used by the Workspace
  * Source stage ("From a URL") and by the Sources page's video preview card.
  *
- *   <UrlDownload dramaId={3} contentMode={drama.content_mode} hasAudio busy={busy} onStarted={setJobId} />
+ *   <UrlDownload dramaId={3} contentMode={drama.content_mode} hasAudio hasSourceVideo busy={busy} onStarted={setJobId} />
  *   <UrlDownload ... url={pastedUrl} />   // fixed link: no link field
  *
  * Remote viewers get one muted line instead ("PC only for now").
  */
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { startUrlDownload } from '../../../api/sourcesImport'
@@ -16,7 +16,9 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { usePcOnly } from '../../../hooks/usePcOnly'
+import { useStageDraft } from '../../../hooks/useStageDraft'
 import { MAX_URL_LEN, defaultAudioOnly, downloadReason } from '../../sources/urlImportFormat'
+import { SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl } from '../sourceForm'
 import './urlDownload.css'
 
 export const URL_PC_ONLY = 'Downloading from a link is PC only for now.'
@@ -25,6 +27,8 @@ type Props = {
   dramaId: number
   contentMode: string | null | undefined
   hasAudio: boolean
+  hasSourceVideo?: boolean
+  readsBurnedInSubtitles?: boolean
   // A fixed link (the Sources preview); without it a link field is shown.
   url?: string
   busy?: boolean
@@ -34,10 +38,15 @@ type Props = {
 const needsConfirm = (e: unknown) =>
   e instanceof ApiError && e.status === 422 && (e.details as { reason?: unknown } | null)?.reason === 'confirm_replace_audio'
 
-export function UrlDownload({ dramaId, contentMode, hasAudio, url: fixedUrl, busy, onStarted }: Props) {
+export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, readsBurnedInSubtitles, url: fixedUrl, busy, onStarted }: Props) {
   const pc = usePcOnly()
-  const [typed, setTyped] = useState('')
-  const [audioOnly, setAudioOnly] = useState(() => defaultAudioOnly(contentMode))
+  // The link and Audio only as last left for this title; Replace is never kept.
+  const { draft, save: saveDraft } = useStageDraft(dramaId, URL_DRAFT_STAGE, URL_DRAFT_SHAPE)
+  const [typed, setTyped] = useState(draft.url ?? '')
+  const [audioOnly, setAudioOnly] = useState(() => draft.audioOnly ?? defaultAudioOnly(contentMode))
+  useEffect(() => {
+    saveDraft({ url: typed, audioOnly })
+  }, [saveDraft, typed, audioOnly])
   const [replace, setReplace] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -50,6 +59,7 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, url: fixedUrl, bus
   const url = fixedUrl ?? typed
   const audioThere = hasAudio || serverHasAudio
   const reason = downloadReason(url, audioThere, replace)
+  const audioOnlyResult = audioOnly || isDirectAudioUrl(url)
 
   const start = () => {
     if (reason || busy || starting) return
@@ -96,10 +106,16 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, url: fixedUrl, bus
             <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
             Replace the current audio
           </label>
+          {audioOnlyResult && hasSourceVideo && (
+            <p className="muted" data-testid="url-sets-video-aside">
+              {URL_SETS_VIDEO_ASIDE}
+              {readsBurnedInSubtitles && SWITCHES_FROM_BURNED_IN}
+            </p>
+          )}
         </div>
       )}
       <p className="muted">
-        {audioOnly ? 'Keeps just the audio track.' : 'Keeps the video too and extracts its audio.'}
+        {audioOnlyResult ? 'Keeps just the audio track.' : 'Keeps the video too and extracts its audio.'}
       </p>
       <div className="actions">
         <button

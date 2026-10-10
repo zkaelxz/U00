@@ -111,7 +111,7 @@ describe('showLocalOnlyNote', () => {
     expect(showLocalOnlyNote([eng('claude', false), local], 'ollama')).toBe(true)
     expect(showLocalOnlyNote([eng('claude', true), local], 'ollama')).toBe(false)
     expect(showLocalOnlyNote([eng('claude', false), local], 'claude')).toBe(false)
-    expect(showLocalOnlyNote([eng('claude', false), { ...eng('nllb'), free: true }], 'nllb')).toBe(false)
+    expect(showLocalOnlyNote([eng('claude', false), { ...eng('fake_mt'), free: true }], 'fake_mt')).toBe(false)
     expect(showLocalOnlyNote([], 'ollama')).toBe(false)
   })
 })

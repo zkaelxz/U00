@@ -1,6 +1,6 @@
 """
-api/routers/discover_lookup_routes.py -- Discover's network helpers (spec
-D-2; API batch 1). Thin: see services/discover_lookup_service.py. Same
+api/routers/discover_lookup_routes.py -- Discover's network helpers.
+Thin: see services/discover_lookup_service.py. Same
 /api/discover prefix as the catalog routes (discover_routes.py), no path
 overlap.
 
@@ -60,7 +60,8 @@ def post_baihehub_search(body: DiscoverBaihehubSearchRequest):
              responses=_ERRS)
 def post_import_suggestion(body: DiscoverImportSuggestionRequest, request: Request):
     require_engines_allowed(request, body.engine)
-    return svc.import_suggestion(body.url, body.engine)
+    with llm_slot(request):
+        return svc.import_suggestion(body.url, body.engine)
 
 
 @router.post("/bulk-extract", dependencies=[require_permission("media.import_url")],

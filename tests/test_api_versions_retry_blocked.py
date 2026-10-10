@@ -372,7 +372,7 @@ class TestRetryApi:
 
     def test_model_and_free_tier_fields_refused(self, client):
         did, ids = _blocked()
-        r = client.post(_retry(did, ids[1]), json={"engine": "nllb", "model": "x/y"})
+        r = client.post(_retry(did, ids[1]), json={"engine": "fake_mt", "model": "x/y"})
         assert r.status_code == 422
         r = client.post(_retry(did, ids[1]), json={"engine": "ollama", "gemini_free_tier": True})
         assert r.status_code == 422
@@ -500,7 +500,7 @@ class TestPermissions:
         # the free-tier flag is not a way around the paid-engine check
         assert remote.post(url, json={"engine": "gemini", "gemini_free_tier": True},
                            headers=_h(household)).status_code == 403
-        assert remote.post(url, json={"engine": "nllb", "model": "x/y"},
+        assert remote.post(url, json={"engine": "fake_mt", "model": "x/y"},
                            headers=_h(household)).status_code == 422
         r = remote.post(url, json={"engine": "ollama"}, headers=_h(household))
         assert r.status_code == 200 and r.json()["retried"] is True

@@ -16,14 +16,16 @@ source_service), any *_filename, `translation_engine`, and
 
 Preset handling: only the preset's `translation_engine` has a per-drama
 DB home, so only it is persisted. `style_preset`, `locale`,
-`default_female_pronouns` and `include_genre_notes` are not saved on the
-drama, so create_drama returns them as `preset_defaults` for the client to
-hold.
+`default_female_pronouns` and `include_genre_notes` are not saved by
+create_drama, so it returns them as `preset_defaults` for the client to
+hold; the owner's later choice is saved on the drama (a run's toggles, or
+update_drama_metadata) and every run reads it from there.
 
 No FastAPI import: plain dicts in, plain dicts out.
 """
 
 import contextlib
+import datetime
 import logging
 import os
 import re
@@ -48,6 +50,8 @@ _TEXT_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_a
                 "summary", "genre", "custom_tags", "source_url", "episode_summary",
                 "project_instructions")
 _INT_FIELDS = ("chapter_count", "episode_number")
+# The Translate stage's two toggles, stored 0/1 (translate_run_service.save_style_toggles).
+_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes")
 
 # Hardening H1: sqlite ints are 64-bit and a Python int above that raises
 # OverflowError (a 500), so every id/count the client sends is capped well
@@ -60,7 +64,7 @@ _TEXT_CAPS = {"summary": MAX_LONG_TEXT_LEN, "episode_summary": MAX_LONG_TEXT_LEN
               "project_instructions": MAX_LONG_TEXT_LEN, "source_url": MAX_URL_LEN,
               "custom_tags": MAX_URL_LEN}
 _STRIPPED = ("title_en", "title_zh")
-_UPDATABLE = frozenset(_TEXT_FIELDS + _INT_FIELDS
+_UPDATABLE = frozenset(_TEXT_FIELDS + _INT_FIELDS + _BOOL_FIELDS
                        + ("media_type", "publication_status", "series_id",
                           "new_series_name"))
 
@@ -93,6 +97,9 @@ def _check_media_type(value):
 
 def _find_preset(preset_id):
     return next((p for p in db.list_presets() if p["id"] == preset_id), None)
+
+
+SENTENCE_SPLIT_DEFAULT_LANGUAGES = ("zh", "ja")
 
 
 def create_drama(*, source_language, title_en="", title_zh="", author="", studio="",
@@ -142,6 +149,11 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     fields = dict(texts, media_type=media_type, source_language=source_language, **owned)
     if series_id is not None:
         fields["series_id"] = series_id
+    if source_language in SENTENCE_SPLIT_DEFAULT_LANGUAGES:
+        # Chinese and Japanese speech runs long between pauses; without it a
+        # Whisper or Whisper + Qwen title comes back as minute-long lines.
+        # Existing titles keep their stored value.
+        fields["split_by_sentences"] = 1
     if preset and preset.get("translation_engine"):
         fields["translation_engine"] = preset["translation_engine"]
     else:
@@ -226,6 +238,10 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
             if value > MAX_ID:
                 raise InvalidInputError(f"{key} is out of range.")
             value = value or None  # 0 = "not set", stored NULL
+        elif key in _BOOL_FIELDS:
+            if not isinstance(value, bool):
+                raise InvalidInputError(f"{key} must be true or false.")
+            value = int(value)
         elif key == "media_type":
             _check_media_type(value)
         elif key == "publication_status":
@@ -251,6 +267,29 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     if fields:
         db.update_drama(drama_id, **fields)
     return library_service.get_library_drama(drama_id)
+
+
+def set_source_url_once(drama_id, url) -> bool:
+    """Records where an import came from, only while the title has no link,
+    so what the owner typed is never overwritten. Stores the display-safe
+    form (no query, userinfo or token-like path); a link that leaves
+    nothing usable is ignored. Never raises: a link is a convenience and
+    must not fail the import that called it."""
+    safe = library_service.display_source_url(url)
+    if not safe or len(safe) > MAX_URL_LEN:
+        return False
+    try:
+        # One conditional statement: a link the owner saves between a read
+        # and a write would otherwise be overwritten by the import.
+        with contextlib.closing(db.get_conn()) as conn:
+            cur = conn.execute(
+                "UPDATE dramas SET source_url = ?, updated_at = ? "
+                "WHERE id = ? AND TRIM(COALESCE(source_url, '')) = ''",
+                (safe, datetime.datetime.utcnow().isoformat(), drama_id))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception:
+        return False
 
 
 # A job_records row still saying running/queued but not heartbeated this

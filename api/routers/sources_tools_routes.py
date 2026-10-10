@@ -1,7 +1,7 @@
 """
 api/routers/sources_tools_routes.py -- the remaining Sources tools
-(feature inventory SO02, SO03, SO08, SO16) and the Discover bulk import's
-pasted-text fallback (DI07). Thin: see services/sources_tools_service.py
+and the Discover bulk import's
+pasted-text fallback. Thin: see services/sources_tools_service.py
 and services/discover_lookup_service.py.
 
   POST /api/sources/url/preflight       job: "will this site work?" (one fetch)

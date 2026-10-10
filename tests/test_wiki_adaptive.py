@@ -188,14 +188,6 @@ class TestLineTools:
     def test_improve_line_returns_original_on_unsupported_engine(self):
         assert lt.improve_line("原", "original text", PureMT()) == "original text"
 
-    def test_pronunciation_voice_map_covers_all_languages(self):
-        for lang in ("zh", "ja", "ko"):
-            assert lang in lt.SOURCE_LANG_VOICES
-
-    def test_pronunciation_failure_returns_none(self):
-        # invalid path should fail gracefully rather than raise
-        assert lt.pronunciation_audio("test", "/nonexistent/dir/x.mp3", "zh") is None
-
 
 class TestReaderTheming:
     def test_all_themes_render(self):

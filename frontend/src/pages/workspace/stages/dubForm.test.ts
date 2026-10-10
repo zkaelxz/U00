@@ -4,6 +4,9 @@ import type { DubConfig } from '../../../types/dub'
 import {
   NARRATION_RESUME_NOTE,
   dubAdvancedSummary,
+  dubBlocker,
+  DUB_DRAFT_SHAPE,
+  dubFormFromDraft,
   dubSettingsLine,
   initialDubForm,
   narrationResumeNote,
@@ -13,7 +16,11 @@ import {
 const cfg = {
   is_narration: false,
   narration_language: 'en',
-  tts_engines: [{ key: 'edge_tts', label: 'Edge TTS', requires_internet: true }],
+  tts_engines: [
+    { key: 'other', label: 'Other engine' },
+    { key: 'omnivoice', label: 'OmniVoice' },
+  ],
+  default_engine: 'omnivoice',
   defaults: { max_speedup: 1.3, max_slowdown: 0.85 },
   can_keep_background: true,
 } as unknown as DubConfig
@@ -32,7 +39,26 @@ describe('dub summaries', () => {
     const noBgm = { ...cfg, can_keep_background: false } as DubConfig
     const form = { ...initialDubForm(noBgm), keepBackground: true }
     expect(dubAdvancedSummary(noBgm, form)).toBe('defaults')
-    expect(dubSettingsLine(noBgm, form)).toBe('Edge TTS · speed 0.85x to 1.3x · no background music')
+    expect(dubSettingsLine(noBgm, form)).toBe('OmniVoice · speed 0.85x to 1.3x · no background music')
+  })
+})
+
+describe('dub draft', () => {
+  const narration = { ...cfg, is_narration: true, narration_language: 'translation', narration_language_options: ['translation', 'original'] } as unknown as DubConfig
+
+  it('starts from the defaults when there is no draft', () => {
+    expect(dubFormFromDraft(cfg, null)).toEqual(initialDubForm(cfg))
+    expect(Object.keys(DUB_DRAFT_SHAPE).sort()).toEqual(['keepBackground', 'language', 'maxSlowdown', 'maxSpeedup'])
+  })
+
+  it('restores the pacing limits, language and background toggle, clamped and only where offered', () => {
+    expect(dubFormFromDraft(cfg, { maxSpeedup: 1.6, maxSlowdown: 0.7, keepBackground: true })).toMatchObject({
+      engine: 'omnivoice', maxSpeedup: 1.6, maxSlowdown: 0.7, keepBackground: true,
+    })
+    expect(dubFormFromDraft(cfg, { maxSpeedup: 9, maxSlowdown: 0.1 })).toMatchObject({ maxSpeedup: 2, maxSlowdown: 0.5 })
+    expect(dubFormFromDraft(cfg, { maxSpeedup: '1.6', keepBackground: 'yes', engine: 'other' })).toEqual(initialDubForm(cfg))
+    expect(dubFormFromDraft(narration, { language: 'original' }).language).toBe('original')
+    expect(dubFormFromDraft(narration, { language: 'fr' }).language).toBe('translation')
   })
 })
 
@@ -77,5 +103,32 @@ describe('untranslated narration warning (U01)', () => {
     expect(untranslatedNarrationWarning('original', undefined)).toBeNull()
     expect(untranslatedNarrationWarning('translation', Number.NaN)).toBeNull()
     expect(untranslatedNarrationWarning('en', 2)).toBeNull()
+  })
+})
+
+describe('dubBlocker', () => {
+  const ready = { ...cfg, speakable_line_count: 3 } as DubConfig
+  it('is null when the chosen engine can run', () => {
+    expect(dubBlocker(ready, initialDubForm(ready))).toBeNull()
+  })
+  it("gives the engine's own missing-package reason", () => {
+    const missing = {
+      ...ready,
+      tts_engines: [{ key: 'omnivoice', label: 'OmniVoice', unavailable_reason: 'OmniVoice is not installed. Install it in Diagnostics.' }],
+    } as DubConfig
+    expect(dubBlocker(missing, initialDubForm(missing))).toBe('OmniVoice is not installed. Install it in Diagnostics.')
+  })
+  it('starts on the default engine, not the first one listed', () => {
+    expect(initialDubForm(cfg).engine).toBe('omnivoice')
+  })
+  it('shows the server blocker (no engine installed, or a removed engine) before anything else', () => {
+    const none = { ...ready, blocker: 'No voice engine is installed. Install one in Diagnostics.' } as DubConfig
+    expect(dubBlocker(none, initialDubForm(none))).toBe('No voice engine is installed. Install one in Diagnostics.')
+    const removed = { ...ready, blocker: 'Lin: The F5-TTS engine was removed. Pick another voice engine in Dub.' } as DubConfig
+    expect(dubBlocker(removed, initialDubForm(removed))).toContain('The F5-TTS engine was removed.')
+  })
+  it('keeps the no-text blocker first', () => {
+    const empty = { ...cfg, speakable_line_count: 0, blocker: 'No voice engine is installed. Install one in Diagnostics.' } as DubConfig
+    expect(dubBlocker(empty, initialDubForm(empty))).toBe('There is no text to speak yet.')
   })
 })

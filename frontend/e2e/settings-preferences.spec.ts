@@ -11,9 +11,13 @@ const PREFS = {
   default_engine: 'claude',
   default_locale: 'en-US',
   default_style_note: '',
+  scene_aware_batches: true,
   episode_summary_engine: 'ollama',
   monthly_cap_usd: null as number | null,
+  max_upload_mb: 20480,
   ollama_num_ctx_override: 0,
+  keep_free_vram_gb: 0,
+  keep_free_ram_gb: 0,
   whisper_model_path: '',
   ocr_backend: 'auto',
   ocr_prefer_paddle_vl_manga: false,
@@ -29,15 +33,18 @@ const PREFS = {
 
 function overview() {
   return {
-    engine_keys: { claude: false, ollama_url: false, gpt_sovits_url: false },
+    engine_keys: { claude: false, ollama_url: false },
     gpu_limit_enabled: true,
     gpu_max_parallel: 1,
+    unload_ollama_before_transcribe: true,
     notify_on_completion: false,
     use_gpu: false,
     gemini_free_tier: false,
     bulk_auto_resume: false,
     preferences: { ...PREFS },
-    endpoints: { ollama_url: null as string | null, gpt_sovits_url: null },
+    endpoints: { ollama_url: null as string | null },
+    upload_max_mb_from_env: false,
+    effective_upload_max_mb: 20480,
     monthly_cap_env_usd: 0,
     effective_monthly_cap_usd: 0,
     month_spend_usd: 0,
@@ -105,10 +112,10 @@ async function open(page: Page, title: string) {
   return section
 }
 
-test('defaults for new dramas save only what changed', async ({ page }) => {
+test('defaults for new titles save only what changed', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   const s = await open(page, 'Translation style')
   const save = s.getByRole('button', { name: 'Save' })
   await expect(save).toBeDisabled()
@@ -127,7 +134,7 @@ test('defaults for new dramas save only what changed', async ({ page }) => {
 test('spending, offline and OCR fields check input before saving', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
 
   const spend = await open(page, 'Spending')
   await spend.getByLabel('Monthly cap', { exact: true }).fill('lots')
@@ -138,11 +145,13 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await spend.getByRole('button', { name: 'Save' }).click()
   await expect(spend.getByTestId('cap-effective')).toHaveText('Cap in effect: $12.50 a month.')
 
+  await openSettingsGroups(page, 'System')
   const offline = await open(page, 'Offline and performance')
   await offline.getByLabel('Ollama context window', { exact: true }).fill('1.5')
   await offline.getByRole('button', { name: 'Save' }).click()
   await expect(offline.getByRole('alert')).toContainText('whole number')
   await offline.getByLabel('Ollama context window', { exact: true }).fill('16384')
+  await offline.getByLabel('Keep free graphics memory', { exact: true }).fill('4')
   await offline.getByLabel('Offline Whisper model folder', { exact: true }).fill('D:\\models\\whisper-small')
   await offline.getByRole('button', { name: 'Save' }).click()
   await expect(offline.getByRole('status')).toHaveText('Saved.')
@@ -161,7 +170,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 
   expect(posts.map((p) => p.body)).toEqual([
     { monthly_cap_usd: 12.5 },
-    { whisper_model_path: 'D:\\models\\whisper-small', ollama_num_ctx_override: 16384 },
+    { whisper_model_path: 'D:\\models\\whisper-small', ollama_num_ctx_override: 16384, keep_free_vram_gb: 4 },
     { ocr_backend: 'manga_ocr', ocr_prefer_paddle_vl_manga: true, tesseract_cmd: 'C:\\Tess\\tesseract.exe' },
     { cookies_browser: 'firefox' },
   ])
@@ -171,7 +180,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 test('server addresses: a URL with a password is refused client-side; save and clear', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const s = await open(page, 'Server addresses')
   const ollama = s.getByTestId('endpoint-ollama_url')
   await ollama.getByLabel('Ollama URL', { exact: true }).fill('http://me:hunter2@192.168.1.5:11434')
@@ -194,7 +203,7 @@ test('server addresses: a URL with a password is refused client-side; save and c
 test('the theme is changed from the header button, not from Settings', async ({ page }) => {
   await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   await expect(block(page, 'Translation style')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Theme', { exact: true })).toHaveCount(0)
@@ -207,11 +216,11 @@ test('away from the PC the preference blocks say PC only', async ({ page }) => {
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   for (const title of ['Translation style', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
     // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
     await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
-      title === 'Server addresses' ? /^\d of 2 set · PC only$/ : 'PC only')
+      title === 'Server addresses' ? /^\d of 1 set · PC only$/ : 'PC only')
   }
   expect(unmocked).toEqual([])
 })

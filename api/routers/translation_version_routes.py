@@ -1,6 +1,6 @@
 """
 api/routers/translation_version_routes.py -- make a saved translation
-version the drama's current English (parity item R39). Thin adapter over
+version the drama's current English. Thin adapter over
 `services.translation_version_service`.
 
 `lines.edit`: it rewrites only the `en` column of existing lines, by

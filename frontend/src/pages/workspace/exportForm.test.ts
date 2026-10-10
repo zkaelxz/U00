@@ -1,7 +1,17 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import type { AssStyleOptions } from '../../types/export'
-import { buildAssRequest, emptyAssForm, formatBytes, loadAssForm, parseSpeakerColors, parseWrap, saveAssForm } from './exportForm'
+import { sectionStorageKey, writeSectionOpen } from '../../components/sectionStorage'
+import {
+  buildAssRequest,
+  emptyAssForm,
+  formatBytes,
+  assFormFromDraft,
+  mediaBlockOpen,
+  mediaBlockStorageKey,
+  parseSpeakerColors,
+  parseWrap,
+} from './exportForm'
 
 const opts: AssStyleOptions = {
   presets: { Clean: {} },
@@ -65,15 +75,41 @@ describe('formatBytes', () => {
 })
 
 describe('saved Export style', () => {
-  it('round-trips per drama and ignores bad data', () => {
-    const store: Record<string, string> = {}
-    vi.stubGlobal('window', { localStorage: { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v } } })
-    expect(loadAssForm(3)).toBeNull()
-    saveAssForm(3, { ...emptyAssForm('Bold'), size: '40' })
-    expect(loadAssForm(3)).toMatchObject({ preset: 'Bold', size: '40' })
-    expect(loadAssForm(4)).toBeNull()
-    store['baihe.export.style.5'] = '{"size": 7, "preset": "X"}'
-    expect(loadAssForm(5)).toMatchObject({ preset: 'X', size: '' })
-    vi.unstubAllGlobals()
+  it('round-trips per title and ignores bad data', () => {
+    expect(assFormFromDraft(null)).toBeNull()
+    expect(assFormFromDraft({ fmt: 'srt' })).toBeNull()
+    expect(assFormFromDraft({ form: 'nope' })).toBeNull()
+    const form = { ...emptyAssForm('Bold'), size: '40' }
+    expect(assFormFromDraft({ fmt: 'ass', form: JSON.parse(JSON.stringify(form)) })).toEqual(form)
+    expect(assFormFromDraft({ form: { size: 7, preset: 'X', perSpeakerColors: 'yes' } })).toMatchObject({ preset: 'X', size: '', perSpeakerColors: true })
+  })
+})
+
+describe('mediaBlockOpen', () => {
+  const store = (init: Record<string, string> = {}) => {
+    const data = { ...init }
+    return { getItem: (k: string) => data[k] ?? null, setItem: (k: string, v: string) => void (data[k] = v) }
+  }
+
+  it('opens only the subtitle-track video by default', () => {
+    const s = store()
+    expect(mediaBlockOpen(s, 'softsub_video')).toBe(true)
+    expect(mediaBlockOpen(s, 'audio')).toBe(false)
+    expect(mediaBlockOpen(s, 'video')).toBe(false)
+    expect(mediaBlockOpen(s, 'dubbed_video')).toBe(false)
+  })
+
+  it('remembers a choice over the default, per block', () => {
+    const s = store()
+    writeSectionOpen(s, mediaBlockStorageKey('softsub_video'), false)
+    writeSectionOpen(s, mediaBlockStorageKey('audio'), true)
+    expect(mediaBlockOpen(s, 'softsub_video')).toBe(false)
+    expect(mediaBlockOpen(s, 'audio')).toBe(true)
+    expect(mediaBlockOpen(s, 'video')).toBe(false)
+  })
+
+  it('falls back to the default without storage or with junk in it', () => {
+    expect(mediaBlockOpen(null, 'softsub_video')).toBe(true)
+    expect(mediaBlockOpen(store({ [sectionStorageKey(mediaBlockStorageKey('audio'))]: 'maybe' }), 'audio')).toBe(false)
   })
 })

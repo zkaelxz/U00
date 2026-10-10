@@ -7,6 +7,8 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import core
+import whisper_models
+import segment_splitting
 
 from core import (
     Line, fmt_ts, lines_to_srt, lines_to_bilingual_srt,
@@ -184,29 +186,29 @@ class TestModelDownloadErrorHandling:
     regression cover for the real error seen in the field."""
 
     def test_classifies_the_real_windows_dns_failure(self):
-        from core import is_network_error
+        from whisper_models import is_network_error
         exc = Exception("Got: ConnectError: [Errno 11004] getaddrinfo failed")
         assert is_network_error(exc) is True
 
     def test_classifies_common_network_failures(self):
-        from core import is_network_error
+        from whisper_models import is_network_error
         for msg in ("httpx.ConnectError", "Max retries exceeded",
                     "LocalEntryNotFoundError", "Connection timed out",
                     "Temporary failure in name resolution", "proxy error"):
             assert is_network_error(Exception(msg)) is True, msg
 
     def test_does_not_misclassify_real_audio_or_gpu_errors(self):
-        from core import is_network_error
+        from whisper_models import is_network_error
         for msg in ("Invalid audio file format", "CUDA out of memory",
                     "unsupported sample rate"):
             assert is_network_error(Exception(msg)) is False, msg
 
     def test_model_download_error_is_a_runtime_error(self):
-        from core import ModelDownloadError
+        from whisper_models import ModelDownloadError
         assert issubclass(ModelDownloadError, RuntimeError)
 
     def test_cache_check_returns_bool_and_never_raises(self):
-        from core import is_whisper_model_cached
+        from whisper_models import is_whisper_model_cached
         assert isinstance(is_whisper_model_cached("medium"), bool)
         assert isinstance(is_whisper_model_cached("nonexistent-size"), bool)
 
@@ -216,7 +218,7 @@ class TestDefaultWhisperSize:
     claim that it is weaker on Japanese/Korean (the benchmarks don't show it)."""
 
     def test_default_whisper_size_is_large_v3_turbo(self):
-        from core import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
+        from whisper_models import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
         assert DEFAULT_WHISPER_SIZE == "large-v3-turbo"
         assert DEFAULT_WHISPER_SIZE in WHISPER_MODELS
         assert "default" in WHISPER_MODELS["large-v3-turbo"]
@@ -231,22 +233,22 @@ class TestDnsDiagnosis:
     whitelisting a domain, the other by fixing your network."""
 
     def test_loopback_hostname_not_flagged_as_blocked(self):
-        from core import diagnose_hostname
+        from whisper_models import diagnose_hostname
         assert diagnose_hostname("localhost")["status"] == "ok"
 
     def test_unresolvable_hostname_reports_no_dns(self):
-        from core import diagnose_hostname
+        from whisper_models import diagnose_hostname
         assert diagnose_hostname("definitely-not-real-xyz123.invalid")["status"] == "no_dns"
 
     def test_result_always_has_expected_keys(self):
-        from core import diagnose_hostname
+        from whisper_models import diagnose_hostname
         for host in ("localhost", "not-real-xyz123.invalid"):
             r = diagnose_hostname(host)
             for key in ("status", "hostname", "addresses", "detail"):
                 assert key in r
 
     def test_status_is_one_of_three_known_values(self):
-        from core import diagnose_hostname
+        from whisper_models import diagnose_hostname
         assert diagnose_hostname("localhost")["status"] in ("ok", "blocked", "no_dns")
 
 
@@ -345,7 +347,7 @@ class TestModelSelection:
         import inspect
         import translate_engines as te
         default = inspect.signature(te.ClaudeEngine.__init__).parameters["model"].default
-        assert default == "claude-sonnet-5"
+        assert default == "claude-sonnet-5-5"
 
     def test_every_selectable_model_has_pricing(self):
         import translate_engines as te
@@ -357,6 +359,7 @@ class TestModelSelection:
         import translate_engines as te
         fake = types.ModuleType("anthropic")
         fake.Anthropic = lambda api_key, **kw: types.SimpleNamespace(api_key=api_key, **kw)
+        fake.Timeout = lambda **kw: kw
         monkeypatch.setitem(sys.modules, "anthropic", fake)
         for model in te.CLAUDE_MODELS:
             eng = te.get_engine("claude", "fake-key", model)
@@ -386,7 +389,7 @@ class TestVadSensitivity:
         function accepts the argument."""
         import sys, types
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         class FakeSegment:
             def __init__(self, start, end, text):
@@ -415,7 +418,7 @@ class TestVadSensitivity:
     def test_vad_threshold_defaults_to_point_five(self, monkeypatch):
         import sys, types
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         class FakeSegment:
             def __init__(self, start, end, text):
@@ -507,6 +510,89 @@ class TestFilterHallucinatedSegments:
         assert params["min_repeat_count"].default == 4
 
 
+class TestStockPhraseFilter:
+    def _seg(self, start, end, text):
+        return {"start": start, "end": end, "text": text}
+
+    def test_isolated_stock_phrases_are_dropped(self):
+        for text in ("Subtitles by the Amara.org community", "ご視聴ありがとうございました",
+                     "请不吝点赞 订阅 转发 打赏", "字幕由Amara.org社群提供",
+                     "MBC 뉴스 이덕영입니다", "Thanks for watching!"):
+            segments = [self._seg(0, 2, "real line"), self._seg(30, 32, text),
+                        self._seg(60, 62, "another line")]
+            assert filter_hallucinated_segments(segments) == [segments[0], segments[2]], text
+
+    def test_a_stock_phrase_at_the_end_of_the_audio_is_dropped(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(40, 42, "Thanks for watching")]
+        assert filter_hallucinated_segments(segments) == [segments[0]]
+
+    def test_a_stock_phrase_inside_dialogue_is_kept(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "Thanks for watching"),
+                    self._seg(4.5, 6, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_silent_on_one_side_only_is_kept(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "Thanks for watching"),
+                    self._seg(60, 62, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_real_dialogue_containing_the_words_is_kept_even_when_isolated(self):
+        segments = [self._seg(0, 2, "real line"),
+                    self._seg(30, 33, "He said thanks for watching over her all those years"),
+                    self._seg(60, 62, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+
+class TestHallucinationSilenceThreshold:
+    def _run(self, model_cls, **kwargs):
+        import sys, types
+        import core
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: model_cls()
+        sys.modules["faster_whisper"] = fake_fw
+        whisper_models._whisper_model_cache.clear()
+        return core.transcribe_for_timing("/fake/audio.mp3", **kwargs)
+
+    def test_off_by_default_and_overridable(self):
+        seen = {}
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.clear()
+                seen.update(kwargs)
+                return iter([]), None
+
+        self._run(Model)
+        assert "hallucination_silence_threshold" not in seen
+        self._run(Model, hallucination_silence_sec=3.5)
+        assert seen["hallucination_silence_threshold"] == 3.5
+
+    def test_zero_does_not_pass_it(self):
+        seen = {}
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([]), None
+
+        self._run(Model, hallucination_silence_sec=0)
+        assert "hallucination_silence_threshold" not in seen
+
+    def test_an_older_faster_whisper_without_the_parameter_still_runs(self):
+        seen = {}
+
+        class OldModelStrict:
+            def transcribe(self, audio_path, language=None, vad_filter=False, beam_size=5,
+                           vad_parameters=None, word_timestamps=False,
+                           condition_on_previous_text=True, no_repeat_ngram_size=0,
+                           repetition_penalty=1.0, initial_prompt=None):
+                seen["ok"] = True
+                return iter([]), None
+
+        self._run(OldModelStrict)
+        assert seen == {"ok": True}
+
+
 class TestTranscribeForTimingHallucinationFilter:
     def _stub_faster_whisper(self, texts):
         import sys, types
@@ -531,7 +617,7 @@ class TestTranscribeForTimingHallucinationFilter:
 
     def test_hallucination_filter_is_applied_by_default(self):
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         self._stub_faster_whisper(["thanks for watching"] * 5 + ["real line"])
 
         result = core.transcribe_for_timing("/fake/audio.mp3")
@@ -541,7 +627,7 @@ class TestTranscribeForTimingHallucinationFilter:
 
     def test_filter_can_be_disabled(self):
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         self._stub_faster_whisper(["thanks for watching"] * 5 + ["real line"])
 
         result = core.transcribe_for_timing("/fake/audio.mp3", filter_hallucination_repeats=0)
@@ -555,17 +641,17 @@ class TestTightenToWords:
             self.start, self.end = start, end
 
     def test_narrows_to_the_first_and_last_spoken_word(self):
-        from core import tighten_to_words
+        from segment_splitting import tighten_to_words
         words = [self.W(3.2, 3.6), self.W(3.6, 4.1), self.W(4.1, 4.4)]
         assert tighten_to_words(1.0, 8.0, words) == (3.2, 4.4)
 
     def test_never_widens_the_segment(self):
-        from core import tighten_to_words
+        from segment_splitting import tighten_to_words
         words = [self.W(0.5, 1.0), self.W(1.0, 9.0)]
         assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
 
     def test_keeps_the_segment_times_without_usable_words(self):
-        from core import tighten_to_words
+        from segment_splitting import tighten_to_words
         for words in (None, [], [object()], [self.W(2.0, 2.0)], "not words"):
             assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
 
@@ -586,7 +672,7 @@ class TestTightenToWords:
         fake_fw = types.ModuleType("faster_whisper")
         fake_fw.WhisperModel = lambda *a, **k: Model()
         sys.modules["faster_whisper"] = fake_fw
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         assert core.transcribe_for_timing("/fake/audio.mp3") == [
             {"start": 4.0, "end": 5.0, "text": "hi"}]
@@ -609,7 +695,7 @@ class TestPunctuationOnlySegmentsDropped:
         fake_fw = types.ModuleType("faster_whisper")
         fake_fw.WhisperModel = lambda *a, **k: Model()
         sys.modules["faster_whisper"] = fake_fw
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         got = core.transcribe_for_timing("/fake/audio.mp3")
 
@@ -708,19 +794,19 @@ class TestGpuInferenceFailureFallback:
     time. transcribe_for_timing now catches it there instead."""
 
     def test_classifies_the_exact_reported_error(self):
-        from core import is_gpu_error
+        from whisper_models import is_gpu_error
         exc = RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
         assert is_gpu_error(exc) is True
 
     def test_classifies_common_cuda_failures(self):
-        from core import is_gpu_error
+        from whisper_models import is_gpu_error
         for msg in ("CUDA error: no kernel image is available",
                     "cuDNN error", "no CUDA-capable device is detected",
                     "CUDA out of memory"):
             assert is_gpu_error(RuntimeError(msg)) is True, msg
 
     def test_does_not_misclassify_network_or_genuine_errors(self):
-        from core import is_gpu_error
+        from whisper_models import is_gpu_error
         assert is_gpu_error(RuntimeError("Connection timed out")) is False
         assert is_gpu_error(ValueError("Invalid audio file format")) is False
 
@@ -763,7 +849,7 @@ class TestGpuInferenceFailureFallback:
     def test_gpu_inference_failure_falls_back_to_cpu_and_returns_real_segments(self):
         import core
         calls = self._stub_faster_whisper()
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         result = core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
 
@@ -777,7 +863,7 @@ class TestGpuInferenceFailureFallback:
     def test_caller_is_notified_when_fallback_occurs(self):
         import core
         self._stub_faster_whisper()
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         notified = []
         core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True,
@@ -807,7 +893,7 @@ class TestGpuInferenceFailureFallback:
         sys.modules["faster_whisper"] = fake_fw
 
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         notified = []
         core.transcribe_for_timing("/fake/audio.mp3", use_gpu=False,
                                     on_gpu_fallback=lambda exc: notified.append(exc))
@@ -830,7 +916,7 @@ class TestGpuInferenceFailureFallback:
         sys.modules["faster_whisper"] = fake_fw
 
         import core
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
         try:
             core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
             assert False, "a genuine non-GPU error must still propagate, not be swallowed"
@@ -870,7 +956,7 @@ class TestTranscribeProgress:
                     self._FakeSegment(30.0, 90.0, "b"),
                     self._FakeSegment(90.0, 120.0, "c")]
         self._stub_faster_whisper(segments, self._FakeInfo(duration=120.0))
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         seen = []
         result = core.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
@@ -882,7 +968,7 @@ class TestTranscribeProgress:
         import core
         segments = [self._FakeSegment(0.0, 10.0, "a")]
         self._stub_faster_whisper(segments, self._FakeInfo(duration=10.0))
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         result = core.transcribe_for_timing("/fake/audio.mp3")
         assert result == [{"start": 0.0, "end": 10.0, "text": "a"}]
@@ -893,7 +979,7 @@ class TestTranscribeProgress:
         import core
         segments = [self._FakeSegment(0.0, 10.0, "a")]
         self._stub_faster_whisper(segments, info=None)
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         seen = []
         result = core.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
@@ -925,7 +1011,7 @@ class TestTranscribeProgress:
         fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": (
             FakeCudaModel() if device == "cuda" else FakeCpuModel())
         sys.modules["faster_whisper"] = fake_fw
-        core._whisper_model_cache.clear()
+        whisper_models._whisper_model_cache.clear()
 
         seen = []
         result = core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True, progress_cb=seen.append)
@@ -956,14 +1042,14 @@ class TestTranscribeWithGroq:
         audio.write_bytes(b"x")
         captured = {}
 
-        def fake_post(url, headers=None, files=None, data=None, timeout=None, stream=None):
+        def fake_post(url, ip, headers, timeout=None, method="GET", files=None, data=None):
             captured["url"], captured["headers"] = url, headers
             captured["data"], captured["timeout"] = data, timeout
             return self._FakeResponse(segments=[
                 {"start": 0.0, "end": 1.5, "text": " Hello there. "},
                 {"start": 1.5, "end": 3.0, "text": "Goodbye."},
             ])
-        monkeypatch.setattr("requests.post", fake_post)
+        monkeypatch.setattr("lib.http.pinned_get", fake_post)
 
         result = core.transcribe_with_groq(str(audio), "en", "fake-groq-key")
 
@@ -978,7 +1064,7 @@ class TestTranscribeWithGroq:
         import core
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
-        monkeypatch.setattr("requests.post", lambda *a, **k: self._FakeResponse(
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
             segments=[{"start": 0.0, "end": 1.0, "text": "   "},
                       {"start": 1.0, "end": 2.0, "text": "Real text."}]))
 
@@ -990,7 +1076,7 @@ class TestTranscribeWithGroq:
         import core
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
-        monkeypatch.setattr("requests.post", lambda *a, **k: self._FakeResponse(segments=[]))
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(segments=[]))
         seen = []
 
         core.transcribe_with_groq(str(audio), "en", "fake-key", progress_cb=seen.append)
@@ -1001,7 +1087,7 @@ class TestTranscribeWithGroq:
         import core
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
-        monkeypatch.setattr("requests.post", lambda *a, **k: self._FakeResponse(
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
             status_code=401, text="invalid api key"))
 
         try:
@@ -1018,13 +1104,13 @@ class TestTranscribeWithGroq:
 
         def fake_post(*a, **k):
             raise requests.ConnectionError("could not connect")
-        monkeypatch.setattr("requests.post", fake_post)
+        monkeypatch.setattr("lib.http.pinned_get", fake_post)
 
         try:
             core.transcribe_with_groq(str(audio), "en", "fake-key")
             assert False, "expected GroqTranscriptionError"
         except core.GroqTranscriptionError as exc:
-            assert "could not connect" in str(exc)
+            assert str(exc) == "The page could not be fetched."
 
     def test_a_key_leaked_into_the_error_message_is_redacted(self, monkeypatch, tmp_path):
         """Never put an API key in a shown/stored/logged error -- see
@@ -1038,14 +1124,13 @@ class TestTranscribeWithGroq:
         def fake_post(*a, **k):
             raise requests.ConnectionError(
                 "failed sending header Authorization: Bearer gsk_realsecretkey1234567890")
-        monkeypatch.setattr("requests.post", fake_post)
+        monkeypatch.setattr("lib.http.pinned_get", fake_post)
 
         try:
             core.transcribe_with_groq(str(audio), "en", "gsk_realsecretkey1234567890")
             assert False, "expected GroqTranscriptionError"
         except core.GroqTranscriptionError as exc:
             assert "gsk_realsecretkey1234567890" not in str(exc)
-            assert "[REDACTED]" in str(exc)
 
     def test_needs_a_timeout_so_a_hung_server_cannot_stick_a_job_at_running_forever(self):
         """Statically enforced too by
@@ -1069,33 +1154,33 @@ class TestWhisperDeviceReporting:
         mod = types.ModuleType("faster_whisper")
         mod.WhisperModel = FakeWhisperModel
         monkeypatch.setitem(sys.modules, "faster_whisper", mod)
-        monkeypatch.setattr(core, "_whisper_model_cache", {})
-        monkeypatch.setattr(core, "_whisper_device_info", {})
+        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+        monkeypatch.setattr(whisper_models, "_whisper_device_info", {})
 
     def test_gpu_load_success_reports_gpu(self, monkeypatch):
         self._stub_faster_whisper(monkeypatch, None)
-        core.load_whisper_model("tiny", use_gpu=True)
-        info = core.get_whisper_device_info("tiny", use_gpu=True)
+        whisper_models.load_whisper_model("tiny", use_gpu=True)
+        info = whisper_models.get_whisper_device_info("tiny", use_gpu=True)
         assert info == {"device": "cuda", "compute_type": "float16", "gpu_error": None}
-        assert core.describe_whisper_device(info) == "Using GPU (float16)"
+        assert whisper_models.describe_whisper_device(info) == "Using GPU (float16)"
 
     def test_gpu_failure_falls_back_and_reports_redacted_reason(self, monkeypatch):
         self._stub_faster_whisper(
             monkeypatch, "Library cublas64_12.dll is not found key=sk-abcdefghijklmnopqrstuvwx")
-        model = core.load_whisper_model("tiny", use_gpu=True)
+        model = whisper_models.load_whisper_model("tiny", use_gpu=True)
         assert model.device == "cpu"
-        info = core.get_whisper_device_info("tiny", use_gpu=True)
+        info = whisper_models.get_whisper_device_info("tiny", use_gpu=True)
         assert info["device"] == "cpu"
         assert "cublas64_12.dll" in info["gpu_error"]
         assert "sk-abcdefghijklmnopqrstuvwx" not in info["gpu_error"]
-        text = core.describe_whisper_device(info)
+        text = whisper_models.describe_whisper_device(info)
         assert text.startswith("GPU unavailable (") and text.endswith("); using CPU")
 
     def test_cpu_request_reports_cpu(self, monkeypatch):
         self._stub_faster_whisper(monkeypatch, None)
-        core.load_whisper_model("tiny", use_gpu=False)
-        assert core.describe_whisper_device(
-            core.get_whisper_device_info("tiny")) == "Using CPU (int8)"
+        whisper_models.load_whisper_model("tiny", use_gpu=False)
+        assert whisper_models.describe_whisper_device(
+            whisper_models.get_whisper_device_info("tiny")) == "Using CPU (int8)"
 
     def test_gpu_status_never_raises_and_reports_both_probes(self, monkeypatch):
         import sys, types
@@ -1105,12 +1190,53 @@ class TestWhisperDeviceReporting:
         torch.cuda = types.SimpleNamespace(is_available=lambda: False)
         monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
         monkeypatch.setitem(sys.modules, "torch", torch)
-        assert core.gpu_status() == {"ctranslate2_cuda_devices": 1,
+        assert whisper_models.gpu_status() == {"ctranslate2_cuda_devices": 1,
                                      "torch_cuda_available": False, "errors": []}
         ct2.get_cuda_device_count = lambda: (_ for _ in ()).throw(RuntimeError("boom"))
-        status = core.gpu_status()
+        status = whisper_models.gpu_status()
         assert status["ctranslate2_cuda_devices"] is None
         assert status["errors"] and "boom" in status["errors"][0]
+
+
+class TestWhisperGpuRuntime:
+    @staticmethod
+    def _windows_with_gpu(monkeypatch, devices=1):
+        import sys, types
+        monkeypatch.setattr(whisper_models.sys, "platform", "win32")
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_cuda_device_count = lambda: devices
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+
+    def test_present(self, monkeypatch):
+        self._windows_with_gpu(monkeypatch)
+        loaded = []
+        assert whisper_models.whisper_gpu_runtime(loader=loaded.append) == {"status": "ok", "reason": None}
+        assert loaded == ["cublas64_12.dll"]
+
+    def test_missing_reason_has_no_path_or_raw_error(self, monkeypatch):
+        self._windows_with_gpu(monkeypatch)
+
+        def loader(name):
+            raise OSError(r"[WinError 126] C:\Users\me\AppData\cublas64_12.dll not found")
+
+        result = whisper_models.whisper_gpu_runtime(loader=loader)
+        assert result["status"] == "missing"
+        assert result["reason"] == whisper_models.GPU_RUNTIME_MISSING_REASON
+        assert "\\" not in result["reason"] and ":" not in result["reason"] and "WinError" not in result["reason"]
+
+    def test_unknown_off_windows(self, monkeypatch):
+        monkeypatch.setattr(whisper_models.sys, "platform", "linux")
+        assert whisper_models.whisper_gpu_runtime(loader=lambda n: 1 / 0) == {"status": "unknown", "reason": None}
+
+    def test_unknown_without_ctranslate2(self, monkeypatch):
+        import sys
+        monkeypatch.setattr(whisper_models.sys, "platform", "win32")
+        monkeypatch.setitem(sys.modules, "ctranslate2", None)
+        assert whisper_models.whisper_gpu_runtime(loader=lambda n: 1 / 0)["status"] == "unknown"
+
+    def test_unknown_without_cuda_device(self, monkeypatch):
+        self._windows_with_gpu(monkeypatch, devices=0)
+        assert whisper_models.whisper_gpu_runtime(loader=lambda n: 1 / 0)["status"] == "unknown"
 
 
 class TestSplitLongSegments:
@@ -1127,10 +1253,9 @@ class TestSplitLongSegments:
         assert "".join("".join(p["text"].split()) for p in pieces) == "".join(seg["text"].split())
 
     def test_splits_at_sentence_ends_and_keeps_text(self):
-        import core
         seg = self._seg("好,你刚讲不要讲。哇,我先离开一下。好,OK。重来。哇,大家好哦!" * 3,
                         speaker="A")
-        out = core.split_long_segments([seg], max_seconds=8, max_cjk_chars=1000)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8, max_cjk_chars=1000)
         assert len(out) > 3
         self._check(seg, out)
         assert all(p["speaker"] == "A" for p in out)
@@ -1138,37 +1263,32 @@ class TestSplitLongSegments:
         assert all(p["text"][-1] in "。!" for p in out)
 
     def test_comma_fallback_for_one_long_sentence(self):
-        import core
         seg = self._seg(",".join(["一二三四五六七八九十"] * 8) + "。", 0.0, 30.0)
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert len(out) > 1
         self._check(seg, out)
 
     def test_no_punctuation_left_alone(self):
-        import core
         seg = self._seg("一二三四五六七八九十" * 10)
-        assert core.split_long_segments([seg]) == [seg]
+        assert segment_splitting.split_long_segments([seg]) == [seg]
 
     def test_cjk_spaces_are_cut_points_when_no_punctuation(self):
-        import core
         seg = self._seg(" ".join(["我們記得昨天早的時候呢"] * 6), 0.0, 26.0)
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert len(out) > 1
         self._check(seg, out)
         assert all(p["end"] - p["start"] <= 8.0 + 1e-6 for p in out)
 
     def test_space_fallback_respects_char_limit(self):
-        import core
         seg = self._seg(" ".join(["一二三四五六七八九十"] * 7), 0.0, 6.0)
-        out = core.split_long_segments([seg], max_seconds=8, max_cjk_chars=40)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8, max_cjk_chars=40)
         assert len(out) > 1
         self._check(seg, out)
-        assert all(len(core._CJK_RE.findall(p["text"])) <= 40 for p in out)
+        assert all(len(segment_splitting._CJK_RE.findall(p["text"])) <= 40 for p in out)
 
     def test_space_fallback_keeps_latin_tokens_whole(self):
-        import core
         seg = self._seg("這是一個很長的句子呢 Dormi Q&A 絕不NG的表單 " * 4, 0.0, 30.0)
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert len(out) > 1
         self._check(seg, out)
         for p in out:
@@ -1176,78 +1296,289 @@ class TestSplitLongSegments:
             assert "Dormi Q&A" in p["text"] or "Dormi" not in p["text"]
 
     def test_punctuated_line_not_cut_at_spaces(self):
-        import core
         seg = self._seg("一二三 四五六。七八九 十一二。", 0.0, 12.0)
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert [p["text"] for p in out] == ["一二三 四五六。", "七八九 十一二。"]
 
     def test_spaceless_unpunctuated_line_still_whole(self):
-        import core
         seg = self._seg("一二三四五六七八九十" * 10, 0.0, 30.0)
-        assert core.split_long_segments([seg]) == [seg]
+        assert segment_splitting.split_long_segments([seg]) == [seg]
 
     def test_short_line_untouched(self):
-        import core
         seg = self._seg("好。你好。再见。", 0.0, 3.0)
-        assert core.split_long_segments([seg]) == [seg]
+        assert segment_splitting.split_long_segments([seg]) == [seg]
 
     def test_mixed_cjk_latin_japanese_korean(self):
-        import core
         for text in ("今日はいい天気ですね。Let's go to the park. Really? 行きましょう!" * 2,
                      "안녕하세요. 오늘은 날씨가 좋네요? Okay, let's go. 갑시다!" * 2):
             seg = self._seg(text, 5.0, 25.0)
-            out = core.split_long_segments([seg], max_seconds=8)
+            out = segment_splitting.split_long_segments([seg], max_seconds=8)
             assert len(out) > 1
             self._check(seg, out)
 
     def test_decimal_point_is_not_a_sentence_end(self):
-        import core
         seg = self._seg("Pi is 3.14159 and e is 2.71828 which is nice", 0.0, 30.0)
-        assert core.split_long_segments([seg], max_seconds=8) == [seg]
+        assert segment_splitting.split_long_segments([seg], max_seconds=8) == [seg]
 
 
-class TestWhisperGpuRuntime:
+class TestWordTimestampsKept:
+    """Whisper's word timings ride on the segments so split_long_segments can cut
+    an unpunctuated line at a real pause."""
+
     @staticmethod
-    def _windows_with_gpu(monkeypatch, devices=1):
-        import sys, types
+    def _words(text, step=0.25, pauses=None):
+        """One word per character: {start, end, word}, `step` seconds each, with the
+        extra silences in `pauses` ({char index: seconds}) inserted before a char."""
+        out, t = [], 0.0
+        for i, ch in enumerate(text):
+            t += (pauses or {}).get(i, 0.0)
+            out.append({"start": t, "end": t + step * 0.9, "word": ch})
+            t += step
+        return out
+
+    @classmethod
+    def _seg(cls, text, pauses=None, **extra):
+        words = cls._words(text, pauses=pauses)
+        return {"start": words[0]["start"], "end": words[-1]["end"], "text": text,
+                "words": words, **extra}
+
+    def test_transcribe_keeps_the_words_as_plain_dicts(self):
+        import core, sys, types
+
+        class Word:
+            def __init__(self, start, end, word):
+                self.start, self.end, self.word, self.probability = start, end, word, 0.9
+
+        class Seg:
+            start, end, text = 0.0, 2.0, " 你好 "
+            words = [Word(0.2, 0.6, "你"), Word(0.6, 1.0, "好")]
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                return iter([Seg()]), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: Model()
+        sys.modules["faster_whisper"] = fake_fw
+        whisper_models._whisper_model_cache.clear()
+        assert core.transcribe_for_timing("/fake/audio.mp3") == [
+            {"start": 0.2, "end": 1.0, "text": "你好",
+             "words": [{"start": 0.2, "end": 0.6, "word": "你"},
+                       {"start": 0.6, "end": 1.0, "word": "好"}]}]
+
+    def test_fast_mode_gets_the_same_word_timestamps_kwarg(self):
+        import core, sys, types
+        seen = {}
+
+        class Seg:
+            start, end, text, words = 0.0, 1.0, "hi", []
+
+        class Pipeline:
+            def __init__(self, model):
+                pass
+
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([Seg()]), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: object()
+        fake_fw.BatchedInferencePipeline = Pipeline
+        sys.modules["faster_whisper"] = fake_fw
+        whisper_models._whisper_model_cache.clear()
+        core.transcribe_for_timing("/fake/audio.mp3", fast_mode=True)
+        assert seen["word_timestamps"] is True
+
+    def test_a_line_with_no_punctuation_is_cut_at_the_real_pauses(self):
+        text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心" * 2
+        # 66 chars at 0.25 s = 16.5 s, plus 1.6 s of real silences after chars 22 and 44
+        seg = self._seg(text, pauses={22: 0.9, 44: 0.7})
+        assert seg["end"] - seg["start"] > 17
+        out = segment_splitting.split_long_segments([seg])
+        assert [p["text"] for p in out] == [text[:22], text[22:44], text[44:]]
+        assert "".join(p["text"] for p in out) == text
+        words = seg["words"]
+        assert [(p["start"], p["end"]) for p in out] == [
+            (words[0]["start"], words[21]["end"]), (words[22]["start"], words[43]["end"]),
+            (words[44]["start"], words[-1]["end"])]
+        assert [p["words"] for p in out] == [words[:22], words[22:44], words[44:]]
+
+    def test_a_17_second_unpunctuated_clip_with_four_pauses_is_cut(self):
+        # about 17 s and 56 characters: 56 * 0.25 s = 14 s of speech plus 3 s of pauses
+        text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心真的太好玩了下次还想再来而且天气特别好大家都很高兴一直玩到天黑才回家"[:56]
+        assert len(text) == 56
+        seg = self._seg(text, pauses={14: 0.75, 28: 1.0, 42: 0.75, 49: 0.5})
+        assert 16.5 < seg["end"] - seg["start"] < 17.5
+        out = segment_splitting.split_long_segments([seg])
+        assert len(out) >= 2 and "".join(p["text"] for p in out) == text
+        assert all(p["end"] - p["start"] <= segment_splitting.SPLIT_MAX_SECONDS for p in out)
+
+    def test_cuts_happen_only_while_pieces_are_still_too_long(self):
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg(text, pauses={10: 0.5, 20: 0.9, 30: 0.5})
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
+        assert [p["text"] for p in out] == [text[:20], text[20:]]
+
+    def test_pieces_near_the_middle_win_among_similar_pauses(self):
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg(text, pauses={5: 0.9, 20: 0.8, 35: 0.9})
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
+        assert out[0]["text"] == text[:20]
+
+    def test_punctuation_cuts_use_the_word_times(self):
+        text = "我们先去吃饭。然后再去看电影吧。"
+        seg = self._seg(text, pauses={7: 1.5})
+        out = segment_splitting.split_long_segments([seg], max_seconds=3)
+        assert [p["text"] for p in out] == ["我们先去吃饭。", "然后再去看电影吧。"]
+        assert out[1]["start"] == seg["words"][7]["start"]
+        assert out[0]["end"] == seg["words"][6]["end"]
+        assert out[0]["end"] < out[1]["start"] - 1.4
+
+    def test_mixed_latin_and_cjk_text_maps_exactly(self):
+        words = [("我们", 0.0, 1.0), (" 用", 1.0, 1.5), (" Python", 1.5, 3.0), (" 写", 3.0, 4.0),
+                 ("程序", 4.0, 5.5), (" 然后", 7.0, 8.5), (" 发布", 8.5, 10.0),
+                 (" 到", 10.0, 11.0), (" GitHub", 11.0, 12.5)]
+        text = "我们 用 Python 写程序 然后 发布 到 GitHub"
+        seg = {"start": 0.0, "end": 12.5, "text": text,
+               "words": [{"start": s, "end": e, "word": w} for w, s, e in words]}
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
+        assert [p["text"] for p in out] == ["我们 用 Python 写程序", "然后 发布 到 GitHub"]
+        assert (out[0]["end"], out[1]["start"]) == (5.5, 7.0)
+
+    def test_words_that_do_not_spell_the_text_leave_the_line_alone(self):
+        text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心" * 2
+        seg = self._seg(text, pauses={22: 0.9, 44: 0.7})
+        seg["words"][10]["word"] = "错"
+        assert segment_splitting.split_long_segments([seg]) == [seg]
+        seg["words"][10]["word"] = text[10]
+        seg["text"] = text + "。"  # words no longer cover the text
+        assert [p["text"] for p in segment_splitting.split_long_segments([seg])] == [seg["text"]]
+
+    def test_a_punctuation_cut_inside_a_word_falls_back_to_the_estimate(self):
+        text = "我们先去吃饭。然后再去看电影吧。" * 2
+        seg = self._seg(text)
+        seg["words"][6:8] = [{"start": seg["words"][6]["start"], "end": seg["words"][7]["end"],
+                             "word": text[6:8]}]
+        out = segment_splitting.split_long_segments([seg], max_seconds=3)
+        assert len(out) > 1 and "words" not in out[0]
+        assert out[0]["start"] == seg["start"] and out[-1]["end"] == seg["end"]
+
+    def test_the_default_pause_is_035_within_its_bounds(self):
+        assert segment_splitting.MIN_WORD_GAP_SECONDS == 0.35
+        assert (segment_splitting.MIN_WORD_GAP_SECONDS_MIN, segment_splitting.MIN_WORD_GAP_SECONDS_MAX) == (0.1, 2.0)
+
+    def test_the_pause_setting_decides_which_pauses_cut(self):
+        text = "一二三四五六七八九十" * 7
+        seg = self._seg(text, pauses={17: 0.30, 52: 0.50})
+
+        def cuts(**kw):
+            return [len(p["text"]) for p in segment_splitting.split_long_segments([seg], max_seconds=8, **kw)]
+        assert cuts(min_pause=0.25) == [17, 35, 18]  # both pauses
+        assert cuts(min_pause=0.35) == [52, 18]  # only the 0.50 s one
+        assert cuts(min_pause=0.45) == [52, 18]
+        assert cuts(min_pause=0.55) == [70]
+        assert cuts() == [52, 18]  # the default is 0.35
+
+    def test_pause_offsets_follow_the_setting(self):
+        text = "一二三四五六七八九十" * 2
+        index = segment_splitting._WordIndex.build(text, self._seg(text, pauses={5: 0.30, 12: 0.50})["words"])
+        assert segment_splitting.pause_offsets(index, 0.25) == {5, 12}
+        assert segment_splitting.pause_offsets(index, 0.4) == {12}
+        assert segment_splitting.pause_offsets(index) == {12}
+
+    def test_no_pause_long_enough_leaves_the_line_whole(self):
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg(text, pauses={20: segment_splitting.MIN_WORD_GAP_SECONDS - 0.05})
+        assert segment_splitting.split_long_segments([seg], max_seconds=8) == [seg]
+
+    @staticmethod
+    def _seg_with_exact_gap(text, gap):
+        """Words that touch (end = next start) except `gap` before char 20; every
+        time is a multiple of 1/16, exact in binary, so the gap is exact."""
+        words, t = [], 0.0
+        for i, ch in enumerate(text):
+            t += gap if i == 20 else 0.0
+            words.append({"start": t, "end": t + 0.25, "word": ch})
+            t += 0.25
+        return {"start": 0.0, "end": t, "text": text, "words": words}
+
+    def test_pause_exactly_at_the_minimum_is_a_cut_point(self):
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg_with_exact_gap(text, 0.25)  # a binary-exact gap, so >= is tested exactly
+        assert len(segment_splitting.split_long_segments([seg], max_seconds=8, min_pause=0.25)) == 2
+
+    def test_pause_just_under_the_minimum_is_not_a_cut_point(self):
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg_with_exact_gap(text, 0.25 - 0.0625)
+        assert segment_splitting.split_long_segments([seg], max_seconds=8, min_pause=0.25) == [seg]
+
+    def test_floors_keep_a_stub_from_being_cut_off(self):
+        text = "一二三四五六七八九十" * 4
+        # the only long pauses leave 2 chars (0.5 s) on one side
+        seg = self._seg(text, pauses={2: 1.0, 38: 1.0})
+        assert segment_splitting.split_long_segments([seg], max_seconds=8) == [seg]
+
+    def test_re_split_rules_apply_to_word_cuts(self):
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg(text, pauses={10: 0.4, 25: 0.6})
+        rules = segment_splitting.SplitRules(max_seconds=None, max_chars=25)
+        out = segment_splitting.split_long_segments([seg], rules=rules)
+        assert [p["text"] for p in out] == [text[:25], text[25:]]
+        rules = segment_splitting.SplitRules(max_seconds=None, max_chars=12)
+        out = segment_splitting.split_long_segments([seg], rules=rules)
+        assert "".join(p["text"] for p in out) == text
+        assert all(len(p["text"]) >= segment_splitting.MIN_PIECE_CJK_CHARS for p in out)
+
+    def test_other_keys_are_copied_and_unused_words_stay_on_a_short_line(self):
+        seg = self._seg("一二三四五", speaker="A")
+        assert segment_splitting.split_long_segments([seg]) == [seg]
+        long_seg = self._seg("一二三四五六七八九十" * 4, pauses={20: 0.9}, speaker="B")
+        assert {p["speaker"] for p in segment_splitting.split_long_segments([long_seg], max_seconds=8)} == {"B"}
+
+    def test_segments_without_words_behave_as_before(self):
+        seg = {"start": 0.0, "end": 20.0, "text": "一二三四五六七八九十" * 10}
+        assert segment_splitting.split_long_segments([seg]) == [seg]
+
+    def test_hallucination_filter_and_coverage_ignore_the_extra_key(self):
         import core
-        monkeypatch.setattr(core.sys, "platform", "win32")
-        ct2 = types.ModuleType("ctranslate2")
-        ct2.get_cuda_device_count = lambda: devices
-        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+        from services.transcribe_service import coverage_warning
+        segs = [self._seg("你好吗"), self._seg("你好吗"), self._seg("再见了")]
+        assert core.filter_hallucinated_segments(segs) == segs
+        coverage_warning(segs, 100.0)
 
-    def test_present(self, monkeypatch):
-        import core
-        self._windows_with_gpu(monkeypatch)
-        loaded = []
-        assert core.whisper_gpu_runtime(loader=loaded.append) == {"status": "ok", "reason": None}
-        assert loaded == ["cublas64_12.dll"]
+    def test_a_hundred_thousand_characters_is_not_quadratic(self):
+        import time
+        # 100k one-character words with a pause every 20 words, in one line
+        text = "一二三四五六七八九十" * 10000
+        pauses = {i: 0.5 for i in range(20, len(text), 20)}
+        seg = self._seg(text, pauses=pauses)
+        started = time.perf_counter()
+        out = segment_splitting.split_long_segments([seg])
+        elapsed = time.perf_counter() - started
+        assert "".join(p["text"] for p in out) == text
+        assert all(p["end"] - p["start"] <= 8.0 + 1e-6 for p in out)
+        assert elapsed < 10.0
 
-    def test_missing_reason_has_no_path_or_raw_error(self, monkeypatch):
-        import core
-        self._windows_with_gpu(monkeypatch)
+    def test_growing_pauses_do_not_peel_one_piece_at_a_time(self):
+        import time
+        # the biggest pause is always at the far end: a naive pick-the-largest scan is quadratic
+        text = "一二三四五六七八九十" * 5000
+        pauses = {i: 0.3 + i / 1e5 for i in range(10, len(text), 10)}
+        seg = self._seg(text, pauses=pauses)
+        started = time.perf_counter()
+        out = segment_splitting.split_long_segments([seg])
+        assert "".join(p["text"] for p in out) == text
+        assert time.perf_counter() - started < 10.0
 
-        def loader(name):
-            raise OSError(r"[WinError 126] C:\Users\me\AppData\cublas64_12.dll not found")
-
-        result = core.whisper_gpu_runtime(loader=loader)
-        assert result["status"] == "missing"
-        assert result["reason"] == core.GPU_RUNTIME_MISSING_REASON
-        assert "\\" not in result["reason"] and ":" not in result["reason"] and "WinError" not in result["reason"]
-
-    def test_unknown_off_windows(self, monkeypatch):
-        import core
-        monkeypatch.setattr(core.sys, "platform", "linux")
-        assert core.whisper_gpu_runtime(loader=lambda n: 1 / 0) == {"status": "unknown", "reason": None}
-
-    def test_unknown_without_ctranslate2(self, monkeypatch):
-        import sys
-        import core
-        monkeypatch.setattr(core.sys, "platform", "win32")
-        monkeypatch.setitem(sys.modules, "ctranslate2", None)
-        assert core.whisper_gpu_runtime(loader=lambda n: 1 / 0)["status"] == "unknown"
-
-    def test_unknown_without_cuda_device(self, monkeypatch):
-        import core
-        self._windows_with_gpu(monkeypatch, devices=0)
-        assert core.whisper_gpu_runtime(loader=lambda n: 1 / 0)["status"] == "unknown"
+    def test_random_pauses_always_give_lossless_ordered_pieces(self):
+        import random
+        rng = random.Random(165)
+        for _ in range(60):
+            text = "".join(rng.choice("我你他是不了在有人这中大来上国个到说们为") for _ in range(rng.randint(30, 400)))
+            pauses = {i: rng.choice([0.0, 0.0, 0.1, 0.3, 0.6, 1.2]) for i in range(1, len(text))}
+            seg = self._seg(text, pauses=pauses)
+            out = segment_splitting.split_long_segments([seg])
+            assert "".join(p["text"] for p in out) == text
+            assert all(a["end"] <= b["start"] for a, b in zip(out, out[1:]))
+            assert all(p["start"] < p["end"] for p in out)
+            assert sum(len(p["words"]) for p in out) == len(text)

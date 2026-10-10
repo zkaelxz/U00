@@ -8,11 +8,11 @@ export const SHARE_DEFAULT_LABEL = 'New items I create are shared with the house
 /** The plain line under the share-by-default switch. */
 export function shareDefaultHelp(on: boolean, admin: boolean): string {
   const now = on
-    ? 'On: new dramas and series you create can be seen by everyone in the household.'
-    : 'Off: new dramas and series you create are private to you (admins can still see them).'
+    ? 'On: new titles and series you create can be seen by everyone in the household.'
+    : 'Off: new titles and series you create are private to you (admins can still see them).'
   const existing = admin
     ? 'This only affects new items. Change existing ones one at a time in the list below.'
-    : 'This only affects new items. It does not change anything you already have; an admin can change those one at a time.'
+    : 'This only affects new items. An admin can change existing ones one at a time.'
   return `${now} ${existing}`
 }
 
@@ -39,12 +39,12 @@ export function statusLabel(item: SharingItem): 'Shared' | 'Private' {
 }
 
 export function itemTitle(item: SharingItem): string {
-  return item.title.trim() || (item.kind === 'series' ? 'Untitled series' : 'Untitled drama')
+  return item.title.trim() || (item.kind === 'series' ? 'Untitled series' : 'Untitled')
 }
 
 export function seriesNote(item: SharingItem): string {
   const name = item.series_name?.trim() || 'its series'
-  return `In the series “${name}”. Dramas in a series follow the series; change the series instead.`
+  return `In the series “${name}”. Titles in a series follow the series; change the series instead.`
 }
 
 /** Apply a flip the server confirmed; a series also updates its dramas. */
@@ -57,8 +57,8 @@ export function applyFlip(items: SharingItem[], r: SetPrivateResult): SharingIte
 }
 
 export const PC_ITEMS_NOTE =
-  'Items created at the PC, or while sign-in was off, have no owner and are saved as private. ' +
-  'When sign-in is turned on, others in the household will not see them until an admin shares them here.'
+  'Items made at the PC or while sign-in was off have no owner and are private. ' +
+  'After sign-in is turned on, others will not see them until an admin shares them here.'
 
 /** "Created at the PC" items the household can't see yet: the ones to review before sign-in. */
 export function isPcPrivate(item: SharingItem): boolean {

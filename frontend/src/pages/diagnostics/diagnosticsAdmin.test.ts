@@ -15,7 +15,7 @@ const checks = (o: Partial<DiagnosticsSetupChecks> = {}): DiagnosticsSetupChecks
   ffmpeg: { found: true, version: '6.1' },
   js_runtime: { found: true, name: 'deno' },
   cuda: { torch_installed: false, cuda_available: null },
-  files: { all_present: true, missing_top_level: [], missing_tabs: [] },
+  files: { all_present: true, missing_top_level: [] },
   library_writable: true,
   ...o,
 })
@@ -28,9 +28,29 @@ describe('setup rows', () => {
   it('adds a browser row only when the server reports one', () => {
     expect(setupRows(checks(), gpu).map((r) => r.key)).not.toContain('browser')
     const ok = setupRows(checks({ browser: { found: true, name: 'Chrome' } }), gpu).find((r) => r.key === 'browser')
-    expect(ok?.text).toBe('Browser for JavaScript-only sites: found (Chrome)')
+    expect(ok?.text).toBe('Browser for JavaScript-only sites: Using Google Chrome')
     const bad = setupRows(checks({ browser: { found: false, name: null } }), gpu).find((r) => r.key === 'browser')
     expect(bad?.problem).toBe(true)
+  })
+
+  it.each([
+    [true, true, 'Playwright package: installed', 'Using Google Chrome'],
+    [false, true, 'Problem: Playwright package not installed', 'Using Google Chrome'],
+    [true, false, 'Playwright package: installed', 'Problem: None found: install Chrome or Edge'],
+    [false, false, 'Problem: Playwright package not installed', 'Problem: None found: install Chrome or Edge'],
+  ])('reports the package and the browser separately (package %s, browser %s)', (pkg, found, pkgText, browserText) => {
+    const rows = setupRows(checks({ browser: { found, name: found ? 'Chrome' : null, package: pkg } }), gpu)
+    expect(rows.find((r) => r.key === 'playwright')?.text).toContain(pkgText)
+    const browser = rows.find((r) => r.key === 'browser')?.text ?? ''
+    expect(browser).toContain(browserText)
+    expect(browser).not.toContain('not installed')
+    if (!pkg) expect(rows.find((r) => r.key === 'playwright')?.text).toContain('no browser download is needed')
+  })
+
+  it.each([[null], [undefined]])('shows no Playwright row when the package state is unknown (%s)', (pkg) => {
+    const rows = setupRows(checks({ browser: { found: true, name: 'Chrome', package: pkg } }), gpu)
+    expect(rows.map((r) => r.key)).not.toContain('playwright')
+    expect(rows.some((r) => r.problem)).toBe(false)
   })
 
   it('reads "Label: value" when everything is fine', () => {
@@ -49,7 +69,7 @@ describe('setup rows', () => {
       ffmpeg: { found: false, version: null },
       js_runtime: { found: false, name: null },
       cuda: { torch_installed: true, cuda_available: false },
-      files: { all_present: false, missing_top_level: ['a.py', 'b.py'], missing_tabs: ['c.py'] },
+      files: { all_present: false, missing_top_level: ['a.py', 'b.py'] },
       library_writable: false,
     }), gpu)
     expect(rows.every((r) => r.problem)).toBe(true)
@@ -58,7 +78,7 @@ describe('setup rows', () => {
       'Problem: FFmpeg not found',
       'Problem: no JS runtime (some video sites lose formats)',
       "Problem: PyTorch can't see the GPU",
-      'Problem: 3 missing',
+      'Problem: 2 missing',
       "Problem: can't be written to",
     ])
     expect(rows[1]).toMatchObject({ label: 'FFmpeg', value: 'FFmpeg not found' })
@@ -116,18 +136,19 @@ describe('packages', () => {
 
   it('gives one blocked reason for install and for reset', () => {
     expect(installBlockedReason(false, null)).toBeNull()
-    expect(installBlockedReason(true, null)).toBe('Wait for running jobs to finish before installing.')
+    expect(installBlockedReason(true, null)).toBe('Wait for running jobs to finish.')
     expect(installBlockedReason(false, { kind: 'install', name: 'x' })).toBe('Wait for the install to finish.')
     expect(installBlockedReason(false, { kind: 'reset', name: 'library' })).toBe('Wait for the reset to finish.')
-    expect(resetBlockedReason(true, null)).toBe('Stop running jobs first (see Jobs above).')
+    expect(resetBlockedReason(true, null)).toBe('Stop running jobs first.')
     expect(resetBlockedReason(false, { kind: 'upgrade', name: 'x' })).toBe('Wait for the install to finish.')
     expect(resetBlockedReason(false, { kind: 'reset', name: 'library' })).toBeNull()
   })
 
   it('announces a running install or upgrade, never a reset', () => {
     expect(busyLine({ kind: 'install', name: 'jieba' })).toBe(
-      'Installing jieba… this can take several minutes. Keep this tab open.')
-    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toMatch(/^Updating jieba…/)
+      'Installing jieba… this can take several minutes. Cancel it below if needed.')
+    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toBe(
+      'Updating jieba… this can take several minutes. Keep this tab open.')
     expect(busyLine({ kind: 'reset', name: 'library' })).toBeNull()
     expect(busyLine(null)).toBeNull()
   })
@@ -165,7 +186,7 @@ describe('reconcileModels', () => {
       eng('Whisper (faster-whisper)'),
       eng('pyannote diarization model', { package: null, version: 'pyannote/speaker-diarization-3.1, pyannote/segmentation-3.0' }),
       eng('Qwen3-ASR', { installed: false, version: 'not installed' }),
-      eng('edge-tts'),
+      eng('pydub'),
     ]
     const { rows, other } = reconcileModels(engines, [
       hf('Systran/faster-whisper-large-v3', 'a'), hf('Systran/faster-whisper-small', 'b'),
@@ -178,7 +199,7 @@ describe('reconcileModels', () => {
   })
 
   it('flags an installed weight-downloading engine with nothing cached', () => {
-    const { rows } = reconcileModels([eng('Whisper (faster-whisper)'), eng('Qwen3-ASR', { installed: false }), eng('edge-tts')], [])
+    const { rows } = reconcileModels([eng('Whisper (faster-whisper)'), eng('Qwen3-ASR', { installed: false }), eng('pydub')], [])
     expect(rows.map((r) => r.notDownloaded)).toEqual([true, false, false])
   })
 })
@@ -195,13 +216,11 @@ describe('other sections', () => {
     expect(modelCacheSummary({
       hf_cache: Array.from({ length: 7 }, (_, i) => ({ repo_id: `r${i}`, repo_type: 'model', revision: 'x', size_bytes: 1 })),
       hf_total_bytes: 12_000_000_000,
-      piper_voices: [{ voice: 'a', size_bytes: 1 }, { voice: 'b', size_bytes: 1 }],
-      piper_total_bytes: 400_000_000,
       model_files: [],
       model_files_total_bytes: 0,
-    })).toBe('12.4 GB · 7 models · 2 voices')
+    })).toBe('12.0 GB · 7 models')
     expect(modelCacheSummary({
-      hf_cache: [], hf_total_bytes: 0, piper_voices: [], piper_total_bytes: 0,
+      hf_cache: [], hf_total_bytes: 0,
       model_files: [{ folder: 'torch', name: 'htdemucs.th', size_bytes: 1 }],
       model_files_total_bytes: 84_000_000,
     })).toBe('84.0 MB · 1 model file')
@@ -215,8 +234,8 @@ describe('other sections', () => {
   })
 
   it('states library size before a reset', () => {
-    expect(libraryStatsLine({ total_dramas: 12, total_lines: 48210 })).toBe('Currently 12 dramas, 48,210 lines.')
-    expect(libraryStatsLine({ total_dramas: 1, total_lines: 1 })).toBe('Currently 1 drama, 1 line.')
+    expect(libraryStatsLine({ total_dramas: 12, total_lines: 48210 })).toBe('Currently 12 titles, 48,210 lines.')
+    expect(libraryStatsLine({ total_dramas: 1, total_lines: 1 })).toBe('Currently 1 title, 1 line.')
     expect(libraryStatsLine({ total_dramas: 0, total_lines: 0 })).toBeNull()
   })
 })

@@ -185,6 +185,12 @@ class TestAddDeleteSplit:
         assert _notes(did)["tb"] == ids[1]
         assert len(out["lines"]) == 2
 
+    def test_split_trims_translation_pieces(self):
+        did, ids = _seed([("你好世界", "Hello,  world")])
+        svc.split_line(did, ids[0], ids, at_char=2, expected_zh="你好世界", en_at_char=7)
+        rows = _rows(did)
+        assert [r["en"] for r in rows] == ["Hello,", "world"]
+
     def test_split_stale_text_409(self):
         did, ids = _seed()
         with pytest.raises(ConflictError):
@@ -310,3 +316,54 @@ class TestApi:
         assert client.get(f"{base}/resegment/preview").status_code == 200
         assert client.post(f"{base}/merge", json={"line_ids": ids[:2], "expected_line_ids": ids,
                                                   "bogus": 1}).status_code == 422
+
+
+def test_merge_refuses_a_line_past_the_text_cap():
+    half = "x" * (svc.MAX_LINE_TEXT_CHARS // 2 + 1)
+    did = db.create_drama(title_zh="D", source_language="zh")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh=half),
+                        Line(idx=1, start=1.0, end=2.0, zh=half)])
+    ids = [r["id"] for r in db.load_lines(did)]
+    with pytest.raises(InvalidInputError):
+        svc.merge_lines(did, ids, ids)
+
+
+class TestUntranslatedAfterStructuralWrite:
+    """A title marked 'translated' must leave that status when a write leaves a
+    line with source text and no English, and the counts must see the line."""
+
+    def _translated(self):
+        did, ids = _seed()
+        db.update_drama(did, status="translated")
+        return did, ids
+
+    def test_added_untranslated_line_is_counted_and_reopens_status(self):
+        from services import review_lines_service, workflow_service
+        did, ids = self._translated()
+        svc.add_line(did, ids, after_line_id=ids[1], start=1.5, end=1.8, zh="new")
+        assert review_lines_service.list_review_lines(did)["untranslated_count"] == 1
+        assert workflow_service.get_drama_progress(did)["untranslated_count"] == 1
+        assert db.get_drama(did)["status"] == "aligned"
+
+    def test_blank_source_line_does_not_reopen_status(self):
+        did, ids = self._translated()
+        svc.add_line(did, ids, after_line_id=ids[1], start=1.5, end=1.8, zh="")
+        assert db.get_drama(did)["status"] == "translated"
+
+    def test_dubbed_status_is_left_alone(self):
+        did, ids = _seed()
+        db.update_drama(did, status="dubbed")
+        svc.add_line(did, ids, start=1.5, end=1.8, zh="new")
+        assert db.get_drama(did)["status"] == "dubbed"
+
+    def test_blanking_english_or_filling_source_reopens_status(self):
+        from services import lines_service
+        did, ids = self._translated()
+        lines_service.patch_line(did, ids[0], en="")
+        assert db.get_drama(did)["status"] == "aligned"
+        lines_service.patch_line(did, ids[0], en="A")
+        assert db.get_drama(did)["status"] == "translated"
+        blank = svc.add_line(did, ids, start=9, end=10, zh="")["lines"][0]["id"]
+        assert db.get_drama(did)["status"] == "translated"
+        lines_service.patch_line(did, blank, zh="later")
+        assert db.get_drama(did)["status"] == "aligned"

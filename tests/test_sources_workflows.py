@@ -240,6 +240,67 @@ class TestGenericComicImport:
         assert rejected[0].url.endswith("square.jpg") and "shape" in rejected[0].reject_reason
 
 
+    def test_images_on_another_host_get_only_the_page_origin_as_referer(self, isolated_db):
+        page = "https://comic.invalid/read/1?token=secret"
+        routes = {"https://comic.invalid/p1.png": image(800, 1200, 1),
+                  "https://cdn.other.invalid/p2.png": image(800, 1200, 2)}
+        t = ScriptedTransport(routes)
+        cands = [generic_import.ImageCandidate("https://comic.invalid/p1.png", 0),
+                 generic_import.ImageCandidate("https://cdn.other.invalid/p2.png", 1)]
+        generic_import.download_candidates(cands, page, make_client("generic", t))
+        referers = {c["url"]: c["headers"]["Referer"] for c in t.calls}
+        assert referers["https://comic.invalid/p1.png"] == page
+        assert referers["https://cdn.other.invalid/p2.png"] == "https://comic.invalid/"
+
+    def test_referer_origin_keeps_the_port_and_drops_credentials(self):
+        assert generic_import.image_referer(
+            "https://cdn.invalid/a.png", "http://user:pw@site.invalid:8080/c/1?k=v") \
+            == "http://site.invalid:8080/"
+        assert generic_import.image_referer("http://site.invalid/a.png",
+                                            "https://site.invalid/c/1") == "https://site.invalid/"
+
+    def test_same_origin_referer_drops_credentials_and_fragment(self):
+        assert generic_import.image_referer(
+            "http://site.invalid:8080/a.png", "http://user:pw@site.invalid:8080/c/1?k=v#top") \
+            == "http://site.invalid:8080/c/1?k=v"
+
+    def test_downloads_without_a_budget_use_the_page_upload_caps(self, isolated_db, monkeypatch):
+        from services import page_import_limits as limits
+        budget = generic_import.default_budget()
+        assert (budget.max_images, budget.max_total_bytes) == (limits.MAX_FILES_PER_IMPORT,
+                                                               limits.MAX_IMPORT_BYTES)
+        assert (budget.allowed_formats, budget.max_image_pixels) == ((), 0)
+        monkeypatch.setattr(generic_import, "default_budget",
+                            lambda: generic_import.DownloadBudget(2, 10**9))
+        t = ScriptedTransport({f"https://comic.invalid/{i}.png": image(800, 1200, i)
+                               for i in range(5)})
+        cands = [generic_import.ImageCandidate(f"https://comic.invalid/{i}.png", i)
+                 for i in range(5)]
+        generic_import.download_candidates(cands, "https://comic.invalid/r/1",
+                                           make_client("generic", t))
+        assert len(t.calls) == 2
+        assert sum("too many images" in c.reject_reason for c in cands) == 3
+
+    def test_manifest_scan_is_linear_on_a_script_of_slashes(self):
+        import time
+        page = "<script>" + "/" * 120_000 + "</script><script>var u='//cdn.invalid/a/1.jpg'</script>"
+        started = time.monotonic()
+        found = generic_import.manifest_candidates(page, "https://comic.invalid/r/1")
+        assert time.monotonic() - started < 2.0
+        assert [c.url for c in found] == ["https://cdn.invalid/a/1.jpg"]
+
+    def test_manifest_scan_reads_every_script(self):
+        page = ("<script>" + "x " * 1_100_000 + "</script>"
+                "<script>var u='//cdn.invalid/late/1.jpg'</script>")
+        found = generic_import.manifest_candidates(page, "https://comic.invalid/r/1")
+        assert [c.url for c in found] == ["https://cdn.invalid/late/1.jpg"]
+
+    def test_manifest_path_is_bounded(self):
+        far = "//cdn.invalid/" + "a" * (generic_import.MANIFEST_URL_MAX_PATH + 10) + ".png"
+        near = "//cdn.invalid/b.png?x=1"
+        assert list(generic_import._manifest_urls(f"{far} {near}")) == [near]
+
+
 # ---------------------------------------------------------------------------
 # Generic novel-text import
 # ---------------------------------------------------------------------------
@@ -254,6 +315,21 @@ NOVEL_PAGE = ("<html><head><title>第12章 雨夜</title></head><body>"
 
 
 class TestGenericNovelImport:
+    def test_deeply_nested_markup_is_scored_in_linear_time(self):
+        import time
+        n = 4000                                      # about 92 KB
+        page = "<div><p>word " * n + "</p></div>" * n
+        started = time.monotonic()
+        text = generic_import.extract_main_text_heuristic(page)
+        assert time.monotonic() - started < 3.0
+        assert text.startswith("word")
+
+    def test_text_after_many_empty_containers_is_still_found(self):
+        chapter = "".join(f"<p>第{i}段 很长的一段正文内容。</p>" for i in range(40))
+        page = "<div></div>" * 6000 + f"<div class='chapter'>{chapter}</div>"
+        text = generic_import.extract_main_text_heuristic(page)
+        assert text.startswith("第0段") and "第39段" in text
+
     @pytest.mark.parametrize("use_trafilatura", [True, False])
     def test_extracts_main_text_into_the_raw_novel_path(self, isolated_db, monkeypatch,
                                                         use_trafilatura):
@@ -331,32 +407,6 @@ class TestFrontDoor:
         page = '<html><head><meta property="og:type" content="video.other"></head></html>'
         assert front_door.classify_html("https://x.invalid/v", page).content_type == front_door.VIDEO
 
-    def test_detected_video_reaches_the_same_video_download_call(self, isolated_db, monkeypatch):
-        import video_download
-        calls = []
-
-        def fake_download(url, out_dir, audio_only=True, progress_cb=None, title_cb=None,
-                          cookies_browser=None, cookies_file=None):
-            calls.append((url, out_dir, audio_only))
-            title_cb("A stream title")
-            path = os.path.join(out_dir, "downloaded_audio.wav")
-            open(path, "wb").close()
-            return path
-        monkeypatch.setattr(video_download, "download", fake_download)
-        drama_id = isolated_db.create_drama(media_type="streamer_vod")
-        # A video URL with no dedicated adapter (unlike Bilibili as of Step
-        # 23d, which now routes through BilibiliSource -- see
-        # TestBilibiliRouting below) still falls through to this same
-        # generic yt-dlp path, unchanged.
-        url = "https://www.youtube.com/watch?v=abc123def45"
-        assert front_door.preview(url).content_type == front_door.VIDEO
-        front_door.import_video(url, drama_id)
-        assert calls == [(url, isolated_db.drama_dir(drama_id), True)]
-        d = isolated_db.get_drama(drama_id)
-        assert d["audio_filename"] == "downloaded_audio.wav" and d["source_url"] == url
-        assert d["title_zh"] == "A stream title"
-
-
 class TestBilibiliRouting:
     """Step 23d: a Bilibili URL now routes through the real BilibiliSource
     adapter instead of the generic video_download.download path."""
@@ -394,31 +444,6 @@ class TestBilibiliRouting:
         assert p.content_type == front_door.VIDEO
         assert p.adapter == "bilibili"
         assert p.title == "A Real Bilibili Video"
-
-    def test_import_video_uses_the_adapters_download_not_the_generic_path(self, isolated_db, monkeypatch):
-        import video_download
-        from sources.adapters.bilibili import BilibiliSource
-
-        generic_calls = []
-        monkeypatch.setattr(video_download, "download",
-                            lambda *a, **k: generic_calls.append(1) or "/should/not/be/used")
-
-        info = {"id": "BV1xx411c7mD", "title": "A Real Bilibili Video",
-               "webpage_url": "https://www.bilibili.com/video/BV1xx411c7mD",
-               "duration": 60, "formats": [], "ext": "wav"}
-        monkeypatch.setattr(BilibiliSource, "_real_ydl_factory",
-                            staticmethod(self._fake_ydl_factory(info)))
-
-        drama_id = isolated_db.create_drama(media_type="streamer_vod")
-        url = "https://www.bilibili.com/video/BV1xx411c7mD"
-        path = front_door.import_video(url, drama_id)
-
-        assert generic_calls == []
-        assert os.path.exists(path)
-        d = isolated_db.get_drama(drama_id)
-        assert d["source_url"] == url
-        assert d["title_zh"] == "A Real Bilibili Video"
-
 
 # ---------------------------------------------------------------------------
 # Chapter ordering
@@ -1097,18 +1122,3 @@ class TestTermsOfServiceBlocking:
         caps = ladder.load_capabilities("fake_comic")
         assert not caps.tiers.get("STATIC_HTTP") or not caps.tiers["STATIC_HTTP"].tested
 
-    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
-    def test_import_video_refuses_a_prohibited_video_adapter(self, isolated_db, monkeypatch):
-        """Step 28 gap 2: front_door.import_video() dispatched straight to
-        adapter.download() with no check_terms() call of its own, unlike
-        pipeline.run_import_job's per-chapter re-check."""
-        from sources.adapters.bilibili import BilibiliSource
-        from sources.models import TermsProhibited
-        self._prohibit("bilibili")
-        downloaded = []
-        monkeypatch.setattr(BilibiliSource, "download",
-                            lambda self, *a, **k: downloaded.append(1) or {"path": "/x"})
-        drama_id = isolated_db.create_drama(media_type="streamer_vod")
-        with pytest.raises(TermsProhibited):
-            front_door.import_video("https://www.bilibili.com/video/BV1xx411c7mD", drama_id)
-        assert downloaded == []

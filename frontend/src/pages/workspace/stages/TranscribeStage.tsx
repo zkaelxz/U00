@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 
 import { asrBackendOptions } from '../../../api/asrOptions'
 import { analyzeMedia } from '../../../api/metadata'
@@ -11,14 +11,13 @@ import {
   updateTranscribeConfig,
   uploadAndTranscribe,
 } from '../../../api/workspace'
-import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
-import { useMossExperimental } from '../../../hooks/useMossExperimental'
+import { changedKeys, isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
 import type {
   DiarizationConfig,
   MediaStatus,
@@ -28,25 +27,35 @@ import type {
 } from '../../../types/workspace'
 import {
   advancedSummary,
-  loadSourceForm,
+  MIN_SILENCE_MS_MAX,
+  MIN_PAUSE_SEC_MAX,
+  MIN_PAUSE_SEC_MIN,
+  MIN_SILENCE_MS_MIN,
   parseExpectedSpeakers,
   parseSpeakerHints,
   runOptionProblem,
   runProblemFromError,
-  saveSourceForm,
+  TRANSCRIBE_DRAFT_SHAPE,
+  TRANSCRIBE_DRAFT_STAGE,
   validateConfig,
   type RunField,
   type RunFieldProblem,
   whisperModelWarning,
 } from '../sourceForm'
+import { useDeveloperMode } from '../../assistant/developerMode'
+import { PreflightCard } from '../../preflight/PreflightCard'
 import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
+import { useNovelFilesVersion } from './novelFileEvents'
+import { SpeechCoverage } from './SpeechCoverage'
 import { TranscriptModePicker } from './SourceModes'
-import { mediaFileInputId } from './stageBlockers'
+import { mediaFileInputId, needsReplaceConfirm } from './stageBlockers'
+import { asrBackendHelp, GROQ_HELP, withoutUntouchedBackend } from './transcribeBackendField'
 import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
+import { VoiceDetectorField } from './VoiceDetectorField'
 import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
@@ -62,8 +71,10 @@ const OPTION_LABELS: Record<string, string> = {
   whisper: 'Whisper',
   qwen3_asr: 'Qwen3 ASR',
   qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
-  moss_td: 'MOSS-Transcribe-Diarize (experimental)',
+  qwen3_asr_long: 'Qwen3 ASR on long windows (no Whisper)',
   auto: 'Automatic',
+  normal: 'Normal (default)',
+  sensitive: 'More sensitive',
   audio_separator: 'Audio separator',
   demucs: 'Demucs',
   tesseract: 'Tesseract',
@@ -91,9 +102,20 @@ interface Props {
   media: MediaStatus | null
   // A pre-checked file chosen in the media picker, or null.
   file: File | null
+  // The picker's "Replace the current audio/video" box, sent with an upload of `file`.
+  confirmReplace: boolean
+  // The drama has audio/video and that box is not ticked yet.
+  replaceUnconfirmed: boolean
+  // The server refused the upload until replacing is confirmed.
+  onReplaceRefused: () => void
   busy: boolean
+  // False when the raw-novel upload is not shown here (no novel on this title).
+  showRawNovel?: boolean
   // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
-  onJobStarted: (jobId: string, expectedSeconds?: number | null) => void
+  // sentFile: the run was started by uploading `file`.
+  onJobStarted: (jobId: string, expectedSeconds?: number | null, sentFile?: boolean) => void
+  // Set to the Transcribe action, so the Source stage's Last run card can run it again with this form.
+  retryRef?: MutableRefObject<(() => void) | null>
 }
 
 type ConfigForm = {
@@ -104,11 +126,16 @@ type ConfigForm = {
   hardsub_ocr_backend: string
   beam_size: string
   min_silence_ms: string
+  min_pause_sec: string
   vad_threshold: string
+  sensitivity_preset: string
+  hallucination_silence_sec: string
   hardsub_interval_sec: string
   separate_vocals_first: boolean
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  whisper_repeat_guard: boolean
+  split_by_sentences: boolean
   use_groq: boolean
 }
 
@@ -120,11 +147,16 @@ const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
   hardsub_ocr_backend: c.hardsub_ocr_backend,
   beam_size: String(c.beam_size),
   min_silence_ms: String(c.min_silence_ms),
+  min_pause_sec: String(c.min_pause_sec),
   vad_threshold: String(c.vad_threshold),
+  sensitivity_preset: c.sensitivity_preset,
+  hallucination_silence_sec: String(c.hallucination_silence_sec),
   hardsub_interval_sec: String(c.hardsub_interval_sec),
   separate_vocals_first: c.separate_vocals_first,
   realign_long_segments: c.realign_long_segments,
   whisper_fast_mode: c.whisper_fast_mode,
+  whisper_repeat_guard: c.whisper_repeat_guard ?? false,
+  split_by_sentences: c.split_by_sentences ?? false,
   use_groq: c.use_groq,
 })
 
@@ -132,28 +164,32 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
   ...f,
   beam_size: Number(f.beam_size),
   min_silence_ms: Number(f.min_silence_ms),
+  min_pause_sec: Number(f.min_pause_sec),
   vad_threshold: Number(f.vad_threshold),
+  hallucination_silence_sec: Number(f.hallucination_silence_sec),
   hardsub_interval_sec: Number(f.hardsub_interval_sec),
 })
 
-export default function TranscribeStage({ mediaSlot, media, file, busy, onJobStarted }: Props) {
+export default function TranscribeStage({
+  mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, showRawNovel = true, onJobStarted, retryRef,
+}: Props) {
   const { dramaId, drama } = useStage()
-  const mossEnabled = useMossExperimental()
+  const developerMode = useDeveloperMode()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
-  // Restored from sessionStorage (per drama) so switching stage tabs keeps the form.
-  const [restored] = useState(() => loadSourceForm(dramaId))
-  const [language, setLanguage] = useState(restored.language ?? drama.source_language ?? 'zh')
+  // The form as last left for this drama, so a stage-tab switch or a reload keeps it.
+  const { draft: restored, raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSCRIBE_DRAFT_STAGE, TRANSCRIBE_DRAFT_SHAPE)
+  const defaultLanguage = drama.source_language ?? 'zh'
+  const [language, setLanguage] = useState(restored.language ?? defaultLanguage)
   const [script, setScript] = useState(restored.script ?? '')
   const [transcriptText, setTranscriptText] = useState(restored.transcriptText ?? '')
   const [runDiarize, setRunDiarize] = useState(restored.runDiarize ?? false)
   const [speakers, setSpeakers] = useState(restored.speakers ?? '')
   const [minSpeakers, setMinSpeakers] = useState(restored.minSpeakers ?? '')
   const [maxSpeakers, setMaxSpeakers] = useState(restored.maxSpeakers ?? '')
-  // Names added to the automatic prompt (kept per drama); the full override is not kept.
   const [extraNames, setExtraNames] = useState(restored.extraNames ?? '')
-  const [override, setOverride] = useState('')
+  const [override, setOverride] = useState(restored.override ?? '')
   const [useGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -170,6 +206,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const seedSpeakers = useRef(restored.speakers === undefined)
   // D04: the stored media's length, for the time estimates (null = unknown).
   const [duration, setDuration] = useState<number | null>(null)
+  // Set by a transcription started here: the coverage panel checks its result once the job ends.
+  const [checkAfterRun, setCheckAfterRun] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -177,14 +215,17 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       (c) => {
         if (cancelled) return
         setConfig(c)
-        setCf(formFromConfig(c))
+        // The Advanced values changed here and not run yet sit on top of the saved options.
+        const saved = formFromConfig(c)
+        const advanced = rawDraft?.advanced
+        setCf({ ...saved, ...pickDraft(isRecord(advanced) ? advanced : null, saved) })
       },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, rawDraft])
 
   useEffect(() => {
     let cancelled = false
@@ -213,8 +254,27 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   }, [busy])
 
   useEffect(() => {
-    saveSourceForm(dramaId, { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames })
-  }, [dramaId, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames])
+    // Until the saved options arrive the stored Advanced changes are kept as they are.
+    const advanced = cf && config ? changedKeys(cf, formFromConfig(config)) : rawDraft?.advanced
+    saveDraft({ language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, advanced })
+  }, [saveDraft, rawDraft, cf, config, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
+
+  // Back to the drama's language and the saved options; the draft for this title is dropped.
+  const resetToDefaults = () => {
+    clearDraft()
+    setLanguage(defaultLanguage)
+    setScript('')
+    setTranscriptText('')
+    setRunDiarize(false)
+    setSpeakers(diar?.expected_speakers ? String(diar.expected_speakers) : '')
+    setMinSpeakers('')
+    setMaxSpeakers('')
+    setExtraNames('')
+    setOverride('')
+    setProblem(null)
+    setFieldProblem(null)
+    if (config) setCf(formFromConfig(config))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -227,6 +287,15 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     }
   }, [])
 
+  // The card installed Whisper: take the server's new answer without touching unsaved form edits.
+  const reloadConfigWhenReady = (ok: boolean) => {
+    if (!ok) return
+    getTranscribeConfig(dramaId).then(
+      (c) => setConfig((cur) => (cur ? { ...cur, whisper_installed: c.whisper_installed } : c)),
+      () => undefined,
+    )
+  }
+
   // The raw novel feeds the automatic prompt: refresh only that, keeping unsaved form edits.
   const reloadAutoPrompt = () => {
     getTranscribeConfig(dramaId).then(
@@ -235,10 +304,18 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     )
   }
 
+  // A raw novel saved from the Source stage's optional novel row changes the prompt too.
+  const novelFilesVersion = useNovelFilesVersion()
+  useEffect(() => {
+    if (novelFilesVersion > 0 && !showRawNovel) reloadAutoPrompt()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [novelFilesVersion])
+
   // Open the folded sections around the flagged field and bring it into view.
   useEffect(() => {
     if (!fieldProblem) return
     const el = panelRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')
+    // Only fields that are always in the DOM are flagged (runProblemFromError); a hidden one shows the banner text instead.
     if (!el) return
     for (let d = el.closest('details'); d; d = d.parentElement?.closest('details') ?? null) d.open = true
     el.scrollIntoView({ block: 'center' })
@@ -250,6 +327,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   }
   // A refused run or save: name the option when the server's sentence does, else show the banner.
   const fail = (e: unknown) => {
+    if (needsReplaceConfirm(e)) onReplaceRefused()
     const p = runProblemFromError(e)
     if (p) {
       setError(null)
@@ -288,11 +366,13 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       : haveTranscript && !transcriptText.trim()
         ? 'the transcript text'
         : ''
+  // A staged file that Replace is not ticked for is not part of this run: the stored media is transcribed.
+  const uploadFile = file && !replaceUnconfirmed ? file : null
 
   // Validates the options; null means "ok" (problem is set otherwise).
   const checkConfig = (): TranscribeConfigUpdate | null => {
     if (!cf) return null
-    const update = toUpdate(cf)
+    const update = config ? withoutUntouchedBackend(toUpdate(cf), config.asr_backend_choice) : toUpdate(cf)
     const bad = validateConfig(update)
     setProblem(bad)
     return bad ? null : update
@@ -325,7 +405,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       return null
     }
     if (haveTranscript && !transcriptText.trim()) {
-      setProblem('Paste the transcript first: this drama transcribes from a transcript you supply.')
+      setProblem('Paste the transcript first: this title transcribes from a transcript you supply.')
       return null
     }
     setProblem(null)
@@ -347,21 +427,21 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     if (!req || !config || !cf) return
     const update = checkConfig()
     if (!update) return
-    const refused = runOptionProblem(config.transcript_mode, cf.alignment_method, cf.asr_backend_choice, mossEnabled)
+    const refused = runOptionProblem(config.transcript_mode, cf.alignment_method)
     if (refused) {
       flag(refused)
       return
     }
     // A file picked but not uploaded yet has no known length, and a cloud run's time isn't this PC's.
     const speed = config.whisper_size === cf.whisper_size ? config.measured_speed : null
-    const expectedRunSeconds = whisperRun && !file && !cf.use_groq
+    const expectedRunSeconds = whisperRun && !uploadFile && !cf.use_groq
       ? measuredRunSeconds({
           audioSeconds: duration, whisperSize: cf.whisper_size, useGpu, measuredSpeed: speed,
           measuredStages: speed ? config.measured_stage_seconds : undefined, separateVocals: cf.separate_vocals_first,
           realignLong: cf.realign_long_segments,
         })
       : null
-    const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
+    const start = () => (uploadFile ? uploadAndTranscribe(dramaId, uploadFile, req, confirmReplace) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
     const changed = (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== current[k])
@@ -373,9 +453,14 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       : Promise.resolve()
     saveFirst.then(start).then((r) => {
       setError(null)
-      onJobStarted(r.job_id, expectedRunSeconds)
+      setCheckAfterRun(true)
+      onJobStarted(r.job_id, expectedRunSeconds, !!uploadFile)
     }, fail)
   }
+
+  useEffect(() => {
+    if (retryRef) retryRef.current = transcribe
+  })
 
   const diarize = () => {
     const hints = parseSpeakerHints(speakers, minSpeakers, maxSpeakers)
@@ -403,7 +488,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
 
   const select = (
     label: string,
-    key: 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend',
+    key: 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend' | 'sensitivity_preset',
     options: string[],
     help?: string,
     disabled: string[] = [],
@@ -417,13 +502,13 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         </select>
       </Field>
     )
-  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hardsub_interval_sec', step: number, help: string, unit?: string) =>
+  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'min_pause_sec' | 'vad_threshold' | 'hallucination_silence_sec' | 'hardsub_interval_sec', step: number, help: string, unit?: string) =>
     cf && (
       <Field label={label} help={help} unit={unit}>
         <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
       </Field>
     )
-  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'use_groq', help?: string) =>
+  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'whisper_repeat_guard' | 'split_by_sentences' | 'use_groq', help?: string) =>
     cf && (
       <Field label={label} help={help}>
         <Toggle checked={cf[key]} onChange={(v) => setC(key, v)} />
@@ -451,7 +536,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     : config?.transcript_mode === 'have_transcript' && cf.alignment_method === 'whisper_diff')
   // Undefined (an older server) counts as installed.
   const notInstalled = whisperRun && config?.whisper_installed === false
-  const estimate = cf && whisperRun && !file && hasMedia
+  const estimate = cf && whisperRun && !uploadFile && hasMedia
     ? transcribeEstimate({
         audioSeconds: duration,
         whisperSize: cf.whisper_size,
@@ -512,11 +597,16 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           <Toggle checked={runDiarize} onChange={setRunDiarize} />
         </Field>
       </div>
+      {notInstalled && (
+        <div id="transcribe-not-installed">
+          <PreflightCard needs={['whisper', 'ffmpeg', 'gpu']} whisperInstalled={false} onReady={reloadConfigWhenReady} />
+        </div>
+      )}
       <div className="actions">
         <button
           type="button"
           className="primary"
-          disabled={busy || !cf || !!needed}
+          disabled={busy || !cf || !!needed || notInstalled}
           aria-describedby={[notInstalled && 'transcribe-not-installed', needed && !busy && 'transcribe-needed'].filter(Boolean).join(' ') || undefined}
           onClick={transcribe}
         >
@@ -527,16 +617,11 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           <span className="muted" role="note" data-testid="separation-note">Vocal separation adds time, a lot on CPU.</span>
         )}
       </div>
-      {notInstalled && (
-        <div className="source-needed" id="transcribe-not-installed" role="note">
-          <span>
-            <strong>Transcription isn't installed yet.</strong> It turns audio or video into subtitles and is a
-            large download. Install it from Diagnostics (you'll see the size and confirm first).
-          </span>
-          <ButtonLink variant="primary" size="sm" className="button-link" href="#/diagnostics?install=transcription">
-            Install transcription
-          </ButtonLink>
-        </div>
+      {file && replaceUnconfirmed && !busy && (
+        <p className="muted" role="note" data-testid="transcribe-staged-unused">
+          The chosen file is not used for this run. Transcribe uses the current audio/video; tick "Replace the current
+          audio/video" to use the new file.
+        </p>
       )}
       {needed && !busy && (
         <div className="source-needed" id="transcribe-needed" role="note">
@@ -548,7 +633,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       )}
       {busy && (
         <p className="muted" role="status">
-          A job for this drama is already running. Wait for it to finish or cancel it before starting another.
+          A job for this title is already running. Wait for it to finish or cancel it before starting another.
         </p>
       )}
       {(fieldProblem || problem) && (
@@ -565,83 +650,85 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         <p className="muted source-summary" aria-hidden="true">&nbsp;</p>
       )}
 
-      <Section storageKey="source.speakers" title="Speakers" summary={speakersSummary(speakers, minSpeakers, maxSpeakers)}>
-        <div className="source-grid">
-          <Field label="Expected speakers" help="0-20. Blank lets the app decide." error={fieldError('speakers')}>
-            <input type="number" value={speakers} onChange={(e) => { setFieldProblem(null); setSpeakers(e.target.value) }} />
-          </Field>
-          <Field label="Min speakers" help="1-20. When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.">
-            <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => { setFieldProblem(null); setMinSpeakers(e.target.value) }} />
-          </Field>
-          <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">
-            <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => { setFieldProblem(null); setMaxSpeakers(e.target.value) }} />
-          </Field>
-        </div>
-        {manualCount > 0 && (
-          <div className="source-manual" data-testid="manual-speakers">
-            <div className="setting-list">
-              <Field
-                label={`Replace my ${corrections}`}
-                help="Off keeps your corrections: detection only changes the lines you haven't corrected. On replaces them with what detection finds."
-              >
-                <Toggle
-                  checked={overwriteManual}
-                  onChange={(v) => {
-                    setOverwriteManual(v)
-                    setOverwriteAck(false)
-                  }}
-                />
-              </Field>
-            </div>
-            {overwriteManual ? (
-              <label className="inline stage-ack">
-                <input type="checkbox" checked={overwriteAck} onChange={(e) => setOverwriteAck(e.target.checked)} />{' '}
-                I understand my {corrections} will be replaced
-              </label>
-            ) : (
-              <p className="muted">Your {corrections} {manualCount === 1 ? 'is' : 'are'} kept.</p>
-            )}
-          </div>
-        )}
-        <div className="actions">
-          <button
-            type="button"
-            className={buttonClass('ghost')}
-            disabled={busy || needsAck}
-            aria-describedby={needsAck ? 'diarize-needed' : undefined}
-            onClick={diarize}
-          >
-            Detect speakers only
-          </button>
-          {needsAck ? (
-            <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
-          ) : (
-            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
-          )}
-        </div>
-        <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
-      </Section>
-
       {/* Always mounted so the fold's header never appears late; its body waits for the saved options. */}
       <Section
           storageKey="source.advanced"
-          title="Advanced"
-          summary={cf ? readableSummary(advancedSummary({ ...cf, prompt: override })) : 'tuning'}
+          title="More options"
+          summary={cf ? [readableSummary(advancedSummary({ ...cf, prompt: override, source_language: language }, developerMode)), `speakers ${speakersSummary(speakers, minSpeakers, maxSpeakers)}`].join(' · ') : 'tuning'}
         >
           {cf && <>
           <div className="source-grid">
-            {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
-            {num('Min silence', 'min_silence_ms', 50, '300-3000. Silence that splits lines; longer gives fewer, longer lines. Auto-tune below can pick it.', 'ms')}
-            {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
-            {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
+            <Field label="Expected speakers" help="0-20. Blank lets the app decide." error={fieldError('speakers')}>
+              <input type="number" value={speakers} onChange={(e) => { setFieldProblem(null); setSpeakers(e.target.value) }} />
+            </Field>
+            <Field label="Min speakers" help="1-20. When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.">
+              <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => { setFieldProblem(null); setMinSpeakers(e.target.value) }} />
+            </Field>
+            <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">
+              <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => { setFieldProblem(null); setMaxSpeakers(e.target.value) }} />
+            </Field>
+          </div>
+          {manualCount > 0 && (
+            <div className="source-manual" data-testid="manual-speakers">
+              <div className="setting-list">
+                <Field
+                  label={`Replace my ${corrections}`}
+                  help="Off keeps your corrections: detection only changes the lines you haven't corrected. On replaces them with what detection finds."
+                >
+                  <Toggle
+                    checked={overwriteManual}
+                    onChange={(v) => {
+                      setOverwriteManual(v)
+                      setOverwriteAck(false)
+                    }}
+                  />
+                </Field>
+              </div>
+              {overwriteManual ? (
+                <label className="inline stage-ack">
+                  <input type="checkbox" checked={overwriteAck} onChange={(e) => setOverwriteAck(e.target.checked)} />{' '}
+                  I understand my {corrections} will be replaced
+                </label>
+              ) : (
+                <p className="muted">Your {corrections} {manualCount === 1 ? 'is' : 'are'} kept.</p>
+              )}
+            </div>
+          )}
+          <div className="actions">
+            <button
+              type="button"
+              className={buttonClass('ghost')}
+              disabled={busy || needsAck}
+              aria-describedby={needsAck ? 'diarize-needed' : undefined}
+              onClick={diarize}
+            >
+              Detect speakers only
+            </button>
+            {needsAck ? (
+              <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
+            ) : (
+              hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
+            )}
+          </div>
+          <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
+          <div className="source-grid">
+            {select('Sensitivity', 'sensitivity_preset', ['normal', 'sensitive'],
+              'Catches quieter or faster speech, but may add false text on music or breathing.')}
+            {num('Min silence', 'min_silence_ms', 50, `${MIN_SILENCE_MS_MIN}-${MIN_SILENCE_MS_MAX}. Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms')}
+            {num('Pause that can split a long line', 'min_pause_sec', 0.05, `${MIN_PAUSE_SEC_MIN}-${MIN_PAUSE_SEC_MAX}. Longer lines are only cut where the speaker pauses at least this long. Higher gives fewer, longer lines. Lower cuts more.`, 's')}
             {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'],
               haveTranscript
                 ? 'Qwen3 forced alignment lines up the transcript you supply against the audio for more exact timing.'
                 : 'Forced alignment lines up a transcript you provide; for raw audio, pick Whisper or Qwen3-ASR.',
               haveTranscript ? [] : ['qwen3_forced_align'])}
-            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(mossEnabled), mossEnabled ? 'MOSS is experimental: it transcribes and labels speakers in one pass, replacing Whisper and speaker detection for this drama.' : undefined)}
-            {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
-            {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
+            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(), [asrBackendHelp(asrBackendOptions()), config?.asr_backend_notice].filter(Boolean).join('\n'))}
+            <VoiceDetectorField />
+            {developerMode && num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
+            {developerMode && num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
+            {developerMode && num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. Off (0) by default; 0 or 0.5-10. Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Whisper only: ignored by Qwen3-ASR, and by Fast mode.', 's')}
+            {developerMode && num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
+            {developerMode && select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
+            {developerMode && select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'auto'], 'PaddleOCR reads Chinese, Korean and Japanese captions with the matching language model. Automatic uses it when installed and falls back to Tesseract, with a note.')}
           </div>
           <p className="muted" data-testid="auto-prompt">
             {config?.auto_initial_prompt
@@ -659,7 +746,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             />
           </Field>
           <details>
-            <summary>Advanced: replace the automatic prompt</summary>
+            <summary>More: replace the automatic prompt</summary>
             <Field
               label="Replacement prompt"
               help="Used instead of the automatic prompt and extra names. Leave empty to keep the automatic one."
@@ -675,10 +762,24 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             )}
             {toggle('Realign long segments', 'realign_long_segments')}
             {toggle('Whisper fast mode', 'whisper_fast_mode')}
-            {toggle('Use Groq', 'use_groq')}
+            {toggle(
+              'Split lines by sentences',
+              'split_by_sentences',
+              'Whisper hears longer stretches of speech, then lines are cut at sentence ends and, for long ones, at pauses between words. Min silence is not used. Whisper and Qwen3 ASR only; the speech-detection backends already cut their own lines.'
+              + (cf && !['whisper', 'qwen3_asr'].includes(cf.asr_backend_choice)
+                ? ' Not used with the selected ASR backend: choose Whisper or Qwen3 ASR for this to apply. Long lines can still be cut afterwards in Review.'
+                : ''),
+            )}
+            {developerMode && toggle(
+              'Whisper repeat guard',
+              'whisper_repeat_guard',
+              'Stops Whisper repeating the same few words. Can drop or change real Chinese and Japanese speech, where short words repeat naturally. Turn on only if a title shows repeated-phrase loops.',
+            )}
+            {toggle('Use Groq', 'use_groq', GROQ_HELP)}
           </div>
           <div className="actions">
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={saveOptions}>Save options</button>
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={resetToDefaults}>Reset to defaults</button>
             {saved && <span role="status" className="muted">Saved.</span>}
           </div>
           <AutoTune
@@ -694,7 +795,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           />
           </>}
         </Section>
-      <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
+      <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} autoCheck={checkAfterRun} onAutoChecked={() => setCheckAfterRun(false)} />
+      {showRawNovel && <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />}
     </section>
   )
 }

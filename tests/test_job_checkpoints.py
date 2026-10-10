@@ -265,8 +265,6 @@ def test_stages_and_spend_are_recorded_for_a_real_job(isolated_db):
     assert run["stages"][0]["duration_seconds"] >= 0.02
     assert run["stages"][0]["cost_usd"] == 0 and run["stages"][1]["cost_usd"] == 0.75
     assert run["cost_usd"] == 0.75
-    info = debug_view.explain_job("stage_job")
-    assert [s["stage"] for s in info["per_stage_breakdown"]] == ["Transcribe", "Translate"]
     background_jobs.clear_job("stage_job")
 
 
@@ -339,17 +337,17 @@ def test_queued_gpu_jobs_show_their_place_in_line(isolated_db, monkeypatch):
 
 def test_fit_check_refuses_an_oversized_load_with_a_clear_message():
     with pytest.raises(vram_service.InsufficientVramError) as ei:
-        vram_service.check_fits("TADA 3B", free_mb=3000)
+        vram_service.check_fits("OmniVoice", free_mb=1000)
     msg = str(ei.value)
-    assert "TADA 3B" in msg and "6.3 GB" in msg and "2.9 GB is free" in msg
+    assert "OmniVoice" in msg and "2.0 GB" in msg and "1.0 GB is free" in msg
     assert "CUDA" not in msg and "out of memory" not in msg.lower()
-    vram_service.check_fits("TADA 3B", free_mb=8000)          # fits
+    vram_service.check_fits("OmniVoice", free_mb=8000)        # fits
     vram_service.check_fits("Unknown model", free_mb=1)        # no estimate: allowed
 
 
 def test_unknown_free_memory_never_blocks(monkeypatch):
     monkeypatch.setattr(vram_service, "free_vram_mb", lambda: None)
-    vram_service.check_fits("TADA 3B")
+    vram_service.check_fits("OmniVoice")
 
 
 def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
@@ -361,25 +359,21 @@ def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
 
 
 def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
-    import diagnostics
+    import diagnostics_torch
     monkeypatch.delitem(sys.modules, "torch", raising=False)
-    monkeypatch.setattr(diagnostics, "external_gpu_load",
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load",
                         lambda: {"memory_free_mb": 1024.0, "memory_used_mb": 0,
                                  "memory_total_mb": 1024.0, "utilization_percent": 0})
     assert vram_service.free_vram_mb() == 1024.0
 
 
-@pytest.mark.parametrize("loader,args", [("_get_chatterbox", ()), ("_get_omnivoice_model", ()),
-                                         ("_get_tada", (None,))])
-def test_dub_loaders_check_vram_before_loading(monkeypatch, loader, args):
+def test_dub_loader_checks_vram_before_loading(monkeypatch):
     import dub
     monkeypatch.setattr(dub, "_cuda_available", lambda: True)
     monkeypatch.setattr(vram_service, "free_vram_mb", lambda: 100.0)
-    monkeypatch.setattr(dub, "_chatterbox", None)
     monkeypatch.setattr(dub, "_omnivoice_model", None)
-    monkeypatch.setitem(dub._tada, "model", None)
     with pytest.raises(vram_service.InsufficientVramError):
-        getattr(dub, loader)(*args)
+        dub._get_omnivoice_model()
 
 
 def test_provenance_is_ignored_once_the_translation_changes(isolated_db):
@@ -584,33 +578,13 @@ def test_provenance_sentence_leaves_out_the_baihe_commit(isolated_db):
     assert "Baihe" not in line_provenance_service.describe(prov)
 
 
-def test_nllb_pipeline_survives_a_release_between_check_and_read(monkeypatch):
-    engine = translate_engines.NLLBEngine.__new__(translate_engines.NLLBEngine)
-    engine.model_name = "fake-nllb"
-    made = []
-    fake = types.ModuleType("transformers")
-    fake.pipeline = lambda *a, **k: made.append(1) or "PIPE"
-    monkeypatch.setitem(sys.modules, "transformers", fake)
-
-    class Vanishing(dict):   # release_gpu_models() clears it right after the check
-        def get(self, key, default=None):
-            value = dict.get(self, key, default)
-            self.clear()
-            return value
-
-    cache = Vanishing({("fake-nllb", "zh", "en"): "OLD"})
-    monkeypatch.setattr(translate_engines, "_nllb_pipeline_cache", cache)
-    monkeypatch.setattr("engine_backends.local._nllb_pipeline_cache", cache)
-    assert engine._get_pipeline("zh") == "OLD" and made == []
-
-
 def test_cli_narrate_prep_resumes_and_can_start_over(isolated_db, monkeypatch):
     import argparse
     import os
     import cli
-    import dub
+    import dub_narration
     did = _narration_setup(isolated_db, monkeypatch)
-    with open(os.path.join(isolated_db.drama_dir(did), dub.NOVEL_SOURCE_FILENAME), "w",
+    with open(os.path.join(isolated_db.drama_dir(did), dub_narration.NOVEL_SOURCE_FILENAME), "w",
               encoding="utf-8") as f:
         f.write("novel")
     monkeypatch.setattr(cli, "chunk_novel_text", lambda text: [f"段落{i}" for i in range(40)])
@@ -640,7 +614,7 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
     import argparse
     import contextlib
     import io
-    import cli
+    import cli_translate
     from services import workspace_job_service as wjs
     did = isolated_db.create_drama(title_en="C", status="aligned")
     isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
@@ -656,7 +630,7 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
                               style_note="Keep it short", style_preset="novel",
                               locale="en-GB", force=False, ollama_num_ctx=None)
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args)
+        cli_translate.cmd_translate(args)
     line = isolated_db.load_line_objects(did)[0]
     prov = line_provenance_service.get(did, line.id, current_en=line.en)
     assert line.en == "hello" and prov is not None
@@ -670,13 +644,14 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
                         lambda *a, **k: captured.update(k) or real(*a, **k))
     isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args)
+        cli_translate.cmd_translate(args)
     assert captured["style_preset"] == "novel"
     assert captured["style_note"] == "Keep it short"
     assert captured["style_guidelines"]
     assert captured["locale"] == "en-GB"
     workspace_keys = {"locale", "style_preset", "reflect", "context_window",
-                      "context_window_ahead", "batch_size", "style_note", "style_guidelines"}
+                      "context_window_ahead", "batch_size", "style_note", "style_guidelines",
+                          "scene_aware_batches"}
     assert set(captured) == workspace_keys
     import inspect
     assert all(k in inspect.getsource(wjs.run_translate_job) for k in workspace_keys)

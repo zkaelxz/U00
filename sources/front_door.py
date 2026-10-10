@@ -6,11 +6,10 @@ source, a video, a novel chapter, or a comic chapter -- and builds a
 preview (title, chapter, language, content type, chapter count where
 knowable). Nothing is imported until the person presses Import.
 
-Video URLs go straight to the existing yt-dlp download path
-(video_download.download), the same call Workspace's "Video URL" uses.
+Video URLs are only recognised here; the download is Workspace's "Video
+URL" (services/url_media_service).
 """
 
-import os
 import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
@@ -174,44 +173,3 @@ def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = 
     return p
 
 
-def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=None,
-                 cookies_browser: str = None, cookies_file: str = None) -> str:
-    """Routes a detected video URL into a download path -- a registered
-    VideoSource adapter (e.g. BilibiliSource) if one matches this
-    URL, otherwise the same generic video_download.download call and
-    drama updates as before, unchanged for every other video source
-    (YouTube etc., which have no dedicated adapter)."""
-    import db
-    ddir = db.drama_dir(drama_id)
-    fetched = {}
-
-    adapter = registry.find_for_url(url)
-    if adapter is not None and hasattr(adapter, "download") and ContentType.VIDEO.value in adapter.content_types:
-        # Re-checked here, not just relied on from an earlier preview() call
-        # -- same "gate the actual action, don't trust a
-        # prior UI step" pattern pipeline.run_import_job already follows.
-        ladder.check_terms(adapter.name, adapter.capabilities())
-        options = {"quality": "Audio only" if audio_only else "Best available",
-                  "cookies_browser": cookies_browser, "cookies_file": cookies_file}
-        result = adapter.download(url, ddir, options=options)
-        path = result["path"]
-        if result.get("title"):
-            fetched["title"] = result["title"]
-    else:
-        import video_download
-        path = video_download.download(url, ddir, audio_only=audio_only, progress_cb=progress_cb,
-                                       title_cb=lambda t: fetched.setdefault("title", t),
-                                       cookies_browser=cookies_browser, cookies_file=cookies_file)
-
-    drama = db.get_drama(drama_id) or {}
-    update = {}
-    if fetched.get("title") and not (drama.get("title_en") or drama.get("title_zh")):
-        update["title_zh"] = fetched["title"]
-    if audio_only:
-        db.update_drama(drama_id, audio_filename=os.path.basename(path), source_url=url, **update)
-    else:
-        import core
-        core.extract_audio_from_video(path, os.path.join(ddir, "audio.wav"))
-        db.update_drama(drama_id, audio_filename="audio.wav",
-                        source_video_filename=os.path.basename(path), source_url=url, **update)
-    return path

@@ -20,6 +20,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/drama/3/translate?focus=glossary')).toEqual({ name: 'drama', id: 3, stage: 'translate', focus: 'glossary' })
     expect(parseRoute('#/drama/3/translate?focus=nope')).toEqual({ name: 'drama', id: 3, stage: 'translate' })
     expect(routeHref({ name: 'drama', id: 3, stage: 'translate', focus: 'characters' })).toBe('#/drama/3/translate?focus=characters')
+    expect(parseRoute('#/settings?section=uploads')).toEqual({ name: 'settings', section: 'uploads' })
     expect(parseRoute('#/settings?section=nope')).toEqual({ name: 'settings' })
     expect(routeHref({ name: 'settings', section: 'developer-mode' })).toBe('#/settings?section=developer-mode')
     expect(parseRoute('#/jobs')).toEqual({ name: 'jobs' })
@@ -40,7 +41,7 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'assistant' })).toBe('#/assistant')
   })
 
-  it('parses drama id and stage; no stage means null (the drama\'s current stage)', () => {
+  it('parses title id and stage; no stage means null (the title\'s current stage)', () => {
     expect(parseRoute('#/drama/12/review')).toEqual({ name: 'drama', id: 12, stage: 'review' })
     expect(parseRoute('#/drama/12')).toEqual({ name: 'drama', id: 12, stage: null })
     expect(routeHref({ name: 'drama', id: 12, stage: null })).toBe('#/drama/12')

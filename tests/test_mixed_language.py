@@ -1,5 +1,6 @@
 """Per-span language detection for mixed-language titles. Models, audio, VAD and the
 language detector are all fakes."""
+import whisper_models
 from types import SimpleNamespace
 
 import numpy as np
@@ -124,6 +125,25 @@ def test_whisper_path_detects_per_span_and_restricts_to_allowed(monkeypatch):
     assert out[1]["start"] == pytest.approx(2.9)
 
 
+def test_whisper_path_applies_the_repeat_guard_and_preset(monkeypatch):
+    audio = np.zeros(16000 * 3, dtype="float32")
+    seen = []
+
+    class Recorder(FakeWhisper):
+        def transcribe(self, wave, language, **kw):
+            seen.append(kw)
+            return super().transcribe(wave, language, **kw)
+
+    monkeypatch.setattr(ab, "load_audio_16k", lambda path: audio)
+    monkeypatch.setattr(ml, "load_whisper_model", lambda *a, **k: Recorder({0: "ko"}))
+    for guard, preset in ((True, "sensitive"), (False, "normal")):
+        seen.clear()
+        ml.transcribe_mixed_whisper("x.wav", "ko", "tiny", vad_fn=lambda a, sr: [(0, 2)],
+                                    repeat_guard=guard, sensitivity_preset=preset)
+        assert ("no_repeat_ngram_size" in seen[0]) is guard
+        assert ("repetition_penalty" in seen[0]) is guard
+
+
 class FakeQwenResult:
     def __init__(self, text, language):
         self.text, self.language = text, language
@@ -231,6 +251,7 @@ def test_option_defaults_off_and_validates(isolated_db):
 
 
 def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
+    import services.transcribe_pipeline as tp
     import services.transcribe_service as ts
     seen = {}
 
@@ -240,11 +261,11 @@ def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
                 {"start": 2.0, "end": 4.0, "text": ZH, "lang": "zh"}]
 
     monkeypatch.setattr(ml, "transcribe_mixed_whisper", fake_mixed)
-    monkeypatch.setattr(ts.core_module, "load_whisper_model", lambda *a, **k: None)
-    monkeypatch.setattr(ts.core_module, "is_whisper_model_cached", lambda s: True)
-    monkeypatch.setattr(ts.core_module, "get_whisper_device_info", lambda *a, **k: {})
-    monkeypatch.setattr(ts.core_module, "release_gpu_models", lambda: None)
-    monkeypatch.setattr(ts, "transcribe_for_timing",
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: None)
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda s: True)
+    monkeypatch.setattr(whisper_models, "get_whisper_device_info", lambda *a, **k: {})
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(tp, "transcribe_for_timing",
                         lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": KO}])
 
     class Stage:
@@ -256,7 +277,7 @@ def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
                           progress=lambda *a, **k: None, stage=lambda *a, **k: Stage())
 
     def run(mixed):
-        return ts._transcribe_pipeline(
+        return tp._transcribe_pipeline(
             rep, "x.wav", "whisper", None, "ko", "simplified", "tiny", 5, 2000, 0.5, False,
             "auto", False, False, False, None, "", False, "whisper", "whisper_diff",
             mixed_languages=mixed)

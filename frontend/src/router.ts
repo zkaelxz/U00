@@ -7,8 +7,8 @@ export type Route =
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it.
   | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus }
   | { name: 'jobs' }
-  // section: "#/settings?section=developer-mode" opens that card's fold and scrolls to it.
-  | { name: 'settings'; section?: 'developer-mode' }
+  // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
+  | { name: 'settings'; section?: 'developer-mode' | 'uploads' }
   | { name: 'admin' }
   | { name: 'diagnostics' }
   // compare: the raw "engine:model,engine:model" value of ?compare= (Model
@@ -39,8 +39,9 @@ export function parseRoute(hash: string): Route {
   if (head === 'library-tools' && parts.length === 1) return { name: 'library-tools' }
   if (head === 'jobs' && parts.length === 1) return { name: 'jobs' }
   if (head === 'settings' && parts.length === 1) {
-    return new URLSearchParams(qs).get('section') === 'developer-mode'
-      ? { name: 'settings', section: 'developer-mode' }
+    const section = new URLSearchParams(qs).get('section')
+    return section === 'developer-mode' || section === 'uploads'
+      ? { name: 'settings', section }
       : { name: 'settings' }
   }
   if (head === 'admin' && parts.length === 1) return { name: 'admin' }

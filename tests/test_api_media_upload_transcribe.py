@@ -1,5 +1,6 @@
 """Tests for Migration Slice 32: upload-and-transcribe + media status. Fully mocked."""
 import os
+import time
 
 import pytest
 
@@ -84,7 +85,8 @@ def test_status(client, monkeypatch):
     did = _drama()
     r = client.get(f"/api/media/dramas/{did}/status")
     assert r.json() == {"drama_id": did, "has_audio": False, "has_source_video": False,
-                        "upload_max_mb": 5}
+                        "reads_burned_in_subtitles": False, "upload_max_mb": 5,
+                        "kept_media_files": 0, "kept_media_bytes": 0}
     client.post(f"/api/media/dramas/{did}/upload", files={"file": ("a.wav", b"x")})
     assert client.get(f"/api/media/dramas/{did}/status").json()["has_audio"] is True
     assert client.get("/api/media/dramas/9999/status").status_code == 404
@@ -307,3 +309,80 @@ def test_upload_refuses_a_bad_speaker_range_and_stores_nothing(client, monkeypat
     r = _post(client, did, {"run_diarize": "true", "min_speakers": "5", "max_speakers": "2"})
     assert r.status_code == 422, r.text
     assert not db.get_drama(did).get("audio_filename")
+
+
+def test_replacing_audio_needs_confirm(client, monkeypatch):
+    import db
+    did = _drama()
+    _capture_worker_start(monkeypatch)
+    assert _post(client, did).status_code == 200
+    r = _post(client, did)
+    assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
+    r = _post(client, did, {"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    assert os.listdir(os.path.join(db.drama_dir(did), "kept_media"))
+
+
+def test_audio_over_a_hardsub_ocr_video_switches_the_mode_and_the_run_starts(client, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D", transcript_mode="hardsub_ocr")
+    ddir = db.drama_dir(did)
+    for name in ("source.mp4", "audio.wav"):
+        with open(os.path.join(ddir, name), "wb") as f:
+            f.write(b"old")
+    db.update_drama(did, source_video_filename="source.mp4", audio_filename="audio.wav")
+    captured = _capture_worker_start(monkeypatch)
+    r = _post(client, did, {"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    assert r.json()["job_id"] == f"transcribe_{did}"
+    d = db.get_drama(did)
+    assert (d["source_video_filename"], d["transcript_mode"]) == (None, "whisper")
+    assert captured
+    assert "kept_media" in os.listdir(ddir)
+
+
+def test_follow_job_stops_a_child_that_never_ends_and_errors_plainly(isolated_db, monkeypatch):
+    from services import media_upload_service as mus
+    stopped = []
+    monkeypatch.setattr(mus.background_jobs, "get_status",
+                        lambda cid: {"status": "running", "progress": 0.5, "message": "x"})
+    monkeypatch.setattr(mus.background_jobs, "is_cancel_requested", lambda jid: False)
+    monkeypatch.setattr(mus.background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(mus.background_jobs, "cancel_queued", lambda cid: False)
+    monkeypatch.setattr(mus.background_jobs, "request_cancel", stopped.append)
+    monkeypatch.setattr(mus, "_FOLLOW_POLL_SECONDS", 0.01)
+    started = time.monotonic()
+    with pytest.raises(RuntimeError) as err:
+        mus._follow_job("extract_audio_1", "transcribe_1", 0.1)
+    assert time.monotonic() - started < 5
+    assert str(err.value) == mus.FOLLOW_TIMEOUT_MESSAGE
+    assert stopped == ["transcribe_1"]
+
+
+def test_follow_job_clock_starts_when_the_child_runs_not_while_queued(isolated_db, monkeypatch):
+    from services import media_upload_service as mus
+    started = time.monotonic()
+    stopped, results = [], []
+
+    def status(cid):
+        elapsed = time.monotonic() - started
+        if elapsed < 0.4:   # queued for four times the deadline
+            return {"status": "queued"}
+        if elapsed < 0.45:
+            return {"status": "running", "progress": 0.5, "message": "x"}
+        return {"status": "done", "result": {"ok": 1}}
+    monkeypatch.setattr(mus.background_jobs, "get_status", status)
+    monkeypatch.setattr(mus.background_jobs, "is_cancel_requested", lambda jid: False)
+    monkeypatch.setattr(mus.background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(mus.background_jobs, "cancel_queued", lambda cid: False)
+    monkeypatch.setattr(mus.background_jobs, "request_cancel", stopped.append)
+    monkeypatch.setattr(mus.background_jobs, "set_result", lambda jid, r: results.append(r))
+    monkeypatch.setattr(mus, "_FOLLOW_POLL_SECONDS", 0.01)
+    mus._follow_job("extract_audio_1", "transcribe_1", 0.1)
+    assert stopped == [] and results == [{"ok": 1}]
+
+
+def test_follow_deadline_has_a_floor_and_grows_with_the_media():
+    from services import media_upload_service as mus
+    assert mus.follow_deadline_seconds(None) == mus.follow_deadline_seconds(60) == 2 * 60 * 60
+    assert mus.follow_deadline_seconds(10 * 3600) == 50 * 3600

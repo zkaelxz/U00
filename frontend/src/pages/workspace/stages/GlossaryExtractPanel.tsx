@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { ApiError } from '../../../api/client'
+import { dismissGlossaryTerms, getGlossaryDismissals, restoreGlossaryTerms } from '../../../api/autotuneGlossary'
 import { getGlossaryTerms } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
@@ -16,6 +17,7 @@ import {
   chosenTerms,
   countInGlossary,
   defaultTermSelection,
+  highConfidenceTerms,
   isActiveStatus,
   overwriteConfirmText,
   toggleTerm,
@@ -91,6 +93,18 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
   const [error, setError] = useState<unknown>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+
+  // The series' ignore list (null while unread or if the read failed).
+  const [ignored, setIgnored] = useState<string[] | null>(null)
+  const [showIgnored, setShowIgnored] = useState(false)
+  const readIgnored = () =>
+    getGlossaryDismissals(dramaId).then(
+      (r) => setIgnored(r.dismissals.map((d) => d.term)),
+      () => setIgnored(null),
+    )
+  useEffect(() => {
+    readIgnored()
+  }, [dramaId])
 
   const active = isActiveStatus(status?.status)
   const proposals: NovelGlossaryProposal[] = status?.status === 'done' ? status.proposals ?? [] : []
@@ -173,6 +187,17 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       () => setExisting(null),
     )
   }
+  // The server stops listing ignored terms, so re-read the run and the list.
+  const changeIgnored = (change: (terms: string[]) => Promise<unknown>, terms: string[]) =>
+    change(terms).then(
+      () => {
+        setError(null)
+        bumpGlossaryRun(source)
+        return readIgnored()
+      },
+      (e: unknown) => setError(e),
+    )
+  const highTerms = highConfidenceTerms(proposals)
   const toggle = (term: string) => {
     setConfirming(false)
     setPicked(toggleTerm(sel, term))
@@ -220,6 +245,45 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       )}
       {status?.status === 'cancelled' && <p className="muted">Extraction was cancelled.</p>}
       {status?.status === 'done' && proposals.length === 0 && <p className="muted">No new terms were found.</p>}
+      {(proposals.length > 0 || (ignored?.length ?? 0) > 0) && (
+        <div className="actions">
+          {proposals.length > 0 && (
+            <button
+              type="button"
+              className={buttonClass('secondary')}
+              disabled={highTerms.size === 0}
+              onClick={() => {
+                setConfirming(false)
+                setPicked(new Set(highTerms))
+              }}
+            >
+              Select all High ({highTerms.size})
+            </button>
+          )}
+          {(ignored?.length ?? 0) > 0 && (
+            <button type="button" className={buttonClass('secondary')} aria-expanded={showIgnored} onClick={() => setShowIgnored(!showIgnored)}>
+              Ignored ({ignored?.length})
+            </button>
+          )}
+        </div>
+      )}
+      {showIgnored && ignored && ignored.length > 0 && (
+        <ul className="novel-glossary-cards" data-testid={`${text.testId}-ignored`}>
+          {ignored.map((t) => (
+            <li key={t}>
+              <strong>{t}</strong>{' '}
+              <button
+                type="button"
+                className={buttonClass('secondary')}
+                aria-label={`Restore ${t}`}
+                onClick={() => changeIgnored((x) => restoreGlossaryTerms(dramaId, x), [t])}
+              >
+                Restore
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {proposals.length > 0 && (
         <GlossaryProposals
           proposals={proposals}
@@ -230,6 +294,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
           catalogues={catalogues}
           isPhone={isPhone}
           testId={text.testId}
+          onIgnore={(t) => changeIgnored((x) => dismissGlossaryTerms(dramaId, x), [t])}
         />
       )}
       {proposals.length > 0 && (

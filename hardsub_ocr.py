@@ -32,6 +32,7 @@ None of these need to be solved before this is useful; they're places a
 person may need to intervene (pick a different sample interval, or a
 future manual region override) rather than bugs.
 """
+import importlib.util
 import os
 import subprocess
 import tempfile
@@ -166,7 +167,37 @@ def _upscale_for_ocr(crop: np.ndarray, min_height: int = 120, max_scale: float =
     return cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
 
+# Codes from PaddleOCR 3.x's own language list. "ch" also reads Traditional
+# Chinese (PP-OCRv5's default model covers Simplified, Traditional, English
+# and Japanese), so chinese_script only matters to Tesseract. Page OCR keeps
+# its own map in ocr.py, where Japanese is not routed to Paddle.
+_HARDSUB_PADDLE_LANG = {"zh": "ch", "ko": "korean", "ja": "japan"}
+
+PADDLE_MISSING_NOTE = "PaddleOCR isn't installed, so Tesseract was used."
+
+
+def paddle_installed() -> bool:
+    # Both are needed: paddleocr is only the wrapper, paddlepaddle runs it.
+    return (importlib.util.find_spec("paddleocr") is not None
+            and importlib.util.find_spec("paddle") is not None)
+
+
+def resolve_backend(requested: str, language: str):
+    """(backend that will run, note or None). Only "auto" is ever changed: an
+    explicit "paddle" or "tesseract" is kept, so a missing PaddleOCR then
+    fails loudly instead of silently reading with a different engine."""
+    if requested != "auto":
+        return requested, None
+    if language not in _HARDSUB_PADDLE_LANG:
+        return "tesseract", None
+    if paddle_installed():
+        return "paddle", None
+    return "tesseract", PADDLE_MISSING_NOTE
+
+
 def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str = None) -> str:
+    """lang is in the chosen engine's own code: a Tesseract pack name, or a
+    PaddleOCR language for backend "paddle"."""
     img = cv2.imread(path)
     h, _w = img.shape[:2]
     y0, y1 = int(region[0] * h), int(region[1] * h)
@@ -176,7 +207,7 @@ def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd:
     try:
         cv2.imwrite(crop_path, crop)
         if backend == "paddle":
-            return ocr_module.extract_text_paddle(crop_path).strip()
+            return ocr_module.extract_text_paddle(crop_path, lang=lang).strip()
         return ocr_module.extract_text_tesseract(
             crop_path, lang=lang, tesseract_cmd=tesseract_cmd).strip()
     finally:
@@ -261,7 +292,7 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                                chinese_script: str = "simplified",
                                progress_cb=None, tmp_dir=None, tesseract_cmd: str = None,
                                min_consecutive_samples: int = 2, job_id: str = None,
-                               cancel_check=None):
+                               cancel_check=None, info: dict = None):
     """
     Full pipeline: sample frames, auto-detect the caption band, OCR each
     sampled frame in that band, collapse the results into timed cues.
@@ -278,8 +309,18 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
     misreads/transition flicker splitting a real caption into extra
     cues), but pass 1 to disable the filter entirely if a source is
     dropping genuinely short captions because of it.
+
+    ocr_backend is "tesseract", "paddle" or "auto" (see resolve_backend).
+    info, when given, is filled with {"backend": the engine that ran,
+    "note": a fallback note or None} for the caller to record and show.
     """
-    lang = ocr_module.resolve_tesseract_lang(language, chinese_script)
+    ocr_backend, note = resolve_backend(ocr_backend, language)
+    if info is not None:
+        info.update(backend=ocr_backend, note=note)
+    if ocr_backend == "paddle":
+        lang = _HARDSUB_PADDLE_LANG.get(language, "ch")
+    else:
+        lang = ocr_module.resolve_tesseract_lang(language, chinese_script)
     with storage.job_workdir(job_id, dir=tmp_dir) as frame_dir:
         frames = extract_frames(video_path, frame_dir, interval_sec=sample_interval, job_id=job_id)
         if not frames:

@@ -54,7 +54,7 @@ def compute_workspace_stage_index(drama, lines, ddir):
 
 
 # Stage keys of the React stage bar (five stages) and the 7-tab index each
-# one covers (docs/specs/ux-workspace-shell-and-review.md, "Stage status").
+# one covers (docs/archive/ux-workspace-shell-and-review.md, "Stage status").
 STAGE_KEYS = ("source", "translate", "review", "dub", "export")
 _STAGE_FOR_INDEX = {0: "source", 1: "source", 2: "source", 3: "translate",
                     4: "review", 5: "dub", 6: "export"}
@@ -82,6 +82,7 @@ def get_drama_progress(drama_id: int) -> dict:
     flagged = sum(1 for ln in lines if ln.flag)
     has_audio = bool(drama.get("audio_filename") or drama.get("source_video_filename"))
     has_dub_track = os.path.isfile(os.path.join(ddir, "dub_track.wav"))
+    has_narration_track = os.path.isfile(os.path.join(ddir, "narration_track.wav"))
     exported = drama.get("status") == "exported"
     current = _STAGE_FOR_INDEX[index]
     no_lines = line_count == 0
@@ -106,5 +107,6 @@ def get_drama_progress(drama_id: int) -> dict:
     return {"drama_id": drama_id, "stage_index": index, "stage": current,
             "line_count": line_count, "untranslated_count": untranslated,
             "flagged_count": flagged, "has_audio": has_audio,
-            "has_dub_track": has_dub_track, "exported": exported,
+            "has_dub_track": has_dub_track, "has_narration_track": has_narration_track,
+            "exported": exported,
             "stages": [{"key": k, "state": state(k)} for k in STAGE_KEYS]}

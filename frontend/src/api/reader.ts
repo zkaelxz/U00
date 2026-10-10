@@ -1,5 +1,5 @@
-// Reader API (/api/reader, route batch 2B). Reads need library.read, exports
-// lines.read, writes lines.edit; AI tools need jobs.start plus the engine
+// Reader API (/api/reader, route batch 2B). Reads need library.read, the page and
+// exports lines.read, writes lines.edit; AI tools need jobs.start plus the engine
 // check (paid engines need engines.paid) and answer 429 when busy.
 
 import type { TranslateEngine } from '../types/translate'
@@ -26,6 +26,7 @@ import type {
   RichDeckDownload,
 } from '../types/reader'
 import { apiUrl, fetchBody, getJson, postJson } from './client'
+import { dispositionFilename } from './export'
 
 type Fetch = typeof fetch
 
@@ -58,16 +59,12 @@ export const wikiMarkdownUrl = (id: number, scope: WikiScope = {}) =>
 export const dubTrackUrl = (id: number) => apiUrl(`/api/dub/dramas/${id}/track`)
 
 // The engine ids the server's own _llm_engine rejects (translation-only).
-const TRANSLATION_ONLY = new Set(['nllb'])
+// None are offered now; mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
+export const TRANSLATION_ONLY = new Set<string>()
 
 // Engines that can answer Reader AI requests: configured, and not translation-only.
 export function readerEngines(all: TranslateEngine[]): TranslateEngine[] {
   return all.filter((e) => e.key_configured && !TRANSLATION_ONLY.has(e.name))
-}
-
-function headerFilename(resp: Response, fallback: string): string {
-  const m = /filename="([^"]+)"/.exec(resp.headers.get('Content-Disposition') ?? '')
-  return m ? m[1] : fallback
 }
 
 // The sentence-card deck is fetched rather than linked so the page can read
@@ -82,7 +79,7 @@ export async function downloadRichDeck(id: number, fetchImpl?: Fetch): Promise<R
   const capped = resp.headers.get('X-Cards-Capped')
   return {
     blob: await resp.blob(),
-    filename: headerFilename(resp, `drama_${id}_vocab_sentence.apkg`),
+    filename: dispositionFilename(resp.headers.get('Content-Disposition')) ?? `drama_${id}_vocab_sentence.apkg`,
     audioOmitted: resp.headers.get('X-Audio-Omitted') === 'true',
     cardsCapped: capped && /^\d+$/.test(capped) ? Number(capped) : null,
   }

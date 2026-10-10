@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 
 test('stats line, Continue shelf and global line search', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('stats')).toContainText('3 dramas')
+  await expect(page.getByTestId('stats')).toContainText('3 titles')
   const shelf = page.getByRole('region', { name: 'Continue' })
   // One entry per seeded drama (reading or workspace activity).
   await expect(shelf.getByRole('listitem')).toHaveCount(3)
@@ -22,67 +22,107 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
   // Clear filters brings the whole library back.
   await page.getByRole('radio', { name: 'Titles' }).check()
   await expect(page.getByLabel('Search title or summary')).toHaveValue('zzz-no-such-line')
-  await expect(page.getByText('No dramas match.')).toBeVisible()
+  await expect(page.getByText('No titles match.')).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).click()
-  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
 })
 
 test('create form validates client-side', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New drama' }).click()
-  const sheet = page.getByRole('dialog', { name: 'New drama' })
+  await page.getByRole('button', { name: 'New title' }).click()
+  const sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel('English title')).toBeFocused()
-  await sheet.getByRole('button', { name: 'Create drama' }).click()
+  await sheet.getByRole('button', { name: 'Create title' }).click()
   await expect(sheet.getByRole('alert')).toContainText('title')
   // Humanized options; the values stay raw.
   await expect(sheet.getByLabel('Media type').locator('option:checked')).toHaveText('Audio drama')
   await expect(sheet.getByLabel('Source language').locator('option:checked')).toHaveText('Chinese')
 })
 
-test('New drama keeps what was typed when the sheet closes; Cancel discards it', async ({ page }) => {
+test('New title keeps what was typed when the sheet closes; Cancel discards it', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New drama' }).click()
-  let sheet = page.getByRole('dialog', { name: 'New drama' })
+  await page.getByRole('button', { name: 'New title' }).click()
+  let sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('English title').fill('Draft title')
   await sheet.getByLabel('Media type').selectOption('novel')
   await page.keyboard.press('Escape')
   await expect(sheet).toBeHidden()
 
-  await page.getByRole('button', { name: 'New drama' }).click()
-  sheet = page.getByRole('dialog', { name: 'New drama' })
+  await page.getByRole('button', { name: 'New title' }).click()
+  sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
   await expect(sheet.getByLabel('Media type')).toHaveValue('novel')
   await sheet.getByRole('button', { name: 'Close' }).click()
-  await page.getByRole('button', { name: 'New drama' }).click()
+  await page.getByRole('button', { name: 'New title' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
 
   await sheet.getByRole('button', { name: 'Cancel' }).click()
   await expect(sheet).toBeHidden()
-  await page.getByRole('button', { name: 'New drama' }).click()
+  await page.getByRole('button', { name: 'New title' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('')
   await expect(sheet.getByLabel('Media type')).toHaveValue('audio_drama')
   // Nothing was created.
-  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
 })
 
 test('create (Enter submits) then delete with typed confirmation', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New drama' }).click()
-  await page.getByLabel('English title').fill('E2E Temp Drama')
+  await page.getByRole('button', { name: 'New title' }).click()
+  await page.getByLabel('English title').fill('E2E Temp Title')
   await page.getByLabel('English title').press('Enter')
   // Creating goes straight to the new drama's workspace; its details sheet is one click away in the Library.
   await expect(page).toHaveURL(/#\/drama\/\d+$/)
-  await expect(page.getByTestId('drama-title')).toHaveText('E2E Temp Drama')
+  await expect(page.getByTestId('drama-title')).toHaveText('E2E Temp Title')
   await page.getByRole('link', { name: 'Back to Library' }).click()
-  await page.getByRole('button', { name: 'Details: E2E Temp Drama' }).click()
-  const detail = page.getByRole('dialog', { name: 'E2E Temp Drama' })
+  await page.getByRole('button', { name: 'Details: E2E Temp Title' }).click()
+  const detail = page.getByRole('dialog', { name: 'E2E Temp Title' })
   await expect(detail).toBeVisible()
 
-  await detail.getByRole('button', { name: 'Delete drama…' }).click()
+  await detail.getByRole('button', { name: 'Delete title…' }).click()
   const confirm = detail.getByRole('button', { name: 'Delete permanently' })
   await expect(confirm).toBeDisabled()
   await detail.getByLabel('Type DELETE to confirm').fill('DELETE')
   await confirm.click()
-  await expect(page.getByRole('dialog', { name: 'E2E Temp Drama' })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Dramas' }).getByRole('link', { name: 'E2E Temp Drama' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'E2E Temp Title' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'E2E Temp Title' })).toHaveCount(0)
+})
+
+// Holds GET /api/dramas until released, and serves one typical card (short title, original title,
+// type, status and language pills) so the loaded height is fixed.
+async function holdOneCard(page: import('@playwright/test').Page, title: string) {
+  let release!: () => void
+  const gate = new Promise<void>((r) => { release = r })
+  await page.route((u) => u.pathname === '/api/library/dramas', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    await gate
+    const res = await route.fetch()
+    const body = await res.json()
+    const one = { ...body.items.find((d: { id: number }) => d.id === 1), title_en: title, custom_tags: [] }
+    await route.fulfill({ response: res, json: { ...body, items: [one], count: 1 } })
+  })
+  return release
+}
+
+test('the loading grid has the loaded card height, so the list does not jump', async ({ page }) => {
+  const release = await holdOneCard(page, 'Signal')
+  await page.goto('/#/library')
+  const loading = page.getByRole('status').filter({ hasText: 'Loading titles' })
+  await expect(loading).toHaveAttribute('aria-busy', 'true')
+  const skeleton = (await page.locator('.drama-grid.skeleton .drama-card').first().boundingBox())!.height
+  release()
+  const card = page.locator('.drama-grid:not(.skeleton) .drama-card').first()
+  await expect(card).toBeVisible()
+  expect(Math.abs((await card.boundingBox())!.height - skeleton)).toBeLessThanOrEqual(4)
+})
+
+test('a 130-character title clamps on its card and keeps the whole title in a title attribute', async ({ page }) => {
+  const long = 'Supercalifragilistic'.repeat(7).slice(0, 130)
+  const release = await holdOneCard(page, long)
+  release()
+  await page.goto('/#/library')
+  const link = page.locator('.drama-grid .drama-card-title').first()
+  await expect(link).toHaveAttribute('title', long)
+  const box = (await link.boundingBox())!
+  const cardBox = (await page.locator('.drama-grid .drama-card').first().boundingBox())!
+  expect(box.x + box.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
 })

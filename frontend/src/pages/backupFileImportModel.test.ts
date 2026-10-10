@@ -19,18 +19,18 @@ describe('backup file import model', () => {
   it('notes say what is and is not imported', () => {
     const notes = importNotes(list(), [A], '2026-09-30')
     expect(notes).toContain("If a title is already in your library, '(restored 2026-09-30)' is added to the new one.")
-    expect(notes.join(' ')).toContain('Files come in for the dramas marked "with files".')
+    expect(notes.join(' ')).toContain('Files come in for the titles marked "with files".')
     expect(notes.join(' ')).toContain('personal notes from the file are not imported')
   })
 
   it('files note follows the file and the choice', () => {
     expect(importNotes(list({ kind: 'database', media_available: false }), [A]).join(' ')).toContain('Files (audio/video/pages) are not in this file')
-    expect(importNotes(list(), [B]).join(' ')).toContain('None of the chosen dramas has files')
+    expect(importNotes(list(), [B]).join(' ')).toContain('None of the chosen titles has files')
     expect(importNotes(list({ schema_differs: true }), [A]).join(' ')).toContain('different version')
   })
 
   it('describes the result', () => {
     expect(describeImport({ imported: [{ source_id: 1, drama_id: 5, title: 'A', media_imported: false }], series_created: 0, media_imported: 0, counts: { lines: 1 } }))
-      .toBe('Imported 1 drama. 1 line. No files were imported.')
+      .toBe('Imported 1 title. 1 line. No files were imported.')
   })
 })

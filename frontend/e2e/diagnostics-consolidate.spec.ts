@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
 
 import { REV_OTHER, REV_WHISPER, cacheMock, guardWrites, mockDiagnostics } from './diagnosticsConsolidateMocks'
@@ -76,11 +77,10 @@ test('Setup holds speaker detection and one model list with sizes and Delete', a
   await expect(setup.getByRole('list', { name: 'pyannote diarization model downloads' })).toContainText('speaker-diarization-3.1')
   await expect(setup.locator('li', { hasText: 'SenseVoice (FunASR): 1.2.0' })).toContainText('not downloaded')
   await expect(setup.locator('li', { hasText: 'Qwen3-ASR: not installed' })).not.toContainText('not downloaded')
-  // Downloads no engine claims, Piper voices and other model files keep their own groups.
+  // Downloads no engine claims and other model files keep their own groups.
   await expect(setup.getByRole('list', { name: 'Downloaded models' })).toContainText('someone/unknown-model')
-  await expect(setup.getByRole('list', { name: 'Piper voices' })).toContainText('en_US-amy-medium')
   await expect(setup.getByRole('list', { name: 'Model files' })).toContainText('model.pt (PyTorch hub)')
-  await expect(setup).toContainText('A deleted model downloads again the next time a feature needs it.')
+  await expect(setup).toContainText('A deleted model downloads again when a feature needs it.')
 
   await setup.getByRole('button', { name: 'Delete Systran/faster-whisper-large-v3' }).click()
   expect(sent).toHaveLength(0)
@@ -104,20 +104,16 @@ test('Packages has no Missing packages fold; a task lists what it still needs', 
   await expect(ocr).toContainText('paddleocr')
   await expect(ocr.getByRole('button', { name: 'Install paddleocr' })).toBeVisible()
   // A package no task installs keeps its reason.
-  await expect(page.getByRole('list', { name: 'Packages not part of a task' })).toContainText("isn't on PyPI")
+  await expect(page.getByRole('list', { name: 'Packages not part of a task' })).toContainText("separate program")
   expect(unmocked).toEqual([])
 })
 
 test('each model engine is listed once, with Install in its Setup row; the other folds link to it', async ({ page }) => {
   await guardWrites(page)
   await mockDiagnostics(page)
-  const installed: string[] = []
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
-  await page.route('**/api/diagnostics/dependencies/*/install', (r) => {
-    installed.push(r.request().url())
-    return r.fulfill({ json: { ok: true, output_tail: ['done'], hint: null } })
-  })
+  const { started: installed } = await mockDependencyInstall(page, () => ({ ok: true, output_tail: ['done'] }))
   await page.goto('/#/diagnostics')
   // Open every fold: a name must still show up in only one engine list.
   for (const title of [/^Setup/, /^Model health/, /^Packages/]) await openSection(page, title)
@@ -136,7 +132,7 @@ test('each model engine is listed once, with Install in its Setup row; the other
   await expect(engines.getByRole('button', { name: /^Install/ })).toHaveCount(1)
   await qwen.getByRole('button', { name: /^Install/ }).click()
   await qwen.getByRole('button', { name: /^Confirm install/ }).click()
-  await expect(qwen.getByTestId('install-result')).toBeVisible()
+  await expect(qwen.getByTestId('install-result')).toBeVisible({ timeout: 10_000 })
   expect(installed).toHaveLength(1)
 })
 

@@ -72,7 +72,6 @@ Standard library only.
 """
 
 import argparse
-import contextlib
 import hashlib
 import json
 import os
@@ -90,6 +89,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from xml.etree import ElementTree as ET
 
+from installer.setup_lock import SETUP_RUNNING_MESSAGE, SetupRunning, default_mutexes, setup_lock
+
 APP_DIR = Path(__file__).resolve().parent.parent
 
 APP_SERVICE = "BaiheStudio"
@@ -101,10 +102,9 @@ ADMIN_PORT = 8600              # api_config.DEFAULT_PORT
 # The PC listener's own ports in RESERVED_PORTS: the service may take them,
 # the household listener may not.
 PC_LISTENER_PORTS = (ADMIN_PORT, ADMIN_PORT + 1)
-# Ports that are Baihe's own (settings_service.baihe_own_ports): the PC
-# listener's, the extension bridge's (page_server.DEFAULT_PORT), and
-# 8601, the documented "pick another port" for the PC listener. The
-# household listener may take none of them.
+# Fixed ports the household listener may not take: the PC listener's, the
+# extension bridge's (page_server.DEFAULT_PORT) and 8601, the documented
+# "pick another port". Static: settings_service.baihe_own_ports() differs.
 EXTENSION_BRIDGE_PORT = 8756    # page_server.DEFAULT_PORT
 RESERVED_PORTS = (ADMIN_PORT, ADMIN_PORT + 1, EXTENSION_BRIDGE_PORT)
 DEFAULT_HOUSEHOLD_PORT = 8610
@@ -181,22 +181,10 @@ EXIT_FAILED = 1
 EXIT_REFUSED = 2
 EXIT_NOT_ADMIN = 3
 
-# Setup's SetupMutex names, exactly as in installer/baihe.iss. Setup refuses
-# to start if it can open either one, and creates both (the plain name in its
-# session's namespace, the Global\ one machine-wide) for as long as it runs.
-SETUP_MUTEX_NAMES = ("BaiheStudioSetupMutex", "Global\\BaiheStudioSetupMutex")
 # The owner's commands that change the service and that Setup doesn't run.
 # Setup runs install, stop and uninstall itself while it holds its mutex, so
 # those must not wait for it.
 SETUP_LOCKED_COMMANDS = ("set-port", "enable-remote", "disable-remote")
-SETUP_RUNNING_MESSAGE = ("Setup is running, or another set-port, enable-remote or disable-remote; "
-                         "try again when it has finished. Nothing was changed.")
-ERROR_ACCESS_DENIED = 5
-ERROR_ALREADY_EXISTS = 183
-# Setup runs unelevated (PrivilegesRequired=lowest) and checks with
-# OpenMutex(SYNCHRONIZE), so everyone gets SYNCHRONIZE; only SYSTEM and
-# Administrators get full access.
-SETUP_MUTEX_SDDL = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x00100000;;;WD)"
 
 
 class ServiceError(Exception):
@@ -206,11 +194,6 @@ class ServiceError(Exception):
 class ConfigRefused(ServiceError):
     """Remote access isn't set up (or can't be) and nothing was changed
     (exit code 2)."""
-
-
-class SetupRunning(Exception):
-    """One of Setup's mutex names already exists: Setup, or another locked
-    command, is running."""
 
 
 def service_sid(name: str) -> str:
@@ -491,7 +474,7 @@ def app_service_env(data_dir, household_port: int = 0, allow_key_writes: bool = 
                 "BAIHE_API_AUTH": "off", "BAIHE_API_ENV": "production",
                 "BAIHE_API_ALLOW_KEY_WRITES": "1" if allow_key_writes else "0",
                 "BAIHE_DATA_DIR": str(data_dir),
-                "PYTHONNOUSERSITE": "1", "PYTHONUNBUFFERED": "1"})
+                "BAIHE_APPLY_PENDING": "1", "PYTHONNOUSERSITE": "1", "PYTHONUNBUFFERED": "1"})
     if household_port:
         env["BAIHE_API_HOUSEHOLD_PORT"] = str(int(household_port))
     return env
@@ -887,89 +870,6 @@ def is_admin() -> bool:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
-
-
-class WindowsMutexes:
-    """Named mutexes through kernel32. A mutex exists while any process has
-    a handle to it; nobody waits on or owns these, existing is the lock."""
-
-    def __init__(self):
-        import ctypes
-        from ctypes import wintypes
-
-        class SecurityAttributes(ctypes.Structure):
-            _fields_ = [("nLength", wintypes.DWORD), ("lpSecurityDescriptor", ctypes.c_void_p),
-                        ("bInheritHandle", wintypes.BOOL)]
-
-        self._ctypes = ctypes
-        self._attributes_type = SecurityAttributes
-        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        self._advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
-        self._kernel32.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
-        self._kernel32.CreateMutexW.restype = wintypes.HANDLE
-        self._kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
-        self._kernel32.CloseHandle.restype = wintypes.BOOL
-        self._kernel32.LocalFree.argtypes = (ctypes.c_void_p,)
-        self._kernel32.LocalFree.restype = ctypes.c_void_p
-        convert = self._advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW
-        convert.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p),
-                            ctypes.c_void_p)
-        convert.restype = wintypes.BOOL
-
-    def create(self, name: str):
-        """A handle to a new mutex called `name`; SetupRunning if it already
-        exists (or exists and may not be opened from here)."""
-        ctypes = self._ctypes
-        descriptor = ctypes.c_void_p()
-        if not self._advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                SETUP_MUTEX_SDDL, 1, ctypes.byref(descriptor), None):
-            raise ctypes.WinError(ctypes.get_last_error())
-        try:
-            attributes = self._attributes_type(ctypes.sizeof(self._attributes_type),
-                                               descriptor.value, False)
-            handle = self._kernel32.CreateMutexW(ctypes.byref(attributes), False, name)
-            error = ctypes.get_last_error()
-        finally:
-            self._kernel32.LocalFree(descriptor)
-        if not handle:
-            if error == ERROR_ACCESS_DENIED:
-                raise SetupRunning(name)
-            raise ctypes.WinError(error)
-        if error == ERROR_ALREADY_EXISTS:
-            self._kernel32.CloseHandle(handle)
-            raise SetupRunning(name)
-        return handle
-
-    def close(self, handle) -> None:
-        self._kernel32.CloseHandle(handle)
-
-
-class NoMutexes:
-    """Elsewhere than Windows there is no Setup to keep out."""
-
-    def create(self, name: str):
-        return None
-
-    def close(self, handle) -> None:
-        pass
-
-
-def default_mutexes():
-    return WindowsMutexes() if os.name == "nt" else NoMutexes()
-
-
-@contextlib.contextmanager
-def setup_lock(mutexes):
-    """Holds every one of Setup's mutex names until the block ends (also on
-    an error or Ctrl+C); SetupRunning, holding none, if any already exists."""
-    handles = []
-    try:
-        for name in SETUP_MUTEX_NAMES:
-            handles.append(mutexes.create(name))
-        yield
-    finally:
-        for handle in reversed(handles):
-            mutexes.close(handle)
 
 
 def _delete_on_reboot(path) -> None:

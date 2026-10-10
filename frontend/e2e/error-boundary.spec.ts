@@ -4,13 +4,13 @@ import { navLink, openMenu } from './settingsNav'
 // A page that crashes while rendering shows the error fallback instead of a
 // blank window, the header and nav stay usable, and leaving the route
 // clears it. The crash is forced with a malformed /api/library/stats body
-// (no "usage"), which the Library stats strip reads during render.
+// (no "translated_lines"), which the Library stats line reads during render.
 
 const SHOTS = process.env.SHOT_DIR
 
 async function breakLibraryStats(page: Page) {
   await page.route('**/api/library/stats', (route) =>
-    route.fulfill({ json: { total_dramas: 1, translated_lines: 0, total_lines: 0 } }),
+    route.fulfill({ json: { total_dramas: 1, total_lines: 0 } }),
   )
 }
 
@@ -21,7 +21,7 @@ test('a page render error shows the fallback, and navigating away recovers', asy
   const fallback = page.getByTestId('error-fallback')
   await expect(fallback).toBeVisible()
   await expect(fallback.getByRole('heading', { name: 'This page hit an error.' })).toBeVisible()
-  await expect(page.getByTestId('error-fallback-text')).toContainText('estimated_cost_usd')
+  await expect(page.getByTestId('error-fallback-text')).toContainText('toLocaleString')
   await expect(fallback.getByRole('button', { name: 'Copy error' })).toBeVisible()
   await expect(fallback.getByRole('button', { name: 'Reload' })).toBeVisible()
   await expect(fallback.getByRole('link', { name: 'Open Diagnostics' })).toHaveAttribute('href', '#/diagnostics')

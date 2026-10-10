@@ -2,7 +2,7 @@
 portable.py -- "the whole app folder just works when copied
 elsewhere" mode.
 
-Off by default: model downloads (Whisper, pyannote, F5-TTS, the
+Off by default: model downloads (Whisper, pyannote, OmniVoice, the
 audio-separator backend, ...) go to their libraries' own OS-standard
 cache locations (~/.cache/huggingface, ~/.cache/audio-separator-models),
 exactly as they would for any other Python tool using them -- unchanged

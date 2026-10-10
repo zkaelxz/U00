@@ -5,7 +5,7 @@ import { useState } from 'react'
 
 import { MAX_BACKLOG_TEXT, clearBacklog, deleteBacklogItem } from '../../api/assistant'
 import { Badge } from '../../components/Badge'
-import { Card } from '../../components/Card'
+import { Section } from '../../components/Section'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
@@ -78,20 +78,18 @@ export function BacklogCard({ items, loadError, onItems, onAdd }: Props) {
   const count = items?.length ?? 0
 
   return (
-    <Card
-      title="Backlog"
-      meta={items ? plural(count, 'item') : undefined}
-      aria-label="Backlog"
-      actions={
-        count > 0 && (
-          <ConfirmButton label="Clear all…" ariaLabel="Clear all backlog items" name="all backlog items" verb="clear" busy={busyId === 'all'} disabled={busyId !== null && busyId !== 'all'} onConfirm={clearAll} />
-        )
-      }
-    >
+    <section aria-label="Backlog">
+      {/* Outside the fold so a load failure is seen without opening the section. */}
       {loadError && (
         <p className="error" role="alert">
           {loadError}
         </p>
+      )}
+      <Section title="Backlog" summary={items ? plural(count, 'item') : 'Notes for later'} storageKey="assistant.backlog">
+      {count > 0 && (
+        <div className="assistant-actions">
+          <ConfirmButton label="Clear all…" ariaLabel="Clear all backlog items" name="all backlog items" verb="clear" busy={busyId === 'all'} disabled={busyId !== null && busyId !== 'all'} onConfirm={clearAll} />
+        </div>
       )}
       {!items ? (
         !loadError && <p className="muted">Loading…</p>
@@ -155,6 +153,7 @@ export function BacklogCard({ items, loadError, onItems, onAdd }: Props) {
           {error}
         </p>
       )}
-    </Card>
+      </Section>
+    </section>
   )
 }

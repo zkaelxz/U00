@@ -74,7 +74,17 @@ def get_line_history_snapshot(drama_id: int, history_id: int) -> dict:
               "dub_filename": os.path.basename(r["dub_filename"]) if r.get("dub_filename") else None}
              for r in raw]
     return {"id": meta["id"], "drama_id": drama_id, "label": meta["label"],
-            "created_at": meta["created_at"], "lines": lines}
+            "created_at": meta["created_at"], "lines": lines,
+            "lines_with_notes_removed": len(lines_losing_notes(
+                drama_id, raw, db.load_line_objects(drama_id)))}
+
+
+def lines_losing_notes(drama_id: int, rows, current) -> set:
+    """Ids of `current` lines that restoring snapshot `rows` would remove
+    while they have a translation note or emotion tag (the full sync deletes
+    those with the line)."""
+    kept = {ln.id for ln in core_module.restore_saved_lines(rows, current) if ln.id is not None}
+    return db.line_ids_with_refs(drama_id, {ln.id for ln in current} - kept)
 
 
 # ---------------------------------------------------------------------------

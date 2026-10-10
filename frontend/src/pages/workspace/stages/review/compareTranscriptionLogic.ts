@@ -73,6 +73,15 @@ export function capProblem(lineCount: number, maxLines: number): string | null {
     : null
 }
 
+// Same limit as the server's initial_prompt / extra_names fields.
+export const PROMPT_MAX_CHARS = 1000
+
+export function promptProblem(hint: string, names: string): string | null {
+  return hint.length > PROMPT_MAX_CHARS || names.length > PROMPT_MAX_CHARS
+    ? `The hint and the names are each limited to ${PROMPT_MAX_CHARS} characters.`
+    : null
+}
+
 export interface DiffPart {
   text: string
   changed: boolean
@@ -155,3 +164,8 @@ export function compareOutcome(job: {
   if (reason === 'model_download') return { kind: 'none', text: 'The speech model could not be downloaded.' }
   return { kind: 'none', text: 'The comparison failed. Nothing was changed.' }
 }
+
+// The Compare run's draft (hooks/useStageDraft, stage "review.compare"): the
+// options as last left; a size or backend this server no longer offers is dropped.
+export const COMPARE_DRAFT_STAGE = 'review.compare'
+export const COMPARE_DRAFT_SHAPE = { size: '', backend: '', translate: false, retranslate: false, extraNames: '', hint: '' }

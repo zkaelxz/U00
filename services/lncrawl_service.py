@@ -18,7 +18,7 @@ Safety of a run (the lncrawl 4.x CLI: `lncrawl crawl --noin -f epub
 - the argv is a fixed list built here, never a shell; the only user values
   are the URL (checked: http/https, no userinfo, no control characters, not
   starting with "-", passed after "--") and a chapter count (an int);
-- the URL is checked with `services.url_guard` first (private, loopback and
+- the URL is checked with `lib.url_guard` first (private, loopback and
   link-local hosts refused). lncrawl does its own fetching and redirects,
   which Baihe's per-request pinning cannot cover; that is why the routes are
   local_only();
@@ -50,7 +50,8 @@ from urllib.parse import urlsplit
 
 import background_jobs
 import db
-from services import drama_service, novel_attach_service, settings_service, url_guard
+from services import drama_service, novel_attach_service, settings_service
+from lib import url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 

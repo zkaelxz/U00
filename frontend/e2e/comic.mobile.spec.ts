@@ -148,7 +148,7 @@ test('screenshots: phone vertical, paged right to left and the text sheet', asyn
     const v = await mockComic(page, { id: 21, mediaType: 'manhwa', lastPage: 2, rendered: [1, 2] })
     await page.goto('/#/comic/21')
     await expect(page.getByTestId('comic-page').nth(1).locator('img')).toHaveJSProperty('complete', true)
-    await page.waitForTimeout(300)
+    await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
     await page.screenshot({ path: `${SHOTS_DIR}/phone-vertical-${scheme}.png` })
 
     await page.unrouteAll({ behavior: 'ignoreErrors' })
@@ -176,4 +176,42 @@ test('phone: the top bar does not move when the pages finish loading', async ({ 
   await expect(label(page)).toHaveText('1 / 12')
   expect(await translate.boundingBox()).toEqual(before)
   await noSideways(page)
+})
+
+// The link is an inline 0.9em anchor, so its box is ~20px; what must be 44px is the area that still answers as it.
+async function tapHeight(link: ReturnType<Page['locator']>) {
+  return link.evaluate((el) => {
+    el.scrollIntoView({ block: 'center' })
+    const r = el.getBoundingClientRect()
+    const x = r.left + r.width / 2
+    const cy = r.top + r.height / 2
+    const mine = (y: number) => {
+      const at = document.elementFromPoint(x, y)
+      return !!at && (el === at || el.contains(at))
+    }
+    let up = 0
+    let down = 0
+    while (up < 40 && mine(cy - up - 0.5)) up++
+    while (down < 40 && mine(cy + down + 0.5)) down++
+    return up + down
+  })
+}
+
+test('phone: the original-page link in the header has a 44 px tap area and no sideways scroll', async ({ page }) => {
+  await mockComic(page, { id: 7, mediaType: 'manhua', sourceUrl: 'https://example.org/series/7' })
+  await page.goto('/#/comic/7')
+  const link = page.locator('.comic-head').getByRole('link', { name: 'Open original page' })
+  await expect(link).toBeVisible()
+  expect(await tapHeight(link)).toBeGreaterThanOrEqual(44)
+  await noSideways(page)
+})
+
+test('phone: moving to another title drops the previous title\'s original-page link', async ({ page }) => {
+  await mockComic(page, { id: 7, mediaType: 'manhua', sourceUrl: 'https://example.org/series/7' })
+  await page.goto('/#/comic/7')
+  const link = page.locator('.comic-head').getByRole('link', { name: 'Open original page' })
+  await expect(link).toBeVisible()
+  // Title 8 has no mocked detail, so its load fails; A's link must not linger.
+  await page.evaluate(() => { window.location.hash = '#/comic/8' })
+  await expect(link).toHaveCount(0)
 })

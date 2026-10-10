@@ -10,30 +10,39 @@ read back with get_compare_result. apply_compare writes only `zh` (and `en`
 when the owner chose that candidate's English) per line, as a compare-and-set
 against what the preview was built from, after a history snapshot.
 """
-import os
-import subprocess
 import threading
 
 import asr_backend
 import background_jobs
 import core as core_module
+import whisper_models
 import db
+import sensitivity_preset as presets
 import translate_engines
-from services import (jobs_service, settings_service, transcribe_service,
+from services import (asr_options_service, compare_hear_worker, gpu_process_job, jobs_service,
+                      retranscribe_worker, settings_service, transcribe_pipeline, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
-                                      NotFoundError, UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    UnsupportedOperationError,
+)
 
 MAX_LINES = 200
 _MAX_TEXT_CHARS = 2000
-_SLICE_TIMEOUT_S = 120
 _MAX_APPLY_ITEMS = MAX_LINES
 
 SELECTION_KINDS = ("line_ids", "range", "flagged", "speaker", "time")
-BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td")
+BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
+# The Qwen3 backends that find speech themselves instead of hearing Whisper's segments.
+_VAD_BACKENDS = compare_hear_worker.VAD_BACKENDS
 _BACKEND_LABELS = {
     "whisper": "Whisper", "qwen3_asr": "Qwen3 ASR",
-    "qwen3_asr_vad": "Qwen3 ASR with speech detection", "moss_td": "MOSS (experimental)",
+    "qwen3_asr_vad": "Qwen3 ASR with speech detection",
+    "qwen3_asr_long": "Qwen3 ASR on long windows",
 }
 
 
@@ -54,14 +63,16 @@ def _backend_problem(choice: str, language: str):
     try:
         if choice == "qwen3_asr":
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
-        elif choice == "qwen3_asr_vad":
+        elif choice in _VAD_BACKENDS:
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
             transcribe_service._require_vad_packages()
-        elif choice == "moss_td":
-            transcribe_service._require_moss_backend()
     except (DependencyUnavailableError, InvalidInputError) as exc:
         return str(exc)
-    if choice in ("qwen3_asr", "qwen3_asr_vad") and language not in asr_backend.LANGUAGE_NAMES:
+    # Whisper hears the audio first on every other backend too.
+    if (choice in ("whisper", "qwen3_asr")
+            and not transcribe_service.diagnostics.check_dependency("faster_whisper")):
+        return transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE
+    if (choice == "qwen3_asr" or choice in _VAD_BACKENDS) and language not in asr_backend.LANGUAGE_NAMES:
         return "Qwen3-ASR doesn't cover this title's language."
     return None
 
@@ -81,12 +92,18 @@ def get_options(drama_id: int) -> dict:
         problem = _backend_problem(choice, language)
         backends.append({"id": choice, "label": _BACKEND_LABELS[choice],
                          "available": problem is None, "reason": problem})
+    try:
+        transcribe_service.require_qwen3_packages("The Qwen3 forced aligner")
+        aligner_reason = None
+    except DependencyUnavailableError as exc:
+        aligner_reason = exc.message
     return {
+        "aligner_reason": aligner_reason,
         "has_audio": has_audio,
         "no_audio_reason": None if has_audio else "This title has no stored audio to re-transcribe.",
         "max_lines": MAX_LINES,
         "saved_whisper_size": transcribe_service.stored_whisper_size(drama),
-        "saved_asr_backend": drama.get("asr_backend_choice") or "whisper",
+        "saved_asr_backend": asr_options_service.stored_asr_backend(drama),
         "saved_alignment_method": drama.get("alignment_method") or "whisper_diff",
         "whisper_sizes": sizes,
         "backends": backends,
@@ -143,7 +160,7 @@ def _validate_candidate(drama: dict, whisper_size, backend_choice):
     size = whisper_size or transcribe_service.stored_whisper_size(drama)
     if size not in transcribe_service._allowed_whisper_sizes():
         raise InvalidInputError(f"Unknown Whisper model size {size!r}.")
-    backend = backend_choice or drama.get("asr_backend_choice") or "whisper"
+    backend = backend_choice or asr_options_service.stored_asr_backend(drama)
     if backend not in BACKEND_CHOICES:
         raise InvalidInputError(f"Unknown ASR backend {backend!r}.")
     problem = _backend_problem(backend, drama.get("source_language") or "zh")
@@ -165,9 +182,8 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
             and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+    if api_key is None:
+        raise MissingKeyError(engine_name)
     cap = None
     if translate_run_service.engine_cap_applies(engine_name, gemini_free_tier):
         monthly = translate_run_service.month_cap_usd()
@@ -271,8 +287,11 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "language": drama.get("source_language") or "zh",
          "beam_size": drama.get("beam_size") or tuning["beam_size"],
          "min_silence_ms": drama.get("min_silence_ms") or tuning["min_silence_ms"],
-         "vad_threshold": drama.get("vad_threshold") or tuning["vad_threshold"],
+         "vad_threshold": presets.stored_vad_threshold(drama),
+         "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
+         "hallucination_silence_sec": transcribe_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
+         "repeat_guard": bool(drama.get("whisper_repeat_guard")),
          "use_gpu": settings_service.get_use_gpu()},
         translation, gpu_touching=True,
         description=f"Comparing transcription of {len(picked)} line(s) (drama #{drama_id})")
@@ -284,40 +303,19 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
 def _line_language(ln, cfg: dict, line_number: int):
     """(language to hear this line in, reason to skip it or None). A line's own
     language wins over the title's so a mixed-language line isn't re-heard in
-    the wrong one. Whisper takes any language; MOSS detects its own; the
+    the wrong one. Whisper takes any language; the
     VAD+Qwen3 backend hears an out-of-set language (English) by its own
     detection. Plain Qwen3 re-hears Whisper's spans in a fixed language and
     refuses one outside zh/ja/ko, so that line is skipped, not mis-heard."""
     language = ln.lang or cfg["language"]
     if language in asr_backend.LANGUAGE_NAMES:
         return language, None
-    if cfg["backend"] == "qwen3_asr_vad":
+    if cfg["backend"] in _VAD_BACKENDS:
         return None, None
     if cfg["backend"] == "qwen3_asr":
         return language, (f"line {line_number}: Qwen3-ASR doesn't cover this line's "
                           f"language ({language}), skipped")
     return language, None
-
-
-def _hear(slice_path: str, cfg: dict, language, on_fallback, cancel_check) -> str:
-    """Candidate source text for one cut line from the chosen backend."""
-    backend, use_gpu = cfg["backend"], cfg["use_gpu"]
-    if backend == "qwen3_asr_vad":
-        segments = asr_backend.get_backend(backend).transcribe(
-            slice_path, language, use_gpu=use_gpu, cancel_check=cancel_check)
-    elif backend == "moss_td":
-        segments = asr_backend.get_backend(backend).transcribe(
-            slice_path, language, use_gpu=use_gpu)
-    else:
-        segments = core_module.transcribe_for_timing(
-            slice_path, cfg["whisper_size"], language=language, use_gpu=use_gpu,
-            initial_prompt=cfg["prompt"], beam_size=cfg["beam_size"],
-            min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
-            on_gpu_fallback=on_fallback, fast_mode=cfg["fast_mode"])
-        if backend == "qwen3_asr" and segments:
-            segments = asr_backend.get_backend(backend).transcribe(
-                slice_path, language, segments, use_gpu=use_gpu)
-    return " ".join((s.get("text") or "").strip() for s in segments or []).strip()
 
 
 def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
@@ -330,7 +328,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     lines = [ln for ln in db.load_line_objects(drama_id) if ln.id in wanted]
     proposals, errors = [], []
     gpu_fallback = []
-    spent, cap_reached, cancelled = 0.0, None, False
+    spent, cap_reached, cancelled, timed_out = 0.0, None, False, False
     context = character_names = None
     engine = translation["engine"] if translation else None
     if translation:
@@ -344,10 +342,43 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
             engine, drama, style_note=translation["style_note"], locale=translation["locale"],
             glossary_terms=glossary_terms, style_guidelines=style_guidelines)
         context["source_language"] = cfg["language"]
-    failed_reason = detail = None
+    windows = []
+    for ln in lines:
+        language, skip_reason = _line_language(ln, cfg, ln.idx + 1)
+        if not skip_reason:
+            windows.append((ln.id, ln.idx + 1, float(ln.start), float(ln.end), language))
+    heard_by_id, failed_reason, detail, notice = {}, None, None, {}
+    if windows:
+        # The GPU work runs in its own process so Cancel kills it instead of
+        # waiting for a model call; translation below needs this process.
+        entries = []
+        try:
+            heard = gpu_process_job.run_in_child(
+                job_id, compare_hear_worker.hear_lines_worker, (audio_path, windows, cfg),
+                timeout_s=retranscribe_worker.retranscribe_timeout_s(
+                    sum(w[3] - w[2] for w in windows), len(windows)),
+                on_item=entries.append)
+        except background_jobs.JobCancelled:
+            cancelled = True
+            heard = {}
+        except gpu_process_job.ChildFailed as exc:
+            # What was heard before the child ended stays usable.
+            if not entries:
+                raise
+            errors.append(str(exc))
+            timed_out = True
+            heard = {}
+        heard_by_id = {entry["line_id"]: entry for entry in entries}
+        failed_reason = heard.get("failed_reason")
+        detail = jobs_service.scrub_text(heard.get("detail") or "") or None
+        if heard.get("gpu_fallback"):
+            gpu_fallback.append(heard["gpu_fallback"])
+        notice = {k: v for k, v in heard.items() if k == "ollama_notice"}
     try:
         for n, ln in enumerate(lines):
-            if background_jobs.is_cancel_requested(job_id):
+            # Already cancelled while hearing: the lines heard still become
+            # proposals, so the flag is not re-read here.
+            if not cancelled and background_jobs.is_cancel_requested(job_id):
                 cancelled = True
                 break
             background_jobs.update_progress(
@@ -356,33 +387,13 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
             if skip_reason:
                 errors.append(skip_reason)
                 continue
-            slice_path = os.path.join(os.path.dirname(audio_path), f"_comparetx_slice_{ln.id}.wav")
-            try:
-                try:
-                    core_module.extract_audio_slice(audio_path, float(ln.start), float(ln.end),
-                                                    slice_path, timeout=_SLICE_TIMEOUT_S)
-                except subprocess.TimeoutExpired:
-                    errors.append(f"line {ln.idx + 1}: cutting the audio took too long")
-                    continue
-                except (subprocess.CalledProcessError, OSError):
-                    # str() of these carries the ffmpeg command line, i.e. absolute paths.
-                    errors.append(f"line {ln.idx + 1}: couldn't cut this line's audio")
-                    continue
-                heard = _hear(slice_path, cfg, language,
-                              lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
-                              lambda: _cancel_check(job_id))
-            except background_jobs.JobCancelled:
-                cancelled = True
+            entry = heard_by_id.get(ln.id)
+            if entry is None:
                 break
-            except core_module.ModelDownloadError as exc:
-                failed_reason, detail = "model_download", jobs_service.scrub_text(str(exc))
-                break
-            except Exception as exc:
-                errors.append(jobs_service.scrub_text(f"line {ln.idx + 1}: {exc}"))
+            if entry.get("error"):
+                errors.append(jobs_service.scrub_text(entry["error"]))
                 continue
-            finally:
-                if os.path.exists(slice_path):
-                    os.remove(slice_path)
+            heard = entry["text"]
             if not heard:
                 errors.append(f"line {ln.idx + 1}: nothing was heard")
                 continue
@@ -391,7 +402,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                         "candidate_zh": heard[:_MAX_TEXT_CHARS], "current_en": ln.en or "",
                         "candidate_en": "", "translated": False}
             proposals.append(proposal)
-            if translation:
+            if translation and not (cancelled or timed_out):
                 if cap_reached is None and translation["cost_cap_usd"] is not None \
                         and spent >= translation["cost_cap_usd"]:
                     cap_reached = spent
@@ -399,14 +410,16 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                     spent += _translate_into(proposal, ln, engine, context, character_names,
                                              translation, drama_id, cfg["language"], errors)
     finally:
-        core_module.release_gpu_models()
+        whisper_models.release_gpu_models()
     result = {"proposals": proposals, "line_count": len(lines), "candidate_count": len(proposals),
               "errors": errors[:20], "cap_reached": cap_reached,
               "asr_backend": cfg["backend"], "whisper_size": cfg["whisper_size"],
-              "translated": bool(translation), "partial": bool(cancelled or cap_reached)}
+              "translated": bool(translation),
+              "partial": bool(cancelled or timed_out or cap_reached),
+              **notice}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
-        result["device_notice"] = core_module.gpu_fallback_notice(
+        result["device_notice"] = whisper_models.gpu_fallback_notice(
             "Comparing transcription", gpu_fallback[0])
     if failed_reason and not proposals:
         result = {"failed_reason": failed_reason, "detail": detail}
@@ -418,6 +431,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
 
 
 def _cancel_check(job_id):
+    """Also used by retime_service's aligner call."""
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
 
@@ -508,7 +522,8 @@ def _still_matches(ln, expected: dict) -> bool:
     return True
 
 
-def _snapshot_once_per_run(drama_id: int, run_token, lines):
+def _snapshot_once_per_run(drama_id: int, run_token, lines,
+                           label: str = "before compare-transcription apply"):
     """Takes the 'before' snapshot, unless this run already took one and no
     other snapshot has been taken since (undo to it still restores the state
     before this run's first apply)."""
@@ -517,8 +532,7 @@ def _snapshot_once_per_run(drama_id: int, run_token, lines):
         latest = db.list_line_history(drama_id)
         if latest and latest[0]["id"] == taken[1]:
             return
-    history_id = db.save_line_history_snapshot(drama_id, lines,
-                                               "before compare-transcription apply")
+    history_id = db.save_line_history_snapshot(drama_id, lines, label)
     _run_snapshots[drama_id] = (run_token, history_id)
 
 

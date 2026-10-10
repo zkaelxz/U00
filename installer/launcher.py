@@ -55,6 +55,7 @@ import portable  # noqa: E402 -- needs APP_DIR on sys.path first
 import process_guard  # noqa: E402
 from api.api_config import DEFAULT_PORT  # noqa: E402 -- standard library only, so safe this early
 
+APPLY_PENDING_SECONDS = 3600 + 300     # pending_install's own overall limit plus margin
 HEALTH_TRIES = 90          # seconds; a first start compiles every .pyc
 PID_FILE_NAME = "server.pid"
 TOKEN_FILE_NAME = "shutdown.token"
@@ -253,6 +254,83 @@ def start_server(python_exe: str, env: dict, headless: bool):
         if log is not None:
             log.close()
     return proc
+
+
+def pending_install_file() -> Path:
+    return Path(portable.data_dir()) / "pending_install" / "pending.json"
+
+
+def apply_lock_file() -> Path:
+    return pending_install_file().with_name("apply.lock")
+
+
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5                 # access denied: it exists
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) \
+                and code.value == 259                           # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True                                             # EPERM: owned by someone else, still running
+    except OSError:
+        return False
+    return True
+
+
+def _apply_running() -> bool:
+    # A start whose apply already took pending.json away is still running pip.
+    try:
+        if time.time() - apply_lock_file().stat().st_mtime >= APPLY_PENDING_SECONDS + 120:
+            return False
+    except OSError:
+        return False
+    # Closing pip's console or a crash leaves a fresh lock behind for the next
+    # hour; its pid says nobody holds it. A lock without a readable pid keeps
+    # the age rule alone.
+    try:
+        pid = json.loads(apply_lock_file().read_text(encoding="utf-8")).get("pid")
+    except (OSError, ValueError, AttributeError):
+        return True
+    if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+        return _pid_alive(pid)
+    return True
+
+
+def apply_pending_install(python_exe: str, env: dict, headless: bool) -> None:
+    """Runs an install queued from Diagnostics before the server starts, while
+    none of its files are loaded (Windows can't replace those). It has its own
+    console window so the wait is visible, never raises, and is bounded by its
+    own overall timeout, after which the server starts anyway. While another
+    start's apply is running it waits for that one, so the server never loads
+    numpy or cv2 under a pip that is replacing them."""
+    queued = pending_install_file().is_file()
+    if not queued and not _apply_running():
+        return
+    if headless and not queued:
+        # No window shows the wait, and the server doesn't start until it ends.
+        print("Waiting for an install from an earlier start to finish before starting the server.")
+    kwargs = {"cwd": str(APP_DIR), "env": env}
+    if os.name == "nt":
+        kwargs["creationflags"] = (subprocess.CREATE_NO_WINDOW if headless
+                                   else subprocess.CREATE_NEW_CONSOLE)
+    try:
+        subprocess.run([python_exe, "-s", "-m", "pending_install"],
+                       timeout=APPLY_PENDING_SECONDS, **kwargs)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def record_pid(proc, port: int = DEFAULT_PORT) -> bool:
@@ -489,6 +567,14 @@ def show_message(text: str, error: bool = True, headless: bool = False) -> None:
         print(text, file=sys.stderr)
 
 
+def _port_busy_message(port: int, url: str, stored) -> str:
+    fix = ("move Baihe Studio's service to another port with \"Baihe Studio "
+           "service\" in the Start menu" if stored is not None else
+           "set BAIHE_API_PORT to another port (for example 8601) and try again")
+    return (f"Something else is already using port {port}, and it isn't Baihe Studio "
+            f"({url}api/health doesn't answer). Close that program, or {fix}.")
+
+
 def launch(headless: bool = False) -> int:
     env = server_env()
     stored = service_port()
@@ -504,15 +590,16 @@ def launch(headless: bool = False) -> int:
             # keep the library in the program folder, which Setup replaces.
             raise LaunchError("Baihe Studio's install is incomplete. Run the installer again to "
                               "repair it; your data is kept.")
+        # Before the start lock: a long install must not outlast the lock's
+        # staleness window and let a second click start a second server.
+        # Never while something holds the port: a server that is up but not yet
+        # healthy has numpy and cv2 loaded, the files pip would replace.
+        if not port_open(port):
+            apply_pending_install(console_python(), env, headless)
         if acquire_start_lock():
             try:
                 if port_open(port):
-                    fix = ("move Baihe Studio's service to another port with \"Baihe Studio "
-                           "service\" in the Start menu" if stored is not None else
-                           "set BAIHE_API_PORT to another port (for example 8601) and try again")
-                    raise LaunchError(
-                        f"Something else is already using port {port}, and it isn't Baihe Studio "
-                        f"({url}api/health doesn't answer). Close that program, or {fix}.")
+                    raise LaunchError(_port_busy_message(port, url, stored))
                 proc = start_server(console_python(), env, headless)
                 healthy = wait_for_health(port, proc)
                 if healthy:

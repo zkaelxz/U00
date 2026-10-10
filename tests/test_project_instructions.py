@@ -82,8 +82,8 @@ class TestInstructionsPersistAndInherit:
 class TestWorkflowTiers:
     EXPECTED = {
         "draft": ("deepseek", None, False, False),
-        "standard": ("claude", "claude-sonnet-5", False, False),
-        "release": ("claude", "claude-opus-4-8", True, True),
+        "standard": ("claude", "claude-sonnet-5-5", False, False),
+        "release": ("claude", "claude-opus-5-5", True, True),
     }
 
     def test_tier_definitions(self):

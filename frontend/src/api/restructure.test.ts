@@ -104,10 +104,16 @@ describe('restructure api', () => {
     const calls: Call[] = []
     const f = fakeFetch([ok({}), ok({ history_id: 2, line_ids: [1] })], calls)
     await rs.previewResegment(3, f)
-    await rs.restoreSnapshot(3, 2, [1, 2], f)
+    await rs.restoreSnapshot(3, 2, [1, 2], undefined, f)
     expect(calls[0].url).toBe('/api/restructure/dramas/3/resegment/preview')
     expect(calls[1].url).toBe('/api/restructure/dramas/3/history/2/restore')
     expect(body(calls[1])).toEqual({ expected_line_ids: [1, 2] })
+  })
+
+  it('an undo restore sends the fingerprint of the lines the change left', async () => {
+    const calls: Call[] = []
+    await rs.restoreSnapshot(3, 2, [1, 2], 'abc', fakeFetch([ok({ history_id: 2, line_ids: [1] })], calls))
+    expect(body(calls[0])).toEqual({ expected_line_ids: [1, 2], expected_fingerprint: 'abc' })
   })
 
   it('pages through every line in order', async () => {

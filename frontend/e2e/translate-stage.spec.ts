@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 
 import { withTranslateLines } from './stageLineMocks'
 
-// Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
-const TRANSLATION_ONLY = ['nllb']
+// Mirrors translate_engines.TRANSLATION_ONLY_ENGINES (none are offered now).
+const TRANSLATION_ONLY: string[] = []
 
 // The run and job endpoints are mocked: nothing is translated. Config,
 // estimate, glossary and characters reads hit the real seeded API.
@@ -47,7 +47,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await run.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(page.getByTestId('estimate').or(page.getByRole('alert'))).toBeVisible()
 
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
 
   // Out-of-range values are caught before any request.
   await run.getByLabel('Batch size', { exact: true }).fill('500')
@@ -76,7 +76,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   })
   expect('line_ids' in bodies[0]).toBe(false)
 
-  await page.getByRole('button', { name: 'Cancel job' }).click()
+  await page.getByRole('button', { name: /^Cancel / }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
@@ -92,7 +92,7 @@ test('fallback engines: the rule is shown, only same-kind engines are offered, R
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   const group = run.getByTestId('fallback-engines')
   await expect(group).toContainText('Up to 2, tried in order only after the main engine keeps failing (it retries first).')
   await expect(group).toContainText('Not with Reflect or Bulk.')
@@ -127,7 +127,7 @@ test('a 409 on start says a translate job is already running', async ({ page }) 
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   await page.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
-  await expect(page.getByText('A translate job is already running for this drama.')).toBeVisible()
+  await expect(page.getByText('A translate job is already running for this title.')).toBeVisible()
 })
 
 test('with no lines, Translate is disabled and links to Source (rule 22)', async ({ page }) => {
@@ -136,7 +136,7 @@ test('with no lines, Translate is disabled and links to Source (rule 22)', async
   await expect(run.getByRole('button', { name: 'Translate 0 lines' })).toBeDisabled()
   const blocker = run.getByTestId('translate-blocker')
   await expect(blocker).toContainText('Still needed: lines to translate.')
-  await blocker.getByRole('link', { name: 'Go to Source' }).click()
+  await blocker.getByRole('link', { name: 'Go to Media' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/source$/)
 })
 
@@ -152,7 +152,7 @@ test('with every line translated, the reason offers Re-translate in one tap', as
   await expect(run.getByTestId('translate-blocker')).toHaveCount(0)
 })
 
-test('glossary and characters panels load; a drama without a series is told it cannot hold terms (X09)', async ({ page }) => {
+test('glossary and characters panels load; a title without a series is told it cannot hold terms (X09)', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   // Glossary starts open; Characters is a collapsed Section, open it to reach the body.
   await page.locator('details.section', { hasText: 'Characters' }).first().locator(':scope > summary').click()
@@ -223,3 +223,26 @@ test('a failed dismiss keeps the notice and shows the error (X01)', async ({ pag
   await expect(notice.getByRole('alert')).toContainText('Not allowed')
   await expect(notice.getByRole('button', { name: 'Dismiss notice' })).toBeEnabled()
 })
+
+for (const width of [1280, 390]) {
+  test(`engine notes fit the closed engine select at ${width}px wide`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 })
+    await withTranslateLines(page)
+    await page.goto('/#/drama/1/translate')
+    const run = page.getByRole('region', { name: 'Translate run' })
+    const select = run.locator('select').first()
+    await expect(select).toBeVisible()
+    const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
+    // Free-tier Gemini swaps in a different note, so measure both notes and every offered engine.
+    const overflowing = await select.evaluate((el: HTMLSelectElement) => {
+      const style = getComputedStyle(el)
+      const ctx = document.createElement('canvas').getContext('2d')!
+      ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+      const inner = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 24
+      return Array.from(el.options)
+        .map((o) => o.text)
+        .filter((t) => ctx.measureText(t).width > inner)
+    })
+    expect(overflowing, `engines: ${config.engines.map((e: { name: string }) => e.name)}`).toEqual([])
+  })
+}

@@ -4,6 +4,7 @@ import { ApiError } from '../../../api/client'
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
 import {
   autotuneEta,
+  isResumableScan,
   formatElapsed,
   AUTOTUNE_EXPIRED,
   ENGINE_CHANGED_TEXT,
@@ -19,6 +20,7 @@ import {
   novelGlossaryApplyErrorText,
   overwriteConfirmText,
   defaultTermSelection,
+  highConfidenceTerms,
   isActiveStatus,
   novelGlossaryBlocker,
   novelGlossaryProgressText,
@@ -33,6 +35,9 @@ const p = (term: string, already = false): NovelGlossaryProposal => ({
   policy: null,
   reason: '',
   already_in_glossary: already,
+  occurrences: 3,
+  alternatives: [],
+  confidence: 'high',
 })
 
 describe('auto-tune helpers', () => {
@@ -42,7 +47,7 @@ describe('auto-tune helpers', () => {
     expect(autotuneProgressText('queued', '')).toBe('Waiting for the GPU…')
   })
   it('explains why Start is disabled', () => {
-    expect(autotuneBlocker(false, false)).toBe('Still needed: audio on this drama.')
+    expect(autotuneBlocker(false, false)).toBe('Still needed: audio on this title.')
     expect(autotuneBlocker(true, true)).toBe('Wait for the running job to finish.')
     expect(autotuneBlocker(true, false)).toBeNull()
   })
@@ -62,11 +67,11 @@ describe('auto-tune helpers', () => {
 describe('glossary-from-novel helpers', () => {
   it('needs a series first, then novel text, each with a Source link', () => {
     expect(novelGlossaryBlocker(2, null, true)).toEqual({
-      text: 'Still needed: a series for this drama',
+      text: 'Still needed: a series for this title',
       link: 'set it in Details',
       href: '#/drama/2/source',
     })
-    expect(novelGlossaryBlocker(2, 7, false)?.link).toBe('attach it on Source')
+    expect(novelGlossaryBlocker(2, 7, false)?.link).toBe('attach it on Media')
     expect(novelGlossaryBlocker(2, 7, true)).toBeNull()
   })
   it('shows progress as a percent', () => {
@@ -126,5 +131,26 @@ describe('auto-tune elapsed time and ETA', () => {
     // 2 of 3 started after 60 s: one finished (60 s each), two remain incl. the current one.
     expect(autotuneEta(60, 'Testing candidate 2 of 3 (800ms)...')).toBe('about 2:00 left')
     expect(autotuneEta(180, 'Testing candidate 3 of 3 (800ms)...')).toBe('about 1:30 left')
+  })
+})
+
+describe('highConfidenceTerms', () => {
+  it('keeps High proposals that are not already in the glossary', () => {
+    const low = { ...p('low'), confidence: 'low' as const }
+    expect([...highConfidenceTerms([p('a'), low, p('b', true), p('c')])]).toEqual(['a', 'c'])
+    expect(highConfidenceTerms([]).size).toBe(0)
+  })
+})
+
+describe('isResumableScan', () => {
+  it('reopens running, failed and finished-with-proposals scans only', () => {
+    expect(isResumableScan({ status: 'queued' })).toBe(true)
+    expect(isResumableScan({ status: 'running' })).toBe(true)
+    expect(isResumableScan({ status: 'error' })).toBe(true)
+    expect(isResumableScan({ status: 'done', proposals: [{}] })).toBe(true)
+    expect(isResumableScan({ status: 'done', proposals: [] })).toBe(false)
+    expect(isResumableScan({ status: 'done', proposals: null })).toBe(false)
+    expect(isResumableScan({ status: 'cancelled' })).toBe(false)
+    expect(isResumableScan({ status: 'idle' })).toBe(false)
   })
 })

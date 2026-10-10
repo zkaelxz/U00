@@ -4,8 +4,10 @@ import type {
   AssExportRequest,
   AssStyleOptions,
   AssStyleOverrides,
+  MediaKind,
   SubtitleField,
 } from '../../types/export'
+import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
 
 export const MAX_SPEAKER_COLORS = 200
 const MAX_LABEL_CHARS = 100
@@ -42,32 +44,20 @@ export const emptyAssForm = (preset: string): AssForm => ({
 
 const HEX = /^#[0-9A-Fa-f]{6}$/
 
-const formKey = (dramaId: number) => `baihe.export.style.${dramaId}`
+// The Export stage's draft (hooks/useStageDraft, stage "export") holds the
+// format and the style form, which the Review burn preview renders with too.
+export const EXPORT_DRAFT_STAGE = 'export'
 
-// The Export stage's style form is kept per viewer so the Review burn preview
-// can render with the same style. Storage may be missing or throw.
-export function saveAssForm(dramaId: number, form: AssForm): void {
-  try {
-    window.localStorage.setItem(formKey(dramaId), JSON.stringify(form))
-  } catch {
-    // ignore
+/** The style form kept in the Export draft, or null when the draft has none; wrong-typed values fall back. */
+export function assFormFromDraft(raw: Record<string, unknown> | null): AssForm | null {
+  const parsed = raw?.form
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const stored = parsed as Record<string, unknown>
+  const out: Record<string, unknown> = { ...emptyAssForm('') }
+  for (const [k, v] of Object.entries(out)) {
+    if (typeof stored[k] === typeof v) out[k] = stored[k]
   }
-}
-
-export function loadAssForm(dramaId: number): AssForm | null {
-  try {
-    const raw = window.localStorage.getItem(formKey(dramaId))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Record<string, unknown> | null
-    if (!parsed || typeof parsed !== 'object') return null
-    const out: Record<string, unknown> = { ...emptyAssForm('') }
-    for (const [k, v] of Object.entries(out)) {
-      if (typeof parsed[k] === typeof v) out[k] = parsed[k]
-    }
-    return out as unknown as AssForm
-  } catch {
-    return null
-  }
+  return out as unknown as AssForm
 }
 
 // Blank means "not set"; otherwise an integer from min to max.
@@ -174,15 +164,19 @@ export function buildAssRequest(
 
 export const MAX_BASE_NAME = 100
 
-// Download name for a generated subtitle file. The name is chosen client-side
-// (Blob + <a download>); the API's own Content-Disposition name is not used.
-// Blank means the API's default shape, drama_<id>_<field>.
-export function exportFilename(base: string, dramaId: number, field: SubtitleField, ext: string): string {
+// Download name for a generated subtitle file, saved client-side (Blob +
+// <a download>). A name the user typed wins; blank means the server's
+// Content-Disposition name (title, episode, language), and only when the
+// response carried none, drama_<id>_<field>.
+export function exportFilename(
+  base: string, dramaId: number, field: SubtitleField, ext: string, serverName: string | null = null,
+): string {
   const clean = [...base.trim()]
     .map((c) => (c < ' ' || c === '\x7f' || '<>:"/\\|?*'.includes(c) ? '_' : c))
     .join('')
     .slice(0, MAX_BASE_NAME)
     .replace(/[.\s]+$/, '')
+  if (!clean && serverName) return serverName
   return `${clean || `drama_${dramaId}_${field}`}.${ext}`
 }
 
@@ -223,4 +217,16 @@ export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Which media export blocks start open: the subtitle-track video is the one used most.
+const MEDIA_BLOCK_DEFAULT_OPEN: Partial<Record<MediaKind, boolean>> = { softsub_video: true }
+
+export function mediaBlockStorageKey(kind: MediaKind): string {
+  return `export.media.${kind}`
+}
+
+/** The remembered open state of a media block, else its default. */
+export function mediaBlockOpen(storage: StorageLike | null, kind: MediaKind): boolean {
+  return readSectionOpen(storage, mediaBlockStorageKey(kind), MEDIA_BLOCK_DEFAULT_OPEN[kind] === true)
 }

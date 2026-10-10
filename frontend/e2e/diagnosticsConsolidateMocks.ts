@@ -13,7 +13,7 @@ const setup = (ffmpegFound = true) => ({
   ffmpeg: { found: ffmpegFound, version: '6.1', libass: true },
   js_runtime: { found: true, name: 'deno' },
   cuda: { torch_installed: false, cuda_available: null },
-  files: { all_present: true, missing_top_level: [], missing_tabs: [] },
+  files: { all_present: true, missing_top_level: [] },
   library_writable: true,
 })
 
@@ -25,9 +25,9 @@ const overview = {
     jieba: { installed: true, powers: 'Chinese word segmentation', tier: 'feature' },
     'yt-dlp': { installed: false, powers: 'downloading video', tier: 'feature' },
     paddleocr: { installed: false, powers: 'OCR (PaddleOCR backend)', tier: 'feature' },
-    'moss-transcribe-diarize': { installed: false, powers: 'experimental one-pass transcription', tier: 'experimental' },
+    'lightnovel-crawler': { installed: false, powers: 'novel text import', tier: 'feature' },
   },
-  file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+  file_completeness: { missing_top_level: [], all_present: true },
   library_writable: true,
   gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
   model_engine_versions: [
@@ -60,8 +60,8 @@ const presets = {
     jieba: pkg('jieba', { installed: true }),
     paddleocr: pkg('paddleocr', { approx_mb: 600, source_url: 'https://pypi.org/project/paddleocr/' }),
     'yt-dlp': pkg('yt-dlp'),
-    'moss-transcribe-diarize': pkg('moss-transcribe-diarize', {
-      installable: false, not_offered_reason: "not offered: it isn't on PyPI. It installs from its GitHub repository.",
+    'lightnovel-crawler': pkg('lightnovel-crawler', {
+      installable: false, not_offered_reason: "not offered: it's a separate program you install yourself.",
     }),
   },
 }
@@ -74,8 +74,6 @@ export function cacheMock() {
       { repo_id: 'someone/unknown-model', repo_type: 'model', revision: REV_OTHER, size_bytes: 1_000_000 },
     ],
     hf_total_bytes: 3_121_000_000,
-    piper_voices: [{ voice: 'en_US-amy-medium', size_bytes: 63_000_000 }],
-    piper_total_bytes: 63_000_000,
     model_files: [{ folder: 'torch', name: 'model.pt', size_bytes: 84_000_000 }],
     model_files_total_bytes: 84_000_000,
   }

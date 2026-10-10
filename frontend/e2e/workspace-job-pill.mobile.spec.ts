@@ -26,8 +26,8 @@ test('phone: pill is a 44px target, no sideways scroll, stage strip stays on scr
   }
   expect((await page.locator('.ws-strip').boundingBox())!.height).toBeLessThanOrEqual(112)
   await pill.tap()
-  const panel = page.getByRole('region', { name: 'Running on this drama' })
+  const panel = page.getByRole('region', { name: 'Running on this title' })
   await expect(panel).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  expect((await panel.getByRole('button', { name: 'Cancel job' }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await panel.getByRole('button', { name: /^Cancel / }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
 })

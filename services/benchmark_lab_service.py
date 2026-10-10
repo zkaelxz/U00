@@ -18,11 +18,14 @@ benchmark_cases table) rather than beside it:
   through each in turn under one arena_group; arena() lines their results
   up case by case. This replaces the "compare engines on one case"
   check with a persisted, whole-set version.
-- Metrics (item 11): translation scores are benchmark.score_text_similarity;
+- Metrics (item 11): translation scores are benchmark.translation_similarity;
   transcription and OCR use 1 - CER (character error rate), or 1 - WER for
   a transcript in a space-delimited language. Each result records its
   metric so a WER is never read as a translation score. One aggregate
   score per run plus per-example pass/fail (item 8: no rubric sliders).
+  Translation similarity is chrF when sacrebleu is installed (metric "chrf",
+  passes at CHRF_PASS_THRESHOLD) and the difflib ratio when it isn't (metric
+  "similarity", passes at PASS_THRESHOLD); older results keep "similarity".
   CER/WER use jiwer when it is installed (lower-cased and whitespace
   normalised on both texts; punctuation removed for transcripts but kept
   for OCR, where it is part of what was read) and the built-in scorer when it
@@ -40,9 +43,9 @@ they are stored.
 Not built here: scoped translation-memory saves,
 the auto-derived Translation Profile and a COMET scorer.
 """
+import whisper_models
 import functools
 import json
-import time
 import uuid
 
 import background_jobs
@@ -50,10 +53,17 @@ import benchmark
 import db
 import translate_engines
 from core import SOURCE_LANGUAGES
+from engine_backends import llm_tasks
 from services import settings_service, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError,
-                                     UnsupportedOperationError)
+from services.benchmark_case_service import (redact, run_file_case as _run_file_case,
+                                                   run_translation as _run_translation)
+from services.service_errors import (
+    ConflictError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    UnsupportedOperationError,
+)
 
 JOB_ID = "benchmark_lab"
 TIERS = ("public", "application", "regression")
@@ -61,6 +71,10 @@ STAGES = ("translation", "transcription", "ocr")
 REGRESSION_SET = "regressions"
 # A result at or above this counts as a pass (the per-example pass/fail).
 PASS_THRESHOLD = 0.8
+# chrF scores a sentence far lower than difflib does for the same acceptable
+# paraphrase (a close rewording lands near 0.5-0.6, a different meaning below
+# 0.3 on hand-checked en/zh pairs), so 0.8 would fail nearly everything.
+CHRF_PASS_THRESHOLD = 0.5
 MAX_CONFIGS = 4
 MAX_TEXT_CHARS = 4000
 MAX_IMPORT_CASES = 500
@@ -153,15 +167,19 @@ def _jiwer_error_rate(actual: str, reference: str, unit: str, keep_punctuation: 
     return (out.substitutions + out.deletions + out.insertions + extra) / len(r)
 
 
+def pass_threshold(metric: str) -> float:
+    return CHRF_PASS_THRESHOLD if metric == "chrf" else PASS_THRESHOLD
+
+
 def score_output(stage: str, output: str, reference: str, source_language: str = "zh"):
     """(score 0.0-1.0 or None when there is no reference, metric name,
-    scorer): scorer is "jiwer" or "builtin" for CER/WER, "builtin" for
-    translation similarity, None when nothing was scored."""
+    scorer): scorer is "jiwer" or "builtin" for CER/WER, "sacrebleu" or
+    "builtin" for translation similarity, None when nothing was scored."""
     if stage == "translation":
-        metric = "similarity"
         if not reference:
-            return None, metric, None
-        return benchmark.score_text_similarity(output, reference), metric, "builtin"
+            return None, "similarity", None
+        score, metric = benchmark.translation_similarity(output, reference)
+        return score, metric, "sacrebleu" if metric == "chrf" else "builtin"
     unit = "char" if stage == "ocr" or source_language in _CHARACTER_LANGUAGES else "word"
     metric = "cer" if unit == "char" else "wer"
     if not reference:
@@ -236,12 +254,7 @@ def list_cases(stage: str = None, tier: str = None, set_name: str = None) -> dic
         raise InvalidInputError("Unknown stage.")
     if tier is not None:
         _check_tier(tier)
-    cases = db.list_benchmark_cases(stage)
-    if tier:
-        cases = [c for c in cases if (c.get("tier") or "application") == tier]
-    if set_name:
-        cases = [c for c in cases if (c.get("set_name") or "") == set_name]
-    return {"cases": [_case_out(c) for c in cases]}
+    return {"cases": [_case_out(c) for c in _select_cases(stage, tier, set_name)]}
 
 
 def list_sets() -> dict:
@@ -393,9 +406,10 @@ def get_options() -> dict:
     return {
         "stages": list(STAGES), "tiers": list(TIERS), "source_languages": list(SOURCE_LANGUAGES),
         "translation_engines": translate_service.list_engines(),
-        "whisper_sizes": list(core.WHISPER_MODELS.keys()),
+        "whisper_sizes": list(whisper_models.WHISPER_MODELS.keys()),
         "ocr_backends": list(OCR_BACKENDS),
-        "pass_threshold": PASS_THRESHOLD, "max_configs": MAX_CONFIGS,
+        "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
+        "max_configs": MAX_CONFIGS,
     }
 
 
@@ -428,7 +442,7 @@ def check_config(stage: str, cfg) -> dict:
     if stage == "transcription":
         import core
         size = model or engine
-        if size not in core.WHISPER_MODELS:
+        if size not in whisper_models.WHISPER_MODELS:
             raise InvalidInputError("Unknown Whisper size.")
         return {"engine": "whisper", "model": size}
     if engine not in OCR_BACKENDS:
@@ -502,7 +516,7 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
 
 def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
               case_ids: list = None, label: str = "", prompt_version: str = "",
-              use_gpu: bool = None, max_cost_usd: float = None) -> dict:
+              use_gpu: bool = None, max_cost_usd: float = None, judge: dict = None) -> dict:
     """Starts a background run: one benchmark_sessions row per config
     (several configs = one Model Arena group). Refused when the monthly cap
     is used up or the estimate is over what's left of it. max_cost_usd is an
@@ -522,9 +536,8 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     if stage == "translation":
         for cfg in checked:
             key = translate_service.resolve_api_key(cfg["engine"])
-            if key is None and cfg["engine"] != "nllb":
-                raise DependencyUnavailableError(
-                    f"No {cfg['engine']} key is configured. Set one in Settings first.")
+            if key is None:
+                raise MissingKeyError(cfg['engine'])
             engines.append(key)
     if _job_active():
         raise ConflictError("A benchmark run is already going.")
@@ -545,8 +558,9 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             "case_count": len(cases)}))
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = background_jobs.start_job(
-        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd,
-        gpu_touching=stage != "translation" or any(c["engine"] in ("ollama", "nllb") for c in checked),
+        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
+        gpu_touching=stage != "translation" or any(
+            translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
         description="Benchmark run")
     if not started:
         # Nothing ran: leave no rows behind.
@@ -561,65 +575,6 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
 def _now() -> str:
     import datetime
     return datetime.datetime.utcnow().isoformat()
-
-
-def redact(text, key=None):
-    """Secrets (redact_secrets, plus the run's own key by value, since a key
-    without a recognisable prefix would otherwise slip through) and absolute
-    paths / the OS user name (diagnostics.redact_for_support, via
-    jobs_service's never-raising wrapper): errors are shown to remote admins."""
-    if not text:
-        return text
-    text = str(text)
-    if key and len(key) >= 8:
-        text = text.replace(key, "[redacted]")
-    from services import jobs_service
-    return jobs_service.redact_text(text)
-
-
-def _translation_context(case: dict) -> dict:
-    """The case's own source language, where every engine reads it (MT
-    engines from source_language, LLM prompts from drama_meta); an empty
-    context would make every engine treat Japanese/Korean as Chinese."""
-    lang = case.get("source_language") if case.get("source_language") in SOURCE_LANGUAGES else "zh"
-    return {"source_language": lang, "target_language": "en",
-            "drama_meta": {"source_language": lang}}
-
-
-def _run_translation(engine, case: dict, key: str = None) -> dict:
-    started = time.monotonic()
-    usage = None
-    try:
-        # Same retry as a normal translation: a transient 429/5xx shouldn't
-        # score 0 and skew the Arena.
-        ctx = _translation_context(case)
-        out = translate_engines.call_with_backoff(
-            lambda: engine.translate_batch([case.get("source_text") or ""], ctx))
-        output_text = out[0] if out else ""
-        error = None
-        usage = getattr(engine, "last_usage", None)
-    except Exception as exc:
-        output_text, error = "", redact(exc, key)
-    cost = 0.0
-    if usage:
-        cost = translate_engines.estimate_cost_for_engine(
-            engine, usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0,
-            usage.get("cache_read_tokens", 0) or 0, usage.get("cache_write_tokens", 0) or 0)
-    return {"output_text": output_text, "error": error, "cost_usd": cost, "usage": usage or {},
-            "duration_seconds": time.monotonic() - started}
-
-
-def _run_file_case(stage: str, cfg: dict, case: dict, use_gpu: bool) -> dict:
-    import os
-    if not case.get("input_filename"):
-        return {"output_text": "", "error": "This case has no input file.", "duration_seconds": 0.0}
-    prepared = dict(case, input_path=os.path.join(db.BENCHMARK_DIR, case["input_filename"]))
-    if stage == "transcription":
-        r = benchmark.run_transcription_case(prepared, whisper_size=cfg["model"], use_gpu=use_gpu)
-    else:
-        r = benchmark.run_ocr_case(prepared, backend=cfg["engine"])
-    r["error"] = redact(r.get("error"))
-    return r
 
 
 def _peak_vram_mb():
@@ -638,9 +593,12 @@ def _reset_vram():
         pass
 
 
-def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
+def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
     try:
         _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap)
+        if judge:
+            from services import benchmark_judge_service
+            benchmark_judge_service.run_pass(job_id, plan, judge)
     finally:
         # A crash mid-run must not leave a run looking "running" forever.
         for sid, _cfg, _key in plan:
@@ -701,13 +659,23 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                 f"{cfg['engine']}{' ' + cfg['model'] if cfg.get('model') else ''}: "
                 f"{case.get('label') or case['id']}")
             if stage == "translation":
-                r = _run_translation(engine, case, api_key)
+                # Scope only for the cancel check: it lets call_with_backoff
+                # stop at its next retry instead of sleeping out a cancelled run.
+                with llm_tasks.bounded_llm_calls(
+                        job_id, lambda: background_jobs.is_cancel_requested(job_id)):
+                    r = _run_translation(engine, case, api_key)
                 if r["cost_usd"] or r["usage"]:
                     db.log_usage(None, cfg["engine"], getattr(engine, "model", cfg["model"]) or "",
                                  "benchmark", r["usage"].get("input_tokens", 0) or 0,
                                  r["usage"].get("output_tokens", 0) or 0, r["cost_usd"],
                                  r["usage"].get("cache_read_tokens", 0) or 0)
                 spent += r["cost_usd"]
+                # After the usage log: a request that finished and was billed
+                # while a cancel was pending still counts toward the cap.
+                if background_jobs.is_cancel_requested(job_id):
+                    # The interrupted case would be saved as an engine error.
+                    status = "cancelled"
+                    break
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu)
             score, metric, scorer = score_output(stage, r.get("output_text") or "",
@@ -719,7 +687,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                 # answers them all.
                 score = 0.0
             r["score"], r["metric"], r["scorer"] = score, metric, scorer
-            r["passed"] = None if score is None else score >= PASS_THRESHOLD
+            r["passed"] = None if score is None else score >= pass_threshold(metric)
             db.save_benchmark_result(session_id, case, r)
             if r.get("error"):
                 errors += 1

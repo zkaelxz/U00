@@ -18,7 +18,7 @@ function wav(seconds = 0.3): Buffer {
 }
 
 const voice = (id: number, name: string, clip = true) => ({
-  id, name, language: 'zh', clone_engine: 'f5_tts', source_drama: null, clip_available: clip,
+  id, name, language: 'zh', clone_engine: 'omnivoice', source_drama: null, clip_available: clip,
 })
 
 test('voice bank: Play only where a clip exists; plays the entry clip; a refused clip says why', async ({ page }) => {

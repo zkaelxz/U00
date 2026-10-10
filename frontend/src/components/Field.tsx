@@ -17,7 +17,8 @@
  * Do not also wrap the control in <label>; Field renders the <label>.
  */
 import { fieldIds } from './fieldIds'
-import { Children, cloneElement, isValidElement, useId, useState, type ReactElement } from 'react'
+import { HelpTip } from './HelpTip'
+import { Children, cloneElement, isValidElement, useId, type ReactElement } from 'react'
 
 type FieldProps = {
   label: string
@@ -29,7 +30,6 @@ type FieldProps = {
 
 export function Field({ label, unit, help, error, children }: FieldProps) {
   const base = useId()
-  const [helpOpen, setHelpOpen] = useState(false)
   const ids = fieldIds(base, { help: !!help, error: !!error })
   const child = Children.only(children)
   const control = isValidElement<Record<string, unknown>>(child)
@@ -45,36 +45,9 @@ export function Field({ label, unit, help, error, children }: FieldProps) {
       <div className="field-label-row">
         <label htmlFor={ids.controlId}>{label}</label>
         {help && (
-          <span
-            className="field-help"
-            onMouseEnter={() => setHelpOpen(true)}
-            onMouseLeave={() => setHelpOpen(false)}
-          >
-            <button
-              type="button"
-              className="field-help-btn"
-              aria-label={`Help: ${label}`}
-              aria-describedby={ids.helpId}
-              aria-expanded={helpOpen}
-              onClick={() => setHelpOpen((v) => !v)}
-              onFocus={() => setHelpOpen(true)}
-              onBlur={() => setHelpOpen(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') setHelpOpen(false)
-              }}
-            >
-              i
-            </button>
-            <span
-              id={ids.helpId}
-              role="tooltip"
-              className="field-help-text"
-              hidden={!helpOpen}
-              onMouseDown={(e) => e.preventDefault()}
-            >
-              {help}
-            </span>
-          </span>
+          <HelpTip label={label} id={ids.helpId}>
+            {help}
+          </HelpTip>
         )}
       </div>
       <div className="field-control">

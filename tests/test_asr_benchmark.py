@@ -175,6 +175,18 @@ class TestRunBenchmarkSequencing:
         assert results["stages"][3].ok is True
 
 
+class TestReportPayload:
+    def test_word_lists_are_dropped_from_stage_segments_but_the_run_keeps_them(self):
+        seg = {"start": 0.0, "end": 1.0, "text": "你好",
+               "words": [{"start": 0.0, "end": 0.5, "word": "你"}]}
+        stage = asr_benchmark.StageResult(name="whisper_transcribe", ok=True, seconds=1.0,
+                                           peak_vram_mb=None, data={"segments": [seg]})
+        payload = asr_benchmark.report_payload({"stages": [stage]})
+        assert payload["stages"][0]["data"]["segments"] == [
+            {"start": 0.0, "end": 1.0, "text": "你好"}]
+        assert "words" in seg and "words" in stage.data["segments"][0]
+
+
 class TestPrintSummaryDoesNotCrash:
     def test_prints_without_error_for_a_minimal_result_set(self, capsys):
         stage = asr_benchmark.StageResult(name="whisper_transcribe", ok=True, seconds=1.5,

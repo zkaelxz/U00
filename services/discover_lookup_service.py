@@ -34,9 +34,13 @@ import title_library
 import translate_engines
 from services import discover_catalog_service as _catalog
 from services import ownership_service, safe_fetch, settings_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                     RateLimitedError,
-                                     UnsupportedOperationError)
+from services.service_errors import (
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    RateLimitedError,
+    UnsupportedOperationError,
+)
 
 DEFAULT_ENGINE = "claude"
 MAX_QUERY_LEN = _catalog.MAX_QUERY_LEN
@@ -94,8 +98,7 @@ def _build_engine(engine_name: str):
         return translate_engines.get_engine(engine_name, None)
     api_key = settings_service.resolve_key(engine_name)
     if not api_key:
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     return translate_engines.get_engine(
         engine_name, api_key, free_tier=settings_service.get_gemini_free_tier())
 
@@ -444,8 +447,8 @@ def _url_is_detail(url: str, prepared: list) -> bool:
 
 
 def _labels_from_text(text: str) -> list:
-    """Static stand-in for navigator.fetch_visible_labels: short visible
-    lines of the page text (menu items, buttons, headings), deduped."""
+    """Short visible lines of the already-fetched page text (menu items,
+    buttons, headings), deduped."""
     labels, seen = [], set()
     for ln in text.splitlines():
         ln = ln.strip()

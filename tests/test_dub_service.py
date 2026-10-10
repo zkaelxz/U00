@@ -10,15 +10,11 @@ import pytest
 
 import dub
 from core import Line
-from services import dub_service, settings_service
-from services.service_errors import InvalidInputError, NotFoundError
+from services import dub_service
+from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError
 
+# A GPT-SoVITS address left in .env by an older version.
 FAKE_URL = "http://secret-host.example:9999"
-
-
-@pytest.fixture(autouse=True)
-def _no_real_settings(monkeypatch):
-    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: None)
 
 
 def _drama(db, lines=(), **fields):
@@ -54,11 +50,12 @@ class TestConfig:
         assert cfg["source_language"] == "zh"
         assert cfg["defaults"] == {"max_speedup": dub.DUB_MAX_SPEEDUP, "max_slowdown": dub.DUB_MAX_SLOWDOWN,
                                    "speedup_range": [1.0, 2.0], "slowdown_range": [0.5, 1.0]}
-        assert [e["key"] for e in cfg["tts_engines"]] == ["edge_tts", "offline"]
+        assert [e["key"] for e in cfg["tts_engines"]] == ["omnivoice"]
+        assert cfg["default_engine"] == "omnivoice"
         assert cfg["speakers"] == []
         assert cfg["gpu_required"] is False
         assert cfg["track_available"] is False
-        assert cfg["gpt_sovits_configured"] is False
+        assert "gpt_sovits_configured" not in cfg
 
     def test_narration(self, isolated_db):
         did = _drama(isolated_db, content_mode="novel_narration", narration_language="bogus")
@@ -74,39 +71,44 @@ class TestConfig:
         did2 = _drama(isolated_db, [_line(0, en=""), _line(1, en="x")])
         assert dub_service.get_dub_config(did2)["speakable_line_count"] == 1
 
-    def test_speakers_get_distinct_voices_and_assigned_respected(self, isolated_db):
+    def test_speakers_are_listed_with_the_default_engines_voice(self, isolated_db):
         did = _drama(isolated_db, [_line(0, "A"), _line(1, "B"), _line(2, "C")])
-        isolated_db.upsert_character(did, "B", character_name="Bob", tts_voice="custom-voice")
+        isolated_db.upsert_character(did, "B", character_name="Bob")
         speakers = {s["speaker_label"]: s for s in dub_service.get_dub_config(did)["speakers"]}
         assert set(speakers) == {"A", "B", "C"}
-        assert speakers["B"]["edge_voice"] == "custom-voice"
         assert speakers["B"]["character_name"] == "Bob"
-        assert speakers["A"]["edge_voice"] != speakers["C"]["edge_voice"]
-        assert speakers["A"]["engine"] == "edge"
-        assert all(s["offline_voice"] for s in speakers.values())
+        assert {s["engine"] for s in speakers.values()} == {"omnivoice"}
+        assert all(set(s) == {"speaker_label", "character_name", "engine", "has_clone_ref", "clone_warning"}
+                   for s in speakers.values())
+
+    def test_saved_voice_names_of_the_removed_engines_are_ignored_not_shown(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A")])
+        isolated_db.upsert_character(did, "A", tts_voice="en-US-AvaNeural", offline_voice="en_US-amy-medium")
+        cfg = dub_service.get_dub_config(did)
+        assert "en-US-AvaNeural" not in json.dumps(cfg) and "amy" not in json.dumps(cfg)
+        row = isolated_db.list_characters(did)[0]
+        assert (row["tts_voice"], row["offline_voice"]) == ("en-US-AvaNeural", "en_US-amy-medium")
 
     def test_has_clone_ref_only_when_file_exists(self, isolated_db):
         did = _drama(isolated_db, [_line(0, "A")])
         isolated_db.upsert_character(did, "A", ref_audio_filename="ref.wav", ref_text="t",
-                                     clone_engine="f5tts")
+                                     clone_engine="omnivoice")
         sp = dub_service.get_dub_config(did)["speakers"][0]
-        assert sp["engine"] == "f5tts" and sp["has_clone_ref"] is False
+        assert sp["engine"] == "omnivoice" and sp["has_clone_ref"] is False
         open(os.path.join(isolated_db.drama_dir(did), "ref.wav"), "wb").close()
         cfg = dub_service.get_dub_config(did)
         assert cfg["speakers"][0]["has_clone_ref"] is True
         assert cfg["gpu_required"] is True
 
     def test_no_leaks(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(settings_service, "resolve_key",
-                            lambda k, *a, **kw: FAKE_URL if k == "gpt_sovits_url" else None)
+        monkeypatch.setenv("BAIHE_GPT_SOVITS_URL", FAKE_URL)
         did = _drama(isolated_db, [_line(0, "A")])
-        isolated_db.upsert_character(did, "A", ref_audio_filename="ref.wav", clone_engine="gpt_sovits")
+        isolated_db.upsert_character(did, "A", ref_audio_filename="ref.wav", clone_engine="omnivoice")
         open(os.path.join(isolated_db.drama_dir(did), "ref.wav"), "wb").close()
         cfg = dub_service.get_dub_config(did)
         text = json.dumps(cfg)
         assert isolated_db.drama_dir(did) not in text
         assert FAKE_URL not in text and "secret-host" not in text
-        assert cfg["gpt_sovits_configured"] is True
 
     def test_track_available_flips(self, isolated_db):
         did = _drama(isolated_db)
@@ -123,6 +125,131 @@ class TestConfig:
         os.makedirs(ddir, exist_ok=True)
         open(os.path.join(ddir, "narration_track.wav"), "wb").close()
         assert dub_service.get_dub_config(did)["track_available"] is True
+
+
+class TestRemovedEnginesAndBlockers:
+    """A title that still names a removed engine loads, says so in plain
+    words and refuses to generate; nothing stored is rewritten."""
+
+    @pytest.fixture(autouse=True)
+    def _engine_ready(self, monkeypatch):
+        monkeypatch.setattr(dub_service, "_engine_install_problem", lambda engine: None)
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
+
+    @pytest.mark.parametrize("key,label", [("f5tts", "F5-TTS"), ("tada", "TADA"),
+                                           ("chatterbox", "Chatterbox"), ("gpt_sovits", "GPT-SoVITS")])
+    def test_a_character_with_a_removed_engine_still_loads_and_reads_as_removed(
+            self, isolated_db, key, label):
+        did = _drama(isolated_db, [_line(0, "A")])
+        isolated_db.upsert_character(did, "A", character_name="Lin", clone_engine=key,
+                                     ref_audio_filename="ref.wav", ref_text="t")
+        cfg = dub_service.get_dub_config(did)
+        removed = f"The {label} engine was removed. Pick another voice engine in Dub."
+        assert cfg["speakers"][0]["clone_warning"] == removed
+        assert cfg["speakers"][0]["engine"] == key
+        assert cfg["blocker"] == f"Lin: {removed}"
+        row = isolated_db.list_characters(did)[0]
+        assert (row["clone_engine"], row["ref_audio_filename"], row["ref_text"]) == (key, "ref.wav", "t")
+
+    def test_no_blocker_when_everything_is_fine(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A")])
+        assert dub_service.get_dub_config(did)["blocker"] is None
+
+    def test_no_engine_installed_is_one_plain_sentence(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(dub_service, "_engine_install_problem", lambda engine: "x is missing")
+        did = _drama(isolated_db, [_line(0, "A")])
+        cfg = dub_service.get_dub_config(did)
+        assert cfg["blocker"] == "No voice engine is installed. Install one in Diagnostics."
+        assert all(e["unavailable_reason"] == "x is missing" for e in cfg["tts_engines"])
+
+    def test_an_installed_engine_clears_the_blocker(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A")])
+        cfg = dub_service.get_dub_config(did)
+        assert cfg["blocker"] is None
+        assert [e["unavailable_reason"] for e in cfg["tts_engines"]] == [None]
+
+    def test_original_language_narration_works_with_omnivoice_for_zh_ja_ko(self, isolated_db):
+        for lang in ("zh", "ja", "ko"):
+            did = _drama(isolated_db, [_line(0, "A", zh="你好", en="")], content_mode="novel_narration",
+                         narration_language="original", source_language=lang)
+            reasons = {e["key"]: e["unavailable_reason"]
+                       for e in dub_service.get_dub_config(did)["tts_engines"]}
+            assert reasons == {"omnivoice": None}, lang
+
+    def test_original_language_narration_is_refused_for_a_language_it_cannot_speak(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A", zh="hello", en="")], content_mode="novel_narration",
+                     narration_language="original", source_language="en")
+        reasons = {e["key"]: e["unavailable_reason"]
+                   for e in dub_service.get_dub_config(did)["tts_engines"]}
+        assert reasons["omnivoice"] == ("OmniVoice can't speak this title's original language. "
+                                        "Narrate the translation instead.")
+
+    def test_translation_narration_leaves_every_engine_available(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A")], content_mode="novel_narration",
+                     narration_language="translation", source_language="ko")
+        assert all(e["unavailable_reason"] is None
+                   for e in dub_service.get_dub_config(did)["tts_engines"])
+
+    def test_start_refuses_every_removed_engine(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A")])
+        for key, label in (("edge_tts", "Edge TTS"), ("offline", "Piper"), ("f5tts", "F5-TTS"),
+                           ("tada", "TADA"), ("chatterbox", "Chatterbox"), ("gpt_sovits", "GPT-SoVITS")):
+            with pytest.raises(InvalidInputError) as err:
+                dub_service.start_dub_run(did, tts_engine=key)
+            assert str(err.value) == f"The {label} engine was removed. Pick another voice engine in Dub."
+
+    def test_start_refuses_original_narration_in_a_language_the_engine_cannot_speak(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A", zh="hello", en="")], content_mode="novel_narration",
+                     narration_language="original", source_language="en")
+        with pytest.raises(DependencyUnavailableError, match="can't speak this title's original language"):
+            dub_service.start_dub_run(did, tts_engine="omnivoice")
+
+    @pytest.mark.parametrize("key", ["tada", "chatterbox", "gpt_sovits"])
+    def test_start_refuses_a_character_stored_with_a_removed_engine(self, isolated_db, key):
+        did = _drama(isolated_db, [_line(0, "A")])
+        isolated_db.upsert_character(did, "A", clone_engine=key, voice_design="calm")
+        with pytest.raises(InvalidInputError, match="engine was removed"):
+            dub_service.start_dub_run(did)
+        assert isolated_db.list_characters(did)[0]["clone_engine"] == key
+        assert not os.path.exists(os.path.join(isolated_db.drama_dir(did), "dub_clips"))
+
+
+class TestEngineInstallChecks:
+    """_engine_install_problem against what is really importable here."""
+
+    @pytest.fixture(autouse=True)
+    def _ffmpeg(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
+
+    def _without(self, monkeypatch, *modules):
+        import importlib.util
+        real = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a, **k: None if name in modules else real(name, *a, **k))
+
+    def test_a_missing_package_is_named_with_the_fix(self, monkeypatch):
+        self._without(monkeypatch, "omnivoice")
+        assert dub_service._missing_engine_dependency("omnivoice") == (
+            "OmniVoice is not installed. Install it in Diagnostics.")
+
+    def test_no_ffmpeg_is_reported_before_the_engine(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        assert "ffmpeg" in dub_service._missing_engine_dependency("omnivoice")
+
+    def test_omnivoice_needs_a_new_enough_transformers(self, monkeypatch):
+        import importlib.util
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a, **k: object())
+        for installed, ok in (("4.57.6", False), ("5.2.0", False), ("5.3.0", True), ("5.6.1", True)):
+            monkeypatch.setattr(dub_service.importlib.metadata, "version", lambda name, v=installed: v)
+            problem = dub_service._missing_engine_dependency("omnivoice")
+            assert (problem is None) is ok, installed
+            if not ok:
+                assert problem == "OmniVoice needs a newer transformers than is installed. Check Diagnostics."
+
+    def test_no_message_names_a_path_or_the_server_address(self, monkeypatch):
+        monkeypatch.setenv("BAIHE_GPT_SOVITS_URL", FAKE_URL)
+        for engine in dub_service.dub.CLONE_ENGINES:
+            assert FAKE_URL not in (dub_service._missing_engine_dependency(engine) or "")
 
 
 class TestPacing:

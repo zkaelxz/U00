@@ -123,8 +123,8 @@ function IpCheckControls() {
     >
       <ErrorBanner error={loadError} onDismiss={() => setLoadError(null)} describe={{ pcOnly: true }} />
       <p className="settings-note">
-        Optional. An https address that answers with this PC&apos;s public IP address, used to check that the name
-        other devices open still points here (dynamic DNS). Without it, that check is skipped.
+        Optional. An https address that returns this PC&apos;s public IP, used to check that the name other
+        devices open still points here (dynamic DNS). Without it, the check is skipped.
       </p>
       {configured == null ? (
         !loadError && <p className="muted">Loading…</p>

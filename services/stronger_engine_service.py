@@ -31,10 +31,17 @@ import re
 import core
 import db
 import translate_engines
+from engine_backends import llm_tasks
 from services import (engine_routing_service, settings_service, translate_run_service,
                       translate_service, workspace_job_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError, NotFoundError,
-                                      ServiceError, UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    MissingKeyError,
+    NotFoundError,
+    ServiceError,
+    UnsupportedOperationError,
+)
 
 CAPABILITY = "translation.high_quality"
 OPERATION = "stronger_line"
@@ -254,9 +261,8 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
                 "model": None, "text": line.zh.strip(), "based_on_en": line.en or "",
                 "cost_usd": 0.0}
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+    if api_key is None:
+        raise MissingKeyError(engine_name)
     free_tier = engine_name == "gemini" and settings_service.get_gemini_free_tier()
     context, character_names = _run_context(drama_id, drama, lines, _Probe(engine_name))
     recent = _recent(lines, pos)
@@ -283,7 +289,8 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     context["recent_context"] = recent
     try:
         try:
-            results = list(engine.translate_batch([line.zh], context) or [])
+            results = list(llm_tasks.call_batch_bounded(
+                engine, lambda: engine.translate_batch([line.zh], context)) or [])
         finally:
             cost = _log_spend(drama_id, engine_name, engine)
     except translate_engines.ContentModerationBlocked:

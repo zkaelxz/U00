@@ -1,6 +1,6 @@
 """
-api/routers/series_people_routes.py -- add and edit a series' people
-(parity audit B1 #8, X15-X17). Thin adapters over
+api/routers/series_people_routes.py -- add and edit a series' people.
+Thin adapters over
 `services.series_people_service`.
 
 Both routes are `lines.edit`, the same permission as the per-drama

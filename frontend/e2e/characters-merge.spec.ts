@@ -16,8 +16,8 @@ test.afterEach(async ({ page }) => {
 })
 
 const entry = (label: string, over: object = {}) => ({
-  speaker_label: label, character_name: '', voice_actor: '', pronouns: '', tts_voice: '',
-  offline_voice: '', clone_engine: '', voice_design: '', has_ref_audio: false, ref_text_present: false,
+  speaker_label: label, character_name: '', voice_actor: '', pronouns: '',
+  clone_engine: '', voice_design: '', has_ref_audio: false, ref_text_present: false,
   series_character_id: null, series_character_name: '', line_count: 3, series_pronouns: '',
   sample_lines: [], ...over,
 })
@@ -39,7 +39,7 @@ async function mockAll(page: Page, startEntries?: () => ReturnType<typeof entry>
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
   await page.route('**/api/characters/dramas/1', (route) => json(route, entries))
   await page.route('**/api/characters/dramas/1/clone-engines', (route) =>
-    json(route, { source_language: 'zh', default_engine: 'f5tts', engines: [] }))
+    json(route, { source_language: 'zh', default_engine: 'omnivoice', engines: [] }))
   await page.route('**/api/characters/voice-bank', (route) => json(route, []))
   await page.route('**/api/characters/dramas/1/merge-speakers', (route) => {
     posts.push({ path: '/merge-speakers', body: JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown> })

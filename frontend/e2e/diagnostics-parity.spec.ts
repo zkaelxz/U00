@@ -5,7 +5,7 @@ import { expect, test, type Page, type Request } from '@playwright/test'
 
 const overview = {
   dependencies: { jieba: { installed: true, powers: 'Chinese word segmentation', tier: 'feature' } },
-  file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+  file_completeness: { missing_top_level: [], all_present: true },
   library_writable: true,
   gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
   model_engine_versions: [],
@@ -17,7 +17,7 @@ const setup = {
   ffmpeg: { found: true, version: 'ffmpeg version 6.1', libass: false },
   js_runtime: { found: true, name: 'deno' },
   cuda: { torch_installed: false, cuda_available: null },
-  files: { all_present: true, missing_top_level: [], missing_tabs: [] },
+  files: { all_present: true, missing_top_level: [] },
   library_writable: true,
 }
 
@@ -61,16 +61,17 @@ test('model cache delete is two-step, PC-only and refreshes the list', async ({ 
   let cache = {
     hf_cache: [{ repo_id: 'org/model', repo_type: 'model', revision: REV, size_bytes: 2048 }],
     hf_total_bytes: 2048,
-    piper_voices: [{ voice: 'en_US-amy-medium', size_bytes: 1024 }],
-    piper_total_bytes: 1024,
-    model_files: [{ folder: 'torch' as const, name: 'htdemucs.th', size_bytes: 512 }],
-    model_files_total_bytes: 512,
+    model_files: [
+      { folder: 'torch' as const, name: 'htdemucs.th', size_bytes: 512 },
+      { folder: 'torch' as const, name: 'other.th', size_bytes: 256 },
+    ],
+    model_files_total_bytes: 768,
   }
   await page.route('**/api/diagnostics/model-cache', (r) => r.fulfill({ json: cache }))
   const sent: Request[] = []
   await page.route('**/api/diagnostics/model-cache/files/torch/htdemucs.th/delete', (r) => {
     sent.push(r.request())
-    cache = { ...cache, model_files: [], model_files_total_bytes: 0 }
+    cache = { ...cache, model_files: cache.model_files.slice(1), model_files_total_bytes: 256 }
     return r.fulfill({ json: { deleted: true, name: 'htdemucs.th' } })
   })
   await page.route(`**/api/diagnostics/model-cache/hf/${REV}/delete`, (r) => {
@@ -87,13 +88,13 @@ test('model cache delete is two-step, PC-only and refreshes the list', async ({ 
   expect(sent[0].postDataJSON()).toEqual({ confirm: true })
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
   await expect(page.getByRole('list', { name: 'Downloaded models' })).toHaveCount(0)
-  await expect(page.getByRole('list', { name: 'Piper voices' })).toContainText('en_US-amy-medium')
   await expect(page.getByRole('list', { name: 'Model files' })).toContainText('htdemucs.th (PyTorch hub)')
   await page.getByRole('button', { name: 'Delete htdemucs.th' }).click()
   await page.getByRole('button', { name: 'Confirm delete htdemucs.th' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Deleted htdemucs.th.' })).toBeVisible()
   expect(sent[1].headers()['x-baihe-local']).toBe('1')
-  await expect(page.getByRole('list', { name: 'Model files' })).toHaveCount(0)
+  // Something stays listed, so the section (and its notice) is still on screen.
+  await expect(page.getByRole('list', { name: 'Model files' })).not.toContainText('htdemucs.th')
   expect(unmocked).toEqual([])
 })
 

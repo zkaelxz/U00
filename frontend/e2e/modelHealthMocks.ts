@@ -21,7 +21,7 @@ export const RETIRED_PRESET = item({
 })
 
 export const OLDER_PRESET = item({
-  model: 'claude-sonnet-4-6', kind: 'preset', where: 'Preset: Drama A', preset_id: 7, status: 'legacy',
+  model: 'claude-sonnet-4-6', kind: 'preset', where: 'Preset: Title A', preset_id: 7, status: 'legacy',
   message: 'claude-sonnet-4-6 (claude) is an older model that is still offered. Suggested replacement: claude-sonnet-5.',
   replacement: 'claude-sonnet-5', note: 'Previous generation, still offered.', severity: 1, can_switch: true,
 })
@@ -35,7 +35,7 @@ const DEPRECATED_TIER = item({
 export const CURRENT_ROWS = [
   item({}),
   item({ engine: 'gemini', model: 'gemini-flash-latest', where: 'gemini built-in default', message: 'gemini-flash-latest (gemini) is current.' }),
-  item({ engine: 'ollama', model: 'qwen3:8b', where: 'ollama built-in default', status: 'unknown', message: "qwen3:8b (ollama) isn't in the registry or a provider check yet." }),
+  item({ engine: 'ollama', model: 'gemma4:12b', where: 'ollama built-in default', status: 'unknown', message: "gemma4:12b (ollama) isn't in the registry or a provider check yet." }),
 ]
 
 export const status = (o: { items?: Item[]; checked_at?: string | null; engines_checked?: Item } = {}) => {

@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+import bulk_providers
 import bulk_translate as bt
 import db
 import translate_engines as te
@@ -88,8 +89,9 @@ def _env(monkeypatch):
 def _fake_engines(monkeypatch, ended=True):
     engine = te.ClaudeEngine("sk-ant-fake")
     monkeypatch.setattr(te, "get_engine", lambda *a, **k: engine)
-    monkeypatch.setattr(bt, "make_provider",
-                        lambda choice, e: FakeProvider(_current["did"], ended=ended))
+    for module in (bulk_providers, bt):
+        monkeypatch.setattr(module, "make_provider",
+                            lambda choice, e: FakeProvider(_current["did"], ended=ended))
     return engine
 
 
@@ -171,7 +173,7 @@ def test_mode_validation(isolated_db, monkeypatch):
     with pytest.raises(InvalidInputError):
         svc.start_translate_run(did, bulk=True, line_ids=[db.load_lines(did)[0]["id"]])
     with pytest.raises(UnsupportedOperationError):
-        svc.start_translate_run(did, engine_name="nllb", reflect=True)
+        svc.start_translate_run(did, engine_name="fake_mt", reflect=True)
     with pytest.raises(UnsupportedOperationError):
         svc.start_translate_run(did, engine_name="ollama", bulk=True)
     with pytest.raises(UnsupportedOperationError):
@@ -203,7 +205,7 @@ def test_api_reflect_and_bulk_codes(isolated_db, monkeypatch):
     _fake_engines(monkeypatch)
     client = TestClient(create_app(), headers={"X-Baihe-Local": "1"})
     r = client.post(f"/api/translate-run/dramas/{did}/run",
-                    json={"engine": "nllb", "reflect": True})
+                    json={"engine": "fake_mt", "reflect": True})
     assert r.status_code == 400
     r = client.post(f"/api/translate-run/dramas/{did}/run",
                     json={"bulk": True, "fallback_chain": [{"engine": "gemini"}]})

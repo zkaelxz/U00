@@ -34,7 +34,7 @@ except ImportError:  # Python built without lzma: zipfile raises RuntimeError in
 
 import background_jobs
 import db
-import dub
+import dub_narration
 import ocr as ocr_module
 from services import drama_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -74,7 +74,7 @@ def _check_idle(drama_id: int):
 
 def _novel_path(drama_id: int, create: bool) -> str:
     base = db.drama_dir(drama_id) if create else os.path.join(db.DRAMAS_DIR, str(drama_id))
-    return os.path.join(base, dub.NOVEL_SOURCE_FILENAME)
+    return os.path.join(base, dub_narration.NOVEL_SOURCE_FILENAME)
 
 
 def _read_novel(drama_id: int) -> str:
@@ -375,18 +375,29 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
     return {"job_id": job_id}
 
 
+def _raise_if_cancelled(job_id):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+
+
 def _run_ocr_job(job_id, drama_id, stage, paths, backend, mode, language, script,
                  tesseract_cmd=None):
+    skipped = []
     try:
         background_jobs.update_progress(job_id, 0.1, "Running OCR...")
         text = _clean(ocr_module.extract_text_from_images(
             paths, backend=backend, source_language=language, chinese_script=script,
-            tesseract_cmd=tesseract_cmd))
+            tesseract_cmd=tesseract_cmd, before_page=lambda: _raise_if_cancelled(job_id),
+            on_skip=skipped.append))
         if not text:
             background_jobs.set_result(job_id, {"failed_reason": "empty"})
             return
         background_jobs.update_progress(job_id, 0.9, "Saving text...")
+        _raise_if_cancelled(job_id)
         count = _write_novel(drama_id, text, mode)
-        background_jobs.set_result(job_id, {"char_count": count, "image_count": len(paths)})
+        result = {"char_count": count, "image_count": len(paths)}
+        if skipped:
+            result["skipped_pages"] = len(skipped)
+        background_jobs.set_result(job_id, result)
     finally:
         shutil.rmtree(stage, ignore_errors=True)

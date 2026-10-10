@@ -38,7 +38,8 @@ from urllib.parse import urlsplit
 
 import db
 import translate_engines
-from services import capped_body, drama_service, library_service, settings_service
+from services import drama_service, library_service, settings_service
+from lib import http
 from services.metadata_service import SUGGEST_FIELDS, require_drama
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -189,20 +190,14 @@ def _prompt(entity: dict, mode: str) -> str:
 
 
 def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
-    import requests
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    resp = requests.post(url, headers={"x-goog-api-key": api_key},
-                         json={"contents": [{"parts": [{"text": prompt}]}],
-                               "tools": [{"google_search": {}}]},
-                         timeout=REQUEST_TIMEOUT, stream=True)
-    try:
-        resp.raise_for_status()
-    except Exception:
-        resp.close()
-        raise
-    return json.loads(capped_body.read_capped(
-        resp, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT * 3,
-        lambda: ValueError("the Gemini response was too large")))
+    resp = http.post(url, headers={"x-goog-api-key": api_key},
+                     json={"contents": [{"parts": [{"text": prompt}]}],
+                           "tools": [{"google_search": {}}]},
+                     timeout=REQUEST_TIMEOUT, max_bytes=MAX_RESPONSE_BYTES, guard=None)
+    if not resp.ok:
+        raise http.FetchError()
+    return json.loads(resp.body)
 
 
 def _safe_url(url) -> Optional[str]:

@@ -82,7 +82,7 @@ async function mockNotifications(
 
 async function open(page: Page) {
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const section = page.getByRole('region', { name: 'Notifications' })
   await expect(section).toBeVisible()
   return section
@@ -139,7 +139,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill('https://ntfy.sh/secret-topic-name')
   await section.getByRole('button', { name: 'Save ntfy address' }).click()
   await section.getByRole('button', { name: 'Confirm save ntfy address' }).click()
-  await expect(section.getByText(/can only be changed on the Baihe PC itself/)).toBeVisible()
+  await expect(section.getByText(/Change this on the Baihe PC with key writes on/)).toBeVisible()
   await expect(input).toHaveValue('')
   expect(await page.content()).not.toContain('secret-topic-name')
   expect(unmocked).toEqual([])
@@ -158,7 +158,7 @@ test('away from the PC the section says PC only and makes no notification calls'
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const section = page.getByRole('region', { name: 'Notifications' })
   await expect(section.locator('.card-meta')).toHaveText('PC only')
   await expect(section.getByText('Run this on the main PC.')).toBeVisible()
@@ -179,7 +179,7 @@ test('What to send: each switch saves at once, sending only what changed', async
   await expect(jobs).toBeChecked()
   await expect(chapters).not.toBeChecked()
   await expect(group.getByText('The bell at the top of the page always lists every event.')).toBeVisible()
-  await expect(section.getByText(/finds new chapters/).first()).toBeVisible()
+  await expect(section.getByText(/have new chapters/).first()).toBeVisible()
 
   await jobs.click()
   // Saving: both switches wait for the answer.

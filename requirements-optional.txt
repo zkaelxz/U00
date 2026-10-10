@@ -3,19 +3,21 @@
 
 # --- alternative translation engines ---
 openai>=1.30            # DeepSeek (OpenAI-compatible API)
-transformers>=4.46      # local NLLB-200 engine -- genuinely free, fully
-                         # offline, no API key ever. Downloads a model
-                         # (2.4-5.2GB depending on size picked) on first use.
-                         # (bumped from >=4.40: also loads Scanlate's ML
-                         # bubble detector and PaddleOCR-VL-For-Manga --
-                         # both need RT-DETR-v2/current VLM support only
-                         # present in more recent releases.)
-sentencepiece>=0.2.1      # tokenizer NLLB-200 needs
+transformers>=4.46      # loads Scanlate's ML bubble detector and
+                         # PaddleOCR-VL-For-Manga -- both need RT-DETR-v2/
+                         # current VLM support only present in recent releases.
+sentencepiece>=0.2.1      # tokenizer PaddleOCR-VL-For-Manga declares (LlamaTokenizer,
+                         # tokenizer.model)
 
 # --- download audio/video directly from a URL (video_download.py) ---
 yt-dlp>=2026.7.4          # YouTube and many other sites. Update often
                           # (pip install -U yt-dlp) -- sites change and
                           # break older versions regularly.
+
+# --- ASMR voice detector (asmr_vad.py) ---
+# Runs the optional ~119 MB ASMR speech-detection model on the CPU. The model
+# itself is downloaded from Settings > Transcription experiments, never by pip.
+onnxruntime>=1.16
 
 # --- speaker diarization ---
 pyannote.audio>=3.1
@@ -45,26 +47,12 @@ qwen-asr>=0.0.6         # Step 76: >=0.1 could never install -- pip index shows 
                         # wheel yet" problem as the PaddlePaddle note below, but silent
                         # instead of a clear pip error, so it's worth checking explicitly.
 
-# --- voice cloning ---
-f5-tts>=0.9             # local, GPU recommended
-
-# Novel narration voices (optional, local; GPU strongly recommended). Pick
-# one per character in Workspace section 6; each downloads its own model on
-# first use. Left commented out because they can't all share one
-# environment: OmniVoice needs transformers>=5.3, Chatterbox pins
-# transformers==5.2.0 and torch==2.6.0, and TADA needs transformers<5 and
-# torch>=2.7 -- pip can't satisfy any two of them together. Uncomment the
-# one you want (or give each its own venv).
+# --- local voices ---
+# Dubbing and novel narration voice (optional, local; GPU strongly
+# recommended). Downloads its model on first use. Left commented out
+# because it needs transformers>=5.3.
 # omnivoice>=0.2        # Apache-2.0: cloning from a 3-10s clip, and voice
                          # design from a description (no clip needed)
-# chatterbox-tts>=0.1   # MIT: emotion-aware delivery. Adds an
-                         # imperceptible PerTh watermark to its audio.
-# hume-tada>=0.1        # code MIT; model weights under Meta's Llama 3.2
-                         # Community License -- accept it on Hugging Face and
-                         # `huggingface-cli login` before first use
-# GPT-SoVITS (MIT) isn't a pip package: download it from
-# https://github.com/RVC-Boss/GPT-SoVITS and run its own `python api_v2.py`
-# server; set its URL in Settings if it isn't http://127.0.0.1:9880.
 
 # --- vocal separation before transcription (audio_preprocess.py) ---
 # Strips background music from a music-bed source (audio dramas,
@@ -80,9 +68,6 @@ demucs>=4.0
 # Downloads its own model (~1.1GB) on first use.
 torchaudio>=2.0
 uroman>=1.2
-
-# --- offline TTS ---
-piper-tts>=1.2
 
 # --- OCR ---
 pytesseract>=0.3        # also needs the Tesseract binary + language packs
@@ -143,7 +128,7 @@ ebooklib>=0.18          # EPUB
 plyer>=2.1
 
 # --- JavaScript-rendered sites (baihehub, Fanjiao) ---
-playwright>=1.40        # then run: playwright install chromium
+playwright>=1.40        # uses an installed Chrome or Edge; no browser download needed then
 
 # --- Sources tab: main-text extraction from a pasted novel-chapter URL ---
 # Apache-2.0. Optional -- without it a simpler built-in extractor is used.
@@ -154,6 +139,12 @@ trafilatura>=2.0
 # Apache-2.0. Optional -- without it a built-in scorer is used; each result
 # records which scorer produced it. 3.0 is the oldest release checked.
 jiwer>=3.0
+
+# --- Benchmark Lab: chrF translation similarity (benchmark.translation_similarity) ---
+# Apache-2.0. Optional -- without it translations are scored with the built-in
+# difflib ratio; each result records its metric ("chrf" or "similarity").
+# 2.4 is the oldest release whose CHRF.sentence_score API this uses.
+sacrebleu>=2.4
 
 # --- Google sign-in token checks (household access) ---
 cryptography>=46.0.6

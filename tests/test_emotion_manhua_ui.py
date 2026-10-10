@@ -10,6 +10,7 @@ import numpy as np
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 import emotion as em
 import scanlate
+import scanlate_detect
 from core import Line
 
 
@@ -135,13 +136,13 @@ class TestManhuaPanels:
     def test_detects_panels(self):
         d = tempfile.mkdtemp()
         try:
-            assert len(scanlate.detect_panels(self._page(d))) >= 1
+            assert len(scanlate_detect.detect_panels(self._page(d))) >= 1
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_missing_file_raises(self):
         try:
-            scanlate.detect_panels("/nonexistent/x.png")
+            scanlate_detect.detect_panels("/nonexistent/x.png")
             assert False, "should raise"
         except ValueError:
             pass
@@ -159,14 +160,14 @@ class TestWebtoonSlicing:
     def test_tall_strip_is_sliced(self):
         d = tempfile.mkdtemp()
         try:
-            assert len(scanlate.split_webtoon_strip(self._strip(d), target_height=1600)) > 1
+            assert len(scanlate_detect.split_webtoon_strip(self._strip(d), target_height=1600)) > 1
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_slices_cover_entire_strip(self):
         d = tempfile.mkdtemp()
         try:
-            sl = scanlate.split_webtoon_strip(self._strip(d, 5000), target_height=1600)
+            sl = scanlate_detect.split_webtoon_strip(self._strip(d, 5000), target_height=1600)
             assert sl[0]["y_start"] == 0
             assert sl[-1]["y_end"] == 5000
         finally:
@@ -175,7 +176,7 @@ class TestWebtoonSlicing:
     def test_all_slices_have_positive_height(self):
         d = tempfile.mkdtemp()
         try:
-            for s in scanlate.split_webtoon_strip(self._strip(d), target_height=1600):
+            for s in scanlate_detect.split_webtoon_strip(self._strip(d), target_height=1600):
                 assert s["y_end"] > s["y_start"]
         finally:
             shutil.rmtree(d, ignore_errors=True)
@@ -185,7 +186,7 @@ class TestWebtoonSlicing:
         try:
             p = os.path.join(d, "s.png")
             cv2.imwrite(p, np.full((500, 400, 3), 255, dtype=np.uint8))
-            assert len(scanlate.split_webtoon_strip(p, target_height=1600)) == 1
+            assert len(scanlate_detect.split_webtoon_strip(p, target_height=1600)) == 1
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
@@ -198,18 +199,18 @@ class TestTextRegionClassification:
             cv2.rectangle(img, (50, 50), (350, 150), (255, 255, 255), -1)
             cv2.rectangle(img, (50, 50), (350, 150), (0, 0, 0), 3)
             cv2.imwrite(p, img)
-            out = scanlate.classify_text_regions(p, [{"x": 50, "y": 50, "w": 300, "h": 100}])
-            assert out[0]["kind"] in scanlate.TEXT_REGION_KINDS
+            out = scanlate_detect.classify_text_regions(p, [{"x": 50, "y": 50, "w": 300, "h": 100}])
+            assert out[0]["kind"] in scanlate_detect.TEXT_REGION_KINDS
             assert 0.0 <= out[0]["kind_confidence"] <= 1.0
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_missing_file_defaults_to_bubble(self):
-        out = scanlate.classify_text_regions("/nope/x.png", [{"x": 0, "y": 0, "w": 10, "h": 10}])
+        out = scanlate_detect.classify_text_regions("/nope/x.png", [{"x": 0, "y": 0, "w": 10, "h": 10}])
         assert out[0]["kind"] == "bubble"
 
     def test_all_kinds_documented(self):
-        for k, v in scanlate.TEXT_REGION_KINDS.items():
+        for k, v in scanlate_detect.TEXT_REGION_KINDS.items():
             assert isinstance(v, str) and v
 
     def test_font_style_sampling_returns_suggestion(self):
@@ -364,33 +365,30 @@ class TestHfTokenInScanlateMlDetector:
     def test_explicit_token_argument_reaches_the_download(self, monkeypatch, tmp_path):
         import os
         calls = self._stub_torch_and_transformers(monkeypatch, tmp_path)
-        import scanlate
         os.environ.pop("HF_TOKEN", None)
-        scanlate.__dict__.pop("_bubble_ml_model", None)
-        scanlate.__dict__.pop("_bubble_ml_processor", None)
-        scanlate.detect_bubbles_ml(calls["img_path"], hf_token="explicit-token")
+        scanlate_detect.__dict__.pop("_bubble_ml_model", None)
+        scanlate_detect.__dict__.pop("_bubble_ml_processor", None)
+        scanlate_detect.detect_bubbles_ml(calls["img_path"], hf_token="explicit-token")
         assert calls["processor_token"] == "explicit-token"
         assert calls["model_token"] == "explicit-token"
 
     def test_falls_back_to_an_already_set_environment_token(self, monkeypatch, tmp_path):
         import os
         calls = self._stub_torch_and_transformers(monkeypatch, tmp_path)
-        import scanlate
-        scanlate.__dict__.pop("_bubble_ml_model", None)
-        scanlate.__dict__.pop("_bubble_ml_processor", None)
+        scanlate_detect.__dict__.pop("_bubble_ml_model", None)
+        scanlate_detect.__dict__.pop("_bubble_ml_processor", None)
         os.environ["HF_TOKEN"] = "env-token"
-        scanlate.detect_bubbles_ml(calls["img_path"])
+        scanlate_detect.detect_bubbles_ml(calls["img_path"])
         assert calls["processor_token"] == "env-token"
         assert calls["model_token"] == "env-token"
         os.environ.pop("HF_TOKEN", None)
 
     def test_no_token_available_does_not_crash(self, monkeypatch, tmp_path):
         calls = self._stub_torch_and_transformers(monkeypatch, tmp_path)
-        import scanlate
         import os
         os.environ.pop("HF_TOKEN", None)
-        scanlate.__dict__.pop("_bubble_ml_model", None)
-        scanlate.__dict__.pop("_bubble_ml_processor", None)
-        scanlate.detect_bubbles_ml(calls["img_path"])  # must not raise
+        scanlate_detect.__dict__.pop("_bubble_ml_model", None)
+        scanlate_detect.__dict__.pop("_bubble_ml_processor", None)
+        scanlate_detect.detect_bubbles_ml(calls["img_path"])  # must not raise
         assert calls["processor_token"] is None
         assert calls["model_token"] is None

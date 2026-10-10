@@ -97,5 +97,5 @@ test('analyze media shows resolution, subtitle tracks, the suggested steps, and 
   await expect.poll(() => writes).toEqual([{ media_type: 'video_drama' }])
   await expect(page.getByRole('status').filter({ hasText: 'Media type set to Video drama.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Use this content type' })).toHaveCount(0)
-  await expect(page.getByTestId('analysis-suggestion')).toContainText('This drama already uses it.')
+  await expect(page.getByTestId('analysis-suggestion')).toContainText('This title already uses it.')
 })

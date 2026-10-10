@@ -23,6 +23,8 @@ test('phone: panel and proposals fit the screen with 44 px targets', async ({ pa
   await box.getByLabel('From line #').fill('1')
   await box.getByLabel('To line #').fill('3')
   await box.getByRole('switch', { name: 'Also translate' }).click()
+  await expect(box.getByRole('textbox', { name: 'Hint for the model (names, terms)' })).toBeVisible()
+  await expect(box.getByRole('textbox', { name: 'Extra character names' })).toBeVisible()
   await box.getByRole('button', { name: 'Compare', exact: true }).click()
   await expect(box.getByTestId('compare-row')).toHaveCount(2)
 

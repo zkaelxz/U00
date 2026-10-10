@@ -33,6 +33,7 @@ export const DRAMA_TITLES = [
 
 export interface JobsMock {
   cancelled: string[]
+  forceStopped: string[]
   deleted: string[]
   cleared: number
   stages: string[]
@@ -43,7 +44,7 @@ export interface JobsMock {
 // `titles` also mocks the library list the Jobs page reads for title names.
 export async function mockJobsApi(page: Page, initial = sampleJobs() as Record<string, unknown>[], titles = false): Promise<JobsMock> {
   let jobs = initial
-  const log: JobsMock = { cancelled: [], deleted: [], cleared: 0, stages: [] }
+  const log: JobsMock = { cancelled: [], forceStopped: [], deleted: [], cleared: 0, stages: [] }
   const isFinished = (j: Record<string, unknown>) => ['done', 'error', 'cancelled'].includes(String(j.status))
   if (titles) {
     await page.route('**/api/library/dramas', (route) =>
@@ -58,6 +59,12 @@ export async function mockJobsApi(page: Page, initial = sampleJobs() as Record<s
       log.cancelled.push(id)
       jobs = jobs.map((j) => (j.job_id === id ? { ...j, status: 'cancelled', finished_at: now() } : j))
       return json({ job_id: id, cancelled: true })
+    }
+    if (r.method() === 'POST' && path.endsWith('/force-stop')) {
+      const id = path.split('/')[3]
+      log.forceStopped.push(id)
+      jobs = jobs.map((j) => (j.job_id === id ? { ...j, status: 'cancelled', can_force_stop: false, finished_at: now() } : j))
+      return json({ job_id: id, force_stopped: true, status: 'cancelled', worker_still_running: true })
     }
     if (r.method() === 'POST' && path.endsWith('/delete')) {
       const id = path.split('/')[3]

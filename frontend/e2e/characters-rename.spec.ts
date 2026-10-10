@@ -16,8 +16,8 @@ test.afterEach(async ({ page }) => {
 })
 
 const entry = (label: string, over: object = {}) => ({
-  speaker_label: label, character_name: '', voice_actor: '', pronouns: '', tts_voice: '',
-  offline_voice: '', clone_engine: '', voice_design: '', has_ref_audio: false, ref_text_present: false,
+  speaker_label: label, character_name: '', voice_actor: '', pronouns: '',
+  clone_engine: '', voice_design: '', has_ref_audio: false, ref_text_present: false,
   series_character_id: null, series_character_name: '', line_count: 3, series_pronouns: '',
   sample_lines: [], ...over,
 })
@@ -41,7 +41,7 @@ async function mockAll(page: Page) {
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
   await page.route('**/api/characters/dramas/1', (route) => json(route, entries))
   await page.route('**/api/characters/dramas/1/clone-engines', (route) =>
-    json(route, { source_language: 'zh', default_engine: 'f5tts', engines: [] }))
+    json(route, { source_language: 'zh', default_engine: 'omnivoice', engines: [] }))
   await page.route('**/api/characters/voice-bank', (route) => json(route, []))
   await page.route('**/api/characters/dramas/1/rename-speaker', (route) => {
     const body = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>
@@ -91,6 +91,48 @@ test('rename once, then undo, and the undo survives a reload', async ({ page }) 
   await expect(page.getByLabel('Name for Speaker 1')).toBeVisible()
   await expect(page.locator('.character-notice')).toContainText('Put Speaker 1 back on 3 lines.')
   await expect(page.getByRole('button', { name: 'Undo rename' })).toHaveCount(0)
+  expect(m.unmocked).toEqual([])
+})
+
+test('undo survives a busy 409 or a lost connection, and goes on a refusal', async ({ page }) => {
+  const m = await mockAll(page)
+  const answers = [
+    { status: 409, json: { error: { code: 'conflict', message: 'A background job is still running.', details: { reason: 'job_running' } } } },
+    null,
+    { status: 409, json: { error: { code: 'conflict', message: 'The lines changed since the rename, so it can\'t be undone.' } } },
+  ]
+  await page.route('**/api/characters/dramas/1/rename-speaker/undo', (route) => {
+    const next = answers.shift()
+    return next ? route.fulfill(next) : route.abort()
+  })
+  await openCharacters(page)
+  const row = page.getByRole('row').filter({ has: page.getByLabel('Name for Speaker 1') })
+  await row.locator('xpath=following-sibling::tr[1]').getByRole('button', { name: 'Rename speaker' }).click()
+  await page.getByLabel('New name for Speaker 1').fill('Mei')
+  await page.getByRole('button', { name: /^Rename on all 3 lines/ }).click()
+
+  const undo = page.getByRole('button', { name: 'Undo rename' })
+  await undo.click()
+  await expect(page.getByText('A background job is still running.')).toBeVisible()
+  await expect(undo).toBeEnabled()
+  await undo.click()
+  await expect(undo).toBeEnabled()
+  await undo.click()
+  await expect(page.getByText(/The lines changed since the rename/)).toBeVisible()
+  await expect(undo).toHaveCount(0)
+  expect(m.unmocked).toEqual([])
+})
+
+test('a rename elsewhere keeps what is typed in another row', async ({ page }) => {
+  const m = await mockAll(page)
+  await openCharacters(page)
+  await page.getByLabel('Name for Speaker 2').fill('Typed, not saved')
+  const row = page.getByRole('row').filter({ has: page.getByLabel('Name for Speaker 1') })
+  await row.locator('xpath=following-sibling::tr[1]').getByRole('button', { name: 'Rename speaker' }).click()
+  await page.getByLabel('New name for Speaker 1').fill('Mei')
+  await page.getByRole('button', { name: /^Rename on all 3 lines/ }).click()
+  await expect(page.getByLabel('Name for Mei')).toHaveValue('Mei')
+  await expect(page.getByLabel('Name for Speaker 2')).toHaveValue('Typed, not saved')
   expect(m.unmocked).toEqual([])
 })
 

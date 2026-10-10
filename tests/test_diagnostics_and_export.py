@@ -3,6 +3,7 @@ tests/test_diagnostics_and_export.py -- tests for diagnostics.py
 and db.py's line history (undo) functions.
 """
 
+import whisper_models
 import sys
 import os
 import json
@@ -12,9 +13,14 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
+import requests
 import db
 import diagnostics
+import diagnostics_report
+import diagnostics_torch
+import expected_files
 from core import Line, lines_to_srt, lines_to_bilingual_srt
+from lib import http
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -85,14 +91,14 @@ class TestDiagnostics:
         expected = {"yt-dlp": "yt_dlp", "torchaudio": "torchaudio", "uroman": "uroman",
                     "sentencepiece": "sentencepiece",
                     "opencc-python-reimplemented": "opencc",
-                    "sudachidict_core": "sudachidict_core", "piper-tts": "piper"}
+                    "sudachidict_core": "sudachidict_core"}
         for pip_name, import_name in expected.items():
             assert pip_name in deps, pip_name
             assert deps[pip_name][0] == import_name
             assert deps[pip_name][2] == "feature"
 
     def test_ctranslate2_is_registered_for_gpu_detection(self):
-        """core.gpu_status imports ctranslate2 lazily; without an entry
+        """whisper_models.gpu_status imports ctranslate2 lazily; without an entry
         Diagnostics could never say it is missing."""
         assert diagnostics.OPTIONAL_DEPENDENCIES["ctranslate2"][0] == "ctranslate2"
 
@@ -135,7 +141,7 @@ class TestDiagnostics:
         requirements-media.txt, not requirements-core.txt, so the Core
         panel (which shows "required" as "needed for the app to run at
         all") must not list them -- they belong in "feature", same tier
-        as edge_tts (also media-only)."""
+        as pydub (also media-only)."""
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["faster_whisper"][2] == "feature"
         assert deps["cv2"][2] == "feature"
@@ -144,7 +150,7 @@ class TestDiagnostics:
     def test_file_completeness_detects_all_present_in_real_project(self):
         result = diagnostics.check_file_completeness(PROJECT_ROOT)
         assert result["all_present"] is True, \
-            f"missing: {result['missing_top_level']} {result['missing_tabs']}"
+            f"missing: {result['missing_top_level']}"
 
     def test_expected_top_level_files_list_is_not_stale(self):
         """Step 25d item 9: this list is hand-maintained on purpose (so a
@@ -155,9 +161,10 @@ class TestDiagnostics:
         real_files = {f for f in os.listdir(PROJECT_ROOT)
                      if f.endswith(".py") and os.path.isfile(os.path.join(PROJECT_ROOT, f))
                      and f not in ("__init__.py", "conftest.py")}
-        missing_from_list = real_files - set(diagnostics.EXPECTED_TOP_LEVEL_FILES)
+        missing_from_list = real_files - set(expected_files.EXPECTED_TOP_LEVEL_FILES)
         assert missing_from_list == set(), \
-            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES: {missing_from_list}"
+            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES in expected_files.py: " \
+            f"{missing_from_list}. Add each name to that list."
 
     def test_file_completeness_reports_missing_in_empty_dir(self, tmp_path_str):
         result = diagnostics.check_file_completeness(tmp_path_str)
@@ -168,7 +175,7 @@ class TestDiagnostics:
         assert diagnostics.check_library_writable(os.path.join(tmp_path_str, "lib")) is True
 
     def test_run_full_diagnostics_returns_all_sections(self, tmp_path_str):
-        result = diagnostics.run_full_diagnostics(
+        result = diagnostics_report.run_full_diagnostics(
             PROJECT_ROOT, os.path.join(tmp_path_str, "lib"), {"claude": True})
         for section in ("python", "ffmpeg", "js_runtime", "dependencies", "files",
                         "library_writable", "api_keys"):
@@ -330,50 +337,6 @@ class TestHfCacheScanAndDelete:
         assert diagnostics.delete_hf_cache_revision("x") is False
 
 
-class TestPiperVoiceScanAndDelete:
-    """Step 25d item 14: this disk-management panel only ever scanned the
-    Hugging Face model cache -- Piper voices (Step 25c item 1's
-    offline-voice picker) download to library/piper_voices instead, so
-    they were invisible to it and to whatever cleanup/disk-usage view
-    relies on it."""
-
-    def _make_voice(self, voices_dir, name, onnx_bytes=b"x" * 5000, with_json=True):
-        os.makedirs(voices_dir, exist_ok=True)
-        with open(os.path.join(voices_dir, f"{name}.onnx"), "wb") as f:
-            f.write(onnx_bytes)
-        if with_json:
-            with open(os.path.join(voices_dir, f"{name}.onnx.json"), "wb") as f:
-                f.write(b"{}")
-
-    def test_lists_voices_with_real_sizes_largest_first(self, tmp_path_str):
-        self._make_voice(tmp_path_str, "en_US-amy-medium", b"x" * 5000)
-        self._make_voice(tmp_path_str, "en_US-ryan-low", b"x" * 1000)
-        entries = diagnostics.scan_piper_voices(tmp_path_str)
-        assert [e["voice"] for e in entries] == ["en_US-amy-medium", "en_US-ryan-low"]
-        assert entries[0]["size_bytes"] >= 5000
-        assert entries[1]["size_bytes"] >= 1000
-
-    def test_empty_when_the_directory_does_not_exist_yet(self, tmp_path_str):
-        missing = os.path.join(tmp_path_str, "does_not_exist")
-        assert diagnostics.scan_piper_voices(missing) == []
-
-    def test_only_onnx_files_are_counted_as_voices(self, tmp_path_str):
-        self._make_voice(tmp_path_str, "en_US-amy-medium")
-        with open(os.path.join(tmp_path_str, "README.txt"), "w") as f:
-            f.write("not a voice")
-        entries = diagnostics.scan_piper_voices(tmp_path_str)
-        assert [e["voice"] for e in entries] == ["en_US-amy-medium"]
-
-    def test_delete_removes_both_the_model_and_its_config(self, tmp_path_str):
-        self._make_voice(tmp_path_str, "en_US-amy-medium")
-        assert diagnostics.delete_piper_voice("en_US-amy-medium", tmp_path_str) is True
-        assert not os.path.exists(os.path.join(tmp_path_str, "en_US-amy-medium.onnx"))
-        assert not os.path.exists(os.path.join(tmp_path_str, "en_US-amy-medium.onnx.json"))
-
-    def test_delete_of_an_unknown_voice_fails_cleanly(self, tmp_path_str):
-        assert diagnostics.delete_piper_voice("does-not-exist", tmp_path_str) is False
-
-
 class TestModelFolders:
     """torch.hub checkpoints (TORCH_HOME) and the audio-separator models
     live outside the Hugging Face cache; the model panel lists and deletes
@@ -425,7 +388,7 @@ class TestModelFolders:
 
 class TestModelEngineVersions:
     def test_lists_every_registered_backend_with_a_version_or_repo_id(self):
-        versions = diagnostics.get_model_engine_versions()
+        versions = diagnostics_report.get_model_engine_versions()
         names = {v["name"] for v in versions}
         assert "Whisper (faster-whisper)" in names
         assert "pyannote diarization model" in names
@@ -435,13 +398,13 @@ class TestModelEngineVersions:
 
     def test_repo_entry_shows_the_actual_diarization_model_ids(self):
         import diarize
-        versions = diagnostics.get_model_engine_versions()
+        versions = diagnostics_report.get_model_engine_versions()
         row = next(v for v in versions if v["name"] == "pyannote diarization model")
         for model in diarize.DIARIZATION_MODELS:
             assert model in row["version"]
 
     def test_an_installed_package_shows_a_real_version_string(self):
-        versions = diagnostics.get_model_engine_versions()
+        versions = diagnostics_report.get_model_engine_versions()
         row = next(v for v in versions if v["name"] == "pyannote.audio")
         # anthropic/requests/etc. are installed in this sandbox's test
         # env, but pyannote.audio may or may not be -- just check the
@@ -450,22 +413,20 @@ class TestModelEngineVersions:
         assert row["version"] == "not installed" or row["version"][0].isdigit()
 
     def test_step_11b_voice_engines_have_rows(self):
-        rows = {v["name"]: v for v in diagnostics.get_model_engine_versions()}
-        for name in ("OmniVoice", "GPT-SoVITS", "Chatterbox", "TADA"):
-            assert name in rows
-        # a separate server, not a pip package -- says so rather than "not installed"
-        assert rows["GPT-SoVITS"]["version"] == "Separate local server (not pip-installed)"
+        rows = {v["name"]: v for v in diagnostics_report.get_model_engine_versions()}
+        assert "OmniVoice" in rows
+        for removed in ("GPT-SoVITS", "Chatterbox", "TADA"):
+            assert removed not in rows
 
     def test_step_11b_pip_engines_are_registered_dependencies(self):
         # keyed by the real pip name, since the Install button runs `pip install <key>`
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["omnivoice"][0] == "omnivoice"
-        assert deps["chatterbox-tts"][0] == "chatterbox"
-        assert deps["hume-tada"][0] == "tada"
+        assert "chatterbox-tts" not in deps and "hume-tada" not in deps
 
     def test_ollama_tag_appended_only_when_given(self):
-        assert not any(v["name"].startswith("Ollama") for v in diagnostics.get_model_engine_versions())
-        versions = diagnostics.get_model_engine_versions("qwen3:8b")
+        assert not any(v["name"].startswith("Ollama") for v in diagnostics_report.get_model_engine_versions())
+        versions = diagnostics_report.get_model_engine_versions("qwen3:8b")
         row = next(v for v in versions if v["name"].startswith("Ollama"))
         assert row["version"] == "qwen3:8b"
 
@@ -474,23 +435,22 @@ class TestModelEngineVersions:
             raise AssertionError("should not touch the network")
         monkeypatch.setattr("requests.get", boom)
         monkeypatch.setattr("requests.post", boom)
-        diagnostics.get_model_engine_versions("qwen3:8b")  # must not raise
+        monkeypatch.setattr(http, "pinned_get", boom)
+        diagnostics_report.get_model_engine_versions("qwen3:8b")  # must not raise
 
     def test_installed_is_a_real_boolean_not_a_string_match(self):
         """Step 18 item 2: the render step branches on a real boolean this
         function computes, not a fragile `version == "not installed"`
         string match in the caller."""
-        rows = {v["name"]: v for v in diagnostics.get_model_engine_versions()}
+        rows = {v["name"]: v for v in diagnostics_report.get_model_engine_versions()}
         # a "package" kind: installed iff importlib.metadata found a version
         pkg_row = rows["pyannote.audio"]
         assert pkg_row["installed"] == (pkg_row["version"] != "not installed")
         # a "repo" kind has no real "not installed" state -- always installed
         assert rows["pyannote diarization model"]["installed"] is True
-        # a "service" kind (a separate server, not pip-installed) likewise
-        assert rows["GPT-SoVITS"]["installed"] is True
 
     def test_ollama_row_is_installed(self):
-        rows = {v["name"]: v for v in diagnostics.get_model_engine_versions("qwen3:8b")}
+        rows = {v["name"]: v for v in diagnostics_report.get_model_engine_versions("qwen3:8b")}
         assert rows["Ollama (active tag)"]["installed"] is True
 
 
@@ -501,31 +461,31 @@ class TestGpuStatus:
 
     def test_unavailable_when_torch_not_installed(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert "PyTorch isn't installed" in status["message"]
 
     def test_unavailable_no_error_when_no_gpu_present(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: None)
         fake_torch = types.SimpleNamespace(
             version=types.SimpleNamespace(cuda=None),
             cuda=types.SimpleNamespace(is_available=lambda: False))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert "unavailable" in status["message"]
         assert "GPU" not in status["message"] or "no CUDA-capable GPU" in status["message"]
 
     def test_names_the_real_mismatch_when_gpu_present_but_torch_is_cpu_only(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
-        monkeypatch.setattr(diagnostics.shutil, "which",
+        monkeypatch.setattr(diagnostics_torch.shutil, "which",
                             lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
         fake_torch = types.SimpleNamespace(
             version=types.SimpleNamespace(cuda=None),
             cuda=types.SimpleNamespace(is_available=lambda: False))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert "CPU-only" in status["message"]
 
@@ -540,7 +500,7 @@ class TestGpuStatus:
                 get_device_properties=lambda idx: props,
                 memory_allocated=lambda idx: 2 * 1024 ** 3))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is True
         assert status["name"] == "NVIDIA GeForce RTX 3080 Ti"
         assert status["vram_used_gb"] == pytest.approx(2.0)
@@ -550,56 +510,9 @@ class TestGpuStatus:
     def test_broken_torch_import_does_not_crash(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
         monkeypatch.setitem(sys.modules, "torch", None)  # forces ImportError on `import torch`
-        status = diagnostics.get_gpu_status()
+        status = diagnostics_torch.get_gpu_status()
         assert status["available"] is False
         assert status["message"]
-
-
-class TestStreamDependencyInstall:
-    """Step 18 item 7: the generic per-dependency Install button must not
-    reproduce the CPU-only-torch footgun the dedicated GPU-PyTorch button
-    already exists to fix."""
-
-    def test_torch_with_gpu_present_uses_the_gpu_aware_reinstall(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which",
-                            lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
-        called = {}
-
-        def fake_gpu_reinstall(python_executable=None, project_root=None):
-            called["used"] = True
-            yield {"done": True, "ok": True, "returncode": 0}
-        monkeypatch.setattr(diagnostics, "stream_gpu_torch_reinstall", fake_gpu_reinstall)
-
-        def boom(*a, **k):
-            raise AssertionError("should not fall back to a bare pip install")
-        monkeypatch.setattr(diagnostics, "stream_pip_install", boom)
-
-        list(diagnostics.stream_dependency_install("torch"))
-        assert called.get("used") is True
-
-    def test_torch_with_no_gpu_uses_a_plain_install(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
-        captured = {}
-
-        def fake_plain_install(pip_args, python_executable=None):
-            captured["pip_args"] = pip_args
-            yield {"done": True, "ok": True, "returncode": 0}
-        monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
-
-        list(diagnostics.stream_dependency_install("torch"))
-        assert captured["pip_args"] == ["torch"]
-
-    def test_other_dependencies_always_use_a_plain_install(self, monkeypatch):
-        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        captured = {}
-
-        def fake_plain_install(pip_args, python_executable=None):
-            captured["pip_args"] = pip_args
-            yield {"done": True, "ok": True, "returncode": 0}
-        monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
-
-        list(diagnostics.stream_dependency_install("audio-separator"))
-        assert captured["pip_args"] == ["audio-separator"]
 
 
 class TestPyannoteGatedAccessCheck:
@@ -620,7 +533,7 @@ class TestPyannoteGatedAccessCheck:
         import diarize
         gated_model = diarize.DIARIZATION_MODELS[1]
         api = self._FakeApi(gated=(gated_model,))
-        results = diagnostics.check_pyannote_gated_access(api=api)
+        results = diagnostics_report.check_pyannote_gated_access(api=api)
         assert len(results) == len(diarize.DIARIZATION_MODELS)
         by_model = {r["model"]: r for r in results}
         assert by_model[diarize.DIARIZATION_MODELS[0]]["accessible"] is True
@@ -629,12 +542,12 @@ class TestPyannoteGatedAccessCheck:
 
     def test_hf_token_is_passed_through(self):
         api = self._FakeApi()
-        diagnostics.check_pyannote_gated_access(hf_token="hf_faketoken", api=api)
+        diagnostics_report.check_pyannote_gated_access(hf_token="hf_faketoken", api=api)
         assert all(token == "hf_faketoken" for _, token in api.calls)
 
     def test_every_hub_call_has_a_timeout(self):
         api = self._FakeApi()
-        diagnostics.check_pyannote_gated_access(api=api)
+        diagnostics_report.check_pyannote_gated_access(api=api)
         assert api.timeouts and all(t == 10 for t in api.timeouts)
 
     def test_real_hfapi_model_info_accepts_timeout(self):
@@ -644,7 +557,7 @@ class TestPyannoteGatedAccessCheck:
 
     def test_huggingface_hub_not_installed_returns_empty(self, monkeypatch):
         monkeypatch.setitem(sys.modules, "huggingface_hub", None)
-        assert diagnostics.check_pyannote_gated_access() == []
+        assert diagnostics_report.check_pyannote_gated_access() == []
 
 
 class TestCheckEngineReachable:
@@ -655,11 +568,11 @@ class TestCheckEngineReachable:
     mocked, same as every other network-reaching diagnostics check."""
 
     def test_a_working_engine_reports_ok(self):
-        result = diagnostics.check_engine_reachable("fake")
+        result = diagnostics_report.check_engine_reachable("fake")
         assert result == {"engine": "fake", "ok": True, "error": None}
 
     def test_unknown_engine_name_reports_failure_not_a_crash(self):
-        result = diagnostics.check_engine_reachable("not-a-real-engine")
+        result = diagnostics_report.check_engine_reachable("not-a-real-engine")
         assert result["ok"] is False
         assert result["engine"] == "not-a-real-engine"
         assert result["error"]
@@ -670,14 +583,14 @@ class TestCheckEngineReachable:
         def boom(*a, **k):
             raise RuntimeError("invalid key: sk-fake1234567890")
         monkeypatch.setattr(translate_engines, "standalone_translate", boom)
-        result = diagnostics.check_engine_reachable("claude", api_key="sk-fake1234567890")
+        result = diagnostics_report.check_engine_reachable("claude", api_key="sk-fake1234567890")
         assert result["ok"] is False
         assert "sk-fake1234567890" not in result["error"]     # redacted, like every other engine error
 
     def test_an_empty_translation_is_reported_as_failure_not_silently_ok(self, monkeypatch):
         import translate_engines
         monkeypatch.setattr(translate_engines, "standalone_translate", lambda *a, **k: "")
-        result = diagnostics.check_engine_reachable("claude", api_key="sk-x")
+        result = diagnostics_report.check_engine_reachable("claude", api_key="sk-x")
         assert result["ok"] is False
         assert "empty" in result["error"].lower()
 
@@ -685,7 +598,7 @@ class TestCheckEngineReachable:
 class TestDependencyVersionCheck:
     """Step 27: 'is this outdated' + Upgrade. Like the pyannote check
     above, this reaches the network -- every test here mocks
-    requests.get so no test ever makes a real call to PyPI."""
+    lib.http.pinned_get so no test ever makes a real call to PyPI."""
 
     def test_get_installed_version_returns_none_for_unknown_distribution(self):
         assert diagnostics.get_installed_version("definitely-not-a-real-package-xyz") is None
@@ -704,20 +617,35 @@ class TestDependencyVersionCheck:
             def close(self):
                 pass
         captured = {}
-        def fake_get(url, timeout=None, stream=False, allow_redirects=True):
-            captured["url"], captured["timeout"] = url, timeout
+        def fake_get(url, ip, headers, timeout=None, method="GET", **kw):
+            captured["url"], captured["timeout"], captured["ip"] = url, timeout, ip
             return FakeResp()
-        monkeypatch.setattr("requests.get", fake_get)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
         assert diagnostics.get_latest_pypi_version("somepkg", timeout=3.5) == "9.9.9"
         assert captured["url"] == "https://pypi.org/pypi/somepkg/json"
         assert captured["timeout"] == 3.5
+        assert captured["ip"] is None  # a fixed vendor URL: no pinning, no redirects
+
+    def test_get_latest_pypi_version_does_not_follow_a_redirect(self, monkeypatch):
+        calls = []
+
+        class FakeResp:
+            status_code = 302
+            headers = {"Location": "https://elsewhere.example/json"}
+            def close(self):
+                pass
+        monkeypatch.setattr(http, "pinned_get",
+                            lambda url, *a, **kw: calls.append(url) or FakeResp())
+        assert diagnostics.get_latest_pypi_version("somepkg") is None
+        assert calls == ["https://pypi.org/pypi/somepkg/json"]
 
     def test_get_latest_pypi_version_returns_none_on_404(self, monkeypatch):
         class FakeResp:
             status_code = 404
+            headers = {}
             def close(self):
                 pass
-        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: FakeResp())
         assert diagnostics.get_latest_pypi_version("no-such-package") is None
 
     def test_get_latest_pypi_version_gives_up_on_an_oversized_body(self, monkeypatch):
@@ -732,14 +660,14 @@ class TestDependencyVersionCheck:
             def close(self):
                 closed.append(True)
         monkeypatch.setattr(diagnostics, "PYPI_JSON_MAX_BYTES", 1000)
-        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: FakeResp())
         assert diagnostics.get_latest_pypi_version("somepkg") is None
         assert closed
 
     def test_get_latest_pypi_version_returns_none_on_network_error(self, monkeypatch):
-        def boom(url, timeout=None, **kw):
-            raise ConnectionError("no network")
-        monkeypatch.setattr("requests.get", boom)
+        def boom(*a, **kw):
+            raise requests.ConnectionError("no network")
+        monkeypatch.setattr(http, "pinned_get", boom)
         assert diagnostics.get_latest_pypi_version("somepkg") is None
 
     def test_check_dependency_versions_flags_an_outdated_package(self, monkeypatch):
@@ -785,9 +713,10 @@ class TestDependencyVersionCheck:
             raise AssertionError("should not touch the network")
         monkeypatch.setattr("requests.get", boom)
         monkeypatch.setattr("requests.post", boom)
+        monkeypatch.setattr(http, "pinned_get", boom)
         # Everything else on this page must stay network-free by default.
         diagnostics.check_all_dependencies()
-        diagnostics.run_full_diagnostics(PROJECT_ROOT, str(tmp_path), {})
+        diagnostics_report.run_full_diagnostics(PROJECT_ROOT, str(tmp_path), {})
 
 
 class TestUpgradePipArgs:
@@ -874,41 +803,89 @@ class TestKnownInstallLimitationReason:
 
 class TestRedactForSupport:
     def test_strips_api_keys(self):
-        text = diagnostics.redact_for_support("key=sk-ant-api03-" + "X" * 40)
+        text = diagnostics_report.redact_for_support("key=sk-ant-api03-" + "X" * 40)
         assert "sk-ant-api03" not in text
 
     def test_strips_the_os_username(self, monkeypatch):
         monkeypatch.setattr("getpass.getuser", lambda: "bobsmith")
-        text = diagnostics.redact_for_support("C:\\Users\\bobsmith\\project\\library\\foo.txt")
+        text = diagnostics_report.redact_for_support("C:\\Users\\bobsmith\\project\\library\\foo.txt")
         assert "bobsmith" not in text
 
     def test_collapses_posix_paths_to_the_last_segment(self):
-        text = diagnostics.redact_for_support("saved to /home/bob/U00/library/drama_3/audio.wav")
+        text = diagnostics_report.redact_for_support("saved to /home/bob/U00/library/drama_3/audio.wav")
         assert "/home/bob" not in text
         assert "audio.wav" in text
 
+    def test_repr_escaped_windows_paths_are_redacted(self):
+        text = diagnostics_report.redact_for_support(
+            "Command '['ffmpeg', '-i', 'C:\\\\Users\\\\bob\\\\U00\\\\audio.wav']' failed")
+        assert "bob" not in text and "Users" not in text and ".../audio.wav" in text
+
     def test_collapses_windows_paths_to_the_last_segment(self):
-        text = diagnostics.redact_for_support(r"saved to C:\Users\bob\U00\library\drama_3\audio.wav")
+        text = diagnostics_report.redact_for_support(r"saved to C:\Users\bob\U00\library\drama_3\audio.wav")
         assert "bob" not in text
         assert "audio.wav" in text
 
     def test_collapses_windows_paths_with_spaces_in_folder_names(self):
-        text = diagnostics.redact_for_support(
+        text = diagnostics_report.redact_for_support(
             r"saved to C:\Users\x\My Documents\Baihe Data\library\12\audio.wav")
         assert text == "saved to .../audio.wav"
 
     def test_collapses_posix_paths_with_spaces_in_folder_names(self):
-        text = diagnostics.redact_for_support(
+        text = diagnostics_report.redact_for_support(
             "saved to /home/x/My Documents/Baihe Data/library/12/audio.wav, retrying")
         assert text == "saved to .../audio.wav, retrying"
 
+    def test_collapses_windows_paths_with_spaces_in_folders_and_filename(self):
+        text = diagnostics_report.redact_for_support(
+            r"saved to C:\Users\x\My Documents\my file name.wav, retrying")
+        assert text == "saved to .../my file name.wav, retrying"
+
+    def test_collapses_posix_paths_with_spaces_in_folders_and_filename(self):
+        text = diagnostics_report.redact_for_support(
+            "saved to /home/x/My Documents/my file name.wav then stopped")
+        assert text == "saved to .../my file name.wav then stopped"
+
+    def test_prose_after_an_unspaced_filename_is_kept(self):
+        text = diagnostics_report.redact_for_support(
+            r"failed to open C:\a\b.wav because the disk is full")
+        assert text == "failed to open .../b.wav because the disk is full"
+        text = diagnostics_report.redact_for_support(
+            "failed to open /a/b.wav because the disk is full, see notes.txt")
+        assert text == "failed to open .../b.wav because the disk is full, see notes.txt"
+
+    def test_spaced_filename_with_dotted_earlier_word_is_fully_redacted(self):
+        text = diagnostics_report.redact_for_support(
+            r"saved to C:\Users\me\Videos\v1.2 final.wav, retrying")
+        assert text == "saved to .../v1.2 final.wav, retrying"
+        text = diagnostics_report.redact_for_support(
+            "saved to /home/me/ep 3.5 cut.mp4 then stopped")
+        assert text == "saved to .../ep 3.5 cut.mp4 then stopped"
+        text = diagnostics_report.redact_for_support(
+            r"saved to \\server\share\v1.2 final.wav")
+        assert text == "saved to .../v1.2 final.wav"
+
+    def test_version_number_without_a_path_is_not_redacted(self):
+        text = "using build v1.2 final for the release, see notes v2.1 draft"
+        assert diagnostics_report.redact_for_support(text) == text
+
+    def test_dotted_word_after_a_spaced_filename_is_still_prose(self):
+        text = diagnostics_report.redact_for_support(
+            "failed to open /a/b.wav because v1.2 final.wav is newer")
+        assert text == "failed to open .../b.wav because v1.2 final.wav is newer"
+
+    def test_two_paths_in_one_sentence_stay_separate(self):
+        text = diagnostics_report.redact_for_support(
+            r"copy C:\a\b.wav to C:\c d\e f.txt now")
+        assert text == "copy .../b.wav to .../e f.txt now"
+
     def test_empty_text_is_safe(self):
-        assert diagnostics.redact_for_support("") == ""
-        assert diagnostics.redact_for_support(None) == ""
+        assert diagnostics_report.redact_for_support("") == ""
+        assert diagnostics_report.redact_for_support(None) == ""
 
     def test_strips_ansi_colour_codes(self):
         raw = "\x1b[0;31mERROR:\x1b[0m [youtube] abc123: Sign in to confirm \x1b[1mnow\x1b[0m\x1b[K"
-        text = diagnostics.redact_for_support(raw)
+        text = diagnostics_report.redact_for_support(raw)
         assert text == "ERROR: [youtube] abc123: Sign in to confirm now"
         assert "\x1b" not in text
 
@@ -923,13 +900,13 @@ class TestFormatDiagnosticsReport:
             "api_keys": {"claude": True, "gemini": False},
             "dependencies": {"anthropic": {"installed": True, "tier": "engine"},
                              "torch": {"installed": False, "tier": "feature"}},
-            "files": {"all_present": True, "missing_top_level": [], "missing_tabs": []},
+            "files": {"all_present": True, "missing_top_level": []},
         }
         base.update(overrides)
         return base
 
     def test_report_mentions_missing_dependency_and_key_state(self):
-        report = diagnostics.format_diagnostics_report(self._results())
+        report = diagnostics_report.format_diagnostics_report(self._results())
         assert "torch" in report
         assert "claude" in report and "gemini" not in report.split("API keys set:")[1].split("\n")[0]
 
@@ -938,18 +915,18 @@ class TestFormatDiagnosticsReport:
                     "size_bytes": 1024 * 1024}]
         model_versions = [{"name": "Whisper (faster-whisper)", "version": "1.0.0",
                            "url": "https://x"}]
-        report = diagnostics.format_diagnostics_report(self._results(), hf_cache, model_versions)
+        report = diagnostics_report.format_diagnostics_report(self._results(), hf_cache, model_versions)
         assert "1 revision(s)" in report
         assert "Whisper (faster-whisper): 1.0.0" in report
 
     def test_omits_cache_and_versions_sections_when_not_given(self):
-        report = diagnostics.format_diagnostics_report(self._results())
+        report = diagnostics_report.format_diagnostics_report(self._results())
         assert "Hugging Face cache" not in report
         assert "Model/engine versions" not in report
 
     def test_report_content_survives_redaction_intact_apart_from_secrets(self):
-        report = diagnostics.format_diagnostics_report(self._results())
-        redacted = diagnostics.redact_for_support(report)
+        report = diagnostics_report.format_diagnostics_report(self._results())
+        redacted = diagnostics_report.redact_for_support(report)
         assert "torch" in redacted
         assert "Python: 3.11.0" in redacted
 

@@ -22,11 +22,13 @@ an edit made meanwhile is kept.
 import datetime
 import hashlib
 import json
+import logging
 import threading
 import time
 import uuid
 
 import background_jobs
+from bulk_providers import BulkAuthError, make_provider
 import db
 import emotion
 import translate_engines
@@ -44,17 +46,6 @@ POLL_INTERVAL_SECONDS = 60
 # public holidays are off-peak too, but aren't listed here -- on one of
 # those a job just waits for a window it didn't strictly need to.
 DEEPSEEK_PEAK_HOURS_UTC = ((1, 4), (6, 10))
-
-# A finished Gemini batch carries every result inline in one reply, and
-# Gemini accepts up to 20 MB of inline requests, so the reply can be large.
-BATCH_RESPONSE_MAX_BYTES = 64 * 1024 * 1024
-BATCH_READ_DEADLINE_SECONDS = 300
-
-
-class BulkAuthError(Exception):
-    """The provider refused our credentials while polling (the key was
-    rotated or revoked after submission) -- shown on the Bulk jobs panel
-    instead of retried forever."""
 
 
 def zh_hash(text: str) -> str:
@@ -93,159 +84,6 @@ def next_deepseek_offpeak_start(now: datetime.datetime) -> datetime.datetime:
         if start <= now.hour < end:
             return now.replace(hour=end, minute=0, second=0, microsecond=0)
     return now
-
-
-# ---------------------------------------------------------------------------
-# Providers: submit / poll / results / cancel
-# ---------------------------------------------------------------------------
-
-class ClaudeBatchProvider:
-    """Anthropic Message Batches through the official SDK."""
-
-    def __init__(self, engine):
-        self.engine = engine
-        self.client = engine.client
-
-    def build_request(self, key: str, context: dict, numbered: str) -> dict:
-        return {"custom_id": key, "params": self.engine.build_request_params(context, numbered)}
-
-    def build_prompt_request(self, key: str, prompt: str, max_tokens: int = 3000) -> dict:
-        """A plain single-user-message request, no system prompt
-        and no glossary/style context -- the same shape call_llm_json's
-        own Claude branch sends, used by flag/consistency/emotion/
-        translation-notes and Reflect's own three passes, none of which
-        are the "translate with full context" request build_request
-        above is for."""
-        return {"custom_id": key,
-                "params": {"model": self.engine.model, "max_tokens": max_tokens,
-                          "messages": [{"role": "user", "content": prompt}]}}
-
-    def _call(self, fn):
-        import anthropic
-        try:
-            return fn()
-        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
-            raise BulkAuthError(translate_engines.redact_secrets(str(e))) from e
-
-    def submit(self, requests_: list) -> str:
-        return self._call(lambda: self.client.messages.batches.create(requests=requests_)).id
-
-    def poll(self, batch_id: str) -> str:
-        batch = self._call(lambda: self.client.messages.batches.retrieve(batch_id))
-        return "ended" if batch.processing_status == "ended" else "pending"
-
-    def results(self, batch_id: str):
-        """Yields (request_key, text or None, usage dict, error or None)."""
-        for r in self._call(lambda: self.client.messages.batches.results(batch_id)):
-            if r.result.type == "succeeded":
-                msg = r.result.message
-                text = "".join(b.text for b in msg.content if b.type == "text").strip()
-                yield r.custom_id, text, translate_engines.claude_usage(msg.usage), None
-            else:
-                yield r.custom_id, None, {}, r.result.type
-
-    def cancel(self, batch_id: str):
-        self._call(lambda: self.client.messages.batches.cancel(batch_id))
-
-
-class GeminiBatchProvider:
-    """Gemini Batch API over REST, like GeminiEngine itself -- key in the
-    x-goog-api-key header, never the URL."""
-    BASE = "https://generativelanguage.googleapis.com/v1beta"
-
-    def __init__(self, engine):
-        self.engine = engine
-
-    def build_request(self, key: str, context: dict, numbered: str) -> dict:
-        return {"request": self.engine.build_request_body(context, numbered),
-                "metadata": {"key": key}}
-
-    def build_prompt_request(self, key: str, prompt: str, max_tokens: int = 3000) -> dict:
-        """See ClaudeBatchProvider.build_prompt_request's own
-        docstring -- same plain-prompt shape, no systemInstruction."""
-        return {"request": {"contents": [{"parts": [{"text": prompt}]}]},
-                "metadata": {"key": key}}
-
-    def _check(self, resp):
-        if resp.status_code in (401, 403):
-            resp.close()
-            raise BulkAuthError(f"Gemini refused the API key (HTTP {resp.status_code}).")
-        return translate_engines.read_json_capped(resp, BATCH_READ_DEADLINE_SECONDS,
-                                                  BATCH_RESPONSE_MAX_BYTES)
-
-    def _headers(self):
-        return {"x-goog-api-key": self.engine.api_key}
-
-    def submit(self, requests_: list) -> str:
-        import requests
-        resp = requests.post(
-            f"{self.BASE}/models/{self.engine.model}:batchGenerateContent",
-            headers=self._headers(), timeout=120, stream=True,
-            json={"batch": {"display_name": "baihe-bulk-translation",
-                            "input_config": {"requests": {"requests": requests_}}}})
-        return self._check(resp)["name"]
-
-    def _get(self, batch_id: str) -> dict:
-        import requests
-        return self._check(requests.get(f"{self.BASE}/{batch_id}", headers=self._headers(),
-                                        timeout=60, stream=True))
-
-    @staticmethod
-    def _state(data: dict) -> str:
-        for holder in (data, data.get("metadata") or {}, data.get("response") or {}):
-            state = holder.get("state")
-            if state:
-                return state
-        return ""
-
-    def poll(self, batch_id: str) -> str:
-        data = self._get(batch_id)
-        state = self._state(data)
-        if state.endswith("SUCCEEDED"):
-            return "ended"
-        if state.endswith(("FAILED", "EXPIRED", "CANCELLED")):
-            return "failed:" + state
-        return "ended" if data.get("done") else "pending"
-
-    @staticmethod
-    def _inlined(data: dict) -> list:
-        resp = data.get("response") or {}
-        for holder in (resp, resp.get("output") or {}):
-            inl = holder.get("inlinedResponses")
-            if isinstance(inl, dict):
-                inl = inl.get("inlinedResponses")
-            if isinstance(inl, list):
-                return inl
-        return []
-
-    def results(self, batch_id: str):
-        for item in self._inlined(self._get(batch_id)):
-            # A response is only ever attributed through the key we sent
-            # with its request -- never by its position in the list.
-            key = (item.get("metadata") or {}).get("key")
-            if item.get("error") or not item.get("response"):
-                yield key, None, {}, json.dumps(item.get("error") or "no response")
-                continue
-            r = item["response"]
-            try:
-                text = r["candidates"][0]["content"]["parts"][0]["text"].strip()
-            except (KeyError, IndexError, TypeError):
-                yield key, None, {}, "empty response"
-                continue
-            yield key, text, translate_engines.gemini_usage(r.get("usageMetadata")), None
-
-    def cancel(self, batch_id: str):
-        import requests
-        self._check(requests.post(f"{self.BASE}/{batch_id}:cancel", headers=self._headers(),
-                                  json={}, timeout=60, stream=True))
-
-
-def make_provider(engine_choice: str, engine):
-    if engine_choice == "claude":
-        return ClaudeBatchProvider(engine)
-    if engine_choice == "gemini":
-        return GeminiBatchProvider(engine)
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -704,7 +542,8 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
 
     if counts["applied"]:
         import subtitle_formats
-        changed_flag = subtitle_formats.flag_dense_lines(current) > 0 or changed_flag
+        mode = subtitle_formats.flagging_mode_of(db.get_drama(job["drama_id"]))
+        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
     if counts["applied"] or changed_flag:
         db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
     if counts["applied"]:
@@ -719,6 +558,8 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
         db.update_drama(job["drama_id"], **_status)
+    # Nothing newly applied can still complete the title (lines typed meanwhile).
+    mark_translated_if_complete(job["drama_id"])
     return counts
 
 
@@ -1020,7 +861,8 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
 
     if counts["applied"]:
         import subtitle_formats
-        changed_flag = subtitle_formats.flag_dense_lines(current) > 0 or changed_flag
+        mode = subtitle_formats.flagging_mode_of(db.get_drama(job["drama_id"]))
+        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
     if counts["applied"] or changed_flag:
         db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
     if counts["applied"]:
@@ -1032,6 +874,7 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
         db.update_drama(job["drama_id"], **_status)
+    mark_translated_if_complete(job["drama_id"])
     if notes:
         db.save_translation_notes(job["drama_id"], notes)
     return counts
@@ -1346,14 +1189,15 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
     and whose English hasn't changed since scheduling, as a normal run."""
     job = db.get_bulk_job(bulk_job_id)
     args = job.get("translate_args") or {}
+    did = job["drama_id"]
     rows = {r["line_id"]: r for r in db.list_bulk_job_lines(bulk_job_id)}
-    lines = db.load_line_objects(job["drama_id"])
+    lines = db.load_line_objects(did)
     eligible = {ln.id for ln in lines
                 if ln.id in rows and (ln.en or "") == (rows[ln.id]["en_at_submit"] or "")}
-    drama = db.get_drama(job["drama_id"]) or {}
+    drama = db.get_drama(did) or {}
     series_id = drama.get("series_id")
     character_names = tguide.build_speaker_labels(
-        db.list_characters_with_series_names(job["drama_id"]),
+        db.list_characters_with_series_names(did),
         db.list_series_characters(series_id) if series_id else [])
     cap = {}
     _, errors = translate_engines.translate_lines_with_engine(
@@ -1362,20 +1206,20 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
         target_ids=eligible, locale=args.get("locale", "en-US"),
         glossary_terms=args.get("glossary_terms"), style_guidelines=args.get("style_guidelines", ""),
         context_window=args.get("context_window", 6), character_names=character_names,
-        save_cb=lambda ls: db.save_lines(job["drama_id"], ls, fields=("en",)),
+        save_cb=lambda ls: db.save_lines(did, ls, fields=("en",)),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-            job["drama_id"], job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
+            did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
+        thinking=args.get("thinking"),
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
     summary = {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
                "batch_errors": len(errors), "cap_reached": cap.get("spent")}
     # Same gate as apply_bulk_results above: a run with batch failures or
     # skipped (source-changed) lines must stay re-runnable, not "translated".
-    _status = dict(translation_engine=job["engine"])
-    if untranslated_line_count(job["drama_id"]) == 0:
-        _status["status"] = "translated"
-    db.update_drama(job["drama_id"], **_status)
+    done = untranslated_line_count(did) == 0
+    db.update_drama(did, translation_engine=job["engine"],
+                    **({"status": "translated"} if done else {}))
     return summary
 
 
@@ -1505,6 +1349,36 @@ def untranslated_line_count(drama_id: int) -> int:
     """Lines with source text but no translation yet, as saved right now."""
     return sum(1 for r in db.load_lines(drama_id)
                if (r.get("zh") or "").strip() and not (r.get("en") or "").strip())
+
+
+def mark_translated_if_complete(drama_id: int) -> bool:
+    """Moves a title from "aligned" to "translated" once every line with
+    source text has a translation. Called after any write that can fill the
+    last blank, so the status follows the lines whichever path wrote them.
+    Only an exact "aligned" is promoted: "dubbed" and "exported" are later
+    stages and must never go back, and a title with no source text has
+    nothing translated."""
+    drama = db.get_drama(drama_id)
+    if not drama or drama.get("status") != "aligned":
+        return False
+    rows = db.load_lines(drama_id)
+    if not any((r.get("zh") or "").strip() for r in rows):
+        return False
+    if untranslated_line_count(drama_id) != 0:
+        return False
+    return db.set_status_if(drama_id, "aligned", "translated")
+
+
+def repair_stale_aligned_statuses() -> int:
+    """One-time, idempotent startup repair for titles left at "aligned" with
+    every line already translated; touches no other status. Returns how
+    many were corrected."""
+    fixed = sum(1 for d in db.list_dramas(status="aligned")
+                if mark_translated_if_complete(d["id"]))
+    if fixed:
+        logging.getLogger(__name__).info(
+            "Corrected %d title(s) stuck at 'aligned' with every line translated.", fixed)
+    return fixed
 
 
 def _summary_engine_is_paid(summary_engine, summary_engine_choice) -> bool:
@@ -1640,7 +1514,8 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
     import subtitle_formats
-    subtitle_formats.flag_dense_lines(lines)
+    subtitle_formats.flag_dense_lines(
+        lines, mode=subtitle_formats.flagging_mode_of(db.get_drama(drama_id)))
     if landed is None:
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     else:

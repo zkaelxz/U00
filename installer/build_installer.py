@@ -20,8 +20,9 @@ Payload (build/installer/payload/):
                     exclusions below), frontend/dist, and the two runtime
                     installer scripts (app/installer/launcher.py, postinstall.py)
     service/        the boot service's files: helper/ (a second copy of the
-                    interpreter with no site-packages, installer/service.py and
-                    the Start-menu service menu, installer/service_menu.ps1)
+                    interpreter with no site-packages, installer/service.py,
+                    installer/setup_lock.py and the Start-menu service menu,
+                    installer/service_menu.ps1)
                     and wrapper/ (WinSW, pinned by SHA-256, as BaiheStudio.exe
                     with its licence), and caddy/ (WinSW as BaiheCaddy.exe and
                     caddy.exe built from installer/caddy, with the licence files
@@ -118,7 +119,7 @@ EXCLUDED_DIR_NAMES = frozenset({
 })
 # Excluded at the repo root only (frontend/dist is staged on its own).
 EXCLUDED_TOP_LEVEL = frozenset({
-    "tests", "docs", "scripts", "installer", "frontend", "build", "dist", "env",
+    "tests", "docs", "scripts", "tools", "installer", "frontend", "build", "dist", "env",
     ".github", ".claude",
 })
 EXCLUDED_FILE_NAMES = frozenset({
@@ -128,7 +129,7 @@ EXCLUDED_FILE_NAMES = frozenset({
     "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
     "make_shortcut.bat", "make_lock.bat",
     # Developer-only files. (run_tests.py ships: Diagnostics' file check
-    # expects it, diagnostics.EXPECTED_TOP_LEVEL_FILES.)
+    # expects it, expected_files.EXPECTED_TOP_LEVEL_FILES.)
     "pytest.ini", "conftest.py", "CLAUDE.md", "FILE_ORGANIZATION.md",
     ".gitignore", ".gitattributes", "Thumbs.db", ".DS_Store",
 })
@@ -283,7 +284,7 @@ def download(url: str, dest: Path, max_bytes: int = DOWNLOAD_MAX_BYTES,
              deadline_seconds: float = DOWNLOAD_DEADLINE_SECONDS, clock=time.monotonic) -> Path:
     """Fetches `url` to `dest`, refusing more than `max_bytes` (declared or
     actual) or a transfer slower than `deadline_seconds` in all. Standard
-    library only, like the rest of installer/, so services.capped_body isn't
+    library only, like the rest of installer/, so lib.capped_body isn't
     used; the caller checks the pinned hash afterwards."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
@@ -576,9 +577,9 @@ def build_caddy(out_dir, go="go", run=subprocess.run) -> tuple:
                          "CADDY_SHA256; otherwise check that installer/caddy has LF line endings "
                          "and that the Go version matches.")
     listing = run(caddy_modules_command(go), cwd=str(CADDY_SOURCE_DIR), env=env, timeout=600,
-                  capture_output=True, text=True)
+                  capture_output=True, text=True, encoding="utf-8", errors="replace")
     goroot = run([go, "env", "GOROOT"], cwd=str(CADDY_SOURCE_DIR), env=env, timeout=600,
-                 capture_output=True, text=True)
+                 capture_output=True, text=True, encoding="utf-8", errors="replace")
     if listing.returncode != 0 or goroot.returncode != 0:
         raise BuildError("Listing the modules compiled into Caddy failed.")
     licenses = out_dir / "licenses"
@@ -605,10 +606,11 @@ def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses)
         shutil.rmtree(service)
     helper_python = prepare_python(python_zip, service / "helper" / "python")
     tag = "".join(PYTHON_VERSION.split(".")[:2])
-    (helper_python / f"python{tag}._pth").write_text(f"python{tag}.zip\n.\n", encoding="ascii",
+    (helper_python / f"python{tag}._pth").write_text(f"python{tag}.zip\n.\n..\\lib\n", encoding="ascii",
                                                    newline="\r\n")
     shutil.rmtree(helper_python / "Lib")
     _copy(INSTALLER_DIR / "service.py", service / "helper" / "lib" / "installer" / "service.py")
+    _copy(INSTALLER_DIR / "setup_lock.py", service / "helper" / "lib" / "installer" / "setup_lock.py")
     # The Start-menu "Baihe Studio service" menu runs elevated, so it is
     # run only from the admin folder's copy.
     _copy(INSTALLER_DIR / "service_menu.ps1",

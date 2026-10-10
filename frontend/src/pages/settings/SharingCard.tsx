@@ -11,11 +11,13 @@
 import { useEffect, useState } from 'react'
 
 import { getShareByDefault, listSharing, setItemPrivate, setShareByDefault } from '../../api/sharing'
+import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { badgeClass, buttonClass } from '../../components/uiClasses'
 import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../../hooks/useSession'
+import { routeHref } from '../../router'
 import type { SharingItem } from '../../types/sharing'
 import {
   PC_ITEMS_NOTE,
@@ -169,10 +171,10 @@ function SharingItems() {
 
   return (
     <div className="settings-group">
-      <h4 className="settings-subhead">Every drama and series</h4>
+      <h4 className="settings-subhead">Every title and series</h4>
       <p className="settings-note">
         Shared: everyone in the household can see it. Private: only its owner and admins can. A series decides for
-        all of its dramas.
+        all of its titles.
       </p>
       <p className="settings-note" data-testid="sharing-pc-note">
         {PC_ITEMS_NOTE}
@@ -187,15 +189,18 @@ function SharingItems() {
       {items === null ? (
         !listError && <p className="muted">Loading…</p>
       ) : items.length === 0 ? (
-        <p className="muted">There are no dramas or series yet.</p>
+        <div className="settings-actions">
+          <span className="muted">There are no titles or series yet.</span>
+          <ButtonLink size="sm" href={routeHref({ name: 'library' })}>Go to Library</ButtonLink>
+        </div>
       ) : pcOnly && filterPcPrivate(items).length === 0 ? (
         <p className="muted">No private items created at the PC{items.length < total ? ' in the items shown so far' : ''}.</p>
       ) : (
-        <ul className="status-list sharing-list" aria-label="Dramas and series">
+        <ul className="status-list sharing-list" aria-label="Titles and series">
           {(pcOnly ? filterPcPrivate(items) : items).map((item) => {
             const key = itemKey(item)
             const title = itemTitle(item)
-            const kindLabel = item.kind === 'series' ? 'Series' : 'Drama'
+            const kindLabel = item.kind === 'series' ? 'Series' : 'Title'
             return (
               <li key={key} className={followsSeries(item) ? 'sharing-in-series' : undefined} data-testid={`sharing-${key}`}>
                 <div className="status-row sharing-row">

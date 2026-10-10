@@ -17,6 +17,7 @@ import { cancelJob } from '../api/jobs'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { HelpTip } from '../components/HelpTip'
 import { buttonClass } from '../components/uiClasses'
 import { useJob, useJobRun } from '../hooks/useJob'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -29,6 +30,7 @@ import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
 import { ReevalCard } from './benchmark/ReevalCard'
 import { RunCard } from './benchmark/RunCard'
 import { RunsCard } from './benchmark/RunsCard'
+import { BENCH_INTRO, BENCH_PAGE_HELP } from './benchmark/benchmarkHelp'
 import { isRunActive } from './benchmark/benchmarkForm'
 import './benchmark/benchmark.css'
 
@@ -85,11 +87,20 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
     <section className="bench-page" aria-label="Benchmark Lab">
       <header className="page-head">
         <div className="page-head-text">
-          <h2 className="page-title">Benchmark Lab</h2>
+          <h2 className="page-title">
+            Benchmark Lab
+            <HelpTip label="Benchmark Lab" id="bench-page-help" className="bench-help">
+              {BENCH_PAGE_HELP.map((line, i) => (
+                <span key={line} className="bench-help-step">
+                  {i + 1}. {line}
+                </span>
+              ))}
+            </HelpTip>
+          </h2>
           <p className="page-meta pill-row">
             {options ? (
               <>
-                <Badge tone="neutral">Pass mark {Math.round(options.pass_threshold * 100)}%</Badge>
+                <Badge tone="neutral">Pass mark {Math.round(options.pass_threshold * 100)}% ({Math.round(options.chrf_pass_threshold * 100)}% for chrF)</Badge>
                 <Badge tone="neutral">Up to {options.max_configs} engines per run</Badge>
                 {pc === 'remote' && <Badge tone="warn">View only: runs start on the main PC</Badge>}
               </>
@@ -102,10 +113,11 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
           ‹ Diagnostics
         </ButtonLink>
       </header>
-      <p className="muted bench-intro">
-        Test engines and prompts against golden sets with known answers. Every run is kept with its score, so a change can be
-        shown to be better or worse; runs of two or more engines line up side by side in the Model Arena.
-      </p>
+      <div className="muted bench-intro" data-testid="bench-intro">
+        {BENCH_INTRO.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
       {options && sets && <GoldenSetsCard sets={sets} options={options} pc={pc} phone={phone} onChanged={loadSets} />}

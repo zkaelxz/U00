@@ -7,6 +7,7 @@ import {
   compareSelectedProblem,
   compareOutcome,
   isSameText,
+  promptProblem,
   textDiff,
 } from './compareTranscriptionLogic'
 
@@ -76,6 +77,14 @@ describe('capProblem', () => {
     expect(capProblem(200, 200)).toBeNull()
     expect(capProblem(201, 200)).toContain('201 lines')
     expect(capProblem(201, 200)).toContain('200')
+  })
+})
+
+describe('promptProblem', () => {
+  it('allows up to the server limit of 1000 characters in each field', () => {
+    expect(promptProblem('a'.repeat(1000), 'b'.repeat(1000))).toBeNull()
+    expect(promptProblem('a'.repeat(1001), '')).toContain('1000')
+    expect(promptProblem('', 'b'.repeat(1001))).toContain('1000')
   })
 })
 

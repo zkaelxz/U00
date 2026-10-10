@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { SCREENS, cue, mockLive, openLive } from './liveMocks'
-import { mockEmbedHosts } from './liveVideoMocks'
+import { mockEmbedHosts, ytHtml } from './liveVideoMocks'
 
 // Phone project (390x844, touch): the video sits above the lines, 16:9,
 // no sideways scroll, 44px controls.
@@ -59,4 +59,20 @@ test('Larger video is a desktop control: on a phone the layout is the same eithe
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
   expect(scroll).toBeLessThanOrEqual(client)
+})
+
+test('the Unmute control after a muted start is a 44px target', async ({ page }) => {
+  test.setTimeout(30_000)
+  const m = await mockLive(page)
+  await mockEmbedHosts(page, ytHtml(300, 0, { blockSound: true }))
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://youtu.be/dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).tap()
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  m.state.cues = [cue(0)]
+  const unmute = live.getByTestId('live-video-muted').getByRole('button', { name: 'Unmute' })
+  await expect(unmute).toBeVisible({ timeout: 10_000 })
+  expect((await unmute.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 15 s behind live.', { timeout: 10_000 })
 })

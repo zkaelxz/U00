@@ -8,16 +8,22 @@ import {
   checkPath,
   cookiesSummary,
   parseCap,
+  parseKeepFreeGb,
   parseNumCtx,
+  parseUploadMb,
 } from './preferences'
 
 const saved: SettingsPreferences = {
   default_engine: 'claude',
   default_locale: 'en-US',
   default_style_note: '',
+  scene_aware_batches: true,
   episode_summary_engine: 'ollama',
+  max_upload_mb: 20480,
   monthly_cap_usd: null,
   ollama_num_ctx_override: 0,
+  keep_free_vram_gb: 0,
+  keep_free_ram_gb: 0,
   whisper_model_path: '',
   ocr_backend: 'auto',
   ocr_prefer_paddle_vl_manga: false,
@@ -56,6 +62,16 @@ describe('settings preferences', () => {
     expect(parseNumCtx('99999999').ok).toBe(false)
   })
 
+  it('parses the upload limit: 100 to 1,048,576 MB, blank is the default', () => {
+    expect(parseUploadMb('', 20480)).toEqual({ ok: true, value: 20480 })
+    expect(parseUploadMb(' 4096 ', 20480)).toEqual({ ok: true, value: 4096 })
+    expect(parseUploadMb('100', 20480).ok).toBe(true)
+    expect(parseUploadMb('1048576', 20480).ok).toBe(true)
+    for (const bad of ['99', '0', '-5', '1048577', '1.5', '2 GB', '1e3']) {
+      expect(parseUploadMb(bad, 20480).ok).toBe(false)
+    }
+  })
+
   it('checks paths for control characters and length', () => {
     expect(checkPath('C:\\Program Files\\Tesseract-OCR\\tesseract.exe')).toBeNull()
     expect(checkPath('a\nb')).toMatch(/not allowed/)
@@ -81,5 +97,17 @@ describe('settings preferences', () => {
     expect(cookiesSummary(null, '')).toBe('none')
     expect(cookiesSummary('firefox', '')).toBe('from firefox')
     expect(cookiesSummary('firefox', '/c.txt')).toBe('cookies.txt file')
+  })
+})
+
+describe('parseKeepFreeGb', () => {
+  it('treats blank as off and accepts one decimal', () => {
+    expect(parseKeepFreeGb('')).toEqual({ ok: true, value: 0 })
+    expect(parseKeepFreeGb(' 4 ')).toEqual({ ok: true, value: 4 })
+    expect(parseKeepFreeGb('2.5')).toEqual({ ok: true, value: 2.5 })
+  })
+
+  it('refuses text, negatives, extra decimals and absurd sizes', () => {
+    for (const bad of ['abc', '-1', '1.25', '5000']) expect(parseKeepFreeGb(bad).ok).toBe(false)
   })
 })

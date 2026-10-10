@@ -3,10 +3,10 @@
  * bottom Sheet on phones, like the Reader's) and the pager with its page
  * scrubber. Right-to-left paging mirrors the pager so "forward" is on the left.
  */
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { Field } from '../../components/Field'
-import { Sheet } from '../../components/Sheet'
+import { AaControl } from '../../components/AaControl'
 import { clampPage, FIT_OPTIONS, MODE_OPTIONS, type ComicFit, type ComicMode, type ComicPrefs } from './comicLogic'
 
 type PrefsProps = {
@@ -59,61 +59,10 @@ function ViewForm({ prefs, onChange, canTypeset, phone }: PrefsProps) {
 }
 
 export function ComicViewControl({ children, ...props }: PrefsProps & { children?: ReactNode }) {
-  const [open, setOpen] = useState(false)
-  const wrap = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const { phone } = props
-
-  useEffect(() => {
-    if (!open || phone) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      setOpen(false)
-      buttonRef.current?.focus()
-    }
-    const onDown = (e: PointerEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('keydown', onKey)
-    document.addEventListener('pointerdown', onDown)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener('pointerdown', onDown)
-    }
-  }, [open, phone])
-
-  const button = (
-    <button
-      ref={buttonRef}
-      type="button"
-      className="reader-aa"
-      aria-label="View settings"
-      aria-expanded={open}
-      onClick={() => setOpen((v) => !v)}
-    >
-      Aa
-    </button>
-  )
-  if (phone) {
-    return (
-      <>
-        {button}
-        <Sheet open={open} title="View settings" onClose={() => setOpen(false)}>
-          {children}
-          <ViewForm {...props} />
-        </Sheet>
-      </>
-    )
-  }
   return (
-    <div className="reader-aa-wrap" ref={wrap}>
-      {button}
-      {open && (
-        <div className="reader-popover" role="dialog" aria-label="View settings">
-          <ViewForm {...props} />
-        </div>
-      )}
-    </div>
+    <AaControl label="View settings" phone={props.phone} sheetExtra={children}>
+      <ViewForm {...props} />
+    </AaControl>
   )
 }
 

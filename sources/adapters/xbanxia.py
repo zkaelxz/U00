@@ -41,6 +41,7 @@ from urllib.parse import urljoin
 from ..base import SourceAdapter
 from ..domains import SiteDomains
 from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
+from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 
 BASE_URL = "https://www.xbanxia.cc"
@@ -85,6 +86,10 @@ class XbanxiaSource(SourceAdapter):
     display_name = "xbanxia.cc"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
+    pacing_profile = PacingProfile(
+        fast=PaceLevel(min_delay=1.0, max_delay=2.0, max_concurrent=2),
+        evidence=("robots.txt fetched 2026-10-09: User-agent * with no Disallow or Crawl-delay; /copyright.html has no automated-access or rate clause; no terms page."),
+        fast_allowed=True)
     url_patterns = [r"xbanxia\.cc/books/\d+"]
     default_headers = {"Referer": BASE_URL + "/"}
     # The bare domain 301-redirects to www: a search posted there ends on

@@ -23,7 +23,7 @@ export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
 ]
 
 export const ROTATION_NOTE =
-  'Keeps one copy per day for the last 2 days, plus the first copy of each of the last 2 weeks; older copies this library made are deleted after each new backup.'
+  'Keeps one copy a day for the last 2 days, plus the first copy of each of the last 2 weeks. Older copies this library made are deleted after each backup.'
 export const DEFAULT_FOLDER_TEXT = 'Library backups folder (default)'
 
 type DateOpts = { locale?: string; timeZone?: string }
@@ -46,7 +46,7 @@ const plural = (n: number, one: string) => `${n.toLocaleString('en-US')} ${n ===
 export function snapshotFacts(s: SnapshotInfo): string {
   const parts = [snapshotKindLabel(s.kind)]
   if (typeof s.size === 'number') parts.push(formatBytes(s.size))
-  if (typeof s.drama_count === 'number') parts.push(plural(s.drama_count, 'drama'))
+  if (typeof s.drama_count === 'number') parts.push(plural(s.drama_count, 'title'))
   return parts.join(' · ')
 }
 
@@ -81,9 +81,9 @@ export function describeCopy(c: SnapshotCopy, opts: DateOpts = {}): string {
 // "delete all", restorable or deletable only when chosen by name.
 export const UNMANAGED_LABEL = 'Other or older copies (not managed)'
 export const UNMANAGED_NOTE =
-  "Made by another library sharing this folder, before this update, or can't be read. Automatic rotation and \"delete all\" never remove them."
+  "Made by another library sharing this folder, before this update, or unreadable. Automatic rotation and \"delete all\" never remove them."
 export const UNMANAGED_RESTORE_WARNING =
-  "This copy wasn't made by this library (it may be another PC's library, or from before this update). Check its date and dramas before restoring."
+  "This copy wasn't made by this library (it may be another PC's library, or from before this update). Check its date and titles before restoring."
 export const UNMANAGED_DELETE_WARNING =
   "Not managed by this library: it may be another PC's backup, and that PC won't know it is gone."
 
@@ -155,7 +155,7 @@ export function changedSettings(saved: AutoBackupSettings, next: AutoBackupSetti
 
 // Said instead of a refused-folder message that names a path (safeDetail drops those).
 export const FOLDER_RULES =
-  'Use a full folder path that already exists and is outside the library (for example D:\\Backups), or leave it empty.'
+  'Use the full path of an existing folder outside the library (for example D:\\Backups), or leave it empty.'
 
 /**
  * The server's own sentence for a refused setting, unless it names a path or
@@ -208,7 +208,7 @@ const SKIPPED_WORDS: Record<string, string> = {
 export function describeRestore(r: RestoreDramaDone): string {
   const lines = r.counts?.lines
   const parts = [
-    r.restored_as_new ? `Restored '${r.title}' as a new drama.` : `Restored '${r.title}'.`,
+    r.restored_as_new ? `Restored '${r.title}' as a new title.` : `Restored '${r.title}'.`,
   ]
   if (typeof lines === 'number') parts.push(`${plural(lines, 'line')}.`)
   if (!r.media_restored) {
@@ -216,7 +216,7 @@ export function describeRestore(r: RestoreDramaDone): string {
   }
   if (r.series === 'recreated') parts.push('Its series was gone, so it was restored from the snapshot too.')
   if (r.series === 'dropped_private') {
-    parts.push("Its series is now someone else's private series, so the drama is back without a series.")
+    parts.push("Its series is now someone else's private series, so the title is back without a series.")
   }
   const skipped = r.skipped_tables.map((t) => SKIPPED_WORDS[t]).filter(Boolean)
   if (skipped.length) {

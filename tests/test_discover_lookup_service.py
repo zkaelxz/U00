@@ -1,4 +1,5 @@
 """Discover D-2: services/discover_lookup_service.py. Mocked only; no network, no LLM."""
+from lib import http
 import json
 import time
 
@@ -74,7 +75,7 @@ def test_chinese_query_skips_engine(paid):
     assert paid == []
 
 
-@pytest.mark.parametrize("engine", ["nllb", "nllb", "nope", 5])
+@pytest.mark.parametrize("engine", ["fake_mt", "fake_mt", "nope", 5])
 def test_unknown_or_non_reference_engine_is_422(paid, engine):
     with pytest.raises(InvalidInputError):
         svc.translate_query("q", engine)
@@ -99,7 +100,7 @@ def test_private_url_is_422_without_connecting(monkeypatch, paid):
 
     def boom(*a, **k):
         raise AssertionError("connected")
-    monkeypatch.setattr(metadata_service, "pinned_get", boom)
+    monkeypatch.setattr(http, "pinned_get", boom)
     with pytest.raises(InvalidInputError):
         svc.import_suggestion("http://metadata.internal/latest", "claude")
 

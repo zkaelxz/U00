@@ -17,19 +17,112 @@ out, so a CLI or another service could call them too.
 """
 import os
 import re
+import unicodedata
 from typing import Optional
+from urllib.parse import quote
 
 import auto_qc
 import core as core_module
 import db
 import subtitle_formats
+from services import restructure_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       NotFoundError, UnsupportedOperationError)
 
 _EPUB_FIELDS = ("en", "zh")
 
-_SUBTITLE_FORMATS = ("srt", "vtt")
+_SUBTITLE_FORMATS = ("srt", "vtt", "lrc")
 _SUBTITLE_FIELDS = ("en", "zh", "bilingual")
+
+
+# The stem is capped in UTF-8 bytes, not characters: 120 CJK characters are
+# 360 bytes, over the 255-byte filename limit on Linux and macOS.
+_MAX_STEM_BYTES = 200
+_MAX_LANGUAGE_CHARS = 40
+_MAX_LANGUAGE_BYTES = 60
+_MIN_TITLE_BYTES = 30
+_NAME_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
+# What the browser saves a download as, per artifact kind.
+ARTIFACT_WHAT = {"audio": "audiobook", "video": "burned-in", "softsub_video": "soft sub",
+                 "dubbed_video": "dubbed", "scanlate_zip": "pages", "scanlate_pdf": "pages"}
+
+
+# Windows reads a name as the device when the part before its first dot is one
+# of these, whatever follows the dot; the superscript digits count too.
+_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"{base}{d}" for base in ("COM", "LPT") for d in "0123456789\u00b9\u00b2\u00b3"])
+
+
+def _name_part(text) -> str:
+    # Control and format characters (bidi overrides, zero-width, BOM) would
+    # let a title disguise the real extension or vanish from the saved name.
+    kept = "".join(c for c in str(text or "") if not unicodedata.category(c).startswith("C"))
+    return " ".join(_NAME_ILLEGAL.sub(" ", kept).split())
+
+
+def _truncate_bytes(text: str, limit: int) -> str:
+    """The longest prefix of `text` that fits `limit` UTF-8 bytes without
+    cutting a character."""
+    return text.encode("utf-8")[:max(limit, 0)].decode("utf-8", errors="ignore")
+
+
+def field_language(drama: dict, field: str) -> str:
+    """Readable code for the language a subtitle field holds."""
+    source = drama.get("source_language") or "zh"
+    return {"en": "en", "zh": source, "bilingual": f"{source}+en"}.get(field, "")
+
+
+def narration_language(drama: dict) -> str:
+    original = (drama.get("content_mode") == "novel_narration"
+                and drama.get("narration_language") == "original")
+    return (drama.get("source_language") or "zh") if original else "en"
+
+
+def download_filename(drama_id: int, what: str, language: str, ext: str) -> str:
+    """`<Title> - Ep <n> - <what> (<language>).<ext>` for the Content-Disposition
+    name. Only the name the browser saves: stored artifact names stay ID-only
+    because job ids and lookups depend on them."""
+    drama = db.get_drama(drama_id) or {}
+    title = _name_part(drama.get("title_en")) or _name_part(drama.get("title_zh"))
+    episode = drama.get("episode_number")
+    tail = (f" - Ep {episode}" if isinstance(episode, int) else "") + f" - {_name_part(what)}"
+    language = _truncate_bytes(_name_part(language)[:_MAX_LANGUAGE_CHARS], _MAX_LANGUAGE_BYTES).strip()
+    if language:
+        tail += f" ({language})"
+    ext = "." + re.sub(r"[^A-Za-z0-9]", "", ext.lstrip("."))[:10] if ext.strip(". ") else ""
+    room = max(_MIN_TITLE_BYTES, _MAX_STEM_BYTES - len(tail.encode("utf-8")))
+    title = _truncate_bytes(title, room).rstrip(". ")
+    # The " - <what>" tail means a plain title is never a bare device name,
+    # but a dot in the title ends the device-name part early.
+    if "." in title and title.split(".")[0].strip(" ").upper() in _DEVICE_NAMES:
+        title = "_" + title
+    return (title or f"drama {drama_id}") + tail + ext
+
+
+def content_disposition(filename: str) -> str:
+    """Attachment header with an ASCII fallback and the RFC 5987 UTF-8 name.
+    Control characters and quotes never reach the header."""
+    clean = _NAME_ILLEGAL.sub("_", filename) or "download"
+    fallback = "".join(c if " " <= c <= "~" and c not in '%\\' else "_" for c in clean)
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(clean, safe='')}"
+
+
+def drama_disposition(drama_id: int, what: str, language: str, ext: str) -> str:
+    return content_disposition(download_filename(drama_id, what, language, ext))
+
+
+def dub_track_disposition(drama_id: int, track_name: str) -> str:
+    what = "narration track" if track_name.startswith("narration") else "dub track"
+    language = narration_language(db.get_drama(drama_id) or {})
+    return drama_disposition(drama_id, what, language, "wav")
+
+
+def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subtitles") -> str:
+    drama = db.get_drama(drama_id) or {}
+    what = f"bilingual {noun}" if field == "bilingual" else noun
+    return content_disposition(download_filename(
+        drama_id, what, field_language(drama, field), ext))
 
 
 def _load_drama_and_lines(drama_id: int):
@@ -227,7 +320,7 @@ def get_export_readiness(drama_id: int) -> dict:
     names = auto_qc.build_name_list(
         glossary_terms, db.list_series_characters(series_id) if series_id else [])
     qc_issues = auto_qc.find_issues(lines, names, auto_qc.build_banned_terms(glossary_terms))
-    dense = subtitle_formats.dense_lines(lines)
+    dense = subtitle_formats.dense_lines(lines, mode=subtitle_formats.flagging_mode_of(drama))
 
     return {
         "drama_id": drama_id,
@@ -245,12 +338,12 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
                            include_notes: bool = False,
                            wrap_chars_en: Optional[int] = None,
                            wrap_chars_source: Optional[int] = None) -> str:
-    """Generates SRT or VTT subtitle text for one drama -- pure and
+    """Generates SRT, VTT or LRC subtitle text for one drama -- pure and
     read-only: never writes to the database, never flags a line, never
     writes a file to disk. The caller decides what to do with the
     returned text (e.g. serve it as a download).
 
-    fmt: "srt" or "vtt". field: "en", "zh", or "bilingual" (both formats
+    fmt: "srt", "vtt" or "lrc". field: "en", "zh", or "bilingual" (both formats
     support all three -- see subtitle_formats.lines_to_vtt/core.
     lines_to_srt/lines_to_bilingual_srt). Overlapping cues are trimmed
     first (subtitle_formats.clamp_overlaps), as generate_ass_text does,
@@ -285,6 +378,8 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
 
     if fmt == "vtt":
         return subtitle_formats.lines_to_vtt(export_lines, field, notes_by_idx, wrap_chars)
+    if fmt == "lrc":
+        return subtitle_formats.lines_to_lrc(export_lines, field, notes_by_idx, wrap_chars)
 
     wrapped = subtitle_formats.wrap_lines(export_lines, wrap_chars)
     if field == "bilingual":
@@ -316,17 +411,69 @@ def flag_overlapping_lines(drama_id: int) -> dict:
 
 def flag_dense_lines(drama_id: int) -> dict:
     """Flags every line too dense to read in its on-screen time
-    (subtitle_formats.flag_dense_lines). A line already flagged for some other reason is left alone.
+    (subtitle_formats.flag_dense_lines) at the title's reading-speed mode.
+    A line already flagged for some other reason is left alone.
     Raises NotFoundError for an unknown drama id. Returns
     {"flagged_count": int}."""
-    _, lines = _load_drama_and_lines(drama_id)
+    drama, lines = _load_drama_and_lines(drama_id)
 
-    newly_flagged = subtitle_formats.flag_dense_lines(lines)
+    newly_flagged = subtitle_formats.flag_dense_lines(
+        lines, mode=subtitle_formats.flagging_mode_of(drama))
     if newly_flagged:
         # flag/flag_note only: a concurrent edit to a line's text, timing or
         # speaker must survive this write.
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return {"flagged_count": newly_flagged}
+
+
+def get_reading_speed_mode(drama_id: int) -> dict:
+    """{"mode": ...} for the title. Raises NotFoundError for an unknown drama id."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    return {"mode": subtitle_formats.reading_speed_mode_of(drama)}
+
+
+def set_reading_speed_mode(drama_id: int, mode: str) -> dict:
+    """Saves the title's reading-speed check strictness. Existing flags are
+    left as they are: flag_dense_lines never replaces a flag, so a stricter
+    or looser mode only applies to lines flagged from now on (see
+    clear_reading_speed_flags to re-check)."""
+    if mode not in subtitle_formats.READING_SPEED_MODES:
+        raise InvalidInputError(
+            "mode must be one of " + ", ".join(subtitle_formats.READING_SPEED_MODES) + ".")
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    db.update_drama(drama_id, reading_speed_mode=mode)
+    return {"mode": mode}
+
+
+READING_SPEED_CLEAR_LABEL = "before clearing reading-speed flags"
+
+
+def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
+    """Clears the flag and its note on every line whose flag is exactly
+    reading_speed, after a "before clearing reading-speed flags" snapshot
+    (undo from the line history). Other flags, notes and text are untouched.
+    recheck=True then flags again at the title's current mode, so a changed
+    setting takes effect on lines that were flagged before. Raises
+    NotFoundError for an unknown drama id, ConflictError while a job runs.
+    Returns {"cleared_count", "flagged_count", "history_id"}; history_id is
+    None when there was nothing to clear."""
+    with restructure_service.exclusive_write(drama_id):
+        drama, lines = _load_drama_and_lines(drama_id)
+        targets = [ln for ln in lines if ln.flag == subtitle_formats.READING_SPEED_FLAG]
+        history_id = None
+        if targets:
+            history_id = db.save_line_history_snapshot(drama_id, lines, READING_SPEED_CLEAR_LABEL)
+            for ln in targets:
+                ln.flag = None
+                ln.flag_note = ""
+        reflagged = (subtitle_formats.flag_dense_lines(
+            lines, mode=subtitle_formats.flagging_mode_of(drama)) if recheck else 0)
+        if targets or reflagged:
+            db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
+    return {"cleared_count": len(targets), "flagged_count": reflagged, "history_id": history_id}
 
 
 def run_auto_qc_flagging(drama_id: int) -> dict:

@@ -7,6 +7,8 @@ export interface TranslateEngine {
   models: string[] | null
   // Labels for offered models that have no built-in entry (id -> text).
   model_labels?: Record<string, string>
+  // Models that run on the provider's servers (Ollama cloud tags), not on this PC.
+  cloud_models?: string[]
   key_configured: boolean
 }
 

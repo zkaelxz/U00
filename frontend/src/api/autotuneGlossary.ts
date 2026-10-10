@@ -1,6 +1,8 @@
 import type { TranscribeConfig } from '../types/workspace'
 import type {
   AutotuneRunRequest,
+  GlossaryDismissals,
+  GlossaryDismissResult,
   AutotuneRunResult,
   AutotuneStatus,
   NovelGlossaryApplyResult,
@@ -58,3 +60,13 @@ export const cancelNovelGlossary = (id: number, runId: string, f?: Fetch) =>
 
 export const cancelLinesGlossary = (id: number, runId: string, f?: Fetch) =>
   postJson<JobCancelResult>(`/api/glossary/dramas/${id}/from-lines/cancel`, { run_id: runId }, f)
+
+// The series' ignore list: proposals dismissed so no extraction lists them again.
+export const getGlossaryDismissals = (id: number, f?: Fetch) =>
+  getJson<GlossaryDismissals>(`/api/glossary/dramas/${id}/dismissals`, f)
+
+export const dismissGlossaryTerms = (id: number, terms: string[], f?: Fetch) =>
+  postJson<GlossaryDismissResult>(`/api/glossary/dramas/${id}/dismissals`, { terms }, f)
+
+export const restoreGlossaryTerms = (id: number, terms: string[], f?: Fetch) =>
+  postJson<GlossaryDismissResult>(`/api/glossary/dramas/${id}/dismissals/restore`, { terms }, f)

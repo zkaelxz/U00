@@ -1,0 +1,52 @@
+/* Shared by popup.html and options.html. Tokens mirror frontend/src/index.css (indigo light and dark);
+   the extension has no build step, so they are copied rather than imported. */
+:root {
+  --accent: #3d4fa8; --on-accent: #ffffff; --bg: #f4f5f9; --surface: #ffffff; --surface-2: #f8f9fc;
+  --text: #1a1d2b; --muted: #585e76; --border: #dcdfea; --field-edge: #dcdfea;
+  --bad: #b3261e; --warn: #9a5b00;
+  --focus: color-mix(in srgb, var(--accent) 35%, transparent);
+  --radius: 8px; --radius-sm: 6px;
+  --font: system-ui, "Segoe UI Variable", "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #9aa7ee; --on-accent: #10142c; --bg: #12141d; --surface: #1a1d29; --surface-2: #212536;
+    --text: #e7e9f3; --muted: #9aa0b8; --border: #2b3042; --field-edge: #5b627d;
+    --bad: #ef7b73; --warn: #e0a24a;
+  }
+}
+@media (prefers-color-scheme: light) { :root { --field-edge: #8a90a8; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--font); }
+h1 { font-size: 16px; margin: 0; font-weight: 600; }
+h2 { font-size: 12px; margin: 0 0 8px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+label, .label { display: block; margin: 0 0 4px; font-weight: 500; }
+select, input[type="password"], input[type="text"] {
+  width: 100%; min-height: 40px; padding: 8px 10px; font: inherit; color: var(--text);
+  background: var(--surface); border: 1px solid var(--field-edge); border-radius: var(--radius);
+}
+select:focus, input:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+button {
+  min-height: 40px; padding: 8px 12px; font: inherit; font-weight: 500; line-height: 1.2; cursor: pointer;
+  color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+button.primary { color: var(--on-accent); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
+button:disabled, select:disabled { cursor: not-allowed; color: var(--muted); border-style: dashed; background: var(--surface-2); }
+button.primary:disabled { background: var(--surface-2); border-color: var(--border); }
+:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 3px var(--focus), 0 0 0 1px var(--accent); }
+.notice {
+  margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--warn);
+  border-radius: var(--radius); background: var(--surface);
+}
+.notice p { margin: 0 0 8px; }
+.notice button { width: 100%; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.status { min-height: 2.9em; margin: 0; font-size: 13px; color: var(--muted); }
+.status.bad { color: var(--bad); }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+@media (prefers-reduced-motion: no-preference) {
+  button, select, input { transition: background-color .16s, border-color .16s, box-shadow .16s; }
+}

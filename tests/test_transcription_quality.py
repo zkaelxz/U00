@@ -10,6 +10,7 @@ import types
 import pytest
 
 import core
+import whisper_models
 
 
 class _Seg:
@@ -39,7 +40,7 @@ def fake_whisper(monkeypatch):
     fw.WhisperModel = lambda *a, **k: FakeModel()
     fw.BatchedInferencePipeline = FakeBatched
     monkeypatch.setitem(sys.modules, "faster_whisper", fw)
-    monkeypatch.setattr(core, "_whisper_model_cache", {})
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
     return calls
 
 
@@ -49,6 +50,11 @@ class TestWhisperSettings:
         [(entry, kwargs)] = fake_whisper
         assert entry == "model"
         assert kwargs["condition_on_previous_text"] is False
+        assert "no_repeat_ngram_size" not in kwargs and "repetition_penalty" not in kwargs
+
+    def test_repeat_guard_adds_the_repeat_ban(self, fake_whisper):
+        core.transcribe_for_timing("a.wav", repeat_guard=True)
+        [(entry, kwargs)] = fake_whisper
         assert kwargs["no_repeat_ngram_size"] == 3
         assert kwargs["repetition_penalty"] == pytest.approx(1.1)
 
@@ -61,14 +67,14 @@ class TestWhisperSettings:
         assert seen == [4]
 
     def test_fast_mode_uses_the_batched_pipeline_with_the_same_settings(self, fake_whisper):
-        core.transcribe_for_timing("a.wav", fast_mode=True)
+        core.transcribe_for_timing("a.wav", fast_mode=True, repeat_guard=True)
         [(entry, kwargs)] = fake_whisper
         assert entry == "batched"
         assert kwargs["no_repeat_ngram_size"] == 3 and kwargs["vad_filter"] is True
 
     def test_large_v3_turbo_is_offered_without_a_japanese_korean_weakness_claim(self):
-        assert "large-v3-turbo" in core.WHISPER_MODELS
-        assert "weaker" not in core.WHISPER_MODELS["large-v3-turbo"]
+        assert "large-v3-turbo" in whisper_models.WHISPER_MODELS
+        assert "weaker" not in whisper_models.WHISPER_MODELS["large-v3-turbo"]
 
 
 class _Unit:

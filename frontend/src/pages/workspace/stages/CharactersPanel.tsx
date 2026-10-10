@@ -28,7 +28,9 @@ import { VOICE_CLIP_NOTE, leavesVoiceClip, mergeChoices, mergeSummary, readMerge
 import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 import './characters.css'
 
-const COLUMNS = 7
+const COLUMNS = 6
+
+const formKey = (e: CharacterEntry) => JSON.stringify(toCharacterForm(e))
 
 function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged }: {
   entry: CharacterEntry
@@ -46,11 +48,13 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
   const { dramaId } = useStage()
   const [form, setForm] = useState<CharacterForm>(() => toCharacterForm(entry))
   // A change from outside the row (an accepted voice suggestion) resets
-  // the form to the saved values.
+  // the form to the saved values. Rename, merge and undo hand every row a
+  // new object, so only a change to what the form shows resets it; otherwise
+  // typing in another row would be wiped.
   const [shown, setShown] = useState(entry)
   if (shown !== entry) {
     setShown(entry)
-    setForm(toCharacterForm(entry))
+    if (formKey(shown) !== formKey(entry)) setForm(toCharacterForm(entry))
   }
   const [bankId, setBankId] = useState('')
   const [busy, setBusy] = useState(false)
@@ -148,7 +152,6 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
             )}
           </div>
         </td>
-        <td role="cell" data-label="Voice" className="card-half"><input aria-label={`Voice for ${label}`} value={form.tts_voice} onChange={(e) => set('tts_voice', e.target.value)} /></td>
         <td role="cell" data-label="Lines" className="card-meta">{entry.line_count}</td>
         <td role="cell" data-label="Reference" className="card-meta">{reference}</td>
         <td role="cell" className="card-action">
@@ -164,7 +167,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
               {samples && <p className="muted character-samples">{samples}</p>}
               {entry.series_character_id ? (
                 <p className="muted character-shared">
-                  Shared with other dramas in this series: pronoun and voice defaults can come from there.
+                  Shared with other titles in this series: pronoun and voice defaults can come from there.
                 </p>
               ) : null}
               {canRemember(entry, hasSeries) && (
@@ -172,7 +175,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                   type="button"
                   className={buttonClass('ghost', 'sm')}
                   disabled={busy || nameEdited}
-                  title={nameEdited ? 'Save the name first.' : 'Adds this name to the series cast so later dramas can pick it.'}
+                  title={nameEdited ? 'Save the name first.' : 'Adds this name to the series cast so later titles can pick it.'}
                   onClick={remember}
                 >
                   Remember {entry.character_name.trim()} in this series
@@ -196,7 +199,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                 <button type="submit" disabled={busy || renameProblemText !== null} title={renameProblemText ?? undefined}>
                   {entry.line_count ? `Rename on all ${entry.line_count} lines` : 'Rename'}
                 </button>
-                <button type="button" disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
               </form>
             )}
             {mergeInto === null ? (
@@ -221,25 +224,29 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                 <button type="submit" disabled={busy || !mergeInto}>
                   {mergeInto ? `Merge ${entry.line_count} ${entry.line_count === 1 ? 'line' : 'lines'}` : 'Merge'}
                 </button>
-                <button type="button" disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
               </form>
             )}
           </div>
           <details className="voice-details">
             <summary>Voice settings for {label}{form.clone_engine ? ` (${form.clone_engine})` : ''}</summary>
             <div className="voice-grid">
-              <Field label="Offline voice" help="Voice used by the offline TTS engine.">
-                <input aria-label={`Offline voice for ${label}`} value={form.offline_voice} onChange={(e) => set('offline_voice', e.target.value)} />
-              </Field>
-              <Field label="Clone engine" help={engines ? `Engines usable for ${engines.source_language || 'this source language'}.` : undefined}>
-                <select aria-label={`Clone engine for ${label}`} value={form.clone_engine} onChange={(e) => set('clone_engine', e.target.value)}>
-                  <option value="">Default{engines?.default_engine ? ` (${engines.default_engine})` : ''}</option>
-                  {form.clone_engine && !engineIds.includes(form.clone_engine) && (
-                    <option value={form.clone_engine}>{form.clone_engine}</option>
-                  )}
-                  {engines?.engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
-                </select>
-              </Field>
+              {entry.clone_engine_removed && (
+                <>
+                  <Field label="Clone engine" help="Pick OmniVoice, or Default, to use this character again.">
+                    <select aria-label={`Clone engine for ${label}`} value={form.clone_engine} onChange={(e) => set('clone_engine', e.target.value)}>
+                      <option value="">Default{engines?.default_engine ? ` (${engines.default_engine})` : ''}</option>
+                      {form.clone_engine && !engineIds.includes(form.clone_engine) && (
+                        <option value={form.clone_engine}>{`${form.clone_engine} (removed)`}</option>
+                      )}
+                      {engines?.engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+                    </select>
+                  </Field>
+                  <p className="voice-warning voice-wide" role="note" data-testid={`engine-removed-${label}`}>
+                    {entry.clone_engine_removed}
+                  </p>
+                </>
+              )}
               <Field label="Voice design" help="Describe the voice for engines that design one from text.">
                 <input aria-label={`Voice design for ${label}`} value={form.voice_design} onChange={(e) => set('voice_design', e.target.value)} />
               </Field>
@@ -372,9 +379,12 @@ export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
       (e: unknown) => {
         setUndoBusy(false)
         setError(e)
-        // A refused undo (renamed again, label reused) won't work later either.
-        setUndo(null)
-        saveRenameUndo(dramaId, null)
+        // A refused undo (renamed again, label reused) won't work later either;
+        // a busy job or a lost connection leaves it valid, so the button stays.
+        if (!undoIdSurvives(e)) {
+          setUndo(null)
+          saveRenameUndo(dramaId, null)
+        }
       },
     )
   }
@@ -410,7 +420,7 @@ export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
       {entries && entries.length > 0 && (
         <div className="table-scroll"><table role="table" className="card-table">
           <thead>
-            <tr role="row"><th role="columnheader">Speaker</th><th role="columnheader">Name</th><th role="columnheader">Gender</th><th role="columnheader">Voice</th><th role="columnheader">Lines</th><th role="columnheader">Reference</th><th role="columnheader"><span className="visually-hidden">Save</span></th></tr>
+            <tr role="row"><th role="columnheader">Speaker</th><th role="columnheader">Name</th><th role="columnheader">Gender</th><th role="columnheader">Lines</th><th role="columnheader">Reference</th><th role="columnheader"><span className="visually-hidden">Save</span></th></tr>
           </thead>
           <tbody>
             {entries.map((e) => (

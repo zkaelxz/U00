@@ -37,7 +37,7 @@ describe('continueItems', () => {
   const work = (id: number, updated_at: string) =>
     ({ id, updated_at, status: 'aligned', media_type: null, title_en: `D${id}`, title_zh: null })
 
-  it('merges reading and workspace activity newest first, one entry per drama', () => {
+  it('merges reading and workspace activity newest first, one entry per title', () => {
     const items = continueItems(
       [read(1, '2026-09-29T12:00:00'), read(1, '2026-09-29T11:00:00'), read(2, '2026-09-28T09:00:00')],
       [work(2, '2026-09-29T10:00:00'), work(3, '2026-09-27T10:00:00')],
@@ -52,15 +52,15 @@ describe('continueItems', () => {
 })
 
 describe('small helpers', () => {
-  it('counts dramas in plain English', () => {
-    expect(countDramas(1)).toBe('1 drama')
-    expect(countDramas(3)).toBe('3 dramas')
+  it('counts titles in plain English', () => {
+    expect(countDramas(1)).toBe('1 title')
+    expect(countDramas(3)).toBe('3 titles')
   })
   it('sends comics to the comic reader', () => {
     expect(readHref({ id: 4, media_type: 'manga' })).toBe('#/comic/4')
     expect(readHref({ id: 4, media_type: 'novel' })).toBe('#/read/4')
   })
-  it('opens a drama on its current stage unless a stage is given', () => {
+  it('opens a title on its current stage unless a stage is given', () => {
     expect(workspaceHref(7)).toBe('#/drama/7')
     expect(workspaceHref(7, 'export')).toBe('#/drama/7/export')
   })

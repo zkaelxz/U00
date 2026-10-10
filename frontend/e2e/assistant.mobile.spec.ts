@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { mockAssistant } from './assistantMocks'
+import { mockAssistant, openSection } from './assistantMocks'
 import { navLink, openMenu } from './settingsNav'
 import { installHitArea } from './hitArea'
 
@@ -46,7 +46,9 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
   await chat.getByText('Tools used (2)').click()
   await expect(chat.getByRole('list', { name: 'Tools used' }).getByRole('listitem')).toHaveCount(2)
   await expect(chat.getByRole('figure', { name: 'Proposed fix' })).toContainText('not applied')
-  await page.getByRole('region', { name: 'Tools' }).getByText('What it can read').click()
+  await openSection(page, 'Tools')
+  await openSection(page, 'Backlog')
+  await openSection(page, 'Changelog')
 
   const card = page.getByRole('region', { name: 'Backlog' })
   await card.getByLabel('New item').fill('A very long backlog note that should wrap on a phone and never push the page sideways at all')

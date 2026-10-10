@@ -125,7 +125,7 @@ test('only the available source is enabled, with the reason for the other', asyn
   const picker = page.getByRole('combobox', { name: 'Suggest terms from' })
   await expect(picker.locator('option', { hasText: 'Novel' })).toBeDisabled()
   await expect(page.getByTestId('suggest-reason-novel')).toContainText('Still needed: novel text')
-  await expect(page.getByTestId('suggest-reason-novel').getByRole('link', { name: 'attach it on Source' })).toHaveAttribute('href', '#/drama/1/source')
+  await expect(page.getByTestId('suggest-reason-novel').getByRole('link', { name: 'attach it on Media' })).toHaveAttribute('href', '#/drama/1/source')
 })
 
 test('a title with only a novel starts on the novel and the card offers it', async ({ page }) => {

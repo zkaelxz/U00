@@ -39,7 +39,7 @@ describe('selection helpers', () => {
     expect(pruneSelection(s, [d(1), d(2), d(3), d(4)])).toBe(s)
   })
 
-  it('counts translatable (aligned) and exportable dramas', () => {
+  it('counts translatable (aligned) and exportable titles', () => {
     const items = [d(1, 'aligned'), d(2, 'translated'), d(3, 'dubbed'), d(4, 'not started')]
     expect(translatableIds(items)).toEqual([1])
     expect(exportableIds(items)).toEqual([2, 3])
@@ -58,7 +58,7 @@ describe('result lines', () => {
     })).toBe('2 updated, 1 not found.')
   })
 
-  it('bulk delete names skipped dramas and keeps left-behind warnings', () => {
+  it('bulk delete names skipped titles and keeps left-behind warnings', () => {
     expect(describeDeleteResult({
       deleted: 2,
       results: [
@@ -86,7 +86,7 @@ describe('result lines', () => {
     expect(describeClean({
       preset: 'balanced', freed_bytes: 2.3e9,
       results: [{ drama_id: 1, ok: true }, { drama_id: 2, ok: false, error: 'job_running' }],
-    })).toBe('Freed 2.3 GB. 1 drama skipped (job running).')
+    })).toBe('Freed 2.3 GB. 1 title skipped (job running).')
   })
 
   it('job activity and percent', () => {

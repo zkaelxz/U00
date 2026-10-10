@@ -58,8 +58,8 @@ const SNAPSHOT_DRAMAS = [
 ]
 
 const FILE_DRAMAS = [
-  { id: 7, title: 'Manual backup drama', media_type: 'audio_drama', line_count: 12, has_media: true },
-  { id: 9, title: 'Second drama', media_type: 'novel', line_count: 8, has_media: false },
+  { id: 7, title: 'Manual backup title', media_type: 'audio_drama', line_count: 12, has_media: true },
+  { id: 9, title: 'Second title', media_type: 'novel', line_count: 8, has_media: false },
 ]
 
 /** Reads the form fields of a multipart body: the file's name and the repeated drama_ids. */
@@ -161,7 +161,7 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
     if (path === '/api/backups/snapshot/restore-drama') {
       if (body.snapshot !== undefined && !copies().some((c) => c.name === body.snapshot)) return notFound(route)
       const d = SNAPSHOT_DRAMAS.find((x) => x.id === body.drama_id)
-      if (!d) return json(route, { error: { code: 'not_found', message: "That drama isn't in the snapshot." } }, 404)
+      if (!d) return json(route, { error: { code: 'not_found', message: "That title isn't in the snapshot." } }, 404)
       return json(route, {
         drama_id: d.exists_now ? 40 : d.id, restored_as_new: d.exists_now,
         title: d.exists_now ? `${d.title} (restored 2026-09-30)` : d.title, media_restored: false,

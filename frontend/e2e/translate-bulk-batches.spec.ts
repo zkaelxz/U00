@@ -89,6 +89,8 @@ test('a batch that finished meanwhile: the 409 is shown in plain words', async (
 test('a list read still in flight when a cancel succeeds cannot bring the old status back', async ({ page }) => {
   let cancelled = false
   let slow = false
+  let lateReadSent!: () => void
+  const lateRead = new Promise<void>((r) => { lateReadSent = r })
   await page.route('**/api/translate-run/dramas/1/bulk', async (route) => {
     const staleRead = slow && !cancelled
     if (staleRead) await new Promise((r) => setTimeout(r, 1500))
@@ -96,6 +98,7 @@ test('a list read still in flight when a cancel succeeds cannot bring the old st
     await route.fulfill({
       json: { drama_id: 1, jobs: [done ? entry(7, { status: 'cancelled', pending: false, cancellable: false }) : entry(7)] },
     })
+    if (staleRead) lateReadSent()
   })
   await page.route('**/api/translate-run/dramas/1/bulk/7/cancel', async (route) => {
     cancelled = true
@@ -111,7 +114,9 @@ test('a list read still in flight when a cancel succeeds cannot bring the old st
   await panel.getByRole('button', { name: 'Cancel batch 7' }).click()
   await panel.getByRole('button', { name: 'Yes, cancel it' }).click()
   await expect(panel.getByRole('status')).toHaveText('#7: Cancelled.')
-  await page.waitForTimeout(2000) // let the late read arrive
+  await lateRead
+  // The page applies the response on a later frame; let it before asserting the old status stayed away.
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
   await panel.getByRole('switch', { name: /Show finished/ }).click()
   await expect(panel.getByText('Cancelled', { exact: true })).toBeVisible()
   await expect(panel.getByText('Waiting for the provider')).toHaveCount(0)

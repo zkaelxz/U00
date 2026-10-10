@@ -130,10 +130,12 @@ function ResetBlock({ jobsActive, busy, onBusy, onReset, onOpenChange }: {
             exact
             action="Reset library"
             busy={resetting}
-            blocked={blocked}
+            blocked={blocked && jobsActive ? (
+              <>{blocked} <a href={routeHref({ name: 'jobs' })}>Open Jobs</a></>
+            ) : blocked}
             onConfirm={reset}
           >
-            <p>Deletes every drama, line, glossary, series, progress and file. No undo.</p>
+            <p>Deletes every title, line, glossary, series, progress and file. No undo.</p>
           </TypedConfirm>
           {error != null && (
             <p className="error" role="alert">

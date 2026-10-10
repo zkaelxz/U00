@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// "Import with lightnovel-crawler" in Source > Novel text. The
+// "Import with lightnovel-crawler" in Source > Attach novel text (optional). The
 // lncrawl endpoints and the job are mocked (real lncrawl never runs); the
 // drama read hits the real seeded API.
 
@@ -12,7 +12,7 @@ async function mockStatus(page: Page, installed: boolean) {
 
 async function openNovel(page: Page) {
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: /^Novel text$/ }).click()
+  await page.locator('.section-title', { hasText: /^Attach novel text \(optional\)$/ }).click()
 }
 
 test('hidden when lightnovel-crawler is not installed', async ({ page }) => {
@@ -54,7 +54,7 @@ test('starts an import, shows progress with cancel, then the result', async ({ p
   await expect(start).toBeEnabled()
   await start.click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
-  await expect(page.getByRole('button', { name: /cancel job/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Cancel / })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Imported 4,321 characters (12 EPUB sections).' })).toBeVisible()
   expect(body).toEqual({ url: 'https://novels.example.com/book/1', chapters: 'first', count: 10, mode: 'replace' })
 })

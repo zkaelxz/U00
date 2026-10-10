@@ -5,25 +5,41 @@ import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RemoteHealthLine } from '../components/RemoteHealthBanner'
+import { useHolds } from '../hooks/useHolds'
 import { useJobs } from '../hooks/useJobs'
-import type { JobRecord } from '../types/jobs'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
 import type { DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks } from '../types/diagnostics'
 import { DangerZone } from './diagnostics/DangerZone'
+import { BrowserInstall } from './diagnostics/BrowserInstall'
 import { DenoInstall } from './diagnostics/DenoInstall'
 import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
+import { RealModelCheck } from './diagnostics/RealModelCheck'
 import { SetupSection } from './diagnostics/SetupSection'
 import { headerBadges, installableEngines, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
-import { isActive, jobsSummary, splitDependencies } from './diagnosticsFormat'
+import { isActive, splitDependencies } from './diagnosticsFormat'
 
 const POLL_MS = 3000
 
+// The gate sits outside the page so a member's browser never fires the
+// diagnostics calls the server would refuse.
 export default function DiagnosticsPage() {
+  if (!useHolds('admin.diagnostics')) {
+    return (
+      <section className="page-narrow diag-page" aria-label="Diagnostics">
+        <header className="page-head"><h2>Diagnostics</h2></header>
+        <p className="muted" data-testid="diagnostics-not-allowed">Only an admin can see this page.</p>
+      </section>
+    )
+  }
+  return <DiagnosticsContent />
+}
+
+function DiagnosticsContent() {
   const pc = usePcOnly()
   const { jobs, error: jobsError, polling, reload: refreshJobs } = useJobs()
   const [overview, setOverview] = useState<DiagnosticsOverview | null>(null)
@@ -31,6 +47,7 @@ export default function DiagnosticsPage() {
   const [checking, setChecking] = useState(false)
   const [cache, setCache] = useState<DiagnosticsModelCache | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [cacheError, setCacheError] = useState<unknown>(null)
   // One install, upgrade or reset at a time; every admin button waits for it.
   const [adminBusy, setAdminBusy] = useState<AdminBusy>(null)
   const [packagesOpen, setPackagesOpen] = useState(false)
@@ -52,14 +69,17 @@ export default function DiagnosticsPage() {
     Promise.all([
       getDiagnostics().then(setOverview),
       getSetupChecks().then(setSetup),
-    ]).then(done, (e: unknown) => {
+    ]).then(() => {
+      setError(null)
+      done()
+    }, (e: unknown) => {
       setError(e)
       done()
     })
   }, [])
 
   const refreshCache = useCallback(() => {
-    getModelCache().then(setCache, () => undefined)
+    getModelCache().then((c) => { setCache(c); setCacheError(null) }, setCacheError)
   }, [])
 
   useEffect(() => {
@@ -84,8 +104,6 @@ export default function DiagnosticsPage() {
   const installable = new Set(overview
     ? installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies)).map((m) => m.name)
     : [])
-  // Running or failed jobs put the summary at the top as a banner; otherwise it sits with the other folds.
-  const jobsUrgent = !!jobs && jobs.some((j) => isActive(j.status) || j.status === 'error')
   const badges = headerBadges(setupProblems, deps?.installed.length ?? null,
     overview ? Object.keys(overview.dependencies).length : null, jobs ? running : null, adminBusy)
 
@@ -104,9 +122,9 @@ export default function DiagnosticsPage() {
         </div>
         <RemoteHealthLine />
       </header>
-      <ErrorBanner error={error ?? jobsError} onDismiss={() => setError(null)} />
-
-      {jobs && jobsUrgent && <JobsSummary jobs={jobs} urgent />}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <ErrorBanner error={jobsError} />
+      <ErrorBanner error={cacheError} />
 
       {setup ? (
         <SetupSection
@@ -130,6 +148,8 @@ export default function DiagnosticsPage() {
         >
           <DenoInstall pc={pc} jobsActive={active} busy={adminBusy}
             onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          <BrowserInstall pc={pc} jobsActive={active} busy={adminBusy}
+            onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
         </SetupSection>
       ) : (
         !error && <p className="muted">Loading…</p>
@@ -138,7 +158,6 @@ export default function DiagnosticsPage() {
       <ModelHealthCard pc={pc} onShowEngines={showEngines} />
 
       <div className="diag-folds">
-        {jobs && jobs.length > 0 && !jobsUrgent && <JobsSummary jobs={jobs} urgent={false} />}
         {overview && (
           <PackagesSection
             overview={overview}
@@ -152,21 +171,12 @@ export default function DiagnosticsPage() {
             onShowEngines={showEngines}
           />
         )}
+        <RealModelCheck pc={pc} jobsActive={active} />
         <PortsSection pc={pc} />
         <LogSection />
       </div>
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />
     </section>
-  )
-}
-
-/** One line about jobs and a link to the Jobs page, which holds the table, Cancel, Delete and each job's stage times. */
-function JobsSummary({ jobs, urgent }: { jobs: JobRecord[]; urgent: boolean }) {
-  return (
-    <div className={urgent ? 'banner diag-jobs-summary' : 'diag-jobs-summary'} data-testid="jobs-summary">
-      <p>Jobs: {jobsSummary(jobs)}.</p>
-      <ButtonLink href={routeHref({ name: 'jobs' })} size="sm">Open Jobs</ButtonLink>
-    </div>
   )
 }

@@ -71,7 +71,11 @@ def test_review_then_dub_track_then_exported(client):
     b = client.get(_url(did)).json()
     assert b["stage"] == "review"
     assert _states(b)["translate"] == "done" and _states(b)["review"] == "current"
+    assert b["has_dub_track"] is False and b["has_narration_track"] is False
     ddir = db.drama_dir(did)
+    with open(os.path.join(ddir, "narration_track.wav"), "wb") as f:
+        f.write(b"RIFF")
+    assert client.get(_url(did)).json()["has_narration_track"] is True
     with open(os.path.join(ddir, "dub_track.wav"), "wb") as f:
         f.write(b"RIFF")
     r = client.get(_url(did))

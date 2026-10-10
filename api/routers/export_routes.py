@@ -1,6 +1,5 @@
 """
-api/routers/export_routes.py -- Export-stage endpoints for one drama
-(Phase 6's first Workspace stage).
+api/routers/export_routes.py -- Export-stage endpoints for one drama.
 
 The read-only readiness summary, subtitle text generation (SRT/VTT) as a
 plain-text download, and the three flagging actions -- each
@@ -10,8 +9,8 @@ EPUB export (novel-narration dramas only) as a binary download.
 ASS subtitle text (POST, per-request style, plain-text
 download) and the style-options listing are also here, along with the audiobook export
 job and the burned-in video job
-(POST, returns {job_id}, output downloads via /api/artifacts). Parity
-E17/E19 add the soft-subtitle and dubbed video jobs (same shape), and E22
+(POST, returns {job_id}, output downloads via /api/artifacts). The
+soft-subtitle and dubbed video jobs (same shape) and
 "Mark as exported" (status only; admin.library like the other drama status
 writes).
 """
@@ -22,12 +21,13 @@ from fastapi import APIRouter, Path, Query, Response
 from api.auth import require_permission
 from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, DubbedVideoRequest,
                          ErrorResponse, ExportReadiness, FlagActionResult, MarkExportedResult,
-                         MediaExportStarted, SoftsubVideoRequest)
+                         MediaExportStarted, ReadingSpeedMode, ReadingSpeedModeUpdate,
+                         ClearReadingSpeedFlagsResult, SoftsubVideoRequest)
 from services import export_service, media_export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
-_MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt"}
+_MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt", "lrc": "text/plain; charset=utf-8"}
 
 
 @router.get("/dramas/{drama_id}/readiness", dependencies=[require_permission("library.read")], response_model=ExportReadiness,
@@ -38,11 +38,11 @@ def get_export_readiness(drama_id: int = Path(ge=1)):
 
 
 @router.get("/dramas/{drama_id}/subtitle", dependencies=[require_permission("lines.read")],
-            summary="Generate SRT/VTT subtitle text for one drama (plain-text download)",
+            summary="Generate SRT/VTT/LRC subtitle text for one drama (plain-text download)",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_subtitle_text(
         drama_id: int = Path(ge=1),
-        fmt: str = Query("srt", pattern="^(srt|vtt)$"),
+        fmt: str = Query("srt", pattern="^(srt|vtt|lrc)$"),
         field: str = Query("en", pattern="^(en|zh|bilingual)$"),
         include_notes: bool = Query(False),
         wrap_chars_en: int = Query(None, ge=1, le=200),
@@ -50,10 +50,9 @@ def get_subtitle_text(
     text = export_service.generate_subtitle_text(
         drama_id, fmt, field, include_notes=include_notes,
         wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source)
-    filename = f"drama_{drama_id}_{field}.{fmt}"
     return Response(
         content=text, media_type=_MEDIA_TYPES[fmt],
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, field, fmt)})
 
 
 @router.post("/dramas/{drama_id}/flag-overlaps", dependencies=[require_permission("lines.edit")], response_model=FlagActionResult,
@@ -70,6 +69,28 @@ def post_flag_dense_lines(drama_id: int = Path(ge=1)):
     return export_service.flag_dense_lines(drama_id)
 
 
+@router.get("/dramas/{drama_id}/reading-speed", dependencies=[require_permission("lines.read")], response_model=ReadingSpeedMode,
+            summary="The title's reading-speed check mode (normal, relaxed or off)",
+            responses={404: {"model": ErrorResponse}})
+def get_reading_speed(drama_id: int = Path(ge=1)):
+    return export_service.get_reading_speed_mode(drama_id)
+
+
+@router.post("/dramas/{drama_id}/reading-speed", dependencies=[require_permission("lines.edit")], response_model=ReadingSpeedMode,
+             summary="Set the title's reading-speed check mode; existing flags are not changed",
+             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_reading_speed(payload: ReadingSpeedModeUpdate, drama_id: int = Path(ge=1)):
+    return export_service.set_reading_speed_mode(drama_id, payload.mode)
+
+
+@router.post("/dramas/{drama_id}/clear-reading-speed-flags", dependencies=[require_permission("lines.edit")],
+             response_model=ClearReadingSpeedFlagsResult,
+             summary="Clear only the reading-speed flags (snapshot first); recheck flags again at the current mode",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
+def post_clear_reading_speed_flags(drama_id: int = Path(ge=1), recheck: bool = Query(False)):
+    return export_service.clear_reading_speed_flags(drama_id, recheck)
+
+
 @router.post("/dramas/{drama_id}/flag-auto-qc", dependencies=[require_permission("lines.edit")], response_model=AutoQcFlagResult,
             summary="Run Auto QC's factual-detail check and update flags in place",
             responses={404: {"model": ErrorResponse}})
@@ -83,10 +104,9 @@ def post_flag_auto_qc(drama_id: int = Path(ge=1)):
                       422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def get_epub(drama_id: int = Path(ge=1), field: str = Query("en", pattern="^(en|zh)$")):
     data = export_service.generate_epub(drama_id, field=field)
-    filename = f"drama_{drama_id}_{field}.epub"
     return Response(
         content=data, media_type="application/epub+zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, field, "epub", "ebook")})
 
 
 @router.post("/dramas/{drama_id}/ass", dependencies=[require_permission("lines.read")],
@@ -99,10 +119,9 @@ def post_ass_text(req: AssExportRequest, drama_id: int = Path(ge=1)):
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
         wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)
-    filename = f"drama_{drama_id}_{req.field}.ass"
     return Response(
         content=text, media_type="text/x-ssa; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, req.field, "ass")})
 
 
 # Static path; every other route here lives under /dramas/..., so it can't be shadowed.

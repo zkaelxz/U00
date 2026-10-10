@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8')
+const reviewCss = readFileSync(new URL('./pages/workspace/stages/review/review.css', import.meta.url), 'utf8')
 
 /** Declarations of the first rule whose selector is exactly `selector` (outside any @media). */
 function block(selector: string): Record<string, string> {
@@ -95,4 +96,34 @@ describe('theme colour contrast (WCAG AA, 4.5:1)', () => {
     const body = media.slice(media.indexOf('{', media.indexOf(':root:not(')) + 1, media.indexOf('\n  }'))
     for (const m of body.matchAll(/(--[\w-]+):\s*([^;]+);/g)) expect(DARK[m[1]], m[1]).toBe(m[2].trim())
   })
+})
+
+// The split dialog shades the two pieces with a translucent token over the
+// surface; text and the cut marker must still read on the blended colour.
+function cutShade(cls: string): { token: string; pct: number } {
+  const m = reviewCss.match(new RegExp(`\\.${cls} \\{[^}]*color-mix\\(in srgb, var\\((--[\\w-]+)\\) (\\d+)%, transparent\\)`))
+  expect(m, cls).toBeTruthy()
+  return { token: m![1], pct: +m![2] }
+}
+
+function over(top: string, pct: number, base: string): string {
+  const [t, b] = [rgb(top), rgb(base)]
+  const mix = t.map((c, i) => Math.round(c * (pct / 100) + b[i] * (1 - pct / 100)))
+  return `#${mix.map((c) => c.toString(16).padStart(2, '0')).join('')}`
+}
+
+describe('split dialog cut shading', () => {
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const cls of ['split-cut-a', 'split-cut-b']) {
+      for (const base of ['--surface', '--bg']) {
+        it(`${name}: ${cls} text and cut marker on ${base}`, () => {
+          const { token, pct } = cutShade(cls)
+          const shade = over(resolve(theme, token), pct, resolve(theme, base))
+          expect(contrast(resolve(theme, '--text'), shade)).toBeGreaterThanOrEqual(4.5)
+          expect(contrast(resolve(theme, '--text'), resolve(theme, base))).toBeGreaterThanOrEqual(3)
+          expect(contrast(resolve(theme, '--text'), shade)).toBeGreaterThanOrEqual(3)
+        })
+      }
+    }
+  }
 })

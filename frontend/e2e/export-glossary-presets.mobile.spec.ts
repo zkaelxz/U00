@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
+import { openExportBlocks } from './exportBlocks'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -54,6 +55,7 @@ test('export video sections and Mark as exported on a phone', async ({ page }) =
   await page.goto('/#/drama/1/export')
   await expectTall(page.getByRole('button', { name: 'Mark as exported' }))
   await page.getByText('Video and audio', { exact: true }).click()
+  await openExportBlocks(page)
   const softsub = page.getByRole('group', { name: 'Video with a subtitle track' })
   const dubbed = page.getByRole('group', { name: 'Video with the dub audio' })
   await expectTall(softsub.getByRole('button'))
@@ -71,8 +73,8 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
     { id: 1, term_original: '师姐', term_translation: 'Senior Sister', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] },
   ] }))
   await page.goto('/#/drama/1/translate')
-  await expectTall(page.getByRole('button', { name: 'Apply preset' }))
-  await expectTall(page.getByLabel('Saved preset', { exact: true }))
+  await expectTall(page.getByRole('button', { name: 'Apply', exact: true }))
+  await expectTall(page.getByLabel('Start from…', { exact: true }))
   await page.getByText('What this style asks the translator for').click()
   await expect(page.getByTestId('style-guidance')).toBeVisible()
   await expectNoHorizontalOverflow(page)

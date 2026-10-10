@@ -34,12 +34,12 @@ Audited 2026-09-30 against `baihe-subtitler` @ f09a592. Scope: the content-sourc
 
   Related, and latent: a transport exception's text is stored as `f"{type(exc).__name__}: {exc}"` without `redact_secrets` (`http.py`, unlike `ladder._browser_outcome`). No adapter sends a variable credential header today.
 - **G2: proxy credentials stored in plain text (low, by design today).** `set_proxy_url` accepts `http://user:pass@host:port`, and the SO18 test does this on purpose. The value is kept in the sources.db `settings` table, which is included in backups. It is PC-only to set and never echoed. Whether to reject userinfo, or move it to `.env`, is a product decision.
-- **G3: yt-dlp `raw_metadata` (latent).** `BilibiliSource.download` returns yt-dlp's whole info dict as `raw_metadata`. Recent yt-dlp versions can put a `cookies` field in it. The only caller (`front_door.import_video`) drops it, so nothing stores it today. A future caller that persists it should strip `cookies` and `http_headers` first.
+- **G3: yt-dlp `raw_metadata` (latent).** `BilibiliSource.download` returns yt-dlp's whole info dict as `raw_metadata`. Recent yt-dlp versions can put a `cookies` field in it. `front_door.import_video`, its only caller, was removed unused, so nothing reads it today. A future caller that persists it should strip `cookies` and `http_headers` first.
 - **Also noted:** yt-dlp writes its cookie jar back to the person's own cookies.txt when it runs with `cookiefile`. That is the person's own file. `video_download` error text can include that file's path, but never its contents. Not checked: yt-dlp may print a malformed cookies.txt line to stderr (unverified hypothesis). Where stderr is logged, that line could appear in the log.
 
 ## Tests (`tests/test_sources_credential_audit.py`)
 
-- **Static:** these checks cover the sources layer, `page_fetch.py` and the API/service consumers of the yt-dlp cookie setting (`video_download`, `live_translate`, the URL-media, Live and settings services and routes). The Streamlit consumers under `tabs/` are not scanned, because Streamlit is frozen and being deleted:
+- **Static:** these checks cover the sources layer, `page_fetch.py` and the API/service consumers of the yt-dlp cookie setting (`video_download`, `live_translate`, the URL-media, Live and settings services and routes):
   - no `.storage_state()`, `.add_cookies()`, `.cookies()` or `storage_state=`, no `document.cookie`/`localStorage`/`sessionStorage` script, and no `open`/`connect`/`copytree` of a profile folder;
   - `.cookies` is read only through the two exact expressions above (a new read fails until it is listed, with a reason, in the test and this note);
   - no store, health, job-result, drama, JSON, file-write or log call is passed headers, cookies, a cookie-derived `ticket`, a yt-dlp info dict (`raw_metadata`, `result_info`), or `asdict()`/`vars()` of an object.

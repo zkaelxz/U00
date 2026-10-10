@@ -58,14 +58,14 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
       }, setError)
 
   const summary = !cfg.has_novel_source
-    ? 'Attach the novel text on the Source stage first'
+    ? 'Attach the novel text on the Media stage first'
     : cfg.job_running
       ? 'A chunk-and-tag job is already running'
       : `${engine ? humanize('engine', engine) : 'no engine'}${model.trim() ? ` · ${model.trim()}` : ''}`
 
   return (
     <Section storageKey="dub.narration" title="Chunk and tag speakers" summary={summary}>
-      {!cfg.has_novel_source && <p className="muted">Attach the novel text on the Source stage first.</p>}
+      {!cfg.has_novel_source && <p className="muted">Attach the novel text on the Media stage first.</p>}
       <div className="dub-grid">
         <Field
           label={AI_ENGINE_LABEL}

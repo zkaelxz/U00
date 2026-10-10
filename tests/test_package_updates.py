@@ -10,12 +10,16 @@ import json
 import pytest
 
 import diagnostics
+import diagnostics_torch
+from lib import http
 from services import diagnostics_gaps_service as svc
 
 _v, SPEC, _r = diagnostics._packaging()
 
 
 class _Resp:
+    headers = {}
+
     def __init__(self, status, data):
         self.status_code = status
         self._data = data
@@ -44,45 +48,51 @@ def _clear_cache():
 # ---- PyPI read ----
 
 def test_pypi_release_versions_filters_and_uses_a_fixed_url(monkeypatch):
-    import requests
     seen = {}
 
-    def get(url, **kw):
-        seen.update(kw, url=url)
+    def get(url, ip, headers, timeout, method="GET", **kw):
+        seen.update(kw, url=url, ip=ip, timeout=timeout)
         return _Resp(200, {"releases": {
             "1.0.0": _file(), "1.2.0": _file(), "2.0.0rc1": _file(), "1.3.0": _file(yanked=True),
             "1.4.0": [], "not a version": _file(), "1.1.0.dev1": _file()}})
-    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr(http, "pinned_get", get)
     assert sorted(diagnostics.pypi_release_versions("Sudachidict_Core")) == ["1.0.0", "1.2.0"]
     assert seen["url"] == "https://pypi.org/pypi/sudachidict-core/json"
     assert seen["timeout"] == diagnostics.PYPI_JSON_TIMEOUT
-    assert seen["allow_redirects"] is False and seen["stream"] is True
+    assert seen["ip"] is None  # a fixed vendor URL: not pinned, redirects not followed
+
+
+def test_pypi_release_versions_does_not_follow_a_redirect(monkeypatch):
+    calls = []
+    redirect = _Resp(302, {})
+    redirect.headers = {"Location": "https://elsewhere.example/json"}
+    monkeypatch.setattr(http, "pinned_get", lambda url, *a, **k: calls.append(url) or redirect)
+    assert diagnostics.pypi_release_versions("jieba") is None
+    assert calls == ["https://pypi.org/pypi/jieba/json"]
 
 
 def test_pypi_release_versions_stops_reading_past_the_size_cap(monkeypatch):
-    import requests
     resp = _Resp(200, {"releases": {"1.0.0": _file()}, "pad": "x" * 200})
     monkeypatch.setattr(diagnostics, "PYPI_JSON_MAX_BYTES", 100)
-    monkeypatch.setattr(requests, "get", lambda *a, **k: resp)
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **k: resp)
     assert diagnostics.pypi_release_versions("jieba") is None
     assert resp.closed
 
 
 @pytest.mark.parametrize("bad", ["", "../x", "a b", "x/../../y", "-e"])
 def test_pypi_release_versions_never_builds_a_url_from_a_bad_name(monkeypatch, bad):
-    import requests
-    monkeypatch.setattr(requests, "get", lambda *a, **k: pytest.fail("no request"))
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **k: pytest.fail("no request"))
     assert diagnostics.pypi_release_versions(bad) is None
 
 
 def test_pypi_release_versions_none_on_failure(monkeypatch):
     import requests
-    monkeypatch.setattr(requests, "get", lambda *a, **k: _Resp(404, {}))
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **k: _Resp(404, {}))
     assert diagnostics.pypi_release_versions("jieba") is None
 
     def boom(*a, **k):
         raise requests.ConnectionError("offline")
-    monkeypatch.setattr(requests, "get", boom)
+    monkeypatch.setattr(http, "pinned_get", boom)
     assert diagnostics.pypi_release_versions("jieba") is None
 
 
@@ -191,7 +201,7 @@ def test_upgrade_installs_exactly_the_checked_target(monkeypatch):
     svc.check_package_updates()
     seen = []
 
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         seen.append(cmd)
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
@@ -265,14 +275,14 @@ def test_install_and_torch_setup_clear_the_cached_check(monkeypatch):
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
 
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
     svc.check_package_updates()
     svc.install_dependency("jieba", confirm=True)
     assert svc.cached_update("jieba") is None
     svc.check_package_updates()
-    monkeypatch.setattr(diagnostics, "nvidia_driver_info", lambda: None)
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     monkeypatch.setattr(svc, "verify_torch", lambda: {"torch": "2.11.0+cpu", "error": None})
     svc.setup_gpu_torch("cpu", confirm=True)
     assert svc.cached_update("jieba") is None

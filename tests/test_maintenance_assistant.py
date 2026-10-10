@@ -194,11 +194,11 @@ def test_backlog_add_list_delete_clear(isolated_db):
 def test_developer_mode_off_by_default_and_validated(isolated_db):
     s = svc.get_settings()
     assert s["developer_mode"] is False and "claude" in s["engine_choices"]
-    assert "nllb" not in s["engine_choices"]
+    assert "fake_mt" not in s["engine_choices"]
     with pytest.raises(svc.InvalidInputError):
         svc.set_settings({"developer_mode": "yes"})
     with pytest.raises(svc.InvalidInputError):
-        svc.set_settings({"engine": "nllb"})
+        svc.set_settings({"engine": "fake_mt"})
     with pytest.raises(svc.InvalidInputError):
         svc.set_settings({"developer_mode": True, "bogus": 1})
     assert svc.get_settings()["developer_mode"] is False  # a bad batch changes nothing
@@ -339,11 +339,11 @@ def test_test_run_env_has_no_keys_and_uses_the_guard(monkeypatch):
     assert env["BAIHE_ASSISTANT_TEST_RUN"] == "1" and "PATH" in env
     seen = {}
 
-    class P:
-        returncode, stdout, stderr = 0, "1 passed", ""
-
     monkeypatch.setattr(svc, "_tracked_files", lambda: None)
-    monkeypatch.setattr(svc.subprocess, "run", lambda cmd, **kw: seen.update(cmd=cmd, **kw) or P())
+    monkeypatch.setattr(
+        svc.proc_run, "run_captured",
+        lambda cmd, timeout, **kw: seen.update(cmd=cmd, **kw) or svc.proc_run.CapturedRun(
+            0, "1 passed", "", False, False))
     assert svc.run_tool("run_tests", {"path": "tests/test_maintenance_assistant.py"})["ok"]
     assert "services.assistant_pytest_guard" in seen["cmd"]
     assert "ANTHROPIC_API_KEY" not in seen["env"]
@@ -438,7 +438,7 @@ def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_b
 
 
 def test_cloud_consent_is_validated(isolated_db):
-    for bad in ({"nllb": True}, {"claude": "yes"}, ["claude"]):
+    for bad in ({"fake_mt": True}, {"claude": "yes"}, ["claude"]):
         with pytest.raises(svc.InvalidInputError):
             svc.set_settings({"cloud_consent": bad})
 
@@ -485,6 +485,22 @@ def test_ollama_is_local_only_on_loopback(isolated_db, monkeypatch, url, local):
     if not local:
         with pytest.raises(svc.ConflictError):
             svc.require_cloud_consent("ollama")
+
+
+def test_ollama_cloud_model_is_not_local_and_needs_consent(isolated_db):
+    assert svc.cloud_consent_given("ollama", "gemma4:12b") is True
+    assert svc.cloud_consent_given("ollama", "gemma4:31b-cloud") is False
+    with pytest.raises(svc.ConflictError):
+        svc.require_cloud_consent("ollama", "gpt-oss:120b-cloud")
+
+
+def test_build_engine_refuses_a_saved_ollama_cloud_model_without_consent(isolated_db, monkeypatch):
+    svc.set_settings({"engine": "ollama", "model": "gemma4:cloud"})
+    assert svc._is_local_engine("ollama") is False
+    with pytest.raises(svc.ConflictError):
+        svc.build_engine()
+    with pytest.raises(svc.ConflictError):
+        svc.build_engine("ollama", "gpt-oss:120b-cloud")
 
 
 def test_ollama_consent_can_be_saved_for_a_remote_server(isolated_db, monkeypatch):
@@ -589,7 +605,7 @@ def test_saved_ladder_order_is_kept_and_skips_missing_keys(isolated_db, keys):
 
 
 @pytest.mark.parametrize("bad", [["ollama", "ollama"], ["ollama", "gemini", "claude", "deepseek"],
-                                 ["nllb"], [None], "ollama", [1]])
+                                 ["fake_mt"], [None], "ollama", [1]])
 def test_tier_order_is_validated(isolated_db, bad):
     with pytest.raises(svc.InvalidInputError):
         svc.set_settings({"tiers": bad})
@@ -699,6 +715,19 @@ def test_a_failed_tier_offers_the_next_without_calling_it(dev_mode, real_build, 
                                "next_engine": "gemini"}
     assert FAKE_KEY not in e.value.message
     assert len(engines) == 1 and real_build == ["ollama"]  # Gemini was never built or called
+
+
+def test_an_ollama_that_is_not_running_reads_as_unreachable(dev_mode, real_build, keys, monkeypatch):
+    import qa
+    from lib import http
+
+    def down(system_prompt, messages, engine, max_tokens=0):
+        raise http.FetchError()
+
+    monkeypatch.setattr(qa, "dispatch_chat", down)
+    with pytest.raises(svc.ServiceError) as e:
+        svc.ask("x")
+    assert e.value.details["reason"] == "unreachable"
 
 
 def test_a_tier_with_no_key_is_reported_with_the_next_tier(dev_mode, keys, monkeypatch):

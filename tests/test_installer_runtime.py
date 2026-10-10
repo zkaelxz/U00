@@ -2,8 +2,10 @@
 (the Start-menu shortcut) and installer/postinstall.py (the install step).
 No real server, browser, pip or Windows process calls: those are faked."""
 import hashlib
+import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -83,6 +85,47 @@ class TestLaunch:
         monkeypatch.setattr(launcher, "start_server", lambda *a: pytest.fail("started a server"))
         with pytest.raises(launcher.LaunchError, match="install is incomplete"):
             launcher.launch()
+
+    def test_a_queued_install_does_not_run_while_something_holds_the_port(self, data_dir, monkeypatch):
+        monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
+        monkeypatch.setattr(launcher, "port_open", lambda port: True)
+        monkeypatch.setattr(launcher, "apply_pending_install",
+                            lambda *a: pytest.fail("ran pip while a server held the port"))
+        with pytest.raises(launcher.LaunchError, match="already using port"):
+            launcher.launch()
+
+    def test_a_running_apply_is_waited_for_even_with_nothing_queued(self, data_dir, monkeypatch):
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text("{}")
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran and ran[0][-1] == "pending_install"
+        lock.unlink()
+        ran.clear()
+        launcher.apply_pending_install("python", {}, True)
+        assert ran == []
+
+    def test_a_lock_whose_pid_is_dead_is_not_waited_for(self, data_dir, monkeypatch):
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"pid": 4242, "time": int(time.time())}))
+        monkeypatch.setattr(launcher, "_pid_alive", lambda pid: False)
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran == []
+
+    def test_a_lock_held_by_a_live_pid_is_waited_for(self, data_dir, monkeypatch, capsys):
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"pid": os.getpid(), "time": int(time.time())}))
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran and ran[0][-1] == "pending_install"
+        assert "Waiting for an install" in capsys.readouterr().out
 
     def test_port_taken_by_something_else(self, data_dir, monkeypatch):
         monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
@@ -783,7 +826,7 @@ class TestDefaultPortIsDefinedOnce:
     CI YAML, prose), so this fails when one of their literals drifts."""
 
     LITERAL_FILES = (
-        "start.bat", "start.ps1", "README.md", "CLAUDE.md",
+        "start.bat", "start.ps1", "README.md", "docs/user-guide.md", "CLAUDE.md",
         "frontend/vite.config.ts", "frontend/src/report/capture.test.ts",
         ".github/workflows/windows-installer.yml", ".github/workflows/windows-bootstrap.yml",
     )
@@ -798,7 +841,7 @@ class TestDefaultPortIsDefinedOnce:
         from api import api_config
         text = Path(ROOT, rel).read_text(encoding="utf-8")
         # 8601 is the "pick another port" example in the docs and start scripts;
-        # 8611 is the e2e suite's own port (README).
+        # 8611 is the e2e suite's own port (docs/user-guide.md).
         ports = {int(p) for p in re.findall(r"\b86\d\d\b", text)} - {8601, 8611}
         assert ports == {api_config.DEFAULT_PORT}, f"{rel} disagrees with api_config.DEFAULT_PORT"
 

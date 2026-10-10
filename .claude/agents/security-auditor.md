@@ -23,7 +23,7 @@ You audit the whole system, not one diff.
    - the audit log covers login, logout, grant and denial.
 2. **Permissions:**
    - every route (every method, HEAD included) declares exactly one of `require_permission`, `public_route` or `local_only`;
-   - the route table in the decision doc matches the code;
+   - the route table in `docs/route-permissions.md` matches the code;
    - household defaults and opt-in permissions are as documented;
    - admin.* permissions are admin-only;
    - paid engines are gated;

@@ -2,6 +2,7 @@
 persisted PC-side preferences and endpoint URLs, their permissions, and
 that the services and the CLI read the saved values. Mocked; no network."""
 
+import whisper_models
 import contextlib
 import inspect
 import io
@@ -58,8 +59,9 @@ def test_preference_defaults(isolated_db, env_file):
     prefs = settings_service.get_preferences()
     assert prefs == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
-        "episode_summary_engine": "ollama", "monthly_cap_usd": None,
-        "ollama_num_ctx_override": 0, "whisper_model_path": "", "ocr_backend": "auto",
+        "scene_aware_batches": True, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
+        "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
+        "keep_free_ram_gb": 0.0, "whisper_model_path": "", "ocr_backend": "auto",
         "ocr_prefer_paddle_vl_manga": False, "tesseract_cmd": "", "lncrawl_cmd": "",
         "cookies_browser": None, "cookies_file": ""}
     assert settings_service.get_monthly_cap_usd() == 0.0
@@ -98,9 +100,11 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
 
 @pytest.mark.parametrize("key,bad", [
     ("default_engine", "not-an-engine"),
-    ("default_locale", "fr-FR"), ("episode_summary_engine", "nllb"),
+    ("default_locale", "fr-FR"), ("episode_summary_engine", "fake_mt"),
     ("monthly_cap_usd", -1), ("monthly_cap_usd", True), ("monthly_cap_usd", "5"),
     ("ollama_num_ctx_override", 1.5), ("ollama_num_ctx_override", -1),
+    ("max_upload_mb", 99), ("max_upload_mb", 1_048_577), ("max_upload_mb", 0), ("max_upload_mb", -5),
+    ("max_upload_mb", 500.5), ("max_upload_mb", True), ("max_upload_mb", "2048"),
     ("ollama_num_ctx_override", True), ("ocr_backend", "easyocr"),
     ("ocr_prefer_paddle_vl_manga", "yes"), ("cookies_browser", "netscape"),
     ("tesseract_cmd", "a\x00b"), ("cookies_file", "x" * 1025),
@@ -200,7 +204,8 @@ def test_api_get_and_post_preferences(client):
     assert body["preferences"]["default_engine"] == "claude"
     assert "manga_ocr" in body["choices"]["ocr_backends"]
     assert "firefox" in body["choices"]["cookie_browsers"]
-    assert set(body["endpoints"]) == {"ollama_url", "gpt_sovits_url"}
+    assert set(body["endpoints"]) == {"ollama_url"}
+    assert "gpt_sovits_url" not in body["engine_keys"]
     r = client.post("/api/settings", json={"default_locale": "en-AU", "monthly_cap_usd": 3,
                                            "tesseract_cmd": "/usr/bin/tesseract"})
     assert r.status_code == 200
@@ -218,19 +223,30 @@ def test_api_rejects_bad_or_unknown_without_echo(client, body):
 
 
 def test_api_endpoint_routes(client, env_file):
-    r = client.post("/api/settings/endpoints/gpt_sovits_url",
-                    json={"url": "http://127.0.0.1:9880", "confirm": True})
-    assert r.status_code == 200 and r.json()["url"] == "http://127.0.0.1:9880"
-    assert client.get("/api/settings").json()["endpoints"]["gpt_sovits_url"] == \
-        "http://127.0.0.1:9880"
-    bad = client.post("/api/settings/endpoints/gpt_sovits_url",
+    r = client.post("/api/settings/endpoints/ollama_url",
+                    json={"url": "http://127.0.0.1:11434", "confirm": True})
+    assert r.status_code == 200 and r.json()["url"] == "http://127.0.0.1:11434"
+    assert client.get("/api/settings").json()["endpoints"]["ollama_url"] == \
+        "http://127.0.0.1:11434"
+    bad = client.post("/api/settings/endpoints/ollama_url",
                       json={"url": "http://u:hunter2@h", "confirm": True})
     assert bad.status_code == 422 and "hunter2" not in bad.text
-    assert client.post("/api/settings/endpoints/gpt_sovits_url",
+    assert client.post("/api/settings/endpoints/ollama_url",
                        json={"url": "http://h"}).status_code == 422  # no confirm
-    r = client.post("/api/settings/endpoints/gpt_sovits_url/clear", json={"confirm": True})
+    r = client.post("/api/settings/endpoints/ollama_url/clear", json={"confirm": True})
     assert r.status_code == 200 and r.json()["configured"] is False
-    assert "BAIHE_GPT_SOVITS_URL" not in env_file.read_text()
+    assert "BAIHE_OLLAMA_URL" not in env_file.read_text()
+
+
+def test_the_removed_gpt_sovits_address_is_not_settable_and_a_stored_one_is_never_shown(
+        client, env_file):
+    env_file.write_text("BAIHE_GPT_SOVITS_URL=http://old-sovits.example:9880\n", encoding="utf-8")
+    for path in ("/api/settings/endpoints/gpt_sovits_url", "/api/settings/endpoints/gpt_sovits_url/clear"):
+        r = client.post(path, json={"url": "http://127.0.0.1:9880", "confirm": True})
+        assert r.status_code == 422
+    body = client.get("/api/settings")
+    assert "old-sovits" not in body.text and "gpt_sovits" not in body.text
+    assert "old-sovits" in env_file.read_text()  # left alone, just unused
 
 
 def test_api_endpoint_routes_need_key_write_gate(isolated_db, env_file):
@@ -313,11 +329,11 @@ def test_translate_config_uses_default_engine_locale_style_and_cap(isolated_db, 
     did = _seed(isolated_db)
     cfg = translate_run_service.get_translate_config(did)
     assert cfg["translation_engine"] == "claude" and cfg["default_locale"] == "en-US"
-    settings_service.set_settings({"default_engine": "nllb", "default_locale": "en-GB",
+    settings_service.set_settings({"default_engine": "fake_mt", "default_locale": "en-GB",
                                    "default_style_note": "Short lines.",
                                    "monthly_cap_usd": 9})
     cfg = translate_run_service.get_translate_config(did)
-    assert cfg["translation_engine"] == "nllb"
+    assert cfg["translation_engine"] == "fake_mt"
     assert cfg["default_locale"] == "en-GB" and cfg["default_style_note"] == "Short lines."
     assert cfg["monthly_cap_usd"] == 9.0
     # A drama with its own engine keeps it.
@@ -486,22 +502,22 @@ def test_transcribe_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch
 
 def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monkeypatch):
     import core as core_module
-    from services import transcribe_service
+    from services import transcribe_pipeline, transcribe_service
     from tests.test_transcribe_service import _drama_with_audio
     did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
     settings_service.set_settings({"whisper_model_path": "/models/faster-whisper-small"})
     seen = {}
-    monkeypatch.setattr(core_module, "is_whisper_model_cached", lambda *a, **k: False)
-    monkeypatch.setattr(core_module, "load_whisper_model",
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda *a, **k: False)
+    monkeypatch.setattr(whisper_models, "load_whisper_model",
                         lambda *a, **k: seen.setdefault("load", k.get("local_model_path")))
-    monkeypatch.setattr(core_module, "get_whisper_device_info",
+    monkeypatch.setattr(whisper_models, "get_whisper_device_info",
                         lambda *a, **k: seen.setdefault("info", k.get("local_model_path")) and {})
-    monkeypatch.setattr(core_module, "describe_whisper_device", lambda info: "")
+    monkeypatch.setattr(whisper_models, "describe_whisper_device", lambda info: "")
 
     def fake_transcribe(*a, **k):
         seen["transcribe"] = k.get("local_model_path")
         raise RuntimeError("stop here")
-    monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", fake_transcribe)
     captured = {}
 
     def fake_start_process_job(job_id, target, args=(), **k):
@@ -544,23 +560,24 @@ def test_novel_ocr_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch)
 
 
 def test_url_download_passes_saved_cookies(isolated_db, env_file, monkeypatch, tmp_path):
-    import video_download
-    from services import url_media_service
-    seen = {}
+    from services import url_media_service, ytdlp_child
+    specs = []
 
-    def fake_download(url, out_dir, **k):
-        seen.update(k)
-        path = os.path.join(out_dir, "x.wav")
+    def fake_run_download(tmp_dir, spec, timeout, cancel):
+        specs.append(spec)
+        path = os.path.join(tmp_dir, "x.wav")
         open(path, "wb").close()
-        return path
-    monkeypatch.setattr(video_download, "download", fake_download)
+        yield {"event": {"path": path}}
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+    monkeypatch.setattr(ytdlp_child, "run_download", fake_run_download)
     url_media_service._download("urlmedia_1", "https://example.com/v", str(tmp_path), True)
-    assert seen["cookies_browser"] is None and seen["cookies_file"] is None
-    assert not [k for k in seen["extra_opts"] if "cookie" in k.lower()]
+    assert specs[-1]["cookies_browser"] is None and specs[-1]["cookies_file"] is None
+    assert not [k for k in ytdlp_child.ydl_options(str(tmp_path), None, None) if "cookie" in k.lower()]
     settings_service.set_settings({"cookies_browser": "chrome",
                                    "cookies_file": "/home/me/cookies.txt"})
     url_media_service._download("urlmedia_1", "https://example.com/v", str(tmp_path), True)
-    assert seen["cookies_browser"] == "chrome" and seen["cookies_file"] == "/home/me/cookies.txt"
+    assert specs[-1]["cookies_browser"] == "chrome"
+    assert specs[-1]["cookies_file"] == "/home/me/cookies.txt"
 
 
 def test_live_saved_cookies_only_when_asked(isolated_db, env_file, monkeypatch):
@@ -600,11 +617,11 @@ def test_live_route_uses_cookies_only_at_the_pc(isolated_db, env_file, monkeypat
 
 
 def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
-    import cli
+    import cli_translate
     settings_service.set_settings({"monthly_cap_usd": 4})
-    assert cli._monthly_cap_setting() == 4.0
+    assert cli_translate._monthly_cap_setting() == 4.0
     settings_service.set_settings({"monthly_cap_usd": 0})
-    assert cli._monthly_cap_setting() is None
+    assert cli_translate._monthly_cap_setting() is None
 
     # cli translate: engine, locale, style note, num_ctx and summary engine
     # fall back to the saved Settings values when no flag is given.
@@ -630,12 +647,12 @@ def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
         return types.SimpleNamespace(**base)
 
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args())
+        cli_translate.cmd_translate(args())
     assert "deepseek" in engines  # the drama has no engine saved
     assert seen["locale"] == "en-AU" and seen["style_note"] == "Terse."
     assert seen["ollama_num_ctx_override"] == 8192
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args(engine="fake", locale="en-GB", style_note="",
+        cli_translate.cmd_translate(args(engine="fake", locale="en-GB", style_note="",
                                ollama_num_ctx=0))
     assert seen["locale"] == "en-GB" and seen["style_note"] == ""
     assert seen["ollama_num_ctx_override"] == 0

@@ -10,6 +10,7 @@ import applog
 import background_jobs
 import db
 import diagnostics
+import diarize
 from services import diagnostics_gaps_service as svc
 from services import settings_service
 
@@ -99,8 +100,6 @@ def test_model_versions_shape():
 def test_model_cache_names_and_sizes_only(monkeypatch, tmp_path):
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda d=None: [
         {"repo_id": "org/model", "repo_type": "model", "revision": "abc", "size_bytes": 100}])
-    (tmp_path / "en_US-voice.onnx").write_bytes(b"x" * 10)
-    (tmp_path / "en_US-voice.onnx.json").write_bytes(b"x" * 5)
     import audio_preprocess
     checkpoints = tmp_path / "torch" / "hub" / "checkpoints"
     checkpoints.mkdir(parents=True)
@@ -110,9 +109,9 @@ def test_model_cache_names_and_sizes_only(monkeypatch, tmp_path):
     sep.mkdir()
     (sep / "vocals_mel_band_roformer.ckpt").write_bytes(b"x" * 20)
     monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(sep))
-    out = svc.get_model_cache(piper_voices_dir=str(tmp_path))
+    out = svc.get_model_cache()
     assert out["hf_total_bytes"] == 100
-    assert out["piper_voices"] == [{"voice": "en_US-voice", "size_bytes": 15}]
+    assert "piper_voices" not in out and "piper_total_bytes" not in out
     assert out["model_files"] == [
         {"folder": "torch", "name": "htdemucs.th", "size_bytes": 7},
         {"folder": "audio_separator", "name": "vocals_mel_band_roformer.ckpt", "size_bytes": 20}]
@@ -166,7 +165,7 @@ def test_pyannote_readiness_with_hf_hub_returns_list(monkeypatch):
     monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
     out = svc.get_pyannote_readiness(check_access=True)
     assert out["models"] == [{"model": m, "accessible": True}
-                             for m in diagnostics.diarize.DIARIZATION_MODELS]
+                             for m in diarize.DIARIZATION_MODELS]
     assert out["ready"] is True
 
 
@@ -221,7 +220,7 @@ def _no_jobs(monkeypatch, running=False):
 
 
 def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
-    def fake(cmd, timeout, cwd=None, env=None):
+    def fake(cmd, timeout, cwd=None, env=None, **_kw):
         if seen is not None:
             seen.append((cmd, timeout))
         yield {"line": DIRTY}
@@ -238,8 +237,8 @@ def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
 
 
 @pytest.mark.parametrize("call", [
-    lambda c: svc.install_dependency("edge_tts", confirm=c),
-    lambda c: svc.upgrade_dependency("edge_tts", confirm=c),
+    lambda c: svc.install_dependency("pydub", confirm=c),
+    lambda c: svc.upgrade_dependency("pydub", confirm=c),
     lambda c: svc.reset_library(confirm=c),
 ])
 def test_admin_requires_confirm(call, monkeypatch):
@@ -258,7 +257,7 @@ def test_admin_refuses_while_jobs_run_here_or_elsewhere(monkeypatch):
     with pytest.raises(svc.AdminActionJobsRunning):
         svc.reset_library(confirm=True)
     with pytest.raises(svc.AdminActionJobsRunning):
-        svc.install_dependency("edge_tts", confirm=True)
+        svc.install_dependency("pydub", confirm=True)
 
 
 def test_guard_sees_queued_jobs_and_other_process_records(isolated_db, monkeypatch):
@@ -287,32 +286,32 @@ def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
     _no_jobs(monkeypatch)
     # The command line depends on whether torch is installed on the machine
     # running the tests (it then gets a `-c <pins>` file); pin that down.
-    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: [])
     seen = []
     _fake_pip(monkeypatch, seen=seen)
     for fn in (svc.install_dependency, svc.upgrade_dependency):
-        out = fn("edge_tts", confirm=True)
-        assert out["ok"] is True and out["package"] == "edge_tts"
+        out = fn("pydub", confirm=True)
+        assert out["ok"] is True and out["package"] == "pydub"
         _assert_clean(out)
     assert all(t == svc.PIP_TIMEOUT_SECONDS for _c, t in seen)
     assert seen[0][0][3:] == ["install", "--no-cache-dir", "--disable-pip-version-check",
-                              "edge_tts"]
+                              "pydub", *CONSTRAINTS]
 
 
 def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_file(monkeypatch):
     _no_jobs(monkeypatch)
-    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines",
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines",
                         lambda: ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"])
     contents = {}
 
-    def fake(cmd, timeout, cwd=None, env=None):
-        path = cmd[cmd.index("-c") + 1]
+    def fake(cmd, timeout, cwd=None, env=None, **_kw):
+        path = cmd[-1]     # the pins file is appended after constraints.txt
         with open(path, encoding="utf-8") as f:
             contents["pins"] = f.read().split()
         contents["path"] = path
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
-    assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
+    assert svc.install_dependency("pydub", confirm=True)["ok"] is True
     assert contents["pins"] == ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"]
     assert not os.path.exists(contents["path"])      # removed after the run
 
@@ -320,66 +319,18 @@ def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_fi
 def test_pip_timeout_or_failure_is_not_ok(monkeypatch):
     _no_jobs(monkeypatch)
     _fake_pip(monkeypatch, returncode=-9, timed_out=True)
-    out = svc.install_dependency("edge_tts", confirm=True)
+    out = svc.install_dependency("pydub", confirm=True)
     assert out["ok"] is False and "took too long" in out["output_tail"][-1]
 
 
-def test_gpu_torch_install_never_uninstalls_first(monkeypatch):
-    """L6: a killed download must leave the old torch in place, so no
-    `pip uninstall`; force-reinstall (no deps) from the CUDA index, then a
-    plain install for missing deps, both with the long timeout."""
-    _no_jobs(monkeypatch)
-    import shutil
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-    monkeypatch.setattr(svc, "installable_packages", lambda: {"torch"})
-    seen = []
-    _fake_pip(monkeypatch, seen=seen)
-    assert svc.install_dependency("torch", confirm=True)["ok"] is True
-    assert not any("uninstall" in cmd for cmd, _t in seen)
-    first, second = seen[0][0], seen[1][0]
-    assert first[3:6] == ["install", "--no-cache-dir", "--disable-pip-version-check"]
-    assert first[6:11] == ["--force-reinstall", "--no-deps", "torch==2.11.0+cu128",
-                           "torchvision==0.26.0+cu128", "torchaudio==2.11.0+cu128"]
-    assert "--index-url" in first and "--index-url" in second
-    assert "--force-reinstall" not in second
-    assert all(t == svc.GPU_TORCH_TIMEOUT_SECONDS == 3600 for _c, t in seen)
-
-
-@pytest.mark.parametrize("name", ["torch", "torchaudio", "torchvision"])
-def test_torch_family_installs_the_matched_triple(monkeypatch, name):
-    """A plain `pip install torchaudio` could swap a CUDA torch for a CPU
-    one, so on an NVIDIA machine any of the three installs all three,
-    pinned together, from the fixed CUDA index."""
-    import shutil
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-    cmds = svc._install_commands(name)
-    assert len(cmds) == 2
-    for cmd, timeout in cmds:
-        assert cmd[cmd.index("--index-url") + 1] == "https://download.pytorch.org/whl/cu128"
-        assert {"torch==2.11.0+cu128", "torchvision==0.26.0+cu128",
-                "torchaudio==2.11.0+cu128"} <= set(cmd)
-        assert "uninstall" not in cmd
-        assert timeout == svc.GPU_TORCH_TIMEOUT_SECONDS
-
-
-def test_torchaudio_is_a_plain_install_without_a_gpu(monkeypatch):
+def test_torchaudio_is_a_plain_install(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
     ((cmd, timeout),) = svc._install_commands("torchaudio")
-    assert cmd[3:] == ["install", "--no-cache-dir", "--disable-pip-version-check", "torchaudio"]
+    assert cmd[3:] == ["install", "--no-cache-dir", "--disable-pip-version-check",
+                       "torchaudio", *CONSTRAINTS]
     assert "--index-url" not in cmd
     assert timeout == svc.PIP_TIMEOUT_SECONDS
-
-
-def test_gpu_torch_timeout_stops_before_the_second_step(monkeypatch):
-    _no_jobs(monkeypatch)
-    import shutil
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-    monkeypatch.setattr(svc, "installable_packages", lambda: {"torch"})
-    seen = []
-    _fake_pip(monkeypatch, returncode=-9, timed_out=True, seen=seen)
-    assert svc.install_dependency("torch", confirm=True)["ok"] is False
-    assert len(seen) == 1
 
 
 def test_pip_holds_the_library_exclusively(monkeypatch):
@@ -387,13 +338,13 @@ def test_pip_holds_the_library_exclusively(monkeypatch):
     _no_jobs(monkeypatch)
     seen = {}
 
-    def fake(cmd, timeout):
+    def fake(cmd, timeout, **_kw):
         seen["exclusive"] = background_jobs.exclusive_active()
         seen["job_started"] = background_jobs.start_job("l7_probe", lambda: None)
         seen["maintenance"] = background_jobs.enter_maintenance()
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
-    assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
+    assert svc.install_dependency("pydub", confirm=True)["ok"] is True
     assert seen == {"exclusive": True, "job_started": False, "maintenance": False}
     assert background_jobs.exclusive_active() is False
     background_jobs.clear_job("l7_probe")
@@ -405,18 +356,18 @@ def test_pip_refused_while_another_hold_is_active(monkeypatch):
     # a hold taken between _guard and the acquire (e.g. a restore) -> 409
     monkeypatch.setattr(background_jobs, "acquire_exclusive", lambda label: False)
     with pytest.raises(svc.AdminActionJobsRunning):
-        svc.install_dependency("edge_tts", confirm=True)
+        svc.install_dependency("pydub", confirm=True)
 
 
 def test_pip_releases_the_hold_when_it_fails(monkeypatch):
     _no_jobs(monkeypatch)
 
-    def boom(cmd, timeout):
+    def boom(cmd, timeout, **_kw):
         raise OSError("no pip")
         yield  # noqa
     monkeypatch.setattr(svc, "stream_tree", boom)
     with pytest.raises(OSError):
-        svc.install_dependency("edge_tts", confirm=True)
+        svc.install_dependency("pydub", confirm=True)
     assert background_jobs.exclusive_active() is False
 
 
@@ -465,7 +416,7 @@ def test_admin_refuses_during_exclusive_hold_or_maintenance(monkeypatch):
     assert background_jobs.acquire_exclusive("Library restore")
     try:
         for call in (lambda: svc.reset_library(confirm=True, confirm_text="RESET"),
-                     lambda: svc.install_dependency("edge_tts", confirm=True)):
+                     lambda: svc.install_dependency("pydub", confirm=True)):
             with pytest.raises(svc.AdminActionJobsRunning):
                 call()
     finally:
@@ -588,7 +539,7 @@ def test_stream_tree_returns_when_pip_exits_but_a_child_holds_the_pipe(tmp_path)
         items = list(svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
                                       timeout=60.0, drain_seconds=1.0))
         assert _t.monotonic() - t0 < 15
-        assert items[-1] == {"returncode": 0, "timed_out": False}
+        assert items[-1] == {"returncode": 0, "timed_out": False, "cancelled": False}
     finally:
         _kill_pid_from(marker)
 
@@ -605,9 +556,9 @@ def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
     monkeypatch.setattr(svc, "_install_commands", lambda n: [
         ([sys.executable, "-c", _pipe_holder_script(marker, 60)], 1.0)])
     monkeypatch.setattr(svc, "stream_tree",
-                        lambda cmd, timeout: real(cmd, timeout, drain_seconds=1.0))
+                        lambda cmd, timeout, **kw: real(cmd, timeout, drain_seconds=1.0, **kw))
     try:
-        out = svc.install_dependency("edge_tts", confirm=True)
+        out = svc.install_dependency("pydub", confirm=True)
         assert out["ok"] is False
         assert background_jobs.exclusive_active() is False
     finally:
@@ -620,7 +571,7 @@ def test_pip_rechecks_other_process_jobs_under_the_hold(monkeypatch):
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: next(answers))
     monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     with pytest.raises(svc.AdminActionJobsRunning):
-        svc.install_dependency("edge_tts", confirm=True)
+        svc.install_dependency("pydub", confirm=True)
     assert background_jobs.exclusive_active() is False
 
 
@@ -635,18 +586,21 @@ SOX_BUILT = SOX_FETCH + ["  Building wheel for sox (pyproject.toml): finished wi
                          "Successfully built sox"]
 
 
-def _scripted_pip(monkeypatch, outputs):
-    """stream_tree stand-in: each pip run takes the next (lines, returncode)."""
+def _scripted_pip(monkeypatch, outputs, fallback_risks=()):
+    """stream_tree stand-in: each pip run takes the next (lines, returncode).
+    The fallback's own preview answers `fallback_risks`."""
     seen, runs = [], iter(outputs)
+    monkeypatch.setattr(svc.install_plan, "downgrade_risks",
+                        lambda argv: (seen.append(["preview", *argv]), list(fallback_risks))[1])
 
-    def fake(cmd, timeout, cwd=None, env=None):
+    def fake(cmd, timeout, cwd=None, env=None, **_kw):
         seen.append(cmd)
         lines, rc = next(runs)
         for line in lines:
             yield {"line": line}
         yield {"returncode": rc, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
-    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: [])
     return seen
 
 
@@ -669,13 +623,16 @@ def test_qwen_asr_fallback_deps_match_the_published_pins_minus_sox():
     assert diagnostics.qwen_asr_fallback_pip_args()[-1] == ["--no-deps", "qwen-asr"]
 
 
+CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")]
+
+
 def test_qwen_asr_install_is_plain_pip_when_it_works(monkeypatch):
     _no_jobs(monkeypatch)
     seen = _scripted_pip(monkeypatch, [(SOX_BUILT, 0)])
     out = svc.install_dependency("qwen-asr", confirm=True)
     assert out["ok"] is True and out["hint"] is None
     assert [c[3:] for c in seen] == [["install", "--no-cache-dir", "--disable-pip-version-check",
-                                      "qwen-asr"]]
+                                      "qwen-asr", *CONSTRAINTS]]
 
 
 def test_qwen_asr_sox_build_failure_falls_back_to_installing_without_sox(monkeypatch):
@@ -685,11 +642,22 @@ def test_qwen_asr_sox_build_failure_falls_back_to_installing_without_sox(monkeyp
     out = svc.install_dependency("qwen-asr", confirm=True)
     assert out["ok"] is True and out["package"] == "qwen-asr"
     assert "without its `sox` dependency" in out["output_tail"][0]
+    preview, seen = seen[1], seen[:1] + seen[2:]
     assert len(seen) == 3
-    assert seen[1][-len(diagnostics.QWEN_ASR_FALLBACK_DEPS):] == list(
-        diagnostics.QWEN_ASR_FALLBACK_DEPS)
-    assert seen[2][-2:] == ["--no-deps", "qwen-asr"]
+    deps = list(diagnostics.QWEN_ASR_FALLBACK_DEPS)
+    assert preview[1:] == seen[1]        # the dependency command itself was previewed first
+    assert seen[1][-len(deps) - 2:-2] == deps and seen[1][-2:] == CONSTRAINTS
+    assert seen[2][-4:] == ["--no-deps", "qwen-asr", *CONSTRAINTS]
     assert all("sox" not in " ".join(c[3:]) for c in seen[1:])
+
+
+def test_qwen_asr_fallback_that_would_downgrade_a_needed_package_is_not_run(monkeypatch):
+    _no_jobs(monkeypatch)
+    risk = "transformers 4.58.0 -> 4.57.6 is a downgrade of a package Baihe itself needs."
+    seen = _scripted_pip(monkeypatch, [(SOX_NO_SETUPTOOLS, 1)], fallback_risks=[risk])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is False and risk in out["hint"] and "not installed without" in out["hint"]
+    assert [c[0] for c in seen[1:]] == ["preview"]      # no fallback pip ran
 
 
 def test_qwen_asr_fallback_failure_gives_the_plain_hint_without_leaking(monkeypatch):

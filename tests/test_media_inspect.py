@@ -119,6 +119,40 @@ class TestProbeMediaParsing:
         with pytest.raises(mi.ProbeError, match="Invalid data found"):
             mi.probe_media("not_media.txt")
 
+    def test_ffprobe_decodes_utf8_with_replacement(self, monkeypatch):
+        seen = {}
+
+        def run(cmd, **kwargs):
+            seen.update(kwargs)
+            return subprocess.CompletedProcess(cmd, 0, stdout='{"format": {"tags": {"title": "日本語"}}}')
+        monkeypatch.setattr(mi.subprocess, "run", run)
+        assert mi.run_ffprobe("video.mp4")["format"]["tags"]["title"] == "日本語"
+        assert seen["encoding"] == "utf-8" and seen["errors"] == "replace"
+        assert "text" not in seen
+
+    def test_ffprobe_real_decode_of_non_ascii_json(self, monkeypatch):
+        # A code-page decode of UTF-8 bytes is what text=True does on Windows; the
+        # real subprocess module is exercised through a Python child printing UTF-8.
+        payload = json.dumps({"format": {"tags": {"title": "日本語タイトル"}}}, ensure_ascii=False)
+        child = [sys.executable, "-c",
+                 f"import sys; sys.stdout.buffer.write({payload.encode('utf-8')!r})"]
+        real_run = subprocess.run
+        monkeypatch.setattr(mi.subprocess, "run", lambda cmd, **kw: real_run(child, **kw))
+        assert mi.run_ffprobe("video.mp4")["format"]["tags"]["title"] == "日本語タイトル"
+
+    @pytest.mark.parametrize("stdout", [None, ""])
+    def test_ffprobe_no_output_raises_probe_error(self, monkeypatch, stdout):
+        monkeypatch.setattr(mi.subprocess, "run",
+                            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout=stdout))
+        with pytest.raises(mi.ProbeError, match="no output"):
+            mi.run_ffprobe("video.mp4")
+
+    def test_ffprobe_invalid_json_raises_probe_error(self, monkeypatch):
+        monkeypatch.setattr(mi.subprocess, "run",
+                            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout="not json"))
+        with pytest.raises(mi.ProbeError, match="isn't valid JSON"):
+            mi.run_ffprobe("video.mp4")
+
 
 class TestContentTypeGuess:
     def test_filename_with_stream_keyword_guesses_streamer_vod(self):

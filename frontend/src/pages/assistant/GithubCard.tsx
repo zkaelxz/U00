@@ -5,7 +5,7 @@ import { useState } from 'react'
 
 import { clearGithubToken, saveGithubSettings, setGithubToken, testGithub } from '../../api/assistantGithub'
 import { Badge } from '../../components/Badge'
-import { Card } from '../../components/Card'
+import { Section } from '../../components/Section'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
@@ -41,11 +41,9 @@ export function GithubCard({ status, onStatus }: Props) {
   const changed = repo.trim() !== (status.repo ?? '') || base.trim() !== status.base_branch
 
   return (
-    <Card
-      title="GitHub pull requests"
-      meta="Send a proposed fix to your own repository as a draft pull request, after you review the exact diff. Off by default."
-      aria-label="GitHub pull requests"
-    >
+    <section aria-label="GitHub pull requests">
+      <Section title="GitHub pull requests" summary={status.enabled ? 'On' : 'Off by default'} storageKey="assistant.github">
+      <p className="muted">Send a proposed fix to your own repository as a draft pull request, after you review the exact diff. Off by default.</p>
       <div className="setting-list">
         <Field label="Deliver fixes as pull requests" help="Nothing is sent to GitHub while this is off.">
           <Toggle
@@ -136,6 +134,7 @@ export function GithubCard({ status, onStatus }: Props) {
           {error}
         </p>
       )}
-    </Card>
+      </Section>
+    </section>
   )
 }

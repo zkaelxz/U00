@@ -3,6 +3,7 @@ jobs, over services/diagnostics_installs_service.py. Every download, winget
 run and pip/pytest run is faked; no network, no install."""
 import hashlib
 import io
+import os
 import time
 import zipfile
 
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import diagnostics
+import upgrade_check
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -28,6 +30,7 @@ ABS_PATH = "/home/someone/private/thing"
 LATEST = svc.DENO_DOWNLOADS[("Linux", "x86_64")]
 VERSIONED = ("https://github.com/denoland/deno/releases/download/v2.9.7/"
              "deno-x86_64-unknown-linux-gnu.zip")
+_REAL_DENO_RUNS = svc._deno_runs
 ASSET_HOST = "https://release-assets.githubusercontent.com/github-production-release-asset/1/x"
 
 
@@ -82,6 +85,8 @@ def env(isolated_db, monkeypatch, tmp_path):
                         else real_which(n, *a, **k))
     dest = tmp_path / "home" / ".deno" / "bin" / "deno"
     monkeypatch.setattr(diagnostics, "deno_default_install_path", lambda: str(dest))
+    # The fake binaries aren't executables; a test of the real check sets its own.
+    monkeypatch.setattr(svc, "_deno_runs", lambda path: True)
     monkeypatch.setattr(diagnostics, "check_js_runtime",
                         lambda: {"found": False, "name": None, "path": None})
     import requests
@@ -224,11 +229,11 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
     monkeypatch.setattr(svc, "_use_winget", lambda: True)
     ran = []
 
-    def fake_tree(cmd, timeout):
+    def fake_tree(cmd, timeout, cancel=None, **_kw):
         ran.append((cmd, timeout))
         yield {"line": f"Found Deno at {ABS_PATH} {SECRET}"}
-        yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(gaps, "stream_tree", fake_tree)
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+    monkeypatch.setattr(svc.proc_run, "stream_tree", fake_tree)
     assert client.post("/api/diagnostics/deno/install", json={"confirm": True}).status_code == 200
     assert _wait(svc.DENO_JOB_ID)["status"] == "done"
     assert ran and ran[0][0][:5] == ["winget", "install", "-e", "--id", "DenoLand.Deno"]
@@ -238,9 +243,9 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
     assert b.json()["last_result"]["needs_restart"] is True and env["requests"] == []
 
 
-def _cache_update(name="edge_tts", target="2.0.0"):
+def _cache_update(name="pydub", target="2.0.0"):
     gaps._UPDATES.update(checked_at=time.time(), packages={
-        name: {"name": name, "dist": "edge-tts", "installed_version": "1.0.0",
+        name: {"name": name, "dist": "pydub", "installed_version": "1.0.0",
                "status": "update", "latest": target, "target": target, "reason": ""}})
 
 
@@ -250,13 +255,13 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
     def fake_check(pip_name, version=None, project_root=None, **kw):
         calls.append((pip_name, version))
         yield {"line": "Creating a throwaway environment -- your real install isn't touched."}
-        yield {"line": f"Installing edge-tts=={version} into it... {SECRET} {ABS_PATH}"}
-        yield {"line": "Running this app's test suite against edge-tts 2.0.0..."}
+        yield {"line": f"Installing pydub=={version} into it... {SECRET} {ABS_PATH}"}
+        yield {"line": "Running this app's test suite against pydub 2.0.0..."}
         yield {"done": True, "ok": True, "verdict": "safe", "reason": "every test passed",
                "version": version, "new_failures": [], "preexisting_failures": [],
                "conflicts": []}
-    monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
-    url = "/api/diagnostics/dependencies/edge_tts/test-upgrade"
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate", fake_check)
+    url = "/api/diagnostics/dependencies/pydub/test-upgrade"
     assert client.post(url, json={"confirm": True, "target": "2.0.0"}).status_code == 409
     _cache_update()
     assert client.post(url, json={"confirm": True, "target": "1.5.0"}).status_code == 409
@@ -266,17 +271,17 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
     r = client.post(url, json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 200 and r.json()["job_id"] == "upgrade_check"
     assert _wait(svc.UPGRADE_CHECK_JOB_ID)["status"] == "done"
-    assert calls == [("edge-tts", "2.0.0")]
+    assert calls == [("pydub", "2.0.0")]
     s = client.get("/api/diagnostics/upgrade-check")
     assert SECRET not in s.text and ABS_PATH not in s.text
     b = s.json()
-    assert b["package"] == "edge_tts" and b["target"] == "2.0.0"
+    assert b["package"] == "pydub" and b["target"] == "2.0.0"
     assert b["result"]["verdict"] == "safe" and b["result"]["ok"] is True
     assert len(b["output_tail"]) == 3
 
 
 def test_upgrade_check_refusals(client, env, monkeypatch):
-    monkeypatch.setattr(diagnostics, "check_upgrade_candidate",
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate",
                         lambda *a, **k: iter(()))
     _cache_update()
     assert client.post("/api/diagnostics/dependencies/fastapi/test-upgrade",
@@ -284,7 +289,7 @@ def test_upgrade_check_refusals(client, env, monkeypatch):
     assert client.post("/api/diagnostics/dependencies/torch/test-upgrade",
                        json={"confirm": True, "target": "2.0.0"}).status_code == 422
     env["running"] = True
-    r = client.post("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+    r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                     json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 409
     assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
@@ -300,9 +305,9 @@ def test_upgrade_check_cancel_stops_the_run(client, env, monkeypatch):
                 time.sleep(0.005)
         finally:
             closed.append(True)
-    monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate", fake_check)
     _cache_update()
-    client.post("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+    client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                 json={"confirm": True, "target": "2.0.0"})
     background_jobs.request_cancel(svc.UPGRADE_CHECK_JOB_ID)
     assert _wait(svc.UPGRADE_CHECK_JOB_ID)["status"] == "cancelled"
@@ -332,7 +337,7 @@ def test_auth_on_reads_admin_writes_pc_only(env):
         assert remote.get(path, headers=_h(kid)).status_code == 403
         assert remote.get(path, headers=_h(admin)).status_code == 200
     writes = (("/api/diagnostics/deno/install", {"confirm": True}),
-              ("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+              ("/api/diagnostics/dependencies/pydub/test-upgrade",
                {"confirm": True, "target": "2.0.0"}))
     for path, body in writes:
         assert remote.post(path, json=body, headers=_h(admin)).status_code == 403, path
@@ -376,8 +381,91 @@ def test_upgrade_check_state_only_changes_when_the_job_starts(client, env, monke
     svc._UPGRADE_CHECK.update(package="jieba", target="1.0", tail=["a"],
                               last={"ok": True, "verdict": "safe"})
     monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
-    r = client.post("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+    r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                     json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 409
     s = client.get("/api/diagnostics/upgrade-check").json()
     assert s["package"] == "jieba" and s["target"] == "1.0" and s["result"]["verdict"] == "safe"
+
+
+def test_deno_unpack_goes_through_a_partial_file(env, tmp_path, monkeypatch):
+    """A leftover .partial from a killed download is overwritten, and a copy
+    that dies part-way leaves nothing at the real path."""
+    z = tmp_path / "d.zip"
+    z.write_bytes(_zip())
+    partial = env["dest"].parent / (env["dest"].name + ".partial")
+    partial.parent.mkdir(parents=True)
+    partial.write_bytes(b"#!half")
+
+    def die(src, out, n):
+        out.write(b"#!de")
+        assert not env["dest"].exists()
+        raise KeyboardInterrupt
+    monkeypatch.setattr(svc.shutil, "copyfileobj", die)
+    with pytest.raises(KeyboardInterrupt):
+        svc._unpack_binary(str(z))
+    assert not env["dest"].exists() and not partial.exists()
+    monkeypatch.undo()
+    monkeypatch.setattr(diagnostics, "deno_default_install_path", lambda: str(env["dest"]))
+    svc._unpack_binary(str(z))
+    assert env["dest"].read_bytes() == b"#!deno-binary" and not partial.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell scripts stand in for deno")
+def test_a_deno_stub_that_does_not_run_is_not_installed(env, monkeypatch):
+    monkeypatch.setattr(svc, "_deno_runs", _REAL_DENO_RUNS)
+    env["dest"].parent.mkdir(parents=True)
+    env["dest"].write_bytes(b"\x7fELF stub left by a hard kill")
+    env["dest"].chmod(0o755)
+    assert svc._deno_installed_somewhere() is False
+    env["dest"].write_text("#!/bin/sh\nexit 1\n")
+    assert svc._deno_installed_somewhere() is False
+    env["dest"].write_text("#!/bin/sh\necho deno 2.9.7\n")
+    assert svc._deno_installed_somewhere() is True
+
+
+def test_test_first_is_unavailable_without_a_test_suite(client, env, monkeypatch, tmp_path):
+    monkeypatch.setattr(gaps, "default_project_root", lambda: str(tmp_path))
+    monkeypatch.setattr(upgrade_check, "check_upgrade_candidate",
+                        lambda *a, **k: pytest.fail("nothing to run"))
+    _cache_update()
+    b = client.get("/api/diagnostics/upgrade-check").json()
+    assert b["unavailable_reason"] == upgrade_check.NO_TEST_SUITE
+    assert str(tmp_path) not in str(b)
+    r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
+                    json={"confirm": True, "target": "2.0.0"})
+    assert r.status_code == 422 and "no test suite" in r.text
+    assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
+    (tmp_path / "tests").mkdir()
+    assert client.get("/api/diagnostics/upgrade-check").json()["unavailable_reason"] is None
+
+
+def test_unpack_replaces_a_deno_that_does_not_run_but_never_a_working_one(env, tmp_path, monkeypatch):
+    """The start reports a stub that won't run as missing, so the job must be
+    able to replace it, or the owner downloads 45 MB to be refused forever."""
+    z = tmp_path / "d.zip"
+    z.write_bytes(_zip())
+    env["dest"].parent.mkdir(parents=True)
+    env["dest"].write_bytes(b"\x7fELF stub left by a hard kill")
+    monkeypatch.setattr(svc, "_deno_runs", lambda path: False)
+    svc._unpack_binary(str(z))
+    assert env["dest"].read_bytes() == b"#!deno-binary"
+    assert not (env["dest"].parent / (env["dest"].name + ".partial")).exists()
+    env["dest"].write_bytes(b"#!working deno")
+    monkeypatch.setattr(svc, "_deno_runs", lambda path: True)
+    with pytest.raises(svc.DenoInstallFailed, match="already installed"):
+        svc._unpack_binary(str(z))
+    assert env["dest"].read_bytes() == b"#!working deno"
+
+
+def test_unpack_without_hard_links_still_never_replaces_a_working_deno(env, tmp_path, monkeypatch):
+    z = tmp_path / "d.zip"
+    z.write_bytes(_zip())
+
+    def no_links(src, dst):
+        raise OSError(1, "Operation not permitted")
+    monkeypatch.setattr(svc.os, "link", no_links)
+    svc._unpack_binary(str(z))
+    assert env["dest"].read_bytes() == b"#!deno-binary"
+    with pytest.raises(svc.DenoInstallFailed, match="already installed"):
+        svc._unpack_binary(str(z))

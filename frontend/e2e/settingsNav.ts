@@ -1,21 +1,16 @@
 import type { Locator, Page } from '@playwright/test'
 
-// Every Settings group starts closed on each visit; a spec for a card in one of them opens them all first.
-export async function openSettingsGroups(page: Page) {
-  // Sharing renders at once; the rest wait for the settings call, and Jobs is the first of them.
-  await page.locator('#settings-jobs').waitFor({ state: 'attached', timeout: 4000 }).catch(() => {})
-  for (const summary of await page.locator('.settings-fold > details.section > summary').all()) {
-    if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) {
-      await summary.click()
-      // Section applies the toggle in React state; a click made before it lands can be undone by the re-render.
-      await summary.evaluate((el) => new Promise<void>((done) => {
-        const d = el.parentElement as HTMLDetailsElement
-        const check = () => (d.open ? done() : requestAnimationFrame(check))
-        check()
-      }))
-    }
+export type SettingsTabName = 'Translation and keys' | 'Preferences' | 'System'
+
+// Settings shows one tab at a time (the choice is remembered per browser); a spec for a card opens the tab that holds it.
+export async function openSettingsGroups(page: Page, tab: SettingsTabName) {
+  const button = page.getByRole('tab', { name: tab })
+  // Members see no tab row at all (they get Preferences only); the tabs also wait for the settings call.
+  if ((await button.waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false))) {
+    await button.click()
+    await page.locator('.settings-panel:not([hidden])').waitFor()
   }
-  // The opened section can land a field's help icon under the pointer, which opens its tooltip.
+  // A card's help icon can land under the pointer, which opens its tooltip.
   await page.mouse.move(0, 0)
 }
 

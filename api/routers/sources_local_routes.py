@@ -1,6 +1,6 @@
 """
-api/routers/sources_local_routes.py -- the PC-only Sources actions (spec
-S-6 sign-in, inventory SO17 tier tests, SO18 proxy). Thin: see
+api/routers/sources_local_routes.py -- the PC-only Sources actions (sign-in,
+tier tests, proxy). Thin: see
 services/sources_signin_service.py and services/sources_registry_service.py.
 
 Every route is `local_only()`: opening a sign-in window, deleting a saved

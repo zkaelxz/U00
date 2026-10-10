@@ -1,6 +1,6 @@
 """
-api/routers/web_search_routes.py -- the optional web-search fallback
-(roadmap item 114). See services/web_search_service.py.
+api/routers/web_search_routes.py -- the optional web-search fallback.
+See services/web_search_service.py.
 
 `status` and `search` are `library.read`, like the title search they back
 up (POST /api/sources/search): they send a query to the owner's own

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { withExportLines, withTranslateLines } from './stageLineMocks'
+import { openExportBlocks } from './exportBlocks'
 
 // Leaving a stage while its job runs and coming back picks the job up again
 // (useReattachJob). Job starts and job reads are mocked; nothing runs.
@@ -75,6 +76,55 @@ test('a finished or missing translate job does not block Start on a fresh visit'
   await expect(page.getByTestId('job-status')).toHaveCount(0)
 })
 
+test('a finished run shows as Last run after a fresh visit, and Retry starts it again', async ({ page }) => {
+  const t = Math.floor(Date.now() / 1000)
+  const finished = {
+    ...job('translate_1', 'done'), progress: 1, message: 'Done', started_at: t - 700, finished_at: t - 600, updated_at: t - 600,
+    drama_id: 1, kind: 'translate', outcome: 'partial', outcome_message: '2 problem(s), first: rate limited',
+    result: { line_count: 3, errors: ['rate limited', 'rate limited'] },
+  }
+  const starts: unknown[] = []
+  await page.route('**/api/jobs', (route) => route.fulfill({ json: { items: [finished, { ...finished, job_id: 'translate_2', drama_id: 2 }], count: 2 } }))
+  await page.route('**/api/jobs/translate_1', (route) =>
+    starts.length
+      ? route.fulfill({ json: job('translate_1', 'running') })
+      : route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No job.' } } }))
+  await page.route('**/api/translate-run/dramas/1/run', async (route) => {
+    starts.push(route.request().postDataJSON())
+    await route.fulfill({
+      json: { job_id: 'translate_1', drama_id: 1, engine: 'x', model: null, target_line_count: 3, fallback_engines: [] },
+    })
+  })
+  await withTranslateLines(page)
+  await page.goto('/#/drama/1/translate')
+
+  const card = page.getByTestId('last-run')
+  await expect(card).toHaveCount(1)
+  await expect(card).toContainText('Done')
+  await expect(card.getByTestId('last-run-when')).toHaveText('10 min ago')
+  await expect(card.getByTestId('last-run-text')).toHaveText('Finished with problems: 2 problem(s), first: rate limited')
+  await expect(card.getByTestId('last-run-counts')).toHaveText('3 lines · 2 failed')
+  await expect(card.getByRole('link', { name: 'All jobs' })).toHaveAttribute('href', '#/jobs')
+  await expect(page.getByTestId('job-status')).toHaveCount(0)
+
+  // Retry runs the stage's own start with the current form, so the card offers it only once the form has loaded.
+  await card.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByTestId('job-status')).toContainText('Running')
+  expect(starts).toHaveLength(1)
+  await expect(card).toHaveCount(0)
+})
+
+test('a running job the server flags as stalled says so next to Cancel', async ({ page }) => {
+  await page.route('**/api/jobs/translate_1', (route) =>
+    route.fulfill({ json: { ...job('translate_1', 'running'), stalled: true, message: 'Batch 2 of 5 No update for a while: this job may be stalled.' } }))
+  await withTranslateLines(page)
+  await page.goto('/#/drama/1/translate')
+  const panel = page.getByTestId('job-panel')
+  await expect(panel.getByTestId('job-stuck')).toHaveText('No progress for a while. It may be stuck. All jobs')
+  await expect(panel.getByTestId('job-status')).toHaveText('Running · Batch 2 of 5')
+  await expect(panel.getByRole('button', { name: /^Cancel / })).toHaveClass(/btn-secondary/)
+})
+
 test('a "running" record left by a crashed app does not lock Start', async ({ page }) => {
   await page.route('**/api/jobs/translate_1', (route) =>
     route.fulfill({ json: { ...job('translate_1', 'running'), stale: true } }))
@@ -93,6 +143,7 @@ test('Export media shows the earlier export and a running export on revisit', as
   await page.goto('/#/drama/1/translate')
   await goToStage(page, /^Export/)
   await page.getByText('Video and audio', { exact: true }).click()
+  await openExportBlocks(page)
 
   const link = page.getByTestId('artifact-video').getByRole('link')
   await expect(link).toHaveText('Download burned_video_1.mp4')
@@ -110,10 +161,11 @@ test('a dub left running is shown again on the Dub stage, with Generate disabled
     json: {
       drama_id: 1, content_mode: null, is_narration: false, narration_language: 'en',
       narration_language_options: ['en', 'zh'], source_language: 'zh',
-      tts_engines: [{ key: 'edge_tts', label: 'Edge TTS', requires_internet: true }],
+      tts_engines: [{ key: 'omnivoice', label: 'OmniVoice' }],
+  default_engine: 'omnivoice',
       defaults: { max_speedup: 1.3, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
       speakers: [], gpu_required: false, speakable_line_count: 3, track_available: false,
-      gpt_sovits_configured: false, can_keep_background: true,
+      can_keep_background: true,
     },
   }))
   await page.route('**/api/jobs/dub_1', (route) => route.fulfill({ json: job('dub_1', 'running') }))

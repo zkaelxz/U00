@@ -15,6 +15,7 @@ import pytest
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core
 
 import scanlate
+import scanlate_detect
 import translate_engines
 
 
@@ -73,7 +74,7 @@ class TestStructuredRegions:
         assert r.confidence == pytest.approx(0.87)
         assert r.orientation in ("horizontal", "vertical")
         assert r.panel_id is None or isinstance(r.panel_id, int)
-        assert r.kind in scanlate.TEXT_REGION_KINDS
+        assert r.kind in scanlate_detect.TEXT_REGION_KINDS
         assert r.page_id == 7
 
     def test_to_bubble_is_the_flat_shape_save_bubbles_takes(self, bubble_page):
@@ -115,7 +116,7 @@ class TestStructuredRegions:
         path = _write(tmp_path / "panels.png", img)
         left_box = {"x": 60, "y": 60, "w": 100, "h": 80}
         right_box = {"x": 460, "y": 300, "w": 100, "h": 80}
-        panels = scanlate.detect_panels(path)
+        panels = scanlate_detect.detect_panels(path)
         assert len(panels) >= 2
         regions = scanlate.analyze_page_regions(path, [left_box, right_box], "ja")
         by_x = {r.x: r for r in regions}
@@ -280,13 +281,13 @@ class TestShapeAwareFitting:
         return int((ink & (oval == 0)).sum())
 
     def test_mask_follows_the_oval_not_the_rectangle(self, oval_page):
-        mask = scanlate.bubble_shape_mask(oval_page, self.BOX)
+        mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
         assert mask is not None and mask.shape == (220, 400)
         assert not mask[0, 0] and not mask[-1, -1]   # rectangle corners are outside
         assert mask[110, 200]                         # centre is inside
 
     def test_text_stays_inside_an_oval_bubble(self, oval_page):
-        mask = scanlate.bubble_shape_mask(oval_page, self.BOX)
+        mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
         # Rectangle layout spills into the corners outside the oval...
         assert self._ink_outside(oval_page, None) > 0
         # ...the shape-aware layout doesn't.
@@ -294,7 +295,7 @@ class TestShapeAwareFitting:
 
     def test_all_words_are_still_drawn_with_a_mask(self, oval_page):
         from PIL import Image, ImageDraw
-        mask = scanlate.bubble_shape_mask(oval_page, self.BOX)
+        mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
         font = scanlate._find_font(None)
         from PIL import ImageFont
         draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
@@ -307,7 +308,7 @@ class TestShapeAwareFitting:
 
     def test_no_light_region_means_no_mask(self, tmp_path):
         dark = _write(tmp_path / "dark.png", np.full((200, 200, 3), 20, dtype=np.uint8))
-        assert scanlate.bubble_shape_mask(dark, {"x": 20, "y": 20, "w": 100, "h": 100}) is None
+        assert scanlate_detect.bubble_shape_mask(dark, {"x": 20, "y": 20, "w": 100, "h": 100}) is None
 
 
 # ---------------------------------------------------------------------------

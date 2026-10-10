@@ -5,6 +5,7 @@ import types
 import pytest
 
 import diagnostics
+import diagnostics_torch
 
 
 def _versions(monkeypatch, **installed):
@@ -72,7 +73,7 @@ def test_qwen_nonascii_path(monkeypatch, system, path, qwen, warn):
     (None, {"available": True, "vram_total_gb": 8.0}, False)])
 def test_low_vram_pyannote(monkeypatch, pyannote, gpu, warn):
     _versions(monkeypatch, **({"pyannote.audio": pyannote} if pyannote else {}))
-    monkeypatch.setattr(diagnostics, "get_gpu_status", lambda: gpu)
+    monkeypatch.setattr(diagnostics_torch, "get_gpu_status", lambda: gpu)
     assert bool(diagnostics._warn_low_vram_pyannote()) is warn
 
 
@@ -81,7 +82,7 @@ def test_startup_warnings_never_raise(monkeypatch):
         raise RuntimeError("C:\\secret\\path")
     monkeypatch.setattr(diagnostics, "get_installed_version", boom)
     monkeypatch.setattr(diagnostics.shutil, "which", boom)
-    monkeypatch.setattr(diagnostics, "get_gpu_status", boom)
+    monkeypatch.setattr(diagnostics_torch, "get_gpu_status", boom)
     assert diagnostics.startup_warnings() == []
 
 

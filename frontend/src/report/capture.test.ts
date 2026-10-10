@@ -87,7 +87,7 @@ describe('failed API calls', () => {
 
   it('the shared client records method, path, status and code, never bodies or headers', async () => {
     const f = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      error: { code: 'not_found', message: 'No drama "My secret title".' },
+      error: { code: 'not_found', message: 'No title "My secret title".' },
     }), { status: 404 })) as unknown as typeof fetch
     await expect(postJson('/api/review/dramas/3/lines?q=secret', { text: 'line text body' }, f)).rejects.toThrow()
     const down = vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) as unknown as typeof fetch
@@ -101,6 +101,16 @@ describe('failed API calls', () => {
     ])
     const text = JSON.stringify(failed)
     for (const bad of ['secret', 'line text', 'X-Baihe-Local', 'My secret title']) expect(text).not.toContain(bad)
+  })
+
+  it('does not record aborted requests or a busy waveform (429 from peaks)', async () => {
+    const aborted = vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')) as unknown as typeof fetch
+    await expect(getJson('/api/media/dramas/3/peaks', aborted)).rejects.toThrow()
+    const busy = vi.fn(async () => new Response(JSON.stringify({ error: { code: 'rate_limited', message: 'busy' } }), { status: 429 })) as unknown as typeof fetch
+    await expect(getJson('/api/media/dramas/3/peaks', busy)).rejects.toThrow()
+    expect(captureSnapshot().failed_requests).toEqual([])
+    await expect(getJson('/api/other', busy)).rejects.toThrow()
+    expect(captureSnapshot().failed_requests).toHaveLength(1)
   })
 
   it('recordFailedRequest normalises the method', () => {

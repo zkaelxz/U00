@@ -2,6 +2,7 @@
 start_llm_resegment_preview / get_llm_resegment_preview and
 /api/restructure/.../resegment/preview-llm). Fully mocked: no real LLM, no
 GPU, no subprocess. The preview must never write the drama's lines."""
+import queue
 import time
 
 import pytest
@@ -108,7 +109,7 @@ def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
 
     def fake_process_job(job_id, target, args=(), on_done=None, **kw):
         captured.update(job_id=job_id, target=target, kw=kw)
-        lines, language, eng, segments, script = args
+        lines, language, eng, segments, script, min_pause = args
         new_lines, changed = resegment.resegment_lines(lines, language)
         on_done(job_id, {"lines": new_lines, "usage_calls": [(10, 2)],
                          "changed": [(ln.id, ln.idx, ln.zh, p) for ln, p in changed]})
@@ -117,6 +118,8 @@ def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
     svc.start_llm_resegment_preview(did, engine="ollama")
     assert captured["target"] is resegment.resegment_subprocess_worker
     assert captured["kw"]["gpu_touching"] is True
+    assert captured["kw"]["kill_whole_tree"] is True
+    assert captured["kw"]["start_method"] == "spawn"
     assert svc.get_llm_resegment_preview(did)["engine"] == "ollama"
     assert _snapshot(did) == before
 
@@ -124,7 +127,7 @@ def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
 def test_refusals(monkeypatch):
     did = _seed()
     with pytest.raises(UnsupportedOperationError):
-        svc.start_llm_resegment_preview(did, engine="nllb")   # translation-only
+        svc.start_llm_resegment_preview(did, engine="fake_mt")   # translation-only
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.0)
     with pytest.raises(UnsupportedOperationError):
@@ -318,3 +321,11 @@ def test_stale_preview_for_other_lines_is_not_read_back(monkeypatch):
     with pytest.raises(NotFoundError):
         svc.get_llm_resegment_preview(did)
     assert did not in svc._llm_previews
+
+
+def test_resegment_worker_leaves_the_parents_process_group(monkeypatch):
+    left = []
+    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
+    q = queue.Queue()
+    resegment.resegment_subprocess_worker([], "zh", None, None, "simplified", 0.5, q)
+    assert left == [True]

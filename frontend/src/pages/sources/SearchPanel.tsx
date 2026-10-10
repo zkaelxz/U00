@@ -8,17 +8,7 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import type { OpenSeries, SearchResult, SourceSummary } from '../../types/sources'
-import {
-  RESULTS_PAGE,
-  describeSourceError,
-  percent,
-  resultsHeader,
-  searchDisabledReason,
-  searchInSummary,
-  searchSourcesParam,
-  searchableSources,
-  selectedSources,
-} from './sourcesFormat'
+import { RESULTS_PAGE, describeSourceError, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources } from './sourcesFormat'
 import type { SourceErrorCopy } from './sourcesFormat'
 import { openerKey } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'

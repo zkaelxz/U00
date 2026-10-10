@@ -6,8 +6,8 @@ import { ME } from './authMocks'
 // and banned words, one failed batch. Drama 1 is reported as being in series 7 so the glossary shows.
 
 const speaker = (label: string, over: object = {}) => ({
-  speaker_label: label, character_name: '', voice_actor: '', pronouns: '', tts_voice: '',
-  offline_voice: '', clone_engine: '', voice_design: '', has_ref_audio: false, ref_text_present: false,
+  speaker_label: label, character_name: '', voice_actor: '', pronouns: '',
+  clone_engine: '', voice_design: '', has_ref_audio: false, ref_text_present: false,
   series_character_id: null, series_character_name: '', line_count: 3, series_pronouns: '',
   sample_lines: [], ...over,
 })
@@ -31,12 +31,12 @@ export async function mockPhoneTables(page: Page) {
   await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/characters/dramas/1', (route) => route.fulfill({
     json: [
-      speaker('SPEAKER_00', { character_name: 'Lin Wan', pronouns: 'she/her', tts_voice: 'zh-CN-XiaoxiaoNeural', line_count: 128, has_ref_audio: true, ref_text_present: true }),
+      speaker('SPEAKER_00', { character_name: 'Lin Wan', pronouns: 'she/her', line_count: 128, has_ref_audio: true, ref_text_present: true }),
       speaker('SPEAKER_01', { pronouns: 'xe/xem', line_count: 40 }),
     ],
   }))
   await page.route('**/api/characters/dramas/1/clone-engines', (route) =>
-    route.fulfill({ json: { source_language: 'zh', default_engine: 'f5tts', engines: [] } }))
+    route.fulfill({ json: { source_language: 'zh', default_engine: 'omnivoice', engines: [] } }))
   await page.route('**/api/characters/voice-bank', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({
     json: [

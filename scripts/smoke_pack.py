@@ -25,6 +25,7 @@ pipeline runs on a temporary copy of the clip. Standard library at import time;
 the app's own modules are imported only by the commands that need them.
 """
 
+import whisper_models
 import argparse
 import contextlib
 import importlib.metadata
@@ -160,7 +161,7 @@ _STAGE_PREFIXES = (
 
 
 class StageRecorder:
-    """A no-op reporter for services.transcribe_service._transcribe_pipeline
+    """A no-op reporter for services.transcribe_pipeline._transcribe_pipeline
     that notes when each stage's first message arrives, so stage durations come
     from the real pipeline without changing it."""
 
@@ -239,11 +240,11 @@ def run_clip(profile: dict, audio_path, expected_texts=None) -> dict:
     baseline's, so a run tests the aligner alone); None aligns the run's own."""
     sys.path.insert(0, str(REPO_ROOT))
     import core
-    from services import transcribe_service as ts
+    from services import transcribe_pipeline as ts
 
     use_gpu = bool(profile.get("use_gpu", True))
     qwen = profile.get("asr_backend") == "qwen3"
-    size = profile.get("whisper_size") or core.DEFAULT_WHISPER_SIZE
+    size = profile.get("whisper_size") or whisper_models.DEFAULT_WHISPER_SIZE
     language = profile["language"]
     notes, devices, stage_seconds = [], {}, {}
     token = _hf_token() if profile.get("diarization") else None
@@ -303,7 +304,7 @@ def run_clip(profile: dict, audio_path, expected_texts=None) -> dict:
             diarize.merge_speakers(lines, turns)
             speaker_count = len({t["speaker"] for t in turns})
         with contextlib.suppress(Exception):
-            core.release_gpu_models()
+            whisper_models.release_gpu_models()
 
     rows = []
     for ln in lines:

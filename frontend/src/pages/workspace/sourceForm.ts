@@ -1,11 +1,46 @@
 import { safeDetail } from '../../components/errorMessages'
+import { draftStorage, pickDraft, readDraft } from '../../hooks/useStageDraft'
 import type { TranscribeConfigUpdate } from '../../types/workspace'
 
 // Pure client-side checks for the Source/Transcribe stage. The server
 // re-validates everything; these only save a round trip and mirror
 // services/media_upload_service.py and services/transcribe_service.py.
 
-export const UPLOAD_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4', '.mkv', '.mov', '.webm']
+// tests/test_frontend_limit_parity.py keeps both lists equal to media_upload_service's.
+export const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac', '.ogg']
+const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.mov', '.webm']
+export const UPLOAD_EXTENSIONS = [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS]
+
+export const isVideoFile = (name: string) => VIDEO_EXTENSIONS.some((e) => name.toLowerCase().endsWith(e))
+
+// Audio replaces the title's media as a whole: the server unnames the old video too.
+export const UPLOAD_SETS_VIDEO_ASIDE =
+  "Uploading audio also sets the current video aside (kept in this title's folder), so the title will have no source video for Review or video export."
+export const URL_SETS_VIDEO_ASIDE =
+  "This link will give audio only, so it also sets the current video aside (kept in this title's folder). The title will have no source video for Review or video export."
+export const SWITCHES_FROM_BURNED_IN =
+  ' It also switches this title from reading burned-in subtitles to transcribing the audio.'
+
+// A direct link to an audio file is installed as audio only even with Audio only off
+// (services/url_media_service.py); the server reads the extension of the URL path.
+export function isDirectAudioUrl(url: string): boolean {
+  let path: string
+  try {
+    path = new URL(url.trim()).pathname
+  } catch {
+    return false
+  }
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const dot = name.lastIndexOf('.')
+  return dot > 0 && AUDIO_EXTENSIONS.includes(name.slice(dot).toLowerCase())
+}
+
+// The link target for "Change it in Settings"; the server's error text names the same place.
+export const UPLOAD_LIMIT_SETTINGS_HREF = '#/settings?section=uploads'
+
+export function isUploadLimitProblem(message: string): boolean {
+  return message.includes('upload limit')
+}
 
 export function checkUploadFile(name: string, sizeBytes: number, maxMb: number): string | null {
   const dot = name.lastIndexOf('.')
@@ -18,13 +53,25 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
   return null
 }
 
+// Keep in sync with MIN_SILENCE_MS_MIN/MAX in core.py.
+export const MIN_SILENCE_MS_MIN = 100
+export const MIN_SILENCE_MS_MAX = 3000
+
+// Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in segment_splitting.py.
+export const MIN_PAUSE_SEC_DEFAULT = 0.35
+export const MIN_PAUSE_SEC_MIN = 0.1
+export const MIN_PAUSE_SEC_MAX = 2.0
+
 // Labels match the Transcribe stage's fields.
 const RANGES = {
   beam_size: { label: 'Beam size', min: 1, max: 10, integer: true },
-  min_silence_ms: { label: 'Min silence (ms)', min: 300, max: 3000, integer: true },
+  min_silence_ms: { label: 'Min silence (ms)', min: MIN_SILENCE_MS_MIN, max: MIN_SILENCE_MS_MAX, integer: true },
+  min_pause_sec: { label: 'Pause that can split a long line (s)', min: MIN_PAUSE_SEC_MIN, max: MIN_PAUSE_SEC_MAX, integer: false },
   vad_threshold: { label: 'VAD threshold', min: 0.1, max: 0.9, integer: false },
   hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
+
+const DEFAULT_HALLUCINATION_SILENCE_SEC = 0
 
 // Returns the first out-of-range knob as a sentence, or null when valid.
 export function validateConfig(update: TranscribeConfigUpdate): string | null {
@@ -34,6 +81,10 @@ export function validateConfig(update: TranscribeConfigUpdate): string | null {
     if (!Number.isFinite(v) || v < r.min || v > r.max || (r.integer && !Number.isInteger(v))) {
       return `${r.label} must be ${r.integer ? 'a whole number ' : ''}between ${r.min} and ${r.max}.`
     }
+  }
+  const h = update.hallucination_silence_sec
+  if (h !== undefined && (!Number.isFinite(h) || (h !== 0 && (h < 0.5 || h > 10)))) {
+    return 'Hallucination guard must be 0 (off) or between 0.5 and 10 seconds.'
   }
   return null
 }
@@ -84,19 +135,11 @@ export interface RunFieldProblem {
 export function runOptionProblem(
   mode: string | undefined,
   alignment: string,
-  asr: string,
-  mossEnabled: boolean,
 ): RunFieldProblem | null {
   if (mode === 'whisper' && alignment === 'qwen3_forced_align') {
     return {
       field: 'alignment_method',
-      message: 'Qwen3 forced alignment needs a transcript to align, but this drama transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
-    }
-  }
-  if (mode === 'whisper' && asr === 'moss_td' && !mossEnabled) {
-    return {
-      field: 'asr_backend_choice',
-      message: 'MOSS-Transcribe-Diarize is experimental and turned off. Turn it on in Settings, or pick another ASR backend.',
+      message: 'Qwen3 forced alignment needs a transcript to align, but this title transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
     }
   }
   return null
@@ -110,7 +153,6 @@ export function runProblemFromError(err: unknown): RunFieldProblem | null {
   const message = safeDetail(e.message)
   if (!message) return null
   if (/forced alignment/i.test(message)) return { field: 'alignment_method', message }
-  if (/\bMOSS\b/.test(message)) return { field: 'asr_backend_choice', message }
   if (/speakers?\b/i.test(message)) return { field: 'speakers', message }
   return null
 }
@@ -123,51 +165,42 @@ export function whisperModelWarning(size: string, language: string): string {
     return 'On Korean speech in our tests, large-v3 made about half a point fewer character errors than turbo, and was about twice as slow.'
   }
   if (language === 'zh') {
-    return 'On Chinese our tests disagree: large-v3 was more accurate on clean speech, turbo on one drama clip.'
+    return 'On Chinese our tests disagree: large-v3 was more accurate on clean speech, turbo on one clip from a title.'
   }
   return ''
 }
 
-// Source-stage run options kept for the browser session, per drama, so a
-// stage-tab switch or navigation does not wipe them.
-interface SourceFormState {
-  language: string
-  script: string
-  transcriptText: string
-  runDiarize: boolean
-  speakers: string
+// The Transcribe form's draft (hooks/useStageDraft, stage "transcribe"): the
+// run options, the prompt override and, under `advanced`, only the Advanced
+// values that differ from the saved options, so unchanged ones keep following
+// the server.
+export const TRANSCRIBE_DRAFT_STAGE = 'transcribe'
+export const TRANSCRIBE_DRAFT_SHAPE = {
+  language: '',
+  script: '',
+  transcriptText: '',
+  runDiarize: false,
+  speakers: '',
   // Speaker-count range for "Detect speakers only".
-  minSpeakers?: string
-  maxSpeakers?: string
-  // Extra names added to the automatic Whisper prompt.
-  extraNames: string
+  minSpeakers: '',
+  maxSpeakers: '',
+  // Extra names added to the automatic Whisper prompt, and its full replacement.
+  extraNames: '',
+  override: '',
 }
+export type TranscribeDraft = typeof TRANSCRIBE_DRAFT_SHAPE
 
-const formKey = (dramaId: number) => `baihe.sourceForm.${dramaId}`
+// The media picker's draft (stage "source"): which way the file comes in.
+export const SOURCE_DRAFT_STAGE = 'source'
+export const SOURCE_DRAFT_SHAPE = { from: 'file' }
 
-export function loadSourceForm(dramaId: number): Partial<SourceFormState> {
-  try {
-    const raw = sessionStorage.getItem(formKey(dramaId))
-    const v: unknown = raw ? JSON.parse(raw) : null
-    if (!v || typeof v !== 'object') return {}
-    const o = v as Record<string, unknown>
-    const out: Partial<SourceFormState> = {}
-    for (const k of ['language', 'script', 'transcriptText', 'speakers', 'minSpeakers', 'maxSpeakers', 'extraNames'] as const) {
-      if (typeof o[k] === 'string') out[k] = o[k]
-    }
-    if (typeof o.runDiarize === 'boolean') out.runDiarize = o.runDiarize
-    return out
-  } catch {
-    return {}
-  }
-}
+// The "From a URL" form's draft (stage "source.url"); Replace is never kept.
+export const URL_DRAFT_STAGE = 'source.url'
+export const URL_DRAFT_SHAPE = { url: '', audioOnly: false }
 
-export function saveSourceForm(dramaId: number, state: SourceFormState): void {
-  try {
-    sessionStorage.setItem(formKey(dramaId), JSON.stringify(state))
-  } catch {
-    // storage unavailable: the form just will not persist
-  }
+/** The names kept on the Transcribe stage, which other prompts (Compare transcription) start from. */
+export function transcribeExtraNames(dramaId: number): string {
+  return pickDraft(readDraft(draftStorage(), dramaId, TRANSCRIBE_DRAFT_STAGE), TRANSCRIBE_DRAFT_SHAPE).extraNames ?? ''
 }
 
 // Values the API falls back to (services/transcribe_service.py _DEFAULT_TUNING);
@@ -175,7 +208,11 @@ export function saveSourceForm(dramaId: number, state: SourceFormState): void {
 export interface AdvancedValues {
   beam_size: string
   min_silence_ms: string
+  min_pause_sec: string
   vad_threshold: string
+  // Absent from older callers: reads as normal.
+  sensitivity_preset?: string
+  hallucination_silence_sec: string
   hardsub_interval_sec: string
   alignment_method: string
   asr_backend_choice: string
@@ -183,24 +220,61 @@ export interface AdvancedValues {
   separate_vocals_first: boolean
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  whisper_repeat_guard: boolean
+  split_by_sentences: boolean
   use_groq: boolean
   prompt: string
+  // Absent from older callers: reads as the default.
+  hardsub_ocr_backend?: string
+  // Picks the hardsub OCR default; absent reads as a non-Chinese language.
+  source_language?: string
 }
 
-export function advancedSummary(v: AdvancedValues): string {
+// ocr.default_hardsub_backend: PaddleOCR for Chinese, Tesseract otherwise.
+const defaultHardsubBackend = (language?: string) => (language === 'zh' ? 'paddle' : 'tesseract')
+const hardsubChanged = (v: AdvancedValues) => (v.hardsub_ocr_backend ?? defaultHardsubBackend(v.source_language)) !== defaultHardsubBackend(v.source_language)
+
+// The knobs only Developer Mode shows. Their values still ride along in every save and run.
+export function developerOptionsChanged(v: AdvancedValues): number {
+  return [
+    Number(v.beam_size) !== 5,
+    Number(v.vad_threshold) !== 0.5,
+    Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC,
+    v.separation_backend !== 'auto',
+    hardsubChanged(v),
+    Number(v.hardsub_interval_sec) !== 1,
+    v.whisper_repeat_guard,
+  ].filter(Boolean).length
+}
+
+// With developerMode off the hidden knobs are not listed one by one: they collapse into a count.
+export function advancedSummary(v: AdvancedValues, developerMode = true): string {
   const parts: string[] = []
-  if (Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
+  if (developerMode && Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
   if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
-  if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
-  if (Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
+  if (Number(v.min_pause_sec) !== MIN_PAUSE_SEC_DEFAULT) parts.push(`split pause ${v.min_pause_sec} s`)
+  if (developerMode && Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
+  if (v.sensitivity_preset === 'sensitive') parts.push('more sensitive')
+  if (developerMode && Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
+    parts.push(`hallucination guard ${v.hallucination_silence_sec} s`)
+  }
+  if (developerMode && Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
   if (v.alignment_method !== 'whisper_diff') parts.push(v.alignment_method)
   if (v.asr_backend_choice !== 'whisper') parts.push(v.asr_backend_choice)
-  if (v.separation_backend !== 'auto') parts.push(`separation ${v.separation_backend}`)
+  if (developerMode && v.separation_backend !== 'auto') parts.push(`separation ${v.separation_backend}`)
   if (v.separate_vocals_first) parts.push('separate vocals')
   if (v.realign_long_segments) parts.push('realign')
   if (v.whisper_fast_mode) parts.push('fast mode')
+  if (developerMode && v.whisper_repeat_guard) parts.push('repeat guard')
+  if (v.split_by_sentences) parts.push('lines by sentence')
   if (v.use_groq) parts.push('Groq')
   if (v.prompt.trim()) parts.push('replacement prompt')
+  if (developerMode) {
+    if (hardsubChanged(v)) parts.push(`hardsub OCR ${v.hardsub_ocr_backend}`)
+  } else {
+    const hidden = developerOptionsChanged(v)
+    if (hidden) parts.push(`${hidden} developer option${hidden === 1 ? '' : 's'} changed`)
+  }
   return parts.length ? parts.join(' · ') : 'defaults'
 }
 

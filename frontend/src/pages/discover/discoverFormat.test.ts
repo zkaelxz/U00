@@ -24,7 +24,7 @@ const eng = (name: string, key_configured = true) => ({ name, label: name, free:
 
 describe('discoverEngines', () => {
   it('keeps configured engines the Discover routes accept', () => {
-    const all = [eng('claude'), eng('gemini', false), eng('ollama'), eng('nllb')]
+    const all = [eng('claude'), eng('gemini', false), eng('ollama'), eng('fake_mt')]
     expect(discoverEngines(all).map((e) => e.name)).toEqual(['claude', 'ollama'])
   })
 })
@@ -135,7 +135,7 @@ describe('links and errors', () => {
     expect(sourceLabel('', 'not a url')).toBe('not a url')
   })
 
-  it('reads the existing drama id from an import 409', () => {
+  it('reads the existing title id from an import 409', () => {
     expect(existingDramaId({ status: 409, details: { drama_id: 4 } })).toBe(4)
     expect(existingDramaId({ status: 409, details: {} })).toBeNull()
     expect(existingDramaId({ status: 404, details: { drama_id: 4 } })).toBeNull()

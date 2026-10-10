@@ -7,11 +7,15 @@ export interface MediaStatus {
   drama_id: number
   has_audio: boolean
   has_source_video: boolean
+  reads_burned_in_subtitles?: boolean
   upload_max_mb: number
+  // Superseded originals and failed uploads kept in the title's folder (numbers only).
+  kept_media_files: number
+  kept_media_bytes: number
 }
 
 export interface MediaUploadResult {
-  name: string
+  name: string | null
   size: number
   kind: string
   // Set for a video: the background audio-extraction job.
@@ -30,6 +34,8 @@ export interface TranscribeConfig {
   audio_available: boolean
   alignment_method: string
   asr_backend_choice: string
+  // Set when the saved backend was removed and the default is shown instead.
+  asr_backend_notice: string | null
   whisper_size: string
   whisper_model_cached: boolean
   // Audio seconds per second of work on the last finished run of this model and device; null if none yet.
@@ -48,10 +54,21 @@ export interface TranscribeConfig {
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
+  // "normal" or "sensitive"; the threshold a run uses (the preset lowers an untouched one).
+  sensitivity_preset: string
+  effective_vad_threshold: number
+  // Shortest silence between words at which a long line may be cut.
+  min_pause_sec: number
+  // Seconds of silence inside a segment that make Whisper skip it; 0 = off.
+  hallucination_silence_sec: number
   separate_vocals_first: boolean
   separation_backend: string
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  // Whisper's no-repeat and repetition-penalty decoding; off by default.
+  whisper_repeat_guard: boolean
+  // Cut lines at sentence ends and word pauses instead of speech-detector pauses.
+  split_by_sentences: boolean
   use_groq: boolean
   has_video_source: boolean
   hardsub_ocr_backend: string
@@ -77,6 +94,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'whisper_installed'
     | 'gpu_runtime'
     | 'has_video_source'
+    | 'effective_vad_threshold'
   >
 >
 
@@ -265,6 +283,92 @@ export interface RetranscribeApplyResult {
   zh: string
 }
 
+// api/schemas/retranscribe_lines.py: Review's "Re-transcribe selected" (several lines, one job).
+export interface RetranscribeManyRequest {
+  line_ids: number[]
+  initial_prompt?: string
+  extra_names?: string
+}
+
+export interface RetranscribeManyStarted {
+  job_id: string
+  drama_id: number
+  line_count: number
+}
+
+// Raw line text (the proposal is only readable here, never in the job record).
+// had_english: applying it clears that line's translation.
+export interface RetranscribeManyProposal {
+  line_id: number
+  number: number
+  base_zh: string
+  proposed_zh: string
+  had_english: boolean
+}
+
+// reason: "empty" | "audio_slice" | "line_gone"
+export interface RetranscribeManyFailure {
+  line_id: number
+  number: number
+  reason: string
+}
+
+export interface RetranscribeManyResult {
+  job_id: string
+  line_count: number
+  proposals: RetranscribeManyProposal[]
+  failures: RetranscribeManyFailure[]
+  unchanged_count: number
+  truncated: boolean
+  device_notice: string | null
+}
+
+export interface RetranscribeManyApplyItem {
+  line_id: number
+  expected_zh: string
+  expected_proposed: string
+}
+
+export interface RetranscribeManyApplyResult {
+  applied: number[]
+  skipped: number[]
+  untranslated_count: number
+}
+
+// A stretch no subtitle line covers. speech: true when the speech coverage
+// check found speech there, null when it has not run (never false).
+export interface TranscribeGap {
+  start: number
+  end: number
+  seconds: number
+  pieces: number
+  part: number
+  parts: number
+  after_line_id: number | null
+  before_line_id: number | null
+  speech: boolean | null
+}
+
+export interface TranscribeGaps {
+  gaps: TranscribeGap[]
+  speech_checked: boolean
+}
+
+export interface GapAddLinesRequest {
+  expected_line_ids: number[]
+  start: number
+  end: number
+  after_line_id: number | null
+}
+
+export interface GapAddLinesResult {
+  new_line_ids: number[]
+  line_ids: number[]
+  split: 'single' | 'pauses' | 'even'
+  history_id: number | null
+  lines_fingerprint: string | null
+}
+
 // GET /api/workflow/dramas/{id}/progress (api/schemas/library.py WorkflowProgress).
 type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
 
@@ -282,6 +386,7 @@ export interface WorkflowProgress {
   flagged_count: number
   has_audio: boolean
   has_dub_track: boolean
+  has_narration_track?: boolean
   exported: boolean
   stages: WorkflowStageState[]
 }
@@ -311,6 +416,7 @@ export interface CompareOptions {
   whisper_sizes: string[]
   backends: CompareBackendOption[]
   translation_engine: string
+  aligner_reason?: string | null
 }
 
 export interface CompareTranslateFields {
@@ -342,6 +448,8 @@ export interface CompareRunRequest extends CompareTranslateFields {
   selection: CompareSelection
   whisper_size?: string | null
   asr_backend?: string | null
+  initial_prompt?: string
+  extra_names?: string
 }
 
 export interface CompareRunResult {
@@ -391,4 +499,45 @@ export interface CompareApplyRequest {
 export interface CompareApplyResult {
   applied: number[]
   skipped: number[]
+}
+
+// api/schemas/transcribe.py Retime* (Review: Re-time with the Qwen3 aligner).
+export interface RetimeRunRequest {
+  line_ids: number[]
+}
+
+export interface RetimeProposal {
+  line_id: number
+  number: number
+  base_zh: string
+  start: number
+  end: number
+  new_start: number
+  new_end: number
+  uncertain: boolean
+}
+
+export interface RetimeResult {
+  job_id: string
+  proposals: RetimeProposal[]
+  line_count: number
+  partial: boolean
+  device: string | null
+  device_notice: string | null
+  errors: string[]
+}
+
+export interface RetimeApplyItem {
+  line_id: number
+  expected_new_start: number
+  expected_new_end: number
+}
+
+export interface RetimeApplyRequest {
+  job_id: string
+  items: RetimeApplyItem[]
+}
+
+export interface RetimeApplyResult extends CompareApplyResult {
+  overlapping: number[]
 }

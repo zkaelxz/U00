@@ -20,9 +20,10 @@ the most meaningful boundary available, in this order:
      where to break ([br]); its answer is matched back to the original
      text and thrown away if it changed anything.
 
-A line that still can't be split at a meaningful boundary is left whole
-rather than cut at an arbitrary character count -- export-time wrapping
-(subtitle_formats.wrap_text) already handles displaying a long line.
+A line that still can't be split at a meaningful boundary (no punctuation,
+no spaces, no word timings) is cut into equal runs of characters with
+proportional times and flagged timing_uncertain: a 90-second subtitle can't
+be read, and export-time wrapping only reflows it.
 
 Every piece is a slice of the original text, so nothing here can reword,
 add or drop content. Nothing here touches the database either:
@@ -33,6 +34,8 @@ import difflib
 import json
 import re
 
+import core
+import segment_splitting
 import subtitle_formats
 from core import LANGUAGE_NAMES
 
@@ -56,6 +59,8 @@ _CONNECTIVES_AFTER = {
     "ja": ("けれども", "けれど", "けど", "ので", "のに"),
 }
 
+EVEN_SPLIT_NOTE = ("Split evenly by length (no sentence punctuation or word timings to cut "
+                   "at); the times are approximate.")
 LLM_MIN_SIMILARITY = 0.9
 LLM_MAX_ATTEMPTS = 3
 
@@ -132,14 +137,21 @@ def _connective_cuts(text, language, bounds):
 _TIERS = (_sentence_cuts, _clause_cuts, _connective_cuts)
 
 
-def rule_split_spans(text: str, language: str, max_chars: int, bounds=None) -> list:
+def rule_split_spans(text: str, language: str, max_chars: int, bounds=None,
+                     pauses=None) -> list:
     """(start, end) spans covering `text`, split by the rule tiers only.
     A span is split only if it's longer than max_chars, at the tier-1 cut
     nearest its middle (then tier 2, then 3) that leaves both sides at
     least a quarter of max_chars -- so no one- or two-character stubs --
     then each side is split the same way. A span no tier can split is
-    returned whole, however long."""
+    returned whole, however long.
+
+    pauses: offsets of real silences between the line's words
+    (segment_splitting.pause_offsets), tried after the clause breaks: a measured pause is
+    better evidence of a boundary than a connective word."""
     candidates = [tier(text, language, bounds) for tier in _TIERS]
+    if pauses:
+        candidates.insert(2, set(pauses))
     min_chars = max(2, max_chars // 4)
 
     def split(s, e):
@@ -155,6 +167,15 @@ def rule_split_spans(text: str, language: str, max_chars: int, bounds=None) -> l
         return [(s, e)]
 
     return split(0, len(text))
+
+
+def even_spans(s: int, e: int, max_chars: int) -> list:
+    """(start, end) spans of equal character count, each at most max_chars
+    (never under 8, so a tiny limit can't shred a line into stubs)."""
+    max_chars = max(max_chars, 8)
+    parts = max(2, -(-(e - s) // max_chars))
+    size = -(-(e - s) // parts)
+    return [(k, min(k + size, e)) for k in range(s, e, size)]
 
 
 # ---------------------------------------------------------------- LLM pass
@@ -257,15 +278,23 @@ def split_times(line, pieces, segments=None) -> list:
     the same character-level alignment the Transcribe & Align step uses)
     against the stored transcription segments overlapping this line, when
     there are any and they give a usable answer; otherwise splits the
-    line's time in proportion to each piece's length."""
+    line's time in proportion to each piece's length.
+
+    A line with valid stored word timings (segment_splitting.line_words) is cut at the
+    first word of each next piece instead, when every piece holds whole words."""
     start, end, n = line.start, line.end, len(pieces)
+    index = _word_index(line)
+    if index is not None:
+        spans = _piece_spans(line.zh, pieces)
+        cuts = spans and segment_splitting.word_cut_times(index, spans, start, end)
+        if cuts:
+            return cuts
     weights = [max(length(p), 1) for p in pieces]
     total = sum(weights)
     proportional = [start + (end - start) * sum(weights[:k]) / total for k in range(1, n)]
 
     window = [s for s in (segments or []) if s.get("end", 0) > start and s.get("start", 0) < end]
     if window:
-        import core
         aligned = core.align_transcript_to_timing(pieces, window)
         cuts = [aligned[k].start for k in range(1, n)]
         if all(start < c < end for c in cuts) and all(a < b for a, b in zip(cuts, cuts[1:])):
@@ -273,11 +302,33 @@ def split_times(line, pieces, segments=None) -> list:
     return proportional
 
 
+def _word_index(line):
+    """The line's word index, or None (also for a bare timing object with no text)."""
+    if getattr(line, "word_timings", None) is None or getattr(line, "zh", None) is None:
+        return None
+    return segment_splitting.line_word_index(line)
+
+
+def _piece_spans(text: str, pieces) -> list:
+    """Each piece's (start, end) in `text`, found in order; empty when a piece
+    is not there (so a caller falls back rather than guesses)."""
+    spans, pos = [], 0
+    for p in pieces:
+        at = text.find(p, pos)
+        if at < 0:
+            return []
+        spans.append((at, at + len(p)))
+        pos = at + len(p)
+    return spans
+
+
 # ---------------------------------------------------------------- lines
 
 def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
                     chinese_script: str = "simplified", max_chars: int = None,
-                    usage_cb=None, boundaries_fn=word_boundaries):
+                    usage_cb=None, boundaries_fn=word_boundaries,
+                    min_pause: float = segment_splitting.MIN_WORD_GAP_SECONDS, even_split: bool = True,
+                    check_cancel=None):
     """Returns (new_lines, changed).
 
     new_lines: fresh Line objects for the whole drama, renumbered in order.
@@ -292,7 +343,14 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
 
     engine: optional LLM engine for the one LLM pass; None skips it.
     segments: the drama's stored transcription segments
-    (raw_transcript.load_latest()["segments"]), for timing; optional."""
+    (raw_transcript.load_latest()["segments"]), for timing; optional.
+
+    even_split: a piece no rule or LLM pass could cut (no punctuation, no
+    spaces, no word timings) is cut into equal runs of characters and flagged
+    timing_uncertain instead of staying one unreadable line.
+
+    check_cancel: optional callable run before each line that may need an LLM
+    call; it stops the pass by raising."""
     from core import Line
     max_chars = max_chars or max_line_chars(language)
     new_lines, changed = [], []
@@ -301,33 +359,49 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
         if length(text) <= max_chars:
             new_lines.append(dataclasses.replace(ln, merged_ids=list(ln.merged_ids)))
             continue
+        if check_cancel is not None:
+            check_cancel()
         bounds = boundaries_fn(text, language, chinese_script)
-        spans = []
-        for s, e in rule_split_spans(text, language, max_chars, bounds):
+        index = _word_index(ln)
+        pauses = segment_splitting.pause_offsets(index, min_pause) if index is not None else None
+        spans, approximate = [], set()
+        for s, e in rule_split_spans(text, language, max_chars, bounds, pauses):
             if engine is not None and length(text[s:e]) > max_chars:
                 local = {b - s for b in bounds if s <= b <= e} if bounds is not None else None
                 sub = llm_split_spans(text[s:e], engine, language, max_chars, local, usage_cb)
                 if sub:
                     spans.extend((s + a, s + b) for a, b in sub)
                     continue
+            if even_split and length(text[s:e]) > max(max_chars, 8):
+                evenly = even_spans(s, e, max_chars)
+                approximate.update(evenly)
+                spans.extend(evenly)
+                continue
             spans.append((s, e))
-        pieces = [text[s:e].strip() for s, e in spans if text[s:e].strip()]
+        kept = [(s, e) for s, e in spans if text[s:e].strip()]
+        pieces = [text[s:e].strip() for s, e in kept]
+        approximate = {k for k, span in enumerate(kept) if span in approximate}
         if len(pieces) < 2:
             new_lines.append(dataclasses.replace(ln, merged_ids=list(ln.merged_ids)))
             continue
         cuts = split_times(ln, pieces, segments)
         edges = [ln.start] + cuts + [ln.end]
+        piece_at = _piece_spans(text, pieces) if index is not None else []
         for k, piece in enumerate(pieces):
+            words = segment_splitting.span_words(index, *piece_at[k], piece) if piece_at else None
             new_lines.append(Line(idx=0, start=edges[k], end=edges[k + 1], zh=piece,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                  sfx=ln.sfx, lang=ln.lang))
+                                  sfx=ln.sfx, lang=ln.lang, word_timings=words,
+                                  **({"flag": "timing_uncertain", "flag_note": EVEN_SPLIT_NOTE}
+                                     if k in approximate else {})))
         changed.append((ln, pieces))
     for i, ln in enumerate(new_lines):
         ln.idx = i
     return new_lines, changed
 
 
-def resegment_subprocess_worker(lines, language, engine, segments, chinese_script, result_queue):
+def resegment_subprocess_worker(lines, language, engine, segments, chinese_script, min_pause,
+                                result_queue):
     """Entry point for running resegment_lines() in its own OS
     process via background_jobs.start_process_job(), so Cancel can
     actually stop it. Confirmed the lowest-risk of the three
@@ -340,11 +414,13 @@ def resegment_subprocess_worker(lines, language, engine, segments, chinese_scrip
     connection in the real caller) -- each call's (input, output) token
     counts are collected here instead and hand back for the caller to
     log once the job completes."""
+    import background_jobs
+    background_jobs.start_own_process_group()
     usage_calls = []
     try:
         new_lines, changed = resegment_lines(
             lines, language, engine=engine, segments=segments, chinese_script=chinese_script,
-            usage_cb=lambda inp, out: usage_calls.append((inp, out)))
+            min_pause=min_pause, usage_cb=lambda inp, out: usage_calls.append((inp, out)))
         result_queue.put(("ok", {
             "lines": new_lines,
             "changed": [(ln.id, ln.idx, ln.zh, pieces) for ln, pieces in changed],

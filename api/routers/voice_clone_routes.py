@@ -1,6 +1,6 @@
 """
 api/routers/voice_clone_routes.py -- voice-clone setup for a drama's
-characters (parity audit blocker #7; inventory C01, C03, C09, C13). All
+characters. All
 logic is in services/voice_clone_service.py.
 
 Speaker labels travel in JSON bodies (or a multipart form field), never in

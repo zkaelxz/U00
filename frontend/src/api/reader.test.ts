@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { ApiError } from './client'
 import {
@@ -9,6 +9,7 @@ import {
   readerEngines,
   vocabApkgUrl,
   wikiMarkdownUrl,
+  TRANSLATION_ONLY,
 } from './reader'
 import type { TranslateEngine } from '../types/translate'
 
@@ -29,6 +30,10 @@ const engine = (name: string, free: boolean, key_configured = true): TranslateEn
   models: null,
   key_configured,
 })
+
+// No translation-only engine is offered now; the filter still applies to one.
+beforeEach(() => TRANSLATION_ONLY.add('fake_mt'))
+afterEach(() => TRANSLATION_ONLY.clear())
 
 describe('reader api', () => {
   it('builds the page query, leaving max_width out when not given', () => {
@@ -103,6 +108,14 @@ describe('reader api', () => {
     expect(plain.filename).toBe('drama_4_vocab_sentence.apkg')
   })
 
+  it('names the sentence deck from filename* before filename', async () => {
+    const f = fakeFetch(200, new Blob(['deck']), [], {
+      'Content-Disposition':
+        "attachment; filename=\"_ - Anki deck with sentences.apkg\"; filename*=UTF-8''%E7%99%BD%E9%B9%A4%20-%20Anki%20deck%20with%20sentences.apkg",
+    })
+    expect((await downloadRichDeck(4, f)).filename).toBe('白鹤 - Anki deck with sentences.apkg')
+  })
+
   it('turns a failed deck download into an ApiError', async () => {
     const f = fakeFetch(429, { error: { code: 'rate_limited', message: 'busy' } }, [])
     const err = await downloadRichDeck(4, f).catch((e: unknown) => e)
@@ -115,7 +128,7 @@ describe('reader api', () => {
   })
 
   it('offers only configured engines that can answer questions', () => {
-    const all = [engine('ollama', true), engine('claude', false), engine('nllb', true), engine('gemini', false, false)]
+    const all = [engine('ollama', true), engine('claude', false), engine('fake_mt', true), engine('gemini', false, false)]
     expect(readerEngines(all).map((e) => e.name)).toEqual(['ollama', 'claude'])
   })
 })

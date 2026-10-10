@@ -45,11 +45,11 @@ test('Library: cards, title opens the workspace', async ({ page }) => {
   await expect(page.getByTestId('drama-count')).toBeVisible()
   await expect(page.locator('.drama-grid')).toBeVisible()
   await checkScreen(page, ['.drama-grid .drama-card', '.drama-card-foot .btn', '.library-page .btn-primary', '.continue-item .btn'])
-  await page.getByRole('region', { name: 'Dramas' }).getByRole('link', { name: 'Signal', exact: true }).click()
+  await page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'Signal', exact: true }).click()
   // No stage in the link: the workspace opens the drama's current stage
   // (Source for the seeded drama, which has no lines).
   await expect(page).toHaveURL(/#\/drama\/\d+$/)
-  await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
 for (const stage of ['source', 'translate', 'review', 'dub', 'export']) {
@@ -85,14 +85,14 @@ for (const [name, path] of [
   })
 }
 
-test('Library at 360px: no sideways scroll; New drama and Details open bottom sheets', async ({ page }) => {
+test('Library at 360px: no sideways scroll; New title and Details open bottom sheets', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto('/')
   await expect(page.getByTestId('drama-count')).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await expectTall(page, '.segmented label')
-  await page.getByRole('button', { name: 'New drama' }).click()
-  await expect(page.getByRole('dialog', { name: 'New drama' })).toBeVisible()
+  await page.getByRole('button', { name: 'New title' }).click()
+  await expect(page.getByRole('dialog', { name: 'New title' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await page.getByRole('button', { name: 'Close' }).click()
   await page.getByRole('button', { name: 'Details: Signal' }).click()
@@ -104,36 +104,12 @@ test('Library at 360px: no sideways scroll; New drama and Details open bottom sh
   expect(box && Math.round(box.y + box.height)).toBe(800)
 })
 
-test('Notion: the settings card and Export to Notion fit a phone', async ({ page }) => {
-  // Mocked: Notion set up, and this drama already has a page.
-  await page.route('**/api/notion/config', (route) =>
-    route.fulfill({ json: { target_type: 'database', target_id: '01234567-89ab-cdef-0123-456789abcdef', token_configured: true } }))
-  await page.route('**/api/notion/dramas/1', (route) =>
-    route.fulfill({ json: { drama_id: 1, page_id: 'abc', page_url: 'https://www.notion.so/Signal-abc' } }))
-  await page.goto('/#/settings')
-  await openSettingsGroups(page)
-  const card = page.getByRole('region', { name: 'Notion' })
-  await expect(card.getByTestId('notion-token')).toHaveText('Token saved')
-  await expectNoHorizontalOverflow(page)
-  for (const name of ['Save token', 'Test connection', 'Clear token']) {
-    expect(await hitHeight(card.getByRole('button', { name })), name).toBeGreaterThanOrEqual(44)
-  }
-
-  await page.goto('/#/drama/1/export')
-  const panel = page.getByRole('region', { name: 'Export to Notion' })
-  await panel.locator('.section-title', { hasText: 'Export to Notion' }).click()
-  await expect(panel.getByRole('button', { name: 'Update Notion page' })).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-  await expectTall(page, '[aria-label="Export to Notion"] .btn-primary')
-  await expectTall(page, '[aria-label="Export to Notion"] a.button-link')
-})
-
 test('Jellyfin: the settings card fits a phone (labels on one line, full-width fields)', async ({ page }, info) => {
   // Mocked: connector on and set up, so every field and button is shown.
   await page.route('**/api/jellyfin/config', (route) =>
     route.fulfill({ json: { enabled: true, server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media\\Dramas', key_configured: true } }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Jellyfin' })
   await expect(card.getByTestId('jellyfin-key')).toHaveText('Set')
   await expectNoHorizontalOverflow(page)

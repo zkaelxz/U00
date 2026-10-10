@@ -4,10 +4,10 @@
  * desktop, a bottom Sheet on phones (where it also holds "Go to" and the
  * reading metrics, passed in as children).
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { Field } from '../../components/Field'
-import { Sheet } from '../../components/Sheet'
+import { AaControl } from '../../components/AaControl'
 import {
   CHAPTER_SIZE,
   FONT_OPTIONS,
@@ -101,7 +101,7 @@ function PrefsForm({ prefs, onChange, phone }: Omit<Props, 'children'>) {
       <div className="toggle-list">
         <Field
           label="Spoiler-free"
-          help="Who is, Explain, relationships and the wiki only use lines up to the end of this page. Recap covers the lines before it. Q&A always uses the whole drama."
+          help="Who is, Explain, relationships and the wiki only use lines up to the end of this page. Recap covers the lines before it. Q&A always uses the whole title."
         >
           <input type="checkbox" checked={prefs.spoilerFree} onChange={(e) => set('spoilerFree', e.target.checked)} />
         </Field>
@@ -111,66 +111,9 @@ function PrefsForm({ prefs, onChange, phone }: Omit<Props, 'children'>) {
 }
 
 export function ReaderPrefsControl({ prefs, onChange, phone, children }: Props) {
-  const [open, setOpen] = useState(false)
-  const wrap = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-
-  // Desktop popover: Esc (focus back to Aa), a pointer outside, or the window
-  // losing focus closes it. A click into the page iframe never reaches this
-  // document, but it does blur the window.
-  useEffect(() => {
-    if (!open || phone) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      setOpen(false)
-      buttonRef.current?.focus()
-    }
-    const onDown = (e: PointerEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onBlur = () => setOpen(false)
-    document.addEventListener('keydown', onKey)
-    document.addEventListener('pointerdown', onDown)
-    window.addEventListener('blur', onBlur)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('blur', onBlur)
-    }
-  }, [open, phone])
-
-  const button = (
-    <button
-      ref={buttonRef}
-      type="button"
-      className="reader-aa"
-      aria-label="Reading settings"
-      aria-expanded={open}
-      onClick={() => setOpen((v) => !v)}
-    >
-      Aa
-    </button>
-  )
-
-  if (phone) {
-    return (
-      <>
-        {button}
-        <Sheet open={open} title="Reading settings" onClose={() => setOpen(false)}>
-          {children}
-          <PrefsForm prefs={prefs} onChange={onChange} phone />
-        </Sheet>
-      </>
-    )
-  }
   return (
-    <div className="reader-aa-wrap" ref={wrap}>
-      {button}
-      {open && (
-        <div className="reader-popover" role="dialog" aria-label="Reading settings">
-          <PrefsForm prefs={prefs} onChange={onChange} phone={false} />
-        </div>
-      )}
-    </div>
+    <AaControl label="Reading settings" phone={phone} sheetExtra={children} closeOnWindowBlur>
+      <PrefsForm prefs={prefs} onChange={onChange} phone={phone} />
+    </AaControl>
   )
 }

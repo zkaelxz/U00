@@ -42,14 +42,21 @@ import adaptive_style
 import background_jobs
 import core as core_module
 import db
+import en_cleanup
 import sensevoice_tags
 import subtitle_formats
 import translate_engines
 from services import (export_service, media_playback_service, restructure_service, settings_service,
                       translate_run_service, translate_service, workspace_job_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError, ServiceError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    ServiceError,
+    UnsupportedOperationError,
+)
 
 # ---------------------------------------------------------------------------
 # Shared
@@ -147,7 +154,82 @@ def apply_merge_short(drama_id: int, expected_line_ids, expected_groups, min_dur
             raise ConflictError("The lines to merge changed since the preview -- preview again.")
         return merged, [ln for ln in merged if ln.merged_ids]
     out = restructure_service.structural_write(drama_id, expected_line_ids, "before merge", build)
-    return {"line_ids": out["line_ids"], "lines": out["lines"], "merged_groups": len(expected_groups)}
+    return {**out, "merged_groups": len(expected_groups)}
+
+
+# ---------------------------------------------------------------------------
+# English cleanup: deterministic "fix common errors" pass over `en`
+# ---------------------------------------------------------------------------
+
+CLEANUP_PREVIEW_CAP = 200
+CLEANUP_LABEL = "before English cleanup"
+
+
+def cleanup_plan(drama_id: int, lines) -> list:
+    """[(line, new_en, rules)] for the lines the cleanup would change. The
+    CLI uses this too, so the glossary and title style are read one way."""
+    drama = _require_drama(drama_id)
+    terms = [t["term_translation"] for t in db.list_glossary_terms(drama["series_id"])] \
+        if drama.get("series_id") else []
+    terms = en_cleanup.compile_terms(terms)
+    style = en_cleanup.detect_style(ln.en for ln in lines if not en_cleanup.too_long(ln.en))
+    plan = []
+    for ln in lines:
+        new, rules = en_cleanup.clean_text(ln.en, style, terms, ln.speaker)
+        if rules:
+            plan.append((ln, new, rules))
+    return plan
+
+
+def _cleanup_hash(plan) -> str:
+    return en_cleanup.plan_hash((ln.id, new) for ln, new, _rules in plan)
+
+
+def preview_en_cleanup(drama_id: int) -> dict:
+    """Read-only: what the cleanup would change in the drama's English.
+    `plan_hash` is what apply must echo back."""
+    _require_drama(drama_id)
+    lines = db.load_line_objects(drama_id)
+    plan = cleanup_plan(drama_id, lines)
+    per_rule = {name: 0 for name in en_cleanup.RULES}
+    for _ln, _new, rules in plan:
+        for name in rules:
+            per_rule[name] += 1
+    return {
+        "drama_id": drama_id, "lines_scanned": len(lines), "lines_changed": len(plan),
+        "lines_skipped": sum(en_cleanup.too_long(ln.en) for ln in lines),
+        "rules": [{"rule": name, "label": en_cleanup.RULE_LABELS[name], "lines": n}
+                  for name, n in per_rule.items() if n],
+        "changes": [{"line_id": ln.id, "idx": ln.idx, "before": ln.en, "after": new,
+                     "rules": rules} for ln, new, rules in plan[:CLEANUP_PREVIEW_CAP]],
+        "truncated": len(plan) > CLEANUP_PREVIEW_CAP,
+        "plan_hash": _cleanup_hash(plan),
+    }
+
+
+def apply_en_cleanup(drama_id: int, expected_plan_hash: str) -> dict:
+    """Recomputes the cleanup on the fresh lines and saves only `en`, after
+    a "before English cleanup" snapshot. 409 (nothing written) when the plan
+    differs from the preview's or a job runs. A line edited between the load
+    and the write keeps its edit and is counted as stale."""
+    if not isinstance(expected_plan_hash, str) or not expected_plan_hash:
+        raise InvalidInputError("expected_plan_hash must be the preview's plan_hash.")
+    with restructure_service.exclusive_write(drama_id):
+        current = db.load_line_objects(drama_id)
+        plan = cleanup_plan(drama_id, current)
+        if _cleanup_hash(plan) != expected_plan_hash:
+            raise ConflictError("The lines changed since the preview -- preview again.")
+        if not plan:
+            raise InvalidInputError("Nothing to clean -- the preview found no errors to fix.")
+        # Copies, so the snapshot below still sees the untouched English.
+        work = []
+        for ln, new, _rules in plan:
+            copy = dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[])
+            copy.en = new
+            work.append(copy)
+        history_id = db.save_line_history_snapshot(drama_id, current, CLEANUP_LABEL)
+        stale = db.save_lines(drama_id, work, fields=("en",), only_if_unchanged=True) or ()
+    return {"applied": len(work) - len(stale), "stale": len(stale), "history_id": history_id}
 
 
 # ---------------------------------------------------------------------------
@@ -211,8 +293,7 @@ def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,

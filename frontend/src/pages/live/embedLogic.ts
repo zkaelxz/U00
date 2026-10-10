@@ -51,7 +51,7 @@ function ytRef(id: string | null | undefined): StreamRef | null {
 export function embedSrc(ref: StreamRef, parentHost: string): string {
   switch (ref.kind) {
     case 'youtube':
-      return `${YT_ORIGIN}/embed/${ref.id}?enablejsapi=1&playsinline=1`
+      return `${YT_ORIGIN}/embed/${ref.id}?enablejsapi=1&playsinline=1&autoplay=1`
     case 'twitch-channel':
       return `https://player.twitch.tv/?channel=${ref.name}&parent=${encodeURIComponent(parentHost)}`
     case 'twitch-video':
@@ -67,7 +67,16 @@ export interface PlayerInfo {
   duration?: number
   /** Reported by the player; undefined when it does not say. */
   isLive?: boolean
+  /** YouTube's player state: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued. */
+  playerState?: number
 }
+
+/**
+ * True while the player has not started playing. It ignores seeks and reports
+ * no seekable window then, so neither a seek nor "can't be delayed" is
+ * decided yet. A player that never reports a state counts as started.
+ */
+export const notStarted = (info: PlayerInfo | null) => info?.playerState === -1 || info?.playerState === 5
 
 /** What a YouTube player message says about playback, or null if it is not an infoDelivery. */
 export function parseYouTubeInfo(data: unknown): PlayerInfo | null {
@@ -91,10 +100,12 @@ export function parseYouTubeInfo(data: unknown): PlayerInfo | null {
   // absent field must not erase one remembered from an earlier message.
   const currentTime = num(info.currentTime)
   const duration = num(info.duration)
+  const playerState = num(info.playerState)
   return {
     ...(currentTime === undefined ? {} : { currentTime }),
     ...(duration === undefined ? {} : { duration }),
     ...(isLive === undefined ? {} : { isLive }),
+    ...(playerState === undefined ? {} : { playerState }),
   }
 }
 
@@ -106,68 +117,119 @@ export type DelayPlan = { kind: 'seek'; to: number } | { kind: 'wait' } | { kind
  * keeps no rewind buffer). Waits for a duration until `waitedS` passes
  * DVR_WAIT_S, then reports that the stream can't be delayed. With less
  * rewind buffer than asked, it plays as far back as the buffer allows.
+ * `offset` is how far `duration` sits past the playhead's own time base at the
+ * live edge (see probeOffset); 0 when both count from the same point.
  */
-export function planDelay(info: PlayerInfo | null, delay: number, waitedS: number): DelayPlan {
+export function planDelay(info: PlayerInfo | null, delay: number, waitedS: number, offset = 0): DelayPlan {
   // A finished video has a duration too; seeking to its end would skip the show.
   if (info?.isLive === false) return { kind: 'unsupported' }
   const d = info?.duration
   if (d === undefined || d <= 1) return waitedS >= DVR_WAIT_S ? { kind: 'unsupported' } : { kind: 'wait' }
   const wanted = Math.max(0, Math.min(DELAY_RANGE[1], delay))
-  return { kind: 'seek', to: Math.max(0, Math.floor(d - wanted)) }
+  return { kind: 'seek', to: Math.max(0, Math.floor(d - offset - wanted)) }
 }
 
 export const NO_DELAY_NOTE = "This stream can't be delayed, so the picture runs ahead of the lines."
+export const UNREACHABLE_NOTE = "The player isn't keeping a rewind buffer for this stream, so the picture can't be delayed and runs ahead of the lines."
 export const WAITING_NOTE = 'Waiting for the player…'
+export const NOT_STARTED_NOTE = 'Press play in the video; the delay is applied as soon as it starts.'
+export const MUTED_NOTE = 'Started muted because the browser blocks sound until you interact with the video.'
+/** Seconds the player may stay unstarted before it is started muted, which browsers allow without a gesture. */
+export const AUTOPLAY_WAIT_S = 3
 /** How far (s) the measured delay may sit from the wanted one and still count as reached. */
 export const SETTLE_TOLERANCE_S = 3
+/** A measured delay beyond this is not a delay but a sign that `duration` is not the live edge (the slider tops out far below it). */
+export const IMPLAUSIBLE_DELAY_S = 300
+/** How far (s) a probe seek must move the playhead to count as having reached the live edge. */
+export const PROBE_MOVE_S = 5
 
 /**
  * How far behind the live edge the player really is: the end of the seekable
  * window minus where it is playing, or null until it has reported both. Reads
  * the player, not the slider, so a seek it ignored shows.
  */
-export function measuredDelay(info: PlayerInfo | null): number | null {
+export function measuredDelay(info: PlayerInfo | null, offset = 0): number | null {
   const d = info?.duration
   const t = info?.currentTime
   if (d === undefined || t === undefined || d <= 1) return null
+  return Math.max(0, Math.round(d - t - offset))
+}
+
+/**
+ * For a live event YouTube documents `duration` as the time since the stream
+ * began while `currentTime` counts from where playback started, so their
+ * difference is not the distance from the live edge. After a seek past the end
+ * (which lands at the live edge) the leftover difference is the constant
+ * between the two clocks. Null when the playhead did not move, i.e. the seek
+ * was ignored and the leftover tells nothing.
+ */
+export function probeOffset(timeBefore: number | undefined, info: PlayerInfo | null): number | null {
+  const d = info?.duration
+  const t = info?.currentTime
+  if (timeBefore === undefined || d === undefined || t === undefined || d <= 1) return null
+  if (Math.abs(t - timeBefore) < PROBE_MOVE_S) return null
   return Math.max(0, Math.round(d - t))
 }
 
 /** The most the player can rewind (the seekable window), or null before it reports one. */
-function rewindLimit(info: PlayerInfo | null): number | null {
+function rewindLimit(info: PlayerInfo | null, offset: number): number | null {
   const d = info?.duration
-  return d === undefined || d <= 1 ? null : Math.floor(d)
+  return d === undefined || d <= 1 ? null : Math.max(0, Math.floor(d - offset))
 }
 
 /** The delay a seek can reach: the wanted one, or the whole buffer when that is shorter. */
-function reachableDelay(info: PlayerInfo | null, delay: number): number {
+function reachableDelay(info: PlayerInfo | null, delay: number, offset: number): number {
   const wanted = Math.max(0, Math.min(DELAY_RANGE[1], delay))
-  const limit = rewindLimit(info)
+  const limit = rewindLimit(info, offset)
   return limit === null ? wanted : Math.min(wanted, limit)
 }
 
 /** True once the measured delay is within tolerance of what a seek for `delay` can reach. */
-export function delayReached(info: PlayerInfo | null, delay: number): boolean {
-  const m = measuredDelay(info)
-  return m !== null && Math.abs(m - reachableDelay(info, delay)) <= SETTLE_TOLERANCE_S
+export function delayReached(info: PlayerInfo | null, delay: number, offset = 0): boolean {
+  const m = measuredDelay(info, offset)
+  return m !== null && Math.abs(m - reachableDelay(info, delay, offset)) <= SETTLE_TOLERANCE_S
 }
 
 /**
  * The line under the video. `moving` is true between sending a seek and the
  * player confirming it, so the note answers the slider before the report.
  */
-export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupported: boolean; moving: boolean }): string {
+export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupported: boolean; moving: boolean; offset?: number }): string {
+  if (notStarted(info)) return NOT_STARTED_NOTE
   if (opts.unsupported) return NO_DELAY_NOTE
-  const m = measuredDelay(info)
+  const offset = opts.offset ?? 0
+  const m = measuredDelay(info, offset)
   if (m === null) return WAITING_NOTE
-  if (opts.moving) return `Moving to about ${reachableDelay(info, delay)} s behind live…`
-  const limit = rewindLimit(info)
+  if (opts.moving) return `Moving to about ${reachableDelay(info, delay, offset)} s behind live…`
+  // A paused player falls behind the edge by itself, so a long pause is no sign of a wrong `duration`.
+  if (m > IMPLAUSIBLE_DELAY_S && info?.playerState !== 2) return UNREACHABLE_NOTE
+  const limit = rewindLimit(info, offset)
   const clamped = limit !== null && Math.max(0, Math.min(DELAY_RANGE[1], delay)) > limit
   return clamped
     ? `Playing about ${m} s behind live (this stream allows at most ${limit} s).`
     : `Playing about ${m} s behind live.`
 }
 
+/**
+ * Seconds the captions must wait for the picture: the delay it really has, so
+ * a stream that rewinds less than the slider asks is not outrun by its own
+ * captions. 0 while the picture is not behind live (not started, moving,
+ * unreported, ignoring seeks), because holding captions then only makes them
+ * later still. Once a seek was confirmed, a picture that no longer sits at the
+ * target (the viewer used the player's own LIVE button or scrubbed) is held for
+ * what it measures, since the overlay cannot intercept those clicks.
+ */
+export function captionDelay(info: PlayerInfo | null, delay: number, opts: { unsupported: boolean; moving: boolean; unreachable: boolean; offset?: number }): number {
+  const offset = opts.offset ?? 0
+  if (notStarted(info) || opts.unsupported || opts.moving) return 0
+  const m = measuredDelay(info, offset)
+  if (m === null || m > IMPLAUSIBLE_DELAY_S) return 0
+  const reached = delayReached(info, delay, offset)
+  if (opts.unreachable && !reached) return 0
+  return reached ? reachableDelay(info, delay, offset) : m
+}
+
 /** The postMessage payloads for the YouTube player. */
 export const ytListenMessage = () => JSON.stringify({ event: 'listening', id: 1, channel: 'widget' })
 export const ytSeekMessage = (to: number) => JSON.stringify({ event: 'command', func: 'seekTo', args: [to, true] })
+export const ytCommand = (func: string, args: unknown[] = []) => JSON.stringify({ event: 'command', func, args })

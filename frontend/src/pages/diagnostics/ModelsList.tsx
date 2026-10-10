@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
-import { deleteHfRevision, deleteModelFile, deletePiperVoice, getInstallPresets } from '../../api/diagnostics'
+import { deleteHfRevision, deleteModelFile, getInstallPresets } from '../../api/diagnostics'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { PC_ONLY_DELETE_NOTE, type PcMode } from '../../hooks/usePcOnly'
@@ -14,7 +14,7 @@ import { EngineInstall } from './EngineInstall'
  * Install… when it isn't installed (PC only), and under it the Hugging Face
  * downloads that belong to it (size, revision, Delete…).
  * Engines that download weights but have none show "not downloaded". Downloads
- * that match no engine, Piper voices and the other model files (PyTorch hub,
+ * that match no engine and the other model files (PyTorch hub,
  * vocal separation) are their own groups. Deleting is PC only (two-step
  * confirm); a deleted model downloads again the next time a feature needs it.
  */
@@ -107,12 +107,6 @@ export function ModelsList({ engines, installable, cache, pc, jobsActive, busy: 
         </>
       )}
       {group('Other downloaded models', 'Downloaded models', other.map(hfRow))}
-      {cache && group('Piper voices', 'Piper voices', cache.piper_voices.map((v) => (
-        <li key={v.voice}>
-          <span>{v.voice} · {formatBytes(v.size_bytes)}</span>
-          {del(`piper:${v.voice}`, v.voice, () => deletePiperVoice(v.voice))}
-        </li>
-      )))}
       {cache && group('Other model files', 'Model files', cache.model_files.map((m) => (
         <li key={`${m.folder}:${m.name}`}>
           <span>{m.name} ({MODEL_FOLDER_LABELS[m.folder]}) · {formatBytes(m.size_bytes)}</span>
@@ -122,7 +116,7 @@ export function ModelsList({ engines, installable, cache, pc, jobsActive, busy: 
       {hasCache && (
         <p className="muted">
           {canDelete
-            ? 'A deleted model downloads again the next time a feature needs it. Deleting waits for running jobs.'
+            ? 'A deleted model downloads again when a feature needs it. Deleting waits for running jobs.'
             : PC_ONLY_DELETE_NOTE}
         </p>
       )}

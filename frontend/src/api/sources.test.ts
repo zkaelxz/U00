@@ -10,6 +10,7 @@ import {
   rollbackProfile,
   setAdultEnabled,
   setSourceEnabled,
+  setSourcePace,
   seriesJobId,
   startSearch,
   startSeries,
@@ -67,6 +68,7 @@ describe('sources api', () => {
     const { mock, f } = reply(200, {})
     await setSourceEnabled('foo', false, f)
     await setAdultEnabled('foo', true, f)
+    await setSourcePace('foo', 'careful', f)
     await resetSourceHealth('foo', f)
     await updateSourcesSettings({ pace_max_delay: 10 }, f)
     await clearSourcesCache(f)
@@ -74,6 +76,7 @@ describe('sources api', () => {
     expect(mock.mock.calls.map((c) => c[0])).toEqual([
       '/api/sources/foo/enabled',
       '/api/sources/foo/adult',
+      '/api/sources/foo/pace',
       '/api/sources/foo/health/reset',
       '/api/sources/settings',
       '/api/sources/cache/clear',
@@ -81,7 +84,7 @@ describe('sources api', () => {
     ])
     const bodies = mock.mock.calls.map(([, i]) => (i.body ? JSON.parse(i.body) : undefined))
     expect(bodies).toEqual([
-      { enabled: false }, { enabled: true }, undefined, { pace_max_delay: 10 }, { confirm: true }, { version: 2 },
+      { enabled: false }, { enabled: true }, { pace: 'careful' }, undefined, { pace_max_delay: 10 }, { confirm: true }, { version: 2 },
     ])
     for (const [, init] of mock.mock.calls) expect(localHeader(init)).toBe('1')
   })

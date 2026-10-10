@@ -46,3 +46,22 @@ test('phone: 44px tick box, range, select all, bar, and taps still reach the row
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(0)
 })
+
+test('phone: keyboard reaches the active row box and then the selection bar', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+  await page.locator('body').click({ position: { x: 1, y: 1 } })
+  let reached = false
+  for (let i = 0; i < 60 && !reached; i++) {
+    await page.keyboard.press('Tab')
+    reached = (await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'Select line #1'
+  }
+  expect(reached).toBe(true)
+  await page.keyboard.press('Space')
+  await expect(page.getByTestId('selection-bar')).toContainText('1 selected')
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab')
+    if (await page.evaluate(() => !!document.activeElement?.closest('[data-testid=selection-bar]'))) break
+  }
+  await expect(page.getByTestId('selection-bar').locator(':focus')).toHaveCount(1)
+})

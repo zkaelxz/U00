@@ -4,12 +4,15 @@ imported by both the API services and cli.py (headless batch mode)
 without pulling in a UI framework.
 """
 
+import json
 import os
 import re
-import sys
 import difflib
 import tempfile
 from dataclasses import dataclass, field, replace
+
+import whisper_models
+from segment_splitting import _word_dicts, tighten_to_words, words_for_text
 
 
 # The source languages the app handles, and the full names LLM and aligner
@@ -52,6 +55,10 @@ class Line:
     lang: str = None
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int = field(default=None, compare=False)
+    # encode_line_words' stored form, read through line_words. None means "not
+    # loaded": db.save_lines then leaves the column alone (and clears it when the
+    # text changes), so a caller that never loads it can't wipe or keep stale words.
+    word_timings: str = field(default=None, compare=False, repr=False)
     # Field values as last loaded from / saved to the database. db.save_lines
     # only writes a field whose value differs from this, so two writers
     # (a background job and the page) can't clobber each other's fields.
@@ -86,7 +93,7 @@ def normalize_line_lang(value):
         return None
     code = value.strip().lower() if isinstance(value, str) else None
     if code not in LINE_LANGUAGES:
-        from services.service_errors import InvalidInputError
+        from lib.errors import InvalidInputError
         raise InvalidInputError(f"lang must be one of {', '.join(LINE_LANGUAGES)} or empty.",
                                 details={"allowed": list(LINE_LANGUAGES)})
     return code
@@ -109,8 +116,11 @@ def line_from_row(row) -> "Line":
               en=row.get("en") or "", speaker=row.get("speaker"),
               dub_filename=row.get("dub_filename"), flag=row.get("flag"),
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
-              sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"))
+              sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"),
+              word_timings=row.get("word_timings"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
+    if "word_timings" in row:
+        ln.orig["word_timings"] = ln.word_timings
     return ln
 
 
@@ -173,13 +183,15 @@ def adopt_ids(restored, current, recorded=()) -> list:
 
 def lines_from_saved(rows) -> list:
     """A saved line-history snapshot's or translation version's line dicts
-    (db.get_line_history_snapshot / get_translation_version) -> Lines."""
+    (db.get_line_history_snapshot / get_translation_version) -> Lines. A
+    line's word timings come back only when they were stored for its text."""
     return [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r.get("zh") or "",
                  en=r.get("en") or "", speaker=r.get("speaker"),
                  dub_filename=r.get("dub_filename"), flag=r.get("flag") or None,
                  flag_note=r.get("flag_note") or "", sfx=bool(r.get("sfx")),
                  speaker_manual=bool(r.get("speaker_manual")),
-                 lang=_stored_line_lang(r.get("lang")), id=r.get("id"))
+                 lang=_stored_line_lang(r.get("lang")), id=r.get("id"),
+                 word_timings=words_for_text(r.get("word_timings"), r.get("zh") or ""))
             for r in rows]
 
 
@@ -275,20 +287,12 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
 # Transcribe audio for timing (faster-whisper)
 # ---------------------------------------------------------------------------
 
-_whisper_model_cache = {}
-
-# Speech-recognition models offered in the Workspace picker (faster-whisper
-# names). large-v3-turbo is the default: in our benchmarks (docs/asr-experiments.md)
-# it matched large-v3 on Japanese, trailed it by about half a point on Korean and
-# by more on clean Chinese, and ran about twice as fast. medium was never ahead
-# of it. The labels and the Transcribe stage's note say only what was measured.
-WHISPER_MODELS = {
-    "small": "small -- fastest, least accurate",
-    "medium": "medium -- no faster or more accurate than turbo in our tests",
-    "large-v3": "large-v3 -- slightly more accurate on Korean and clean Chinese, about 2x slower, ~3GB",
-    "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
-}
-DEFAULT_WHISPER_SIZE = "large-v3-turbo"
+# Bounds of the "Speech-splitting sensitivity" (min_silence_ms) setting, enforced
+# for the saved value and for auto-tune candidates. Keep in sync with
+# frontend/src/pages/workspace/sourceForm.ts. 100 ms is about three Silero VAD
+# windows, so shorter values stop being distinguishable from the detector's noise.
+MIN_SILENCE_MS_MIN = 100
+MIN_SILENCE_MS_MAX = 3000
 # Auto-tune's default candidate min_silence_duration_ms values -- spans the
 # "Speech-splitting sensitivity" slider's real range meaningfully (300 is the
 # app's default, services/transcribe_service._DEFAULT_TUNING; 3000 the
@@ -296,304 +300,18 @@ DEFAULT_WHISPER_SIZE = "large-v3-turbo"
 DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
 
 
-# Decoder settings that stop Whisper's repeated-phrase loops at the source
-# (the same line echoed for minutes after music or silence): don't feed
-# each segment's text into the next one's prompt, forbid repeating any
-# 3-token sequence, and mildly penalise repeats. filter_hallucinated_segments
-# stays as the backstop for whatever still slips through.
-WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False, "no_repeat_ngram_size": 3,
-                            "repetition_penalty": 1.1}
+# Stops Whisper's repeated-phrase loops after music or silence;
+# filter_hallucinated_segments is the backstop.
+WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False}
+# The per-title repeat guard. Off by default: a 3-token CJK sequence is often
+# one common particle (的, の), so the ban rewrites or cuts real speech.
+WHISPER_REPEAT_GUARD_KWARGS = {"no_repeat_ngram_size": 3, "repetition_penalty": 1.1}
 
 
-def release_gpu_models():
-    """Call after a GPU stage (transcription, alignment, diarization)
-    finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models
-    (and a local NLLB translation pipeline)
-    and hands CUDA's cached memory back, so the next stage -- or a local
-    translation model in Ollama, or TTS -- isn't fighting leftovers for
-    the same VRAM. The next run of a stage reloads its model (seconds, from
-    disk). Only touches modules that are already loaded, so it never
-    imports torch or a model library just to clear it."""
-    import gc
-    import sys
-    _whisper_model_cache.clear()
-    _whisper_device_info.clear()
-    for module_name, cache_name in (("asr_backend", "_asr_model_cache"),
-                                    ("forced_align", "_aligner_model_cache"),
-                                    ("translate_engines", "_nllb_pipeline_cache")):
-        module = sys.modules.get(module_name)
-        if module is not None:
-            getattr(module, cache_name).clear()
-    gc.collect()
-    torch = sys.modules.get("torch")
-    if torch is not None:
-        try:
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass  # a broken CUDA install must not fail the stage that just succeeded
-
-
-class ModelDownloadError(RuntimeError):
-    """Raised when a model can't be fetched, so callers can show a useful
-    explanation instead of a Hugging Face stack trace."""
-
-
-def diagnose_hostname(hostname: str = "huggingface.co") -> dict:
-    """Checks whether a hostname resolves, and distinguishes the three
-    outcomes that look alike from inside a stack trace:
-
-      ok        - resolves normally
-      blocked   - resolves to 0.0.0.0 / :: , which is what a DNS-level
-                  blocker (Pi-hole, AdGuard, some corporate filters)
-                  returns for a domain on a blocklist
-      no_dns    - doesn't resolve at all
-
-    'blocked' is worth calling out separately: the fix is whitelisting a
-    domain on your own network, which is nothing like a broken connection.
-    """
-    import socket
-    try:
-        addrs = {ai[4][0] for ai in socket.getaddrinfo(hostname, None)}
-    except Exception as exc:
-        return {"status": "no_dns", "hostname": hostname, "addresses": [],
-                "detail": f"{type(exc).__name__}: {exc}"}
-
-    # Loopback is only a blackhole signal for a PUBLIC domain -- localhost
-    # legitimately resolves to 127.0.0.1 and must not be flagged.
-    loopback_names = {"localhost", "127.0.0.1", "::1"}
-    blackholes = {"0.0.0.0", "::"}
-    if hostname.lower() not in loopback_names:
-        blackholes |= {"127.0.0.1", "::1"}
-
-    if addrs and addrs.issubset(blackholes):
-        return {"status": "blocked", "hostname": hostname, "addresses": sorted(addrs),
-                "detail": (f"{hostname} resolves to {', '.join(sorted(addrs))}, which means a "
-                           "DNS-level blocker on your network (Pi-hole, AdGuard, or similar) is "
-                           "blocking it. Whitelist it there rather than changing anything here.")}
-    return {"status": "ok", "hostname": hostname, "addresses": sorted(addrs), "detail": ""}
-
-
-def is_gpu_error(exc: Exception) -> bool:
-    """CUDA/cuBLAS/cuDNN library-loading and device errors.
-
-    Distinct from _is_network_error and from a genuine audio/data
-    problem. Matters because ctranslate2 (which faster-whisper wraps)
-    defers ALL CUDA initialization until the first actual inference
-    call -- constructing a WhisperModel(device="cuda") never touches
-    the GPU, it just stores config. So a broken or missing CUDA
-    install (a missing cublas64_12.dll, a driver/toolkit version
-    mismatch, no CUDA-capable device at all) can only ever be caught
-    here, at the point transcription actually runs -- not at model
-    construction time, no matter how that's wrapped.
-    """
-    text = f"{type(exc).__name__}: {exc}".lower()
-    markers = ("cublas", "cudnn", "cuda", "nvidia", "dll is not found",
-               "cannot be loaded", "no cuda-capable device", "out of memory")
-    return any(m in text for m in markers)
-
-
-def is_network_error(exc: Exception) -> bool:
-    """Whisper models download from Hugging Face on first use. A failure
-    there is almost always network (DNS, firewall, proxy, VPN) rather
-    than anything wrong with the audio or the app, and deserves a
-    completely different message."""
-    text = f"{type(exc).__name__}: {exc}".lower()
-    markers = ("getaddrinfo", "connecterror", "localentrynotfound", "connection",
-               "timed out", "timeout", "network", "temporary failure in name resolution",
-               "max retries", "ssl", "proxy", "unreachable", "errno 11004",
-               "client has been closed", "hf_hub", "huggingface", "name or service not known")
-    return any(m in text for m in markers)
-
-
-def is_whisper_model_cached(model_size: str) -> bool:
-    """Whether a model is already downloaded, so the UI can warn about a
-    large download before starting rather than failing partway."""
-    import os as _os
-    hub = _os.environ.get("HF_HOME") or _os.path.join(
-        _os.path.expanduser("~"), ".cache", "huggingface")
-    hub_dir = _os.path.join(hub, "hub")
-    if not _os.path.isdir(hub_dir):
-        return False
-    needle = f"faster-whisper-{model_size}".lower()
-    try:
-        return any(needle in d.lower() for d in _os.listdir(hub_dir))
-    except OSError:
-        return False
-
-
-_whisper_device_info = {}   # cache_key -> {"device", "compute_type", "gpu_error"}
-
-
-def short_reason(exc, limit: int = 200) -> str:
-    """One-line, secret-redacted description of an exception, for
-    surfacing why the GPU couldn't be used."""
-    from translate_engines import redact_secrets
-    raw = exc if isinstance(exc, str) else f"{type(exc).__name__}: {exc}"
-    text = " ".join(redact_secrets(raw).split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
-
-
-def get_whisper_device_info(model_size: str, use_gpu: bool = False,
-                            local_model_path: str = None) -> dict:
-    """What load_whisper_model actually did for these arguments:
-    {"device": "cuda"|"cpu", "compute_type", "gpu_error": <short reason or
-    None>}. Empty dict if that model hasn't been loaded in this process."""
-    key = f"{local_model_path or model_size}_{'gpu' if use_gpu else 'cpu'}"
-    return dict(_whisper_device_info.get(key, {}))
-
-
-def describe_whisper_device(info: dict) -> str:
-    """Plain-words one-liner for get_whisper_device_info()'s dict."""
-    if not info:
-        return ""
-    if info.get("gpu_error"):
-        return f"GPU unavailable ({info['gpu_error']}); using CPU"
-    if info.get("device") == "cuda":
-        return f"Using GPU ({info.get('compute_type')})"
-    return f"Using CPU ({info.get('compute_type')})"
-
-
-def gpu_fallback_notice(task: str, reason: str) -> str:
-    """The plain past-tense sentence every silent GPU->CPU fallback reports
-    (job result, CLI line). `reason` is already one redacted line (short_reason)."""
-    reason = " ".join(str(reason or "").split()).rstrip(".")
-    why = f" ({reason})" if reason else ""
-    return f"{task} ran on the CPU because the GPU couldn't be used{why}. This was slower than on the GPU."
-
-
-def gpu_status() -> dict:
-    """Whether ctranslate2 (faster-whisper) sees a CUDA device and whether
-    torch.cuda is available. Never raises; each half is None when its
-    library isn't installed, plus short redacted errors if a probe failed."""
-    status = {"ctranslate2_cuda_devices": None, "torch_cuda_available": None, "errors": []}
-    try:
-        import ctranslate2
-        status["ctranslate2_cuda_devices"] = int(ctranslate2.get_cuda_device_count())
-    except ImportError:
-        pass
-    except Exception as exc:
-        status["errors"].append("ctranslate2: " + short_reason(exc))
-    try:
-        import torch
-        status["torch_cuda_available"] = bool(torch.cuda.is_available())
-    except ImportError:
-        pass
-    except Exception as exc:
-        status["errors"].append("torch: " + short_reason(exc))
-    return status
-
-
-_CUBLAS_DLL = "cublas64_12.dll"
-GPU_RUNTIME_MISSING_REASON = (
-    "The CUDA 12 runtime libraries that Whisper needs on the GPU (cuBLAS) aren't installed on this PC.")
-
-
-def _load_windows_dll(name: str) -> None:
-    import ctypes
-    # winmode=0 keeps the plain PATH search ctranslate2 itself uses; the
-    # default for WinDLL skips PATH and would report a false "missing".
-    ctypes.WinDLL(name, winmode=0)
-
-
-def whisper_gpu_runtime(loader=None) -> dict:
-    """Whether the CUDA runtime DLL faster-whisper needs can be loaded here:
-    {"status": "ok" | "missing" | "unknown", "reason": fixed text or None}.
-    Never imports torch or loads a model, and never raises. "unknown" off
-    Windows, without ctranslate2, or when ctranslate2 sees no CUDA device
-    (nothing to run on the GPU anyway). The reason is fixed text so no path
-    or raw exception text reaches an API response."""
-    if sys.platform != "win32":
-        return {"status": "unknown", "reason": None}
-    try:
-        import ctranslate2
-        if int(ctranslate2.get_cuda_device_count()) < 1:
-            return {"status": "unknown", "reason": None}
-    except Exception:
-        return {"status": "unknown", "reason": None}
-    try:
-        (loader or _load_windows_dll)(_CUBLAS_DLL)
-    except OSError:
-        return {"status": "missing", "reason": GPU_RUNTIME_MISSING_REASON}
-    except Exception:
-        return {"status": "unknown", "reason": None}
-    return {"status": "ok", "reason": None}
-
-
-def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str = None,
-                        hf_token: str = None):
-    """Loads (and on first use, downloads) a Whisper model.
-
-    use_gpu: try CUDA with float16, falling back to CPU automatically if
-    the GPU or the CUDA build of the runtime isn't available -- so
-    enabling it on a machine without a GPU degrades rather than breaks.
-
-    local_model_path: a directory containing an already-downloaded model.
-    Lets the app work fully offline, or on a machine where the download
-    is blocked, by fetching the model elsewhere and pointing at it.
-    """
-    target = local_model_path or model_size
-    cache_key = f"{target}_{'gpu' if use_gpu else 'cpu'}"
-    if cache_key in _whisper_model_cache:
-        return _whisper_model_cache[cache_key]
-
-    import os as _os
-    from faster_whisper import WhisperModel
-
-    # An HF token isn't required for public models, but without one you get
-    # anonymous rate limits and slower downloads -- and a warning saying so.
-    _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
-    if _tok:
-        _os.environ.setdefault("HF_TOKEN", _tok)
-
-    def _build(device, compute_type):
-        return WhisperModel(target, device=device, compute_type=compute_type)
-
-    device_info = {"device": "cpu", "compute_type": "int8", "gpu_error": None}
-    try:
-        if use_gpu:
-            try:
-                model = _build("cuda", "float16")
-                device_info = {"device": "cuda", "compute_type": "float16", "gpu_error": None}
-            except Exception as gpu_exc:
-                if is_network_error(gpu_exc):
-                    raise
-                # No usable GPU: degrade, don't fail -- but remember why, so
-                # callers can say the GPU was NOT used.
-                device_info["gpu_error"] = short_reason(gpu_exc)
-                model = _build("cpu", "int8")
-        else:
-            model = _build("cpu", "int8")
-    except Exception as exc:
-        if is_network_error(exc):
-            diag = diagnose_hostname("huggingface.co")
-            if diag["status"] == "blocked":
-                raise ModelDownloadError(
-                    f"Couldn't download the '{model_size}' model — huggingface.co is being "
-                    f"blocked by a DNS blocker on your network.\n\n"
-                    f"{diag['detail']}\n\n"
-                    "Whitelist these (the cdn-lfs ones serve the actual model files, so "
-                    "allowing only the first will fail mid-download):\n"
-                    "  huggingface.co\n  cdn-lfs.huggingface.co\n  cdn-lfs-us-1.hf.co\n  hf.co\n\n"
-                    "Then run: ipconfig /flushdns"
-                ) from exc
-            raise ModelDownloadError(
-                f"Couldn't download the '{model_size}' speech-recognition model.\n\n"
-                "This is a network problem, not a problem with your audio. The model is "
-                "fetched from Hugging Face the first time you use it.\n\n"
-                "Common causes on Windows:\n"
-                "  - antivirus or firewall blocking Python's network access\n"
-                "  - a VPN that's connected but not routing properly\n"
-                "  - DNS not resolving huggingface.co\n\n"
-                "Check with:  python -c \"import socket; print(socket.gethostbyname('huggingface.co'))\"\n\n"
-                "If you can't get network access on this machine, download the model on "
-                "another one and set a local model path in Settings."
-            ) from exc
-        raise
-
-    _whisper_model_cache[cache_key] = model
-    _whisper_device_info[cache_key] = device_info
-    return model
+# Seconds of silence inside a segment's word timings above which faster-whisper
+# drops that segment as a likely hallucination. Off by default: it dropped real
+# fast or quiet CJK lines.
+DEFAULT_HALLUCINATION_SILENCE_SEC = 0.0
 
 
 def build_initial_prompt(terms, max_terms: int = 40) -> str:
@@ -631,6 +349,46 @@ def build_initial_prompt(terms, max_terms: int = 40) -> str:
     return "、".join(names[:max_terms]) + "。"
 
 
+# Credit/outro lines Whisper emits on silence because its training subtitles
+# ended with them. Matched against the whole segment text only, after
+# _stock_key() strips case, spaces and punctuation.
+_STOCK_PHRASE_RES = [re.compile(p) for p in (
+    r"subtitlesbytheamaraorgcommunity",
+    r"amaraorg.{0,8}",
+    r"thanks?youforwatching",
+    r"thanksforwatching",
+    r"字幕由.{0,30}提供",
+    r"请不吝点赞.*",
+    r"ご視聴ありがとうございま(?:した|す)",
+    r"ご清聴ありがとうございま(?:した|す)",
+    r"mbc뉴스.{0,12}입니다",
+    r"시청해주셔서감사합니다",
+)]
+# A stock phrase is only dropped with at least this much silence on each side
+# (a missing neighbour counts as silence), so dialogue that happens to say
+# "thanks for watching" between other lines survives.
+STOCK_PHRASE_ISOLATION_SEC = 5.0
+
+
+def _stock_key(text):
+    return "".join(ch for ch in (text or "").casefold() if ch.isalnum())
+
+
+def _is_isolated_stock_phrase(segments, i):
+    key = _stock_key(segments[i]["text"])
+    if not any(rx.fullmatch(key) for rx in _STOCK_PHRASE_RES):
+        return False
+    seg = segments[i]
+    try:
+        if i > 0 and seg["start"] - segments[i - 1]["end"] < STOCK_PHRASE_ISOLATION_SEC:
+            return False
+        if i + 1 < len(segments) and segments[i + 1]["start"] - seg["end"] < STOCK_PHRASE_ISOLATION_SEC:
+            return False
+    except KeyError:
+        return False
+    return True
+
+
 def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     """
     Whisper is well known to loop a short phrase across MANY separate
@@ -660,6 +418,10 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     defaults conservatively high (4) to keep that risk low -- lower it if
     loops are still getting through on your content, raise it if you've
     actually hit the false-positive case.
+
+    Also drops a segment whose WHOLE text is a stock credit/outro phrase
+    ("Thanks for watching", "字幕由…提供", "ご視聴ありがとうございました") when it
+    has at least STOCK_PHRASE_ISOLATION_SEC of silence on each side.
     """
     if not segments:
         return segments
@@ -680,103 +442,18 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
         else:
             out.extend(segments[i:j])
         i = j
-    return out
+    return [seg for k, seg in enumerate(out) if not _is_isolated_stock_phrase(out, k)]
 
 
-# A transcribed line longer than either limit is cut into subtitle-sized pieces.
-SPLIT_MAX_SECONDS = 8.0
-SPLIT_MAX_CJK_CHARS = 40
-
-_SENTENCE_END_RE = re.compile(r"(?:[。！？!?…]+|\.+(?=\s|$))[\"'”’」』）)\]]*\s*")
-_CLAUSE_END_RE = re.compile(r"[,，、;；:：]+[\"'”’」』）)\]]*\s*")
-_CJK_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
-# Only a space run touching CJK on at least one side is a phrase break; a space
-# between two Latin/digit tokens ("Q&A NG") stays inside its piece.
-_CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯])\s+|\s+(?=[぀-ヿ㐀-鿿가-힯])")
-
-
-def _cut_after(text: str, pattern) -> list:
-    """Cuts text after every match of pattern; the pieces concatenate back to text."""
-    pieces, last = [], 0
-    for m in pattern.finditer(text):
-        if m.end() > last:
-            pieces.append(text[last:m.end()])
-            last = m.end()
-    if last < len(text):
-        pieces.append(text[last:])
-    return pieces
-
-
-def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
-                        max_cjk_chars: int = SPLIT_MAX_CJK_CHARS) -> list:
-    """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
-    punctuation, then at commas, then at spaces next to CJK text, packing
-    neighbouring pieces up to the limits.
-
-    Whisper segments carry no word timing at this point, so each piece gets a
-    share of the original span proportional to its character count: boundaries
-    are estimates, but pieces stay contiguous, increasing and inside the span.
-    Text with no usable cut, and short segments, are returned as they are.
-    Other keys (speaker) are copied onto every piece."""
-    out = []
-    for seg in segments:
-        text = seg.get("text") or ""
-        dur = seg["end"] - seg["start"]
-        total = len("".join(text.split()))
-        if total == 0 or dur <= 0 or (
-                dur <= max_seconds and len(_CJK_RE.findall(text)) <= max_cjk_chars):
-            out.append(seg)
-            continue
-
-        def fits(piece):
-            n = len("".join(piece.split()))
-            return (dur * n / total <= max_seconds
-                    and len(_CJK_RE.findall(piece)) <= max_cjk_chars)
-
-        def pack(units):
-            chunks, cur = [], ""
-            for u in units:
-                if cur and not fits(cur + u):
-                    chunks.append(cur)
-                    cur = ""
-                cur += u
-            if cur:
-                chunks.append(cur)
-            return chunks
-
-        pieces = []
-        for chunk in pack(_cut_after(text, _SENTENCE_END_RE)):
-            # one sentence that is still too long: fall back to its commas
-            for sub in [chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)):
-                # Whisper often separates CJK phrases with plain spaces instead of commas
-                pieces.extend([sub] if fits(sub) else pack(_cut_after(sub, _CJK_SPACE_RE)))
-        pieces = [p for p in pieces if p.strip()]
-        if len(pieces) < 2:
-            out.append(seg)
-            continue
-        done = 0
-        for i, p in enumerate(pieces):
-            start = seg["start"] + dur * done / total
-            done += len("".join(p.split()))
-            end = seg["end"] if i == len(pieces) - 1 else seg["start"] + dur * done / total
-            out.append({**seg, "start": start, "end": end, "text": p.strip()})
-    return out
-
-
-def tighten_to_words(start: float, end: float, words) -> tuple:
-    """A segment's own start/end come from its VAD chunk, so a line can show
-    during silence before the voice starts or stay up after it stops. Narrow
-    them to the first and last spoken word, never widening, and keep the
-    segment's times when there are no usable word times."""
+def _accepts_transcribe_kwarg(model, name):
+    """False for a faster-whisper release that predates `name`, which would
+    otherwise fail the whole run with a TypeError."""
+    import inspect
     try:
-        spoken = [w for w in (words or []) if w.end > w.start]
-        if not spoken:
-            return start, end
-        new_start = max(start, min(w.start for w in spoken))
-        new_end = min(end, max(w.end for w in spoken))
-    except (AttributeError, TypeError):
-        return start, end
-    return (new_start, new_end) if new_end > new_start else (start, end)
+        params = inspect.signature(model.transcribe).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
 
 
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
@@ -784,7 +461,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            hf_token: str = None, initial_prompt: str = "",
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
-                           on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False):
+                           on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,
+                           hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC,
+                           repeat_guard: bool = False, sensitivity_preset: str = "normal"):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -828,6 +507,12 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     failure mode on silence/music that its own per-segment decoding
     thresholds don't catch. Set to 0 or None to disable entirely.
 
+    hallucination_silence_sec: faster-whisper's hallucination_silence_threshold --
+    a segment with a silent gap this long inside its word timings is
+    skipped as a likely hallucination. 0 or None turns it off. Not passed
+    when faster-whisper is too old to know it, and ignored by faster-whisper
+    itself in fast_mode (its batched pipeline hard-codes it off).
+
     on_gpu_fallback: optional callback invoked with the original exception
     if a requested GPU run fails at actual inference time and this
     transparently retries on CPU -- so the caller can tell the person
@@ -847,17 +532,22 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     which decodes several VAD chunks at once (roughly 4x faster on a GPU).
     Same settings, same output shape; uses more VRAM while it runs.
     """
-    model = load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
+    # Imported here: db.py's import check copies core.py alone into a temp folder.
+    from sensitivity_preset import decode_kwargs
+    model = whisper_models.load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
     kwargs = {
         "language": language, "vad_filter": True, "beam_size": beam_size,
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
         "word_timestamps": True,
-        **WHISPER_ANTI_LOOP_KWARGS,
+        **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard),
     }
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()
+    if hallucination_silence_sec and not fast_mode and _accepts_transcribe_kwarg(
+            model, "hallucination_silence_threshold"):
+        kwargs["hallucination_silence_threshold"] = float(hallucination_silence_sec)
 
     def _collect(segments, info):
         duration = getattr(info, "duration", None) or 0
@@ -868,7 +558,11 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             # a cut-off sound tag, "...", a dash) is not a subtitle.
             if any(ch.isalnum() for ch in text):
                 start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
-                result.append({"start": start, "end": end, "text": text})
+                seg = {"start": start, "end": end, "text": text}
+                words = _word_dicts(getattr(s, "words", None))
+                if words:
+                    seg["words"] = words
+                result.append(seg)
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
         if filter_hallucination_repeats:
@@ -891,10 +585,10 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         # here, never at model construction, no matter how that's wrapped.
         # See load_whisper_model's own GPU->CPU fallback, which protects
         # a different (earlier, rarer) failure point and cannot catch this.
-        if use_gpu and is_gpu_error(exc):
+        if use_gpu and whisper_models.is_gpu_error(exc):
             if on_gpu_fallback:
                 on_gpu_fallback(exc)
-            cpu_model = load_whisper_model(model_size, use_gpu=False,
+            cpu_model = whisper_models.load_whisper_model(model_size, use_gpu=False,
                                             local_model_path=local_model_path, hf_token=hf_token)
             segments, _info = _run(cpu_model)
             return _collect(segments, _info)
@@ -932,36 +626,33 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     partial-progress signal available during the request itself.
     """
     import os as _os
-    import requests
     import translate_engines
-    from services import capped_body
+    from lib import http
 
-    def too_big():
-        return GroqTranscriptionError("Groq's reply was too large or too slow to read.")
-
+    too_big = "Groq's reply was too large or too slow to read."
     try:
         with open(audio_path, "rb") as f:
-            resp = requests.post(
-                GROQ_TRANSCRIBE_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
+            resp = http.post(
+                GROQ_TRANSCRIBE_URL, timeout=600, max_bytes=GROQ_RESPONSE_MAX_BYTES,
+                max_error_bytes=GROQ_ERROR_MAX_BYTES,
+                guard=None, headers={"Authorization": f"Bearer {api_key}"},
                 files={"file": (_os.path.basename(audio_path), f)},
                 data={"model": model, "language": language,
-                      "response_format": "verbose_json", "timestamp_granularities[]": "segment"},
-                timeout=600, stream=True)
-    except requests.RequestException as exc:
-        raise GroqTranscriptionError(translate_engines.redact_secrets(str(exc))) from None
-    if resp.status_code != 200:
-        try:
-            detail = capped_body.read_capped(resp, GROQ_ERROR_MAX_BYTES, 600, too_big)
-        except Exception:
-            detail = b""
+                      "response_format": "verbose_json", "timestamp_granularities[]": "segment"})
+    except (http.ResponseTooLarge, http.ResponseTooSlow):
+        raise GroqTranscriptionError(too_big) from None
+    except http.FetchError as exc:
+        raise GroqTranscriptionError(exc.message) from None
+    if resp.status != 200:
         raise GroqTranscriptionError(translate_engines.redact_secrets(
-            f"Groq API returned {resp.status_code}: "
-            f"{detail.decode('utf-8', 'replace')[:300]}"))
+            f"Groq API returned {resp.status}: "
+            f"{resp.body.decode('utf-8', 'replace')[:300]}"))
     try:
-        data = translate_engines.read_json_capped(resp, 600, GROQ_RESPONSE_MAX_BYTES, too_big)
-    except requests.RequestException as exc:
-        raise GroqTranscriptionError(translate_engines.redact_secrets(str(exc))) from None
+        data = json.loads(resp.body)
+    except ValueError:
+        raise GroqTranscriptionError(too_big) from None
+    if not isinstance(data, dict):
+        raise GroqTranscriptionError(too_big)
     result = [{"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
               for seg in data.get("segments", []) if seg.get("text", "").strip()]
     if progress_cb:

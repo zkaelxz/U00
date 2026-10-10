@@ -1,5 +1,5 @@
 // Hand-written mirrors of the Review AI extras in api/schemas/review.py (MergeShort*,
-// Style*, SenseVoice*) and library.py (BurnPreview*). Routes: /api/review-extras/dramas/{id}/...
+// EnCleanup*, Style*, SenseVoice*) and library.py (BurnPreview*). Routes: /api/review-extras/dramas/{id}/...
 import type { AssStyleOverrides } from './export'
 import type { RestructureResult } from './restructure'
 
@@ -38,6 +38,39 @@ export interface MergeShortApply extends Partial<MergeShortOptions> {
 
 export interface MergeShortResult extends RestructureResult {
   merged_groups: number
+}
+
+export interface EnCleanupRule {
+  rule: string
+  label: string
+  // Lines this rule changes.
+  lines: number
+}
+
+export interface EnCleanupChange {
+  line_id: number
+  idx: number
+  before: string
+  after: string
+  rules: string[]
+}
+
+export interface EnCleanupPreview {
+  drama_id: number
+  lines_scanned: number
+  lines_changed: number
+  rules: EnCleanupRule[]
+  // Capped; truncated says more lines change than are listed.
+  changes: EnCleanupChange[]
+  truncated: boolean
+  plan_hash: string
+}
+
+export interface EnCleanupResult {
+  applied: number
+  // Lines edited by someone else while saving; their edit was kept.
+  stale: number
+  history_id: number
 }
 
 export interface StyleProfile {
