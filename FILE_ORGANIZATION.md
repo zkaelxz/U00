@@ -108,10 +108,13 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 - `dub.py`
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
+- `loudness.py` (stereo-track loudness measurement and normalising, numpy only; `docs/specs/stereo-track.md`)
 - `media_inspect.py`
 - `review_thresholds.py`
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
+- `stereo_cues.py` (stereo-track placement cues from the script, numpy only; `docs/specs/stereo-track.md`)
+- `stereo_render.py` (stereo-track renderers: pan, delay and level per line, numpy only; `docs/specs/stereo-track.md`)
 - `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
 - `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
 - `video_download.py`
