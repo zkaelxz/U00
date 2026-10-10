@@ -93,7 +93,7 @@ from services.translate_run_service import (engine_cap_applies, get_translate_co
 
 def _gemini_free_tier(engine_name: str) -> bool:
     """The saved Settings "Gemini free tier" toggle, for the gemini engine only."""
-    return engine_name == "gemini" and settings_service.get_gemini_free_tier()
+    return engine_name == "gemini" and settings_service.get("gemini_free_tier")
 
 
 def _ollama_url(args):
@@ -401,7 +401,7 @@ def cmd_diarize(args):
             turns, model, embeddings = diarize.diarize(
                 audio_path, hf_token, num_speakers=num_speakers,
                 return_model=True, return_embeddings=True,
-                use_gpu=settings_service.get_use_gpu(),
+                use_gpu=settings_service.get("use_gpu"),
                 min_speakers=min_speakers, max_speakers=max_speakers, run_info=run_info,
                 on_progress=on_progress)
         finally:
@@ -498,7 +498,7 @@ def cmd_align(args):
         # (transcribe_service.get_transcribe_config); --fast still wins.
         cfg = transcribe_service.get_transcribe_config(d["id"])
         fast = getattr(args, "fast", False) or cfg["whisper_fast_mode"]
-        use_gpu = settings_service.get_use_gpu()
+        use_gpu = settings_service.get("use_gpu")
         language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
         db.heartbeat_gpu_lock(_gpu_holder)
@@ -512,7 +512,7 @@ def cmd_align(args):
             # Same refusal as the app, before any audio is processed.
             raise RuntimeError(
                 "use_groq is on but no Groq API key is configured. Set one in Settings first.")
-        local_model_path = settings_service.get_whisper_model_path()
+        local_model_path = settings_service.get("whisper_model_path") or None
         app_gpu_settings = raw_transcript.current_gpu_app_settings()
         gpu_fallback = []
         started = time.monotonic()
@@ -711,7 +711,7 @@ def cmd_translate(args):
     # local Ollama); a missing/unreachable one just skips the summary
     # rather than failing the translate command.
     summary_engine_choice = (getattr(args, "episode_summary_engine", None)
-                             or settings_service.get_preference("episode_summary_engine"))
+                             or settings_service.get("episode_summary_engine"))
     summary_key = getattr(args, "episode_summary_api_key", None) or (
         None if summary_engine_choice == "ollama"
         else translate_service.resolve_api_key(summary_engine_choice))
@@ -760,7 +760,7 @@ def cmd_translate(args):
         try:
             validate_run_options(
                 engine_name, args.model if _own_flags(engine_name) else None,
-                locale=args.locale or settings_service.get_preference("default_locale"),
+                locale=args.locale or settings_service.get("default_locale"),
                 style_preset=style_preset,
                 context_window=_flag_or(args, "context_window", tdefaults),
                 context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
@@ -862,12 +862,12 @@ def cmd_translate(args):
             print(f"  #{did}: {frac*100:.0f}%", end="\r")
 
         style_note = (args.style_note if args.style_note is not None
-                      else settings_service.get_preference("default_style_note"))
-        scene_aware = settings_service.get_preference("scene_aware_batches")
+                      else settings_service.get("default_style_note"))
+        scene_aware = settings_service.get("scene_aware_batches")
         # Same settings the Workspace job records with each line.
         provenance = line_provenance_service.translate_run_tracker(
             d["id"], lines, engine, engine_name, glossary_terms,
-            locale=args.locale or settings_service.get_preference("default_locale"),
+            locale=args.locale or settings_service.get("default_locale"),
             style_preset=style_preset, reflect=bool(getattr(args, "reflect", False)),
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
@@ -893,11 +893,11 @@ def cmd_translate(args):
             lines, engine, drama_meta=d,
             style_note=style_note,
             novel_reference=novel_reference, force_retranslate=force, target_ids=target_ids,
-            locale=args.locale or settings_service.get_preference("default_locale"),
+            locale=args.locale or settings_service.get("default_locale"),
             glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
             ollama_num_ctx_override=(args.ollama_num_ctx if args.ollama_num_ctx is not None
-                                     else settings_service.get_ollama_num_ctx_override() or None),
+                                     else settings_service.get("ollama_num_ctx_override") or None),
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
@@ -1169,7 +1169,7 @@ def cmd_transcribe(args):
         raise SystemExit(f"transcribe: {translate_engines.redact_secrets(e.message)}")
     label = f"#{args.id}"
     print(f"{label} transcribing (GPU setting: "
-          f"{'on' if settings_service.get_use_gpu() else 'off'})...", flush=True)
+          f"{'on' if settings_service.get('use_gpu') else 'off'})...", flush=True)
     outcome, message, result = _wait_for_job(job["job_id"], label)
     if result.get("device"):
         print(f"{label} device: {result['device']}")

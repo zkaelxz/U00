@@ -36,6 +36,7 @@ import traceback
 import gpu_probe
 import job_force_stop
 import job_process_result
+from lib import settings_schema
 from job_process_kill import _kill_worker_group, _stop_process, kill_tree, reap_worker  # noqa: F401
 
 _jobs = {}
@@ -215,14 +216,18 @@ def _warn(what, exc):
         pass
 
 
-def get_gpu_limit_enabled() -> bool:
+def _setting(key):
     import db
+    return settings_schema.coerce(key, db.get_app_setting(key))
+
+
+def get_gpu_limit_enabled() -> bool:
     try:
-        return bool(db.get_app_setting("gpu_limit_enabled", True))
+        return _setting("gpu_limit_enabled")
     except Exception as exc:
         # Never let a DB hiccup block a job from starting -- the GPU
         # guard is a soft, best-effort convenience, not a correctness
-        # requirement. On a read error the limit stays on (the default).
+        # requirement. On a read error the limit stays on.
         _warn("could not read the GPU-limit setting; keeping the limit on", exc)
         return True
 
@@ -252,9 +257,8 @@ def _clamp_gpu_max_parallel(value) -> int:
 
 
 def get_gpu_max_parallel() -> int:
-    import db
     try:
-        return _clamp_gpu_max_parallel(db.get_app_setting("gpu_max_parallel", 1))
+        return _setting("gpu_max_parallel")
     except Exception as exc:
         # Fails safe: one GPU job at a time.
         _warn("could not read the GPU jobs-at-once setting; using 1", exc)
@@ -323,9 +327,8 @@ def try_take_gpu_slot(holder: str, description: str = None, check_external_load:
 
 
 def get_notify_on_completion() -> bool:
-    import db
     try:
-        return bool(db.get_app_setting("notify_on_completion", False))
+        return _setting("notify_on_completion")
     except Exception:
         # _notify_job_finished's own contract is "never raises" -- a DB
         # hiccup here must not break the job it's reporting on. Fails

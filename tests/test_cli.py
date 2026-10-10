@@ -36,6 +36,7 @@ import dub_narration
 from core import Line
 import cli
 from services import dub_service
+from tests.saved_settings import patch_setting
 
 
 @pytest.fixture(autouse=True)
@@ -1623,7 +1624,7 @@ class TestCliServiceParity:
     def test_summary_engine_gets_the_gemini_free_tier_flag(self, isolated_db, monkeypatch):
         did = isolated_db.create_drama(title_en="T", status="aligned")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
-        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        patch_setting(monkeypatch, "gemini_free_tier", True)
         built = []
         monkeypatch.setattr(translate_engines, "get_engine",
                             lambda name, key=None, model=None, **k: built.append((name, k)) or object())
@@ -1661,7 +1662,7 @@ class TestCliServiceParity:
     def test_monthly_cap_is_dropped_for_gemini_free_tier(self, isolated_db, monkeypatch):
         # A used-up monthly cap would refuse a paid run; Gemini's free tier
         # isn't billed, so --monthly-cap doesn't apply and the run goes ahead.
-        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        patch_setting(monkeypatch, "gemini_free_tier", True)
         isolated_db.log_usage(None, "claude", "m", "translate", 1, 1, 50.0)
         engines, seen = self._translate(isolated_db, monkeypatch, {}, engine="gemini",
                                         api_key=None, model=None, monthly_cap=20.0)
@@ -1744,7 +1745,7 @@ class TestCliSavedSettingsFallbacks:
         did = self._narration_drama(isolated_db)
         saved = {"gemini": "saved-gemini", "ollama_url": "http://saved:11434"}
         monkeypatch.setattr(cli.settings_service, "resolve_key", lambda k, *a: saved.get(k))
-        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        patch_setting(monkeypatch, "gemini_free_tier", True)
         built = []
 
         class _E:
