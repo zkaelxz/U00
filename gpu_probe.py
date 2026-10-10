@@ -21,9 +21,9 @@ def prefetch() -> None:
     """Never raises; a failed reading is simply not cached."""
     import diagnostics
     try:
-        _local.readings = {"busy": diagnostics.external_gpu_is_busy(),
-                           "load": diagnostics.external_gpu_load(),
-                           "at": time.monotonic()}
+        at = time.monotonic()
+        load = diagnostics.external_gpu_load()
+        _local.readings = {"busy": diagnostics.external_gpu_is_busy(load), "load": load, "at": at}
     except Exception:
         _local.readings = None
 

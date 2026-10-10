@@ -9,7 +9,11 @@ to finish on its own (abandoned). Two rules keep that safe:
     record (job ids repeat per drama).
   - The GPU claim stays with the abandoned thread. It may still be using the
     card, so the slot is released only when no worker is alive; otherwise the
-    runner's own `finally` releases it when the thread finally ends.
+    runner's own `finally` releases it when the thread finally ends. Until
+    then the live worker still counts against gpu_max_parallel and its
+    cross-process `ui:<id>` row is kept fresh by the heartbeat.
+  - Exclusive admin holds and whole-drama checks treat a live abandoned
+    worker as a running job: it may still be writing models or drama files.
 
 Exclusive holds (background_jobs.acquire_exclusive) belong to the service that
 took them, not to a job, so there is nothing per-job to free here; a restore
@@ -39,6 +43,43 @@ def _live_abandoned(job_id):
     return thread
 
 
+def abandoned_alive_locked(job_id) -> bool:
+    """Caller holds background_jobs._lock."""
+    return _live_abandoned(job_id) is not None
+
+
+def any_abandoned_alive_locked() -> bool:
+    """Caller holds background_jobs._lock."""
+    return any(_live_abandoned(jid) is not None for jid in list(_abandoned))
+
+
+def abandoned_gpu_count_locked(exclude_job_id=None) -> int:
+    """Caller holds background_jobs._lock. Live abandoned workers that still
+    hold the GPU, which the record-based running count no longer sees."""
+    return sum(1 for jid in list(_abandoned)
+               if jid != exclude_job_id and _live_abandoned(jid) is not None
+               and getattr(_abandoned[jid], "baihe_abandoned_gpu", False))
+
+
+def refresh_abandoned_gpu_rows() -> None:
+    """The abandoned worker no longer reports progress, so without this its
+    `ui:<id>` row would age past db.GPU_LOCK_STALE_SECONDS and another
+    process could take the card beside it. Best-effort."""
+    import background_jobs as bj
+    with bj._lock:
+        ids = [jid for jid in list(_abandoned)
+               if _live_abandoned(jid) is not None
+               and getattr(_abandoned[jid], "baihe_abandoned_gpu", False)]
+    if not ids:
+        return
+    try:
+        import db
+        for jid in ids:
+            db.heartbeat_gpu_lock(f"ui:{jid}")
+    except Exception:
+        pass
+
+
 def refuse_if_abandoned_locked(job_id) -> None:
     """Caller holds background_jobs._lock (start_job's own check)."""
     if _live_abandoned(job_id) is not None:
@@ -64,8 +105,7 @@ def can_force_stop(job: dict, now: float = None) -> bool:
 
 
 def force_stop(job_id: str) -> dict:
-    """Closes the record of a thread job that is Cancelling too long (or
-    stalled). Raises ConflictError when the job is not eligible, which also
+    """Closes the record of a thread job that is Cancelling too long. Raises ConflictError when the job is not eligible, which also
     makes a second call a no-op instead of a second release. Returns
     {"status", "worker_still_running"}."""
     import background_jobs as bj
@@ -76,12 +116,13 @@ def force_stop(job_id: str) -> dict:
             raise ConflictError("This job is not running, so there is nothing to force stop.")
         if job.get("kind") != "thread":
             raise ConflictError("Only a job running in a thread needs a force stop; Cancel ends the others.")
-        if not (cancelling_too_long(job) or bj.job_may_be_stalled(job)):
+        if not cancelling_too_long(job):
             raise ConflictError("Cancel the job first and give it a minute to stop on its own.")
         _, worker = bj._workers.get(job_id, (None, None))
         alive = worker is not None and worker.is_alive()
         if alive:
             worker.baihe_abandoned = True
+            worker.baihe_abandoned_gpu = bool(job.get("gpu_touching"))
             _abandoned[job_id] = worker
         cancelled = bool(job.get("cancel_requested"))
         job["status"] = "cancelled" if cancelled else "error"

@@ -130,6 +130,7 @@ _heartbeat_thread = None
 
 def _heartbeat_once():
     reconcile_dead_workers()
+    job_force_stop.refresh_abandoned_gpu_rows()
     with _lock:
         live = [j for j, job in _jobs.items() if job.get("status") in ("queued", "running")]
     if live:
@@ -366,8 +367,9 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
 def _running_gpu_job_count_locked(exclude_job_id):
     """Caller must already hold _lock. How many other GPU-touching jobs in
     this process are running."""
-    return sum(1 for jid, job in _jobs.items()
-               if jid != exclude_job_id and job.get("gpu_touching") and job["status"] == "running")
+    return job_force_stop.abandoned_gpu_count_locked(exclude_job_id) + sum(
+        1 for jid, job in _jobs.items()
+        if jid != exclude_job_id and job.get("gpu_touching") and job["status"] == "running")
 
 
 def _gpu_queue_waiting_locked():
@@ -874,7 +876,7 @@ def acquire_exclusive(label: str) -> bool:
     with _lock:
         if _exclusive_label is not None or _maintenance_count or any(
                 j.get("status") in ("running", "queued") for j in _jobs.values()
-        ) or live_whisper.outstanding_label():
+        ) or live_whisper.outstanding_label() or job_force_stop.any_abandoned_alive_locked():
             return False
         _exclusive_label = label
         return True
@@ -1709,7 +1711,8 @@ def any_job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
             if f"{prefix}{drama_id}" == exclude_job_id:
                 continue
             job = _jobs.get(f"{prefix}{drama_id}")
-            if job and job["status"] in ("running", "queued"):
+            if (job and job["status"] in ("running", "queued")
+                    ) or job_force_stop.abandoned_alive_locked(f"{prefix}{drama_id}"):
                 return True
         return False
 

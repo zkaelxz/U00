@@ -24,7 +24,7 @@ def _wait_for(pred, timeout=3.0):
 
 @pytest.fixture
 def quiet_gpu(isolated_db, monkeypatch):
-    monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+    monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: False)
     monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None)
 
 
@@ -69,13 +69,12 @@ class TestForceStop:
             job_force_stop.force_stop("hung_1")
         hung.release()
 
-    def test_a_stalled_job_can_be_force_stopped_without_cancel(self, quiet_gpu):
+    def test_a_stalled_but_not_cancelled_job_is_refused(self, quiet_gpu):
         hung = HungJob("hung_s")
         with bg._lock:
             bg._jobs["hung_s"]["progress_at"] = time.time() - bg.JOB_STALL_SECONDS - 5
-        result = job_force_stop.force_stop("hung_s")
-        assert result == {"status": "error", "worker_still_running": True}
-        assert bg.get_status("hung_s")["error"] == job_force_stop.FORCE_STOPPED_MESSAGE
+        with pytest.raises(ConflictError, match="Cancel the job first"):
+            job_force_stop.force_stop("hung_s")
         hung.release()
 
     def test_closes_the_record_and_keeps_the_gpu_claim_while_the_worker_lives(self, quiet_gpu):
@@ -102,6 +101,41 @@ class TestForceStop:
         late = bg.get_status("hung_2")
         assert late["status"] == "cancelled" and late["message"] == job_force_stop.FORCE_STOPPED_MESSAGE
         assert late["result"] is None and late["progress"] != 0.9
+
+    def test_an_abandoned_gpu_worker_still_counts_and_its_row_stays_fresh(self, quiet_gpu):
+        hung = HungJob("hung_g", gpu=True)
+        _cancelling_for("hung_g", 61)
+        job_force_stop.force_stop("hung_g")
+        conn = db.get_conn()   # the row has aged past GPU_LOCK_STALE_SECONDS
+        conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
+                     (db.GPU_LOCK_STALE_SECONDS + 60,))
+        conn.commit()
+        conn.close()
+        assert db.gpu_lock_holder_count() == 0, "stale rows are ignored without the heartbeat"
+        bg._heartbeat_once()
+        assert _slot_held("hung_g"), "the heartbeat keeps the abandoned worker's row live"
+
+        second = threading.Event()
+        assert bg.start_job("second_g", second.set, gpu_touching=True) is True
+        assert not second.wait(0.3), "gpu_max_parallel=1: must wait for the abandoned worker"
+
+        hung.release()
+        assert hung.late_writes_done.wait(3)
+        assert _wait_for(lambda: not job_force_stop._live_abandoned("hung_g"))
+        bg.recheck_gpu_queue()
+        assert second.wait(5), "promoted once the abandoned thread has ended"
+
+    def test_an_abandoned_worker_blocks_exclusive_holds_and_drama_checks(self, quiet_gpu):
+        hung = HungJob("dub_77")
+        _cancelling_for("dub_77", 61)
+        job_force_stop.force_stop("dub_77")
+        assert bg.acquire_exclusive("Model cache delete") is False
+        assert bg.any_job_running_for_drama(77) is True
+        hung.release()
+        assert hung.late_writes_done.wait(3)
+        assert _wait_for(lambda: not job_force_stop._live_abandoned("dub_77"))
+        assert bg.acquire_exclusive("Model cache delete") is True
+        bg.release_exclusive()
 
     def test_the_same_id_cannot_restart_until_the_abandoned_worker_ends(self, quiet_gpu):
         hung = HungJob("hung_3")
@@ -176,7 +210,7 @@ class TestGpuProbeOutsideTheLock:
     def test_a_slow_nvidia_smi_does_not_block_status_reads(self, isolated_db, monkeypatch):
         def slow(*_):
             time.sleep(0.4)
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: slow() or False)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: slow() or False)
         monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: slow())
         bg.start_job("other", lambda: time.sleep(0.01))
         starter = threading.Thread(
@@ -195,7 +229,7 @@ class TestGpuProbeOutsideTheLock:
 
     def test_the_prefetched_reading_still_decides_the_slot(self, isolated_db, monkeypatch):
         busy = {"value": True}
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: busy["value"])
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: busy["value"])
         monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None)
         bg.start_job("gpu_a", lambda: None, gpu_touching=True, description="a")
         assert bg.get_status("gpu_a")["status"] == "queued"
@@ -208,7 +242,7 @@ class TestGpuProbeOutsideTheLock:
         import gpu_probe
         calls = []
         monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: calls.append(1) or {"n": len(calls)})
-        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda *_a: False)
         gpu_probe.prefetch()
         assert gpu_probe.external_gpu_load() == {"n": 1}
         assert gpu_probe.external_gpu_load() == {"n": 2}   # second read is live

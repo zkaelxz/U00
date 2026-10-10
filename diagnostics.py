@@ -1734,14 +1734,14 @@ def external_gpu_load() -> dict | None:
         return None
 
 
-def external_gpu_is_busy() -> bool:
+def external_gpu_is_busy(load=...):
     """True if the GPU looks meaningfully loaded by *something* right now,
     per nvidia-smi -- whether or not Baihe itself started it. False (never
     blocks a job) if nvidia-smi isn't available: this is a belt-and-suspenders
     check layered on top of Baihe's own two GPU locks, not a replacement for
     either, so its absence shouldn't be treated as "GPU busy" any more than
     it already is today."""
-    load = external_gpu_load()
+    load = external_gpu_load() if load is ... else load
     if load is None:
         return False
     return (load["utilization_percent"] >= EXTERNAL_GPU_BUSY_UTIL_PERCENT or
