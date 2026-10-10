@@ -86,3 +86,43 @@ test('create (Enter submits) then delete with typed confirmation', async ({ page
   await expect(page.getByRole('dialog', { name: 'E2E Temp Title' })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'E2E Temp Title' })).toHaveCount(0)
 })
+
+// Holds GET /api/dramas until released, and serves one typical card (short title, original title,
+// type, status and language pills) so the loaded height is fixed.
+async function holdOneCard(page: import('@playwright/test').Page, title: string) {
+  let release!: () => void
+  const gate = new Promise<void>((r) => { release = r })
+  await page.route((u) => u.pathname === '/api/library/dramas', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    await gate
+    const res = await route.fetch()
+    const body = await res.json()
+    const one = { ...body.items.find((d: { id: number }) => d.id === 1), title_en: title, custom_tags: [] }
+    await route.fulfill({ response: res, json: { ...body, items: [one], count: 1 } })
+  })
+  return release
+}
+
+test('the loading grid has the loaded card height, so the list does not jump', async ({ page }) => {
+  const release = await holdOneCard(page, 'Signal')
+  await page.goto('/#/library')
+  const loading = page.getByRole('status').filter({ hasText: 'Loading titles' })
+  await expect(loading).toHaveAttribute('aria-busy', 'true')
+  const skeleton = (await page.locator('.drama-grid.skeleton .drama-card').first().boundingBox())!.height
+  release()
+  const card = page.locator('.drama-grid:not(.skeleton) .drama-card').first()
+  await expect(card).toBeVisible()
+  expect(Math.abs((await card.boundingBox())!.height - skeleton)).toBeLessThanOrEqual(4)
+})
+
+test('a 130-character title clamps on its card and keeps the whole title in a title attribute', async ({ page }) => {
+  const long = 'Supercalifragilistic'.repeat(7).slice(0, 130)
+  const release = await holdOneCard(page, long)
+  release()
+  await page.goto('/#/library')
+  const link = page.locator('.drama-grid .drama-card-title').first()
+  await expect(link).toHaveAttribute('title', long)
+  const box = (await link.boundingBox())!
+  const cardBox = (await page.locator('.drama-grid .drama-card').first().boundingBox())!
+  expect(box.x + box.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
+})

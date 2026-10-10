@@ -55,3 +55,18 @@ test('Workspace header on a phone: a 44px back button and the title; media and l
   await expect(page.locator('nav.stage-tabs .stage-count').first()).toBeHidden()
   await expect(page.locator('nav.stage-tabs .stage-mark').first()).toBeVisible()
 })
+
+test('at 360px Read keeps its own width instead of a full-width bar above the stage', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress }))
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/#/drama/1/translate')
+  const read = page.locator('.ws-actions').getByRole('link', { name: 'Read', exact: true })
+  const box = (await read.boundingBox())!
+  expect(box.height).toBeGreaterThanOrEqual(44)
+  expect(box.width).toBeLessThan(360 / 2)
+  expect(box.x + box.width).toBeLessThanOrEqual(360)
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+})
