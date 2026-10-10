@@ -197,6 +197,64 @@ def test_stale_lock_from_a_crash_is_taken_over(data):
     assert pi._acquire_lock(time.time()) is True
 
 
+def _write_lock(data, pid):
+    lock = data / "pending_install" / "apply.lock"
+    os.makedirs(lock.parent, exist_ok=True)
+    lock.write_text(json.dumps({"pid": pid, "time": int(time.time())}))
+    return lock
+
+
+def _dead_pid():
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
+
+
+def test_fresh_lock_of_a_dead_pid_is_stale_and_taken_over(data):
+    _write_lock(data, _dead_pid())
+    assert pi.apply_running() is False
+    assert pi._acquire_lock(time.time()) is True
+
+
+def test_lock_with_our_own_pid_is_running(data):
+    _write_lock(data, os.getpid())
+    assert pi.apply_running() is True
+
+
+def test_old_lock_of_a_live_pid_is_still_stale(data):
+    lock = _write_lock(data, os.getpid())     # pid reuse: the age rule still applies
+    old = time.time() - pi.OVERALL_SECONDS - 600
+    os.utime(lock, (old, old))
+    assert pi.apply_running() is False
+
+
+def test_watchdog_result_keeps_the_packages_the_running_result_named(data, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    Fake(monkeypatch, [{"numpy": "1"}])
+
+    def seen_mid_pip(argv, timeout, echo=False):
+        seen.update(pi.read_result())
+        return None, [], True
+    seen = {}
+    monkeypatch.setattr(pi, "run_capture", seen_mid_pip)
+    pi._CURRENT["stop"] = True      # skips the restore, as the watchdog does
+    try:
+        pi.apply()
+    finally:
+        pi._CURRENT["stop"] = False
+    assert seen["status"] == "running" and seen["before"] == {"numpy": "1"}
+    pi._write_json("result", seen)
+    out = pi._watchdog_result()
+    assert out["status"] == "timed_out"
+    assert out["packages"] == ["paddleocr"] and out["before"] == {"numpy": "1"}
+    assert "versions may have been changed" in out["message"] and "Packages in Diagnostics" in out["message"]
+
+
+def test_watchdog_result_without_a_running_result_has_no_packages(data):
+    out = pi._watchdog_result()
+    assert out["packages"] == [] and out["before"] == {}
+
+
 def test_main_always_exits_zero_so_the_server_still_starts(data, monkeypatch):
     monkeypatch.setattr(pi, "apply", lambda **k: (_ for _ in ()).throw(OSError("disk")))
     assert pi.main([]) == 0
