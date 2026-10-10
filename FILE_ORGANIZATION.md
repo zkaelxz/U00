@@ -108,10 +108,13 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 - `dub.py`
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
+- `loudness.py` (stereo-track loudness measurement and normalising, numpy only; `docs/specs/stereo-track.md`)
 - `media_inspect.py`
 - `review_thresholds.py`
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
+- `stereo_cues.py` (stereo-track placement cues from the script, numpy only; `docs/specs/stereo-track.md`)
+- `stereo_render.py` (stereo-track renderers: pan, delay and level per line, numpy only; `docs/specs/stereo-track.md`)
 - `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
 - `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
 - `video_download.py`
@@ -180,7 +183,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `autotune_service.py` (the "Auto-tune" speech-splitting sensitivity process job: start, status, apply a measured candidate)
 - `backup_import_service.py`
 - `benchmark_case_service.py`
+- `benchmark_judge_service.py`
 - `benchmark_lab_service.py`
+- `benchmark_set_builder_service.py`
 - `blocked_retry_service.py`
 - `browser_install_service.py`
 - `bug_report_service.py`
@@ -203,6 +208,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `disk_usage_service.py`
 - `disk_usage_trash_service.py` (Trash list, Restore, purge and empty)
 - `temp_cleanup_service.py`
+- `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, never the reverse)
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
@@ -314,7 +320,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `benchmark.py`, `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
