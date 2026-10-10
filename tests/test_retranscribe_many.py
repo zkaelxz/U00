@@ -404,10 +404,8 @@ class TestApply:
         svc.apply_retranscribe_many(did, f"retranscribe_{did}", _items(did, {ids[1]}))
         history = isolated_db.list_line_history(did)
         assert len(history) == 1
-        snap = isolated_db.load_line_history_lines(did, history[0]["id"]) \
-            if hasattr(isolated_db, "load_line_history_lines") else None
-        if snap is not None:
-            assert [ln["zh"] if isinstance(ln, dict) else ln.zh for ln in snap][0] == "旧0"
+        snap = isolated_db.get_line_history_snapshot(history[0]["id"])
+        assert snap[0]["zh"] == "旧0"
 
     def test_an_edited_line_wins_and_keeps_its_english(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)

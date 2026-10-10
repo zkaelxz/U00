@@ -205,7 +205,7 @@ def add_gap_lines(drama_id: int, expected_line_ids, *, start, end,
     expected = restructure._id_list("expected_line_ids", expected_line_ids)
     current = db.load_line_objects(drama_id)
     restructure._check_expected(current, expected)
-    _check_free(current, _insert_pos(current, after_line_id), start, end)
+    _check_free(current, after_line_id, start, end)
     with _scan_slot(drama_id):
         duration = transcribe_pipeline._audio_duration_seconds(audio_path)
         if duration is not None and end > duration + _DURATION_TOLERANCE_S:
@@ -217,8 +217,8 @@ def add_gap_lines(drama_id: int, expected_line_ids, *, start, end,
     how = "single" if len(pieces) == 1 else "pauses" if on_pauses else "even"
 
     def build(lines):
-        pos = _insert_pos(lines, after_line_id)
-        _check_free(lines, pos, start, end)
+        _check_free(lines, after_line_id, start, end)
+        pos = _insert_pos(lines, start)
         new = [core_module.Line(idx=pos + i, start=s, end=e, zh="", en="", flag=GAP_FLAG,
                                 flag_note=GAP_FLAG_NOTE)
                for i, (s, e) in enumerate(pieces)]
@@ -228,13 +228,21 @@ def add_gap_lines(drama_id: int, expected_line_ids, *, start, end,
     return {**result, "new_line_ids": [ln["id"] for ln in result["lines"]], "split": how}
 
 
-def _insert_pos(lines, after_line_id) -> int:
-    return 0 if after_line_id is None else restructure._index_of(lines, after_line_id) + 1
+def _insert_pos(lines, start: float) -> int:
+    """After the last stored line that starts at or before the gap. Stored
+    order is not time order (nested and untimed lines), so the neighbour's
+    list position would put the new lines in the wrong place. Untimed lines
+    are skipped: their start says nothing about where they sit in time."""
+    return 1 + max((i for i, ln in enumerate(lines)
+                    if float(ln.end) > float(ln.start) and float(ln.start) <= start), default=-1)
 
 
-def _check_free(lines, pos: int, start: float, end: float):
-    if (any(float(ln.end) > start + _EDGE_TOLERANCE_S for ln in lines[:pos])
-            or any(float(ln.start) < end - _EDGE_TOLERANCE_S for ln in lines[pos:])):
+def _check_free(lines, after_line_id, start: float, end: float):
+    if after_line_id is not None:
+        restructure._index_of(lines, after_line_id)  # 404 for an unknown id
+    # Untimed lines cover nothing, matching find_line_gaps.
+    if any(float(ln.end) > float(ln.start) and float(ln.start) < end - _EDGE_TOLERANCE_S
+           and float(ln.end) > start + _EDGE_TOLERANCE_S for ln in lines):
         raise ConflictError("A line now covers part of this stretch -- reload and try again.")
 
 
