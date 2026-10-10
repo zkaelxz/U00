@@ -160,7 +160,7 @@ function MediaJobSection({ title, label, kind, start, blockedReason, startError,
       {startError?.kind === (testId ?? kind) && (
         <ErrorBanner error={startError.error} describe={{ reasonAsTitle: true }} onDismiss={() => onStartError(null)} />
       )}
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel jobId={jobId} job={job} pollError={pollError} lastRun={{ dramaId, ids: [mediaExportJobId(dramaId, kind)], retryFor: () => run }} />
       {artifact && (jobId === null || jobSucceeded(job)) && (
         <p data-testid={`artifact-${testId ?? kind}`}>
           <a href={artifactUrl(dramaId, kind)} download>Download {artifact.name}</a>{' '}

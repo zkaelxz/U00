@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { dubJobIds, isBulkJobId, isResegmentPreviewJob, resegmentJobIds, mediaExportJobId, reviewJobIds, translateJobIds, voiceCloneJobId } from './stageJobIds'
+import { dubJobIds, isBulkJobId, isResegmentPreviewJob, resegmentJobIds, mediaExportJobId, reviewJobIds, reviewKindOf, translateJobIds, voiceCloneJobId } from './stageJobIds'
 
 describe('stage job ids', () => {
   it('match the server-side per-drama job ids', () => {
@@ -17,6 +17,12 @@ describe('stage job ids', () => {
     expect(resegmentJobIds(3)).toEqual(['resegment_3', 'resegpreview_3'])
     expect(isResegmentPreviewJob('resegpreview_3')).toBe(true)
     expect(isResegmentPreviewJob('resegment_3')).toBe(false)
+  })
+  it('names the check a review job id was started for, so Retry calls the same start', () => {
+    expect(reviewKindOf('fixflag_3')).toBe('fix-flagged')
+    expect(reviewKindOf('notes_3')).toBe('notes')
+    expect(reviewKindOf('bulk_flag_3')).toBeNull()
+    expect(reviewKindOf('translate_3')).toBeNull()
   })
   it('tells bulk batches from normal runs', () => {
     expect(isBulkJobId('bulk_translate_3')).toBe(true)

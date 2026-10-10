@@ -293,7 +293,13 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
           </>
         )}
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        // The rules re-segment needs a fresh preview first; the AI preview can always be run again.
+        lastRun={{ dramaId, ids: resegmentJobIds(dramaId), retryFor: (j) => (isResegmentPreviewJob(j.job_id) ? startAiPreview : preview ? start : null) }}
+      />
     </div>
   )
 }

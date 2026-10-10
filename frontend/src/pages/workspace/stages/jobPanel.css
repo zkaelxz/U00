@@ -1,0 +1,7 @@
+/* Job panel and Last run card (JobPanel.tsx). Long server messages wrap
+   rather than widen the page on a phone. */
+.job-panel p { overflow-wrap: anywhere; }
+.job-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.job-panel-actions > p { margin: 0; }
+.job-stuck { flex: 1 1 14rem; }
+.last-run-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }

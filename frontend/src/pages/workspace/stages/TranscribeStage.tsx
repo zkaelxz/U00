@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 
 import { asrBackendOptions } from '../../../api/asrOptions'
 import { analyzeMedia } from '../../../api/metadata'
@@ -111,6 +111,8 @@ interface Props {
   // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
   // sentFile: the run was started by uploading `file`.
   onJobStarted: (jobId: string, expectedSeconds?: number | null, sentFile?: boolean) => void
+  // Set to the Transcribe action, so the Source stage's Last run card can run it again with this form.
+  retryRef?: MutableRefObject<(() => void) | null>
 }
 
 type ConfigForm = {
@@ -166,7 +168,7 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
 })
 
 export default function TranscribeStage({
-  mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, onJobStarted,
+  mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, onJobStarted, retryRef,
 }: Props) {
   const { dramaId, drama } = useStage()
   const developerMode = useDeveloperMode()
@@ -445,6 +447,10 @@ export default function TranscribeStage({
       onJobStarted(r.job_id, expectedRunSeconds, !!uploadFile)
     }, fail)
   }
+
+  useEffect(() => {
+    if (retryRef) retryRef.current = transcribe
+  })
 
   const diarize = () => {
     const hints = parseSpeakerHints(speakers, minSpeakers, maxSpeakers)

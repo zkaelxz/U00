@@ -82,7 +82,7 @@ export function AiExtrasSenseVoice({ dramaId, reloads }: Props) {
         )}
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel jobId={jobId} job={job} pollError={pollError} lastRun={{ dramaId, ids: [senseVoiceJobId(dramaId)], retryFor: () => start }} />
       {tags && <p data-testid="sensevoice-summary">{senseVoiceSummary(tags)}</p>}
       {tags && tags.rows.length > 0 && (
         <div className="table-scroll">
