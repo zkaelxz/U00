@@ -240,6 +240,56 @@ class TestGenericComicImport:
         assert rejected[0].url.endswith("square.jpg") and "shape" in rejected[0].reject_reason
 
 
+    def test_images_on_another_host_get_only_the_page_origin_as_referer(self, isolated_db):
+        page = "https://comic.invalid/read/1?token=secret"
+        routes = {"https://comic.invalid/p1.png": image(800, 1200, 1),
+                  "https://cdn.other.invalid/p2.png": image(800, 1200, 2)}
+        t = ScriptedTransport(routes)
+        cands = [generic_import.ImageCandidate("https://comic.invalid/p1.png", 0),
+                 generic_import.ImageCandidate("https://cdn.other.invalid/p2.png", 1)]
+        generic_import.download_candidates(cands, page, make_client("generic", t))
+        referers = {c["url"]: c["headers"]["Referer"] for c in t.calls}
+        assert referers["https://comic.invalid/p1.png"] == page
+        assert referers["https://cdn.other.invalid/p2.png"] == "https://comic.invalid/"
+
+    def test_referer_origin_keeps_the_port_and_drops_credentials(self):
+        assert generic_import.image_referer(
+            "https://cdn.invalid/a.png", "http://user:pw@site.invalid:8080/c/1?k=v") \
+            == "http://site.invalid:8080/"
+        assert generic_import.image_referer("http://site.invalid/a.png",
+                                            "https://site.invalid/c/1") == "https://site.invalid/"
+
+    def test_downloads_without_a_budget_use_the_page_upload_rules(self, isolated_db, monkeypatch):
+        from services import page_import_limits as limits
+        budget = generic_import.default_budget()
+        assert (budget.max_images, budget.max_total_bytes) == (limits.MAX_FILES_PER_IMPORT,
+                                                               limits.MAX_IMPORT_BYTES)
+        assert budget.allowed_formats == limits.ALLOWED_IMAGE_TYPES
+        monkeypatch.setattr(generic_import, "default_budget",
+                            lambda: generic_import.DownloadBudget(2, 10**9))
+        t = ScriptedTransport({f"https://comic.invalid/{i}.png": image(800, 1200, i)
+                               for i in range(5)})
+        cands = [generic_import.ImageCandidate(f"https://comic.invalid/{i}.png", i)
+                 for i in range(5)]
+        generic_import.download_candidates(cands, "https://comic.invalid/r/1",
+                                           make_client("generic", t))
+        assert len(t.calls) == 2
+        assert sum("too many images" in c.reject_reason for c in cands) == 3
+
+    def test_manifest_scan_is_linear_on_a_script_of_slashes(self):
+        import time
+        page = "<script>" + "/" * 120_000 + "</script><script>var u='//cdn.invalid/a/1.jpg'</script>"
+        started = time.monotonic()
+        found = generic_import.manifest_candidates(page, "https://comic.invalid/r/1")
+        assert time.monotonic() - started < 2.0
+        assert [c.url for c in found] == ["https://cdn.invalid/a/1.jpg"]
+
+    def test_manifest_path_is_bounded(self):
+        far = "//cdn.invalid/" + "a" * (generic_import.MANIFEST_URL_MAX_PATH + 10) + ".png"
+        near = "//cdn.invalid/b.png?x=1"
+        assert list(generic_import._manifest_urls(f"{far} {near}")) == [near]
+
+
 # ---------------------------------------------------------------------------
 # Generic novel-text import
 # ---------------------------------------------------------------------------
@@ -254,6 +304,15 @@ NOVEL_PAGE = ("<html><head><title>第12章 雨夜</title></head><body>"
 
 
 class TestGenericNovelImport:
+    def test_deeply_nested_markup_is_scored_in_linear_time(self):
+        import time
+        n = 4000                                      # about 92 KB
+        page = "<div><p>word " * n + "</p></div>" * n
+        started = time.monotonic()
+        text = generic_import.extract_main_text_heuristic(page)
+        assert time.monotonic() - started < 3.0
+        assert text.startswith("word")
+
     @pytest.mark.parametrize("use_trafilatura", [True, False])
     def test_extracts_main_text_into_the_raw_novel_path(self, isolated_db, monkeypatch,
                                                         use_trafilatura):
