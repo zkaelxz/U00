@@ -12,6 +12,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { HIDE_ON } from '../components/jobsMenuState'
+import { upsertJob } from '../pages/diagnosticsFormat'
 import type { JobRecord } from '../types/jobs'
 
 export interface JobsState {
@@ -35,6 +36,41 @@ export function useJobs(): JobsState {
 /** 401, 403 or 404 from the list route: this viewer or server can't list jobs, so the popover hides and the page says why. */
 export function jobsRefusal(error: unknown): number | null {
   return error instanceof ApiError && HIDE_ON.includes(error.status) ? error.status : null
+}
+
+export interface JobsSync {
+  /** Start a GET /api/jobs; returns its token. */
+  begin(): number
+  /** Note a pushed 'job' (the record) or 'job_gone' (null). */
+  push(jobId: string, job: JobRecord | null): void
+  /** The list to show for a GET's answer, or null if a newer GET has started. */
+  settle(token: number, items: JobRecord[]): JobRecord[] | null
+  isCurrent(token: number): boolean
+}
+
+/** Orders GETs against pushes. A GET's snapshot can predate a push that
+ * arrives while it is in flight (a job finishing), so only the newest GET
+ * applies and those pushes are replayed over it; otherwise a done job would
+ * flip back to running. */
+export function createJobsSync(): JobsSync {
+  let seq = 0
+  let pushed = new Map<string, JobRecord | null>()
+  return {
+    begin() {
+      pushed = new Map()
+      return ++seq
+    },
+    push(jobId, job) {
+      pushed.set(jobId, job)
+    },
+    settle(token, items) {
+      if (token !== seq) return null
+      let out = items
+      for (const [id, job] of pushed) out = job ? upsertJob(out, job) : out.filter((j) => j.job_id !== id)
+      return out
+    },
+    isCurrent: (token) => token === seq,
+  }
 }
 
 /** Seconds since the epoch, re-read every second while `live`, for running-job durations. */

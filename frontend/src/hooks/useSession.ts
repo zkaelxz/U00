@@ -5,11 +5,14 @@
  *
  *   loading      /me has not answered: App shows "Connecting…".
  *   ready        /me answered. auth_enabled && !signed_in -> Login page only.
- *   unavailable  /me failed (API down, or an older API without it): the app
- *                renders exactly as before sign-in existed; routes still enforce.
+ *   unavailable  /me failed (API down or restarting): the app renders, routes
+ *                still enforce, and /me is retried with capped backoff until
+ *                it answers, so one blip doesn't last the whole page load.
  *
  * Any 401 from any call (api/client.ts onUnauthorized) marks the session
- * signed out, which swaps in the Login page.
+ * signed out. App shows the Login page, or, if the app was already on screen,
+ * a sign-in overlay above it so unsaved drafts stay mounted. Sign out always
+ * shows the Login page, so nothing stays behind on a shared device.
  */
 import { useEffect, useSyncExternalStore } from 'react'
 
@@ -18,7 +21,8 @@ import { ApiError, onUnauthorized } from '../api/client'
 
 export type SessionState =
   | { status: 'loading' }
-  | { status: 'ready'; me: AuthMe }
+  // expired: signed out by a 401 while the app was on screen, not by Sign out.
+  | { status: 'ready'; me: AuthMe; expired?: boolean }
   | { status: 'unavailable' }
 
 type GateView = 'connecting' | 'login' | 'app'
@@ -62,11 +66,26 @@ export function isRemoteAdmin(s: SessionState): boolean {
   return s.status === 'ready' && !!u && u.is_admin && !u.is_local_owner && !s.me.permissions.includes('admin.library')
 }
 
+/** Offer Sign out? With a signed-in user, and while /me is unavailable: the
+ * session cookie may still be good, and the person must be able to end it. */
+export function canSignOut(s: SessionState): boolean {
+  return menuUser(s) !== null || s.status === 'unavailable'
+}
+
+/** True when a 401 signed this tab out mid-visit: App keeps the app mounted under a sign-in overlay. */
+export function sessionExpired(s: SessionState): boolean {
+  return s.status === 'ready' && !!s.expired && gateView(s) === 'login'
+}
+
 /** The server said 401 (or the user signed out): show the Login page. */
-export function markSignedOut(): void {
+export function markSignedOut(expired = false): void {
   const prev = state.status === 'ready' ? state.me : null
+  // A signed-out app keeps polling behind the overlay; each 401 must not re-render it.
+  // Sign out still goes through, so the Login page replaces the overlay.
+  if (expired && prev && prev.auth_enabled && !prev.signed_in) return
   set({
     status: 'ready',
+    expired: expired && gateView(state) === 'app',
     me: {
       // A 401 only happens with auth on.
       auth_enabled: true,
@@ -79,20 +98,44 @@ export function markSignedOut(): void {
   })
 }
 
-onUnauthorized(markSignedOut)
+onUnauthorized(() => markSignedOut(true))
 
 let load: Promise<void> | null = null
+let retryTimer: ReturnType<typeof setTimeout> | undefined
 
-/** Fetch /api/auth/me once per page load. */
-export function loadSession(fetchMe: () => Promise<AuthMe> = () => apiMe()): Promise<void> {
-  load ??= fetchMe().then(
+/** Delays between /me retries while it is unavailable; the last one repeats. */
+export const ME_RETRY_MS = [1000, 2000, 5000, 10000, 30000]
+
+function fetchSession(fetchMe: () => Promise<AuthMe>, attempt: number): Promise<void> {
+  return fetchMe().then(
     (me) => set({ status: 'ready', me }),
-    () => {
-      // A 401 already switched to signed out; anything else: carry on as before sign-in.
+    (e: unknown) => {
+      // A 401 already switched to signed out; nothing to retry.
+      if (e instanceof ApiError && e.status === 401) return
+      if (state.status !== 'loading' && state.status !== 'unavailable') return
       if (state.status === 'loading') set({ status: 'unavailable' })
+      const delay = ME_RETRY_MS[Math.min(attempt, ME_RETRY_MS.length - 1)]
+      retryTimer = setTimeout(() => void fetchSession(fetchMe, attempt + 1), delay)
     },
   )
+}
+
+/** Fetch /api/auth/me once per page load (retrying while it fails). */
+export function loadSession(fetchMe: () => Promise<AuthMe> = () => apiMe()): Promise<void> {
+  load ??= fetchSession(fetchMe, 0)
   return load
+}
+
+/** Ask /me again now, e.g. after signing in from another tab. */
+export function recheckSession(fetchMe: () => Promise<AuthMe> = () => apiMe()): Promise<void> {
+  return fetchMe().then(
+    (me) => {
+      // Still signed out: keep the overlay (and the drafts under it) rather than swap in Login.
+      if (sessionExpired(state) && me.auth_enabled && !me.signed_in) return
+      set({ status: 'ready', me })
+    },
+    () => undefined,
+  )
 }
 
 /** POST /api/auth/logout, then show the Login page. Errors propagate for the caller to show. */
@@ -117,6 +160,7 @@ export function useSession(): SessionState {
 /** Test-only: forget the session and the cached /me load. */
 export function resetSessionForTests(next: SessionState = { status: 'loading' }): void {
   load = null
+  clearTimeout(retryTimer)
   state = next
   listeners.clear()
 }
