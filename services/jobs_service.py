@@ -515,7 +515,8 @@ JOB_PAGE_BY_ID = {
     "discover_bulk_extract": "discover", "discover_navigation_help": "discover",
     "library_backup": "settings", "library_db_backup": "settings",
     "library_user_backup": "settings", "library_auto_backup": "settings",
-    "deno_install": "diagnostics", "browser_install": "diagnostics", "upgrade_check": "diagnostics",
+    "deno_install": "diagnostics", "dependency_install": "diagnostics",
+    "browser_install": "diagnostics", "upgrade_check": "diagnostics",
 }
 JOB_PAGE_BY_PREFIX = {
     "sources_series_": "sources", "sources_signin_": "sources", "sources_tiertest_": "sources",

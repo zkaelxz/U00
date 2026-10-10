@@ -143,3 +143,26 @@ def test_run_captured_keeps_only_the_newest_output(monkeypatch):
     out = job_process_run.run_captured([sys.executable, "-c", script], 30.0)
     assert "line 499" in out.stdout and "line 0\n" not in out.stdout
     assert len(out.stdout) < 400
+
+
+@pytest.mark.skipif(os.name == "nt", reason="uses a shebang script as the fake venv python")
+def test_throwaway_venv_probe_survives_a_non_utf8_child_locale(tmp_path, monkeypatch):
+    import diagnostics
+
+    wanted = tmp_path / "张三" / "site-packages"
+    fake = tmp_path / "fake_python"
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        f"p = {str(wanted)!r}\n"
+        "utf8 = os.environ.get('PYTHONUTF8') == '1' or os.environ.get('PYTHONIOENCODING') == 'utf-8'\n"
+        "sys.stdout.buffer.write(p.encode('utf-8') if utf8 else p.encode('cp936'))\n"
+    )
+    fake.chmod(0o755)
+    monkeypatch.setattr(diagnostics, "_venv_python", lambda venv_dir: str(fake))
+
+    venv_py, err = diagnostics._make_throwaway_venv(
+        str(tmp_path), "trial", sys.executable, ["/parent/site"])
+
+    assert err is None
+    assert (wanted / "_baihe_parent_env.pth").read_text(encoding="utf-8") == "/parent/site\n"

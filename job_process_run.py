@@ -38,6 +38,13 @@ def _group_kwargs() -> dict:
     return {"start_new_session": True}
 
 
+def _utf8_env(env: dict = None) -> dict:
+    """The output is always decoded as UTF-8, but a child Python on Windows
+    writes piped text in the ANSI code page unless told otherwise, which
+    corrupts non-ASCII paths (a user name like 张三) the parent parses."""
+    return dict(os.environ if env is None else env, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+
+
 def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stderr: bool,
             cwd, env):
     """Yields ("out" | "err", line) per output line, then
@@ -46,7 +53,8 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
     proc = subprocess.Popen(
         cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE, text=True,
-        encoding="utf-8", errors="replace", bufsize=1, cwd=cwd, env=env, **_group_kwargs())
+        encoding="utf-8", errors="replace", bufsize=1, cwd=cwd, env=_utf8_env(env),
+        **_group_kwargs())
     items = queue.Queue()
 
     def reader(stream, tag):

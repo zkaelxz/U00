@@ -75,7 +75,6 @@ __all__ = [
     "DiagnosticsTorchVerify",
     "DiagnosticsGpuTorchStatus",
     "DiagnosticsGpuTorchSetupRequest",
-    "DiagnosticsGpuTorchSetupResult",
     "DiagnosticsResetRequest",
     "DiagnosticsResetResult",
     "ExtensionStatus",
@@ -684,11 +683,6 @@ class DiagnosticsGpuTorchSetupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
     variant: Optional[Literal["cu128", "cpu"]] = None
-
-
-class DiagnosticsGpuTorchSetupResult(DiagnosticsInstallResult):
-    variant: str
-    verify: Optional[DiagnosticsTorchVerify] = None
 
 
 class DiagnosticsResetRequest(BaseModel):

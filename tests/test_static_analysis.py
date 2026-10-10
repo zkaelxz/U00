@@ -4,6 +4,7 @@ compile check or unit test can: every outbound HTTP call has a timeout=,
 and the requirements/constraints files stay consistent with the launchers.
 """
 import ast
+import collections
 import os
 import re
 import sys
@@ -822,20 +823,58 @@ _CAPTURE_ALLOWED = {
 }
 
 
-def _find_capturing_subprocess_calls(source):
-    """Names of the functions (or "<module>") with a subprocess.run/Popen/...
-    call that captures output: capture_output=True, or stdout=/stderr=
-    subprocess.PIPE."""
-    def captures(call):
+_ALWAYS_CAPTURING = {"check_output", "getoutput", "getstatusoutput"}
+
+
+# Allowed functions with more than one capturing call (default 1).
+_CAPTURE_MAX_CALLS = {}
+
+
+def _count_capturing_subprocess_calls(source):
+    """{function name or "<module>": number of calls} for the functions (or "<module>") with a subprocess call that
+    capture output: capture_output=True, stdout=/stderr= PIPE (also -1, or
+    PIPE imported by name), or check_output/getoutput/getstatusoutput. Resolves
+    `import subprocess as sp` and `from subprocess import run [as r]`."""
+    tree = ast.parse(source)
+    modules, funcs, pipes = set(), {}, set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules |= {a.asname or a.name for a in node.names if a.name == "subprocess"}
+        elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+            for a in node.names:
+                if a.name in _SUBPROCESS_CALLS | _ALWAYS_CAPTURING:
+                    funcs[a.asname or a.name] = a.name
+                elif a.name == "PIPE":
+                    pipes.add(a.asname or a.name)
+
+    def is_pipe(value):
+        if isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.USub):
+            return isinstance(value.operand, ast.Constant) and value.operand.value == 1
+        if isinstance(value, ast.Name):
+            return value.id in pipes
+        return (isinstance(value, ast.Attribute) and value.attr == "PIPE"
+                and isinstance(value.value, ast.Name) and value.value.id in modules)
+
+    def called(call):
+        f = call.func
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in modules:
+            return f.attr
+        if isinstance(f, ast.Name):
+            return funcs.get(f.id)
+        return None
+
+    def captures(name, call):
+        if name in _ALWAYS_CAPTURING:
+            return True
         for kw in call.keywords:
             if kw.arg == "capture_output" and not (
                     isinstance(kw.value, ast.Constant) and kw.value.value is False):
                 return True
-            if kw.arg in ("stdout", "stderr") and ast.unparse(kw.value) == "subprocess.PIPE":
+            if kw.arg in ("stdout", "stderr") and is_pipe(kw.value):
                 return True
         return False
 
-    found = set()
+    found = collections.Counter()
 
     class Visitor(ast.NodeVisitor):
         def __init__(self):
@@ -849,21 +888,23 @@ def _find_capturing_subprocess_calls(source):
         visit_AsyncFunctionDef = visit_FunctionDef
 
         def visit_Call(self, call):
-            f = call.func
-            if (isinstance(f, ast.Attribute) and f.attr in _SUBPROCESS_CALLS
-                    and isinstance(f.value, ast.Name) and f.value.id == "subprocess"
-                    and captures(call)):
-                found.add(self.stack[-1] if self.stack else "<module>")
+            name = called(call)
+            if name in _SUBPROCESS_CALLS | _ALWAYS_CAPTURING and captures(name, call):
+                found[self.stack[-1] if self.stack else "<module>"] += 1
             self.generic_visit(call)
 
-    Visitor().visit(ast.parse(source))
+    Visitor().visit(tree)
     return found
+
+
+def _find_capturing_subprocess_calls(source):
+    return set(_count_capturing_subprocess_calls(source))
 
 
 class TestCapturingSubprocessCallsUseTheRunner:
     @staticmethod
     def _scan():
-        found = set()
+        found = collections.Counter()
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in _CAPTURE_SCAN_SKIP]
             for name in files:
@@ -871,11 +912,14 @@ class TestCapturingSubprocessCallsUseTheRunner:
                 if not name.endswith(".py") or name.startswith("test_") or rel == "job_process_run.py":
                     continue
                 with open(os.path.join(root, name), encoding="utf-8") as f:
-                    found |= {f"{rel}::{fn}" for fn in _find_capturing_subprocess_calls(f.read())}
+                    for fn, n in _count_capturing_subprocess_calls(f.read()).items():
+                        found[f"{rel}::{fn}"] = n
         return found
 
     def test_only_allow_listed_probes_capture_output_directly(self):
-        new = sorted(self._scan() - set(_CAPTURE_ALLOWED))
+        # Counted per function so a second capture inside an allowed one is caught.
+        new = sorted(k for k, n in self._scan().items()
+                     if k not in _CAPTURE_ALLOWED or n > _CAPTURE_MAX_CALLS.get(k, 1))
         assert new == [], (
             f"subprocess call capturing output outside job_process_run: {new}. A command that can run "
             "for more than a few seconds uses job_process_run.run_captured / stream_tree "
@@ -883,15 +927,22 @@ class TestCapturingSubprocessCallsUseTheRunner:
             "_CAPTURE_ALLOWED with its reason.")
 
     def test_allow_list_has_no_stale_entries(self):
-        stale = sorted(set(_CAPTURE_ALLOWED) - self._scan())
+        stale = sorted(set(_CAPTURE_ALLOWED) - set(self._scan()))
         assert stale == [], f"remove from _CAPTURE_ALLOWED (moved to the runner or deleted): {stale}"
 
     def test_checker_finds_each_capturing_form(self):
-        src = ("import subprocess\n"
+        src = ("import subprocess\nimport subprocess as sp\n"
+               "from subprocess import run, PIPE, Popen as P\n"
                "def a():\n    subprocess.run(['x'], capture_output=True)\n"
                "def b():\n    subprocess.Popen(['x'], stdout=subprocess.PIPE)\n"
-               "def c():\n    subprocess.check_output(['x'], stderr=subprocess.PIPE)\n"
+               "def c():\n    subprocess.check_output(['x'], timeout=5)\n"
                "def d():\n    subprocess.run(['x'], capture_output=False)\n"
                "def e():\n    subprocess.run(['x'], stdout=subprocess.DEVNULL)\n"
+               "def f():\n    run(['x'], stdout=PIPE)\n"
+               "def g():\n    sp.run(['x'], stderr=sp.PIPE)\n"
+               "def h():\n    P(['x'], stdout=-1)\n"
+               "def i():\n    subprocess.getoutput('x')\n"
+               "def j():\n    run(['x'])\n"
                "subprocess.run(['x'], capture_output=True)\n")
-        assert _find_capturing_subprocess_calls(src) == {"a", "b", "c", "<module>"}
+        assert _find_capturing_subprocess_calls(src) == {
+            "a", "b", "c", "f", "g", "h", "i", "<module>"}
