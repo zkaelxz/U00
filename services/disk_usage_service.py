@@ -69,6 +69,7 @@ import background_jobs
 import db
 import portable
 import storage
+from jobs import gpu_slots
 from services import auto_backup_service as abs_
 from services import disk_usage_links
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -754,7 +755,7 @@ def _busy_under_hold() -> bool:
             or library_admin_service.any_job_running()):
         return True
     try:
-        return db.gpu_lock_status()[0] is not None
+        return gpu_slots.status()[0] is not None
     except Exception:
         return True
 

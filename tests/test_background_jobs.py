@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import background_jobs as bg
 import db
 import diagnostics_torch
+from jobs import gpu_slots
 
 
 def _isolate_library():
@@ -749,137 +750,6 @@ class TestStallDetection:
         bg.clear_job("tick_a")
 
 
-class TestGpuParallelSlots:
-    """gpu_max_parallel lets more than one GPU job run when nvidia-smi shows
-    enough free VRAM; never more than the cap, and one at a time when free
-    VRAM can't be read."""
-
-    def setup_method(self):
-        self._library_state = _isolate_library()
-        bg.set_gpu_limit_enabled(True)
-        self._releases = []
-
-    def teardown_method(self):
-        for ev in self._releases:
-            ev.set()
-        for jid in list(bg.list_all_jobs()):
-            _wait(jid)
-        bg.clear_all_jobs()
-        _restore_library(*self._library_state)
-
-    @pytest.fixture(autouse=True)
-    def _gpu(self, monkeypatch):
-        self.free_mb = {"value": 20000.0}
-        monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: False)
-        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: None if self.free_mb["value"] is None
-                            else {"utilization_percent": 90.0, "memory_used_mb": 0.0,
-                                  "memory_total_mb": 24000.0, "memory_free_mb": self.free_mb["value"]})
-        monkeypatch.setattr(bg, "GPU_PARALLEL_SETTLE_SECONDS", 0)
-
-    def _start(self, job_id):
-        release = threading.Event()
-        self._releases.append(release)
-        assert bg.start_job(job_id, release.wait, 5, gpu_touching=True) is True
-        return release
-
-    def _status(self, job_id):
-        return bg.get_status(job_id)["status"]
-
-    def test_default_is_one_at_a_time(self):
-        assert bg.get_gpu_max_parallel() == 1
-        self._start("par_a")
-        self._start("par_b")
-        assert self._status("par_a") == "running"
-        assert self._status("par_b") == "queued"
-
-    def test_cap_is_never_exceeded(self):
-        bg.set_gpu_max_parallel(2)
-        self._start("par_a")
-        self._start("par_b")
-        self._start("par_c")
-        assert [self._status(j) for j in ("par_a", "par_b", "par_c")] == ["running", "running", "queued"]
-        assert db.gpu_lock_holder_count() == 2
-        bg.recheck_gpu_queue()
-        assert self._status("par_c") == "queued"
-
-    def test_low_free_vram_holds_the_job(self):
-        bg.set_gpu_max_parallel(3)
-        self.free_mb["value"] = bg.GPU_PARALLEL_RESERVE_MB - 1
-        self._start("par_a")
-        self._start("par_b")
-        assert self._status("par_b") == "queued"
-
-    def test_no_nvidia_smi_runs_one_at_a_time(self):
-        bg.set_gpu_max_parallel(4)
-        self.free_mb["value"] = None
-        self._start("par_a")
-        self._start("par_b")
-        assert self._status("par_b") == "queued"
-
-    def test_settle_time_holds_a_second_job_until_the_first_has_loaded(self, monkeypatch):
-        monkeypatch.setattr(bg, "GPU_PARALLEL_SETTLE_SECONDS", 3600)
-        bg.set_gpu_max_parallel(2)
-        self._start("par_a")
-        self._start("par_b")
-        assert self._status("par_b") == "queued"
-
-    def test_queued_job_starts_when_vram_frees(self):
-        bg.set_gpu_max_parallel(2)
-        self.free_mb["value"] = 500.0
-        self._start("par_a")
-        self._start("par_b")
-        assert self._status("par_b") == "queued"
-        self.free_mb["value"] = 20000.0
-        bg.recheck_gpu_queue()
-        assert self._status("par_b") == "running"
-        assert self._status("par_a") == "running"
-
-    def test_promotion_is_first_come_first_served(self):
-        bg.set_gpu_max_parallel(2)
-        self.free_mb["value"] = 500.0
-        release_a = self._start("par_a")
-        self._start("par_b")
-        self._start("par_c")
-        # VRAM frees, but a new arrival still queues behind the waiting ones.
-        self.free_mb["value"] = 20000.0
-        self._start("par_d")
-        assert [self._status(j) for j in ("par_b", "par_c", "par_d")] == ["queued"] * 3
-        self.free_mb["value"] = 500.0
-        release_a.set()  # a's slot frees: b (the head) gets it, not c or d
-        assert _wait_for(lambda: self._status("par_b") == "running")
-        assert self._status("par_c") == "queued" and self._status("par_d") == "queued"
-        self.free_mb["value"] = 20000.0
-        bg.recheck_gpu_queue()
-        assert self._status("par_c") == "running"
-        assert self._status("par_d") == "queued"
-
-    def test_a_cli_holder_counts_toward_the_cap(self):
-        bg.set_gpu_max_parallel(2)
-        assert db.try_acquire_gpu_lock("cli:1", "CLI translate")
-        self._start("par_a")
-        self._start("par_b")
-        assert self._status("par_a") == "running"
-        assert self._status("par_b") == "queued"
-        assert db.gpu_lock_holder_count() == 2
-
-    def test_cli_takes_the_same_shared_slot_check(self):
-        bg.set_gpu_max_parallel(2)
-        self._start("par_a")
-        assert bg.try_take_gpu_slot("cli:1", "CLI translate") is True
-        assert bg.try_take_gpu_slot("cli:2", "CLI translate") is False  # cap of 2 reached
-        db.release_gpu_lock("cli:1")
-        self.free_mb["value"] = None
-        assert bg.try_take_gpu_slot("cli:1", "CLI translate") is False  # no reading: one at a time
-
-    def test_setting_is_clamped(self):
-        bg.set_gpu_max_parallel(0)
-        assert bg.get_gpu_max_parallel() == 1
-        bg.set_gpu_max_parallel(9)
-        assert bg.get_gpu_max_parallel() == 4
-        db.set_app_setting("gpu_max_parallel", "lots")
-        assert bg.get_gpu_max_parallel() == 1
-
-
 class TestCancelQueued:
     """Step 9f item 3: a queued job's own Cancel button used to call
     clear_job() unconditionally, but _promote_next_queued_gpu_job() can
@@ -1351,7 +1221,7 @@ class TestProcessJobOnDone:
         assert bg.get_status(job_id)["status"] == "done"
         assert events == ["kill", "release", "finish"]
         assert instances[0].terminated is True
-        assert db.gpu_lock_holder_count() == 0
+        assert gpu_slots.holder_count() == 0
         bg.clear_job(job_id)
 
     def test_a_worker_that_exited_is_not_killed_again(self, monkeypatch):
@@ -1396,11 +1266,11 @@ class TestProcessJobOnDone:
         assert _wait_for(lambda: finished == [job_id])
         assert reran == [True]
         assert bg.get_status(job_id)["status"] == "running"
-        assert db.gpu_lock_holder_count() == 1
+        assert gpu_slots.holder_count() == 1
 
         bg.request_cancel(job_id)
         assert _wait_for(lambda: bg.get_status(job_id)["status"] == "cancelled")
-        assert _wait_for(lambda: db.gpu_lock_holder_count() == 0)
+        assert _wait_for(lambda: gpu_slots.holder_count() == 0)
         bg.clear_job(job_id)
 
     def test_start_method_picks_the_context_also_through_the_gpu_queue(self, monkeypatch):
@@ -1523,7 +1393,7 @@ class TestProcessJobOnDone:
         assert _wait_for(lambda: sorted(finished) == sorted(["test_build_holder", job_id]))
         status = bg.get_status(job_id)
         assert status["status"] == "error" and "Too many open files" in status["error"]
-        assert _wait_for(lambda: db.gpu_lock_holder_count() == 0)
+        assert _wait_for(lambda: gpu_slots.holder_count() == 0)
         assert len(instances) == 1
         time.sleep(0.1)
         assert sorted(finished) == sorted(["test_build_holder", job_id])
@@ -1759,7 +1629,7 @@ class TestProcessJobHookCancelled:
 class TestHeartbeatRefreshesRunningGpuRows:
     def test_a_running_gpu_job_that_reports_no_progress_keeps_its_row_fresh(self, monkeypatch):
         refreshed = []
-        monkeypatch.setattr(db, "heartbeat_gpu_lock", lambda holder: refreshed.append(holder))
+        monkeypatch.setattr(gpu_slots, "heartbeat", lambda holders: refreshed.extend(holders))
         monkeypatch.setattr(db, "touch_job_records", lambda ids: None)
         release = threading.Event()
         assert bg.start_job("hb_gpu", lambda: release.wait(timeout=5.0), gpu_touching=True)
@@ -2337,8 +2207,8 @@ class TestStartFailure:
         status = bg.get_status("sf_thread")
         assert status["status"] == "error"
         assert "AIzaSyFAKESECRETVALUE12345" not in status["error"]
-        assert db.try_acquire_gpu_lock("someone_else")
-        db.release_gpu_lock("someone_else")
+        assert gpu_slots.take("someone_else")
+        gpu_slots.release("someone_else")
         assert bg.acquire_exclusive("test")
         bg.release_exclusive()
         monkeypatch.setattr(bg, "_start_job_thread", real)
@@ -2374,8 +2244,8 @@ class TestStartFailure:
             bg.start_process_job("sf_proc", lambda q: None, gpu_touching=True)
         assert bg.get_status("sf_proc")["status"] == "error"
         assert procs[0].closed and queues[0].closed   # no leaked pipe fds
-        assert db.try_acquire_gpu_lock("someone_else")
-        db.release_gpu_lock("someone_else")
+        assert gpu_slots.take("someone_else")
+        gpu_slots.release("someone_else")
         assert bg.acquire_exclusive("test")
         bg.release_exclusive()
 
@@ -2535,15 +2405,15 @@ class TestSwallowedFailuresAreVisible:
     def test_gpu_lock_db_error_queues_the_job_and_logs(self, monkeypatch):
         monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: False)
         bg.set_gpu_limit_enabled(True)
-        real = db.try_acquire_gpu_lock
-        monkeypatch.setattr(db, "try_acquire_gpu_lock", _boom)
+        real = gpu_slots.take
+        monkeypatch.setattr(gpu_slots, "take", _boom)
         ran = threading.Event()
         assert bg.start_job("gl_err", ran.set, gpu_touching=True) is True
         assert bg.get_status("gl_err")["status"] == "queued"
         assert not ran.is_set()
         log = _log_text()
         assert "could not take the GPU lock" in log and _FAKE_KEY not in log
-        monkeypatch.setattr(db, "try_acquire_gpu_lock", real)
+        monkeypatch.setattr(gpu_slots, "take", real)
         bg.recheck_gpu_queue()
         assert ran.wait(5)
 

@@ -179,9 +179,9 @@ def heartbeat_tick():
         running_gpu = [j for j in live if bj._jobs[j]["status"] == "running"
                        and bj._jobs[j].get("gpu_touching")]
     # A job that reports no progress (dub) never refreshes its own row.
-    for j in running_gpu:
-        with contextlib.suppress(Exception):
-            db.heartbeat_gpu_lock(f"ui:{j}")
+    from jobs import gpu_slots
+    with contextlib.suppress(Exception):
+        gpu_slots.heartbeat(f"ui:{j}" for j in running_gpu)
     if live:
         try:
             db.touch_job_records(live)
@@ -401,8 +401,9 @@ def flush_at_exit() -> None:
         with contextlib.closing(_connect(max(0.0, deadline - time.monotonic()))) as conn:
             for job_id in active:
                 _close(conn, job_id, "owner_instance = ?", (INSTANCE_ID,))
+            from jobs import gpu_slots
             for holder in gpu_holders:
-                conn.execute("DELETE FROM gpu_lock WHERE holder = ?", (holder,))
+                gpu_slots.release(holder, conn=conn)
             conn.commit()
     except Exception as exc:
         with contextlib.suppress(Exception):

@@ -12,11 +12,13 @@ import sys
 import os
 import tempfile
 import threading
+import time
 import weakref
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
 from core import Line
+from jobs import gpu_slots
 
 
 class TestDramaCRUD:
@@ -1379,102 +1381,102 @@ class TestGpuLock:
     coordination point both sides check."""
 
     def test_free_lock_is_acquired(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
-        holder, description = isolated_db.gpu_lock_status()
+        assert gpu_slots.take("ui:job1", "Transcription") is True
+        holder, description = gpu_slots.status()
         assert holder == "ui:job1"
         assert description == "Transcription"
 
     def test_held_lock_refuses_a_different_holder(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is False
+        assert gpu_slots.take("ui:job1", "Transcription") is True
+        assert gpu_slots.take("cli:1234", "CLI dub") is False
         # Still job1's -- the failed attempt above must not have touched it.
-        holder, description = isolated_db.gpu_lock_status()
+        holder, description = gpu_slots.status()
         assert holder == "ui:job1"
         assert description == "Transcription"
 
     def test_same_holder_can_reacquire_its_own_lock(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
+        assert gpu_slots.take("ui:job1", "Transcription") is True
+        assert gpu_slots.take("ui:job1", "Transcription") is True
 
     def test_release_frees_it_for_someone_else(self, isolated_db):
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
-        isolated_db.release_gpu_lock("ui:job1")
-        assert isolated_db.gpu_lock_status() == (None, None)
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is True
+        gpu_slots.take("ui:job1", "Transcription")
+        gpu_slots.release("ui:job1")
+        assert gpu_slots.status() == (None, None)
+        assert gpu_slots.take("cli:1234", "CLI dub") is True
 
     def test_releasing_the_wrong_holder_is_a_no_op(self, isolated_db):
         """A lock that went stale and was taken over by someone else must
         not be released out from under its new, legitimate holder by a
         late release() call from whoever held it before."""
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
-        isolated_db.release_gpu_lock("cli:1234")  # never held it
-        holder, _ = isolated_db.gpu_lock_status()
+        gpu_slots.take("ui:job1", "Transcription")
+        gpu_slots.release("cli:1234")  # never held it
+        holder, _ = gpu_slots.status()
         assert holder == "ui:job1"
 
     def test_stale_lock_is_taken_over(self, isolated_db):
         """A holder that crashed without releasing shouldn't permanently
         block the GPU -- a lock whose heartbeat is older than
         GPU_LOCK_STALE_SECONDS is treated as abandoned."""
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        gpu_slots.take("ui:job1", "Transcription")
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ? WHERE id = 1",
-                    (isolated_db.GPU_LOCK_STALE_SECONDS + 1,))
+                    (gpu_slots.GPU_LOCK_STALE_SECONDS + 1,))
         conn.commit()
         conn.close()
-        assert isolated_db.gpu_lock_status() == (None, None)
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is True
+        assert gpu_slots.status() == (None, None)
+        assert gpu_slots.take("cli:1234", "CLI dub") is True
 
     def test_heartbeat_keeps_a_long_running_holder_from_going_stale(self, isolated_db):
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        gpu_slots.take("ui:job1", "Transcription")
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ? WHERE id = 1",
-                    (isolated_db.GPU_LOCK_STALE_SECONDS - 1,))
+                    (gpu_slots.GPU_LOCK_STALE_SECONDS - 1,))
         conn.commit()
         conn.close()
-        isolated_db.heartbeat_gpu_lock("ui:job1")
+        gpu_slots.heartbeat(["ui:job1"])
         # Refreshed -- still held, and a competing holder is still refused.
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is False
+        assert gpu_slots.take("cli:1234", "CLI dub") is False
 
     def test_status_is_free_when_nothing_has_ever_held_it(self, isolated_db):
-        assert isolated_db.gpu_lock_status() == (None, None)
+        assert gpu_slots.status() == (None, None)
 
     def test_max_holders_allows_that_many_and_no_more(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
-        assert isolated_db.try_acquire_gpu_lock("cli:1", "B", max_holders=2) is True
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is False
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C") is False  # a cap of 1 too
-        assert isolated_db.gpu_lock_holder_count() == 2
-        assert isolated_db.gpu_lock_holder_count(exclude_holder="ui:a") == 1
-        isolated_db.release_gpu_lock("ui:a")
-        assert isolated_db.gpu_lock_status() == ("cli:1", "B")  # only its own row went
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True
+        assert gpu_slots.take("ui:a", "A", max_holders=2) is True
+        assert gpu_slots.take("cli:1", "B", max_holders=2) is True
+        assert gpu_slots.take("ui:c", "C", max_holders=2) is False
+        assert gpu_slots.take("ui:c", "C") is False  # a cap of 1 too
+        assert gpu_slots.holder_count() == 2
+        assert gpu_slots.holder_count(exclude_holder="ui:a") == 1
+        gpu_slots.release("ui:a")
+        assert gpu_slots.status() == ("cli:1", "B")  # only its own row went
+        assert gpu_slots.take("ui:c", "C", max_holders=2) is True
 
     def test_max_holders_is_capped_by_the_table(self, isolated_db):
-        for i in range(isolated_db.GPU_LOCK_MAX_SLOTS):
-            assert isolated_db.try_acquire_gpu_lock(f"ui:{i}", max_holders=99) is True
-        assert isolated_db.try_acquire_gpu_lock("ui:extra", max_holders=99) is False
+        for i in range(gpu_slots.GPU_LOCK_MAX_SLOTS):
+            assert gpu_slots.take(f"ui:{i}", max_holders=99) is True
+        assert gpu_slots.take("ui:extra", max_holders=99) is False
 
     def test_settle_seconds_refuses_joining_a_fresh_holder(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2, settle_seconds=60) is True
-        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is False
+        assert gpu_slots.take("ui:a", "A", max_holders=2, settle_seconds=60) is True
+        assert gpu_slots.take("ui:b", "B", max_holders=2, settle_seconds=60) is False
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET acquired_at = acquired_at - 61")
         conn.commit()
         conn.close()
-        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is True
+        assert gpu_slots.take("ui:b", "B", max_holders=2, settle_seconds=60) is True
 
     def test_a_stale_holder_does_not_count_and_heartbeat_is_per_holder(self, isolated_db):
-        isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2)
-        isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2)
+        gpu_slots.take("ui:a", "A", max_holders=2)
+        gpu_slots.take("ui:b", "B", max_holders=2)
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
-                     (isolated_db.GPU_LOCK_STALE_SECONDS + 1,))
+                     (gpu_slots.GPU_LOCK_STALE_SECONDS + 1,))
         conn.commit()
         conn.close()
-        isolated_db.heartbeat_gpu_lock("ui:b")
-        assert isolated_db.gpu_lock_holder_count() == 1
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True  # took a's slot
-        assert isolated_db.try_acquire_gpu_lock("ui:d", "D", max_holders=2) is False
+        gpu_slots.heartbeat(["ui:b"])
+        assert gpu_slots.holder_count() == 1
+        assert gpu_slots.take("ui:c", "C", max_holders=2) is True  # took a's slot
+        assert gpu_slots.take("ui:d", "D", max_holders=2) is False
 
     def test_old_single_row_table_is_migrated_keeping_the_holder(self, isolated_db):
         conn = isolated_db.get_conn()
@@ -1482,12 +1484,12 @@ class TestGpuLock:
         conn.execute("""CREATE TABLE gpu_lock (id INTEGER PRIMARY KEY CHECK (id = 1),
                         holder TEXT NOT NULL, description TEXT, acquired_at REAL NOT NULL,
                         heartbeat_at REAL NOT NULL)""")
+        conn.execute("INSERT INTO gpu_lock VALUES (1, 'cli:1', 'CLI', ?, ?)", (time.time(), time.time()))
         conn.commit()
         conn.close()
-        assert isolated_db.try_acquire_gpu_lock("cli:1", "CLI") is True
         isolated_db.init_db()
-        assert isolated_db.gpu_lock_status() == ("cli:1", "CLI")
-        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
+        assert gpu_slots.status() == ("cli:1", "CLI")
+        assert gpu_slots.take("ui:a", "A", max_holders=2) is True
 
 
 class TestImportTimeSafety:
@@ -1959,6 +1961,7 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
 _INIT_DB_MIGRATED_COLUMNS = {
     "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id", "kind",
                     "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
+    "gpu_lock": ("owner_pid", "owner_instance", "job_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
               "word_timings"),
     "dramas": (

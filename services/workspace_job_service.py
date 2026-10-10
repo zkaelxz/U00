@@ -867,6 +867,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
     _check_uploaded_db."""
     import shutil
     import sqlite3
+    from jobs import gpu_slots
     from sources import store as src_store
     staged = os.path.join(staging_dir, "library.db")
     upload = os.path.join(staging_dir, ".uploaded_library.db")
@@ -897,7 +898,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
                 conn.execute("UPDATE job_records SET status = 'cancelled', finished_at = ?, "
                              "cancel_requested = 0 WHERE status IN ('queued', 'running')",
                              (time.time(),))
-                conn.execute("DELETE FROM gpu_lock")
+                gpu_slots.clear(conn)
                 _carry_app_settings(conn, os.path.join(library_dir, "library.db"))
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
