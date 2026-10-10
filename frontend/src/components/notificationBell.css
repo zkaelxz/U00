@@ -54,8 +54,7 @@ button.notify-bell-btn[aria-expanded='true'] { color: var(--text); }
   button.notify-bell-btn { min-width: 44px; min-height: 44px; padding-inline: 0; }
 }
 @media (max-width: 640px) {
-  /* Phones: the panel spans the header (the page's 16px gutters) under the bell. */
-  .app-header { position: relative; }
+  /* Phones: the panel spans the header (the page's 16px gutters) under the bell; the sticky header is its containing block. */
   .notify-bell { position: static; }
   .notify-panel, .notify-panel.align-start { left: 0; right: 0; top: auto; width: auto; margin-top: var(--space-1); max-height: 70vh; }
 }

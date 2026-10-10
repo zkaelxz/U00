@@ -21,10 +21,19 @@ test('the title and stage tabs stay visible after scrolling', async ({ page }) =
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(100)
   const strip = page.locator('.ws-strip')
   await expect(strip).toBeInViewport({ ratio: 1 })
-  expect((await strip.boundingBox())!.y).toBeLessThanOrEqual(1)
-  // Review reads the strip height as --bar-h.
-  const barH = await page.locator('section.workspace').evaluate((el) => el.style.getPropertyValue('--bar-h'))
-  expect(parseInt(barH, 10)).toBeGreaterThan(30)
+  // The strip pins right under the sticky app header.
+  const header = (await page.locator('.app-header').boundingBox())!
+  expect((await strip.boundingBox())!.y).toBeCloseTo(header.y + header.height, 0)
+  // Review reads header + strip as --bar-h.
+  const barH = await page.locator('section.workspace').evaluate((el) => {
+    const probe = document.createElement('div')
+    probe.style.cssText = 'position:absolute;height:var(--bar-h)'
+    el.appendChild(probe)
+    const h = probe.getBoundingClientRect().height
+    probe.remove()
+    return h
+  })
+  expect(Math.abs(barH - (header.y + header.height + (await strip.boundingBox())!.height))).toBeLessThan(1)
 })
 
 test('Next shows once the open stage is done and goes to the next stage', async ({ page }) => {
