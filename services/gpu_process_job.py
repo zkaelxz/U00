@@ -9,12 +9,16 @@ folder. Kept free of the services that use it so the spawned child imports only
 what it needs."""
 
 import functools
+import multiprocessing
 import os
+import queue
 import shutil
 import tempfile
 import threading
 
 import background_jobs
+import job_process_kill
+import job_process_result
 import storage
 from translate_engines import redact_secrets
 
@@ -101,3 +105,60 @@ def start_gpu_process_job(job_id, body, args, *, drama_id=None, kind, timeout_s,
     if not started:
         shutil.rmtree(scratch_dir, ignore_errors=True)
     return started
+
+
+class ChildFailed(Exception):
+    """run_in_child: the worker raised, ran out of time or died. The message
+    is plain and redacted, safe to store in a job error."""
+
+
+def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25):
+    """For a job that stays a thread job (its next stage needs the parent: the
+    database, a translation engine) but whose GPU stage must be killable.
+    Runs body(*args, scratch_dir, result_queue) in a spawned child under the
+    job's own GPU slot and returns the "ok" result. Blocks, applying the
+    child's progress to the job; raises background_jobs.JobCancelled as soon
+    as Cancel is seen, after the child and what it started are gone, and
+    ChildFailed for an error, the deadline or a child that died silently."""
+    context = multiprocessing.get_context("spawn")
+    channel = job_process_result.wrap_queue(context.Queue(), job_id)
+    scratch_dir = storage.new_workdir(job_id)
+    proc = context.Process(
+        target=process_entry, args=(body, timeout_s, scratch_dir, *args, channel), daemon=True)
+    clean = False
+    try:
+        proc.start()
+        result = _await_child(job_id, proc, channel, poll_s)
+        clean = True
+        return result
+    finally:
+        if not clean:
+            # Cancel must not wait out reap_worker's exit grace.
+            job_process_kill.kill_tree(proc)
+        job_process_kill.reap_worker(proc, True)
+        channel.discard()
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+
+def _await_child(job_id, proc, channel, poll_s):
+    gone = False
+    while True:
+        if background_jobs.is_cancel_requested(job_id):
+            raise background_jobs.JobCancelled(job_id)
+        try:
+            item = channel.get(timeout=poll_s)
+        except queue.Empty:
+            if proc.is_alive():
+                continue
+            # The feeder thread can land its last item just after the exit.
+            if gone:
+                raise ChildFailed(background_jobs.WORKER_LOST_MESSAGE)
+            gone = True
+            continue
+        if background_jobs._apply_progress_item(job_id, item):
+            continue
+        if item and item[0] == "ok":
+            return item[1]
+        if item and item[0] == "error":
+            raise ChildFailed(item[2])
+        raise ChildFailed(background_jobs.WORKER_LOST_MESSAGE)

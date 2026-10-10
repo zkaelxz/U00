@@ -10,18 +10,16 @@ read back with get_compare_result. apply_compare writes only `zh` (and `en`
 when the owner chose that candidate's English) per line, as a compare-and-set
 against what the preview was built from, after a history snapshot.
 """
-import os
-import subprocess
 import threading
 
 import asr_backend
 import background_jobs
-import ollama_unload
 import core as core_module
 import db
 import sensitivity_preset as presets
 import translate_engines
-from services import (asr_options_service, jobs_service, settings_service, transcribe_service,
+from services import (asr_options_service, compare_hear_worker, gpu_process_job, jobs_service,
+                      retranscribe_worker, settings_service, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
@@ -34,13 +32,12 @@ from services.service_errors import (
 
 MAX_LINES = 200
 _MAX_TEXT_CHARS = 2000
-_SLICE_TIMEOUT_S = 120
 _MAX_APPLY_ITEMS = MAX_LINES
 
 SELECTION_KINDS = ("line_ids", "range", "flagged", "speaker", "time")
 BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
 # The Qwen3 backends that find speech themselves instead of hearing Whisper's segments.
-_VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
+_VAD_BACKENDS = compare_hear_worker.VAD_BACKENDS
 _BACKEND_LABELS = {
     "whisper": "Whisper", "qwen3_asr": "Qwen3 ASR",
     "qwen3_asr_vad": "Qwen3 ASR with speech detection",
@@ -320,28 +317,6 @@ def _line_language(ln, cfg: dict, line_number: int):
     return language, None
 
 
-def _hear(slice_path: str, cfg: dict, language, on_fallback, cancel_check) -> str:
-    """Candidate source text for one cut line from the chosen backend."""
-    backend, use_gpu = cfg["backend"], cfg["use_gpu"]
-    if backend in _VAD_BACKENDS:
-        segments = asr_backend.get_backend(backend).transcribe(
-            slice_path, language, use_gpu=use_gpu, cancel_check=cancel_check)
-    else:
-        segments = core_module.transcribe_for_timing(
-            slice_path, cfg["whisper_size"], language=language, use_gpu=use_gpu,
-            initial_prompt=cfg["prompt"], beam_size=cfg["beam_size"],
-            min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
-            sensitivity_preset=cfg.get("sensitivity_preset", "normal"),
-            on_gpu_fallback=on_fallback, fast_mode=cfg["fast_mode"],
-            hallucination_silence_sec=cfg.get("hallucination_silence_sec",
-                                              core_module.DEFAULT_HALLUCINATION_SILENCE_SEC),
-            repeat_guard=cfg.get("repeat_guard", False))
-        if backend == "qwen3_asr" and segments:
-            segments = asr_backend.get_backend(backend).transcribe(
-                slice_path, language, segments, use_gpu=use_gpu)
-    return " ".join((s.get("text") or "").strip() for s in segments or []).strip()
-
-
 def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     """Job body. Per selected line: cut its window, hear it with the candidate
     settings, optionally translate (current text where needed, and the
@@ -366,7 +341,30 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
             engine, drama, style_note=translation["style_note"], locale=translation["locale"],
             glossary_terms=glossary_terms, style_guidelines=style_guidelines)
         context["source_language"] = cfg["language"]
-    failed_reason = detail = None
+    windows = []
+    for ln in lines:
+        language, skip_reason = _line_language(ln, cfg, ln.idx + 1)
+        if not skip_reason:
+            windows.append((ln.id, ln.idx + 1, float(ln.start), float(ln.end), language))
+    heard_by_id, failed_reason, detail, notice = {}, None, None, {}
+    if windows:
+        # The GPU work runs in its own process so Cancel kills it instead of
+        # waiting for a model call; translation below needs this process.
+        try:
+            heard = gpu_process_job.run_in_child(
+                job_id, compare_hear_worker.hear_lines_worker, (audio_path, windows, cfg),
+                timeout_s=retranscribe_worker.retranscribe_timeout_s(
+                    sum(w[3] - w[2] for w in windows)))
+        except background_jobs.JobCancelled:
+            cancelled = True
+            lines = []
+        else:
+            heard_by_id = {entry["line_id"]: entry for entry in heard["lines"]}
+            failed_reason = heard.get("failed_reason")
+            detail = jobs_service.scrub_text(heard.get("detail") or "") or None
+            if heard.get("gpu_fallback"):
+                gpu_fallback.append(heard["gpu_fallback"])
+            notice = {k: v for k, v in heard.items() if k == "ollama_notice"}
     try:
         for n, ln in enumerate(lines):
             if background_jobs.is_cancel_requested(job_id):
@@ -378,39 +376,13 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
             if skip_reason:
                 errors.append(skip_reason)
                 continue
-            slice_path = os.path.join(os.path.dirname(audio_path), f"_comparetx_slice_{ln.id}.wav")
-            try:
-                try:
-                    core_module.extract_audio_slice(audio_path, float(ln.start), float(ln.end),
-                                                    slice_path, timeout=_SLICE_TIMEOUT_S)
-                except subprocess.TimeoutExpired:
-                    errors.append(f"line {ln.idx + 1}: cutting the audio took too long")
-                    continue
-                except (subprocess.CalledProcessError, OSError):
-                    # str() of these carries the ffmpeg command line, i.e. absolute paths.
-                    errors.append(f"line {ln.idx + 1}: couldn't cut this line's audio")
-                    continue
-                heard = _hear(slice_path, cfg, language,
-                              lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
-                              lambda: _cancel_check(job_id))
-            except background_jobs.JobCancelled:
-                cancelled = True
+            entry = heard_by_id.get(ln.id)
+            if entry is None:
                 break
-            except core_module.ModelDownloadError as exc:
-                failed_reason, detail = "model_download", jobs_service.scrub_text(str(exc))
-                break
-            except ImportError:
-                # The same for every line, so there is nothing to retry.
-                failed_reason = "dependency_missing"
-                detail = ("This transcription backend isn't installed yet. "
-                          "Open Diagnostics to install it.")
-                break
-            except Exception as exc:
-                errors.append(jobs_service.scrub_text(f"line {ln.idx + 1}: {exc}"))
+            if entry.get("error"):
+                errors.append(jobs_service.scrub_text(entry["error"]))
                 continue
-            finally:
-                if os.path.exists(slice_path):
-                    os.remove(slice_path)
+            heard = entry["text"]
             if not heard:
                 errors.append(f"line {ln.idx + 1}: nothing was heard")
                 continue
@@ -432,7 +404,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
               "errors": errors[:20], "cap_reached": cap_reached,
               "asr_backend": cfg["backend"], "whisper_size": cfg["whisper_size"],
               "translated": bool(translation), "partial": bool(cancelled or cap_reached),
-              **ollama_unload.take_notice_result()}
+              **notice}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
         result["device_notice"] = core_module.gpu_fallback_notice(
@@ -444,11 +416,6 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     if cancelled and not proposals:
         result = {"failed_reason": "cancelled"}
     background_jobs.set_result(job_id, result)
-
-
-def _cancel_check(job_id):
-    if background_jobs.is_cancel_requested(job_id):
-        raise background_jobs.JobCancelled(job_id)
 
 
 def _translate_into(proposal, ln, engine, context, character_names, translation, drama_id,
