@@ -41,3 +41,12 @@ def test_a_normal_download_is_written(monkeypatch, tmp_path):
     _install(monkeypatch, tmp_path, gzip.compress(b"# cedict\n"))
     dictionary._ensure_cedict()
     assert (tmp_path / "cedict.txt").read_bytes() == b"# cedict\n"
+
+
+def test_a_slow_drip_download_is_stopped_by_the_total_deadline(monkeypatch, tmp_path):
+    # A negative budget is already spent when the first chunk arrives.
+    monkeypatch.setattr(dictionary, "CEDICT_DOWNLOAD_DEADLINE_SECONDS", -1)
+    _install(monkeypatch, tmp_path, gzip.compress(b"# cedict\n"))
+    with pytest.raises(RuntimeError, match="took too long"):
+        dictionary._ensure_cedict()
+    assert not (tmp_path / "cedict.txt").exists()

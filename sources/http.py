@@ -475,7 +475,7 @@ def ascii_url(url: str) -> str:
 def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits = None):
     """One request, following redirects by hand: every hop -- the
     first included -- must be http(s) with a host whose every resolved
-    address is global (services.url_guard). Without a proxy the connection
+    address is global (lib.url_guard). Without a proxy the connection
     is pinned to the validated address (Host header, SNI and certificate
     checks keep the real name); with one, the target host is validated by
     name and the proxy does the connecting.
@@ -483,7 +483,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
     The body is streamed under `limits` (FetchLimits: size caps, an overall
     deadline for the whole request, cancel between chunks); every response
     is closed."""
-    from services import url_guard
+    from lib import url_guard
 
     limits = limits or FetchLimits()
     deadline_at = limits.clock() + float(limits.deadline)
@@ -920,7 +920,7 @@ class SourceClient:
         attempt_no = 0
         slowed = False
         while True:
-            with st["sem"].at(self.policy.max_concurrent):
+            with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
                 self._wait_turn(host, st)
                 self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
@@ -1053,7 +1053,7 @@ class SourceClient:
         if poll is not None:
             poll.other_requests += 1
         st = _state(self.source)
-        with st["sem"].at(self.policy.max_concurrent):
+        with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
             self._wait_turn(_host_key(url), st)
             self.stats["access_method"] = access_method
             self.stats["requests"] += 1

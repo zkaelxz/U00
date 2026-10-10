@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { ApiError, withSignal } from '../api/client'
 import { getJob } from '../api/jobs'
 import { TERMINAL_STATUSES, type JobRecord } from '../types/jobs'
 import { useEventStream } from './useEventStream'
 
 interface PollOptions {
   intervalMs?: number
-  fetchJob?: (id: string) => Promise<JobRecord>
+  fetchJob?: (id: string, signal?: AbortSignal) => Promise<JobRecord>
+  // Per-read deadline (default 15000): a request the server never answers is
+  // abandoned and counted as a transient failure, so polling goes on.
+  requestTimeoutMs?: number
   onUpdate: (job: JobRecord) => void
   onError: (err: ApiError) => void
   onDone?: (job: JobRecord) => void
@@ -31,14 +34,20 @@ function isTransient(e: unknown): boolean {
 // exponential backoff and only surfaced after maxFailures in a row; other
 // errors (4xx) stop at once. Returns a stop function.
 export function startJobPolling(id: string, opts: PollOptions): () => void {
-  const { intervalMs = 1500, fetchJob = getJob, maxFailures = 5, maxBackoffMs = 15000 } = opts
+  const {
+    intervalMs = 1500,
+    fetchJob = (jobId: string, signal?: AbortSignal) => getJob(jobId, signal && withSignal(signal)),
+    maxFailures = 5,
+    maxBackoffMs = 15000,
+    requestTimeoutMs = 15000,
+  } = opts
   let failures = 0
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
 
   const tick = async () => {
     try {
-      const job = await fetchJob(id)
+      const job = await fetchJob(id, AbortSignal.timeout(requestTimeoutMs))
       if (stopped) return
       failures = 0
       opts.onUpdate(job)

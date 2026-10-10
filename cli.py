@@ -85,7 +85,7 @@ from services import (dub_service, engine_routing_service, export_service, gloss
                       narration_service, review_extras_service, settings_service, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
-from services.service_errors import DependencyUnavailableError, ServiceError
+from lib.errors import DependencyUnavailableError, ServiceError
 from services.translate_run_service import (engine_cap_applies, get_translate_config_defaults,
                                             validate_run_options)
 

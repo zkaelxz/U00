@@ -1043,7 +1043,7 @@ def get_latest_pypi_version(pip_name: str, timeout: float = 10.0):
     explicit button and cache the result (see check_dependency_versions)."""
     import requests
     try:
-        from services import capped_body
+        from lib import capped_body
         resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
                             stream=True, allow_redirects=False)
         if resp.status_code != 200:
@@ -1698,14 +1698,14 @@ def external_gpu_load() -> dict | None:
         return None
 
 
-def external_gpu_is_busy() -> bool:
+def external_gpu_is_busy(load=...):
     """True if the GPU looks meaningfully loaded by *something* right now,
     per nvidia-smi -- whether or not Baihe itself started it. False (never
     blocks a job) if nvidia-smi isn't available: this is a belt-and-suspenders
     check layered on top of Baihe's own two GPU locks, not a replacement for
     either, so its absence shouldn't be treated as "GPU busy" any more than
     it already is today."""
-    load = external_gpu_load()
+    load = external_gpu_load() if load is ... else load
     if load is None:
         return False
     return (load["utilization_percent"] >= EXTERNAL_GPU_BUSY_UTIL_PERCENT or
@@ -1986,7 +1986,7 @@ def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
     import requests
     version_mod, _s, _r = _packaging()
     try:
-        from services import capped_body
+        from lib import capped_body
         resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
                             timeout=timeout, headers={"Accept": "application/json"},
                             stream=True, allow_redirects=False)

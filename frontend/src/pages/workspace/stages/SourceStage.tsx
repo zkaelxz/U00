@@ -15,11 +15,13 @@ import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
-import { usePersistedState } from '../../../hooks/usePersistedState'
+import { useStageDraft } from '../../../hooks/useStageDraft'
 import {
   checkUploadFile,
   isUploadLimitProblem,
   isVideoFile,
+  SOURCE_DRAFT_SHAPE,
+  SOURCE_DRAFT_STAGE,
   sourceJobIds,
   UPLOAD_EXTENSIONS,
   UPLOAD_LIMIT_SETTINGS_HREF,
@@ -61,8 +63,12 @@ export default function SourceStage() {
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
   const [removeError, setRemoveError] = useState<unknown>(null)
-  // "Upload a file" or "From a URL", remembered per viewer.
-  const [from, setFrom] = usePersistedState<'file' | 'url'>('source.mediaFrom', 'file')
+  // "Upload a file" or "From a URL", remembered for this title.
+  const { draft, save: saveDraft } = useStageDraft(dramaId, SOURCE_DRAFT_STAGE, SOURCE_DRAFT_SHAPE)
+  const [from, setFrom] = useState<'file' | 'url'>(draft.from === 'url' ? 'url' : 'file')
+  useEffect(() => {
+    saveDraft({ from })
+  }, [saveDraft, from])
   const fromUrl = from === 'url'
 
   // Arriving from Library "Create and auto-fill" must show the Auto-fill panel,
