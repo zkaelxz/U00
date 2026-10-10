@@ -36,6 +36,7 @@ import db
 import translate_engines
 from engine_backends import llm_tasks
 from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
+from lib import cancellable_lock
 from memory_headroom import HeadroomError
 from services import comic_chapters_service
 from services import scanlate_pages_service as pages_svc
@@ -195,7 +196,7 @@ def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool) ->
 
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
-                  detect_kwargs: dict, glossary) -> str:
+                  detect_kwargs: dict, glossary, jid: str) -> str:
     """One page. Returns "skipped", "stale", "kept" (a redo that failed; the
     old regions stay), "done" or "translated"."""
     import scanlate
@@ -206,13 +207,13 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     if mode == "missing" and existing:
         if not page.get("rendered_filename"):
             notes = []
-            render_svc.render_page(drama_id, page_id, notes)
+            render_svc.render_page(drama_id, page_id, notes, lambda: render_svc.check_cancel(jid))
             render_svc.append_notes(page_id, notes)
         return "skipped"
     expected_ids, expected_rev = [b["id"] for b in existing], int(page.get("rev") or 0)
     src = render_svc.original_path(drama_id, page)
     lang = drama.get("source_language") or "zh"
-    with pages_svc.pipeline_lock():
+    with cancellable_lock.hold(pages_svc.pipeline_lock(), lambda: render_svc.check_cancel(jid)):
         bubbles, detect_notes = scanlate.detect_and_ocr_page(src, lang, page_id=page_id,
                                                              **detect_kwargs)
     notes = [_detector_note(detect_kwargs["detect_backend"], detect_notes)]
@@ -245,7 +246,10 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     db.update_page(page_id, **fields)
     render_notes = []
     try:
-        render_svc.render_page(drama_id, page_id, render_notes)
+        render_svc.render_page(drama_id, page_id, render_notes,
+                               lambda: render_svc.check_cancel(jid))
+    except background_jobs.JobCancelled:
+        raise                                    # a cancel is not a render failure
     except Exception as exc:
         render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
                              f"{translate_engines.redact_secrets(str(exc))}"))
@@ -275,7 +279,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
             background_jobs.update_progress(jid, (n - 1) / total, f"Page {n} of {total}")
             try:
                 counts[_process_page(drama_id, drama, pid, mode, engine, engine_name,
-                                     detect_kwargs, glossary)] += 1
+                                     detect_kwargs, glossary, jid)] += 1
             except TranslationCancelled:
                 raise background_jobs.JobCancelled(jid)
             except (background_jobs.JobCancelled, HeadroomError):

@@ -144,6 +144,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 Shared helpers with no domain knowledge; nothing here imports `services`, `api`, `db` or a domain module (`tests/test_static_analysis.py` enforces it).
 
+- `cancellable_lock.py` (`hold`: take a lock while polling a cancel check, so a job waiting on the pipeline lock can be cancelled)
 - `capped_body.py` (byte- and time-capped read of a streamed HTTP body)
 - `http.py` (the one outbound GET/POST: guard on every redirect hop, pinned connection, byte cap, total deadline, fixed-text errors)
 - `proc.py` (the one runner for external commands whose output is read: own process group, tree kill on timeout or cancel, bounded output drain)
