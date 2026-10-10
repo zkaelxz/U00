@@ -32,6 +32,7 @@ import db
 import emotion
 import translate_engines
 import translation_guide as tguide
+from lib import http
 
 BULK_ENGINES = ("claude", "gemini", "deepseek")
 # Claude's Message Batches and Gemini's Batch API both bill at half the
@@ -168,28 +169,29 @@ class GeminiBatchProvider:
                 "metadata": {"key": key}}
 
     def _check(self, resp):
-        if resp.status_code in (401, 403):
-            resp.close()
-            raise BulkAuthError(f"Gemini refused the API key (HTTP {resp.status_code}).")
-        return translate_engines.read_json_capped(resp, BATCH_READ_DEADLINE_SECONDS,
-                                                  BATCH_RESPONSE_MAX_BYTES)
+        if resp.status in (401, 403):
+            raise BulkAuthError(f"Gemini refused the API key (HTTP {resp.status}).")
+        if resp.status >= 300:  # incl. unfollowed redirects
+            raise RuntimeError(f"HTTP {resp.status}")
+        return json.loads(resp.body)
+
+    def _send(self, method: str, url: str, timeout: float, **kwargs):
+        # guard=None: fixed vendor URL, no redirects.
+        return self._check(http.request(
+            method, url, headers=self._headers(), timeout=timeout, guard=None, max_error_bytes=4096,
+            max_bytes=BATCH_RESPONSE_MAX_BYTES, deadline=BATCH_READ_DEADLINE_SECONDS, **kwargs))
 
     def _headers(self):
         return {"x-goog-api-key": self.engine.api_key}
 
     def submit(self, requests_: list) -> str:
-        import requests
-        resp = requests.post(
-            f"{self.BASE}/models/{self.engine.model}:batchGenerateContent",
-            headers=self._headers(), timeout=120, stream=True,
+        return self._send(
+            "POST", f"{self.BASE}/models/{self.engine.model}:batchGenerateContent", 120,
             json={"batch": {"display_name": "baihe-bulk-translation",
-                            "input_config": {"requests": {"requests": requests_}}}})
-        return self._check(resp)["name"]
+                            "input_config": {"requests": {"requests": requests_}}}})["name"]
 
     def _get(self, batch_id: str) -> dict:
-        import requests
-        return self._check(requests.get(f"{self.BASE}/{batch_id}", headers=self._headers(),
-                                        timeout=60, stream=True))
+        return self._send("GET", f"{self.BASE}/{batch_id}", 60)
 
     @staticmethod
     def _state(data: dict) -> str:
@@ -236,9 +238,7 @@ class GeminiBatchProvider:
             yield key, text, translate_engines.gemini_usage(r.get("usageMetadata")), None
 
     def cancel(self, batch_id: str):
-        import requests
-        self._check(requests.post(f"{self.BASE}/{batch_id}:cancel", headers=self._headers(),
-                                  json={}, timeout=60, stream=True))
+        self._send("POST", f"{self.BASE}/{batch_id}:cancel", 60, json={})
 
 
 def make_provider(engine_choice: str, engine):

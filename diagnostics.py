@@ -1044,17 +1044,13 @@ def get_latest_pypi_version(pip_name: str, timeout: float = 10.0):
     dependency's lookup failing shouldn't break the whole check. Makes a
     real network call every time it's called; callers gate this behind an
     explicit button and cache the result (see check_dependency_versions)."""
-    import requests
     try:
-        from lib import capped_body
-        resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
-                            stream=True, allow_redirects=False)
-        if resp.status_code != 200:
-            resp.close()
+        from lib import http
+        resp = http.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
+                        max_bytes=PYPI_JSON_MAX_BYTES, guard=None)
+        if resp.status != 200:
             return None
-        body = capped_body.read_capped(resp, PYPI_JSON_MAX_BYTES, timeout * 3,
-                                       lambda: ValueError("PyPI response too large"))
-        return (json.loads(body).get("info") or {}).get("version") or None
+        return (json.loads(resp.body).get("info") or {}).get("version") or None
     except Exception:
         return None
 
@@ -1655,19 +1651,15 @@ def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
     redirects and at most PYPI_JSON_MAX_BYTES read."""
     if not _DIST_NAME_RE.fullmatch(dist or ""):
         return None
-    import requests
     version_mod, _s, _r = _packaging()
     try:
-        from lib import capped_body
-        resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
-                            timeout=timeout, headers={"Accept": "application/json"},
-                            stream=True, allow_redirects=False)
-        if resp.status_code != 200:
-            resp.close()
+        from lib import http
+        resp = http.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json", timeout=timeout,
+                        headers={"Accept": "application/json"}, max_bytes=PYPI_JSON_MAX_BYTES,
+                        guard=None)
+        if resp.status != 200:
             return None
-        body = capped_body.read_capped(resp, PYPI_JSON_MAX_BYTES, timeout * 3,
-                                       lambda: ValueError("PyPI response too large"))
-        releases = json.loads(body).get("releases") or {}
+        releases = json.loads(resp.body).get("releases") or {}
     except Exception:
         return None
     out = []

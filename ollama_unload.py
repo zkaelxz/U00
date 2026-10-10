@@ -11,10 +11,13 @@ GET /api/ps lists loaded models; POST /api/generate with {"model", "keep_alive":
 unloads one.
 """
 import contextlib
+import json
 import re
 import threading
 import time
 from urllib.parse import urlsplit
+
+from lib import http
 
 DEFAULT_BASE_URL = "http://localhost:11434"
 SETTING_KEY = "unload_ollama_before_transcribe"
@@ -24,6 +27,8 @@ SETTING_LABEL = "Free Ollama's GPU memory before transcribing"
 UNLOAD_WAIT_SECONDS = 10.0
 POLL_INTERVAL_SECONDS = 0.5
 REQUEST_TIMEOUT_SECONDS = 3.0
+# The unload reply is a short status object; only its arrival matters.
+_UNLOAD_REPLY_MAX_BYTES = 64 * 1024
 # A job loads up to three models (Whisper, Qwen3-ASR, the aligner), each through
 # a loader that calls this; one check per thread per window is enough.
 RECHECK_SECONDS = 30.0
@@ -138,11 +143,14 @@ def _warn(what: str, exc: Exception):
 def _loaded_models(base: str, timeout: float):
     """Names of the models Ollama has loaded, or None when it can't be read
     (not running, slow, or a reply that isn't the documented shape)."""
-    import requests
-    from engine_backends.shared import read_json_capped
+    from engine_backends.shared import PROVIDER_RESPONSE_MAX_BYTES
     try:
-        resp = requests.get(f"{base}/api/ps", timeout=timeout, stream=True)
-        data = read_json_capped(resp, timeout)
+        # guard=None: `base` is the Ollama address the user configured (loopback or LAN).
+        resp = http.get(f"{base}/api/ps", timeout=timeout, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
+                        deadline=timeout, guard=None)
+        if resp.status >= 400:
+            raise ValueError(f"HTTP {resp.status}")
+        data = json.loads(resp.body)
         names = []
         for entry in data["models"]:
             name = entry.get("name") or entry.get("model")
@@ -155,10 +163,9 @@ def _loaded_models(base: str, timeout: float):
 
 
 def _unload(base: str, name: str, timeout: float):
-    import requests
     try:
-        requests.post(f"{base}/api/generate", json={"model": name, "keep_alive": 0},
-                      timeout=timeout).close()
+        http.post(f"{base}/api/generate", json={"model": name, "keep_alive": 0},
+                  timeout=timeout, max_bytes=_UNLOAD_REPLY_MAX_BYTES, guard=None)
     except Exception as exc:
         _warn("could not ask Ollama to unload a model", exc)
 

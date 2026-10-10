@@ -499,10 +499,11 @@ def test_ollama_default_model_is_checked_and_used(live, monkeypatch):
 
 
 def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
-    import json, requests
+    import json
     from engine_backends import local
+    from lib import http
 
-    def fake_get(url, **k):
+    def fake_get(url, ip, headers, timeout, method="GET", **k):
         return _TagsResp(json.dumps({"models": [{"name": "qwen3:8b"}, {"name": "tiny:latest"}]}).encode())
 
     class _TagsResp:
@@ -513,7 +514,7 @@ def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
         def close(self): pass
         headers = {}
 
-    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(http, "pinned_get", fake_get)
     local.check_ollama_model_installed("http://x", "qwen3:8b")
     local.check_ollama_model_installed("http://x", "tiny")
     with pytest.raises(local.OllamaUnavailableError) as exc:

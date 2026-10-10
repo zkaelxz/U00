@@ -1,14 +1,16 @@
 """Local engine: Ollama."""
 
 import contextvars
+import json
 import re
 import threading
 import weakref
 
-from lib import capped_body
+from lib import capped_body, http
 
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import (
+    PROVIDER_RESPONSE_MAX_BYTES,
     TranslationCancelled,
     read_json_capped,
     redact_secrets,
@@ -385,17 +387,16 @@ def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
     """Cheap health check (GET /api/tags, 2.5s timeout) -- true only if
     the server actually responds, not just that the URL is well-formed."""
     import time
-    import requests
     base_url = base_url.rstrip("/")
     now = time.time()
     cached = _ollama_reachability_cache.get(base_url)
     if cached and now - cached[0] < OLLAMA_REACHABILITY_CACHE_SECONDS:
         return cached[1]
     try:
-        # stream=True so only the status is read; the model list isn't needed here.
-        resp = requests.get(f"{base_url}/api/tags", timeout=2.5, stream=True)
+        # Only the status matters: truncate=True cuts the body instead of failing on a long model list.
+        # guard=None: base_url is the Ollama address the user configured (loopback or LAN).
+        resp = http.get(f"{base_url}/api/tags", timeout=2.5, max_bytes=1, truncate=True, guard=None)
         reachable = resp.ok
-        resp.close()
     except Exception:
         reachable = False
     _ollama_reachability_cache[base_url] = (now, reachable)
@@ -406,11 +407,13 @@ def check_ollama_model_installed(base_url: str, model: str) -> None:
     """Raises OllamaUnavailableError (the same plain texts the chat call uses)
     when the server is down or `model` isn't pulled, so a live session fails
     at Start rather than on its first chunk."""
-    import requests
     base_url = base_url.rstrip("/")
     try:
-        resp = requests.get(f"{base_url}/api/tags", timeout=5, stream=True)
-        tags = read_json_capped(resp, 5)
+        resp = http.get(f"{base_url}/api/tags", timeout=5, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
+                        guard=None)
+        if resp.status >= 400:
+            raise ValueError(f"HTTP {resp.status}")
+        tags = json.loads(resp.body)
     except Exception:
         raise OllamaUnavailableError(
             "ollama_unreachable",
