@@ -96,7 +96,7 @@ def test_cancel_kills_the_pip_tree_and_releases_the_hold(env, monkeypatch, tmp_p
 def test_cancel_between_commands_runs_no_further_command(env, monkeypatch):
     ran = []
 
-    def fake_tree(cmd, timeout, cancel=None):
+    def fake_tree(cmd, timeout, cancel=None, **_kw):
         ran.append(cmd[-1])
         background_jobs.request_cancel(JOB)       # Cancel arrives as the first command ends
         yield {"returncode": 0, "timed_out": False, "cancelled": False}
@@ -134,7 +134,7 @@ def test_a_pip_failure_ends_the_job_as_an_error_with_the_output(env, monkeypatch
 
 
 def test_an_unexpected_error_is_not_echoed_and_releases_the_hold(env, monkeypatch):
-    def boom(cmd, timeout, cancel=None):
+    def boom(cmd, timeout, cancel=None, **_kw):
         raise RuntimeError(f"secret {SECRET} at {ABS_PATH}")
         yield  # noqa
     monkeypatch.setattr(gaps, "stream_tree", boom)
