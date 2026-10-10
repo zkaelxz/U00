@@ -566,7 +566,7 @@ def _create_bulk_job_tables(conn):
             engine TEXT NOT NULL,
             model TEXT,
             provider_batch_id TEXT,   -- Anthropic msgbatch_..., Gemini batches/...; NULL for DeepSeek
-            status TEXT NOT NULL,     -- submitted | scheduled | applied | cancelled | failed | auth_error
+            status TEXT NOT NULL,     -- submitted | scheduled | running | applying | needs_resubmit | applied | cancelled | failed | auth_error
             scheduled_for TEXT,       -- DeepSeek: UTC start of the off-peak window it waits for
             translate_args TEXT,      -- JSON: what a scheduled run needs to build its prompt
             last_error TEXT,
@@ -5325,7 +5325,7 @@ def delete_voice_bank_entry(entry_id: int):
 # Bulk (batch-API / off-peak) translation jobs
 # ---------------------------------------------------------------------------
 
-BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error")
+BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error", "needs_resubmit")
 
 
 def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
@@ -5420,6 +5420,19 @@ def update_bulk_job(bulk_job_id: int, **fields):
         conn.execute(f"UPDATE bulk_jobs SET {', '.join(k + ' = ?' for k in fields)} WHERE id = ?",
                      list(fields.values()) + [bulk_job_id])
         conn.commit()
+
+
+def set_bulk_job_status_if(bulk_job_id: int, expected, new: str) -> bool:
+    """Changes the status only while it is one of `expected`, in one
+    statement, so two appliers of the same paid results can't both win."""
+    expected = list(expected)
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            f"UPDATE bulk_jobs SET status = ?, updated_at = ? WHERE id = ? "
+            f"AND status IN ({','.join('?' * len(expected))})",
+            [new, datetime.datetime.utcnow().isoformat(), bulk_job_id] + expected)
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def count_bulk_job_lines(bulk_job_id: int) -> int:
