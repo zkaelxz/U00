@@ -46,6 +46,8 @@ RESULT_ALLOWED_KEYS = (
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
+    # Review timing check: counts and the no-speech notice.
+    "checked", "flagged", "cleared", "skipped_flagged", "notice",
     # Sources chapter import (S-4): int counts only, never text.
     "imported_count", "skipped_count", "failed_count",
     # lightnovel-crawler import: the EPUB's reading-order count.
@@ -478,7 +480,7 @@ def _close_if_owner_gone(record: dict) -> bool:
 JOB_KIND_BY_PREFIX = {
     "translate_": "translate", "bulk_translate_": "translate",
     "novel_glossary_": "translate", "lines_glossary_": "translate",
-    "flag_": "review", "fixflag_": "review", "consistency_": "review",
+    "flag_": "review", "fixflag_": "review", "timingchk_": "review", "consistency_": "review",
     "emotion_": "review", "notes_": "review", "bulk_consistency_": "review",
     "bulk_emotion_": "review", "bulk_notes_": "review", "bulk_flag_": "review",
     "transcribe_": "transcribe", "retranscribe_": "transcribe",

@@ -9,6 +9,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import { Section } from '../../../../components/Section'
 import { useStage } from '../../StageContext'
 import { clearMessage, MODE_HELP, MODE_OPTIONS } from './readingSpeed'
+import { TimingCheck } from './TimingCheck'
 
 interface Action {
   id: string
@@ -111,7 +112,7 @@ export function ReviewFlags({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <Section storageKey="review.flags" title="Flag lines for review" summary="Overlaps, auto-QC, dense lines, reading speed">
+    <Section storageKey="review.flags" title="Flag lines for review" summary="Overlaps, auto-QC, dense lines, timing, reading speed">
       <div className="review-flags" aria-label="Flag lines">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {ACTIONS.map((a) => (
@@ -121,6 +122,7 @@ export function ReviewFlags({ onDone }: { onDone: () => void }) {
           {results[a.id] && <span role="status" data-testid={`flag-result-${a.id}`}>{results[a.id]}</span>}
         </div>
       ))}
+      <TimingCheck dramaId={dramaId} onDone={onDone} />
       <div className="review-flag-row">
         <label>
           Reading speed check{' '}

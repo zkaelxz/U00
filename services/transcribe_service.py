@@ -71,7 +71,7 @@ import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
-from services import asr_options_service, diarization_service, run_settings_service, settings_service, source_service
+from services import asr_options_service, diarization_service, run_settings_service, settings_service, source_service, timing_check_service
 from services.retranscribe_worker import (apply_retranscribe_outcome as _apply_retranscribe_outcome,
                                            retranscribe_timeout_s as _retranscribe_timeout_s,
                                            retranscribe_worker as _retranscribe_worker)
@@ -1446,6 +1446,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
             **(gpu_app_settings or raw_transcript.current_gpu_app_settings()))
         if outcome.get("run_config") else None)
     db.update_drama(drama_id, status="aligned")
+    timing_check_service.after_run(drama_id, outcome)
 
     diarize_started = False
     if hf_token and diarize_audio_path:

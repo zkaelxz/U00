@@ -1,6 +1,7 @@
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
 
 import { ApiError } from '../../../../api/client'
+import { snapToSpeech } from '../../../../api/timingCheck'
 import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, flaggedAdjacent, patchLine } from '../../../../api/review'
 import { lineNumber } from '../../../../lineNumber'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
@@ -340,6 +341,14 @@ export function createLinesController(deps: LinesControllerDeps) {
       dismissFlag(dramaId, id).then((saved) => {
         replaceLine(saved)
         setIssue(null)
+        st.current.onChanged()
+      }, (e) => failLine(id, e))
+    },
+    snapToSpeech: async (id) => {
+      if (!(await leaveEdit())) return
+      snapToSpeech(dramaId, [id]).then((r) => {
+        // Edited since the check: the server left it alone, so say the line changed.
+        setIssue(r.stale_ids.includes(id) ? { lineId: id, conflict: true } : null)
         st.current.onChanged()
       }, (e) => failLine(id, e))
     },
