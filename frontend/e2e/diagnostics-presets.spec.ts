@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
 
 import { ME } from './authMocks'
+import { mockPlainPlan } from './pendingInstallMocks'
 import { mockDependencyInstall } from './dependencyInstallMock'
 
 // Packages > Install by task, sizes, Source links, not-offered packages and
@@ -141,6 +142,7 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
   await page.route((u) => u.pathname === '/api/auth/me', (r) => r.fulfill({ json: ME.authOff }))
   await page.route('**/api/diagnostics', (r) => r.fulfill({ json: overview }))
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: setup }))
+  await mockPlainPlan(page)
   await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: presets }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
   await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch', (r) => r.fulfill({ json: gpuTorch(false) }))

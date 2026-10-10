@@ -22,6 +22,7 @@ KNOWN_PYPI_DISTS = {
     "onnxruntime", "faster-whisper", "ctranslate2", "opencv-python", "anthropic", "openai", "requests",
     "beautifulsoup4", "pyannote-audio", "soundfile", "pydub",
     "omnivoice", "pytesseract", "pillow", "paddleocr",
+    "paddlepaddle",
     "manga-ocr", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
     "transformers", "torch", "torchaudio", "uroman", "sentencepiece", "yt-dlp",
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",
@@ -144,6 +145,10 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     scan = next(t for t in out["tasks"] if t["id"] == "scanlate")
     assert "pypdf" in scan["packages"]
     assert "pypdf" in scan["to_install"]
+    # paddleocr 3.x doesn't pull in paddlepaddle, and zh/ko pages default to paddle.
+    assert {"paddleocr", "paddlepaddle"} <= set(scan["to_install"])
+    assert scan["roles"]["paddleocr"] == scan["roles"]["paddlepaddle"] == "recommended"
+    assert scan["approx_mb"] == sum(diagnostics.approx_download_mb(n) for n in scan["to_install"])
     cv2 = out["packages"]["cv2"]
     assert cv2["dist"] == "opencv-python" and cv2["installable"] is True
     assert cv2["source_url"] == "https://pypi.org/project/opencv-python/"
@@ -219,8 +224,10 @@ def test_install_for_a_task_skips_optional_packages(monkeypatch):
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
     t = next(t for t in svc.get_install_presets()["tasks"] if t["id"] == "hardsub_ocr")
     assert t["roles"] == {"cv2": "required", "numpy": "required", "PIL": "required",
-                          "pytesseract": "recommended", "paddleocr": "optional"}
-    assert "paddleocr" not in t["to_install"] and t["optional_missing"] == ["paddleocr"]
+                          "pytesseract": "recommended", "paddleocr": "optional",
+                          "paddlepaddle": "optional"}
+    assert not {"paddleocr", "paddlepaddle"} & set(t["to_install"])
+    assert t["optional_missing"] == ["paddleocr", "paddlepaddle"]
     assert set(t["required_missing"]) == {"cv2", "numpy", "PIL"}
     assert t["approx_mb"] == sum(diagnostics.approx_download_mb(n) for n in t["to_install"])
 
