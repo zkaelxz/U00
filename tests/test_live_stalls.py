@@ -333,6 +333,33 @@ class TestWhisperRunner:
         with pytest.raises(ValueError):
             self._runner().run(lambda cb: (_ for _ in ()).throw(ValueError("x")), 5, "chunk 0")
 
+    def test_the_limit_counts_from_before_the_call_starts(self):
+        """A call that moves the clock before run() has read it once must still
+        time out: the limit is fixed when the call is handed over."""
+        clock, moved = FakeClock(), threading.Event()
+        reads = []
+        real_now = clock.__call__
+
+        def slow_first_read():
+            if not reads:
+                moved.wait(0.3)   # gives the worker the chance to run first
+            reads.append(1)
+            return real_now()
+        release = threading.Event()
+
+        def call(progress_cb):
+            clock.advance(1000)
+            moved.set()
+            release.wait(5)
+            return "late"
+        runner = self._runner(clock=slow_first_read)
+        try:
+            with pytest.raises(live_whisper.ChunkTimeout):
+                runner.run(call, 60, "chunk 0")
+        finally:
+            release.set()
+            assert _wait(lambda: runner.busy_with() is None)
+
     def test_the_worker_ends_at_its_next_segment_once_abandoned(self):
         reached = []
 
