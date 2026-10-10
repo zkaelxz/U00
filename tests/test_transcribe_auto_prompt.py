@@ -9,7 +9,7 @@ import os
 import pytest
 
 import background_jobs
-from services import transcribe_service
+from services import autotune_service, transcribe_service
 from services.service_errors import NotFoundError
 
 
@@ -110,9 +110,9 @@ class TestRunUsesAutoPrompt:
             seen["args"] = args
             return True
         monkeypatch.setattr(background_jobs, "start_process_job", fake_process_job)
-        transcribe_service.start_autotune_run(did, extra_names="沈清疑")
+        autotune_service.start_autotune_run(did, extra_names="沈清疑")
         assert "苏杉、沈清疑。" in seen["args"]
-        transcribe_service.start_autotune_run(did, initial_prompt="全替换", extra_names="沈清疑")
+        autotune_service.start_autotune_run(did, initial_prompt="全替换", extra_names="沈清疑")
         assert "全替换" in seen["args"]
 
     def test_typed_prompt_wins(self, isolated_db, monkeypatch):

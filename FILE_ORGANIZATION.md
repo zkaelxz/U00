@@ -174,6 +174,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `assistant_roles_service.py`
 - `auth_service.py`
 - `auto_backup_service.py`
+- `autotune_service.py` (the "Auto-tune" speech-splitting sensitivity process job: start, status, apply a measured candidate)
 - `backup_import_service.py`
 - `benchmark_case_service.py`
 - `benchmark_lab_service.py`
