@@ -81,6 +81,7 @@ import real_model_check_cli
 import background_jobs
 import cli_subtitle
 import cli_timing
+from jobs import job_store
 from services import (dub_service, export_service, glossary_service, jobs_service, lines_service,
                       narration_service, review_extras_service, settings_service, transcribe_pipeline,
                       transcribe_service)
@@ -113,7 +114,7 @@ def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
     # cross-process job_records rows too, so an API job running
     # on this drama notices the cancel. (Only queued/running rows change.)
     for prefix in background_jobs.LINE_WRITING_JOB_PREFIXES:
-        db.request_job_record_cancel(f"{prefix}{drama_id}")
+        job_store.request_cancel(f"{prefix}{drama_id}")
     if existing:
         db.save_line_history_snapshot(drama_id, existing, snapshot_label)
     db.save_lines(drama_id, lines)
