@@ -22,6 +22,7 @@ from api.server import create_app
 from services import auth_service
 from services import auto_backup_service as abs_
 from services import backup_import_service as bis
+from services import drama_restore_service as drs
 from services import library_admin_service as las
 
 OK = {"confirm": "true", "confirm_text": "RESTORE"}
@@ -376,7 +377,7 @@ def test_refused_during_maintenance_or_running_export(client, monkeypatch):
 def test_failure_rolls_back_everything(client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip(media={a: "audio.mp3"})
-    real = abs_.copy_drama
+    real = drs.copy_drama
     calls = []
 
     def flaky(*args, **kw):
@@ -384,7 +385,7 @@ def test_failure_rolls_back_everything(client, monkeypatch):
         if len(calls) == 2:
             raise sqlite3.OperationalError("boom /secret/path")
         return real(*args, **kw)
-    monkeypatch.setattr(abs_, "copy_drama", flaky)
+    monkeypatch.setattr(drs, "copy_drama", flaky)
     before = _dramas()
     r = _post_import(client, data, [a, b])
     assert r.status_code >= 400 and "secret" not in r.text
@@ -827,7 +828,7 @@ def _fail_commit_after_move(monkeypatch):
     """The commit right after the staged folders are moved into place
     raises; returns the dramas/ entries seen just after the move."""
     seen, armed = [], []
-    real_move, real_commit = abs_.move_media_in, sqlite3.Connection.commit
+    real_move, real_commit = drs.move_media_in, sqlite3.Connection.commit
 
     def move(*args, **kw):
         real_move(*args, **kw)
@@ -839,14 +840,14 @@ def _fail_commit_after_move(monkeypatch):
             armed.clear()
             raise sqlite3.OperationalError("disk I/O error")
         return real_commit(self)
-    monkeypatch.setattr(abs_, "move_media_in", move)
+    monkeypatch.setattr(drs, "move_media_in", move)
     monkeypatch.setattr(db._TrackedConnection, "commit", commit, raising=False)
     return seen
 
 
 def _die_without_cleanup(monkeypatch):
     """The process 'dies' where the import would clean up its staging."""
-    monkeypatch.setattr(abs_, "end_media_staging", lambda staging: True)
+    monkeypatch.setattr(drs, "end_media_staging", lambda staging: True)
 
 
 def _restart(monkeypatch):
