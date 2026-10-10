@@ -36,6 +36,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `check_setup.py`
 - `cli.py`
 - `cli_subtitle.py` (the `import-subtitle` command)
+- `cli_timing.py` (the `timing-check` command, and the wait after a Qwen-only `transcribe`)
 - `core.py`
 - `db.py`
 - `diagnostics.py`
@@ -95,6 +96,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
 - `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
+- `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
 - `video_download.py`
 - `video_export.py`
 
@@ -129,6 +131,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `navigator.py`
 - `page_fetch.py`
 - `page_scroll.py` (scroll-through-then-settle step shared by the rendered and signed-in fetches)
+- `page_capture_checks.py` (blank-page probe, re-capture lookup and fixed failure messages for the extension bridge)
 - `page_server.py`
 - `title_library.py`
 
@@ -177,6 +180,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
 - `glossary_service.py`
+- `gpu_lock_recovery_service.py` (frees GPU slots a killed server left behind; wait message for them)
 - `jellyfin_service.py`
 - `job_checkpoint_service.py`
 - `job_stage_service.py`
@@ -247,6 +251,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `spend_history_service.py`
 - `stronger_engine_service.py`
 - `subtitle_import_service.py`
+- `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
 - `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
 - `transcribe_service.py`
 - `translate_run_service.py`
@@ -293,6 +298,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `diagnostics_installs_routes.py`
 - `diagnostics_routes.py`
 - `diarization_routes.py`
+- `timing_check_routes.py`
 - `discover_lookup_routes.py`
 - `discover_routes.py`
 - `disk_usage_routes.py`

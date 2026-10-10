@@ -633,6 +633,7 @@ SYSTEM_FLAG_REASONS = {
     "language_uncertain": ("Language uncertain -- the text doesn't match the language detected "
                            "for this line"),
     "timing_overlap": "Overlaps the next line -- exports trim it",
+    "timing_drift": "Timing disagrees with the audio -- the line may start or end away from the speech",
     "reading_speed": "Too fast to read -- too many characters for the time it's shown",
     "factual_detail": ("Auto QC: a number, date, name, amount or unit differs between the "
                        "source and the translation"),

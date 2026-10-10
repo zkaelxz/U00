@@ -133,7 +133,10 @@ A GPU job is queued instead of started when an earlier GPU job is already waitin
 2. **Cross-process slots.** `try_take_gpu_slot(holder, description)` claims a row in
    `db.gpu_lock` via `db.try_acquire_gpu_lock` (`BEGIN IMMEDIATE`, so the read-then-write
    is atomic across processes). Holders are `ui:<job_id>` and `cli:<pid>`. A row not
-   heartbeated for `db.GPU_LOCK_STALE_SECONDS` (10 min) is abandoned and ignored. The
+   heartbeated for `db.GPU_LOCK_STALE_SECONDS` (10 min) is abandoned and ignored. At
+   startup a `ui:` row is also released at once when its job record was written after the
+   row was taken and names a dead owner pid (`gpu_lock_recovery_service`); a record older
+   than the row is a previous run's, so the row is left to expire. The
    table has at most `GPU_LOCK_MAX_SLOTS` (4) rows.
 3. **External load.** For the first holder (`check_external_load=True`, which UI jobs
    pass), `diagnostics.external_gpu_is_busy` reads nvidia-smi totals. A program Baihe
