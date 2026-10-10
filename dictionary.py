@@ -13,7 +13,6 @@ define feature.
 import io
 import os
 import re
-import urllib.request
 
 import portable
 from core import atomic_write
@@ -30,24 +29,6 @@ CEDICT_DOWNLOAD_DEADLINE_SECONDS = 120
 _cedict_cache = None
 
 
-class _ChunkedResponse:
-    """Gives a urllib response the iter_content() read_capped expects."""
-
-    def __init__(self, resp):
-        self._resp = resp
-        self.headers = getattr(resp, "headers", None) or {}
-
-    def iter_content(self, size):
-        while True:
-            chunk = self._resp.read(size)
-            if not chunk:
-                return
-            yield chunk
-
-    def close(self):
-        self._resp.close()
-
-
 def _ensure_cedict():
     """Downloads CC-CEDICT if not already present locally. Requires
     internet on first use only; the file is then kept at CEDICT_PATH,
@@ -56,12 +37,19 @@ def _ensure_cedict():
         return
     import gzip
     os.makedirs(os.path.dirname(CEDICT_PATH), exist_ok=True)
-    from lib import capped_body
-    with urllib.request.urlopen(CEDICT_URL, timeout=30) as resp:
-        packed = capped_body.read_capped(
-            _ChunkedResponse(resp), CEDICT_MAX_DOWNLOAD_BYTES, CEDICT_DOWNLOAD_DEADLINE_SECONDS,
-            lambda: RuntimeError("The CC-CEDICT download is larger than expected."),
-            make_deadline_error=lambda: RuntimeError("The CC-CEDICT download took too long."))
+    from lib import http
+    try:
+        # The URL is a constant of ours, not user input, so no SSRF guard.
+        resp = http.get(CEDICT_URL, timeout=30, max_bytes=CEDICT_MAX_DOWNLOAD_BYTES,
+                        deadline=CEDICT_DOWNLOAD_DEADLINE_SECONDS, guard=None,
+                        allow_redirects=True)
+    except http.ResponseTooLarge:
+        raise RuntimeError("The CC-CEDICT download is larger than expected.") from None
+    except http.ResponseTooSlow:
+        raise RuntimeError("The CC-CEDICT download took too long.") from None
+    if resp.status != 200:
+        raise RuntimeError("CEDICT download failed")
+    packed = resp.body
     with gzip.GzipFile(fileobj=io.BytesIO(packed)) as gz:
         raw = gz.read(CEDICT_MAX_UNPACKED_BYTES + 1)
     if len(raw) > CEDICT_MAX_UNPACKED_BYTES:

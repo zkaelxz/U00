@@ -1,6 +1,7 @@
 """Remote-access health (services/remote_health_service.py, the
 GET /api/diagnostics/remote-health route and the api/background.py monitor).
 Sockets, DNS, HTTP and the clock are faked: no network."""
+from lib import http
 import ipaddress
 import socket
 import ssl
@@ -274,7 +275,7 @@ def test_public_ip_read_is_pinned_capped_and_timed(env, monkeypatch):
             seen["closed"] = True
 
     monkeypatch.setattr(url_guard, "resolve_public", lambda url: "8.8.8.8")
-    monkeypatch.setattr(metadata_service, "pinned_get",
+    monkeypatch.setattr(http, "pinned_get",
                         lambda url, ip, headers: seen.update(ip=ip) or Resp())
     assert rhs._current_public_ip(CHECK_URL) == ipaddress.ip_address("93.184.216.34")
     assert seen == {"ip": "8.8.8.8", "n": rhs.IP_CHECK_MAX_BYTES + 1, "closed": True}

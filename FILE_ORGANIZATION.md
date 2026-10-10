@@ -11,7 +11,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `proc.py`, `proc_kill.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`) | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
@@ -144,6 +144,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Shared helpers with no domain knowledge; nothing here imports `services`, `api`, `db` or a domain module (`tests/test_static_analysis.py` enforces it).
 
 - `capped_body.py` (byte- and time-capped read of a streamed HTTP body)
+- `http.py` (the one outbound GET/POST: guard on every redirect hop, pinned connection, byte cap, total deadline, fixed-text errors)
 - `proc.py` (the one runner for external commands whose output is read: own process group, tree kill on timeout or cancel, bounded output drain)
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)

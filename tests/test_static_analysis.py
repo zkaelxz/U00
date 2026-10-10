@@ -27,7 +27,10 @@ def _find_requests_calls_missing_timeout(path, session_verbs=False):
     `urlopen`), so ordinary `dict.get` / router `.post` decorators aren't.
     With `session_verbs=True` (used for services/), `session.<verb>` and
     `<name>.<verb>` on a name assigned from `requests.Session()` are
-    checked too."""
+    checked too.
+
+    Retired when no raw `requests`/`httpx`/`urlopen` call remains outside
+    `lib/http.py` and `engine_backends/` (lib.http always passes timeout=)."""
     tree = ast.parse(open(path, encoding="utf-8").read(), path)
     problems = []
     session_names = set()
@@ -186,8 +189,11 @@ class TestHttpCallsHaveTimeouts:
     def test_services_and_api_packages(self):
         # B-07: the FastAPI layer's services/ (metadata autofill's page
         # fetch, etc.) and api/ must never make an untimed HTTP call.
-        files = _py_files_under("services") + _py_files_under("api")
-        assert files, "services/ and api/ were not found"
+        files = (_py_files_under("services") + _py_files_under("api")
+                 + _py_files_under("lib"))
+        assert files, "services/, api/ and lib/ were not found"
+        # lib/http.py's pinned_get is the one raw requests call outside engine_backends/.
+        assert os.path.join(PROJECT_ROOT, "lib", "http.py") in files
         problems = {os.path.relpath(f, PROJECT_ROOT):
                     _find_requests_calls_missing_timeout(f, session_verbs=True)
                     for f in files}

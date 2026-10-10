@@ -1454,36 +1454,33 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     partial-progress signal available during the request itself.
     """
     import os as _os
-    import requests
     import translate_engines
-    from lib import capped_body
+    from lib import http
 
-    def too_big():
-        return GroqTranscriptionError("Groq's reply was too large or too slow to read.")
-
+    too_big = "Groq's reply was too large or too slow to read."
     try:
         with open(audio_path, "rb") as f:
-            resp = requests.post(
-                GROQ_TRANSCRIBE_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
+            resp = http.post(
+                GROQ_TRANSCRIBE_URL, timeout=600, max_bytes=GROQ_RESPONSE_MAX_BYTES,
+                max_error_bytes=GROQ_ERROR_MAX_BYTES,
+                guard=None, headers={"Authorization": f"Bearer {api_key}"},
                 files={"file": (_os.path.basename(audio_path), f)},
                 data={"model": model, "language": language,
-                      "response_format": "verbose_json", "timestamp_granularities[]": "segment"},
-                timeout=600, stream=True)
-    except requests.RequestException as exc:
-        raise GroqTranscriptionError(translate_engines.redact_secrets(str(exc))) from None
-    if resp.status_code != 200:
-        try:
-            detail = capped_body.read_capped(resp, GROQ_ERROR_MAX_BYTES, 600, too_big)
-        except Exception:
-            detail = b""
+                      "response_format": "verbose_json", "timestamp_granularities[]": "segment"})
+    except (http.ResponseTooLarge, http.ResponseTooSlow):
+        raise GroqTranscriptionError(too_big) from None
+    except http.FetchError as exc:
+        raise GroqTranscriptionError(exc.message) from None
+    if resp.status != 200:
         raise GroqTranscriptionError(translate_engines.redact_secrets(
-            f"Groq API returned {resp.status_code}: "
-            f"{detail.decode('utf-8', 'replace')[:300]}"))
+            f"Groq API returned {resp.status}: "
+            f"{resp.body.decode('utf-8', 'replace')[:300]}"))
     try:
-        data = translate_engines.read_json_capped(resp, 600, GROQ_RESPONSE_MAX_BYTES, too_big)
-    except requests.RequestException as exc:
-        raise GroqTranscriptionError(translate_engines.redact_secrets(str(exc))) from None
+        data = json.loads(resp.body)
+    except ValueError:
+        raise GroqTranscriptionError(too_big) from None
+    if not isinstance(data, dict):
+        raise GroqTranscriptionError(too_big)
     result = [{"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
               for seg in data.get("segments", []) if seg.get("text", "").strip()]
     if progress_cb:
