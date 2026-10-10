@@ -12,7 +12,7 @@ table so other processes (and a restarted server) can see a job's last
 known state. While this process has queued or running jobs, a daemon
 heartbeat thread bumps their `updated_at` so a stale-record sweep
 elsewhere can tell a quiet live job from one whose owner process died.
-A failed write never breaks the job: jobs/store.py shows and retries it.
+A failed write never breaks the job; jobs/job_store.py retries it.
 
 Rules for anything run this way:
   - Do the work through functions that only touch plain Python objects
@@ -74,10 +74,9 @@ def _emit_change(job_id) -> None:
 
 
 def _mirror_locked(job_id):
-    """Caller holds _lock. Writes this job's row (jobs/store.py); a failed
-    write never breaks the job and is retried by the heartbeat."""
-    from jobs import store
-    store.write_transition(job_id, _jobs.get(job_id))
+    """Caller holds _lock. Writes this job's row (jobs/job_store.py)."""
+    from jobs import job_store
+    job_store.write_transition(job_id, _jobs.get(job_id))
     _ensure_heartbeat()
 
 
@@ -95,8 +94,8 @@ _heartbeat_thread = None
 
 
 def _heartbeat_once():
-    from jobs import store
-    store.heartbeat_tick()
+    from jobs import job_store
+    job_store.heartbeat_tick()
 
 
 def _heartbeat_loop():
@@ -1719,7 +1718,7 @@ def owner_process_alive(pid) -> bool:
     return True
 
 
-def request_cancel(job_id: str):
+def request_cancel(job_id: str, requested_at=None):
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check
     is_cancel_requested() between units of work, since a thread can't be
@@ -1740,7 +1739,7 @@ def request_cancel(job_id: str):
         if job is None:
             return
         job["cancel_requested"] = True
-        job.setdefault("cancel_requested_at", time.time())
+        job.setdefault("cancel_requested_at", requested_at or time.time())
         if job.get("status") == "queued":
             job["status"] = "cancelled"
             job["finished_at"] = time.time()
@@ -1761,12 +1760,11 @@ _db_cancel_check_failed = set()   # job ids whose check failure was already logg
 
 
 def _db_cancel_requested(job_id: str) -> bool:
-    """A cancel requested from another process (the API
-    host) lives in job_records. Checked at most once per
-    _DB_CANCEL_CHECK_INTERVAL seconds per job so a tight job loop doesn't
-    hit SQLite every iteration; on a hit the in-memory flag is set so
-    later checks are free. Only for jobs this process owns and that are
-    still queued/running. A DB error means "not requested"."""
+    """A cancel requested from another process (the API host) lives in
+    job_records. Checked at most once per _DB_CANCEL_CHECK_INTERVAL seconds
+    per job so a tight job loop doesn't hit SQLite every iteration; on a hit
+    the in-memory flag and the requester's time are set. Only for queued/
+    running jobs this process owns. A DB error means "not requested"."""
     with _lock:
         job = _jobs.get(job_id)
         if job is None or job.get("status") not in ("queued", "running"):
@@ -1778,8 +1776,8 @@ def _db_cancel_requested(job_id: str) -> bool:
             return False
         _last_db_cancel_check[job_id] = now
     try:
-        import db
-        requested = db.is_job_record_cancel_requested(job_id)
+        from jobs import job_store
+        requested = job_store.row_cancel_time(job_id)
     except Exception as exc:
         # Retried on the next call rather than after the interval, and
         # logged once per job: an unseen failure hides a cross-process Cancel.
@@ -1792,8 +1790,8 @@ def _db_cancel_requested(job_id: str) -> bool:
             _warn(f"job {job_id}: could not read a cancel request from job_records", exc)
         return False
     if requested:
-        request_cancel(job_id)
-    return requested
+        request_cancel(job_id, requested)
+    return bool(requested)
 
 
 def is_cancel_requested(job_id: str) -> bool:

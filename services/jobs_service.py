@@ -25,7 +25,7 @@ from services import job_stage_service, ownership_service, run_settings_service
 import diagnostics
 import background_jobs
 import job_force_stop
-from jobs import store
+from jobs import job_store
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
@@ -402,10 +402,7 @@ def _with_live_progress(record: dict) -> dict:
     except Exception:
         return record
     if not live:
-        if record.get("status") in ("queued", "running"):
-            # Another process owns it: Force stop is judged from the row's
-            # own cancel time, the same answer that process gives.
-            record = dict(record, can_force_stop=job_force_stop.can_force_stop(record))
+        # No can_force_stop: Force stop reaches only jobs live in this process.
         return record
     out = dict(record)
     if record.get("status") == "running" and live.get("status") == "running":
@@ -421,7 +418,7 @@ def _with_live_progress(record: dict) -> dict:
                               + " No update for a while: this job may be stalled.")
     if live.get("sync_error"):
         out["message"] = " ".join(filter(None, [(out.get("message") or "").rstrip(),
-                                                store.sync_error_suffix(live["sync_error"])]))
+                                                job_store.sync_error_suffix(live["sync_error"])]))
     return out
 
 
@@ -462,7 +459,7 @@ def is_stale(record: dict, now: Optional[float] = None) -> bool:
         return False
     if background_jobs.get_status(record.get("job_id")) is not None:
         return False
-    if store.owner_gone(record):
+    if job_store.owner_gone(record):
         return True
     updated = record.get("updated_at") or 0
     return (time.time() if now is None else now) - updated > STALE_JOB_SECONDS
@@ -554,8 +551,8 @@ def _for_caller(principal, record) -> dict:
 
 def sweep_stale_job_records() -> int:
     """Closes every queued/running row left behind by a crashed, killed or
-    restarted process (jobs/store.sweep_dead_owners). Returns how many."""
-    return store.sweep_dead_owners(STALE_JOB_SECONDS)
+    restarted process (jobs/job_store.sweep_dead_owners). Returns how many."""
+    return job_store.sweep_dead_owners(STALE_JOB_SECONDS)
 
 
 def list_jobs(principal=None) -> list:
@@ -612,9 +609,9 @@ def cancel_job(job_id: str, principal=None) -> dict:
     if record.get("status") not in ("queued", "running"):
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
     background_jobs.request_cancel(job_id)
-    store.request_cancel(job_id)
+    job_store.request_cancel(job_id)
     live = background_jobs.get_status(job_id)
-    if live is None and (store.close_if_owner_gone(record) or store.close_stale(
+    if live is None and (job_store.close_if_owner_gone(record) or job_store.close_stale(
             job_id, time.time() - STALE_JOB_SECONDS)):
         # The owner process has exited, or sent no heartbeat for
         # STALE_JOB_SECONDS: nobody will read the flag. Each close is

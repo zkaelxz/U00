@@ -1,4 +1,4 @@
-"""jobs/store.py: the invariants that keep a job's row in library.db honest.
+"""jobs/job_store.py: the invariants that keep a job's row in library.db honest.
 
 Every transition is written once and the row then matches the job; a failed
 write is visible (sync_error, the "could not be saved" suffix) and retried; a
@@ -17,7 +17,7 @@ import pytest
 
 import background_jobs as bg
 import db
-from jobs import store
+from jobs import job_store
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -75,7 +75,7 @@ class TestEveryTransitionIsWrittenOnce:
         _assert_row_matches_job("st_done")
         row = db.get_job_record("st_done")
         assert (row["kind"], row["owner_instance"], row["detail_state"]) == (
-            "thread", store.INSTANCE_ID, None)
+            "thread", job_store.INSTANCE_ID, None)
         release.set()
         assert _wait_for(lambda: bg.get_status("st_done")["status"] == "done")
         _finish()
@@ -84,15 +84,21 @@ class TestEveryTransitionIsWrittenOnce:
         bg.clear_job("st_done")
 
     def test_running_cancelling_then_cancelled(self, writes):
+        heard, stop = threading.Event(), threading.Event()
+
         def work():
             while not bg.is_cancel_requested("st_cancel"):
                 time.sleep(0.01)
+            heard.set()
+            stop.wait(5.0)
             raise bg.JobCancelled("st_cancel")
         assert bg.start_job("st_cancel", work)
         bg.request_cancel("st_cancel")
+        assert heard.wait(5.0)
         _assert_row_matches_job("st_cancel")
         assert db.get_job_record("st_cancel")["cancel_requested_at"] == pytest.approx(
             bg.get_status("st_cancel")["cancel_requested_at"])
+        stop.set()
         assert _wait_for(lambda: bg.get_status("st_cancel")["status"] == "cancelled")
         _finish()
         # The second "running" write is the Cancelling... message, not a new status.
@@ -153,13 +159,13 @@ class TestAFailedWriteIsVisibleAndRetried:
         assert "Job state could not be saved (" in listed["message"]
         assert "showing the in-memory state" in listed["message"]
         assert "SECRET1234567890" not in str(listed)
-        assert "st_fail" in store._pending
+        assert "st_fail" in job_store._pending
 
         monkeypatch.setattr(db, "save_job_record", real)
         bg._heartbeat_once()
         job = bg.get_status("st_fail")
         assert "sync_error" not in job and "detail_state" not in job
-        assert "st_fail" not in store._pending
+        assert "st_fail" not in job_store._pending
         row = db.get_job_record("st_fail")
         assert row["status"] == "done" and row["sync_error"] is None
         listed = client.get("/api/jobs/st_fail").json()
@@ -182,13 +188,13 @@ class TestAFailedWriteIsVisibleAndRetried:
         assert _wait_for(lambda: bg.get_status("st_log")["status"] == "done")
         _finish()
         with bg._lock:
-            store.write_transition("st_log", bg._jobs["st_log"])
+            job_store.write_transition("st_log", bg._jobs["st_log"])
         mine = [m for m in logged if "st_log" in m and "could not save" in m]
         assert len(mine) == 1
         assert "SECRET1234567890" not in mine[0]
         bg.clear_job("st_log")
         bg._heartbeat_once()   # a cleared job's retry is dropped, never written
-        assert "st_log" not in store._pending
+        assert "st_log" not in job_store._pending
         assert db.get_job_record("st_log") is None
 
     def test_database_is_locked_once_is_retried_and_lands(self, isolated_db, monkeypatch):
@@ -196,7 +202,7 @@ class TestAFailedWriteIsVisibleAndRetried:
         failed = []
 
         def locked_once(job_id, *a, **k):
-            if not failed:
+            if k.get("status") == "done" and not failed:
                 failed.append(1)
                 raise sqlite3.OperationalError("database is locked")
             return real(job_id, *a, **k)
@@ -204,10 +210,12 @@ class TestAFailedWriteIsVisibleAndRetried:
         assert bg.start_job("st_locked", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_locked")["status"] == "done")
         _finish()
-        assert failed == [1]
+        # One try under background_jobs._lock; the retry runs outside it.
+        assert failed == [1] and "st_locked" in job_store._pending
+        bg._heartbeat_once()
         assert "sync_error" not in bg.get_status("st_locked")
         assert db.get_job_record("st_locked")["status"] == "done"
-        assert "st_locked" not in store._pending
+        assert "st_locked" not in job_store._pending
         bg.clear_job("st_locked")
 
 
@@ -219,7 +227,7 @@ class TestRowsOfGoneOwners:
         try:
             db.save_job_record("st_other", "running", owner_pid=other.pid)
             _set_row("st_other", owner_instance="another-server")
-            assert store.sweep_dead_owners(bg.STALE_JOB_SECONDS) == 1
+            assert job_store.sweep_dead_owners(bg.STALE_JOB_SECONDS) == 1
             assert db.get_job_record("st_other")["status"] == "running"
         finally:
             other.kill()
@@ -233,32 +241,139 @@ class TestRowsOfGoneOwners:
         _set_row("st_race", owner_instance="an-earlier-server")
         seen = db.get_job_record("st_race")
         _set_row("st_race", owner_instance="a-new-server")   # a new run in between
-        assert store.close_if_owner_gone(seen) is False
+        assert job_store.close_if_owner_gone(seen) is False
         assert db.get_job_record("st_race")["status"] == "running"
 
     def test_cancel_time_is_kept_and_does_not_refresh_staleness(self, isolated_db):
         db.save_job_record("st_flag", "running")
         _set_row("st_flag", updated_at=time.time() - 3600)
         before = db.get_job_record("st_flag")
-        assert store.request_cancel("st_flag")
+        assert job_store.request_cancel("st_flag")
         first = db.get_job_record("st_flag")
         assert first["cancel_requested"] == 1 and first["cancel_requested_at"]
         assert first["updated_at"] == before["updated_at"]
-        assert store.request_cancel("st_flag")
+        assert job_store.request_cancel("st_flag")
         assert db.get_job_record("st_flag")["cancel_requested_at"] == first["cancel_requested_at"]
 
-    def test_force_stop_is_offered_from_the_row_when_the_job_is_not_live_here(self, isolated_db):
+    def test_force_stop_is_not_offered_for_a_job_not_live_here(self, isolated_db):
+        """force_stop knows only this process's jobs: offering it for another
+        process's job would answer 409."""
         from services import jobs_service
         db.save_job_record("st_hung", "running", owner_pid=os.getppid())
-        _set_row("st_hung", kind="thread", cancel_requested_at=time.time() - 5)
-        assert jobs_service.get_job("st_hung")["can_force_stop"] is False
-        _set_row("st_hung", cancel_requested_at=time.time() - 90)
+        _set_row("st_hung", kind="thread", cancel_requested_at=time.time() - 90)
         out = jobs_service.get_job("st_hung")
-        assert out["can_force_stop"] is True
+        assert out["can_force_stop"] is False
         for internal in ("owner_pid", "owner_instance", "detail_state", "sync_error",
                          "cancel_requested_at"):
             assert internal not in out
         assert out["kind"] == jobs_service.job_kind("st_hung")
+
+    def test_a_sweep_between_the_two_writes_cannot_close_a_new_run(self, isolated_db, monkeypatch):
+        db.save_job_record("st_mid", "running", owner_pid=os.getpid())
+        _set_row("st_mid", owner_instance="an-earlier-server")
+        seen = db.get_job_record("st_mid")
+        real = db.save_job_record
+        sweeps = []
+
+        def sweep_in_between(job_id, *a, **k):
+            real(job_id, *a, **k)
+            if job_id == "st_mid" and not sweeps:
+                t = threading.Thread(
+                    target=lambda: sweeps.append(job_store.close_if_owner_gone(seen)))
+                sweeps.append(t)
+                t.start()
+                time.sleep(0.2)   # the sweep's UPDATE is ready to run now
+        monkeypatch.setattr(db, "save_job_record", sweep_in_between)
+        release = threading.Event()
+        assert bg.start_job("st_mid", lambda: release.wait(5.0))
+        try:
+            sweeps[0].join(10)
+            assert sweeps[1:] == [False]
+            row = db.get_job_record("st_mid")
+            assert (row["status"], row["owner_instance"]) == ("running", job_store.INSTANCE_ID)
+        finally:
+            release.set()
+            _finish("st_mid")
+
+    def test_the_requesters_cancel_time_stands_and_the_owner_adopts_it(self, isolated_db):
+        release = threading.Event()
+        assert bg.start_job("st_adopt", lambda: release.wait(5.0))
+        try:
+            asked = time.time() - 30
+            _set_row("st_adopt", cancel_requested=1, cancel_requested_at=asked)
+            bg._last_db_cancel_check.clear()
+            assert bg.is_cancel_requested("st_adopt")
+            assert bg.get_status("st_adopt")["cancel_requested_at"] == pytest.approx(asked)
+            with bg._lock:
+                bg._jobs["st_adopt"]["cancel_requested_at"] = time.time()
+                job_store.write_transition("st_adopt", bg._jobs["st_adopt"])
+            assert db.get_job_record("st_adopt")["cancel_requested_at"] == pytest.approx(asked)
+        finally:
+            release.set()
+            _finish("st_adopt")
+
+
+class TestRetriesNeverHoldTheJobsLock:
+    def test_a_blocked_retry_never_blocks_get_status(self, isolated_db, monkeypatch):
+        real = db.save_job_record
+
+        def fail_final(job_id, *a, **k):
+            if k.get("status") == "done":
+                raise sqlite3.OperationalError("disk I/O error")
+            return real(job_id, *a, **k)
+        monkeypatch.setattr(db, "save_job_record", fail_final)
+        assert bg.start_job("st_slow", lambda: None)
+        assert _wait_for(lambda: bg.get_status("st_slow")["status"] == "done")
+        _finish()
+        assert "st_slow" in job_store._pending
+        blocked = []
+
+        def locked_for_2s(job_id, *a, **k):
+            if not blocked:
+                blocked.append(1)
+                time.sleep(2.0)
+                raise sqlite3.OperationalError("database is locked")
+            return real(job_id, *a, **k)
+        monkeypatch.setattr(db, "save_job_record", locked_for_2s)
+        beat = threading.Thread(target=bg._heartbeat_once)
+        beat.start()
+        assert _wait_for(lambda: blocked)
+        worst = 0.0
+        while beat.is_alive():
+            t0 = time.monotonic()
+            bg.get_status("st_slow")
+            worst = max(worst, time.monotonic() - t0)
+            time.sleep(0.005)
+        beat.join()
+        assert worst < 0.05
+        assert db.get_job_record("st_slow")["status"] == "done"
+        assert "st_slow" not in job_store._pending
+        bg.clear_job("st_slow")
+
+    def test_a_retry_that_raced_a_new_transition_is_written_again(self, isolated_db, monkeypatch):
+        real = db.save_job_record
+        release = threading.Event()
+        assert bg.start_job("st_race2", lambda: release.wait(5.0))
+        with bg._lock:
+            job_store._pending.add("st_race2")
+        moved = []
+
+        def transition_meanwhile(job_id, *a, **k):
+            real(job_id, *a, **k)
+            if not moved:
+                moved.append(1)
+                with bg._lock:   # what a progress message change does
+                    bg._jobs["st_race2"]["message"] = "newer"
+                    job_store.write_transition("st_race2", bg._jobs["st_race2"])
+                real(job_id, *a, **k)   # the older copy lands last
+        monkeypatch.setattr(db, "save_job_record", transition_meanwhile)
+        try:
+            job_store.retry_pending()
+            assert db.get_job_record("st_race2")["message"] == "newer"
+            assert "st_race2" not in job_store._pending
+        finally:
+            release.set()
+            _finish("st_race2")
 
 
 class TestExitFlush:
@@ -268,7 +383,7 @@ class TestExitFlush:
         assert bg.start_job("st_exit", lambda: release.wait(5.0), gpu_touching=True)
         try:
             assert "ui:st_exit" in _gpu_holders()
-            store.flush_at_exit()
+            job_store.flush_at_exit()
             row = db.get_job_record("st_exit")
             assert (row["status"], row["detail_state"], row["error"]) == (
                 "cancelled", "interrupted", bg.INTERRUPTED_MESSAGE)
@@ -276,6 +391,66 @@ class TestExitFlush:
         finally:
             release.set()
             _finish("st_exit")
+
+    def test_a_queued_gpu_jobs_slot_name_is_left_alone(self, isolated_db):
+        bg.set_gpu_limit_enabled(True)
+        release = threading.Event()
+        assert bg.start_job("st_ex_a", lambda: release.wait(5.0), gpu_touching=True)
+        assert bg.start_job("st_ex_b", lambda: None, gpu_touching=True)
+        try:
+            assert bg.get_status("st_ex_b")["status"] == "queued"
+            with contextlib.closing(db.get_conn()) as conn:   # another process's job
+                conn.execute("INSERT INTO gpu_lock VALUES (2, 'ui:st_ex_b', 'x', ?, ?)",
+                             (time.time(), time.time()))
+                conn.commit()
+            job_store.flush_at_exit()
+            assert "ui:st_ex_b" in _gpu_holders()
+            assert "ui:st_ex_a" not in _gpu_holders()
+        finally:
+            release.set()
+            _finish("st_ex_a")
+
+    def test_flush_keeps_to_its_budget_on_a_locked_database(self, isolated_db, monkeypatch):
+        real = db.save_job_record
+
+        def fail_final(job_id, *a, **k):
+            if k.get("status") == "done":
+                raise sqlite3.OperationalError("disk I/O error")
+            return real(job_id, *a, **k)
+        monkeypatch.setattr(db, "save_job_record", fail_final)
+        assert bg.start_job("st_ex_pending", lambda: None)
+        assert _wait_for(lambda: bg.get_status("st_ex_pending")["status"] == "done")
+        _finish()
+        release = threading.Event()
+        assert bg.start_job("st_ex_live", lambda: release.wait(5.0))
+
+        class Locked:
+            """Waits out its busy timeout (sqlite's 5 s unless set), then fails."""
+            def __init__(self):
+                self.wait = 5.0
+
+            def execute(self, sql, *a):
+                if sql.startswith("PRAGMA busy_timeout"):
+                    self.wait = int(sql.rsplit("=", 1)[1]) / 1000
+                    return
+                time.sleep(self.wait)
+                raise sqlite3.OperationalError("database is locked")
+
+            def close(self):
+                pass
+        real_conn = db.get_conn
+        monkeypatch.setattr(db, "get_conn", Locked)
+        monkeypatch.setattr(job_store, "EXIT_FLUSH_SECONDS", 0.5)
+        try:
+            t0 = time.monotonic()
+            job_store.flush_at_exit()
+            assert time.monotonic() - t0 < 0.8
+        finally:
+            monkeypatch.setattr(db, "get_conn", real_conn)
+            release.set()
+            _finish("st_ex_live")
+        assert "st_ex_pending" in job_store._pending
+        bg.clear_job("st_ex_pending")
 
     def test_flush_retries_a_pending_write_first(self, isolated_db, monkeypatch):
         real = db.save_job_record
@@ -289,9 +464,9 @@ class TestExitFlush:
         assert _wait_for(lambda: bg.get_status("st_exit_pending")["status"] == "done")
         _finish()
         monkeypatch.setattr(db, "save_job_record", real)
-        store.flush_at_exit()
+        job_store.flush_at_exit()
         assert db.get_job_record("st_exit_pending")["status"] == "done"
-        assert "st_exit_pending" not in store._pending
+        assert "st_exit_pending" not in job_store._pending
         bg.clear_job("st_exit_pending")
 
 
@@ -317,13 +492,13 @@ def test_an_exited_server_leaves_no_running_row(isolated_db, how):
     row = db.get_job_record("st_owner")
     if how == "kill":
         assert row["status"] == "running"
-        assert store.sweep_dead_owners(bg.STALE_JOB_SECONDS) == 1
+        assert job_store.sweep_dead_owners(bg.STALE_JOB_SECONDS) == 1
         row = db.get_job_record("st_owner")
     assert (row["status"], row["detail_state"], row["error"]) == (
         "cancelled", "interrupted", bg.INTERRUPTED_MESSAGE)
 
 
-@pytest.mark.parametrize("module", ["jobs", "jobs.store"])
+@pytest.mark.parametrize("module", ["jobs", "jobs.job_store"])
 def test_each_jobs_module_imports_alone(module):
     proc = subprocess.run([sys.executable, "-c", f"import {module}"], cwd=REPO,
                           capture_output=True, text=True, timeout=60)

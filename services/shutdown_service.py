@@ -149,9 +149,9 @@ def stop_services() -> None:
     that did not stop in time, closed as interrupted while this process can
     still write them (atexit is skipped when Windows ends the process)."""
     import page_server
-    from jobs import store
+    from jobs import job_store
     _quietly(page_server.stop_server)
-    _quietly(store.flush_at_exit)
+    _quietly(job_store.flush_at_exit)
 
 
 def _begin():
