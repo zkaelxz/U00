@@ -216,6 +216,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/jobs/{job_id}` | library.read |
 | `POST /api/jobs/{job_id}/cancel` | jobs.cancel |
 | `POST /api/jobs/{job_id}/delete` | local_only() |
+| `POST /api/jobs/{job_id}/force-stop` | jobs.cancel |
 | `GET /api/jobs/{job_id}/stages` | library.read |
 | `GET /api/language-packs` | library.read |
 | `POST /api/language-packs/defaults/{language}` | admin.settings |

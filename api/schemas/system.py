@@ -40,6 +40,7 @@ __all__ = [
     "SettingsUpdateRequest",
     "JobCancelResult",
     "JobDeleteResult",
+    "JobForceStopResult",
     "JobsClearFinishedResult",
     "ArtifactInfo",
     "EngineKeySetRequest",
@@ -272,6 +273,9 @@ class JobRecord(BaseModel):
     # Running here, but no progress update for a while (advisory; the state
     # is unchanged). Distinct from `stale`, which is about a dead owner.
     stalled: bool = False
+    # Cancel was heard over a minute ago and the worker still runs: the
+    # Force stop button's condition (job_force_stop.can_force_stop).
+    can_force_stop: bool = False
     # The caller started this job or owns its drama (auth off and the local
     # owner: every job). Server-computed from the caller's session; true
     # only where the caller may also cancel it.
@@ -408,6 +412,15 @@ class JobCancelResult(BaseModel):
     job_id: str
     cancel_requested: bool
     status: str
+
+
+class JobForceStopResult(BaseModel):
+    job_id: str
+    force_stopped: bool
+    status: str
+    # The worker thread cannot be killed: true while it is still finishing,
+    # in which case the job id cannot be started again until it ends.
+    worker_still_running: bool
 
 
 class JobDeleteResult(BaseModel):

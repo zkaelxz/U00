@@ -33,6 +33,8 @@ import threading
 import time
 import traceback
 
+import gpu_probe
+import job_force_stop
 from job_process_kill import _kill_worker_group, _stop_process, kill_tree  # noqa: F401
 
 _jobs = {}
@@ -259,8 +261,7 @@ def _vram_room_for_another_gpu_job() -> bool:
     nothing can tell whether a second model fits, so jobs run one at a time.
     No per-job size estimate is used: none is known before a job loads."""
     try:
-        import diagnostics
-        load = diagnostics.external_gpu_load()
+        load = gpu_probe.external_gpu_load()
     except Exception as exc:
         _warn("GPU memory check failed; running GPU jobs one at a time", exc)
         return False
@@ -293,8 +294,7 @@ def try_take_gpu_slot(holder: str, description: str = None, check_external_load:
                                            settle_seconds=GPU_PARALLEL_SETTLE_SECONDS)
     if check_external_load:
         try:
-            import diagnostics
-            if diagnostics.external_gpu_is_busy():
+            if gpu_probe.external_gpu_is_busy():
                 return False
         except Exception as exc:
             # Fails open on purpose: this check is optional (no nvidia-smi is
@@ -426,9 +426,8 @@ def _note_gpu_wait_reason_locked(job_id):
     reason = live_whisper.WAIT_MESSAGE if live_whisper.gpu_claim_held() else None
     if reason is None and _running_gpu_job_count_locked(job_id) == 0:
         try:
-            import diagnostics
             from gpu_wait_message import external_gpu_wait_message
-            load = diagnostics.external_gpu_load()
+            load = gpu_probe.external_gpu_load()
             reason = external_gpu_wait_message(load) if load else None
         except Exception as exc:
             _warn("GPU wait-reason check failed", exc)
@@ -794,6 +793,8 @@ def _promote_one_queued_gpu_job(dropped):
     entries it drops, and of a promoted process job that fails to start, to
     `dropped`, which the caller runs once _lock is released."""
     while True:
+        if _gpu_queue:
+            gpu_probe.prefetch()
         with _lock:
             if not _gpu_queue or _running_gpu_job_count_locked(None) >= get_gpu_max_parallel():
                 return
@@ -934,8 +935,9 @@ def refuse_new_jobs() -> None:
         _stopping = True
 
 
-def _refuse_if_stopping_locked():
+def _refuse_if_stopping_locked(job_id):
     """Caller holds _lock."""
+    job_force_stop.refuse_if_abandoned_locked(job_id)
     if _stopping:
         from services.service_errors import ConflictError
         raise ConflictError(STOPPING_MESSAGE)
@@ -969,8 +971,10 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     (refuse_new_jobs).
     """
     owner_user_id = _acting_user_id()
+    if gpu_touching and get_gpu_limit_enabled():
+        gpu_probe.prefetch()
     with _lock:
-        _refuse_if_stopping_locked()
+        _refuse_if_stopping_locked(job_id)
         if _exclusive_label is not None:
             return False
         existing = _jobs.get(job_id)
@@ -1086,8 +1090,10 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     start_job().
     """
     owner_user_id = _acting_user_id()
+    if gpu_touching and get_gpu_limit_enabled():
+        gpu_probe.prefetch()
     with _lock:
-        _refuse_if_stopping_locked()
+        _refuse_if_stopping_locked(job_id)
         if _exclusive_label is not None:
             return False
         existing = _jobs.get(job_id)
@@ -1521,7 +1527,7 @@ def update_progress(job_id: str, frac: float, message: str = ""):
     for a stage that cannot)."""
     _gpu_touching = False
     with _lock:
-        if job_id in _jobs:
+        if job_id in _jobs and not job_force_stop.current_thread_abandoned():
             now = time.time()
             job = _jobs[job_id]
             job["progress"] = frac
@@ -1622,7 +1628,7 @@ def set_result(job_id: str, result, mirror: bool = False):
     # already carry the result, so an extra SQLite write from the job thread
     # is only worth it for a result other processes need mid-run.
     with _lock:
-        if job_id in _jobs:
+        if job_id in _jobs and not job_force_stop.current_thread_abandoned():
             _jobs[job_id]["result"] = result
             if mirror:
                 _mirror_locked(job_id)
@@ -1778,6 +1784,7 @@ def request_cancel(job_id: str):
         if job is None:
             return
         job["cancel_requested"] = True
+        job.setdefault("cancel_requested_at", time.time())
         if job.get("status") == "queued":
             job["status"] = "cancelled"
             job["finished_at"] = time.time()
@@ -1834,6 +1841,8 @@ def _db_cancel_requested(job_id: str) -> bool:
 
 
 def is_cancel_requested(job_id: str) -> bool:
+    if job_force_stop.current_thread_abandoned():
+        return True   # lets the abandoned worker wind down at its next check
     with _lock:
         job = _jobs.get(job_id)
         if job and job.get("cancel_requested"):

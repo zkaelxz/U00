@@ -31,6 +31,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `action_tiers.py`
 - `applog.py`
 - `background_jobs.py`
+- `job_force_stop.py` (Force stop for a thread job that ignores Cancel: closes its record, abandons the worker, refuses a rerun while it lives)
+- `gpu_probe.py` (nvidia-smi readings taken before background_jobs' lock, used once by the GPU-slot decision)
 - `job_process_kill.py` (stopping a job's child process or process tree; re-exported by `background_jobs`)
 - `benchmark.py`
 - `check_setup.py`
