@@ -3,6 +3,7 @@ tests/test_db.py -- tests for db.py, using the isolated_db fixture so
 nothing here ever touches your real library.
 """
 
+import ast
 import contextlib
 import gc
 import shutil
@@ -1497,21 +1498,51 @@ class TestImportTimeSafety:
     real library/library.db before isolated_db redirects it."""
 
     @staticmethod
-    def _copy_db_and_deps(temp_dir):
-        # db.py imports core.py (for LINE_FIELDS), and core.py imports
-        # segment_splitting.py; all three are self-contained (stdlib-only), so
-        # copying them is enough to import db.py with a real, separate
-        # interpreter, in a directory with nothing else in it -- the only way
-        # to observe a genuinely fresh module import rather than the
-        # already-imported module every other test in this process shares.
+    def _imported_modules(path):
+        # Function-level imports count too: init_db imports device_tokens
+        # lazily, and the first-call test needs it present.
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names.add(node.module.split(".")[0])
+        return names
+
+    @classmethod
+    def _copy_db_and_deps(cls, temp_dir):
+        # Copy db.py plus every local module it imports
+        # (transitively, lazy ones too), computed from the source so a split that adds an
+        # import to core or db doesn't need this test edited. Copying only
+        # those into an otherwise empty directory is the only way to observe a
+        # genuinely fresh import rather than the module every other test in
+        # this process shares; a dependency that isn't local (stdlib or
+        # third-party) is left to the interpreter. Nothing is excluded on
+        # purpose: a heavy module reached from db.py would be copied here and
+        # then trip the "no library/ side effect" assertions in the tests.
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for name in ("db.py", "core.py", "segment_splitting.py"):
-            shutil.copy(os.path.join(project_root, name), os.path.join(temp_dir, name))
-        # db.py takes its library location from portable.data_dir() (Step 80b).
-        shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
-        # init_db creates the extension device-token table from its own module.
-        shutil.copy(os.path.join(project_root, "device_tokens.py"),
-                    os.path.join(temp_dir, "device_tokens.py"))
+
+        def local_source(name):
+            for base in (project_root, os.path.join(project_root, "lib")):
+                for rel in (name + ".py", os.path.join(name, "__init__.py")):
+                    if os.path.isfile(os.path.join(base, rel)):
+                        return base, rel
+            return None
+
+        seen, queue = set(), ["db"]
+        while queue:
+            name = queue.pop()
+            found = local_source(name)
+            if name in seen or found is None:
+                continue
+            seen.add(name)
+            base, rel = found
+            dest = os.path.join(temp_dir, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy(os.path.join(base, rel), dest)
+            queue.extend(cls._imported_modules(os.path.join(base, rel)))
+        assert {"db", "core"} <= seen, seen
 
     def test_bare_import_does_not_touch_any_library_dir(self):
         temp_dir = tempfile.mkdtemp(prefix="baihe_import_check_")
