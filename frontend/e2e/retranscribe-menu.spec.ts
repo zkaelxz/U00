@@ -37,10 +37,10 @@ test('lands on the re-transcribe button and does not start a job', async ({ page
   expect(started).toBe(false)
 })
 
-test('disabled with a reason when the drama has no audio', async ({ page }) => {
+test('disabled with a reason when the title has no audio', async ({ page }) => {
   await mockAudio(page, false)
   const sheet = await openMenu(page)
   const item = sheet.getByRole('button', { name: /Re-transcribe…/ })
   await expect(item).toBeDisabled()
-  await expect(item).toContainText('Needs this drama’s audio or video.')
+  await expect(item).toContainText('Needs this title’s audio or video.')
 })

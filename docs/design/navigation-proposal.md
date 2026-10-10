@@ -37,7 +37,7 @@ The owner's brief refers to an earlier "all-tabs" information-architecture (IA) 
 | Source | What it settles |
 |---|---|
 | `docs/react-ui-guidelines.md` rules 1-22, `docs/design/ui-refresh-spec.md` | The UI rules this proposal follows (single primary, `ButtonLink` for navigation, humanized labels, disabled primary names its fix). |
-| `docs/specs/ux-workspace-shell-and-review.md`, "Decisions (user, 2026-09-29)" | Three owner decisions: the API badge only shows when the API is down (built); delete is two-step; stage progress comes from `GET /api/workflow/dramas/{id}/progress`, with no interim mapping (built). |
+| `docs/archive/ux-workspace-shell-and-review.md`, "Decisions (user, 2026-09-29)" | Three owner decisions: the API badge only shows when the API is down (built); delete is two-step; stage progress comes from `GET /api/workflow/dramas/{id}/progress`, with no interim mapping (built). |
 | #150 (`docs/archive/ux-click-through-audit.md`) | The 8 questions asked of every workflow: where am I, what's next, is the primary obvious, anything unnecessary, scrolling, related controls together, can I get back, is the current project obvious. I reuse them as the test for each PR in section 4. |
 | #690 `ui-shell-sticky-next` | Sticky title and stage strip (`--bar-h`), a `Next:` button, creating a drama opens its workspace. |
 | #696 `ia-review-folds` and #715 `ia-source-stage` | Two IA clean-ups already merged: Review's lower tools became four folds and flag tools moved from Export to Review; Source got one "Fill in details" fold. Both branches are named `ia-*`, so they were probably part of the lost series. That is my inference, not a recorded fact. |

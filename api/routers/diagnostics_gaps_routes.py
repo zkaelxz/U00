@@ -1,11 +1,11 @@
 """
 api/routers/diagnostics_gaps_routes.py -- the Diagnostics features the
-read-only overview (diagnostics_routes.py) lacks (API batch 1). Thin: see services/diagnostics_gaps_service.py.
+read-only overview (diagnostics_routes.py) lacks. Thin: see services/diagnostics_gaps_service.py.
 
-Reads are `admin.diagnostics`: setup checks (Q01), model cache (Q14, list
-only), pyannote readiness (Q15; `check_access=true` asks Hugging Face with
-the server-side token and returns booleans only), finished-job history
-(Q09), log tail with keyword filter (Q18), the support report (Q17) and
+Reads are `admin.diagnostics`: setup checks, model cache (list
+only), pyannote readiness (`check_access=true` asks Hugging Face with
+the server-side token and returns booleans only), finished-job history,
+log tail with keyword filter, the support report and
 install presets (packages grouped by task, installed versions, approx.
 sizes, PyPI links) and GPU PyTorch status. `POST /gpu-torch/check` (the
 status plus a CUDA check in a fresh Python; 409 while a job or another
@@ -14,14 +14,14 @@ the latter
 asks PyPI (a fixed https://pypi.org/pypi/<dist>/json per static dist name,
 with a timeout) only when called, and caches the answer for Upgrade.
 
-Writes are `local_only()` plus `confirm=true`: dependency install and
-upgrade (Q06, package names from the service's whitelist only; upgrade
-takes the `target` the user confirmed and is 409 when the last update check
-no longer says so), the GPU
-PyTorch setup (a fixed variant; versions and index come from diagnostics.py's
-static table, never the request) and the
-library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
-background job runs (409). Deleting a cached model or model
+Writes are `local_only()` plus `confirm=true`: dependency upgrade (package
+names from the service's whitelist only; it takes the `target` the user
+confirmed and is 409 when the last update check no longer says so) and the
+library reset (also `confirm_text` "RESET"). Each refuses while any
+background job runs (409). Dependency install and the GPU PyTorch setup (a
+fixed variant; versions and index come from diagnostics.py's static table,
+never the request) are background jobs: see diagnostics_installs_routes.py.
+Deleting a cached model or model
 file (torch.hub checkpoints, audio-separator models) is also
 `local_only()` + `confirm=true`, refused while a job runs, and takes only a
 name the cache scan lists. The benchmark and the App Assistant are not
@@ -34,8 +34,7 @@ from fastapi import APIRouter, Path, Query
 
 from api.auth import local_only, require_permission
 from api.schemas import (DiagnosticsAdminConfirm,
-                         DiagnosticsCacheDeleteResult, DiagnosticsGpuTorchSetupRequest,
-                         DiagnosticsGpuTorchSetupResult, DiagnosticsGpuTorchStatus,
+                         DiagnosticsCacheDeleteResult, DiagnosticsGpuTorchStatus,
                          DiagnosticsInstallPresets, DiagnosticsInstallResult,
                          DiagnosticsPackageUpdates, DiagnosticsUpgradeRequest,
                          DiagnosticsLogTail, DiagnosticsModelCache,
@@ -118,24 +117,6 @@ def get_gpu_torch():
              responses={409: {"model": ErrorResponse}})
 def post_gpu_torch_check():
     return svc.check_gpu_torch()
-
-
-@router.post("/gpu-torch/setup", dependencies=[local_only()],
-             response_model=DiagnosticsGpuTorchSetupResult,
-             summary="PC only: install the matched torch/torchvision/torchaudio from the fixed "
-                     "PyTorch index, then verify (confirm=true)",
-             responses=_ERRS)
-def post_gpu_torch_setup(body: DiagnosticsGpuTorchSetupRequest):
-    return svc.setup_gpu_torch(body.variant, confirm=body.confirm)
-
-
-@router.post("/dependencies/{package}/install", dependencies=[local_only()],
-             response_model=DiagnosticsInstallResult,
-             summary="PC only: pip-install a whitelisted optional package (confirm=true)",
-             responses=_ERRS)
-def post_install(body: DiagnosticsAdminConfirm,
-                 package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
-    return svc.install_dependency(package, confirm=body.confirm)
 
 
 @router.post("/dependencies/{package}/upgrade", dependencies=[local_only()],

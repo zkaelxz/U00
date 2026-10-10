@@ -63,7 +63,7 @@ Runs inline, takes the shared GPU slot (113-124) and does not use `background_jo
 
 ### Missing
 
-Worker identity, pairing and tokens; a worker listener and protocol; portable job specs and a JSON outcome codec with validation; an executor dimension in the dispatcher; per-machine speed records; a file-streaming capped download (`services/capped_body.read_capped` buffers in memory, fine for JSON, not for audio); a protocol version (`update_service.current_version()` returns None outside an installed copy).
+Worker identity, pairing and tokens; a worker listener and protocol; portable job specs and a JSON outcome codec with validation; an executor dimension in the dispatcher; per-machine speed records; a file-streaming capped download (`lib/capped_body.read_capped` buffers in memory, fine for JSON, not for audio); a protocol version (`update_service.current_version()` returns None outside an installed copy).
 
 ## 2. Job taxonomy
 

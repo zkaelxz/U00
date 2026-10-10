@@ -293,6 +293,41 @@ def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars
     return "\n".join(cues)
 
 
+# ------------------------------------------------------------------- LRC
+
+def _lrc_ts(seconds: float) -> str:
+    # LRC stamps are centiseconds; rounding a whole minute up must carry.
+    cs = int(round(max(seconds, 0) * 100))
+    m, cs = divmod(cs, 6000)
+    return f"[{m:02d}:{cs // 100:02d}.{cs % 100:02d}]"
+
+
+def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None) -> str:
+    """Lyrics-style timed text: one stamp per cue, where a cue starts. A cue
+    that ends before the next one starts also gets an empty stamp at its end,
+    so a player doesn't keep showing it through the gap (LRC has no end
+    times). Multi-line cue text is joined on one line with a space, since a
+    line break would start a new, unstamped line. field: "en", "zh" or
+    "bilingual" (both texts under one stamp, each on its own stamped line)."""
+    out = []
+    for i, ln in enumerate(lines):
+        # Each language is flattened on its own, so a two-line translation
+        # still leaves exactly one source row under the stamp.
+        texts = ([_cue_text(ln, "en", notes_by_idx, wrap_chars, italic_tags=False),
+                  _cue_text(ln, "zh", None, wrap_chars, italic_tags=False)]
+                 if field == "bilingual" else [_cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=False)])
+        parts = [" ".join(t.split()) for t in texts]
+        parts = [p for p in parts if p]
+        if not parts:
+            continue
+        stamp = _lrc_ts(ln.start)
+        out.extend(f"{stamp}{p}" for p in parts)
+        nxt = lines[i + 1].start if i + 1 < len(lines) else None
+        if nxt is None or ln.end < nxt:
+            out.append(_lrc_ts(ln.end))
+    return "\n".join(out) + ("\n" if out else "")
+
+
 # ------------------------------------------------------------------- ASS
 
 FONT_CHOICES = ["Arial", "Arial Black", "Segoe UI", "Microsoft YaHei", "Noto Sans CJK SC",

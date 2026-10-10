@@ -12,9 +12,10 @@ This page links the pieces; it does not repeat them.
 frontend/ (React)
   -> frontend/src/api/*            the only code that makes HTTP calls
   -> api/routers/*_routes.py       thin: parse, declare permission, call a service
-  -> services/*_service.py         UI-free logic; raises services/service_errors.py errors
+  -> services/*_service.py         UI-free logic; raises lib/errors.py errors
   -> root domain modules           core, translate_engines, scanlate, ...
   -> db.py                         plain sqlite3
+  lib/                             shared helpers (errors, url_guard, capped_body); every layer may import it, it imports none
 ```
 
 - A router function validates input through a Pydantic model, calls one
@@ -164,10 +165,11 @@ Related helpers:
 - checks `authenticated()` appears only on own-session routes under
   `/api/auth/`;
 - `test_doc_route_table_matches_the_app` parses the table in
-  `docs/route-permissions.md` (`| Declaration | Routes | Paths |`) and
-  fails if any row's route count or any listed `METHOD /path` differs from
-  what the app declares. A new route therefore needs a row edit in that
-  doc, in the same change.
+  `docs/route-permissions.md` (`| Route | Declaration |`) and
+  fails if any `METHOD /path` or its declaration differs from what the app
+  declares, or if a row is not one route sorted by path then method. A new
+  route therefore needs its row regenerated in the same change
+  (`python tools/route_table.py --write`).
 
 The same file also covers CSRF, local-only, loopback and bypass cases.
 
@@ -221,7 +223,7 @@ re-exports every name, so a router writes `from api.schemas import X`.
   `TranslateEngine.key_configured`). Write endpoints are write-only; the
   one place a token comes back (`POST /api/extension/token`, with
   `confirm=true`) sends `Cache-Control: no-store`.
-- No filesystem paths, stored filenames or fetched URLs. A path becomes a
+- No filesystem paths, stored filenames or fetched URLs, except a `display_url`-cleaned source page link (scheme, host, path only). A path becomes a
   boolean (`has_audio`) or an opaque id (reference-clip candidates are
   addressed by one); downloads use a generic name, never the stored one.
 - API keys go in request headers, never in URLs, logs or stored errors
@@ -348,8 +350,10 @@ the client to follow.
    `media.stream`; use `local_only()` for anything touching the PC; reserve
    `public_route()` and `authenticated()` for the cases above. Use
    `{drama_id}`/`{series_id}` in the path for an owned item.
-4. **Route-table row** in `docs/route-permissions.md`: add
-   `METHOD /path` to the declaration's row and bump its count.
+4. **Route-table row** in `docs/route-permissions.md`: regenerate the table
+   with `python tools/route_table.py --write` (it is derived from the
+   decorators and sorted by path, then method; don't edit rows by hand).
+   There are no counts to update.
 5. **Ownership**: an item in the path is guarded automatically. An item in a
    body, or a job id, is checked in the service; list new path parameters in
    `OWNERSHIP_EXEMPT_PARAMS` (with a reason) in `tests/test_api_ownership.py`

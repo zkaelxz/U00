@@ -4,7 +4,7 @@ import inspect
 import re
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
-from .local import OllamaEngine
+from .local import OllamaEngine, is_ollama_cloud_model
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
 
@@ -107,6 +107,15 @@ FREE_ENGINES = {"ollama"}
 # Engines that run without an API key: a local model or a local server.
 KEYLESS_ENGINES = {"ollama"}
 
+# Ids a provider renamed but still serves: a preset or title that saved one
+# keeps running, so a translate run still accepts them after the built-in
+# default moves. The offered lists do not show them.
+_LEGACY_MODEL_ALIASES = {"deepseek": ("deepseek-v4-flash",)}
+
+
+def legacy_ids(engine_name: str) -> tuple:
+    return _LEGACY_MODEL_ALIASES.get(engine_name, ())
+
 
 # One short sentence each: the closed engine <select> shows it verbatim, and
 # the Translate page shows its first sentence. Longer detail (rate limits,
@@ -162,11 +171,16 @@ def _read_overrides(setting_key: str, valid_keys) -> dict:
 def model_override_for_default(engine_name: str):
     """The user's chosen model for `engine_name`'s built-in default, or None.
     An override for an engine this build no longer has is ignored."""
-    return _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name)
+    model = _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name)
+    # Re-checked on read: a restored backup bypasses the write-time check, and
+    # a hosted tag as the default would send text off this PC unannounced.
+    return None if engine_name == "ollama" and is_ollama_cloud_model(model) else model
 
 
 def model_override_for_tier(tier_key: str):
-    return _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key)
+    model = _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key)
+    tier = WORKFLOW_TIERS.get(tier_key) or {}
+    return None if tier.get("translation_engine") == "ollama" and is_ollama_cloud_model(model) else model
 
 
 def builtin_default_model(engine_name: str):

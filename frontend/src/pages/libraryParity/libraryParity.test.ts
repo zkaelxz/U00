@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { parseRoute } from '../../router'
 import {
-  autofillHref, cacheHitShare, compactCount, costLabel, costMeta, countsLine, sharedLine, sharedSeries, usageLine,
+  autofillHref, cacheHitShare, compactCount, costLabel, costMeta, countsLine, libraryHeadline, sharedLine, sharedSeries, usageLine, usageSpent,
   wantsAutofill, withoutAutofill,
 } from './libraryParity'
 
@@ -18,6 +18,17 @@ describe('dashboard numbers (parity L01)', () => {
     expect(usageLine({ ...usage, input_tokens: 0, call_count: 1 })).toBe('1 API call')
     // An older or partial stats payload without call_count still renders.
     expect(usageLine({ estimated_cost_usd: 0 } as unknown as typeof usage)).toBe('0 API calls')
+  })
+  it('headline: titles and lines, with the remainder only while some are left', () => {
+    expect(libraryHeadline({ total_dramas: 5, total_lines: 4210, translated_lines: 2875 })).toBe('5 titles · 2,875 of 4,210 lines · 1,335 left')
+    expect(libraryHeadline({ total_dramas: 1, total_lines: 10, translated_lines: 10 })).toBe('1 title · 10 of 10 lines')
+    expect(libraryHeadline({ total_dramas: 0, total_lines: 0, translated_lines: 0 })).toBe('0 titles · 0 of 0 lines')
+  })
+  it('usage summary: cost, or nothing when unused or missing', () => {
+    expect(usageSpent(usage)).toBe('$3.47 spent')
+    expect(usageSpent({ ...usage, call_count: 0, estimated_cost_usd: 0 })).toBeNull()
+    expect(usageSpent({ ...usage, call_count: 4, estimated_cost_usd: 0 })).toBe('$0.00 spent')
+    expect(usageSpent(undefined)).toBeNull()
   })
   it('counts by status and type use the humanized labels', () => {
     expect(countsLine({ transcribed: 2, translated: 1 }, 'status')).toBe('Transcribed 2 · Translated 1')
@@ -51,7 +62,7 @@ describe('cost rows (parity L04)', () => {
 
 describe('series view (parity L05)', () => {
   const d = (media_type: string | null) => ({ media_type })
-  it('keeps only series with 2+ dramas and counts their types', () => {
+  it('keeps only series with 2+ titles and counts their types', () => {
     const out = sharedSeries([
       { id: 1, dramas: [d('audio_drama'), d(null), d('novel')] },
       { id: 2, dramas: [d('manhua')] },
@@ -66,7 +77,7 @@ describe('series view (parity L05)', () => {
 })
 
 describe('create then auto-fill (parity P03)', () => {
-  it('links to the Source stage with the flag, which the router ignores', () => {
+  it('links to the Media stage with the flag, which the router ignores', () => {
     expect(autofillHref(7)).toBe('#/drama/7/source?autofill=1')
     expect(parseRoute(autofillHref(7))).toEqual({ name: 'drama', id: 7, stage: 'source' })
   })

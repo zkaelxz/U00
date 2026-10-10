@@ -42,37 +42,34 @@ used (PAID_ENGINE_FUNCTIONS is empty): the run is local ASR.
 No FastAPI import: plain functions, plain dicts in, plain
 values out. The one exception to "plain dicts" is start_transcribe_run,
 which starts a real background job. Audio transcription runs in its own
-process (background_jobs.start_process_job, _transcribe_worker) so Cancel
+process (background_jobs.start_process_job, transcribe_pipeline._transcribe_worker) so Cancel
 kills a model call that has no cancel point of its own; the parent applies
 the result to the drama in the job's on_done hook, so the worker never
 writes the database. Hardsub OCR, which already stops between frames,
 stays a thread job (_run_transcribe_and_apply_job).
 """
 import contextlib
-import errno
 import functools
-import glob
 import importlib.util
 import os
-import shutil
-import subprocess
-import tempfile
-import time
 from typing import Optional
 
-import asr_backend
 import background_jobs
-import ollama_unload
 import core as core_module
+import segment_splitting
 import db
 import diagnostics
 import raw_transcript
 import sensitivity_preset as presets
 import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
-from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
+from core import SOURCE_LANGUAGES, Line
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
-from services import asr_options_service, diarization_service, settings_service, source_service
+from services import (asr_options_service, diarization_service, run_settings_service, settings_service, source_service,
+                      timing_check_service, transcribe_pipeline)
+from services.retranscribe_worker import (apply_retranscribe_outcome as _apply_retranscribe_outcome,
+                                           retranscribe_timeout_s as _retranscribe_timeout_s,
+                                           retranscribe_worker as _retranscribe_worker)
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -87,36 +84,14 @@ _DEFAULT_TUNING = {
     "min_silence_ms": 300,
     "vad_threshold": 0.5,
     "hallucination_silence_sec": core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
-    "min_pause_sec": core_module.MIN_WORD_GAP_SECONDS,
+    "min_pause_sec": segment_splitting.MIN_WORD_GAP_SECONDS,
     "separate_vocals_first": False,
     "separation_backend": "auto",
     "realign_long_segments": False,
     "whisper_fast_mode": False,
     "use_groq": False,
 }
-VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
 ASR_BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
-
-
-def _audio_duration_seconds(path) -> Optional[float]:
-    """Best-effort audio length via ffprobe; None when it can't be read."""
-    try:
-        import media_inspect
-        info = media_inspect.run_ffprobe(path, timeout=30)
-        return float((info.get("format") or {}).get("duration") or 0.0) or None
-    except Exception:
-        return None
-
-
-# A running job never reports 100%: only completion does. When Qwen3-ASR
-# re-transcribes after Whisper, Whisper's stage fills 0..QWEN_SPLIT and
-# Qwen3's batches fill QWEN_SPLIT..RUNNING_MAX; otherwise Whisper's stage
-# fills 0..RUNNING_MAX.
-RUNNING_MAX = 0.99
-# Where the long-line split starts within the transcription stage's slice
-# (a fraction of that slice's end), so its per-segment progress has room to move.
-REALIGN_START = 0.9
-QWEN_SPLIT = 0.85
 
 
 _SPEED_SETTING = "transcribe_speed"
@@ -240,10 +215,6 @@ def record_transcribe_speed(model: str, on_gpu: bool, audio_seconds, work_second
     except Exception:
         pass
 
-
-def _raise_if_job_cancelled(job_id):
-    if background_jobs.is_cancel_requested(job_id):
-        raise background_jobs.JobCancelled(job_id)
 
 
 def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
@@ -423,11 +394,11 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     if "min_pause_sec" in fields and fields["min_pause_sec"] is not None:
         value = fields["min_pause_sec"]
         if (isinstance(value, bool) or not isinstance(value, (int, float))
-                or not core_module.MIN_WORD_GAP_SECONDS_MIN <= value
-                <= core_module.MIN_WORD_GAP_SECONDS_MAX):
+                or not segment_splitting.MIN_WORD_GAP_SECONDS_MIN <= value
+                <= segment_splitting.MIN_WORD_GAP_SECONDS_MAX):
             raise InvalidInputError(
-                f"min_pause_sec must be a number between {core_module.MIN_WORD_GAP_SECONDS_MIN:g} "
-                f"and {core_module.MIN_WORD_GAP_SECONDS_MAX:g}.")
+                f"min_pause_sec must be a number between {segment_splitting.MIN_WORD_GAP_SECONDS_MIN:g} "
+                f"and {segment_splitting.MIN_WORD_GAP_SECONDS_MAX:g}.")
         updates["min_pause_sec"] = float(value)
     if "separation_backend" in fields and fields["separation_backend"] is not None:
         if fields["separation_backend"] not in _SEPARATION_BACKENDS:
@@ -451,19 +422,6 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     return get_transcribe_config(drama_id)
 
 
-def _speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None):
-    """(min_speakers, max_speakers) for the chained speaker
-    detection, each None when unset. Raises InvalidInputError for a bad
-    range, or a range combined with an exact count (diarize.validate_speaker_hints)."""
-    import diarize as diarize_module
-    try:
-        _num, lo, hi = diarize_module.validate_speaker_hints(
-            expected_speakers, min_speakers, max_speakers)
-    except ValueError as exc:
-        raise InvalidInputError(str(exc)) from exc
-    return lo, hi
-
-
 def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) -> None:
     """Refusals shared by start_transcribe_run and validate_transcribe_options."""
     if transcript_mode == "whisper":
@@ -474,7 +432,7 @@ def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) ->
                 "to 'whisper_diff'.")
         if asr_backend_choice == "qwen3_asr":
             require_qwen3_packages("Qwen3-ASR")
-        elif asr_backend_choice in VAD_BACKENDS:
+        elif asr_backend_choice in transcribe_pipeline.VAD_BACKENDS:
             require_qwen3_packages("Qwen3-ASR")
             _require_vad_packages()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
@@ -504,18 +462,6 @@ def require_qwen3_packages(feature: str) -> None:
 
 
 _CHINESE_SCRIPTS = ("simplified", "traditional")
-
-# Fixed sentences, never the ImportError text: that names a module and reads
-# as a crash. The Diagnostics page is where the install button is.
-MISSING_TRANSCRIPTION_MESSAGE = "Transcription isn't installed yet. Open Diagnostics to install it."
-_MISSING_QWEN_MESSAGE = "Qwen3 speech recognition isn't installed yet. Open Diagnostics to install it."
-_MISSING_VAD_MESSAGE = ("Qwen3 speech detection needs transcription, which isn't installed yet. "
-                        "Open Diagnostics to install it.")
-
-
-def missing_package_outcome(message: str = MISSING_TRANSCRIPTION_MESSAGE) -> dict:
-    """The pipeline outcome for a run that could not start for a missing package."""
-    return {"failed_reason": "dependency_missing", "detail": message}
 
 
 def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
@@ -564,7 +510,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
-    min_speakers, max_speakers = _speaker_range(expected_speakers, min_speakers, max_speakers)
+    min_speakers, max_speakers = diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
 
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
@@ -605,6 +551,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     asr_backend_choice = asr_options_service.stored_asr_backend(drama)
     alignment_method = drama.get("alignment_method") or "whisper_diff"
     _check_run_choices(transcript_mode, asr_backend_choice, alignment_method)
+    voice_detector = asr_options_service.resolve_voice_detector(drama, source_language)
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
@@ -626,6 +573,11 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     use_gpu = settings_service.get_use_gpu()
     # Read here, in the parent, and frozen with the other settings for the saved run settings.
     gpu_app_settings = raw_transcript.current_gpu_app_settings()
+    run_settings = run_settings_service.for_transcribe(
+        drama, source_language, chinese_script, whisper_size, beam_size, min_silence_ms,
+        vad_threshold, preset, hallucination_silence_sec, min_pause_sec, separation_backend,
+        use_gpu, asr_backend_choice, alignment_method, transcript_mode, bool(hf_token),
+        min_speakers, max_speakers)
     if transcript_mode == "hardsub_ocr":
         started = background_jobs.start_job(
             job_id, _run_transcribe_and_apply_job, job_id, drama_id, audio_path, transcript_mode,
@@ -642,14 +594,17 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             min_speakers=min_speakers, max_speakers=max_speakers,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             gpu_app_settings=gpu_app_settings,
-            gpu_touching=True, description=description)
+            gpu_touching=True, description=description, run_settings=run_settings)
     else:
         # The worker's temp files go here; removed by on_finish however the
         # run ends, since a killed worker cannot clean up after itself.
         scratch_dir = storage.new_workdir(job_id)
+        # Held until the job is registered: before that nothing owns the folder.
+        hold = contextlib.ExitStack()
+        hold.enter_context(storage.holding(scratch_dir))
         try:
             started = background_jobs.start_process_job(
-                job_id, _transcribe_worker,
+                job_id, transcribe_pipeline._transcribe_worker,
                 args=(audio_path, transcript_mode, transcript_text, source_language,
                       chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
                       bool(drama.get("separate_vocals_first")), separation_backend,
@@ -662,8 +617,10 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       asr_options_service.get_mixed_languages(),
                       hallucination_silence_sec, min_pause_sec,
                       bool(drama.get("whisper_repeat_guard")),
-                      bool(drama.get("split_by_sentences")), preset, scratch_dir),
+                      bool(drama.get("split_by_sentences")), preset, voice_detector,
+                      scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
+                run_settings=run_settings,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
                 start_method="spawn",
@@ -674,13 +631,15 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                     diarize_audio_path=diarize_audio_path, expected_speakers=expected_speakers,
                     min_speakers=min_speakers, max_speakers=max_speakers,
                     gpu_app_settings=gpu_app_settings),
-                on_finish=functools.partial(_remove_scratch_dir, scratch_dir,
+                on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir,
                                             part_dir=os.path.dirname(audio_path)))
         except BaseException:
-            _remove_scratch_dir(scratch_dir)
+            transcribe_pipeline._remove_scratch_dir(scratch_dir)
             raise
+        finally:
+            hold.close()
         if not started:
-            _remove_scratch_dir(scratch_dir)
+            transcribe_pipeline._remove_scratch_dir(scratch_dir)
     if not started:
         raise ConflictError(f"A transcription is already running for drama {drama_id}.")
     return {"job_id": job_id}
@@ -700,7 +659,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
-    _speaker_range(expected_speakers, min_speakers, max_speakers)
+    diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
             f"Drama {drama_id} has no audio pipeline (content mode "
@@ -721,16 +680,12 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
             "use_groq is on but no Groq API key is configured. Set one in Settings first.")
 
 
-_MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v3-turbo": "~1.6 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
-                         "large": "~3 GB", "medium": "~1.5 GB", "small": "~500 MB",
-                         "base": "~150 MB", "tiny": "~75 MB"}
-
 
 def _allowed_whisper_sizes() -> frozenset:
     """Whisper model names a drama may store: the Workspace picker's
     (core.WHISPER_MODELS, plus tiny/base in the React picker) and the known
     download sizes above. Anything else is refused by update_transcribe_config."""
-    return frozenset(core_module.WHISPER_MODELS) | frozenset(_MODEL_DOWNLOAD_SIZES)
+    return frozenset(core_module.WHISPER_MODELS) | frozenset(transcribe_pipeline._MODEL_DOWNLOAD_SIZES)
 
 
 def default_whisper_size() -> str:
@@ -759,92 +714,6 @@ def stored_whisper_size(drama: dict) -> str:
     return size
 
 
-def _separation_device_label(kind: str) -> str:
-    return {"gpu": "on GPU", "cpu": "on CPU (slow)"}.get(kind, "")
-
-
-def _model_loading_message(whisper_size: str, cached: bool) -> str:
-    if cached:
-        return f"Loading Whisper model {whisper_size}..."
-    size = _MODEL_DOWNLOAD_SIZES.get(whisper_size)
-    hint = f", {size}" if size else ""
-    return f"Loading Whisper model {whisper_size} (downloading on first use{hint})"
-
-
-class _ThreadReporter:
-    """Progress, stages and cancel for the pipeline running inside a thread
-    job, which owns the job record directly."""
-
-    def __init__(self, job_id):
-        self.job_id = job_id
-
-    def progress(self, frac, message=""):
-        background_jobs.update_progress(self.job_id, frac, message)
-
-    def stage(self, message, frac=0.0):
-        return background_jobs.stage_ticker(self.job_id, message, frac=frac)
-
-    def cancelled(self) -> bool:
-        return background_jobs.is_cancel_requested(self.job_id)
-
-    def raise_if_cancelled(self):
-        _raise_if_job_cancelled(self.job_id)
-
-
-class _ProcessStage:
-    """stage_ticker's start/stop/with shape inside the worker process: the
-    parent's watcher runs the real ticker (background_jobs.report_stage)."""
-
-    def __init__(self, result_queue, message, frac):
-        self._queue, self._message, self._frac = result_queue, message, frac
-        self._open = False
-
-    def start(self):
-        if not self._open:
-            self._open = True
-            background_jobs.report_stage(self._queue, self._message, self._frac)
-        return self
-
-    def stop(self):
-        """Idempotent."""
-        if self._open:
-            self._open = False
-            background_jobs.report_stage(self._queue, "", self._frac)
-
-    def __enter__(self):
-        return self.start()
-
-    def __exit__(self, *exc):
-        self.stop()
-        return False
-
-
-class _ProcessReporter:
-    """The same inside the worker process: progress and stages go to the
-    parent through the result queue. A cancel kills the process, so there is
-    nothing to check here; the parent re-checks before applying anything.
-    Every report and stage-boundary check ends the worker if its parent has
-    died (background_jobs.exit_if_parent_gone)."""
-
-    job_id = None
-
-    def __init__(self, result_queue):
-        self._queue = result_queue
-
-    def progress(self, frac, message=""):
-        background_jobs.report_progress(self._queue, frac, message)
-
-    def stage(self, message, frac=0.0):
-        return _ProcessStage(self._queue, message, frac)
-
-    def cancelled(self) -> bool:
-        background_jobs.exit_if_parent_gone()
-        return False
-
-    def raise_if_cancelled(self):
-        background_jobs.exit_if_parent_gone()
-
-
 def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode, transcript_text,
                                    source_language, chinese_script, whisper_size, beam_size,
                                    min_silence_ms, vad_threshold, separate_vocals_first,
@@ -856,7 +725,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    asr_backend_choice="whisper", alignment_method="whisper_diff",
                                    min_speakers=None, max_speakers=None,
                                    hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
-                                   min_pause_sec=core_module.MIN_WORD_GAP_SECONDS,
+                                   min_pause_sec=segment_splitting.MIN_WORD_GAP_SECONDS,
                                    gpu_app_settings=None):
     """The thread-job body (start_transcribe_run uses it for hardsub_ocr):
     runs the pipeline in this thread (_transcribe_pipeline), applies the
@@ -881,8 +750,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     skipped (diarize_started stays False), same as the existing
     no-hf_token case."""
     try:
-        outcome = _transcribe_pipeline(
-            _ThreadReporter(job_id), audio_path, transcript_mode, transcript_text, source_language,
+        outcome = transcribe_pipeline._transcribe_pipeline(
+            transcribe_pipeline._ThreadReporter(job_id), audio_path, transcript_mode, transcript_text, source_language,
             chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
             separate_vocals_first, separation_backend, realign_long_segments, whisper_fast_mode,
             use_groq, groq_api_key, initial_prompt, use_gpu, asr_backend_choice, alignment_method,
@@ -892,7 +761,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
     except ImportError:
-        outcome = missing_package_outcome()
+        outcome = transcribe_pipeline.missing_package_outcome()
     background_jobs.set_result(job_id, _apply_transcription(
         job_id, drama_id, outcome, source_language=source_language, whisper_size=whisper_size,
         use_gpu=use_gpu, transcript_mode=transcript_mode, alignment_method=alignment_method,
@@ -901,520 +770,10 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         max_speakers=max_speakers, gpu_app_settings=gpu_app_settings))
 
 
-def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_language,
-                       chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
-                       separate_vocals_first, separation_backend, realign_long_segments,
-                       whisper_fast_mode, use_groq, initial_prompt, use_gpu, asr_backend_choice,
-                       alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
-                       mixed_languages, hallucination_silence_sec, min_pause_sec, repeat_guard,
-                       split_by_sentences, sensitivity_preset, scratch_dir, result_queue):
-    """Process-job target, started with spawn on every platform (top level
-    and plain arguments only, so it pickles; nothing here may depend on
-    state set up in the parent process after import): runs the pipeline for
-    an audio transcript_mode and
-    puts ("ok", outcome) -- the plain dict _apply_transcription takes -- or
-    ("error", type name, redacted message). Writes nothing to the database.
-    Every temp file goes under scratch_dir, which the parent removes however
-    the run ends. The Groq key is read from the environment here, never
-    passed in.
-
-    Not covered by scratch_dir: model downloads go to their own caches. A
-    cancel during audio-separator's first download of its model leaves a
-    truncated file there (the library writes straight to the final path and
-    skips a file that exists), and loading it fails on the next run until
-    that file is deleted."""
-    background_jobs.start_own_process_group()
-    try:
-        os.makedirs(scratch_dir, exist_ok=True)
-        tempfile.tempdir = scratch_dir
-        groq_api_key = settings_service.resolve_key("groq") if use_groq else None
-        outcome = _transcribe_pipeline(
-            _ProcessReporter(result_queue), audio_path, transcript_mode, transcript_text,
-            source_language, chinese_script, whisper_size, beam_size, min_silence_ms,
-            vad_threshold, separate_vocals_first, separation_backend, realign_long_segments,
-            whisper_fast_mode, use_groq, groq_api_key, initial_prompt, use_gpu,
-            asr_backend_choice, alignment_method, local_model_path=local_model_path,
-            qwen_batch_size=qwen_batch_size, vad_refine_timing=vad_refine_timing,
-            mixed_languages=mixed_languages, vocals_work_dir=scratch_dir,
-            hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
-            repeat_guard=repeat_guard, split_by_sentences=split_by_sentences,
-            sensitivity_preset=sensitivity_preset)
-        result_queue.put(("ok", outcome))
-    except ImportError:
-        result_queue.put(("ok", missing_package_outcome()))
-    except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
-
-
-def _move_into_place(src, dst):
-    """Moves src over dst so a reader never sees a partial dst: os.replace
-    on one volume (shutil.move would copy then delete when dst exists on
-    Windows). Across volumes, copies next to dst first and replaces from
-    there."""
-    try:
-        os.replace(src, dst)
-        return
-    except OSError as exc:
-        if exc.errno != errno.EXDEV:
-            raise
-    fd, tmp = tempfile.mkstemp(prefix=".part-", suffix=os.path.splitext(dst)[1],
-                               dir=os.path.dirname(dst) or None)
-    os.close(fd)
-    try:
-        shutil.copyfile(src, tmp)
-        os.replace(tmp, dst)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.remove(tmp)
-        raise
-    with contextlib.suppress(OSError):
-        os.remove(src)
-
-
-def _remove_scratch_dir(path, _job_id=None, part_dir=None):
-    shutil.rmtree(path, ignore_errors=True)
-    if part_dir:
-        # A worker killed during _move_into_place's cross-volume copy leaves
-        # its .part- file beside vocals.wav, outside the scratch folder.
-        for leftover in glob.glob(os.path.join(glob.escape(part_dir), ".part-*.wav")):
-            with contextlib.suppress(OSError):
-                os.remove(leftover)
-
-
 def _apply_on_done(job_id, outcome, **apply_kwargs):
     """on_done for the transcribe process job: its return value is the job's
     result (background_jobs.start_process_job)."""
     return _apply_transcription(job_id, apply_kwargs.pop("drama_id"), outcome, **apply_kwargs)
-
-
-def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, source_language,
-                         chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
-                         separate_vocals_first, separation_backend, realign_long_segments,
-                         whisper_fast_mode, use_groq, groq_api_key, initial_prompt, use_gpu,
-                         asr_backend_choice, alignment_method, local_model_path=None,
-                         qwen_batch_size=1, video_path=None, hardsub_ocr_backend=None,
-                         hardsub_interval=1.0, tesseract_cmd=None, vocals_work_dir=None,
-                         vad_refine_timing=False, mixed_languages=False,
-                         hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
-                         min_pause_sec=core_module.MIN_WORD_GAP_SECONDS, repeat_guard=False,
-                         split_by_sentences=False, sensitivity_preset="normal") -> dict:
-    """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
-    {"failed_reason", ...} when nothing should be applied, else the lines
-    and everything _apply_transcription needs. Touches no database row.
-    `rep` is a _ThreadReporter or _ProcessReporter.
-
-    Reuses transcribe_for_timing exactly as
-    services.workspace_job_service.run_transcribe_job does (see that
-    function's own docstring for the reasoning behind each parameter).
-
-    local_model_path is Settings > Offline Whisper model folder (a folder
-    holding an already-downloaded faster-whisper model, used instead of a
-    Hugging Face download); qwen_batch_size is the saved Qwen3-ASR batch
-    size; mixed_languages is the saved per-span language detection option (Whisper and
-    "qwen3_asr_vad" backends only: other backends and Groq ignore it); vad_refine_timing is the saved forced-aligner timing option of the
-    "qwen3_asr_vad" backend. vocals_work_dir: where vocal separation writes before its result
-    is moved next to the audio, so a killed worker leaves no partial file.
-    split_by_sentences: see docs/engine-backends.md.
-
-    asr_backend_choice / alignment_method are the drama's stored
-    choices: "qwen3_asr" only applies in whisper transcript_mode, and
-    "qwen3_forced_align" only in have_transcript mode. Import/download/other Qwen3 failures end the job
-    with a failed_reason ("dependency_missing", "model_download",
-    "qwen3_asr"); a forced-align ValueError (e.g. an oversized line) falls
-    back to the diff alignment and is reported as forced_align_error."""
-    gpu_fallback_msg = []
-    whisper_clock = {}
-    stage_seconds = {}
-    word_align_error = None
-    forced_align_error = None
-    coverage_msg = None
-    device_msg = ""
-    device_suffix = ""
-    # The other backends, and a supplied transcript, bring their own lines.
-    sentence_lines = (split_by_sentences and transcript_mode == "whisper"
-                      and asr_backend_choice in ("whisper", "qwen3_asr"))
-    vad_run = transcript_mode == "whisper" and asr_backend_choice in VAD_BACKENDS
-    # Where each Qwen3 model actually loaded ("Qwen3-ASR" -> "GPU"|"CPU"), so
-    # a busy CPU is told apart from a silent GPU fallback.
-    qwen_device = {}
-    fallback_tasks = []
-    vad_stage = {"ticker": None, "percent": False}
-
-    def _qwen_on_fallback(task, exc):
-        gpu_fallback_msg.append(core_module.short_reason(exc))
-        fallback_tasks.append(task)
-
-    def _qwen_on_device(task, label):
-        qwen_device[task] = label
-
-    def _on_vad_device(task, label):
-        _qwen_on_device(task, label)
-        # The model load ends the loading stage; until the first percent the
-        # stage text says where the work runs.
-        if task == "Qwen3-ASR" and vad_stage["ticker"] and not vad_stage["percent"]:
-            _vad_set_stage(f"Transcribing with Qwen3-ASR on {label} (no percent until "
-                           "the first batch finishes)")
-
-    def _vad_set_stage(text):
-        if vad_stage["ticker"]:
-            vad_stage["ticker"].stop()
-        vad_stage["ticker"] = rep.stage(text).start()
-
-    if transcript_mode == "hardsub_ocr":
-        import hardsub_ocr
-        hardsub_info = {}
-        segments = hardsub_ocr.extract_hardsub_subtitles(
-            video_path, language=source_language, sample_interval=hardsub_interval,
-            ocr_backend=hardsub_ocr_backend, chinese_script=chinese_script,
-            tesseract_cmd=tesseract_cmd, job_id=rep.job_id, info=hardsub_info,
-            cancel_check=rep.raise_if_cancelled,
-            progress_cb=lambda frac: rep.progress(
-                frac, f"Reading captions from video... {frac * 100:.0f}%"))
-        if not segments:
-            return {"failed_reason": "empty"}
-        # OCR already produces real per-cue timing straight from the video --
-        # no separate alignment step needed, same reasoning as the Whisper-
-        # text-override branch below, just sourced from captions.
-        lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
-                 for i, seg in enumerate(segments) if seg["text"].strip()]
-        raw_backend, raw_model, raw_mode = "hardsub_ocr", hardsub_info.get("backend", hardsub_ocr_backend), "hardsub_ocr"
-        coverage_msg = hardsub_info.get("note")
-    else:
-        if separate_vocals_first:
-            import audio_preprocess
-            vocals_path = os.path.join(os.path.dirname(audio_path), "vocals.wav")
-            sep = {"ticker": None, "device": ""}
-
-            def _sep_message(frac):
-                where = f" {sep['device']}" if sep["device"] else ""
-                return f"Separating vocals{where}, {frac * 100:.0f}%"
-
-            def _sep_event(event, value):
-                if sep["ticker"]:
-                    sep["ticker"].stop()
-                    sep["ticker"] = None
-                if event == "loading":
-                    # The model download/load cannot report progress.
-                    sep["ticker"] = rep.stage(
-                        "Loading the vocal separation model (downloads on first use)").start()
-                elif event == "device":
-                    sep["device"] = _separation_device_label(value)
-                    rep.progress(0.0, _sep_message(0.0))
-
-            rep.progress(0.0, "Separating vocals from background music...")
-            separate_started = time.monotonic()
-            try:
-                separated = audio_preprocess.separate_vocals(
-                    audio_path, os.path.join(vocals_work_dir, "vocals.wav")
-                    if vocals_work_dir else vocals_path, backend=separation_backend,
-                    progress_cb=lambda frac: rep.progress(frac, _sep_message(frac)),
-                    cancel_check_cb=rep.cancelled,
-                    use_gpu=use_gpu, event_cb=_sep_event)
-            except audio_preprocess.VocalSeparationCancelled:
-                return {"failed_reason": "cancelled"}
-            except audio_preprocess.VocalSeparationError as exc:
-                return {"failed_reason": "vocal_separation", "detail": str(exc)}
-            finally:
-                if sep["ticker"]:
-                    sep["ticker"].stop()
-            stage_seconds["separate"] = time.monotonic() - separate_started
-            if vocals_work_dir and os.path.abspath(separated) != os.path.abspath(vocals_path):
-                _move_into_place(separated, vocals_path)
-                separated = vocals_path
-            audio_path = separated
-
-        if rep.cancelled():
-            return {"failed_reason": "cancelled"}
-
-        qwen_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr"
-        # Groq and the Qwen3-on-Whisper-segments backend transcribe a whole
-        # file in one language, so only the local Whisper path switches.
-        mixed_whisper_run = (mixed_languages and transcript_mode == "whisper"
-                             and asr_backend_choice == "whisper" and not use_groq)
-        stage_max = QWEN_SPLIT if qwen_run else RUNNING_MAX
-        step_label = " (step 1 of 2)" if qwen_run else ""
-
-        if vad_run:
-            # No Whisper: the speech detector draws the boundaries and
-            # Qwen3-ASR writes the text.
-            if rep.cancelled():
-                return {"failed_reason": "cancelled"}
-            _vad_set_stage("Loading audio (CPU)")
-
-            def _vad_progress(frac):
-                vad_stage["percent"] = True
-                vad_stage["ticker"].stop()
-                frac = min(max(frac, 0.0), 1.0)
-                if ((vad_refine_timing or asr_backend_choice == "qwen3_asr_long")
-                        and not mixed_languages and frac > 0.9):
-                    # The backend gives the last tenth to the forced aligner.
-                    where = qwen_device.get("Qwen3 forced alignment")
-                    message = ("Aligning timing with the Qwen3 forced aligner"
-                               f"{f' on {where}' if where else ''}... {frac * 100:.0f}%")
-                else:
-                    where = qwen_device.get("Qwen3-ASR")
-                    message = (f"Transcribing with Qwen3-ASR{f' on {where}' if where else ''}"
-                               f"... {frac * 100:.0f}%")
-                rep.progress(frac * RUNNING_MAX, message)
-
-            import vad_segments
-            try:
-                segments = asr_backend.get_backend(asr_backend_choice).transcribe(
-                    audio_path, source_language, use_gpu=use_gpu, batch_size=qwen_batch_size,
-                    progress_cb=_vad_progress, cancel_check=rep.raise_if_cancelled,
-                    refine_timing=vad_refine_timing, mixed_languages=mixed_languages,
-                    stage_cb=_vad_set_stage, on_device=_on_vad_device,
-                    on_gpu_fallback=_qwen_on_fallback)
-            except vad_segments.VadNotInstalledError:
-                return {"failed_reason": "dependency_missing",
-                        "detail": _MISSING_VAD_MESSAGE}
-            except ImportError:
-                return {"failed_reason": "dependency_missing",
-                        "detail": _MISSING_QWEN_MESSAGE}
-            except core_module.ModelDownloadError as exc:
-                return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
-            except ValueError as exc:
-                return {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))}
-            except background_jobs.JobCancelled:
-                core_module.release_gpu_models()
-                raise
-            finally:
-                if vad_stage["ticker"]:
-                    vad_stage["ticker"].stop()
-        elif use_groq:
-            rep.progress(0.0, "Transcribing via Groq's cloud API...")
-            try:
-                segments = core_module.transcribe_with_groq(
-                    audio_path, source_language, groq_api_key,
-                    progress_cb=lambda frac: rep.progress(
-                        min(frac, 1.0) * stage_max,
-                        f"Transcribing via Groq's cloud API{step_label}... {frac * 100:.0f}%"))
-            except core_module.GroqTranscriptionError as exc:
-                # Raw text stays in the in-memory result (as for vocal
-                # separation and model download here); jobs_service.
-                # project_result redacts "detail" before it is returned or
-                # mirrored to job_records.
-                return {"failed_reason": "groq", "detail": str(exc)}
-        else:
-            try:
-                model_cached = bool(local_model_path) or core_module.is_whisper_model_cached(
-                    whisper_size)
-                # Loaded here (cached in core, so transcribe_for_timing reuses
-                # it) so the download/load phase and the device actually
-                # chosen are visible instead of "Starting..." for minutes.
-                load_started = time.monotonic()
-                with rep.stage(_model_loading_message(whisper_size, model_cached)):
-                    core_module.load_whisper_model(whisper_size, use_gpu=use_gpu,
-                                                   local_model_path=local_model_path)
-                stage_seconds["load"] = time.monotonic() - load_started
-                rep.raise_if_cancelled()
-                device_info = core_module.get_whisper_device_info(
-                    whisper_size, use_gpu=use_gpu, local_model_path=local_model_path)
-                device_msg = core_module.describe_whisper_device(device_info)
-                # The model fell back to CPU while loading, before any
-                # inference could fail: say so in the result too.
-                if device_info.get("gpu_error"):
-                    gpu_fallback_msg.append(device_info["gpu_error"])
-                device_suffix = f" ({device_msg})" if device_msg else ""
-                rep.progress(0.0, f"Transcribing... starting; the percent appears once "
-                                  f"the first lines are found{device_suffix}")
-
-                def _whisper_progress(frac):
-                    # The clock starts at the first percent: model download and
-                    # load are not transcription speed.
-                    if frac > 0 and "t" not in whisper_clock:
-                        whisper_clock.update(t=time.monotonic(), p=min(frac, 1.0))
-                        # faster-whisper decodes and runs VAD lazily before its
-                        # first segment, so that wait is the best "decode and VAD" reading.
-                        stage_seconds["decode_vad"] = whisper_clock["t"] - transcribe_started
-                    rep.raise_if_cancelled()
-                    rep.progress(min(frac, 1.0) * stage_max,
-                                 f"Transcribing{step_label}... {frac * 100:.0f}%{device_suffix}")
-                transcribe_started = time.monotonic()
-                if mixed_whisper_run:
-                    import mixed_language
-                    segments = mixed_language.transcribe_mixed_whisper(
-                        audio_path, source_language, whisper_size, use_gpu=use_gpu,
-                        local_model_path=local_model_path, initial_prompt=initial_prompt,
-                        beam_size=beam_size,
-                        on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
-                            core_module.short_reason(exc)),
-                        progress_cb=_whisper_progress, cancel_check=rep.raise_if_cancelled,
-                        repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset)
-                else:
-                    segments = transcribe_for_timing(
-                        audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
-                        local_model_path=local_model_path, hf_token=None,
-                        initial_prompt=initial_prompt,
-                        beam_size=beam_size,
-                        min_silence_duration_ms=(asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS
-                                                 if sentence_lines else min_silence_ms),
-                        vad_threshold=vad_threshold,
-                        on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
-                            core_module.short_reason(exc)),
-                        progress_cb=_whisper_progress,
-                        fast_mode=whisper_fast_mode,
-                        hallucination_silence_sec=hallucination_silence_sec,
-                        repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset)
-                # Not recorded for the speed estimate: a per-span detection run is slower.
-                if "t" in whisper_clock and not mixed_whisper_run:
-                    whisper_clock["work"] = time.monotonic() - whisper_clock["t"]
-                    stage_seconds["transcribe"] = whisper_clock["work"]
-            except core_module.ModelDownloadError as exc:
-                return {"failed_reason": "model_download", "detail": str(exc)}
-            except background_jobs.JobCancelled:
-                core_module.release_gpu_models()   # hand the VRAM back on a cancel too
-                raise
-
-        if not segments:
-            return {"failed_reason": "empty"}
-
-        if (realign_long_segments and not vad_run and not mixed_whisper_run
-                and not rep.cancelled()):
-            import word_align
-            align_started = time.monotonic()
-            try:
-                # The ticker covers the model load and the first segment, which
-                # report nothing; the first finished segment hands over to real progress.
-                align_ticker = rep.stage("Splitting long merged lines",
-                                         frac=stage_max * REALIGN_START).start()
-
-                def _align_progress(done, total):
-                    align_ticker.stop()
-                    rep.progress(
-                        stage_max * (REALIGN_START + (1 - REALIGN_START) * done / total),
-                        f"Splitting long merged lines: {done} of {total}")
-
-                try:
-                    segments = word_align.realign_oversized_segments(
-                        segments, audio_path, source_language, chinese_script=chinese_script,
-                        progress_cb=_align_progress, cancel_check=rep.cancelled)
-                finally:
-                    align_ticker.stop()
-            except word_align.WordAlignError as exc:
-                word_align_error = str(exc)
-            stage_seconds["align"] = time.monotonic() - align_started
-            # The segments already split are kept in `segments`; the job as a
-            # whole still ends cancelled, like a cancel in any other stage.
-            if rep.cancelled():
-                core_module.release_gpu_models()
-                return {"failed_reason": "cancelled"}
-
-        if transcript_mode == "whisper":
-            raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
-            if vad_run:
-                raw_backend, raw_model = asr_backend_choice, "Qwen3-ASR"
-            elif asr_backend_choice == "qwen3_asr":
-                if rep.cancelled():
-                    return {"failed_reason": "cancelled"}
-                # Timing stays Whisper's VAD segments; only the text is replaced
-                # (asr_backend.py's module docstring explains why).
-                qwen_ticker = rep.stage(
-                    "Re-transcribing with Qwen3-ASR (step 2 of 2; no percent until "
-                    "the first batch finishes)", frac=QWEN_SPLIT).start()
-
-                def _qwen_progress(frac):
-                    # The first finished batch ends the no-percent phase; the
-                    # ticker would otherwise overwrite the message.
-                    qwen_ticker.stop()
-                    rep.raise_if_cancelled()
-                    where = qwen_device.get("Qwen3-ASR")
-                    rep.progress(
-                        QWEN_SPLIT + min(max(frac, 0.0), 1.0) * (RUNNING_MAX - QWEN_SPLIT),
-                        f"Re-transcribing with Qwen3-ASR (step 2 of 2)... {frac * 100:.0f}%"
-                        f"{f' (on {where})' if where else ''}")
-
-                try:
-                    segments = asr_backend.Qwen3ASRBackend().transcribe(
-                        audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu,
-                        batch_size=qwen_batch_size, progress_cb=_qwen_progress,
-                        on_device=_qwen_on_device, on_gpu_fallback=_qwen_on_fallback)
-                except ImportError:
-                    return {"failed_reason": "dependency_missing",
-                            "detail": _MISSING_QWEN_MESSAGE}
-                except core_module.ModelDownloadError as exc:
-                    return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
-                except ValueError as exc:
-                    return {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))}
-                finally:
-                    qwen_ticker.stop()
-                raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
-            lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
-                          speaker=seg.get("speaker") or None, flag=seg.get("flag"),
-                          flag_note=seg.get("flag_note") or "", lang=seg.get("lang"),
-                          word_timings=core_module.encode_line_words(seg["text"],
-                                                                     seg.get("words")))
-                     for i, seg in enumerate(
-                         s for s in core_module.split_long_segments(
-                             segments, min_pause=min_pause_sec,
-                             rules=asr_backend.SENTENCE_SPLIT_RULES if sentence_lines else None)
-                         if s["text"].strip())]
-            coverage_msg = coverage_warning(
-                segments, _audio_duration_seconds(audio_path),
-                qwen3_asr=raw_backend == "qwen3_asr")
-        else:
-            rep.progress(RUNNING_MAX, "Aligning transcript to audio timing...")
-            user_lines = split_user_transcript(transcript_text)
-            if alignment_method == "qwen3_forced_align":
-                if rep.cancelled():
-                    return {"failed_reason": "cancelled"}
-                rep.progress(RUNNING_MAX,
-                             "Aligning with Qwen3-ForcedAligner (true forced alignment)...")
-
-                def _aligner_on_device(label):
-                    qwen_device["Qwen3 forced alignment"] = label
-                    rep.progress(RUNNING_MAX, "Aligning with Qwen3-ForcedAligner "
-                                              f"(true forced alignment) on {label}...")
-                try:
-                    import forced_align
-                    lines = forced_align.align_with_qwen3(
-                        audio_path, user_lines, segments, language=source_language, use_gpu=use_gpu,
-                        on_device=_aligner_on_device, cancel_check=rep.raise_if_cancelled,
-                        on_gpu_fallback=lambda exc: _qwen_on_fallback(
-                            "Qwen3 forced alignment", exc))
-                except background_jobs.JobCancelled:
-                    core_module.release_gpu_models()
-                    raise
-                except ImportError:
-                    return {"failed_reason": "dependency_missing",
-                            "detail": _MISSING_QWEN_MESSAGE}
-                except core_module.ModelDownloadError as exc:
-                    return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
-                except ValueError as exc:
-                    # Fall back to the diff alignment, but say so in the
-                    # result instead of hiding it.
-                    forced_align_error = redact_secrets(str(exc))
-                    lines = align_transcript_to_timing(user_lines, segments)
-            else:
-                lines = align_transcript_to_timing(user_lines, segments)
-            raw_backend, raw_model, raw_mode = "whisper", whisper_size, "aligned_transcript"
-
-    if qwen_device and not device_msg:
-        device_msg = ", ".join(f"{task} on {label}" for task, label in qwen_device.items())
-    core_module.release_gpu_models()
-    return {"lines": lines, "segments": segments, "raw_backend": raw_backend,
-            "raw_model": raw_model, "raw_mode": raw_mode, "audio_path": audio_path,
-            "gpu_fallback_msgs": gpu_fallback_msg, "device_msg": device_msg,
-            "gpu_fallback_task": fallback_tasks[0] if fallback_tasks else "Transcription",
-            "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
-            "word_align_error": word_align_error,
-            "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
-            **ollama_unload.take_notice_result(),
-            "run_config": {
-                "asr_backend": asr_backend_choice, "whisper_size": whisper_size,
-                "local_model_path": local_model_path, "language": source_language,
-                "transcript_mode": transcript_mode, "alignment_method": alignment_method,
-                "min_silence_ms": min_silence_ms, "vad_threshold": vad_threshold,
-                "beam_size": beam_size, "hallucination_silence_sec": hallucination_silence_sec,
-                "min_pause_sec": min_pause_sec, "sensitivity_preset": sensitivity_preset,
-                "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq and not vad_run,
-                "whisper_repeat_guard": repeat_guard, "split_by_sentences": split_by_sentences,
-                "separate_vocals_first": separate_vocals_first,
-                "separation_backend": separation_backend,
-                "realign_long_segments": realign_long_segments,
-                "mixed_languages": mixed_languages, "vad_refine_timing": (vad_refine_timing
-                                      or asr_backend_choice == "qwen3_asr_long"),
-                "use_gpu": use_gpu, "initial_prompt": initial_prompt}}
 
 
 def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_size, use_gpu,
@@ -1462,23 +821,40 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
             **(gpu_app_settings or raw_transcript.current_gpu_app_settings()))
         if outcome.get("run_config") else None)
     db.update_drama(drama_id, status="aligned")
+    timing_check_service.after_run(drama_id, outcome)
 
     diarize_started = False
     if hf_token and diarize_audio_path:
         import diarize as diarize_module
-        diarize_started = background_jobs.start_process_job(
-            f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
-            args=(diarize_audio_path, hf_token, expected_speakers or None,
-                  diarization_service.worker_options(min_speakers, max_speakers)),
-            gpu_touching=True, description=f"Diarization (drama #{drama_id})",
-            on_done=diarization_service.make_apply_on_done(
-                drama_id, expected_speakers, min_speakers=min_speakers,
-                max_speakers=max_speakers))
+        try:
+            diarize_started = background_jobs.start_process_job(
+                f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
+                args=(diarize_audio_path, hf_token, expected_speakers or None,
+                      diarization_service.worker_options(min_speakers, max_speakers)),
+                gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+                kill_whole_tree=True, start_method="spawn",
+                on_done=diarization_service.make_apply_on_done(
+                    drama_id, expected_speakers, min_speakers=min_speakers,
+                    max_speakers=max_speakers),
+                run_settings=run_settings_service.for_diarize(
+                    expected_speakers, min_speakers, max_speakers,
+                    settings_service.get_use_gpu()))
+        except ConflictError:
+            # A clean stop cancels every job and refuses new ones, so one
+            # that began after the lines were saved refuses the follow-up
+            # job. The saved lines stay and the job ends cancelled, not
+            # error; diarization can be run again from the Speakers step.
+            # The stop sets the refusal before it cancels jobs, so a refusal
+            # in that gap sees no cancel request yet.
+            if not (background_jobs.is_cancel_requested(job_id)
+                    or background_jobs.is_stopping()):
+                raise
+            raise background_jobs.JobCancelled(job_id) from None
 
     if "work" in whisper_clock and whisper_clock["p"] < 0.5:
         # Only the Whisper pass counts, and only the part after its first
         # percent: audio_seconds * (1 - that first percent) over the time taken.
-        audio_seconds = _audio_duration_seconds(outcome["audio_path"])
+        audio_seconds = transcribe_pipeline._audio_duration_seconds(outcome["audio_path"])
         if audio_seconds:
             record_transcribe_speed(
                 whisper_size, bool(use_gpu) and not gpu_fallback_msg,
@@ -1531,6 +907,7 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
     """Process-job target (top-level, picklable): transcribes once per
     candidate, holding every other setting constant, and returns only the
     scores (no segments, no token)."""
+    background_jobs.start_own_process_group()
     try:
         results = []
         for n, candidate_ms in enumerate(candidates):
@@ -1599,7 +976,8 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
               bool(drama.get("whisper_fast_mode")),
               presets.normalize(drama.get("sensitivity_preset")),
               bool(drama.get("whisper_repeat_guard"))),
-        gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})")
+        gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})",
+        kill_whole_tree=True, start_method="spawn")
     if not started:
         raise ConflictError(f"Auto-tune is already running for drama {drama_id}.")
     return {"job_id": job_id, "candidates": list(candidates)}
@@ -1668,12 +1046,6 @@ def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
 # after an API restart the user re-transcribes. Local Whisper even when the
 # drama's full transcribe uses Groq, so no paid-engine gate.
 
-# Proposed text kept in the job result: same cap as a line edit.
-_RETRANSCRIBE_MAX_CHARS = 2000
-# ffmpeg cutting one line's window; a hung ffmpeg ends the job instead of
-# holding the GPU slot.
-_RETRANSCRIBE_SLICE_TIMEOUT_S = 120
-
 # Running/queued jobs that replace this drama's lines or also write `zh`, so a
 # one-line re-transcription alongside them would be pointless or race them.
 _RETRANSCRIBE_BLOCKING_PREFIXES = ("transcribe_", "fixflag_", "resegment_", "narration_")
@@ -1722,96 +1094,41 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
             raise ConflictError("Another job is changing this drama's lines. "
                                 "Try again when it finishes.")
     job_id = retranscribe_line_job_id(drama_id)
-    started = background_jobs.start_job(
-        job_id, _run_retranscribe_line_job, job_id, drama_id, line_id, audio_path,
-        float(line.start), float(line.end), line.zh,
-        line.lang or drama.get("source_language") or "zh",
-        stored_whisper_size(drama),
-        drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
-        drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-        presets.stored_vad_threshold(drama),
-        bool(drama.get("whisper_fast_mode")), settings_service.get_use_gpu(), prompt,
-        stored_hallucination_silence_sec(drama), bool(drama.get("whisper_repeat_guard")),
-        presets.normalize(drama.get("sensitivity_preset")),
-        gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})")
+    # The worker's slice and temp files go here; removed by on_finish however
+    # the run ends, since a killed worker cannot clean up after itself.
+    scratch_dir = storage.new_workdir(job_id)
+    window = float(line.end) - float(line.start)
+    try:
+        started = background_jobs.start_process_job(
+            job_id, _retranscribe_worker,
+            args=(audio_path, float(line.start), float(line.end),
+                  line.lang or drama.get("source_language") or "zh",
+                  stored_whisper_size(drama),
+                  drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
+                  drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
+                  presets.stored_vad_threshold(drama), settings_service.get_use_gpu(), prompt,
+                  stored_hallucination_silence_sec(drama),
+                  bool(drama.get("whisper_repeat_guard")),
+                  presets.normalize(drama.get("sensitivity_preset")),
+                  transcribe_pipeline._model_loading_message(stored_whisper_size(drama), core_module.is_whisper_model_cached(
+                      stored_whisper_size(drama))),
+                  _retranscribe_timeout_s(window), scratch_dir),
+            gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})",
+            kill_whole_tree=True, initial_result={"line_id": line_id},
+            # Spawn, not Linux's default fork: a forked child of a process
+            # that has already initialised CUDA cannot use the GPU.
+            start_method="spawn",
+            on_done=functools.partial(_apply_retranscribe_outcome, drama_id=drama_id,
+                                      line_id=line_id, zh_before=line.zh,
+                                      start=float(line.start), end=float(line.end)),
+            on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir))
+    except BaseException:
+        transcribe_pipeline._remove_scratch_dir(scratch_dir)
+        raise
     if not started:
+        transcribe_pipeline._remove_scratch_dir(scratch_dir)
         raise ConflictError("A line is already being re-transcribed for this drama.")
     return {"job_id": job_id, "drama_id": drama_id, "line_id": line_id}
-
-
-def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end, zh_before,
-                               source_language, whisper_size, beam_size, min_silence_ms,
-                               vad_threshold, fast_mode, use_gpu, initial_prompt,
-                               hallucination_silence_sec, repeat_guard=False, preset="normal"):
-    """Job body: cut [start, end) from the drama's audio and transcribe it.
-    Writes nothing to the line. Result on success: {"line_id", "proposed_zh",
-    "base_zh", "base_start", "base_end"} (proposed_zh capped at
-    _RETRANSCRIBE_MAX_CHARS; base_zh raw, for the apply compare), plus
-    "gpu_fallback" when it ran on CPU. GET /api/jobs shows only line_id and
-    gpu_fallback (jobs_service's allowlist); the text is read in-process by
-    get_retranscribe_result and apply_retranscribe_line. A failed_reason
-    instead when the audio couldn't be cut ("audio_slice", including an
-    ffmpeg timeout), nothing was heard ("empty"), the job was cancelled, or
-    the line no longer exists ("line_gone")."""
-    # Which line this run is for, visible to pollers before it finishes.
-    background_jobs.set_result(job_id, {"line_id": line_id}, mirror=True)
-    slice_path = os.path.join(os.path.dirname(audio_path), f"_retranscribe_slice_{line_id}.wav")
-    gpu_fallback = []
-    try:
-        try:
-            core_module.extract_audio_slice(audio_path, start, end, slice_path,
-                                            timeout=_RETRANSCRIBE_SLICE_TIMEOUT_S)
-        except subprocess.TimeoutExpired:
-            background_jobs.set_result(job_id, {
-                "line_id": line_id, "failed_reason": "audio_slice",
-                "detail": "Cutting this line's audio took too long and was stopped."})
-            return
-        except Exception:
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "audio_slice",
-                                                "detail": "Couldn't cut this line's audio."})
-            return
-        if background_jobs.is_cancel_requested(job_id):
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "cancelled"})
-            return
-        background_jobs.update_progress(job_id, 0.1, _model_loading_message(
-            whisper_size, core_module.is_whisper_model_cached(whisper_size)))
-        try:
-            segments = core_module.transcribe_for_timing(
-                slice_path, whisper_size, language=source_language, use_gpu=use_gpu,
-                initial_prompt=initial_prompt, beam_size=beam_size,
-                min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
-                on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
-                fast_mode=fast_mode, hallucination_silence_sec=hallucination_silence_sec,
-                repeat_guard=repeat_guard, sensitivity_preset=preset)
-        except core_module.ModelDownloadError as exc:
-            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "model_download",
-                                                "detail": redact_secrets(str(exc))})
-            return
-    finally:
-        if os.path.exists(slice_path):
-            os.remove(slice_path)
-        core_module.release_gpu_models()
-
-    new_zh = " ".join((s.get("text") or "").strip() for s in segments or []).strip()
-    if not new_zh:
-        background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "empty"})
-        return
-    if background_jobs.is_cancel_requested(job_id):
-        background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "cancelled"})
-        return
-    if _find_line(drama_id, line_id) is None:
-        background_jobs.set_result(job_id, {
-            "line_id": line_id, "failed_reason": "line_gone",
-            "detail": "The line was merged, split or deleted meanwhile; nothing was changed."})
-        return
-    result = {"line_id": line_id, "proposed_zh": new_zh[:_RETRANSCRIBE_MAX_CHARS],
-              "base_zh": zh_before or "", "base_start": start, "base_end": end,
-              **ollama_unload.take_notice_result()}
-    if gpu_fallback:
-        result["gpu_fallback"] = gpu_fallback[0]
-        result["device_notice"] = core_module.gpu_fallback_notice(
-            "Re-transcribing this line", gpu_fallback[0])
-    background_jobs.set_result(job_id, result)
 
 
 def _finished_proposal(drama_id: int, line_id: int) -> dict:

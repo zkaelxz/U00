@@ -32,6 +32,7 @@ import {
   ENDPOINTS,
   OCR_LABELS,
   parseCap,
+  parseKeepFreeGb,
   parseNumCtx,
   parseUploadMb,
   DEFAULT_UPLOAD_MB,
@@ -42,6 +43,9 @@ import {
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
 
 type Props = { settings: SettingsOverview; onSettings: (s: SettingsOverview) => void }
+// Bumping a signal opens the Advanced card's Sections: `openSignal` all of them (a search hit),
+// `uploadsSignal` only Uploads (the Source stage's link). Section reacts to any change of its number.
+type AdvancedProps = Props & { openSignal?: number; uploadsSignal?: number }
 
 function useCommon({ settings, onSettings }: Props) {
   const remote = usePcOnly() === 'remote'
@@ -66,14 +70,14 @@ export function DefaultsCard(props: Props) {
     >
       {(d, set) => (
         <>
-          <Field label="English variant" help="Spelling for new translations. The Translate form starts with this.">
+          <Field label="English variant" help="Spelling for new translations. Pre-fills the Translate form.">
             <select value={String(d.default_locale)} onChange={(e) => set('default_locale', e.target.value)}>
               {c.locales.map((l) => (
                 <option key={l} value={l}>{humanize('locale', l)}</option>
               ))}
             </select>
           </Field>
-          <Field label="Style note" help="The Translate form's style note starts with this text.">
+          <Field label="Style note" help="Pre-fills the Translate form's style note.">
             <textarea rows={2} maxLength={2000} value={String(d.default_style_note)} onChange={(e) => set('default_style_note', e.target.value)} />
           </Field>
         </>
@@ -103,7 +107,7 @@ export function SpendingCard(props: Props) {
           <Field
             label="Monthly cap"
             unit="USD"
-            help="Checked against the estimated spend logged this calendar month (UTC). A translation won't start once it is used up, and a running one stops cleanly, keeping finished lines. 0 means no cap; blank uses BAIHE_MONTHLY_CAP_USD from .env."
+            help="Compared with the estimated spend this month (UTC). Once it is used up, new translations won't start and a running one stops, keeping finished lines. 0 means no cap; blank uses BAIHE_MONTHLY_CAP_USD from .env."
           >
             <input type="text" inputMode="decimal" value={String(d.monthly_cap_usd)} onChange={(e) => set('monthly_cap_usd', e.target.value)} placeholder={settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'None'} />
           </Field>
@@ -178,15 +182,16 @@ function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolea
   )
 }
 
-export function AdvancedCard(props: Props) {
+export function AdvancedCard(props: AdvancedProps) {
   const common = useCommon(props)
-  const { settings, onSettings } = props
+  const { settings, onSettings, openSignal = 0, uploadsSignal = 0 } = props
   const p = settings.preferences
   const c = settings.choices
   return (
-    <Card title="Advanced" meta="OCR, offline models, downloads, upload size and server addresses" aria-label="Advanced">
+    <Card title="Advanced" meta="OCR, offline models, memory to keep free, downloads, uploads, server addresses" aria-label="Advanced">
       <PrefsSection
         {...common}
+        openSignal={openSignal}
         title="OCR"
         summary={OCR_LABELS[p.ocr_backend] ?? humanizeValue(p.ocr_backend)}
         fromPrefs={(x) => ({
@@ -198,7 +203,7 @@ export function AdvancedCard(props: Props) {
       >
         {(d, set) => (
           <>
-            <Field label="Default backend" help="Used where OCR runs without a per-page choice. Auto picks manga_ocr for Japanese, PaddleOCR for Chinese and Korean, Tesseract otherwise.">
+            <Field label="Default backend" help="Used when a page has no OCR choice. Auto picks manga_ocr for Japanese, PaddleOCR for Chinese and Korean, otherwise Tesseract.">
               <select value={String(d.ocr_backend)} onChange={(e) => set('ocr_backend', e.target.value)}>
                 {c.ocr_backends.map((b) => (
                   <option key={b} value={b}>{OCR_LABELS[b] ?? humanizeValue(b)}</option>
@@ -206,11 +211,11 @@ export function AdvancedCard(props: Props) {
               </select>
             </Field>
             <div className="setting-list">
-              <Field label="Japanese: prefer PaddleOCR-VL" help="Only changes what Auto picks for Japanese. Leave off unless a side-by-side on your own pages shows it reads better than manga_ocr.">
+              <Field label="Japanese: prefer PaddleOCR-VL" help="Changes only what Auto picks for Japanese. Leave off unless it reads your pages better than manga_ocr.">
                 <Toggle checked={Boolean(d.ocr_prefer_paddle_vl_manga)} onChange={(next) => set('ocr_prefer_paddle_vl_manga', next)} />
               </Field>
             </div>
-            <Field label="Tesseract program" help="Only needed if OCR says Tesseract is not installed or not on PATH after installing it. The full path to tesseract.exe on the Baihe PC. Blank if OCR already works.">
+            <Field label="Tesseract program" help="Full path to tesseract.exe on the Baihe PC. Needed only if OCR says Tesseract is missing after you installed it. Leave blank otherwise.">
               <input type="text" spellCheck={false} value={String(d.tesseract_cmd)} onChange={(e) => set('tesseract_cmd', e.target.value)} placeholder="C:\Program Files\Tesseract-OCR\tesseract.exe" />
             </Field>
           </>
@@ -218,35 +223,52 @@ export function AdvancedCard(props: Props) {
       </PrefsSection>
       <PrefsSection
         {...common}
+        openSignal={openSignal}
         title="Offline and performance"
         summary={[
           p.whisper_model_path ? 'Whisper folder set' : 'Whisper downloads',
           p.ollama_num_ctx_override ? `num_ctx ${p.ollama_num_ctx_override}` : 'num_ctx auto',
+          p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve',
         ].join(' · ')}
         fromPrefs={(x) => ({
           whisper_model_path: x.whisper_model_path,
           ollama_num_ctx_override: x.ollama_num_ctx_override ? String(x.ollama_num_ctx_override) : '',
+          keep_free_vram_gb: x.keep_free_vram_gb ? String(x.keep_free_vram_gb) : '',
+          keep_free_ram_gb: x.keep_free_ram_gb ? String(x.keep_free_ram_gb) : '',
         })}
         toPatch={(d) => {
           const n = parseNumCtx(String(d.ollama_num_ctx_override))
           if (!n.ok) return n
+          const vram = parseKeepFreeGb(String(d.keep_free_vram_gb))
+          if (!vram.ok) return vram
+          const ram = parseKeepFreeGb(String(d.keep_free_ram_gb))
+          if (!ram.ok) return ram
           const paths = pathPatch(d, ['whisper_model_path'])
-          return paths.ok ? { ok: true, value: { ...paths.value, ollama_num_ctx_override: n.value } } : paths
+          return paths.ok
+            ? { ok: true, value: { ...paths.value, ollama_num_ctx_override: n.value, keep_free_vram_gb: vram.value, keep_free_ram_gb: ram.value } }
+            : paths
         }}
       >
         {(d, set) => (
           <>
-            <Field label="Offline Whisper model folder" help="For a PC that can't reach Hugging Face: a folder on the Baihe PC holding an already-downloaded faster-whisper model. Blank downloads the model on first use.">
+            <Field label="Offline Whisper model folder" help="For a PC that can't reach Hugging Face: a folder on the Baihe PC with a downloaded faster-whisper model. Blank downloads it on first use.">
               <input type="text" spellCheck={false} value={String(d.whisper_model_path)} onChange={(e) => set('whisper_model_path', e.target.value)} />
             </Field>
-            <Field label="Ollama context window" unit="tokens" help="Blank or 0 sizes it from each prompt (recommended). A value here can only raise the window above that estimate, never lower it.">
+            <Field label="Ollama context window" unit="tokens" help="Blank or 0 sizes it from each prompt (recommended). A value here can only raise it above that, never lower it.">
               <input type="text" inputMode="numeric" value={String(d.ollama_num_ctx_override)} onChange={(e) => set('ollama_num_ctx_override', e.target.value)} placeholder="Auto" />
+            </Field>
+            <Field label="Keep free graphics memory" unit="GB" help="For other programs on this PC, such as Jellyfin transcoding. A local model that would use this memory is not loaded and the job stops with a message. Sizes are estimates. Blank or 0 turns it off.">
+              <input type="text" inputMode="decimal" value={String(d.keep_free_vram_gb)} onChange={(e) => set('keep_free_vram_gb', e.target.value)} placeholder="Off" />
+            </Field>
+            <Field label="Keep free RAM" unit="GB" help="The same for system memory when a model runs on the CPU. Blank or 0 turns it off.">
+              <input type="text" inputMode="decimal" value={String(d.keep_free_ram_gb)} onChange={(e) => set('keep_free_ram_gb', e.target.value)} placeholder="Off" />
             </Field>
           </>
         )}
       </PrefsSection>
       <PrefsSection
         {...common}
+        openSignal={openSignal}
         title="Downloads"
         summary={`Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`}
         fromPrefs={(x) => ({ cookies_browser: x.cookies_browser ?? '', cookies_file: x.cookies_file, lncrawl_cmd: x.lncrawl_cmd })}
@@ -260,11 +282,11 @@ export function AdvancedCard(props: Props) {
         {(d, set) => (
           <>
             <p className="settings-note">
-              Some sites block downloads unless you are signed in. yt-dlp can use your own browser
-              login for video downloads from a URL and for Live capture started on this PC. Other
-              devices never get these cookies.
+              Some sites block downloads unless you are signed in. yt-dlp can use your browser login
+              for video URL downloads and Live capture started on this PC. Other devices never get
+              these cookies.
             </p>
-            <Field label="Cookies from browser" help="The downloader (yt-dlp) reads this browser's cookies on the Baihe PC.">
+            <Field label="Cookies from browser" help="yt-dlp reads this browser's cookies on the Baihe PC.">
               <select value={String(d.cookies_browser)} onChange={(e) => set('cookies_browser', e.target.value)}>
                 <option value="">None</option>
                 {c.cookie_browsers.map((b) => (
@@ -272,10 +294,10 @@ export function AdvancedCard(props: Props) {
                 ))}
               </select>
             </Field>
-            <Field label="Cookie file (cookies.txt)" help="The path to a cookies.txt file on the Baihe PC (export one with a browser add-on such as Get cookies.txt). Used instead of the browser above when set. Only the path is saved here, never the file's contents.">
+            <Field label="Cookie file (cookies.txt)" help="Path to a cookies.txt file on the Baihe PC (export one with a browser add-on). Used instead of the browser above. Only the path is saved, never the file.">
               <input type="text" spellCheck={false} value={String(d.cookies_file)} onChange={(e) => set('cookies_file', e.target.value)} />
             </Field>
-            <Field label="Novel downloader (lightnovel-crawler)" help="Only needed if you installed lightnovel-crawler (a separate program you install yourself) and it isn't on PATH. The full path to lncrawl on the Baihe PC; the file must be named lncrawl or lightnovel-crawler. Blank to find it on PATH.">
+            <Field label="Novel downloader (lightnovel-crawler)" help="Full path to lncrawl on the Baihe PC (a separate program you install). Needed only if it isn't on PATH. The file must be named lncrawl or lightnovel-crawler. Blank finds it on PATH.">
               <input type="text" spellCheck={false} value={String(d.lncrawl_cmd)} onChange={(e) => set('lncrawl_cmd', e.target.value)} placeholder="C:\Users\you\.local\bin\lncrawl.exe" />
             </Field>
           </>
@@ -283,6 +305,7 @@ export function AdvancedCard(props: Props) {
       </PrefsSection>
       <PrefsSection
         {...common}
+        openSignal={openSignal + uploadsSignal}
         title="Uploads"
         summary={`Limit ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`}
         fromPrefs={(x) => ({ max_upload_mb: String(x.max_upload_mb) })}
@@ -300,8 +323,8 @@ export function AdvancedCard(props: Props) {
               label="Upload size limit (MB)"
               help={
                 settings.upload_max_mb_from_env
-                  ? `Set by the environment (BAIHE_MAX_UPLOAD_MB), so it is ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB and can't be changed here. Remove the variable to use a saved limit.`
-                  : `The largest audio or video file or backup you can upload to this PC. From 100 to 1,048,576 MB; blank uses ${DEFAULT_UPLOAD_MB.toLocaleString('en-US')} MB. The drive also needs room for the file. Other devices can't upload.`
+                  ? `Set by BAIHE_MAX_UPLOAD_MB (${settings.effective_upload_max_mb.toLocaleString('en-US')} MB), so it can't be changed here. Remove the variable to use a saved limit.`
+                  : `The largest audio, video or backup file you can upload to this PC (100 to 1,048,576 MB). Blank uses ${DEFAULT_UPLOAD_MB.toLocaleString('en-US')} MB. The drive needs room for it. Other devices can't upload.`
               }
             >
               <input
@@ -316,7 +339,7 @@ export function AdvancedCard(props: Props) {
           </>
         )}
       </PrefsSection>
-      <EndpointsSection settings={settings} remote={common.remote} onSettings={onSettings} />
+      <EndpointsSection settings={settings} remote={common.remote} onSettings={onSettings} openSignal={openSignal} />
     </Card>
   )
 }
@@ -336,6 +359,7 @@ type Draft = Record<string, string | boolean | number | null>
 
 type PrefsSectionProps = {
   as?: 'card' | 'section'
+  openSignal?: number
   title: string
   summary: string
   prefs: SettingsPreferences
@@ -346,7 +370,7 @@ type PrefsSectionProps = {
   children: (d: Draft, set: (key: string, value: string | boolean) => void) => ReactNode
 }
 
-function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
+function PrefsSection({ as = 'section', openSignal, title, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
   const [draft, setDraft] = useState<Draft>(() => fromPrefs(prefs))
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -355,7 +379,7 @@ function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs
 
   if (remote) {
     return (
-      <Block as={as} title={title} summary={PC_ONLY_SUMMARY}>
+      <Block as={as} openSignal={openSignal} title={title} summary={PC_ONLY_SUMMARY}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Block>
     )
@@ -397,7 +421,7 @@ function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs
   }
 
   return (
-    <Block as={as} title={title} summary={summary}>
+    <Block as={as} openSignal={openSignal} title={title} summary={summary}>
       <div style={grid}>
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
         {children(draft, set)}
@@ -420,7 +444,7 @@ function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs
 }
 
 // A Card (always open; the summary is its meta line) or a Section fold.
-function Block({ as, title, summary, children }: { as: 'card' | 'section'; title: string; summary: string; children: ReactNode }) {
+function Block({ as, openSignal, title, summary, children }: { as: 'card' | 'section'; openSignal?: number; title: string; summary: string; children: ReactNode }) {
   if (as === 'card')
     return (
       <Card title={title} meta={summary} aria-label={title}>
@@ -428,26 +452,26 @@ function Block({ as, title, summary, children }: { as: 'card' | 'section'; title
       </Card>
     )
   return (
-    <Section title={title} summary={summary}>
+    <Section title={title} summary={summary} openSignal={openSignal}>
       {children}
     </Section>
   )
 }
 
-function EndpointsSection({ settings, remote, onSettings }: { settings: SettingsOverview; remote: boolean; onSettings: (s: SettingsOverview) => void }) {
+function EndpointsSection({ settings, remote, onSettings, openSignal }: { settings: SettingsOverview; remote: boolean; onSettings: (s: SettingsOverview) => void; openSignal: number }) {
   const set = ENDPOINTS.filter((e) => settings.endpoints[e.name]).length
   const title = 'Server addresses'
   if (remote) {
     // Away from the PC the addresses aren't sent, but whether each is set is (engine_keys).
     const configured = ENDPOINTS.filter((e) => settings.engine_keys[e.name]).length
     return (
-      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`}>
+      <Section title={title} openSignal={openSignal} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
   }
   return (
-    <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`}>
+    <Section title={title} openSignal={openSignal} summary={`${set} of ${ENDPOINTS.length} set`}>
       <div style={grid}>
         <p className="settings-note">
           Addresses of local servers Baihe talks to. {SAVED_ON_PC_NOTE}

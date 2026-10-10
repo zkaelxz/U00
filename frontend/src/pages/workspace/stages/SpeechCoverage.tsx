@@ -24,6 +24,7 @@ import {
 } from './speechCoverageText'
 import { useRunStatus } from './useRunStatus'
 import './speechCoverage.css'
+import { buttonClass } from '../../../components/uiClasses'
 
 interface Props {
   hasAudio: boolean
@@ -127,7 +128,7 @@ export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Pro
         {active && status ? (
           <p className="actions" role="status" data-testid="speech-coverage-running">
             <span>{safeDetail(status.message) ?? 'Finding speech…'}</span>
-            <button type="button" disabled={cancelSentFor === status} onClick={cancel}>Cancel</button>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status} onClick={cancel}>Cancel</button>
           </p>
         ) : (
           <div className="actions">

@@ -11,10 +11,8 @@ import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
 import { ChapterSave } from './ChapterSave'
 import { useChapterImport } from './useChapterImport'
 import { SourceErrorLine } from './SearchPanel'
-import {
-  CHAPTERS_PAGE, describeSourceError, groupChapters, limitGroups, percent, safeHref, seriesExtra, seriesLinks, seriesMeta,
-  type SeriesView,
-} from './sourcesFormat'
+import { CHAPTERS_PAGE, describeSourceError, percent } from './sourcesFormat'
+import { groupChapters, limitGroups, safeHref, seriesExtra, seriesLinks, seriesMeta, type SeriesView } from './sourcesSeries'
 import type { SourcesJob } from './useSourcesJob'
 import {
   IMPORT_REMOTE_ALLOWED, allSelected, chapterMarks, selectAllLabel, selectableChapters, toggleId, type ChapterMark,

@@ -1,7 +1,6 @@
 """
 api/routers/extension_routes.py -- PC-only control for the browser-extension
-bridge (page_server): status, on/off, and showing its token (API batch 1;
-user decision 2026-09-29). Thin: see services/extension_service.py.
+bridge (page_server): status, on/off, and showing its token (user decision 2026-09-29). Thin: see services/extension_service.py.
 
 All three are `local_only()`: the bridge and its token belong to the owner
 at the PC. The status never carries the port or the token. The token is

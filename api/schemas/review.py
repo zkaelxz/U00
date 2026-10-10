@@ -442,7 +442,7 @@ class ReviewJobStart(BaseModel):
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
     gemini_free_tier: Optional[bool] = None  # None: the saved setting
-    # Parity R49: half price through Claude's/Gemini's batch API; results
+    # Half price through Claude's/Gemini's batch API; results
     # arrive later and are applied by line id. Not for fix-flagged.
     bulk: StrictBool = False
 
@@ -529,12 +529,14 @@ class ResegmentPreview(BaseModel):
     flagged: int
     notes: int
     needs_confirm: bool
+    # Why nothing would change, in plain words; empty when something would.
+    reason: str = ""
 
 
 class ResegmentStart(_RestructureBase):
     confirm: StrictBool = False
     use_llm: StrictBool = False
-    # Parity R47: commit the stored LLM preview as shown (no LLM call).
+    # Commit the stored LLM preview as shown (no LLM call).
     use_preview: StrictBool = False
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
@@ -575,7 +577,7 @@ class ResegmentStarted(BaseModel):
 
 
 class ResegmentLlmPreviewStart(BaseModel):
-    """Parity R47: start an LLM re-segmentation preview (writes no lines)."""
+    """Start an LLM re-segmentation preview (writes no lines)."""
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
@@ -623,7 +625,7 @@ class LineExplanation(BaseModel):
     model: Optional[str] = None
 
 
-# --- Review per-line tools (review parity R17/R18/R28, R08/R43) ----------
+# --- Review per-line tools ----------
 class LineAlternative(BaseModel):
     translation: str
     approach: str
@@ -694,7 +696,7 @@ class TranslationVersionDeleteResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Review parity R39/R10: activate a saved translation version
+# Activate a saved translation version
 # (services/translation_version_service.py) and retry a content-blocked line
 # (services/blocked_retry_service.py)
 # ---------------------------------------------------------------------------
@@ -732,7 +734,7 @@ class BlockedRetryResult(BaseModel):
     line: ReviewLinesLine
 
 
-# Review AI extras (inventory R46, R37, R35, R03): auto-merge short lines,
+# Review AI extras: auto-merge short lines,
 # learn my style, SenseVoice audio tags, burned-subtitle preview clip.
 # services/review_extras_service.py; no key, URL or path is accepted or returned.
 # ---------------------------------------------------------------------------

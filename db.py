@@ -250,6 +250,8 @@ def init_db():
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
         _migrate_auth_session_columns(conn)
+        import device_tokens   # owns its table; imports db, so not at the top
+        device_tokens.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
         conn.commit()
     _init_benchmark_lab_schema()
@@ -1112,7 +1114,7 @@ def _migrate_line_columns(conn):
         # source_language, so existing lines keep their meaning.
         _safe_alter(conn, "ALTER TABLE lines ADD COLUMN lang TEXT")
     if "word_timings" not in existing_cols:
-        # core.encode_line_words' payload: the line's Whisper word times, kept
+        # segment_splitting.encode_line_words' payload: the line's Whisper word times, kept
         # so a later re-split cuts at real pauses. Never selected by load_lines
         # unless asked for, so line lists don't read it.
         _safe_alter(conn, "ALTER TABLE lines ADD COLUMN word_timings TEXT")
@@ -1176,9 +1178,8 @@ def _migrate_drama_columns(conn):
                           # sent anywhere. The series-level counterpart is
                           # series.instructions, inherited by every drama in the series.
                           ("project_instructions", "TEXT"),
-                          # Roadmap 112: the Notion page this drama was last exported
-                          # to (services/notion_service.py), so a re-export updates
-                          # that page in place. Only the id, never a token or URL.
+                          # Legacy: nothing writes it now. Kept so older databases
+                          # and backups load; dropping it needs a table rebuild.
                           ("notion_page_id", "TEXT"),
                           # Per-title reading-speed flag strictness
                           # (subtitle_formats.READING_SPEED_MODES).
@@ -1189,7 +1190,9 @@ def _migrate_drama_columns(conn):
                           ("default_female_pronouns", "INTEGER"),
                           ("include_genre_notes", "INTEGER"),
                           ("whisper_repeat_guard", "INTEGER DEFAULT 0"),
-                          ("split_by_sentences", "INTEGER DEFAULT 0")]:
+                          ("split_by_sentences", "INTEGER DEFAULT 0"),
+                          # "Think harder" for translation; NULL = never chosen (off).
+                          ("translate_thinking", "INTEGER")]:
         if col not in drama_cols:
             _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off
@@ -2198,15 +2201,6 @@ def set_status_if(drama_id: int, expected: str, new: str) -> bool:
             (new, datetime.datetime.utcnow().isoformat(), drama_id, expected))
         conn.commit()
         return cur.rowcount > 0
-
-
-def set_drama_notion_page_id(drama_id: int, page_id):
-    """Roadmap 112: records (or clears, with None) the Notion page a drama
-    was exported to. Left out of update_drama on purpose: an export is not
-    an edit, so updated_at stays as it was."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE dramas SET notion_page_id = ? WHERE id = ?", (page_id, drama_id))
-        conn.commit()
 
 
 def delete_drama(drama_id: int):
@@ -4639,7 +4633,7 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
     Each line's stored word timings are read from its row and kept only when
     they were computed for the snapshot's own text (up to
     MAX_SNAPSHOT_WORD_BYTES in all), so a restore brings back real pauses."""
-    from core import words_for_text
+    from segment_splitting import words_for_text
     snapshot = [
         {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
          "zh": ln.zh, "en": ln.en,

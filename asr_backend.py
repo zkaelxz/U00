@@ -40,11 +40,12 @@ import os
 import tempfile
 from typing import Optional
 
-import ollama_unload
+import memory_headroom
 from core import (
-    SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, ModelDownloadError, SplitRules, is_gpu_error,
-    is_network_error, diagnose_hostname, extract_audio_slice, transcribe_for_timing,
+    ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname, extract_audio_slice,
+    transcribe_for_timing,
 )
+from segment_splitting import SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, SplitRules
 from forced_align import LANGUAGE_NAMES
 
 # Not a documented Qwen3-ASR limit (the model card states no maximum
@@ -182,6 +183,10 @@ class WhisperBackend:
         )
 
 
+def qwen3_asr_repo_id(model_size: str) -> str:
+    return f"Qwen/Qwen3-ASR-{model_size}"
+
+
 def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=None,
                    on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ASR model. Same GPU-fallback/network-
@@ -196,7 +201,7 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
     the GPU and reports it again.
     """
     cache_key = f"{model_size}_{'gpu' if use_gpu else 'cpu'}"
-    ollama_unload.prepare_gpu_for_transcription(use_gpu)
+    memory_headroom.before_load("qwen_asr", model_size, use_gpu, cache_key in _asr_model_cache)
     if cache_key in _asr_model_cache:
         if on_device:
             on_device("GPU" if use_gpu else "CPU")
@@ -206,7 +211,7 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=No
     from qwen_asr import Qwen3ASRModel
 
     device = "cuda:0" if use_gpu else "cpu"
-    model_id = f"Qwen/Qwen3-ASR-{model_size}"
+    model_id = qwen3_asr_repo_id(model_size)
     try:
         model = Qwen3ASRModel.from_pretrained(
             model_id, dtype=torch.bfloat16, device_map=device, max_new_tokens=256,
@@ -372,7 +377,7 @@ class Qwen3ASRVadBackend:
     def transcribe(self, audio_path, language, use_gpu=False, batch_size=1, progress_cb=None,
                    cancel_check=None, refine_timing=False, vad_fn=None,
                    mixed_languages=False, stage_cb=None, on_device=None,
-                   on_gpu_fallback=None):
+                   on_gpu_fallback=None, detector="standard", on_notice=None):
         """Segments as {"start", "end", "text"} (plus "flag"/"flag_note" where
         refined timing is uncertain). cancel_check() is called between batches
         and between aligned spans and should raise to stop; nothing is written
@@ -391,9 +396,15 @@ class Qwen3ASRVadBackend:
         stage_cb(text) is called as each stage starts, naming the processor
         for the CPU-only ones (decoding, speech detection) so a busy CPU while
         the GPU waits is explained. on_device(task, "GPU"|"CPU") and
-        on_gpu_fallback(task, exc) report where Qwen3-ASR and the aligner loaded."""
+        on_gpu_fallback(task, exc) report where Qwen3-ASR and the aligner loaded.
+
+        detector "asmr" uses the ASMR-trained detector (asmr_vad.py); when it
+        can't run, Silero is used and on_notice(text) says why. "auto_asmr" is
+        the same but falls back without a notice. An explicit
+        vad_fn wins."""
         import vad_segments
-        from core import filter_hallucinated_segments, split_long_segments
+        from core import filter_hallucinated_segments
+        from segment_splitting import split_long_segments
         if language is None:
             mixed_languages = True
         elif language not in LANGUAGE_NAMES:
@@ -407,6 +418,10 @@ class Qwen3ASRVadBackend:
             stage_cb("Loading audio (CPU)")
         audio = load_audio_16k(audio_path)
         sr = 16000
+        if vad_fn is None and detector in ("asmr", "auto_asmr"):
+            import asmr_vad
+            # Chosen by Auto, the user never asked for it: fall back quietly.
+            vad_fn = asmr_vad.vad_fn_or_fallback(on_notice if detector == "asmr" else None)
         if stage_cb:
             stage_cb("Finding speech (CPU)")
         # A short pause inside a sentence is not a place to cut: Qwen3-ASR does
@@ -423,7 +438,8 @@ class Qwen3ASRVadBackend:
             **({"max_s": LONG_WINDOW_S, "search_window_s": LONG_CUT_SEARCH_S}
                if long_windows else {}))
         windows = vad_segments.context_windows(spans, len(audio) / sr, CONTEXT_PAD_S)
-        del audio
+        # Frees the ONNX session before Qwen loads.
+        del audio, vad_fn
         if not spans:
             return []
         if cancel_check:

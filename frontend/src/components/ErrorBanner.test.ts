@@ -35,9 +35,24 @@ describe('describeError', () => {
 
 describe('ErrorBanner', () => {
   it('renders an alert, and nothing without an error', () => {
-    const html = renderToStaticMarkup(createElement(ErrorBanner, { error: err('not_found', 'No drama with id 9.') }))
+    const html = renderToStaticMarkup(createElement(ErrorBanner, { error: err('not_found', 'No title with id 9.') }))
     expect(html).toContain('role="alert"')
-    expect(html).toContain('No drama with id 9.')
+    expect(html).toContain('No title with id 9.')
     expect(renderToStaticMarkup(createElement(ErrorBanner, { error: null }))).toBe('')
+  })
+})
+
+describe('extension_only', () => {
+  const e = err('extension_only', 'This site only works through the browser extension.')
+
+  it('says it plainly', () => {
+    expect(describeError(e).title).toContain('only works through the browser extension')
+  })
+
+  it('links to the extension help', () => {
+    const html = renderToStaticMarkup(createElement(ErrorBanner, { error: e }))
+    expect(html).toContain('Extension help')
+    expect(html).toContain('href="#/settings"')
+    expect(renderToStaticMarkup(createElement(ErrorBanner, { error: err('conflict') }))).not.toContain('Extension help')
   })
 })

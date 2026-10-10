@@ -12,14 +12,122 @@ const els = {
   translate: document.getElementById("translate"),
   translateAll: document.getElementById("translateAll"),
   toggle: document.getElementById("toggle"),
+  captureChapter: document.getElementById("captureChapter"),
+  captureFromHere: document.getElementById("captureFromHere"),
+  cancelCapture: document.getElementById("cancelCapture"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
-  options: document.getElementById("options"),
+  dramaTitle: document.getElementById("dramaTitle"),
+  openLink: document.getElementById("openInBaihe"),
+  allowSites: document.getElementById("allowSites"),
+  notice: document.getElementById("notice"),
+  noticeText: document.getElementById("noticeText"),
+  noticeAction: document.getElementById("noticeAction"),
+  controls: [...document.querySelectorAll("#pageSection select, #pageSection input, #pageSection button, #textSection select, #textSection button")],
 };
+
+// The service worker words this error; matching its opening is the only way to tell "no token" from
+// "unreachable" without the popup reading the token itself.
+const NO_TOKEN_PREFIX = "No token yet";
+let noticeHandler = null;
+
+// The Baihe app (not the extension bridge on 8756) serves the comic page. It binds this port by
+// default (api/api_config.DEFAULT_PORT); opening a tab to it needs no host permission, and the
+// link carries only a drama id.
+const APP_URL = "http://127.0.0.1:8600";
+const dramaTitles = new Map();
+
+function setControlsEnabled(enabled) {
+  for (const el of els.controls) el.disabled = !enabled;
+}
+
+function showNotice(text, actionLabel, handler) {
+  els.noticeText.textContent = text;
+  els.noticeAction.textContent = actionLabel;
+  noticeHandler = handler;
+  els.notice.hidden = false;
+  setControlsEnabled(false);
+}
+
+// Set while the "Allow <site>" buttons are showing: the action to repeat once one is granted.
+let pendingRetry = null;
+
+// One button per origin, never one request for all of them: the origins come from the page, so a
+// hostile page could otherwise bundle a real CDN with names it wants the person to approve unseen.
+function offerSiteAccess(result, retry) {
+  pendingRetry = retry;
+  els.allowSites.replaceChildren();
+  const origins = [...new Set(result.origins || [])].filter(sitePattern);
+  for (const origin of origins) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary";
+    button.textContent = `Allow ${origin}`;
+    button.addEventListener("click", () => allowSite(origin));
+    els.allowSites.append(button);
+  }
+  els.allowSites.hidden = !origins.length;
+}
+
+// chrome.permissions.request needs the click that happens here, which is why the worker only reports
+// the need and never asks itself. The optional permission is per origin, so nothing broader is granted.
+async function allowSite(origin) {
+  const retry = pendingRetry;
+  const pattern = sitePattern(origin);
+  if (!retry || !pattern) return;
+  try {
+    const granted = await chrome.permissions.request({ origins: [pattern] });
+    if (!granted) {
+      say("Not allowed, so the page's images still can't be read.", true);
+      return;
+    }
+  } catch (e) {
+    say(`Couldn't ask for that permission (${e.message}).`, true);
+    return;
+  }
+  pendingRetry = null;
+  els.allowSites.hidden = true;
+  retry();
+}
 
 function say(message, bad = false) {
   els.status.textContent = message;
+  els.allowSites.hidden = true;
   els.status.classList.toggle("bad", !!bad);
+  // A new message replaces the result it described, so its link goes too.
+  els.openLink.hidden = true;
+}
+
+function showDramaTitle() {
+  // A <select> truncates long titles with no way to wrap them, so the full title is repeated
+  // here (and as a tooltip) once one is picked.
+  const title = dramaTitles.get(els.drama.value) || "";
+  els.dramaTitle.textContent = title;
+  els.dramaTitle.hidden = !title;
+  els.drama.title = title;
+}
+
+function showOpenLink(dramaId) {
+  els.openLink.href = `${APP_URL}/#/comic/${dramaId}`;
+  els.openLink.hidden = false;
+}
+
+// The result line has to say where pages went: a bare count left it unclear whether anything
+// was saved.
+function describeDestination({ sent, cached, store, dramaId }) {
+  const title = dramaTitles.get(String(dramaId)) || "the drama";
+  const parts = [];
+  if (!store) {
+    if (sent) parts.push(`Drew ${sent} page${sent === 1 ? "" : "s"} on the page only, not saved`);
+  } else if (sent) {
+    parts.push(`Sent ${sent} page${sent === 1 ? "" : "s"} to ${title}`);
+  }
+  if (cached) {
+    parts.push(store
+      ? `${cached} already translated, not sent again`
+      : `${cached} already translated, redrawn only`);
+  }
+  return parts;
 }
 
 async function activeTab() {
@@ -41,13 +149,82 @@ async function ensureContentScript(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
 }
 
+// Names the exact place, because "Settings" alone sent people to the wrong
+// section; Ollama is the one engine that needs no account or key.
+const NO_ENGINE_NOTE =
+  "Connected, but no translation engine is chosen yet, so pages come back with their " +
+  "original text only. In Baihe, open Settings → Browser extension and pick one under " +
+  "“Translation engine”. For a free option that runs on your PC, install Ollama and pick " +
+  "Ollama there.";
+
+const MAX_NAMED_PROBLEMS = 3;
+
+// One line that accounts for every page, so a shortfall shows up as a
+// mismatch between the counts instead of a quietly smaller total.
+function summarizeCapture(data, { store, dramaId }) {
+  const pages = (data.pages || []).length;
+  const cached = data.cached || 0;
+  const skipped = data.skipped || [];
+  const failed = data.failed || [];
+  const unreadable = data.unreadable || [];
+  const saving = !!(store && dramaId);
+  const notes = (data.pages || []).flatMap((p) => p.notes || []);
+
+  const parts = [];
+  if (data.captured !== undefined) {
+    parts.push(`${data.captured} captured`);
+    if (data.sent !== undefined) parts.push(`${data.sent} sent`);
+    if (data.received !== undefined) parts.push(`${data.received} received`);
+  }
+  const reused = data.alreadyStored || 0;
+  parts.push(`${pages - reused} translated`);
+  if (saving && data.stored !== undefined) {
+    parts.push(`${data.stored} stored in ${dramaTitles.get(String(dramaId)) || "the drama"}`);
+  }
+  if (cached) parts.push(`${cached} already done`);
+  if (reused) parts.push(`${reused} already in library`);
+  if (skipped.length) parts.push(`${skipped.length} skipped as not a page`);
+
+  const problems = [
+    ...unreadable.map((u) => `page ${u.position}: ${u.error}`),
+    ...failed.map((f) => `page ${f.position || "?"}: ${f.error}`),
+  ];
+  if (problems.length) {
+    const shown = problems.slice(0, MAX_NAMED_PROBLEMS).join("; ");
+    const more = problems.length > MAX_NAMED_PROBLEMS
+      ? `; and ${problems.length - MAX_NAMED_PROBLEMS} more` : "";
+    parts.push(`${problems.length} not delivered (${shown}${more})`);
+  }
+
+  const short = (data.sent !== undefined && data.received !== undefined &&
+                 data.received < data.sent) ||
+                (saving && data.stored !== undefined && data.stored < pages);
+  const stopped = data.stopped && data.stopped.message;
+  if (stopped) parts.push(stopped);
+  const bad = problems.length > 0 || short || !!stopped || notes.some((n) => n[0] === "error");
+  return {
+    text: parts.join(" · ") + (notes.length ? ` — ${notes[0][1]}` : ""),
+    bad,
+  };
+}
+
 async function load() {
+  els.notice.hidden = true;
+  say("Checking the app…");
   const health = await chrome.runtime.sendMessage({ type: "health" });
   if (!health || !health.ok) {
-    say((health && health.error) || "Couldn't reach the app.", true);
+    if (health && health.error && health.error.startsWith(NO_TOKEN_PREFIX)) {
+      showNotice("Paste your token to get started.", "Open options", () => chrome.runtime.openOptionsPage());
+      say("Actions are off until a token is saved.");
+    } else {
+      showNotice("Can't reach Baihe on this PC.", "Retry", load);
+      say("Check that Baihe is running with the Extension bridge on.");
+    }
     return;
   }
+  setControlsEnabled(true);
   const { data } = health;
+  els.drama.length = 1;
   const settings = (await chrome.runtime.sendMessage({ type: "getSettings" })).data || {};
   const tab = await activeTab();
   const site = siteOf(tab && tab.url);
@@ -58,11 +235,14 @@ async function load() {
     option.textContent = drama.media_type
       ? `${drama.title} (${drama.media_type})`
       : drama.title;
+    option.title = drama.title;
+    dramaTitles.set(option.value, drama.title);
     els.drama.appendChild(option);
   }
   // Reading a long series shouldn't be a per-page decision.
   const remembered = (settings.dramaBySite || {})[site];
   if (remembered) els.drama.value = String(remembered);
+  showDramaTitle();
   els.overlay.checked = settings.overlay !== false;
 
   const direction = settings.textDirection || { source: "zh", target: "en" };
@@ -71,21 +251,26 @@ async function load() {
     els.textDirection.value = directionValue;
   }
 
-  say(data.engine_configured
-    ? "Connected. Ready to translate."
-    : "Connected, but no translation engine is set in Baihe's Settings — pages will come " +
-      "back with their original text only.");
+  say(data.engine_configured ? "Connected. Ready to translate." : NO_ENGINE_NOTE);
 }
 
+let pageRunInFlight = false;
+
 async function run(all) {
-  const tab = await activeTab();
-  if (!tab || !tab.id) return say("No active tab.", true);
-  const dramaId = els.drama.value ? Number(els.drama.value) : null;
-  if (els.store.checked && !dramaId) {
-    return say("Pick a drama to save into, or untick saving.", true);
-  }
-  say(all ? "Reading every visible page…" : "Reading this page…");
+  // Claimed before any await: a second click lands while activeTab() is pending.
+  if (pageRunInFlight || captureInFlight) return;
+  pageRunInFlight = true;
+  // A capture started now would send the same pages a second time.
+  els.captureChapter.disabled = true;
+  els.captureFromHere.disabled = true;
   try {
+    const tab = await activeTab();
+    if (!tab || !tab.id) return say("No active tab.", true);
+    const dramaId = els.drama.value ? Number(els.drama.value) : null;
+    if (els.store.checked && !dramaId) {
+      return say("Pick a drama to save into, or untick saving.", true);
+    }
+    say(all ? "Reading every visible page…" : "Reading this page…");
     await ensureContentScript(tab.id);
     // Prefer the host the page reports about itself: `tab.url` is only
     // populated when this extension has access to that tab, and keying
@@ -106,24 +291,112 @@ async function run(all) {
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: "translateVisible", dramaId, store: els.store.checked, all });
     if (!result || !result.ok) {
-      return say((result && result.error) || "That didn't work.", true);
+      say((result && result.error) || "That didn't work.", true);
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, () => run(all));
+      return;
     }
-    const pages = (result.data.pages || []).length;
-    const cached = result.data.cached || 0;
-    const skipped = (result.data.skipped || []).length;
-    const notes = (result.data.pages || []).flatMap((p) => p.notes || []);
-    const parts = [];
-    if (pages) parts.push(`${pages} page${pages === 1 ? "" : "s"} translated`);
-    if (cached) parts.push(`${cached} already done`);
-    if (skipped) parts.push(`${skipped} skipped as not a page`);
-    say(parts.join(", ") + (notes.length ? ` — ${notes[0][1]}` : ""),
-        notes.some((n) => n[0] === "error"));
+    const summary = summarizeCapture(result.data, { store: els.store.checked, dramaId });
+    const saved = (result.data.pages || []).filter((p) => p.stored).length;
+    say(summary.text, summary.bad);
+    if (els.store.checked && dramaId && saved) showOpenLink(dramaId);
   } catch (e) {
     // The usual cause is a page the browser won't let an extension into
     // (the Chrome Web Store, a PDF viewer, chrome:// pages).
     say(`Couldn't run on this page (${e.message}).`, true);
+  } finally {
+    pageRunInFlight = false;
+    els.captureChapter.disabled = false;
+    els.captureFromHere.disabled = false;
   }
 }
+
+// Interim status from a long translateVisible run in the page.
+chrome.runtime.onMessage.addListener((message) => {
+  if (message && message.type === "progress" && message.text) say(message.text);
+});
+
+// Scrolls the reader and translates every page it mounts. The work runs in
+// the page, so it carries on if this popup closes; the page shows its own
+// progress and Cancel for that case.
+function showCapturing(running) {
+  els.cancelCapture.hidden = !running;
+  els.captureChapter.disabled = running;
+  els.captureFromHere.disabled = running;
+  // The page refuses a plain translate during a capture; disabling the buttons says why up front.
+  els.translate.disabled = running;
+  els.translateAll.disabled = running;
+}
+
+let captureInFlight = false;
+
+async function runCapture(fromHere) {
+  if (pageRunInFlight || captureInFlight) return;
+  captureInFlight = true;
+  try {
+    await startCapture(fromHere);
+  } finally {
+    captureInFlight = false;
+  }
+}
+
+async function startCapture(fromHere) {
+  const tab = await activeTab();
+  if (!tab || !tab.id) return say("No active tab.", true);
+  const dramaId = els.drama.value ? Number(els.drama.value) : null;
+  if (els.store.checked && !dramaId) {
+    return say("Pick a drama to save into, or untick saving.", true);
+  }
+  say("Starting…");
+  showCapturing(true);
+  try {
+    await ensureContentScript(tab.id);
+    if (dramaId) {
+      const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
+      const site = siteOf(tab.url) || (status && status.ok ? status.data.host : "");
+      if (site) await chrome.runtime.sendMessage({ type: "rememberDrama", site, dramaId });
+    }
+    await chrome.tabs.sendMessage(tab.id, { type: "setOverlays", visible: els.overlay.checked });
+    await chrome.storage.local.set({ overlay: els.overlay.checked });
+    const result = await chrome.tabs.sendMessage(tab.id, {
+      type: "captureChapter", dramaId, store: els.store.checked, fromHere });
+    if (!result || !result.ok) {
+      say((result && result.error) || "That didn't work.", true);
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, () => runCapture(fromHere));
+      return;
+    }
+    const { message, translated = 0, stored = 0 } = result.data;
+    const store = els.store.checked;
+    const destination = describeDestination({
+      sent: store ? stored : translated, cached: 0, store, dramaId }).join(", ");
+    say(destination ? `${message} ${destination}.` : message, result.data.reason === "error" || result.data.failed > 0);
+    if (store && dramaId && stored) showOpenLink(dramaId);
+  } catch (e) {
+    say(`Couldn't run on this page (${e.message}).`, true);
+  } finally {
+    showCapturing(false);
+  }
+}
+
+// A popup reopened mid-capture picks the run back up.
+async function syncCaptureUi() {
+  try {
+    const tab = await activeTab();
+    const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
+    const capture = status && status.ok && status.data.capture;
+    if (capture) {
+      showCapturing(true);
+      say(capture.text);
+    }
+  } catch (e) { /* no content script on this tab yet */ }
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message || message.type !== "captureDone") return;
+  showCapturing(false);
+  // A popup that was closed during the run never saw the result; one that
+  // started it says it itself, with the saved-destination detail.
+  if (!captureInFlight && message.text) say(message.text, !!message.failed);
+});
 
 async function runText() {
   const tab = await activeTab();
@@ -151,8 +424,20 @@ async function runText() {
   }
 }
 
+els.drama.addEventListener("change", showDramaTitle);
 els.translate.addEventListener("click", () => run(false));
 els.translateAll.addEventListener("click", () => run(true));
+els.captureChapter.addEventListener("click", () => runCapture(false));
+els.captureFromHere.addEventListener("click", () => runCapture(true));
+els.cancelCapture.addEventListener("click", async () => {
+  const tab = await activeTab();
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "cancelCapture" });
+    say("Stopping…");
+  } catch (e) {
+    say(`Couldn't reach this page (${e.message}).`, true);
+  }
+});
 els.translateText.addEventListener("click", runText);
 els.toggle.addEventListener("click", async () => {
   const tab = await activeTab();
@@ -169,9 +454,11 @@ els.toggle.addEventListener("click", async () => {
     say(`Couldn't reach this page (${e.message}).`, true);
   }
 });
-els.options.addEventListener("click", (event) => {
+els.openLink.addEventListener("click", (event) => {
+  // An extension popup can't follow a plain link into a new tab on its own.
   event.preventDefault();
-  chrome.runtime.openOptionsPage();
+  chrome.tabs.create({ url: els.openLink.href });
 });
+els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
 
-load();
+load().then(syncCaptureUi);

@@ -27,7 +27,7 @@ async function shot(page: Page, name: string) {
 
 async function openSection(page: Page, title: string) {
   await openFoldFor(page, title)
-  if (['Advanced', 'Speakers', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
+  if (['More options', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
@@ -59,12 +59,12 @@ const done = (results: { candidate_ms: number; long_lines: number; total_lines: 
 })
 
 test.describe('Auto-tune min silence', () => {
-  test('is disabled with its reason when the drama has no audio', async ({ page }) => {
+  test('is disabled with its reason when the title has no audio', async ({ page }) => {
     await page.goto('/#/drama/1/source')
-    await openSection(page, 'Advanced')
+    await openSection(page, 'More options')
     await openSection(page, 'Auto-tune min silence')
     await expect(page.getByRole('button', { name: 'Start auto-tune' })).toBeDisabled()
-    await expect(page.getByTestId('autotune')).toContainText('Still needed: audio on this drama.')
+    await expect(page.getByTestId('autotune')).toContainText('Still needed: audio on this title.')
   })
 
   test('runs, shows progress with Cancel, then results, and Use posts candidate_ms', async ({ page }) => {
@@ -104,7 +104,7 @@ test.describe('Auto-tune min silence', () => {
     })
 
     await page.goto('/#/drama/1/source')
-    await openSection(page, 'Advanced')
+    await openSection(page, 'More options')
     await openSection(page, 'Auto-tune min silence')
     const start = page.getByRole('button', { name: 'Start auto-tune' })
     await expect(start).toBeEnabled()
@@ -136,10 +136,10 @@ test.describe('Auto-tune min silence', () => {
       route.fulfill({ json: done([{ candidate_ms: 800, long_lines: 1, total_lines: 10 }]) }),
     )
     await page.route('**/api/transcribe/dramas/1/autotune/apply', (route) =>
-      route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished auto-tune results for this drama.' } } }),
+      route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished auto-tune results for this title.' } } }),
     )
     await page.goto('/#/drama/1/source')
-    await openSection(page, 'Advanced')
+    await openSection(page, 'More options')
     await openSection(page, 'Auto-tune min silence')
     await page.getByRole('button', { name: 'Use 800 ms' }).click()
     await expect(page.getByRole('alert').filter({ hasText: 'Run auto-tune again (results are kept only until the app restarts).' })).toBeVisible()
@@ -159,7 +159,7 @@ test.describe('Glossary from novel', () => {
     await openSection(page, 'Glossary')
     const bar = page.getByTestId('lines-glossary')
     await expect(bar.getByRole('button', { name: 'Suggest terms', exact: true })).toBeDisabled()
-    await expect(bar.getByTestId('suggest-reason-novel')).toContainText('Still needed: a series for this drama')
+    await expect(bar.getByTestId('suggest-reason-novel')).toContainText('Still needed: a series for this title')
     await expect(bar.getByTestId('suggest-reason-novel').getByRole('link', { name: 'set it in Details' })).toHaveAttribute('href', '#/drama/1/source')
   })
 
@@ -325,7 +325,7 @@ test.describe('Glossary from novel', () => {
       }),
     )
     await page.route('**/api/glossary/dramas/1/from-novel/apply', (route) =>
-      route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished glossary extraction for this drama.' } } }),
+      route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished glossary extraction for this title.' } } }),
     )
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')

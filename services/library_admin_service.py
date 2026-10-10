@@ -50,7 +50,7 @@ import storage
 import subtitle_formats
 import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import (drama_service, ownership_service, settings_service,
+from services import (auth_service, drama_service, ownership_service, settings_service,
                       translate_run_service, translate_service)
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -469,8 +469,8 @@ def start_export_zip(drama_ids=None) -> dict:
 
 
 def _sanitized_snapshot(dest: str):
-    """A consistent database snapshot with every auth session removed
-    (secure_delete, so the session hashes aren't left in free pages) and
+    """A consistent database snapshot with every session and device token
+    removed (secure_delete, so the hashes aren't left in free pages) and
     folded out of WAL mode, so dest is one self-contained file."""
     import sqlite3
     db.snapshot_database(dest)
@@ -478,9 +478,10 @@ def _sanitized_snapshot(dest: str):
         conn = sqlite3.connect(dest, isolation_level=None)
         try:
             conn.execute("PRAGMA secure_delete = ON")
-            if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                            "AND name = 'auth_sessions'").fetchone():
-                conn.execute("DELETE FROM auth_sessions")
+            have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+            for table in ("auth_sessions", "extension_device_tokens"):
+                if table in have:
+                    conn.execute(f"DELETE FROM {table}")
             conn.execute("PRAGMA journal_mode = DELETE")
         finally:
             conn.close()
@@ -543,7 +544,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         if should_cancel is not None and should_cancel():
             raise background_jobs.JobCancelled()
 
-    with tempfile.TemporaryDirectory() as snapdir:
+    with storage.job_workdir("snapshot") as snapdir:
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
         _sanitized_snapshot(snap)
@@ -654,8 +655,7 @@ USER_BACKUP_TABLES = {
     "style_profile": ("style_scope", "the global profile is learned from everyone's edits"),
     "known_titles": ("keep", "the household's title catalogue"),
     "presets": ("keep", "household workspace presets"),
-    "users": ("empty", "auth"), "user_permissions": ("empty", "auth"),
-    "auth_sessions": ("empty", "auth"), "audit_log": ("empty", "auth"),
+    **{t: ("empty", "auth") for t in auth_service.RESTORE_KEPT_TABLES},
     "bulk_jobs": ("empty", "provider batch ids of this PC's API accounts; a restored "
                            "in-flight batch could be polled again"),
     "bulk_job_lines": ("empty", "belongs to bulk_jobs"),
@@ -826,7 +826,7 @@ def write_user_backup_zip(dest: str, owner_id=None, cancelled=None):
         if cancelled is not None and cancelled():
             raise background_jobs.JobCancelled()
 
-    with tempfile.TemporaryDirectory() as snapdir:
+    with storage.job_workdir("snapshot") as snapdir:
         snap = os.path.join(snapdir, "library.db")
         _sanitized_snapshot(snap)
         kept = _user_backup_filter(snap, owner_id)

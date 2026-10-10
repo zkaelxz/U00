@@ -250,6 +250,7 @@ def test_option_defaults_off_and_validates(isolated_db):
 
 
 def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
+    import services.transcribe_pipeline as tp
     import services.transcribe_service as ts
     seen = {}
 
@@ -263,7 +264,7 @@ def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
     monkeypatch.setattr(ts.core_module, "is_whisper_model_cached", lambda s: True)
     monkeypatch.setattr(ts.core_module, "get_whisper_device_info", lambda *a, **k: {})
     monkeypatch.setattr(ts.core_module, "release_gpu_models", lambda: None)
-    monkeypatch.setattr(ts, "transcribe_for_timing",
+    monkeypatch.setattr(tp, "transcribe_for_timing",
                         lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": KO}])
 
     class Stage:
@@ -275,7 +276,7 @@ def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
                           progress=lambda *a, **k: None, stage=lambda *a, **k: Stage())
 
     def run(mixed):
-        return ts._transcribe_pipeline(
+        return tp._transcribe_pipeline(
             rep, "x.wav", "whisper", None, "ko", "simplified", "tiny", 5, 2000, 0.5, False,
             "auto", False, False, False, None, "", False, "whisper", "whisper_diff",
             mixed_languages=mixed)

@@ -7,7 +7,7 @@ pipeline (chunk, LLM speaker tagging, history snapshot, DB write, status),
 the same "job does everything" decision as the other narration jobs. Poll GET /api/jobs/{id};
 background_jobs' own runner redacts secrets from a failed job's error.
 
-Input is the drama's attached novel text (`dub.NOVEL_SOURCE_FILENAME` in
+Input is the drama's attached novel text (`dub_narration.NOVEL_SOURCE_FILENAME` in
 its folder). The LLM engine is chosen per request; its key is resolved
 server-side and never returned (D2). Speakers come from
 `tag_speakers_by_id`, which returns {chunk idx: label}; the job looks each
@@ -25,7 +25,7 @@ from typing import Optional
 import background_jobs
 import core as core_module
 import db
-import dub
+import dub_narration
 import translate_engines
 from core import Line
 from services import job_checkpoint_service, job_timing_service, settings_service
@@ -51,7 +51,7 @@ def _require_drama(drama_id: int) -> dict:
 
 def _read_novel(drama_id: int) -> str:
     # Not db.drama_dir: that creates the folder, and config is a read.
-    path = os.path.join(db.DRAMAS_DIR, str(drama_id), dub.NOVEL_SOURCE_FILENAME)
+    path = os.path.join(db.DRAMAS_DIR, str(drama_id), dub_narration.NOVEL_SOURCE_FILENAME)
     if not os.path.exists(path):
         return ""
     with open(path, encoding="utf-8") as f:
@@ -107,6 +107,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = f"narration_{drama_id}"
     started = background_jobs.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
+        gpu_touching=translate_engines.ollama_touches_local_gpu(engine_name, model),
         description=f"Chunk & tag (drama {drama_id})", fresh=bool(fresh))
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this drama.")

@@ -41,7 +41,8 @@ import { NovelUrlImport } from './NovelUrlImport'
 import { PastedSource } from './PastedSource'
 import { SiteCheck } from './SiteCheck'
 import { useDramaList } from './useDramaList'
-import { describeSourceError, percent, safeHref } from './sourcesFormat'
+import { describeSourceError, percent } from './sourcesFormat'
+import { safeHref } from './sourcesSeries'
 import {
   MAX_URL_LEN, PASTED_COMIC_NOTE, PREVIEW_NOTES, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts, videoDramas,
 } from './urlImportFormat'
@@ -294,7 +295,7 @@ function VideoImport({ url, html, identify }: { url: string; html: string | null
         value={dramaId}
         onChange={choose}
         disabled={busy}
-        help="Audio drama or streamer VOD dramas only."
+        help="Audio drama or streamer VOD titles only."
       />
       <ErrorBanner error={dramas.error ?? mediaError} />
       {identify && <IdentifyMedia url={url} html={html} disabled={busy} onPick={setPicked} />}
