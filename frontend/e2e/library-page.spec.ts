@@ -66,23 +66,31 @@ test('New title keeps what was typed when the sheet closes; Cancel discards it',
 })
 
 test('create (Enter submits) then delete with typed confirmation', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'New title' }).click()
-  await page.getByLabel('English title').fill('E2E Temp Title')
-  await page.getByLabel('English title').press('Enter')
-  // Creating goes straight to the new drama's workspace; its details sheet is one click away in the Library.
-  await expect(page).toHaveURL(/#\/drama\/\d+$/)
-  await expect(page.getByTestId('drama-title')).toHaveText('E2E Temp Title')
-  await page.getByRole('link', { name: 'Back to Library' }).click()
-  await page.getByRole('button', { name: 'Details: E2E Temp Title' }).click()
-  const detail = page.getByRole('dialog', { name: 'E2E Temp Title' })
-  await expect(detail).toBeVisible()
+  try {
+    await page.goto('/')
+    await page.getByRole('button', { name: 'New title' }).click()
+    await page.getByLabel('English title').fill('E2E Temp Title')
+    await page.getByLabel('English title').press('Enter')
+    // Creating goes straight to the new drama's workspace; its details sheet is one click away in the Library.
+    await expect(page).toHaveURL(/#\/drama\/\d+$/)
+    await expect(page.getByTestId('drama-title')).toHaveText('E2E Temp Title')
+    await page.getByRole('link', { name: 'Back to Library' }).click()
+    await page.getByRole('button', { name: 'Details: E2E Temp Title' }).click()
+    const detail = page.getByRole('dialog', { name: 'E2E Temp Title' })
+    await expect(detail).toBeVisible()
 
-  await detail.getByRole('button', { name: 'Delete title…' }).click()
-  const confirm = detail.getByRole('button', { name: 'Delete permanently' })
-  await expect(confirm).toBeDisabled()
-  await detail.getByLabel('Type DELETE to confirm').fill('DELETE')
-  await confirm.click()
-  await expect(page.getByRole('dialog', { name: 'E2E Temp Title' })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'E2E Temp Title' })).toHaveCount(0)
+    await detail.getByRole('button', { name: 'Delete title…' }).click()
+    const confirm = detail.getByRole('button', { name: 'Delete permanently' })
+    await expect(confirm).toBeDisabled()
+    await detail.getByLabel('Type DELETE to confirm').fill('DELETE')
+    await confirm.click()
+    await expect(page.getByRole('dialog', { name: 'E2E Temp Title' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'E2E Temp Title' })).toHaveCount(0)
+  } finally {
+    // A failure before the typed delete would leave the title behind and break the "3 titles" count in every later spec.
+    const list = await (await page.request.get('/api/library/dramas')).json()
+    for (const d of list.items.filter((x: { title_en: string }) => x.title_en === 'E2E Temp Title')) {
+      await page.request.delete(`/api/dramas/${d.id}?confirm=true&confirm_text=DELETE`)
+    }
+  }
 })

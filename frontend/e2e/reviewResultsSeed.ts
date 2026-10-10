@@ -49,6 +49,11 @@ export function clearReviewResults() {
   python(CLEAR)
 }
 
+// Puts drama 3 back to its seeded state (no lines) for specs that seed their own in beforeEach.
+export function clearDrama3Lines() {
+  python('db.save_lines(3, [])')
+}
+
 // Deletes line #n behind the page's back (a finding still points at it).
 export function deleteLine(lineNumber: number) {
   python(`
