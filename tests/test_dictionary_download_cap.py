@@ -70,3 +70,14 @@ def test_an_error_page_is_not_treated_as_the_archive(monkeypatch, tmp_path):
 
 class _ErrResp(_Resp):
     status_code = 404
+
+
+def test_a_network_failure_gets_the_dictionary_message(monkeypatch, tmp_path):
+    monkeypatch.setattr(dictionary, "CEDICT_PATH", str(tmp_path / "cedict.txt"))
+
+    def down(*a, **kw):
+        raise http.FetchError()
+
+    monkeypatch.setattr(http, "pinned_get", down)
+    with pytest.raises(RuntimeError, match="CC-CEDICT download failed"):
+        dictionary._ensure_cedict()

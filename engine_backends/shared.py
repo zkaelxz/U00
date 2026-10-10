@@ -330,7 +330,34 @@ def safe_url(url) -> str:
 
 # A path segment that looks like a credential (a long random run, or a
 # Telegram-style bot<id>:<key>), e.g. a path-signed CDN or bot file link.
-_TOKEN_SEGMENT = re.compile(r"^(?:bot\d+:.+|[A-Za-z0-9_\-.~:=+]{32,})$")
+_BOT_TOKEN_SEGMENT = re.compile(r"^bot\d+:.+$")
+_SEGMENT_PART = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _random_part(part: str) -> bool:
+    """Digits mixed with letters, or a capital after the first letter. A
+    slug's words are lowercase or Capitalised and its numbers stand alone."""
+    has_alpha = any(c.isalpha() for c in part)
+    return ((has_alpha and any(c.isdigit() for c in part))
+            or (any(c.isupper() for c in part[1:]) and any(c.islower() for c in part)))
+
+
+def _segment_holds_secret(segment: str) -> bool:
+    if _BOT_TOKEN_SEGMENT.match(segment):
+        return True
+    parts = [p for p in _SEGMENT_PART.split(segment) if p]
+    random_parts = [p for p in parts if _random_part(p)]
+    # A key-like prefix alone also matches slugs (sk-ii-skincare-review).
+    if redact_secrets(segment) != segment and random_parts:
+        return True
+    # Short ids (an 11-char video id) are not secrets; a long one is when it
+    # holds an unbroken run no slug word reaches (hex, a JWT) or is mostly
+    # random-looking pieces (base64url split on - and _).
+    if len(segment) < 20:
+        return False
+    return (any(len(p) >= 32 for p in parts)
+            or any(len(p) >= 16 for p in random_parts)
+            or 2 * sum(map(len, random_parts)) >= sum(map(len, parts)))
 
 
 def display_url(url) -> str:
@@ -350,9 +377,7 @@ def display_url(url) -> str:
     if ":" in host:
         host = f"[{host}]"          # IPv6 keeps its brackets
     path = parts.path.split(";", 1)[0]
-    if (redact_secrets(path) != path
-            or any(_TOKEN_SEGMENT.match(s) for seg in path.split("/") if seg
-                for s in (seg, unquote(seg)))):
+    if any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg))):
         path = "/"
     return f"{parts.scheme.lower()}://{host}{port}{path}"
 
