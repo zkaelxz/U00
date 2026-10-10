@@ -21,9 +21,9 @@ import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
-from services import (auth_service, fixflag_transcribe, job_timing_service, language_pack_service,
-                      library_restore_sql, line_provenance_service,
-                      run_settings_service, settings_service)
+from services import (auth_service, fixflag_transcribe, gpu_process_job, job_timing_service,
+                      language_pack_service, library_restore_sql, line_provenance_service,
+                      retranscribe_worker, run_settings_service, settings_service)
 
 
 def _id_by_idx(lines):
@@ -566,25 +566,30 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     # (the cost-cap break below is a clean, expected stop, not a
     # failure, but the same `finally` covers it too).
     errors = []
+    heard_by_idx = {}
+    if flagged and audio_path and os.path.exists(audio_path):
+        # The Whisper pass is a killable child (Cancel ends the job at once);
+        # translation below needs this process. Nothing is changed before it
+        # returns, so a cancel here loses nothing.
+        heard = gpu_process_job.run_in_child(
+            job_id, fixflag_transcribe.hear_flagged_worker,
+            (audio_path, [(ln.idx, ln.start, ln.end) for ln in flagged],
+             fixflag_transcribe.hearing_settings(drama_id, drama, whisper_size,
+                                                 source_language, use_gpu)),
+            timeout_s=retranscribe_worker.retranscribe_timeout_s(
+                sum(max(0.0, ln.end - ln.start) for ln in flagged)))
+        heard_by_idx = {entry["idx"]: entry for entry in heard["lines"]}
     try:
         for i, ln in enumerate(flagged):
             # Per line, so a cancel lands within one re-transcribe/translate call;
             # the finally below still saves the lines already fixed.
             _raise_if_cancelled(job_id)
-            if audio_path and os.path.exists(audio_path):
-                slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
-                try:
-                    core_module.extract_audio_slice(audio_path, ln.start, ln.end, slice_path)
-                    new_zh = fixflag_transcribe.text_for_slice(
-                        slice_path, drama_id, drama, whisper_size, source_language, use_gpu)
-                    if new_zh:
-                        ln.zh = new_zh
-                except Exception as e:
-                    errors.append(translate_engines.redact_secrets(
-                        f"line {ln.idx + 1} re-transcription: {e}"))
-                finally:
-                    if os.path.exists(slice_path):
-                        os.remove(slice_path)
+            heard = heard_by_idx.get(ln.idx)
+            if heard is not None:
+                if heard.get("error"):
+                    errors.append(heard["error"])
+                elif heard["text"]:
+                    ln.zh = heard["text"]
             if ln.zh.strip() and translate_engines.is_english_line(ln):
                 ln.en = ln.zh
                 ln.flag, ln.flag_note = None, ""
