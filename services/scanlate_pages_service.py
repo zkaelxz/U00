@@ -1,6 +1,6 @@
 """
 services/scanlate_pages_service.py -- Scanlate pages for the API
-(docs/specs/scanlate-api-spec.md S1 and S2): the panel's config, one page's
+(docs/archive/scanlate-api-spec.md S1 and S2): the panel's config, one page's
 detail (regions keyed by their stable id, the page rev and its run notes),
 and page import (upload or a link import, SO06) with fixed limits.
 
