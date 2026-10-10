@@ -1498,15 +1498,15 @@ class TestImportTimeSafety:
 
     @staticmethod
     def _copy_db_and_deps(temp_dir):
-        # db.py imports core.py (for LINE_FIELDS); both are self-contained
-        # (stdlib-only), so copying just the two is enough to import db.py
-        # with a real, separate interpreter, in a directory with nothing
-        # else in it -- the only way to observe a genuinely fresh module
-        # import rather than the already-imported module every other test
-        # in this process shares.
+        # db.py imports core.py (for LINE_FIELDS), and core.py imports
+        # segment_splitting.py; all three are self-contained (stdlib-only), so
+        # copying them is enough to import db.py with a real, separate
+        # interpreter, in a directory with nothing else in it -- the only way
+        # to observe a genuinely fresh module import rather than the
+        # already-imported module every other test in this process shares.
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        shutil.copy(os.path.join(project_root, "db.py"), os.path.join(temp_dir, "db.py"))
-        shutil.copy(os.path.join(project_root, "core.py"), os.path.join(temp_dir, "core.py"))
+        for name in ("db.py", "core.py", "segment_splitting.py"):
+            shutil.copy(os.path.join(project_root, name), os.path.join(temp_dir, name))
         # db.py takes its library location from portable.data_dir() (Step 80b).
         shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
         # init_db creates the extension device-token table from its own module.

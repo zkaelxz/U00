@@ -10,6 +10,7 @@ import pytest
 
 import background_jobs
 import core
+import segment_splitting
 import db
 import resegment
 from core import Line
@@ -61,7 +62,7 @@ def _env(isolated_db, monkeypatch):
 
 def _seed(words=True, text=TEXT, extra=()):
     did = db.create_drama(title_zh="D", source_language="zh")
-    payload = core.encode_line_words(text, WORDS) if words else None
+    payload = segment_splitting.encode_line_words(text, WORDS) if words else None
     db.save_lines(did, [Line(idx=0, start=START, end=END, zh=text, speaker="A",
                              word_timings=payload), *extra])
     return did, [r["id"] for r in db.load_lines(did)]
@@ -74,46 +75,46 @@ def _stored(did):
 
 
 def _valid_words(did):
-    return [core.line_words(ln) for ln in db.load_line_objects(did, with_words=True)]
+    return [segment_splitting.line_words(ln) for ln in db.load_line_objects(did, with_words=True)]
 
 
 # ---- encode / decode -----------------------------------------------------------
 
 class TestPayload:
     def test_round_trip_is_offsets_and_ms_not_the_words_again(self):
-        payload = core.encode_line_words(TEXT, WORDS)
+        payload = segment_splitting.encode_line_words(TEXT, WORDS)
         data = json.loads(payload)
-        assert data["h"] == core.text_fingerprint(TEXT)
+        assert data["h"] == segment_splitting.text_fingerprint(TEXT)
         assert data["w"][0] == [0, 2, 100000, 100500]
         assert PHRASES[0][:2] not in payload
         ln = Line(idx=0, start=START, end=END, zh=TEXT, word_timings=payload)
-        assert core.line_words(ln) == [{"word": w["word"], "start": w["start"], "end": w["end"]}
+        assert segment_splitting.line_words(ln) == [{"word": w["word"], "start": w["start"], "end": w["end"]}
                                        for w in WORDS]
 
     def test_words_that_do_not_spell_the_text_are_not_stored(self):
-        assert core.encode_line_words(TEXT + "啊", WORDS) is None
-        assert core.encode_line_words(TEXT, WORDS[:-1]) is None
-        assert core.encode_line_words(TEXT, []) is None
+        assert segment_splitting.encode_line_words(TEXT + "啊", WORDS) is None
+        assert segment_splitting.encode_line_words(TEXT, WORDS[:-1]) is None
+        assert segment_splitting.encode_line_words(TEXT, []) is None
 
     def test_any_text_edit_invalidates(self):
-        payload = core.encode_line_words(TEXT, WORDS)
+        payload = segment_splitting.encode_line_words(TEXT, WORDS)
         for edited in (TEXT[:-1] + "啦", TEXT + " ", "x" + TEXT[1:]):
-            assert core.line_words(Line(idx=0, start=START, end=END, zh=edited,
+            assert segment_splitting.line_words(Line(idx=0, start=START, end=END, zh=edited,
                                         word_timings=payload)) is None
 
     def test_retimed_line_keeps_words_but_unrelated_audio_does_not(self):
-        payload = core.encode_line_words(TEXT, WORDS)
-        assert core.line_words(Line(idx=0, start=START + 0.3, end=END - 0.2, zh=TEXT,
+        payload = segment_splitting.encode_line_words(TEXT, WORDS)
+        assert segment_splitting.line_words(Line(idx=0, start=START + 0.3, end=END - 0.2, zh=TEXT,
                                     word_timings=payload))
-        assert core.line_words(Line(idx=0, start=500.0, end=520.0, zh=TEXT,
+        assert segment_splitting.line_words(Line(idx=0, start=500.0, end=520.0, zh=TEXT,
                                     word_timings=payload)) is None
 
     @pytest.mark.parametrize("bad", ["", "{", "[]", '{"h":"x"}', '{"h":"%s","w":[[0,2]]}',
                                      '{"h":"%s","w":[[2,4,1,2],[0,2,1,2]]}',
                                      '{"h":"%s","w":[[0,999,1,2]]}', '{"h":"%s","w":"no"}'])
     def test_malformed_payloads_are_ignored(self, bad):
-        payload = bad.replace("%s", core.text_fingerprint(TEXT))
-        assert core.line_words(Line(idx=0, start=START, end=END, zh=TEXT,
+        payload = bad.replace("%s", segment_splitting.text_fingerprint(TEXT))
+        assert segment_splitting.line_words(Line(idx=0, start=START, end=END, zh=TEXT,
                                     word_timings=payload)) is None
 
     @pytest.mark.parametrize("last", [
@@ -138,12 +139,12 @@ class TestPayload:
         {"0": 1},
     ], ids=lambda w: repr(w)[:32])
     def test_one_crafted_word_spoils_the_payload(self, last):
-        rows = json.loads(core.encode_line_words(TEXT, WORDS))["w"]
+        rows = json.loads(segment_splitting.encode_line_words(TEXT, WORDS))["w"]
         assert rows[-1][:2] == [54, 56]
-        payload = json.dumps({"h": core.text_fingerprint(TEXT), "w": rows[:-1] + [last]})
+        payload = json.dumps({"h": segment_splitting.text_fingerprint(TEXT), "w": rows[:-1] + [last]})
         ln = Line(idx=0, start=START, end=10.0 ** 15, zh=TEXT, word_timings=payload)
-        assert core.line_words(ln) is None
-        assert core.line_word_index(ln) is None
+        assert segment_splitting.line_words(ln) is None
+        assert segment_splitting.line_word_index(ln) is None
         assert resegment.split_times(ln, PHRASES) == resegment.split_times(
             Line(idx=0, start=START, end=10.0 ** 15, zh=TEXT), PHRASES)
 
@@ -151,12 +152,12 @@ class TestPayload:
         for payload in ("[" * 30_000, "\ud800", "é字" * 10, '{"h":"é","w":[]}', "null",
                         "1e999", '"x"',
                         '{"h":%s,"w":[]}' % ("[" * 30_000)):
-            assert core.line_words(Line(idx=0, start=START, end=END, zh=TEXT,
+            assert segment_splitting.line_words(Line(idx=0, start=START, end=END, zh=TEXT,
                                         word_timings=payload)) is None
 
     def test_a_crafted_backup_row_never_breaks_the_re_split_paths(self):
         did, ids = _seed()
-        for payload in ("[" * 30_000, json.dumps({"h": core.text_fingerprint(TEXT),
+        for payload in ("[" * 30_000, json.dumps({"h": segment_splitting.text_fingerprint(TEXT),
                                                 "w": [[0, 2, 10 ** 400, 10 ** 400]]})):
             with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
                 c.execute("UPDATE lines SET word_timings = ? WHERE id = ?", (payload, ids[0]))
@@ -166,13 +167,13 @@ class TestPayload:
             assert svc.preview_resegmentation(did) is not None
 
     def test_cap_on_word_count_and_bytes(self):
-        text = "字" * (core.MAX_STORED_WORDS + 1)
+        text = "字" * (segment_splitting.MAX_STORED_WORDS + 1)
         words = [{"word": "字", "start": k * 0.1, "end": k * 0.1 + 0.05} for k in range(len(text))]
-        assert core.encode_line_words(text, words) is None
-        ok = core.encode_line_words(text[:-1], words[:-1])
-        assert ok is not None and len(ok) <= core.MAX_STORED_WORD_BYTES
-        huge = '{"h":"%s","w":[]}' % core.text_fingerprint(TEXT) + " " * core.MAX_STORED_WORD_BYTES
-        assert core.line_words(Line(idx=0, start=START, end=END, zh=TEXT,
+        assert segment_splitting.encode_line_words(text, words) is None
+        ok = segment_splitting.encode_line_words(text[:-1], words[:-1])
+        assert ok is not None and len(ok) <= segment_splitting.MAX_STORED_WORD_BYTES
+        huge = '{"h":"%s","w":[]}' % segment_splitting.text_fingerprint(TEXT) + " " * segment_splitting.MAX_STORED_WORD_BYTES
+        assert segment_splitting.line_words(Line(idx=0, start=START, end=END, zh=TEXT,
                                     word_timings=huge)) is None
 
     def test_a_100k_character_line_never_makes_a_large_row(self, monkeypatch):
@@ -180,17 +181,17 @@ class TestPayload:
         words = [{"word": "字", "start": k * 0.01, "end": k * 0.01 + 0.005}
                  for k in range(len(text))]
         builds = []
-        real_build = core._WordIndex.build
-        monkeypatch.setattr(core._WordIndex, "build",
+        real_build = segment_splitting._WordIndex.build
+        monkeypatch.setattr(segment_splitting._WordIndex, "build",
                             staticmethod(lambda *a: builds.append(1) or real_build(*a)))
         # The caps refuse before any per-word work, so the work done is asserted;
         # the wall-clock bounds only catch a runaway and leave room for -n auto.
         t0 = time.monotonic()
-        assert core.encode_line_words(text, words) is None
+        assert segment_splitting.encode_line_words(text, words) is None
         assert builds == [] and time.monotonic() - t0 < 5.0
         did = db.create_drama(title_zh="D")
         db.save_lines(did, [Line(idx=0, start=0.0, end=1000.0, zh=text,
-                                 word_timings=core.encode_line_words(text, words))])
+                                 word_timings=segment_splitting.encode_line_words(text, words))])
         assert _stored(did) == [None]
         t0 = time.monotonic()
         r = svc.resplit_long_lines(did, [r["id"] for r in db.load_lines(did)], dry_run=True)
@@ -233,7 +234,7 @@ class TestStorage:
     def test_field_scoped_saves_never_write_words(self):
         did, ids = _seed(words=False)
         lines = db.load_line_objects(did)
-        lines[0].word_timings, lines[0].en = core.encode_line_words(TEXT, WORDS), "x"
+        lines[0].word_timings, lines[0].en = segment_splitting.encode_line_words(TEXT, WORDS), "x"
         db.save_lines(did, lines, fields=("en",))
         assert _stored(did) == [None]
 
@@ -357,7 +358,7 @@ class TestResplit:
         # even a payload left behind by some other writer is refused by its fingerprint
         with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
             c.execute("UPDATE lines SET word_timings = ? WHERE id = ?",
-                      (core.encode_line_words(TEXT, WORDS), ids[0]))
+                      (segment_splitting.encode_line_words(TEXT, WORDS), ids[0]))
             c.commit()
         svc.resplit_long_lines(did, ids)
         # the stale words were ignored: any cut is the estimated, flagged one
@@ -397,7 +398,7 @@ class TestResplit:
 class TestResegment:
     def test_split_times_use_word_starts_when_valid(self):
         ln = Line(idx=0, start=START, end=END, zh=TEXT,
-                  word_timings=core.encode_line_words(TEXT, WORDS))
+                  word_timings=segment_splitting.encode_line_words(TEXT, WORDS))
         times = _phrase_times()
         assert resegment.split_times(ln, PHRASES) == pytest.approx([t[0] for t in times[1:]])
         # a cut inside a word can't use them
@@ -407,13 +408,13 @@ class TestResegment:
 
     def test_pause_tier_cuts_a_line_with_no_punctuation(self):
         ln = Line(idx=0, start=START, end=END, zh=TEXT, id=7,
-                  word_timings=core.encode_line_words(TEXT, WORDS))
+                  word_timings=segment_splitting.encode_line_words(TEXT, WORDS))
         no_segmenter = lambda *a: None  # noqa: E731
         new, changed = resegment.resegment_lines([ln], "zh", max_chars=30,
                                                  boundaries_fn=no_segmenter)
         assert [x.zh for x in new] == [PHRASES[0] + PHRASES[1], PHRASES[2] + PHRASES[3]]
         assert new[1].start == pytest.approx(_phrase_times()[2][0])
-        assert all(core.line_words(x) for x in new)
+        assert all(segment_splitting.line_words(x) for x in new)
         bare, changed = resegment.resegment_lines(
             [Line(idx=0, start=START, end=END, zh=TEXT, id=7)], "zh", max_chars=30,
             boundaries_fn=no_segmenter, even_split=False)
@@ -481,9 +482,9 @@ class TestSplitAndMerge:
         ids = [r["id"] for r in db.load_lines(did)]
         svc.merge_lines(did, ids, ids)
         [words] = _valid_words(did)
-        assert db.load_lines(did)[0]["zh"] == TEXT and words == core.line_words(
+        assert db.load_lines(did)[0]["zh"] == TEXT and words == segment_splitting.line_words(
             Line(idx=0, start=START, end=END, zh=TEXT,
-                 word_timings=core.encode_line_words(TEXT, WORDS)))
+                 word_timings=segment_splitting.encode_line_words(TEXT, WORDS)))
 
         did, ids = _seed(extra=[Line(idx=1, start=END, end=END + 1, zh="好的")])
         svc.merge_lines(did, ids, ids)
@@ -494,7 +495,7 @@ class TestSplitAndMerge:
         out = svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
         svc.restore_version(did, out["history_id"], out["line_ids"], out["lines_fingerprint"])
         assert db.load_lines(did)[0]["zh"] == TEXT
-        assert _stored(did) == [core.encode_line_words(TEXT, WORDS)]
+        assert _stored(did) == [segment_splitting.encode_line_words(TEXT, WORDS)]
         svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]) + len(PHRASES[1]),
                        expected_zh=TEXT)
         assert db.load_lines(did)[0]["end"] == pytest.approx(_phrase_times()[2][0])
@@ -505,7 +506,7 @@ class TestSplitAndMerge:
         svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
         history = db.list_line_history(did)[0]["id"]
         svc.restore_version(did, history, [r["id"] for r in db.load_lines(did)])
-        assert _stored(did) == [core.encode_line_words(TEXT, WORDS)]
+        assert _stored(did) == [segment_splitting.encode_line_words(TEXT, WORDS)]
 
     def test_merge_undo_brings_back_each_lines_own_words(self):
         did, ids = _seed()
@@ -530,8 +531,8 @@ class TestSplitAndMerge:
         assert _valid_words(did) == [None]
 
     @pytest.mark.parametrize("words", [
-        core.encode_line_words(PHRASES[0], WORDS[:len(PHRASES[0]) // 2]),  # another text's
-        '{"h": 1', "x" * (core.MAX_STORED_WORD_BYTES + 1), 7])
+        segment_splitting.encode_line_words(PHRASES[0], WORDS[:len(PHRASES[0]) // 2]),  # another text's
+        '{"h": 1', "x" * (segment_splitting.MAX_STORED_WORD_BYTES + 1), 7])
     def test_words_that_dont_match_the_snapshot_text_never_come_back(self, words):
         did, ids = _seed()
         svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
@@ -551,8 +552,8 @@ class TestSplitAndMerge:
 
     def test_snapshot_words_stop_at_the_budget_and_pruning_still_works(self, monkeypatch):
         did, ids = _seed(extra=[Line(idx=1, start=END + 1, end=END + 20, zh=TEXT,
-                                     word_timings=core.encode_line_words(TEXT, WORDS))])
-        one = len(core.encode_line_words(TEXT, WORDS))
+                                     word_timings=segment_splitting.encode_line_words(TEXT, WORDS))])
+        one = len(segment_splitting.encode_line_words(TEXT, WORDS))
         monkeypatch.setattr(db, "MAX_SNAPSHOT_WORD_BYTES", one + one // 2)
         lines = db.load_line_objects(did)
         history = db.save_line_history_snapshot(did, lines, "test")
@@ -652,7 +653,7 @@ def test_backup_copy_keeps_words_but_drops_oversized_ones():
     big, big_ids = _seed()
     with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
         c.execute("UPDATE lines SET word_timings = ? WHERE id = ?",
-                  ("x" * (core.MAX_STORED_WORD_BYTES + 1), big_ids[0]))
+                  ("x" * (segment_splitting.MAX_STORED_WORD_BYTES + 1), big_ids[0]))
         c.commit()
     dest = os.path.join(db.LIBRARY_DIR, "b.zip")
     las.write_backup_zip(dest, include_media=False)

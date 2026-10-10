@@ -62,6 +62,7 @@ import asr_backend
 import background_jobs
 import ollama_unload
 import core as core_module
+import segment_splitting
 import long_line_split
 import db
 import diagnostics
@@ -89,7 +90,7 @@ _DEFAULT_TUNING = {
     "min_silence_ms": 300,
     "vad_threshold": 0.5,
     "hallucination_silence_sec": core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
-    "min_pause_sec": core_module.MIN_WORD_GAP_SECONDS,
+    "min_pause_sec": segment_splitting.MIN_WORD_GAP_SECONDS,
     "separate_vocals_first": False,
     "separation_backend": "auto",
     "realign_long_segments": False,
@@ -425,11 +426,11 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     if "min_pause_sec" in fields and fields["min_pause_sec"] is not None:
         value = fields["min_pause_sec"]
         if (isinstance(value, bool) or not isinstance(value, (int, float))
-                or not core_module.MIN_WORD_GAP_SECONDS_MIN <= value
-                <= core_module.MIN_WORD_GAP_SECONDS_MAX):
+                or not segment_splitting.MIN_WORD_GAP_SECONDS_MIN <= value
+                <= segment_splitting.MIN_WORD_GAP_SECONDS_MAX):
             raise InvalidInputError(
-                f"min_pause_sec must be a number between {core_module.MIN_WORD_GAP_SECONDS_MIN:g} "
-                f"and {core_module.MIN_WORD_GAP_SECONDS_MAX:g}.")
+                f"min_pause_sec must be a number between {segment_splitting.MIN_WORD_GAP_SECONDS_MIN:g} "
+                f"and {segment_splitting.MIN_WORD_GAP_SECONDS_MAX:g}.")
         updates["min_pause_sec"] = float(value)
     if "separation_backend" in fields and fields["separation_backend"] is not None:
         if fields["separation_backend"] not in _SEPARATION_BACKENDS:
@@ -858,7 +859,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    asr_backend_choice="whisper", alignment_method="whisper_diff",
                                    min_speakers=None, max_speakers=None,
                                    hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
-                                   min_pause_sec=core_module.MIN_WORD_GAP_SECONDS,
+                                   min_pause_sec=segment_splitting.MIN_WORD_GAP_SECONDS,
                                    gpu_app_settings=None):
     """The thread-job body (start_transcribe_run uses it for hardsub_ocr):
     runs the pipeline in this thread (_transcribe_pipeline), applies the
@@ -977,7 +978,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          hardsub_interval=1.0, tesseract_cmd=None, vocals_work_dir=None,
                          vad_refine_timing=False, mixed_languages=False,
                          hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
-                         min_pause_sec=core_module.MIN_WORD_GAP_SECONDS, repeat_guard=False,
+                         min_pause_sec=segment_splitting.MIN_WORD_GAP_SECONDS, repeat_guard=False,
                          split_by_sentences=False, sensitivity_preset="normal",
                          voice_detector="standard") -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
@@ -1326,7 +1327,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                           speaker=seg.get("speaker") or None, flag=seg.get("flag"),
                           flag_note=seg.get("flag_note") or "", lang=seg.get("lang"),
-                          word_timings=core_module.encode_line_words(seg["text"],
+                          word_timings=segment_splitting.encode_line_words(seg["text"],
                                                                      seg.get("words")))
                      for i, seg in enumerate(
                          s for s in long_line_split.split_long_segments(

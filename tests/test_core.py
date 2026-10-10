@@ -7,6 +7,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import core
+import segment_splitting
 
 from core import (
     Line, fmt_ts, lines_to_srt, lines_to_bilingual_srt,
@@ -639,17 +640,17 @@ class TestTightenToWords:
             self.start, self.end = start, end
 
     def test_narrows_to_the_first_and_last_spoken_word(self):
-        from core import tighten_to_words
+        from segment_splitting import tighten_to_words
         words = [self.W(3.2, 3.6), self.W(3.6, 4.1), self.W(4.1, 4.4)]
         assert tighten_to_words(1.0, 8.0, words) == (3.2, 4.4)
 
     def test_never_widens_the_segment(self):
-        from core import tighten_to_words
+        from segment_splitting import tighten_to_words
         words = [self.W(0.5, 1.0), self.W(1.0, 9.0)]
         assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
 
     def test_keeps_the_segment_times_without_usable_words(self):
-        from core import tighten_to_words
+        from segment_splitting import tighten_to_words
         for words in (None, [], [object()], [self.W(2.0, 2.0)], "not words"):
             assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
 
@@ -1210,10 +1211,9 @@ class TestSplitLongSegments:
         assert "".join("".join(p["text"].split()) for p in pieces) == "".join(seg["text"].split())
 
     def test_splits_at_sentence_ends_and_keeps_text(self):
-        import core
         seg = self._seg("好,你刚讲不要讲。哇,我先离开一下。好,OK。重来。哇,大家好哦!" * 3,
                         speaker="A")
-        out = core.split_long_segments([seg], max_seconds=8, max_cjk_chars=1000)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8, max_cjk_chars=1000)
         assert len(out) > 3
         self._check(seg, out)
         assert all(p["speaker"] == "A" for p in out)
@@ -1221,37 +1221,32 @@ class TestSplitLongSegments:
         assert all(p["text"][-1] in "。!" for p in out)
 
     def test_comma_fallback_for_one_long_sentence(self):
-        import core
         seg = self._seg(",".join(["一二三四五六七八九十"] * 8) + "。", 0.0, 30.0)
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert len(out) > 1
         self._check(seg, out)
 
     def test_no_punctuation_left_alone(self):
-        import core
         seg = self._seg("一二三四五六七八九十" * 10)
-        assert core.split_long_segments([seg]) == [seg]
+        assert segment_splitting.split_long_segments([seg]) == [seg]
 
     def test_cjk_spaces_are_cut_points_when_no_punctuation(self):
-        import core
         seg = self._seg(" ".join(["我們記得昨天早的時候呢"] * 6), 0.0, 26.0)
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert len(out) > 1
         self._check(seg, out)
         assert all(p["end"] - p["start"] <= 8.0 + 1e-6 for p in out)
 
     def test_space_fallback_respects_char_limit(self):
-        import core
         seg = self._seg(" ".join(["一二三四五六七八九十"] * 7), 0.0, 6.0)
-        out = core.split_long_segments([seg], max_seconds=8, max_cjk_chars=40)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8, max_cjk_chars=40)
         assert len(out) > 1
         self._check(seg, out)
-        assert all(len(core._CJK_RE.findall(p["text"])) <= 40 for p in out)
+        assert all(len(segment_splitting._CJK_RE.findall(p["text"])) <= 40 for p in out)
 
     def test_space_fallback_keeps_latin_tokens_whole(self):
-        import core
         seg = self._seg("這是一個很長的句子呢 Dormi Q&A 絕不NG的表單 " * 4, 0.0, 30.0)
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert len(out) > 1
         self._check(seg, out)
         for p in out:
@@ -1259,34 +1254,29 @@ class TestSplitLongSegments:
             assert "Dormi Q&A" in p["text"] or "Dormi" not in p["text"]
 
     def test_punctuated_line_not_cut_at_spaces(self):
-        import core
         seg = self._seg("一二三 四五六。七八九 十一二。", 0.0, 12.0)
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert [p["text"] for p in out] == ["一二三 四五六。", "七八九 十一二。"]
 
     def test_spaceless_unpunctuated_line_still_whole(self):
-        import core
         seg = self._seg("一二三四五六七八九十" * 10, 0.0, 30.0)
-        assert core.split_long_segments([seg]) == [seg]
+        assert segment_splitting.split_long_segments([seg]) == [seg]
 
     def test_short_line_untouched(self):
-        import core
         seg = self._seg("好。你好。再见。", 0.0, 3.0)
-        assert core.split_long_segments([seg]) == [seg]
+        assert segment_splitting.split_long_segments([seg]) == [seg]
 
     def test_mixed_cjk_latin_japanese_korean(self):
-        import core
         for text in ("今日はいい天気ですね。Let's go to the park. Really? 行きましょう!" * 2,
                      "안녕하세요. 오늘은 날씨가 좋네요? Okay, let's go. 갑시다!" * 2):
             seg = self._seg(text, 5.0, 25.0)
-            out = core.split_long_segments([seg], max_seconds=8)
+            out = segment_splitting.split_long_segments([seg], max_seconds=8)
             assert len(out) > 1
             self._check(seg, out)
 
     def test_decimal_point_is_not_a_sentence_end(self):
-        import core
         seg = self._seg("Pi is 3.14159 and e is 2.71828 which is nice", 0.0, 30.0)
-        assert core.split_long_segments([seg], max_seconds=8) == [seg]
+        assert segment_splitting.split_long_segments([seg], max_seconds=8) == [seg]
 
 
 class TestWordTimestampsKept:
@@ -1358,12 +1348,11 @@ class TestWordTimestampsKept:
         assert seen["word_timestamps"] is True
 
     def test_a_line_with_no_punctuation_is_cut_at_the_real_pauses(self):
-        import core
         text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心" * 2
         # 66 chars at 0.25 s = 16.5 s, plus 1.6 s of real silences after chars 22 and 44
         seg = self._seg(text, pauses={22: 0.9, 44: 0.7})
         assert seg["end"] - seg["start"] > 17
-        out = core.split_long_segments([seg])
+        out = segment_splitting.split_long_segments([seg])
         assert [p["text"] for p in out] == [text[:22], text[22:44], text[44:]]
         assert "".join(p["text"] for p in out) == text
         words = seg["words"]
@@ -1373,84 +1362,75 @@ class TestWordTimestampsKept:
         assert [p["words"] for p in out] == [words[:22], words[22:44], words[44:]]
 
     def test_a_17_second_unpunctuated_clip_with_four_pauses_is_cut(self):
-        import core
         # about 17 s and 56 characters: 56 * 0.25 s = 14 s of speech plus 3 s of pauses
         text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心真的太好玩了下次还想再来而且天气特别好大家都很高兴一直玩到天黑才回家"[:56]
         assert len(text) == 56
         seg = self._seg(text, pauses={14: 0.75, 28: 1.0, 42: 0.75, 49: 0.5})
         assert 16.5 < seg["end"] - seg["start"] < 17.5
-        out = core.split_long_segments([seg])
+        out = segment_splitting.split_long_segments([seg])
         assert len(out) >= 2 and "".join(p["text"] for p in out) == text
-        assert all(p["end"] - p["start"] <= core.SPLIT_MAX_SECONDS for p in out)
+        assert all(p["end"] - p["start"] <= segment_splitting.SPLIT_MAX_SECONDS for p in out)
 
     def test_cuts_happen_only_while_pieces_are_still_too_long(self):
-        import core
         text = "一二三四五六七八九十" * 4
         seg = self._seg(text, pauses={10: 0.5, 20: 0.9, 30: 0.5})
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert [p["text"] for p in out] == [text[:20], text[20:]]
 
     def test_pieces_near_the_middle_win_among_similar_pauses(self):
-        import core
         text = "一二三四五六七八九十" * 4
         seg = self._seg(text, pauses={5: 0.9, 20: 0.8, 35: 0.9})
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert out[0]["text"] == text[:20]
 
     def test_punctuation_cuts_use_the_word_times(self):
-        import core
         text = "我们先去吃饭。然后再去看电影吧。"
         seg = self._seg(text, pauses={7: 1.5})
-        out = core.split_long_segments([seg], max_seconds=3)
+        out = segment_splitting.split_long_segments([seg], max_seconds=3)
         assert [p["text"] for p in out] == ["我们先去吃饭。", "然后再去看电影吧。"]
         assert out[1]["start"] == seg["words"][7]["start"]
         assert out[0]["end"] == seg["words"][6]["end"]
         assert out[0]["end"] < out[1]["start"] - 1.4
 
     def test_mixed_latin_and_cjk_text_maps_exactly(self):
-        import core
         words = [("我们", 0.0, 1.0), (" 用", 1.0, 1.5), (" Python", 1.5, 3.0), (" 写", 3.0, 4.0),
                  ("程序", 4.0, 5.5), (" 然后", 7.0, 8.5), (" 发布", 8.5, 10.0),
                  (" 到", 10.0, 11.0), (" GitHub", 11.0, 12.5)]
         text = "我们 用 Python 写程序 然后 发布 到 GitHub"
         seg = {"start": 0.0, "end": 12.5, "text": text,
                "words": [{"start": s, "end": e, "word": w} for w, s, e in words]}
-        out = core.split_long_segments([seg], max_seconds=8)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert [p["text"] for p in out] == ["我们 用 Python 写程序", "然后 发布 到 GitHub"]
         assert (out[0]["end"], out[1]["start"]) == (5.5, 7.0)
 
     def test_words_that_do_not_spell_the_text_leave_the_line_alone(self):
-        import core
         text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心" * 2
         seg = self._seg(text, pauses={22: 0.9, 44: 0.7})
         seg["words"][10]["word"] = "错"
-        assert core.split_long_segments([seg]) == [seg]
+        assert segment_splitting.split_long_segments([seg]) == [seg]
         seg["words"][10]["word"] = text[10]
         seg["text"] = text + "。"  # words no longer cover the text
-        assert [p["text"] for p in core.split_long_segments([seg])] == [seg["text"]]
+        assert [p["text"] for p in segment_splitting.split_long_segments([seg])] == [seg["text"]]
 
     def test_a_punctuation_cut_inside_a_word_falls_back_to_the_estimate(self):
-        import core
         text = "我们先去吃饭。然后再去看电影吧。" * 2
         seg = self._seg(text)
         seg["words"][6:8] = [{"start": seg["words"][6]["start"], "end": seg["words"][7]["end"],
                              "word": text[6:8]}]
-        out = core.split_long_segments([seg], max_seconds=3)
+        out = segment_splitting.split_long_segments([seg], max_seconds=3)
         assert len(out) > 1 and "words" not in out[0]
         assert out[0]["start"] == seg["start"] and out[-1]["end"] == seg["end"]
 
     def test_the_default_pause_is_035_within_its_bounds(self):
-        import core
-        assert core.MIN_WORD_GAP_SECONDS == 0.35
-        assert (core.MIN_WORD_GAP_SECONDS_MIN, core.MIN_WORD_GAP_SECONDS_MAX) == (0.1, 2.0)
+        assert segment_splitting.MIN_WORD_GAP_SECONDS == 0.35
+        assert (segment_splitting.MIN_WORD_GAP_SECONDS_MIN, segment_splitting.MIN_WORD_GAP_SECONDS_MAX) == (0.1, 2.0)
 
     def test_the_pause_setting_decides_which_pauses_cut(self):
-        import core
         text = "一二三四五六七八九十" * 7
         seg = self._seg(text, pauses={17: 0.30, 52: 0.50})
 
         def cuts(**kw):
-            return [len(p["text"]) for p in core.split_long_segments([seg], max_seconds=8, **kw)]
+            return [len(p["text"]) for p in segment_splitting.split_long_segments([seg], max_seconds=8, **kw)]
         assert cuts(min_pause=0.25) == [17, 35, 18]  # both pauses
         assert cuts(min_pause=0.35) == [52, 18]  # only the 0.50 s one
         assert cuts(min_pause=0.45) == [52, 18]
@@ -1458,18 +1438,16 @@ class TestWordTimestampsKept:
         assert cuts() == [52, 18]  # the default is 0.35
 
     def test_pause_offsets_follow_the_setting(self):
-        import core
         text = "一二三四五六七八九十" * 2
-        index = core._WordIndex.build(text, self._seg(text, pauses={5: 0.30, 12: 0.50})["words"])
-        assert core.pause_offsets(index, 0.25) == {5, 12}
-        assert core.pause_offsets(index, 0.4) == {12}
-        assert core.pause_offsets(index) == {12}
+        index = segment_splitting._WordIndex.build(text, self._seg(text, pauses={5: 0.30, 12: 0.50})["words"])
+        assert segment_splitting.pause_offsets(index, 0.25) == {5, 12}
+        assert segment_splitting.pause_offsets(index, 0.4) == {12}
+        assert segment_splitting.pause_offsets(index) == {12}
 
     def test_no_pause_long_enough_leaves_the_line_whole(self):
-        import core
         text = "一二三四五六七八九十" * 4
-        seg = self._seg(text, pauses={20: core.MIN_WORD_GAP_SECONDS - 0.05})
-        assert core.split_long_segments([seg], max_seconds=8) == [seg]
+        seg = self._seg(text, pauses={20: segment_splitting.MIN_WORD_GAP_SECONDS - 0.05})
+        assert segment_splitting.split_long_segments([seg], max_seconds=8) == [seg]
 
     @staticmethod
     def _seg_with_exact_gap(text, gap):
@@ -1483,47 +1461,41 @@ class TestWordTimestampsKept:
         return {"start": 0.0, "end": t, "text": text, "words": words}
 
     def test_pause_exactly_at_the_minimum_is_a_cut_point(self):
-        import core
         text = "一二三四五六七八九十" * 4
         seg = self._seg_with_exact_gap(text, 0.25)  # a binary-exact gap, so >= is tested exactly
-        assert len(core.split_long_segments([seg], max_seconds=8, min_pause=0.25)) == 2
+        assert len(segment_splitting.split_long_segments([seg], max_seconds=8, min_pause=0.25)) == 2
 
     def test_pause_just_under_the_minimum_is_not_a_cut_point(self):
-        import core
         text = "一二三四五六七八九十" * 4
         seg = self._seg_with_exact_gap(text, 0.25 - 0.0625)
-        assert core.split_long_segments([seg], max_seconds=8, min_pause=0.25) == [seg]
+        assert segment_splitting.split_long_segments([seg], max_seconds=8, min_pause=0.25) == [seg]
 
     def test_floors_keep_a_stub_from_being_cut_off(self):
-        import core
         text = "一二三四五六七八九十" * 4
         # the only long pauses leave 2 chars (0.5 s) on one side
         seg = self._seg(text, pauses={2: 1.0, 38: 1.0})
-        assert core.split_long_segments([seg], max_seconds=8) == [seg]
+        assert segment_splitting.split_long_segments([seg], max_seconds=8) == [seg]
 
     def test_re_split_rules_apply_to_word_cuts(self):
-        import core
         text = "一二三四五六七八九十" * 4
         seg = self._seg(text, pauses={10: 0.4, 25: 0.6})
-        rules = core.SplitRules(max_seconds=None, max_chars=25)
-        out = core.split_long_segments([seg], rules=rules)
+        rules = segment_splitting.SplitRules(max_seconds=None, max_chars=25)
+        out = segment_splitting.split_long_segments([seg], rules=rules)
         assert [p["text"] for p in out] == [text[:25], text[25:]]
-        rules = core.SplitRules(max_seconds=None, max_chars=12)
-        out = core.split_long_segments([seg], rules=rules)
+        rules = segment_splitting.SplitRules(max_seconds=None, max_chars=12)
+        out = segment_splitting.split_long_segments([seg], rules=rules)
         assert "".join(p["text"] for p in out) == text
-        assert all(len(p["text"]) >= core.MIN_PIECE_CJK_CHARS for p in out)
+        assert all(len(p["text"]) >= segment_splitting.MIN_PIECE_CJK_CHARS for p in out)
 
     def test_other_keys_are_copied_and_unused_words_stay_on_a_short_line(self):
-        import core
         seg = self._seg("一二三四五", speaker="A")
-        assert core.split_long_segments([seg]) == [seg]
+        assert segment_splitting.split_long_segments([seg]) == [seg]
         long_seg = self._seg("一二三四五六七八九十" * 4, pauses={20: 0.9}, speaker="B")
-        assert {p["speaker"] for p in core.split_long_segments([long_seg], max_seconds=8)} == {"B"}
+        assert {p["speaker"] for p in segment_splitting.split_long_segments([long_seg], max_seconds=8)} == {"B"}
 
     def test_segments_without_words_behave_as_before(self):
-        import core
         seg = {"start": 0.0, "end": 20.0, "text": "一二三四五六七八九十" * 10}
-        assert core.split_long_segments([seg]) == [seg]
+        assert segment_splitting.split_long_segments([seg]) == [seg]
 
     def test_hallucination_filter_and_coverage_ignore_the_extra_key(self):
         import core
@@ -1534,13 +1506,12 @@ class TestWordTimestampsKept:
 
     def test_a_hundred_thousand_characters_is_not_quadratic(self):
         import time
-        import core
         # 100k one-character words with a pause every 20 words, in one line
         text = "一二三四五六七八九十" * 10000
         pauses = {i: 0.5 for i in range(20, len(text), 20)}
         seg = self._seg(text, pauses=pauses)
         started = time.perf_counter()
-        out = core.split_long_segments([seg])
+        out = segment_splitting.split_long_segments([seg])
         elapsed = time.perf_counter() - started
         assert "".join(p["text"] for p in out) == text
         assert all(p["end"] - p["start"] <= 8.0 + 1e-6 for p in out)
@@ -1548,25 +1519,23 @@ class TestWordTimestampsKept:
 
     def test_growing_pauses_do_not_peel_one_piece_at_a_time(self):
         import time
-        import core
         # the biggest pause is always at the far end: a naive pick-the-largest scan is quadratic
         text = "一二三四五六七八九十" * 5000
         pauses = {i: 0.3 + i / 1e5 for i in range(10, len(text), 10)}
         seg = self._seg(text, pauses=pauses)
         started = time.perf_counter()
-        out = core.split_long_segments([seg])
+        out = segment_splitting.split_long_segments([seg])
         assert "".join(p["text"] for p in out) == text
         assert time.perf_counter() - started < 10.0
 
     def test_random_pauses_always_give_lossless_ordered_pieces(self):
         import random
-        import core
         rng = random.Random(165)
         for _ in range(60):
             text = "".join(rng.choice("我你他是不了在有人这中大来上国个到说们为") for _ in range(rng.randint(30, 400)))
             pauses = {i: rng.choice([0.0, 0.0, 0.1, 0.3, 0.6, 1.2]) for i in range(1, len(text))}
             seg = self._seg(text, pauses=pauses)
-            out = core.split_long_segments([seg])
+            out = segment_splitting.split_long_segments([seg])
             assert "".join(p["text"] for p in out) == text
             assert all(a["end"] <= b["start"] for a, b in zip(out, out[1:]))
             assert all(p["start"] < p["end"] for p in out)

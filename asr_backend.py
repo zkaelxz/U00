@@ -42,9 +42,10 @@ from typing import Optional
 
 import memory_headroom
 from core import (
-    SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, ModelDownloadError, SplitRules, is_gpu_error,
-    is_network_error, diagnose_hostname, extract_audio_slice, transcribe_for_timing,
+    ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname, extract_audio_slice,
+    transcribe_for_timing,
 )
+from segment_splitting import SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, SplitRules
 from forced_align import LANGUAGE_NAMES
 
 # Not a documented Qwen3-ASR limit (the model card states no maximum
@@ -402,7 +403,8 @@ class Qwen3ASRVadBackend:
         the same but falls back without a notice. An explicit
         vad_fn wins."""
         import vad_segments
-        from core import filter_hallucinated_segments, split_long_segments
+        from core import filter_hallucinated_segments
+        from segment_splitting import split_long_segments
         if language is None:
             mixed_languages = True
         elif language not in LANGUAGE_NAMES:
