@@ -480,3 +480,9 @@ def test_leaving_a_private_series_keeps_the_drama_private(isolated_db):
     # B can't take A's hidden drama out of anything.
     with pytest.raises(NotFoundError):
         ds.update_drama_metadata(hidden, principal=b, series_id=0)
+
+
+@pytest.mark.parametrize("lang,expected", [("zh", True), ("ja", True), ("ko", False)])
+def test_split_by_sentences_defaults_on_for_chinese_and_japanese(isolated_db, lang, expected):
+    d = ds.create_drama(source_language=lang)
+    assert bool(db.get_drama(d["id"])["split_by_sentences"]) is expected

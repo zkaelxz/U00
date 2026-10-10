@@ -268,7 +268,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
               <div className="stack" data-testid="resegment-preview">
                 <p>{resegmentSummary(preview)}</p>
                 {preview.changed.length === 0 ? (
-                  <p className="muted">Nothing to re-segment. Turn on Use AI to split lines the rules can't.</p>
+                  <p className="muted">{preview.reason || "Nothing to re-segment. Turn on Use AI to split lines the rules can't."}</p>
                 ) : (
                   <>
                     <ul className="review-matches">

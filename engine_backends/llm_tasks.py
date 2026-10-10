@@ -214,8 +214,19 @@ def _deepseek_kwargs(engine, max_tokens) -> dict:
     return kwargs
 
 
+def _single_attempt_client(client):
+    """Inside a bounded scope the SDK's own retries are switched off, so the
+    cancellable call_with_backoff is the only retry loop and an abandoned call
+    can't keep retrying in its thread. Outside a scope the client is unchanged."""
+    if _scope_var.get() is None or not hasattr(client, "with_options"):
+        return client
+    return client.with_options(max_retries=0, timeout=SDK_REQUEST_TIMEOUT)
+
+
 def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
     client = getattr(engine, "client", None)
+    if client is not None:
+        client = _single_attempt_client(client)
     if client is not None and hasattr(client, "messages"):
         resp = call_with_backoff(lambda: client.messages.create(
             model=engine.model, max_tokens=max_tokens,
@@ -236,10 +247,12 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
             usage_cb(getattr(resp.usage, "prompt_tokens", 0),
                      getattr(resp.usage, "completion_tokens", 0))
         content = resp.choices[0].message.content
-        if not content:
+        # Only a bounded caller treats "" as a failure; the others have always
+        # parsed an empty reply into their own default.
+        if not content and _scope_var.get() is not None:
             raise RuntimeError(
                 "The AI engine returned an empty reply (it may have run out of output tokens).")
-        return content.strip()
+        return (content or "").strip()
 
     if isinstance(engine, GeminiEngine):
         import requests
@@ -563,6 +576,8 @@ SYSTEM_FLAG_REASONS = {
     "reading_speed": "Too fast to read -- too many characters for the time it's shown",
     "factual_detail": ("Auto QC: a number, date, name, amount or unit differs between the "
                        "source and the translation"),
+    "gap_untranscribed": ("Added for a stretch with no subtitle line -- check the text "
+                          "heard there"),
     "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
                             "result wasn't applied; translate this line again"),
     "pronoun_check": ("Pronoun check -- the translation says he/him but no he/him character "

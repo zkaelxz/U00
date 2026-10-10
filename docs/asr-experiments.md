@@ -325,3 +325,57 @@ CER % (normalised); "+ Demucs" runs Demucs vocal separation before the same mode
 - 60 clips per cell; one run per cell; the temperature fallback is random.
 - CPU only; no GPU speed or memory figures.
 - Model revisions were pinned only in the noisy-audio runs.
+
+### Streamer VOD against burned-in subtitles (2026-10-09, private clip)
+
+One 15 min Chinese streamer VOD with burned-in Traditional Chinese subtitles. CPU
+only (4 cores, 15 GB), faster-whisper 1.2.1 int8, qwen-asr 0.0.6 bfloat16, one run per
+row. The harness is not in the repo.
+
+Reference: PaddleOCR (`chinese_cht`) on the white glyph fill of the subtitle band at
+2 fps, repeated frames merged into 244 lines (1,419 characters; 513 in the first
+5 min). A spot check of 30 lines against the on-screen English found the meaning right
+in every readable one and a wrong character in about 8 of them (roughly 5% of
+characters). The subtitles cover about 58% of the characters Whisper heard
+(1,419 of about 2,450), so whole-text CER is 63-80% and says nothing; the figure below
+is reference-side CER: each reference line is matched to the best stretch of output
+text within 2 s of it, both sides converted to Simplified and normalised as
+`services/benchmark_lab_service` does. Differences under about 2 points are noise
+(one run per row, 513 or 1,419 reference characters).
+
+First 5 min, large-v3-turbo unless noted (default = beam 5, silence 300 ms, threshold 0.5):
+
+| Configuration | CER % | Lines | Line s mean / max | Wall s |
+|---|---|---|---|---|
+| default | 16.4 | 150 | 1.4 / 4.6 | 145 |
+| beam 1 | 18.3 | 147 | 1.5 / 5.8 | 127 |
+| beam 8 | 16.6 | 141 | 1.5 / 3.8 | 145 |
+| silence 800 ms | 17.0 | 156 | 1.4 / 4.2 | 139 |
+| silence 2000 ms | 16.2 | 145 | 1.4 / 4.3 | 154 |
+| threshold 0.35 | 17.3 | 147 | 1.4 / 4.6 | 139 |
+| threshold 0.7 | 17.0 | 142 | 1.5 / 5.2 | 126 |
+| fast mode (batched) | 24.0 | 44 | 5.7 / 23.9 | 152 |
+| hallucination silence 2 s | 16.4 | 150 | 1.4 / 4.6 | 129 |
+| repeat guard | 17.5 | 150 | 1.3 / 3.5 | 112 |
+| Split lines by sentences | 16.2 | 145 | 1.4 / 4.3 | 133 |
+| small | 23.4 | 140 | 1.6 / 6.0 | 92 |
+| medium | 17.5 | 145 | 1.6 / 5.7 | 236 |
+| large-v3 | 18.7 | 138 | 1.6 / 5.8 | 388 |
+| Qwen3-ASR 1.7B, `qwen3_asr_vad` | 21.1 | 61 | 3.8 / 7.8 | 576 |
+| Qwen3-ASR 1.7B, `qwen3_asr_long` | 22.0 | 79 | 3.6 / 16.0 | 584 |
+| Qwen3-ASR 1.7B over the default Whisper lines | 25.1 | 150 | 1.4 / 4.6 | 728 |
+
+Full 15 min:
+
+| Configuration | CER % | Lines | Line s mean / max | Wall s |
+|---|---|---|---|---|
+| turbo default | 20.4 | 384 | 1.7 / 10.4 | 475 |
+| turbo, Split lines by sentences | 19.6 | 408 | 1.5 / 5.7 | 451 |
+| turbo beam 1 | 21.4 | 384 | 1.6 / 8.8 | 371 |
+| medium | 21.1 | 401 | 1.8 / 7.1 | 962 |
+| large-v3 | 20.6 | 385 | 1.7 / 7.3 | 1080 |
+
+The Qwen wall times include model loading. The worst-scoring lines of the best
+configurations were mostly short interjections Whisper left out and reference OCR
+mistakes, not wrong words. Not tested: GPU, the forced-aligner refine option,
+Whisper plus Qwen combined.

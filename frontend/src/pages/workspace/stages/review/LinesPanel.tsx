@@ -54,6 +54,8 @@ interface Props {
   // resolve gets null once the line is open, else a plain message.
   onCompareSelected?: () => void
   onRetimeSelected?: () => void
+  // Opens the Re-transcribe section; with line ids it starts a run on them.
+  onRetranscribeLines?: (lineIds: number[] | null) => void
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
 }
 
@@ -83,7 +85,7 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
@@ -299,6 +301,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     dramaId, shown, sheetLine, searching, filter, page, activeId, sourceLanguage, undo, selection,
     pending, busyRef, leaveEdit: ctl.leaveEdit, focusTo: ctl.focusTo,
     setBusy, setStructError, setSheetNote, setSheet, setEdit, setAi, setPage, setStatus, setUndo, onChanged,
+    onTranscribeLines: (ids) => onRetranscribeLines?.(ids),
   })
 
   const closeSheetThen = (fn: () => void) => {
@@ -357,6 +360,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     notify: setStatus,
     openCompare: onCompareSelected ?? (() => {}),
     openRetime: onRetimeSelected ?? (() => {}),
+    openRetranscribe: (lineIds: number[]) => onRetranscribeLines?.(lineIds),
   }
   const allShownSelected = shown.length > 0 && shown.every((l) => selection.selectedSet.has(l.id))
   const loading = !searching && data === null && !error
@@ -379,6 +383,11 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         onToggle={() => setWaveOpen(!waveOpen)}
         onRetime={ctl.retime}
         editingActive={!!active && edit !== null && edit.lineId === active.id}
+        reloads={reloads}
+        jobRunning={jobRunning}
+        canTranscribe={canRetranscribeLine}
+        onChanged={onChanged}
+        onTranscribeLines={(ids) => onRetranscribeLines?.(ids)}
       />
     ) : null
 
@@ -587,6 +596,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onSplit={edits.doSplit}
           onMerge={edits.doMerge}
           onAdd={edits.doAdd}
+          onAddAndTranscribe={edits.doAddAndTranscribe}
           onDelete={edits.doDelete}
           sourceLanguage={sourceLanguage}
           onSetLanguage={(lang, scope) => void edits.doSetLanguage(lang, scope)}

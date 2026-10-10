@@ -56,6 +56,7 @@ interface Props {
   onSplit: (choice: SplitChoice) => void
   onMerge: (ids: number[]) => void
   onAdd: (line: NewLine) => void
+  onAddAndTranscribe?: (line: NewLine) => void
   onDelete: () => void
   sourceLanguage: string | null
   onSetLanguage: (lang: string, scope: LanguageScope) => void
@@ -182,6 +183,7 @@ export function LineActionsSheet(p: Props) {
               busy={p.busy}
               blocked={blocked}
               onAdd={p.onAdd}
+              onAddAndTranscribe={p.canRetranscribe ? p.onAddAndTranscribe : undefined}
               onCancel={line ? back : undefined}
             />
           )}
