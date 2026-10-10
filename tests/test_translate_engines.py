@@ -68,7 +68,7 @@ class TestBackoffCancelAndDeadlines:
         lines = [Line(idx=0, start=0, end=1, zh="a")]
         _, errors = te.translate_lines_with_engine(
             lines, Engine(), {}, cancel_check_cb=lambda: cancelled["v"])
-        assert len(errors) == 1 and lines[0].en == ""
+        assert errors == [] and lines[0].en == ""  # a cancel is not a failed batch
 
     def test_429_text_match_ignores_other_numbers_and_known_statuses(self):
         assert te._is_rate_limit_error(Exception("HTTP 429 Too Many Requests"))

@@ -44,7 +44,8 @@ DEEPSEEK_MAX_OUTPUT_TOKENS = 8192
 
 
 class _BoundedScope:
-    def __init__(self, job_id, cancel_check, deadline, no_thinking, lenient_empty=False):
+    def __init__(self, job_id, cancel_check, deadline, no_thinking, lenient_empty=False,
+                 closes_ollama=True):
         self.job_id = job_id
         self.cancel_check = cancel_check
         self.deadline = deadline
@@ -52,6 +53,9 @@ class _BoundedScope:
         # Callers written before calls were bounded (Reflect, line tools...)
         # parse an empty reply into their own default instead of failing.
         self.lenient_empty = lenient_empty
+        # False for a scope nobody opened: with no cancel source to honour, the
+        # request is left to Ollama's own timeout instead of the abortable path.
+        self.closes_ollama = closes_ollama
 
 
 _scope_var = contextvars.ContextVar("llm_task_scope", default=None)
@@ -158,7 +162,8 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None):
     # Lets cancel and the deadline close an Ollama request (also one inside a
     # fallback chain), which makes it stop generating; otherwise it holds the
     # GPU after the job has let go. Other engines never read it.
-    ctx.run(abort_check_var.set, lambda: abandon.is_set() or bool(scope.cancel_check()))
+    if scope.closes_ollama:
+        ctx.run(abort_check_var.set, lambda: abandon.is_set() or bool(scope.cancel_check()))
 
     def work():
         try:
@@ -236,7 +241,7 @@ def _bounded(fn, engine, deadline: float = None):
         # Whoever called has no job to cancel; a cancel check set for the
         # backoff waits still applies.
         scope = _BoundedScope(None, _cancel_check_var.get() or (lambda: False), None, False,
-                              lenient_empty=True)
+                              lenient_empty=True, closes_ollama=False)
     return _run_bounded(scope, fn, engine, deadline)
 
 
@@ -244,7 +249,9 @@ def bound_batches(engine):
     """Makes every engine.translate_batch call on this engine instance run
     under call_batch_bounded, for code that calls it directly. Instance-level
     on purpose: the engine keeps its class, its client and its last_usage."""
-    original = engine.translate_batch
+    original = getattr(engine, "translate_batch", None)
+    if original is None:
+        return engine
     engine.translate_batch = lambda *a, **kw: call_batch_bounded(
         engine, lambda: original(*a, **kw))
     return engine
