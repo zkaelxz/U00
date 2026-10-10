@@ -430,6 +430,9 @@ def _note_gpu_wait_reason_locked(job_id):
             from gpu_wait_message import external_gpu_wait_message
             load = diagnostics.external_gpu_load()
             reason = external_gpu_wait_message(load) if load else None
+            if reason is None:
+                from services import gpu_lock_recovery_service
+                reason = gpu_lock_recovery_service.previous_run_wait_message()
         except Exception as exc:
             _warn("GPU wait-reason check failed", exc)
     job["gpu_wait_external"] = reason
@@ -455,11 +458,8 @@ def _gpu_slot_available_locked(job_id, description):
     """Caller must already hold _lock. True if job_id may actually start
     running right now -- nothing else, in this process, another one
     (cross-process), or a completely different application, currently
-    holds the GPU. background_jobs' own guard is plain in-process
-    module state, invisible to a separate OS process; `cli.py` imports this module but
-    its own process's state is not the API server's, so a CLI run and a
-    live UI job could both hold the GPU at once. db.gpu_lock's single-row table in
-    the shared library.db is the cross-process coordination point instead.
+    holds the GPU. This module's own guard is in-process state, invisible
+    to a `cli.py` run, so db.gpu_lock is the cross-process coordination point.
 
     Both of those locks only know about GPU-touching work Baihe
     itself started -- neither can see a different application on the same
