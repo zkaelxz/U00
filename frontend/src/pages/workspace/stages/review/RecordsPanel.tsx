@@ -206,7 +206,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       {notes.length > 0 && (
         <>
           <h4>Notes</h4>
-          <ul data-testid="notes-list">
+          <ul className="records-list" data-testid="notes-list">
             {notes.map((n) => (
               <li key={n.id}>
                 <span className="muted">#{n.line_idx === null ? '?' : lineNumber(n.line_idx)}</span> <strong>{n.term}</strong> ({n.note_type}) {n.note}{' '}
@@ -227,7 +227,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       {tm.length > 0 && (
         <>
           <h4>Translation memory suggestions</h4>
-          <ul data-testid="tm-list">
+          <ul className="records-list" data-testid="tm-list">
             {tm.map((s) => (
               <li key={s.entry_id}>
                 <span className="muted">#{lineNumber(s.line_idx)}</span> {s.suggestion}{' '}
@@ -252,7 +252,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       {versions.length > 0 && (
         <>
           <h4>Translation versions</h4>
-          <ul data-testid="versions-list" ref={versionsRef}>
+          <ul className="records-list" data-testid="versions-list" ref={versionsRef}>
             {versions.map((v) => (
               <li key={v.id} data-version-id={v.id}>
                 {v.label ?? `Version ${v.id}`} · {v.engine} {v.model}
@@ -289,7 +289,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       {history.length > 0 && (
         <>
           <h4>Line history</h4>
-          <ul data-testid="history-list">
+          <ul className="records-list" data-testid="history-list">
             {history.map((h) => (
               <li key={h.id}>
                 {capFirst(h.label ?? `Snapshot ${h.id}`)} <span className="muted">{h.created_at}</span>{' '}
