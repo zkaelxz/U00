@@ -49,7 +49,7 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     from services import diagnostics_installs_service as installs
     from services import extension_service as ext
     from services import settings_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
 
     def refuse_pip(name, confirm=False, target=None, job_id=None):
         raise ConflictError("Installing is disabled on the e2e server.")
@@ -133,7 +133,7 @@ def _hold_until_cancelled(job_id: str):
 def add_e2e_job_routes(app):
     import background_jobs
     from fastapi import Body
-    from services.service_errors import ConflictError, InvalidInputError
+    from lib.errors import ConflictError, InvalidInputError
 
     def _check(job_id: str):
         import re

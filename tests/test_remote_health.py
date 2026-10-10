@@ -257,7 +257,8 @@ def test_ddns_check_url_failure_is_unknown(env, monkeypatch):
 
 
 def test_public_ip_read_is_pinned_capped_and_timed(env, monkeypatch):
-    from services import metadata_service, url_guard
+    from services import metadata_service
+    from lib import url_guard
     seen = {}
 
     class Raw:
@@ -405,7 +406,7 @@ def test_route_needs_admin_diagnostics_with_auth_on(env, no_network):
 # --- bounded lookups, stop, unreadable or unsaveable state -----------------
 
 def test_ip_check_host_lookup_is_bounded(env, monkeypatch):
-    from services import url_guard
+    from lib import url_guard
     release = threading.Event()
     monkeypatch.setattr(rhs, "RESOLVE_TIMEOUT", 0.2)
     monkeypatch.setattr(url_guard, "resolve_public", lambda url: release.wait(10) and "8.8.8.8")
@@ -545,7 +546,7 @@ def test_a_failing_save_does_not_realert_every_cycle(env, monkeypatch, listener_
 
 @pytest.fixture
 def public_dns(monkeypatch):
-    from services import url_guard
+    from lib import url_guard
 
     def fake(url):
         host = url.split("/")[2].split(":")[0]

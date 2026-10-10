@@ -38,7 +38,8 @@ from urllib.parse import urlsplit
 
 import db
 import translate_engines
-from services import capped_body, drama_service, library_service, settings_service
+from services import drama_service, library_service, settings_service
+from lib import capped_body
 from services.metadata_service import SUGGEST_FIELDS, require_drama
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)

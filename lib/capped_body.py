@@ -1,5 +1,5 @@
 """
-services/capped_body.py -- the one byte-capped, time-capped read of a
+lib/capped_body.py -- the one byte-capped, time-capped read of a
 streamed HTTP response body.
 
 `read_capped` refuses a declared Content-Length over the cap before reading,

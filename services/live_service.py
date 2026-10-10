@@ -10,7 +10,7 @@ still queued). Every start gets its own id and directory, use_gpu reaches the
 pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
-(host checked by services.url_guard.resolve_public, no fetch here). The
+(host checked by lib.url_guard.resolve_public, no fetch here). The
 job runs yt-dlp and the stream fetcher (live_fetch, which pipes the
 stream into ffmpeg; ffmpeg itself opens nothing) through a
 services.egress_proxy.GuardedProxy, so every connection they make
@@ -38,8 +38,9 @@ import live_translate
 import storage
 import translate_engines
 from core import SOURCE_LANGUAGES
+from lib import url_guard
 from services import (egress_proxy, job_stage_service, jobs_service, ownership_service,
-                      run_settings_service, settings_service, translate_service, url_guard)
+                      run_settings_service, settings_service, translate_service)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -203,7 +204,7 @@ def _active_session_locked():
 
 def check_stream_url(stream_url) -> None:
     """Run on the direct stream URL yt-dlp resolved, before it is
-    fetched: services.url_guard.resolve_public (http/https only, no userinfo,
+    fetched: lib.url_guard.resolve_public (http/https only, no userinfo,
     every resolved address public), on the full URL (no length cap: a
     signed stream URL can be long). The error never echoes the URL, which
     can carry a signed token."""
