@@ -450,7 +450,7 @@ def _require_vad_packages() -> None:
 
 def require_qwen3_packages(feature: str) -> None:
     """Raises DependencyUnavailableError naming the missing package(s) and the
-    pip line (qwen-asr's own Diagnostics entry: diagnostics.MODEL_ENGINE_REGISTRY)
+    pip line (qwen-asr's own Diagnostics entry: diagnostics_report.MODEL_ENGINE_REGISTRY)
     when qwen-asr or torch can't be imported, so a Qwen3 choice never
     silently degrades to plain Whisper."""
     missing = [name for name, module in (("qwen-asr", "qwen_asr"), ("torch", "torch"))

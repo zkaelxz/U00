@@ -65,7 +65,7 @@ import core as core_module
 import segment_splitting
 import db
 import ollama_unload
-import diagnostics
+import diagnostics_report
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
@@ -1298,7 +1298,7 @@ def cmd_doctor(args):
     committing a batch job to it -- catches a dead API key or an
     unreachable local Ollama server up front, with a real (but minimal,
     single-line) call, instead of discovering it mid-job."""
-    result = diagnostics.check_engine_reachable(
+    result = diagnostics_report.check_engine_reachable(
         args.engine, args.api_key, args.model, _ollama_url(args))
     if result["ok"]:
         print(f"OK: {result['engine']} is reachable and responding.")

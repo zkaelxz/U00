@@ -18,7 +18,7 @@ import sys
 
 import background_jobs
 import db
-import diagnostics
+import diagnostics_report
 import translate_engines
 from services import real_model_check_service as svc
 
@@ -41,7 +41,7 @@ def register(sub) -> None:
 def _safe(text) -> str:
     # redact_for_support collapses paths and the username; every error text
     # also takes the secret pass, whatever else it contains.
-    return translate_engines.redact_secrets(diagnostics.redact_for_support(str(text)))
+    return translate_engines.redact_secrets(diagnostics_report.redact_for_support(str(text)))
 
 
 def format_report(results: list) -> str:

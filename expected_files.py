@@ -27,6 +27,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "debug_view.py",
     "device_tokens.py",
     "diagnostics.py",
+    "diagnostics_report.py",
     "diagnostics_torch.py",
     "diarize.py",
     "dictionary.py",

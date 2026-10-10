@@ -23,7 +23,7 @@ Conventions shared by all of them:
   - plain dicts/lists/str/bytes out, never a filesystem path or key
     (media_file_path is the one server-internal exception, documented);
   - keys are resolved server-side, never accepted or returned, and an
-    engine failure is passed through diagnostics.redact_for_support (keys
+    engine failure is passed through diagnostics_report.redact_for_support (keys
     and absolute paths removed), a local OSError becomes a fixed message;
   - AI results are matched back by id or name, never by list position;
   - writes are scoped to their own table/fields (vocab_lookups,
@@ -263,9 +263,9 @@ def _run_engine(fn):
     except OSError:  # local work (e.g. the CEDICT download/cache): no path out
         raise ServiceError("A local dictionary or file step failed; see the app log.") from None
     except Exception as e:  # engine/network failure: never leak a key or path
-        import diagnostics
+        import diagnostics_report
         raise ServiceError("The engine call failed: "
-                           + diagnostics.redact_for_support(str(e))[:300]) from None
+                           + diagnostics_report.redact_for_support(str(e))[:300]) from None
 
 
 def _text_arg(value, field: str, max_len: int) -> str:

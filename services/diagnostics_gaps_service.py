@@ -9,7 +9,7 @@ non-UI functions (dependency install/upgrade, library reset).
 
 No HTTP types. Every string that could carry a
 secret, a token, the OS username or a local path goes through
-diagnostics.redact_for_support (which applies
+diagnostics_report.redact_for_support (which applies
 translate_engines.redact_secrets first); nothing here returns a path.
 
 The benchmark, the maintenance assistant and the source-access tests have
@@ -29,6 +29,7 @@ import background_jobs
 import job_process_kill
 import db
 import diagnostics
+import diagnostics_report
 import diagnostics_torch as gpu_torch
 import install_registry
 import upgrade_check
@@ -54,7 +55,7 @@ _JOB_LABELS = {
 
 
 def _redact(text) -> str:
-    return diagnostics.redact_for_support("" if text is None else str(text))
+    return diagnostics_report.redact_for_support("" if text is None else str(text))
 
 
 def default_project_root() -> str:
@@ -109,7 +110,7 @@ def get_model_versions(ollama_model: str = None) -> list:
     return [{"name": m["name"], "version": _redact(m["version"]), "url": m["url"],
              "installed": bool(m["installed"]), "package": m.get("package"),
              "help": m.get("help", "")}
-            for m in diagnostics.get_model_engine_versions(ollama_model)]
+            for m in diagnostics_report.get_model_engine_versions(ollama_model)]
 
 
 def get_model_cache(hf_cache_dir: str = None) -> dict:
@@ -156,7 +157,7 @@ def get_pyannote_readiness(check_access: bool = False, api=None) -> dict:
         "models": None,
     }
     if check_access and (api is not None or _hf_hub_importable()):
-        results = diagnostics.check_pyannote_gated_access(token, api=api)
+        results = diagnostics_report.check_pyannote_gated_access(token, api=api)
         out["models"] = [{"model": r["model"], "accessible": bool(r["accessible"])}
                          for r in results]
     out["ready"] = bool(out["pyannote_installed"] and out["hf_token_configured"]
@@ -210,11 +211,11 @@ def build_support_report(recent_error_lines: int = 20) -> str:
     recent log errors -- all passed through redact_for_support."""
     import platform
     from services import settings_service
-    results = diagnostics.run_full_diagnostics(
+    results = diagnostics_report.run_full_diagnostics(
         default_project_root(), db.LIBRARY_DIR, settings_service.key_status())
     cache = diagnostics.scan_hf_cache()
-    report = diagnostics.format_diagnostics_report(
-        results, cache, diagnostics.get_model_engine_versions())
+    report = diagnostics_report.format_diagnostics_report(
+        results, cache, diagnostics_report.get_model_engine_versions())
     extra = [f"OS: {platform.system()} {platform.release()} ({platform.machine()})"]
     errors = [ln for ln in get_log_tail(LOG_TAIL_MAX)
               if "ERROR" in ln or "Traceback" in ln][-max(0, int(recent_error_lines)):]

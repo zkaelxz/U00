@@ -14,7 +14,7 @@ Stored as files, not in the database, under
 and `screenshot.png`/`.jpg`. The old db.bug_reports table is unrelated and no longer written.
 
 Every stored string passes `_scrub`: translate_engines.redact_secrets and
-diagnostics.redact_for_support (OS user name, absolute paths), plus
+diagnostics_report.redact_for_support (OS user name, absolute paths), plus
 session-cookie / CSRF / Cookie-header / URL-userinfo / credential-query
 parameter / long-token and user-home-folder redaction. App
 routes and API paths are not filesystem paths, so they keep their shape
@@ -32,7 +32,7 @@ import subprocess
 import threading
 
 import db
-import diagnostics
+import diagnostics_report
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 DIR_NAME = "bug_reports"
@@ -96,7 +96,7 @@ def _pre_scrub(text: str) -> str:
 def _scrub(value, limit: int = 5000) -> str:
     """Free text: secrets, tokens, user names and absolute paths removed."""
     text = "" if value is None else str(value)[:limit]
-    return diagnostics.redact_for_support(_pre_scrub(text))
+    return diagnostics_report.redact_for_support(_pre_scrub(text))
 
 
 def _scrub_route(value, limit: int = 300) -> str:
@@ -107,7 +107,7 @@ def _scrub_route(value, limit: int = 300) -> str:
     text = ("" if value is None else str(value)).split("?", 1)[0].split("#", 1)[-1][:limit]
     text = _pre_scrub(text)
     if _FS_LIKE_RE.search(text):
-        return diagnostics.redact_for_support(text)
+        return diagnostics_report.redact_for_support(text)
     import translate_engines
     import getpass
     text = translate_engines.redact_secrets(text)

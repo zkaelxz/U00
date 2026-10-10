@@ -45,6 +45,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `core.py`
 - `db.py`
 - `diagnostics.py`
+- `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
 - `upgrade_check.py` (try a package upgrade in a throwaway venv and run the tests there before touching the real environment)
 - `expected_files.py`
