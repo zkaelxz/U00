@@ -29,19 +29,57 @@ test('shows Connecting… until /me answers', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('signed out: only the Login page; the button goes to /api/auth/login with the return path', async ({ page }) => {
+test('signed out: only the Login page; the button opens /api/auth/login in a new tab with the return path', async ({ page, context }) => {
   const s = await mockAuth(page, ME.signedOut)
   await page.goto('/#/settings')
-  const button = page.getByRole('link', { name: 'Sign in with Google' })
+  const button = page.getByRole('link', { name: 'Sign in with Google (new tab)' })
   await expect(button).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(button).toHaveAttribute('href', '/api/auth/login?return_to=%2F%23%2Fsettings')
+  await expect(button).toHaveAttribute('target', '_blank')
+  await expect(button).toHaveAttribute('rel', /noopener/)
   await maybeScreenshot(page, 'desktop-login')
-  await button.click()
-  await expect(page.getByRole('heading', { name: 'Stand-in for Google' })).toBeVisible()
-  expect(s.loginUrls).toHaveLength(1)
-  expect(new URL(s.loginUrls[0]).searchParams.get('return_to')).toBe('/#/settings')
+  // mockAuth routes only this page; the new tab needs its own stand-in so nothing reaches the real API.
+  const popupUrls: string[] = []
+  await context.route('**/api/auth/login**', (route) => {
+    popupUrls.push(route.request().url())
+    return route.fulfill({ contentType: 'text/html', body: '<h1>Stand-in for Google</h1>' })
+  })
+  const [popup] = await Promise.all([context.waitForEvent('page'), button.click()])
+  await expect(popup.getByRole('heading', { name: 'Stand-in for Google' })).toBeVisible()
+  // This tab stays on the Login page until it learns sign-in finished.
+  await expect(button).toBeVisible()
+  expect(popupUrls).toHaveLength(1)
+  expect(new URL(popupUrls[0]).searchParams.get('return_to')).toBe('/#/settings')
+  expect(s.loginUrls).toEqual([])
+  expect(s.unmocked).toEqual([])
+})
+
+test('signed out: after signing in elsewhere, coming back to this tab shows the app', async ({ page }) => {
+  const s = await mockAuth(page, ME.signedOut)
+  await page.goto('/#/library')
+  await expect(page.getByRole('link', { name: 'Sign in with Google (new tab)' })).toBeVisible()
+  s.me = ME.signedIn
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
+  expect(s.unmocked).toEqual([])
+})
+
+test('signed out, new tab blocked: the link still works by hand and "I\'ve signed in" rechecks', async ({ page }) => {
+  const s = await mockAuth(page, ME.signedOut)
+  // A blocked popup leaves this tab untouched; the person signs in some other way.
+  await page.addInitScript(() => {
+    window.open = () => null
+  })
+  await page.goto('/#/library')
+  const link = page.getByRole('link', { name: 'Sign in with Google (new tab)' })
+  await expect(link).toHaveAttribute('href', /\/api\/auth\/login\?return_to=/)
+  await page.getByRole('button', { name: "I've signed in" }).click()
+  await expect(link).toBeVisible()
+  s.me = ME.signedIn
+  await page.getByRole('button', { name: "I've signed in" }).click()
+  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })
 
