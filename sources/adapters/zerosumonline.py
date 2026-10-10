@@ -85,6 +85,11 @@ def _read_varint(data: bytes, pos: int):
     result = 0
     shift = 0
     while True:
+        # A varint is at most 10 bytes; an endless run of continuation bytes
+        # would otherwise build an ever-larger int (quadratic), and a
+        # truncated one would raise IndexError instead of a layout error.
+        if shift > 63 or pos >= len(data):
+            raise LayoutChanged("a well-formed protobuf number")
         b = data[pos]
         pos += 1
         result |= (b & 0x7f) << shift

@@ -68,6 +68,9 @@ BASE_URL = "https://ranobes.net"
 SEARCH_HEADERS = {"Content-Type": "application/x-www-form-urlencoded"}
 _DATA_ASSIGN = re.compile(r"__DATA__\s*=\s*")
 _COVER_URL = re.compile(r"background-image:\s*url\(([^)]+)\)")
+# pages_count comes from the page itself; a hostile or broken value would
+# otherwise have us walk an unbounded list, one paced request per page.
+MAX_LIST_PAGES = 200
 
 
 class LayoutChanged(SourceError):
@@ -193,7 +196,7 @@ class RanobesSource(SourceAdapter):
         first = self._get(f"/chapters/{book_id}/", f"Loading chapter list for {series_id}")
         data = _extract_data_blob(first)
         chapters = list(data.get("chapters") or [])
-        pages_count = int(data.get("pages_count") or 1)
+        pages_count = min(int(data.get("pages_count") or 1), MAX_LIST_PAGES)
         for n in range(2, pages_count + 1):
             html = self._get(f"/chapters/{book_id}/page/{n}/",
                              f"Loading chapter list for {series_id} (page {n}/{pages_count})")

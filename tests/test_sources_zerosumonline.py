@@ -9,6 +9,8 @@ small test-only protobuf *encoder*, the exact inverse of the adapter's
 own generic decoder, the same pattern this project's other custom-format
 adapters use (see test_sources_baozimh.py's `_make_encoded_payload`).
 """
+import time
+
 import pytest
 
 from sources.adapters import zerosumonline
@@ -221,3 +223,19 @@ class TestProtobufDecoderRobustness:
         fields = zerosumonline._parse_protobuf(payload)
         assert zerosumonline._text(fields, 2) == "slug"
         assert zerosumonline._text(fields, 3) == "Name"
+
+    def test_a_varint_longer_than_ten_bytes_is_a_layout_error(self):
+        with pytest.raises(zerosumonline.LayoutChanged):
+            zerosumonline._parse_protobuf(b"\xff" * 11 + b"\x01")
+        assert zerosumonline._read_varint(b"\xff" * 9 + b"\x01", 0) == (2 ** 64 - 1, 10)
+
+    @pytest.mark.parametrize("data", [b"\x80", _tag(1, 0), _tag(1, 2)])
+    def test_truncated_input_is_a_layout_error(self, data):
+        with pytest.raises(zerosumonline.LayoutChanged):
+            zerosumonline._parse_protobuf(data)
+
+    def test_hostile_megabyte_is_linear(self):
+        t = time.perf_counter()
+        with pytest.raises(zerosumonline.LayoutChanged):
+            zerosumonline._parse_protobuf(b"\xff" * 1_000_000)
+        assert time.perf_counter() - t < 2.0

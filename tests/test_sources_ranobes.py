@@ -123,6 +123,17 @@ class TestChapters:
         assert len(chapters) == 2
         assert len(t.calls) == 1
 
+    def test_a_huge_pages_count_is_capped(self, monkeypatch):
+        monkeypatch.setattr(ranobes, "MAX_LIST_PAGES", 3)
+        huge = CHAPTERS_PAGE_1.replace('"pages_count":2', '"pages_count":1000000000')
+        a, t = _adapter({
+            f"{BASE}/chapters/2001/": html(huge),
+            f"{BASE}/chapters/2001/page/2/": html(CHAPTERS_PAGE_2),
+            f"{BASE}/chapters/2001/page/3/": html(CHAPTERS_PAGE_2),
+        })
+        a.get_chapters("novels/2001-test-novel.html")
+        assert len(t.calls) == 3
+
     def test_layout_changed_when_no_data_blob(self):
         a, t = _adapter({f"{BASE}/chapters/2001/": html(CHAPTERS_PAGE_NO_DATA)})
         with pytest.raises(SourceError):
