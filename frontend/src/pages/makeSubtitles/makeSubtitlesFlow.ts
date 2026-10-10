@@ -103,6 +103,30 @@ export function titleStem(filename: string): string {
 
 export const titleFor = (filename: string, typed: string): string => typed.trim() || titleStem(filename)
 
+// In Latin-letter widths; a CJK or Hangul character takes two.
+const SUMMARY_TITLE_WIDTH = 24
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u
+
+/** The closed Options line. A file name can be hundreds of characters with no spaces, which would
+ *  wrap the one-line summary into a paragraph, so the title is clipped here (the field keeps it whole). */
+export function optionsSummary(title: string | null, variant: string): string {
+  return `title ${title === null ? 'from the file name' : clipToWidth(title, SUMMARY_TITLE_WIDTH)}, ${variant || 'default'} English`
+}
+
+function clipToWidth(text: string, width: number): string {
+  const chars = Array.from(text)
+  const widthOf = (c: string) => (WIDE.test(c) ? 2 : 1)
+  if (chars.reduce((n, c) => n + widthOf(c), 0) <= width) return text
+  let used = 1 // the ellipsis
+  let out = ''
+  for (const c of chars) {
+    if (used + widthOf(c) > width) break
+    used += widthOf(c)
+    out += c
+  }
+  return `${out}…`
+}
+
 const BLOCKER: Record<string, (engine: string) => string> = {
   whisper: () => 'install Whisper',
   ffmpeg: () => 'install FFmpeg',
