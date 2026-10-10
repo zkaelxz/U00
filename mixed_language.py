@@ -12,8 +12,9 @@ import re
 from sensitivity_preset import decode_kwargs
 from core import (
     LANGUAGE_NAMES, LINE_LANGUAGES, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS,
-    filter_hallucinated_segments, is_gpu_error, load_whisper_model,
+    filter_hallucinated_segments,
 )
+from whisper_models import is_gpu_error, load_whisper_model
 from segment_splitting import tighten_to_words
 
 LANGUAGE_UNCERTAIN_FLAG = "language_uncertain"

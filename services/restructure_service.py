@@ -42,6 +42,7 @@ from typing import Optional
 
 import background_jobs
 import core as core_module
+import whisper_models
 from segment_splitting import (MIN_WORD_GAP_SECONDS, SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, SplitRules, encode_line_words, line_word_index, line_words, span_words)
 import db
 import diarize
@@ -915,7 +916,7 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
                 break
             try:
                 got = _aligned_pieces(audio_path, by_id[line_id], pieces, language, use_gpu)
-            except (ImportError, core_module.ModelDownloadError) as exc:
+            except (ImportError, whisper_models.ModelDownloadError) as exc:
                 aligner_down = ("The Qwen3 forced aligner isn't available "
                                 f"({type(exc).__name__}; see Diagnostics)")
                 break
@@ -928,7 +929,7 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
             if got:
                 timed[line_id] = got
     finally:  # a cancelled or failed run must not leave the aligner holding VRAM
-        core_module.release_gpu_models()
+        whisper_models.release_gpu_models()
     if background_jobs.is_cancel_requested(job_id):
         background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
         return

@@ -9,6 +9,7 @@ import subprocess
 import asr_backend
 import background_jobs
 import core as core_module
+import whisper_models
 import ollama_unload
 from translate_engines import redact_secrets
 
@@ -77,9 +78,9 @@ def hear_lines_worker(audio_path, windows, cfg, scratch_dir, result_queue):
                               "error": f"line {number}: couldn't cut this line's audio"})
                 continue
             text = hear(slice_path, cfg, language,
-                        lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
+                        lambda exc: gpu_fallback.append(whisper_models.short_reason(exc)))
             lines.append({"line_id": line_id, "text": text})
-        except core_module.ModelDownloadError as exc:
+        except whisper_models.ModelDownloadError as exc:
             fatal = {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
             break
         except ImportError:

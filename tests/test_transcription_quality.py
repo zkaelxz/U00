@@ -10,6 +10,7 @@ import types
 import pytest
 
 import core
+import whisper_models
 
 
 class _Seg:
@@ -39,7 +40,7 @@ def fake_whisper(monkeypatch):
     fw.WhisperModel = lambda *a, **k: FakeModel()
     fw.BatchedInferencePipeline = FakeBatched
     monkeypatch.setitem(sys.modules, "faster_whisper", fw)
-    monkeypatch.setattr(core, "_whisper_model_cache", {})
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
     return calls
 
 
@@ -72,8 +73,8 @@ class TestWhisperSettings:
         assert kwargs["no_repeat_ngram_size"] == 3 and kwargs["vad_filter"] is True
 
     def test_large_v3_turbo_is_offered_without_a_japanese_korean_weakness_claim(self):
-        assert "large-v3-turbo" in core.WHISPER_MODELS
-        assert "weaker" not in core.WHISPER_MODELS["large-v3-turbo"]
+        assert "large-v3-turbo" in whisper_models.WHISPER_MODELS
+        assert "weaker" not in whisper_models.WHISPER_MODELS["large-v3-turbo"]
 
 
 class _Unit:

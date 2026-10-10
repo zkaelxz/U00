@@ -16,6 +16,7 @@ import pytest
 
 import background_jobs
 import core
+import whisper_models
 import db
 from core import Line
 from services import jobs_service, transcribe_service
@@ -123,7 +124,7 @@ def fake_asr(monkeypatch, inline_process_jobs):
 
     monkeypatch.setattr(core, "extract_audio_slice", fake_slice)
     monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
-    monkeypatch.setattr(core, "is_whisper_model_cached", lambda size: True)
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
     return calls
 
 
@@ -171,7 +172,7 @@ def _hung_transcribe_worker(*args):
         time.sleep(600)
     c.extract_audio_slice = cut
     c.transcribe_for_timing = hang
-    c.is_whisper_model_cached = lambda size: True
+    whisper_models.is_whisper_model_cached = lambda size: True
     ts._retranscribe_worker(*args)
 
 
@@ -230,7 +231,7 @@ class TestStart:
         did, ids = _drama(isolated_db)
         isolated_db.update_drama(did, whisper_size=planted)
         transcribe_service.start_retranscribe_line(did, ids[1])
-        assert captured["args"]["whisper_size"] == core.DEFAULT_WHISPER_SIZE
+        assert captured["args"]["whisper_size"] == whisper_models.DEFAULT_WHISPER_SIZE
         logged = "\n".join(applog.tail(20))
         assert "whisper_size" in logged and planted not in logged
 
@@ -418,7 +419,7 @@ class TestJobBody:
 
     def test_model_download_error_redacted(self, isolated_db, captured, fake_asr, monkeypatch):
         def boom(*a, **k):
-            raise core.ModelDownloadError(f"download failed token={SECRET}")
+            raise whisper_models.ModelDownloadError(f"download failed token={SECRET}")
         monkeypatch.setattr(core, "transcribe_for_timing", boom)
         did, ids = _drama(isolated_db)
         transcribe_service.start_retranscribe_line(did, ids[0])
