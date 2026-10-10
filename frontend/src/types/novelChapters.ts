@@ -1,5 +1,5 @@
-// api/schemas/novel_chapters.py. Titles, counts and text only: the API
-// never returns a filename, path or source URL.
+// api/schemas/novel_chapters.py. Titles, counts and text, plus each chapter's
+// display-safe source page link; never a filename or path.
 export interface NovelChapterRow {
   number: number
   title: string
@@ -8,6 +8,7 @@ export interface NovelChapterRow {
   imported_at: string
   unsplit: boolean
   in_translation: boolean
+  url?: string
 }
 
 export interface NovelChapterList {
@@ -33,6 +34,7 @@ export interface NovelChapterText {
   unsplit: boolean
   chars: number
   in_translation: boolean
+  url?: string
   offset: number
   text: string
   next_offset: number | null

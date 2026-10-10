@@ -32,6 +32,7 @@ import time
 from typing import Optional
 
 import db
+from translate_engines import display_url
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ RAW_NOVEL_FILENAME = "raw_novel_context.txt"
 _VERSION = 1
 _CHUNK = 64 * 1024
 _MAX_TITLE = 200
+_MAX_URL = 2000
 # A UTF-8 character is at most 4 bytes; this many bytes always hold the last
 # `n` characters of a block for n up to _TAIL_CHARS.
 _TAIL_CHARS = 400
@@ -49,6 +51,11 @@ _CHECKPOINT_BYTES = 64 * 1024
 # A block with no line break for this long gets no further checkpoints
 # rather than being held in memory.
 _MAX_PENDING_BYTES = 8 * 1024 * 1024
+
+
+def _url(value) -> str:
+    link = display_url(value)
+    return link if len(link) <= _MAX_URL else ""
 
 
 def manifest_path(drama_id: int) -> str:
@@ -205,7 +212,7 @@ def load(drama_id: int) -> Optional[dict]:
                 "source": str(row.get("source") or "")[:60],
                 "imported_at": str(row.get("imported_at") or "")[:20],
                 "start": start, "length": length, "chars": chars,
-                "unsplit": bool(row.get("unsplit"))})
+                "url": _url(row.get("url")), "unsplit": bool(row.get("unsplit"))})
         return {"size": data["size"], "chapters": chapters}
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
@@ -244,21 +251,22 @@ def chars_of(text: str) -> int:
 
 
 def record(drama_id: int, *, pre_size: int, post_size: int, content_start: int,
-           content_length: int, content_chars: int, title: str = "", source: str = "") -> None:
+           content_length: int, content_chars: int, title: str = "", source: str = "",
+           url: str = "") -> None:
     """Notes a chapter just written at bytes [content_start, +content_length)
     of the raw-novel file, which was `pre_size` bytes before the write and
     is `post_size` after it. Text already in the file that the manifest
     doesn't account for becomes one leading unsplit entry."""
     try:
         _record(drama_id, pre_size, post_size, content_start, content_length, content_chars,
-                title, source)
+                title, source, url)
     except Exception:
         log.warning("Could not update the chapter manifest for drama %s", drama_id,
                     exc_info=True)
 
 
 def _record(drama_id, pre_size, post_size, content_start, content_length, content_chars,
-            title, source):
+            title, source, url):
     known = load(drama_id)
     chapters = known["chapters"] if known and known["size"] == pre_size else None
     if chapters is None:
@@ -272,10 +280,10 @@ def _record(drama_id, pre_size, post_size, content_start, content_length, conten
         if pre_size > 0:
             with open(raw_path(drama_id), "rb") as f:
                 chars = count_chars(f, 0, pre_size)
-            chapters.append({"title": "", "source": "", "imported_at": "", "start": 0,
+            chapters.append({"title": "", "source": "", "imported_at": "", "url": "", "start": 0,
                              "length": pre_size, "chars": chars, "unsplit": True})
     chapters.append({
-        "title": (title or "")[:_MAX_TITLE], "source": (source or "")[:60],
+        "title": (title or "")[:_MAX_TITLE], "source": (source or "")[:60], "url": _url(url),
         "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "start": content_start, "length": content_length, "chars": content_chars, "unsplit": False})
     _save(drama_id, post_size, chapters)

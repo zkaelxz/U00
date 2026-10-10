@@ -133,7 +133,9 @@ export interface ComicMockOptions {
   // Hold the page list back this long (ms), to see the bar before the pages arrive.
   pagesDelayMs: number
   // Chapter groups in order (their page counts sum to pageCount); none: an older server.
-  chapters?: { title: string; pages: number }[]
+  chapters?: { title: string; pages: number; url?: string }[]
+  // The title's source page, as the drama detail returns it.
+  sourceUrl?: string
   // Page indexes (0-based) marked "not part of the story".
   hidden?: number[]
   // Page indexes (0-based) with no text boxes yet.
@@ -222,7 +224,7 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
       translation_engine: null, custom_tags: [], created_at: null, updated_at: null, summary: null, genre: null,
       publication_status: null, chapter_count: null, narration_language: null, author_romanized: null,
       studio_romanized: null, director_romanized: null, voice_actors_romanized: null, series_instructions: null,
-      has_audio: false, has_novel_reference: false, has_cover_art: false,
+      has_audio: false, has_novel_reference: false, has_cover_art: false, source_url: opts.sourceUrl ?? '',
     })
   })
   await page.route(new RegExp(`${root}/pages$`), async (route) => {
@@ -230,7 +232,7 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
     if (opts.pagesDelayMs) await new Promise((r) => setTimeout(r, opts.pagesDelayMs))
     const hidden = new Set(opts.hidden ?? [])
     const groups = (opts.chapters ?? []).map((c, k, all) => ({
-      id: `src:c${k + 1}`, title: c.title, known: true,
+      id: `src:c${k + 1}`, title: c.title, known: true, url: c.url ?? '',
       first_page: all.slice(0, k).reduce((n, g) => n + g.pages, 0) + 1, page_count: c.pages, hidden_count: 0,
     }))
     const groupOf = (i: number) => groups.find((g) => i + 1 >= g.first_page && i + 1 < g.first_page + g.page_count)
