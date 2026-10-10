@@ -19,6 +19,7 @@ const els = {
   translateText: document.getElementById("translateText"),
   dramaTitle: document.getElementById("dramaTitle"),
   openLink: document.getElementById("openInBaihe"),
+  allowSites: document.getElementById("allowSites"),
   notice: document.getElementById("notice"),
   noticeText: document.getElementById("noticeText"),
   noticeAction: document.getElementById("noticeAction"),
@@ -48,8 +49,50 @@ function showNotice(text, actionLabel, handler) {
   setControlsEnabled(false);
 }
 
+// Set while the "Allow <site>" buttons are showing: the action to repeat once one is granted.
+let pendingRetry = null;
+
+// One button per origin, never one request for all of them: the origins come from the page, so a
+// hostile page could otherwise bundle a real CDN with names it wants the person to approve unseen.
+function offerSiteAccess(result, retry) {
+  pendingRetry = retry;
+  els.allowSites.replaceChildren();
+  const origins = [...new Set(result.origins || [])].filter(sitePattern);
+  for (const origin of origins) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary";
+    button.textContent = `Allow ${origin}`;
+    button.addEventListener("click", () => allowSite(origin));
+    els.allowSites.append(button);
+  }
+  els.allowSites.hidden = !origins.length;
+}
+
+// chrome.permissions.request needs the click that happens here, which is why the worker only reports
+// the need and never asks itself. The optional permission is per origin, so nothing broader is granted.
+async function allowSite(origin) {
+  const retry = pendingRetry;
+  const pattern = sitePattern(origin);
+  if (!retry || !pattern) return;
+  try {
+    const granted = await chrome.permissions.request({ origins: [pattern] });
+    if (!granted) {
+      say("Not allowed, so the page's images still can't be read.", true);
+      return;
+    }
+  } catch (e) {
+    say(`Couldn't ask for that permission (${e.message}).`, true);
+    return;
+  }
+  pendingRetry = null;
+  els.allowSites.hidden = true;
+  retry();
+}
+
 function say(message, bad = false) {
   els.status.textContent = message;
+  els.allowSites.hidden = true;
   els.status.classList.toggle("bad", !!bad);
   // A new message replaces the result it described, so its link goes too.
   els.openLink.hidden = true;
@@ -248,7 +291,9 @@ async function run(all) {
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: "translateVisible", dramaId, store: els.store.checked, all });
     if (!result || !result.ok) {
-      return say((result && result.error) || "That didn't work.", true);
+      say((result && result.error) || "That didn't work.", true);
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, () => run(all));
+      return;
     }
     const summary = summarizeCapture(result.data, { store: els.store.checked, dramaId });
     const saved = (result.data.pages || []).filter((p) => p.stored).length;
@@ -314,7 +359,11 @@ async function startCapture(fromHere) {
     await chrome.storage.local.set({ overlay: els.overlay.checked });
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: "captureChapter", dramaId, store: els.store.checked, fromHere });
-    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    if (!result || !result.ok) {
+      say((result && result.error) || "That didn't work.", true);
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, () => runCapture(fromHere));
+      return;
+    }
     const { message, translated = 0, stored = 0 } = result.data;
     const store = els.store.checked;
     const destination = describeDestination({

@@ -39,6 +39,8 @@ HARNESS = textwrap.dedent("""
       setTimeout, globalThis: null,
     };
     sandbox.globalThis = sandbox;
+    sandbox.importScripts = (name) => vm.runInContext(
+      fs.readFileSync(require("path").join(require("path").dirname(process.argv[1]), name), "utf8"), sandbox);
     vm.createContext(sandbox);
     vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), sandbox);
     scenario.reply = eval(scenario.replySrc);

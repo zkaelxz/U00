@@ -89,6 +89,16 @@ class TestTheManifest:
         the person asks it to."""
         assert "content_scripts" not in manifest
 
+    def test_other_sites_are_only_ever_optional_and_granted_per_origin(self, manifest):
+        """The worker downloads an image the page won't let a script read,
+        but only from an origin the person allowed with a click."""
+        assert "<all_urls>" not in manifest["optional_host_permissions"]
+        assert set(manifest["optional_host_permissions"]) == {"https://*/*", "http://*/*"}
+        popup = _code("popup.js")
+        assert "chrome.permissions.request({ origins: [pattern] })" in popup
+        assert "permissions.request" not in _code("background.js")
+        assert "permissions.request" not in _code("content.js")
+
     def test_permissions_stay_minimal(self, manifest):
         assert set(manifest["permissions"]) == {"activeTab", "scripting", "storage"}
         for wide in ("<all_urls>", "tabs", "webRequest", "cookies", "history"):
