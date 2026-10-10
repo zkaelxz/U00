@@ -168,21 +168,19 @@ class GeminiBatchProvider:
         return {"request": {"contents": [{"parts": [{"text": prompt}]}]},
                 "metadata": {"key": key}}
 
-    def _check(self, resp):
+    def _send(self, method, url, timeout, **kw):
+        # guard=None: fixed vendor URL, no redirects.
+        try:
+            resp = http.request(method, url, headers={"x-goog-api-key": self.engine.api_key}, timeout=timeout, guard=None,
+                max_error_bytes=4096, max_bytes=BATCH_RESPONSE_MAX_BYTES,
+                deadline=BATCH_READ_DEADLINE_SECONDS, **kw)
+        except http.FetchError as e:
+            raise RuntimeError(f"Gemini batch request failed: {e}")
         if resp.status in (401, 403):
             raise BulkAuthError(f"Gemini refused the API key (HTTP {resp.status}).")
-        if resp.status >= 300:  # incl. unfollowed redirects
+        if resp.status >= 300:
             raise RuntimeError(f"HTTP {resp.status}")
         return json.loads(resp.body)
-
-    def _send(self, method: str, url: str, timeout: float, **kwargs):
-        # guard=None: fixed vendor URL, no redirects.
-        return self._check(http.request(
-            method, url, headers=self._headers(), timeout=timeout, guard=None, max_error_bytes=4096,
-            max_bytes=BATCH_RESPONSE_MAX_BYTES, deadline=BATCH_READ_DEADLINE_SECONDS, **kwargs))
-
-    def _headers(self):
-        return {"x-goog-api-key": self.engine.api_key}
 
     def submit(self, requests_: list) -> str:
         return self._send(

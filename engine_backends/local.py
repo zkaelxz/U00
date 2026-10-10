@@ -396,7 +396,7 @@ def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
         # Only the status matters: truncate=True cuts the body instead of failing on a long model list.
         # guard=None: base_url is the Ollama address the user configured (loopback or LAN).
         resp = http.get(f"{base_url}/api/tags", timeout=2.5, max_bytes=1, truncate=True, guard=None)
-        reachable = resp.ok
+        reachable = 200 <= resp.status < 300  # redirects aren't followed
     except Exception:
         reachable = False
     _ollama_reachability_cache[base_url] = (now, reachable)

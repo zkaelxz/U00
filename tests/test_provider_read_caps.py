@@ -190,7 +190,7 @@ class TestBulkGemini:
     def test_poll_reply_over_cap(self, posts):
         r = posts(StreamResp(headers={
             "Content-Length": str(bulk_translate.BATCH_RESPONSE_MAX_BYTES + 1)}))
-        with pytest.raises(http.ResponseTooLarge):
+        with pytest.raises(RuntimeError, match="Gemini batch request failed: The response is larger"):
             self._provider().poll("batches/1")
         assert r.chunks_read == 0 and r.closed
         assert posts.calls[0]["timeout"] and posts.calls[0]["ip"] is None

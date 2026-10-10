@@ -640,6 +640,7 @@ class TestDependencyVersionCheck:
     def test_get_latest_pypi_version_returns_none_on_404(self, monkeypatch):
         class FakeResp:
             status_code = 404
+            headers = {}
             def close(self):
                 pass
         monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: FakeResp())

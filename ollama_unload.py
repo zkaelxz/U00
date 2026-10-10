@@ -145,7 +145,7 @@ def _loaded_models(base: str, timeout: float):
     (not running, slow, or a reply that isn't the documented shape)."""
     from engine_backends.shared import PROVIDER_RESPONSE_MAX_BYTES
     try:
-        # guard=None: `base` is the Ollama address the user configured (loopback or LAN).
+        # guard=None: `base` is the Ollama address the user configured (loopback only, see _local_base_url).
         resp = http.get(f"{base}/api/ps", timeout=timeout, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
                         deadline=timeout, guard=None)
         if resp.status >= 400:

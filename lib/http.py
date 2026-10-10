@@ -12,7 +12,8 @@ come back in a message.
 
 `guard` is `check_public` (the SSRF rule from `lib.url_guard`) for any URL a
 person or a site supplied. Pass `guard=None` only for a URL the code itself
-fixes (a vendor API); the connection is then not pinned and redirects are
+fixes (a vendor API) or an address only the PC owner can set through a
+local_only route (the Ollama address in Settings); the connection is then not pinned and redirects are
 not followed unless `allow_redirects=True` is passed. A redirect to another
 origin never carries the caller's credential headers.
 

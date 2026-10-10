@@ -1562,6 +1562,20 @@ class TestOllamaReachability:
         monkeypatch.setattr(http, "pinned_get", fake_get)
         assert te.check_ollama_reachable("http://localhost:11434") is False
 
+    def test_false_when_the_server_redirects(self, monkeypatch):
+        calls = []
+
+        class Redirect:
+            status_code = 302
+            headers = {"Location": "http://elsewhere.example/api/tags"}
+            def iter_content(self, size):
+                return iter([])
+            def close(self):
+                pass
+        monkeypatch.setattr(http, "pinned_get", lambda url, *a, **kw: calls.append(url) or Redirect())
+        assert te.check_ollama_reachable("http://localhost:11434") is False
+        assert calls == ["http://localhost:11434/api/tags"]
+
     def test_false_when_the_connection_fails(self, monkeypatch):
         fake_get, _ = self._fake_get(raises=ConnectionError("refused"))
         monkeypatch.setattr(http, "pinned_get", fake_get)
