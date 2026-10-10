@@ -768,3 +768,130 @@ class TestModuleSize:
                        if p not in sizes or sizes[p] <= MAX_MODULE_BYTES)
         if stale:
             warnings.warn(f"remove from OVERSIZED_MODULE_BYTES (split or deleted): {stale}")
+
+
+# ---------------------------------------------------------------------------
+# Capturing subprocess calls go through job_process_run.
+# ---------------------------------------------------------------------------
+
+# subprocess.run(capture_output=True) / Popen(stdout=PIPE) kill only the
+# child on a timeout, and on Windows wait for the pipe again with no limit,
+# so a grandchild that holds it can hang the caller. Anything long-running
+# whose output is read goes through job_process_run (own process group, tree
+# kill on timeout or cancel, bounded drain). Dev tooling is not scanned.
+_CAPTURE_SCAN_SKIP = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv",
+                      "__pycache__", "installer", "scripts", "tools"}
+_SUBPROCESS_CALLS = {"run", "Popen", "check_output", "check_call", "call"}
+
+# "path::function" -> why it may capture directly. Only short probes belong
+# here; a long-running command uses job_process_run. The "pending" entries
+# are known gaps with a timeout= but no tree kill; the list only shrinks
+# (a stale entry fails the test below).
+_CAPTURE_ALLOWED = {
+    # Version and hardware probes, seconds long.
+    "diagnostics.py::check_ffmpeg": "probe: ffmpeg -version",
+    "diagnostics.py::_warn_deno_old": "probe: deno --version",
+    "diagnostics.py::external_gpu_load": "probe: nvidia-smi",
+    "diagnostics.py::nvidia_driver_info": "probe: nvidia-smi",
+    "services/loaded_models_service.py::_gpu_from_nvidia_smi": "probe: nvidia-smi",
+    "media_inspect.py::run_ffprobe": "probe: ffprobe",
+    "raw_transcript.py::_git_commit": "probe: git rev-parse",
+    "services/bug_report_service.py::_git_commit": "probe: git rev-parse",
+    "services/line_provenance_service.py::software_version": "probe: git describe",
+    "services/maintenance_assistant_service.py::_git": "probe: read-only git",
+    "services/maintenance_assistant_service.py::_tracked_files": "probe: git ls-files",
+    "job_process_kill.py::kill_tree": "taskkill, 10 s",
+    # pending: ffmpeg runs bounded by timeout= only.
+    "core.py::extract_audio_from_video": "pending: ffmpeg",
+    "core.py::extract_audio_slice": "pending: ffmpeg",
+    "dub.py::time_stretch": "pending: ffmpeg",
+    "dub_narration.py::export_narration_m4b": "pending: ffmpeg",
+    "hardsub_ocr.py::extract_frames": "pending: ffmpeg",
+    "services/media_peaks_service.py::_decode": "pending: ffmpeg",
+    "services/speech_coverage_service.py::_decode_chunk": "pending: ffmpeg",
+    "video_export.py::render_vertical_clip": "pending: ffmpeg",
+    "video_export.py::render_preview_clip": "pending: ffmpeg",
+    "video_export.py::burn_subtitles": "pending: ffmpeg",
+    "video_export.py::burn_ass": "pending: ffmpeg",
+    "video_export.py::mux_soft_subtitles": "pending: ffmpeg",
+    "video_export.py::replace_audio_with_dub": "pending: ffmpeg",
+    # pending: separate tree-killing runners that should move onto job_process_run.
+    "background_jobs.py::run_cancellable": "pending: own runner",
+    "services/browser_install_service.py::_run": "pending: own runner",
+    "services/lncrawl_service.py::_run_process": "pending: own runner",
+}
+
+
+def _find_capturing_subprocess_calls(source):
+    """Names of the functions (or "<module>") with a subprocess.run/Popen/...
+    call that captures output: capture_output=True, or stdout=/stderr=
+    subprocess.PIPE."""
+    def captures(call):
+        for kw in call.keywords:
+            if kw.arg == "capture_output" and not (
+                    isinstance(kw.value, ast.Constant) and kw.value.value is False):
+                return True
+            if kw.arg in ("stdout", "stderr") and ast.unparse(kw.value) == "subprocess.PIPE":
+                return True
+        return False
+
+    found = set()
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.stack = []
+
+        def visit_FunctionDef(self, node):
+            self.stack.append(node.name)
+            self.generic_visit(node)
+            self.stack.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, call):
+            f = call.func
+            if (isinstance(f, ast.Attribute) and f.attr in _SUBPROCESS_CALLS
+                    and isinstance(f.value, ast.Name) and f.value.id == "subprocess"
+                    and captures(call)):
+                found.add(self.stack[-1] if self.stack else "<module>")
+            self.generic_visit(call)
+
+    Visitor().visit(ast.parse(source))
+    return found
+
+
+class TestCapturingSubprocessCallsUseTheRunner:
+    @staticmethod
+    def _scan():
+        found = set()
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in _CAPTURE_SCAN_SKIP]
+            for name in files:
+                rel = os.path.relpath(os.path.join(root, name), PROJECT_ROOT).replace(os.sep, "/")
+                if not name.endswith(".py") or name.startswith("test_") or rel == "job_process_run.py":
+                    continue
+                with open(os.path.join(root, name), encoding="utf-8") as f:
+                    found |= {f"{rel}::{fn}" for fn in _find_capturing_subprocess_calls(f.read())}
+        return found
+
+    def test_only_allow_listed_probes_capture_output_directly(self):
+        new = sorted(self._scan() - set(_CAPTURE_ALLOWED))
+        assert new == [], (
+            f"subprocess call capturing output outside job_process_run: {new}. A command that can run "
+            "for more than a few seconds uses job_process_run.run_captured / stream_tree "
+            "(tree kill on timeout and cancel, bounded drain); a short probe is added to "
+            "_CAPTURE_ALLOWED with its reason.")
+
+    def test_allow_list_has_no_stale_entries(self):
+        stale = sorted(set(_CAPTURE_ALLOWED) - self._scan())
+        assert stale == [], f"remove from _CAPTURE_ALLOWED (moved to the runner or deleted): {stale}"
+
+    def test_checker_finds_each_capturing_form(self):
+        src = ("import subprocess\n"
+               "def a():\n    subprocess.run(['x'], capture_output=True)\n"
+               "def b():\n    subprocess.Popen(['x'], stdout=subprocess.PIPE)\n"
+               "def c():\n    subprocess.check_output(['x'], stderr=subprocess.PIPE)\n"
+               "def d():\n    subprocess.run(['x'], capture_output=False)\n"
+               "def e():\n    subprocess.run(['x'], stdout=subprocess.DEVNULL)\n"
+               "subprocess.run(['x'], capture_output=True)\n")
+        assert _find_capturing_subprocess_calls(src) == {"a", "b", "c", "<module>"}
