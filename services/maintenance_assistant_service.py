@@ -363,6 +363,9 @@ def set_settings(updates: dict) -> dict:
             cleaned[mod] = None  # a model name belongs to the engine it was saved with
     for key, value in cleaned.items():
         db.set_app_setting(_SETTINGS_PREFIX + key, value)
+    if "developer_mode" in cleaned:
+        from engine_backends import echo
+        echo.set_enabled(cleaned["developer_mode"])
     return get_settings()
 
 

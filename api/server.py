@@ -141,7 +141,9 @@ async def _lifespan(app: FastAPI):
     if getattr(app.state.settings, "is_household", False):
         yield
         return
-    from services import lncrawl_service
+    from engine_backends import echo
+    from services import lncrawl_service, maintenance_assistant_service
+    echo.set_enabled(maintenance_assistant_service.developer_mode_enabled())
     if not getattr(app.state.settings, "background_services", False):
         try:
             yield
