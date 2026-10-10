@@ -43,6 +43,7 @@ they are stored.
 Not built here: scoped translation-memory saves,
 the auto-derived Translation Profile and a COMET scorer.
 """
+import whisper_models
 import functools
 import json
 import uuid
@@ -410,7 +411,7 @@ def get_options() -> dict:
     return {
         "stages": list(STAGES), "tiers": list(TIERS), "source_languages": list(SOURCE_LANGUAGES),
         "translation_engines": translate_service.list_engines(),
-        "whisper_sizes": list(core.WHISPER_MODELS.keys()),
+        "whisper_sizes": list(whisper_models.WHISPER_MODELS.keys()),
         "ocr_backends": list(OCR_BACKENDS),
         "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
         "max_configs": MAX_CONFIGS,
@@ -446,7 +447,7 @@ def check_config(stage: str, cfg) -> dict:
     if stage == "transcription":
         import core
         size = model or engine
-        if size not in core.WHISPER_MODELS:
+        if size not in whisper_models.WHISPER_MODELS:
             raise InvalidInputError("Unknown Whisper size.")
         return {"engine": "whisper", "model": size}
     if engine not in OCR_BACKENDS:

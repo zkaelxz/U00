@@ -26,6 +26,7 @@ from services.workspace_job_service import (run_transcribe_job, run_hardsub_ocr_
                                  run_fix_flagged_lines_job, run_translate_job)
 from services.workflow_service import compute_workspace_stage_index as _compute_workspace_stage_index
 import core as core_module
+import whisper_models
 from core import Line
 from tests import fake_engine
 from tests.gpu_inline import run_in_child_inline
@@ -569,7 +570,7 @@ def test_model_download_failure_is_recorded_not_raised(monkeypatch):
                                       "error": None, "cancel_requested": False, "result": None}
 
     def fake_transcribe(*a, **k):
-        raise core_module.ModelDownloadError("network unreachable")
+        raise whisper_models.ModelDownloadError("network unreachable")
 
     monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", fake_transcribe)
 

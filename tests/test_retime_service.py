@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import core
+import whisper_models
 import db
 import forced_align
 from api.api_config import ApiSettings
@@ -27,7 +28,7 @@ from tests.saved_settings import patch_setting
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
     monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature: None)
-    monkeypatch.setattr(core, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     patch_setting(monkeypatch, "use_gpu", True)
     calls = {"groups": [], "languages": [], "use_gpu": [], "shift": -0.4,
              "fail_text": None, "on_device": "GPU", "fallback": None}
@@ -293,7 +294,7 @@ class TestJob:
     def test_device_notice_is_scrubbed(self, monkeypatch, _env):
         did, ids = _drama(2)
         _env["fallback"] = True
-        monkeypatch.setattr(core, "gpu_fallback_notice",
+        monkeypatch.setattr(whisper_models, "gpu_fallback_notice",
                             lambda feature, why: f"{feature} fell back: C:\\Users\\x\\m.bin")
         _run(did, ids)
         assert "Users" not in svc.get_retime_result(did)["device_notice"]

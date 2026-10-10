@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 import db
 import diagnostics
+import diagnostics_report
 import diagnostics_torch
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -77,7 +78,7 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda name: HF_TOKEN if name == "hf_token" else None)
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
-    monkeypatch.setattr(diagnostics, "check_pyannote_gated_access", lambda token, api=None: [
+    monkeypatch.setattr(diagnostics_report, "check_pyannote_gated_access", lambda token, api=None: [
         {"model": "pyannote/speaker-diarization-3.1", "accessible": True, "error": DIRTY}])
     monkeypatch.setattr(svc, "_hf_hub_importable", lambda: True)  # the check runs even without the hub installed
     monkeypatch.setattr(background_jobs, "list_all_jobs", lambda: {
@@ -92,7 +93,7 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(applog, "tail", lambda n: [f"INFO line {i}" for i in range(n - 1)]
                         + [f"ERROR {DIRTY}"])
     monkeypatch.setattr(svc, "build_support_report", lambda recent_error_lines=20:
-                        diagnostics.redact_for_support(f"Report\nERROR {DIRTY}"))
+                        diagnostics_report.redact_for_support(f"Report\nERROR {DIRTY}"))
     calls = []
 
     def fake_stream(cmd, timeout, cwd=None, env=None, cancel=None, **_kw):

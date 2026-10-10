@@ -13,6 +13,7 @@ import pytest
 
 import background_jobs
 import core as core_module
+import whisper_models
 import db
 import resegment
 from core import Line
@@ -29,7 +30,7 @@ SECOND = "因为他上次也是这么说的，结果根本没有出现"
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
     monkeypatch.setattr(resegment, "word_boundaries", lambda *a, **k: None)
-    monkeypatch.setattr(core_module, "load_whisper_model", lambda *a, **k: object())
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: object())
     yield
     background_jobs.clear_all_jobs()
 
@@ -83,7 +84,7 @@ def _run_job_body(did, ddir, text):
 def _worker_with_fake_whisper(release, *args):
     """The transcribe worker in its spawned process, which imports every
     module fresh: the fake Whisper is installed here, not by monkeypatch."""
-    core_module.load_whisper_model = lambda *a, **k: object()
+    whisper_models.load_whisper_model = lambda *a, **k: object()
     transcribe_pipeline.transcribe_for_timing = (
         lambda *a, **k: (release.wait(5.0), [{"start": 0.0, "end": 1.0, "text": "你好"}])[1])
     transcribe_pipeline._transcribe_worker(*args)

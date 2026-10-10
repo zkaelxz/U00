@@ -13,6 +13,7 @@ import subprocess
 
 import background_jobs
 import core as core_module
+import whisper_models
 import db
 import forced_align
 from services import (compare_transcription_service as compare, jobs_service,
@@ -190,12 +191,12 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                     audio_path, [_segments(lines, members)], group_language,
                     # A failed GPU load would otherwise be retried for every group.
                     use_gpu=use_gpu and not fallback, on_device=on_device,
-                    on_gpu_fallback=lambda exc: fallback.append(core_module.short_reason(exc)),
+                    on_gpu_fallback=lambda exc: fallback.append(whisper_models.short_reason(exc)),
                     cancel_check=lambda: compare._cancel_check(job_id))
             except background_jobs.JobCancelled:
                 cancelled = True
                 break
-            except core_module.ModelDownloadError as exc:
+            except whisper_models.ModelDownloadError as exc:
                 failed_reason, detail = "model_download", jobs_service.scrub_text(str(exc))
                 break
             except ImportError:
@@ -234,7 +235,7 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                     "new_start": new_start, "new_end": new_end,
                     "uncertain": seg.get("flag_note") == forced_align.TIMING_REPAIRED_NOTE})
     finally:
-        core_module.release_gpu_models()
+        whisper_models.release_gpu_models()
     proposals = _make_consistent(proposals, lines, transcribe_pipeline._audio_duration_seconds(audio_path))
     result = {"proposals": proposals, "line_count": len(line_ids),
               "candidate_count": len(proposals), "errors": errors[:20],
@@ -243,7 +244,7 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
         result["device"] = device["label"]
     if fallback:
         result["gpu_fallback"] = fallback[0]
-        result["device_notice"] = core_module.gpu_fallback_notice(
+        result["device_notice"] = whisper_models.gpu_fallback_notice(
             "Re-timing with the Qwen3 aligner", fallback[0])
     if failed_reason and not proposals:
         result = {"failed_reason": failed_reason, "detail": detail}

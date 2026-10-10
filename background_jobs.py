@@ -12,7 +12,7 @@ table so other processes (and a restarted server) can see a job's last
 known state. While this process has queued or running jobs, a daemon
 heartbeat thread bumps their `updated_at` so a stale-record sweep
 elsewhere can tell a quiet live job from one whose owner process died.
-A failed mirror write is logged and never breaks the job.
+A failed write never breaks the job; jobs/job_store.py retries it.
 
 Rules for anything run this way:
   - Do the work through functions that only touch plain Python objects
@@ -74,46 +74,10 @@ def _emit_change(job_id) -> None:
             pass
 
 
-def _storage_text(text):
-    """job_records lands in backups: secrets and URL query strings out."""
-    if not text:
-        return text
-    from translate_engines import redact_for_storage
-    return redact_for_storage(text)
-
-
 def _mirror_locked(job_id):
-    """Caller must already hold _lock. Writes this job's current
-    status-transition fields to the cross-process
-    job_records table -- a best-effort mirror, never on the hot path of
-    update_progress()'s own per-tick calls. A DB hiccup here must never
-    break the job it's describing, so any exception is swallowed after
-    logging; the in-memory _jobs dict stays the real, authoritative
-    state for the process that owns the job either way."""
-    job = _jobs.get(job_id)
-    if job is None:
-        return
-    result_json = None
-    try:
-        from services.jobs_service import project_result_json
-        result_json = project_result_json(job.get("result"), job.get("run_settings"))
-    except Exception:
-        import applog
-        applog.get_logger().warning(f"job {job_id}: could not project result", exc_info=True)
-    try:
-        import db
-        db.save_job_record(
-            job_id, status=job.get("status"), progress=job.get("progress"),
-            message=_storage_text(job.get("message")), error=_storage_text(job.get("error")),
-            description=job.get("description"), gpu_touching=bool(job.get("gpu_touching")),
-            started_at=job.get("started_at"), finished_at=job.get("finished_at"),
-            result_json=result_json, owner_user_id=job.get("owner_user_id"),
-            owner_pid=os.getpid())
-    except Exception:
-        import applog
-        applog.get_logger().warning(f"job {job_id}: failed to mirror status to job_records",
-                                    exc_info=True)
-    _emit_change(job_id)
+    """Caller holds _lock. Writes this job's row (jobs/job_store.py)."""
+    from jobs import job_store
+    job_store.write_transition(job_id, _jobs.get(job_id))
     _ensure_heartbeat()
 
 
@@ -131,37 +95,8 @@ _heartbeat_thread = None
 
 
 def _heartbeat_once():
-    reconcile_dead_workers()
-    job_force_stop.refresh_abandoned_gpu_rows()
-    with _lock:
-        live = [j for j, job in _jobs.items() if job.get("status") in ("queued", "running")]
-        running_gpu = [j for j in live if _jobs[j]["status"] == "running"
-                       and _jobs[j].get("gpu_touching")]
-    # A job that reports no progress (dub) never refreshes its own row.
-    for j in running_gpu:
-        try:
-            import db
-            db.heartbeat_gpu_lock(f"ui:{j}")
-        except Exception:
-            pass
-    if live:
-        try:
-            import db
-            db.touch_job_records(live)
-        except Exception as e:
-            # Best-effort; never breaks a job. Logged (redacted) because a
-            # live job whose heartbeat can't be written for
-            # STALE_JOB_SECONDS looks dead to another process's checks.
-            # This process's own checks and sweep still see it as live
-            # (jobs_service.sweep_stale_job_records skips in-process jobs).
-            try:
-                import applog
-                import translate_engines
-                applog.get_logger().warning(
-                    "job heartbeat write failed: "
-                    + translate_engines.redact_secrets(str(e))[:300])
-            except Exception:
-                pass
+    from jobs import job_store
+    job_store.heartbeat_tick()
 
 
 def _heartbeat_loop():
@@ -744,6 +679,7 @@ def reconcile_dead_workers() -> list:
                 continue
             job["status"] = "error"
             job["error"] = WORKER_LOST_MESSAGE
+            job["detail_state"] = "lost"
             job["finished_at"] = time.time()
             _mirror_locked(job_id)
             lost.append((job_id, job))
@@ -1785,7 +1721,7 @@ def owner_process_alive(pid) -> bool:
     return True
 
 
-def request_cancel(job_id: str):
+def request_cancel(job_id: str, requested_at=None):
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check
     is_cancel_requested() between units of work, since a thread can't be
@@ -1806,7 +1742,7 @@ def request_cancel(job_id: str):
         if job is None:
             return
         job["cancel_requested"] = True
-        job.setdefault("cancel_requested_at", time.time())
+        job.setdefault("cancel_requested_at", requested_at or time.time())
         if job.get("status") == "queued":
             job["status"] = "cancelled"
             job["finished_at"] = time.time()
@@ -1827,12 +1763,11 @@ _db_cancel_check_failed = set()   # job ids whose check failure was already logg
 
 
 def _db_cancel_requested(job_id: str) -> bool:
-    """A cancel requested from another process (the API
-    host) lives in job_records. Checked at most once per
-    _DB_CANCEL_CHECK_INTERVAL seconds per job so a tight job loop doesn't
-    hit SQLite every iteration; on a hit the in-memory flag is set so
-    later checks are free. Only for jobs this process owns and that are
-    still queued/running. A DB error means "not requested"."""
+    """A cancel requested from another process (the API host) lives in
+    job_records. Checked at most once per _DB_CANCEL_CHECK_INTERVAL seconds
+    per job so a tight job loop doesn't hit SQLite every iteration; on a hit
+    the in-memory flag and the requester's time are set. Only for queued/
+    running jobs this process owns. A DB error means "not requested"."""
     with _lock:
         job = _jobs.get(job_id)
         if job is None or job.get("status") not in ("queued", "running"):
@@ -1844,8 +1779,8 @@ def _db_cancel_requested(job_id: str) -> bool:
             return False
         _last_db_cancel_check[job_id] = now
     try:
-        import db
-        requested = db.is_job_record_cancel_requested(job_id)
+        from jobs import job_store
+        requested = job_store.row_cancel_time(job_id)
     except Exception as exc:
         # Retried on the next call rather than after the interval, and
         # logged once per job: an unseen failure hides a cross-process Cancel.
@@ -1858,8 +1793,8 @@ def _db_cancel_requested(job_id: str) -> bool:
             _warn(f"job {job_id}: could not read a cancel request from job_records", exc)
         return False
     if requested:
-        request_cancel(job_id)
-    return requested
+        request_cancel(job_id, requested)
+    return bool(requested)
 
 
 def is_cancel_requested(job_id: str) -> bool:

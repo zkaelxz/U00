@@ -25,6 +25,7 @@ pipeline runs on a temporary copy of the clip. Standard library at import time;
 the app's own modules are imported only by the commands that need them.
 """
 
+import whisper_models
 import argparse
 import contextlib
 import importlib.metadata
@@ -243,7 +244,7 @@ def run_clip(profile: dict, audio_path, expected_texts=None) -> dict:
 
     use_gpu = bool(profile.get("use_gpu", True))
     qwen = profile.get("asr_backend") == "qwen3"
-    size = profile.get("whisper_size") or core.DEFAULT_WHISPER_SIZE
+    size = profile.get("whisper_size") or whisper_models.DEFAULT_WHISPER_SIZE
     language = profile["language"]
     notes, devices, stage_seconds = [], {}, {}
     token = _hf_token() if profile.get("diarization") else None
@@ -303,7 +304,7 @@ def run_clip(profile: dict, audio_path, expected_texts=None) -> dict:
             diarize.merge_speakers(lines, turns)
             speaker_count = len({t["speaker"] for t in turns})
         with contextlib.suppress(Exception):
-            core.release_gpu_models()
+            whisper_models.release_gpu_models()
 
     rows = []
     for ln in lines:

@@ -2,6 +2,7 @@
 persisted PC-side preferences and endpoint URLs, their permissions, and
 that the services and the CLI read the saved values. Mocked; no network."""
 
+import whisper_models
 import contextlib
 import inspect
 import io
@@ -493,12 +494,12 @@ def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monke
     did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
     settings_service.set_settings({"whisper_model_path": "/models/faster-whisper-small"})
     seen = {}
-    monkeypatch.setattr(core_module, "is_whisper_model_cached", lambda *a, **k: False)
-    monkeypatch.setattr(core_module, "load_whisper_model",
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda *a, **k: False)
+    monkeypatch.setattr(whisper_models, "load_whisper_model",
                         lambda *a, **k: seen.setdefault("load", k.get("local_model_path")))
-    monkeypatch.setattr(core_module, "get_whisper_device_info",
+    monkeypatch.setattr(whisper_models, "get_whisper_device_info",
                         lambda *a, **k: seen.setdefault("info", k.get("local_model_path")) and {})
-    monkeypatch.setattr(core_module, "describe_whisper_device", lambda info: "")
+    monkeypatch.setattr(whisper_models, "describe_whisper_device", lambda info: "")
 
     def fake_transcribe(*a, **k):
         seen["transcribe"] = k.get("local_model_path")
@@ -586,11 +587,11 @@ def test_live_route_uses_cookies_only_at_the_pc(isolated_db, env_file, monkeypat
 
 
 def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
-    import cli
+    import cli_translate
     settings_service.set_settings({"monthly_cap_usd": 4})
-    assert cli._monthly_cap_setting() == 4.0
+    assert cli_translate._monthly_cap_setting() == 4.0
     settings_service.set_settings({"monthly_cap_usd": 0})
-    assert cli._monthly_cap_setting() is None
+    assert cli_translate._monthly_cap_setting() is None
 
     # cli translate: engine, locale, style note, num_ctx and summary engine
     # fall back to the saved Settings values when no flag is given.
@@ -616,12 +617,12 @@ def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
         return types.SimpleNamespace(**base)
 
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args())
+        cli_translate.cmd_translate(args())
     assert "deepseek" in engines  # the drama has no engine saved
     assert seen["locale"] == "en-AU" and seen["style_note"] == "Terse."
     assert seen["ollama_num_ctx_override"] == 8192
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args(engine="fake", locale="en-GB", style_note="",
+        cli_translate.cmd_translate(args(engine="fake", locale="en-GB", style_note="",
                                ollama_num_ctx=0))
     assert seen["locale"] == "en-GB" and seen["style_note"] == ""
     assert seen["ollama_num_ctx_override"] == 0

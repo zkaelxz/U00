@@ -8,6 +8,7 @@ import pytest
 
 import bulk_translate
 import cli
+import cli_translate
 import db
 import translate_engines
 from core import Line
@@ -167,7 +168,7 @@ class TestCli:
                             lambda name, *a, **k: built.append(name) or object())
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
         assert "nllb" not in built, "a removed engine must not be built"
         return out.getvalue()
 
@@ -182,7 +183,7 @@ class TestCli:
 
     def test_a_fallback_naming_it_is_refused_up_front(self):
         with pytest.raises(SystemExit) as exc:
-            cli._parse_fallback_arg("deepseek,nllb", reflect=False)
+            cli_translate._parse_fallback_arg("deepseek,nllb", reflect=False)
         assert MESSAGE in str(exc.value)
 
     def test_the_engine_flag_refuses_it_with_the_api_message(self, isolated_db, monkeypatch):

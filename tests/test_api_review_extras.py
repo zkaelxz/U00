@@ -6,6 +6,7 @@ burned-subtitle preview clip (mocked ffmpeg). TestClient against an
 `isolated_db` library -- no network, GPU, model or ffmpeg.
 """
 
+import whisper_models
 import json
 import os
 import subprocess
@@ -403,10 +404,10 @@ class TestLearnStyle:
         which calls profile_to_prompt_block on the stored profile."""
         import inspect
         from services import line_ai_service, translate_run_service, workspace_job_service
-        import cli
+        import cli_translate
         assert "profile_to_prompt_block" in inspect.getsource(
             workspace_job_service.build_run_style_context)
-        for mod in (translate_run_service, line_ai_service, cli):
+        for mod in (translate_run_service, line_ai_service, cli_translate):
             assert "build_run_style_context" in inspect.getsource(mod)
         assert adaptive_style.profile_to_prompt_block(
             {"preferences": ["x"], "apply": False}) == ""
@@ -636,7 +637,7 @@ class TestSenseVoice:
         from services import workspace_job_service
         did, ids = _audio_drama()
         monkeypatch.setattr(svc, "_sensevoice_installed", lambda: True)
-        monkeypatch.setattr(workspace_job_service.core_module, "release_gpu_models", lambda: None)
+        monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
         seen = {}
 
         def tag_lines(audio_path, lines, use_gpu=False, progress_cb=None, cancel_check=None):
