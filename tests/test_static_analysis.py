@@ -805,6 +805,7 @@ class TestModuleSize:
 # so a grandchild that holds it can hang the caller. Anything long-running
 # whose output is read goes through lib.proc (own process group, tree
 # kill on timeout or cancel, bounded drain). Dev tooling is not scanned.
+# Retired when there are zero call sites outside lib/proc.py.
 _CAPTURE_SCAN_SKIP = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv",
                       "__pycache__", "installer", "scripts", "tools"}
 _SUBPROCESS_CALLS = {"run", "Popen", "check_output", "check_call", "call"}
@@ -841,7 +842,7 @@ _CAPTURE_ALLOWED = {
     "video_export.py::burn_ass": "pending: ffmpeg",
     "video_export.py::mux_soft_subtitles": "pending: ffmpeg",
     "video_export.py::replace_audio_with_dub": "pending: ffmpeg",
-    # pending: separate tree-killing runners that should move onto lib.proc.
+    # pending: separate tree-killing runners that should move onto lib.proc (see B8 in docs/local-agent-backlog.md).
     "background_jobs.py::run_cancellable": "pending: own runner",
     "services/lncrawl_service.py::_run_process": "pending: own runner",
 }
