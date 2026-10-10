@@ -356,6 +356,46 @@ class TestTranslatingAPage:
         assert page["regions"][0]["translated_text"] == "the translation"
         assert len(fake_pipeline["translate"]) == 1
 
+    def test_translation_runs_outside_the_pipeline_lock(self, token, fake_pipeline,
+                                                        isolated_db, monkeypatch):
+        import scanlate
+        import translate_engines
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: object())
+        held_during = []
+
+        def translate(bubbles, engine, drama_meta, **kwargs):
+            held_during.append(page_server.PIPELINE_LOCK.locked())
+            return "context"
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate)
+        page_server.set_translation_config(engine="claude", api_key="test-key")
+        handler = _post(token, {"images": [{"data": _b64(_png_bytes()),
+                                            "content_type": "image/png"}], "store": False})
+        assert handler.status == 200
+        assert held_during == [False]
+
+    def test_a_reused_page_is_translated_outside_the_pipeline_lock(self, token, fake_pipeline,
+                                                                   isolated_db, monkeypatch):
+        import db
+        import scanlate
+        import translate_engines
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: object())
+        page_server.set_translation_config(engine="claude", api_key="test-key")
+        drama_id = db.create_drama(title_en="Strip", media_type="manga", source_language="ja")
+        body = {"images": [{"data": _b64(_png_bytes()), "content_type": "image/png"}],
+                "drama_id": drama_id, "store": True, "filter_pages": False}
+        # The fake engine's translation is dropped so the second send has
+        # an untranslated stored page to fill.
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", lambda *a, **kw: "ctx")
+        assert _post(token, body, path="/pages").status == 200
+        held_during = []
+
+        def translate(bubbles, engine, drama_meta, **kwargs):
+            held_during.append(page_server.PIPELINE_LOCK.locked())
+            return "ctx"
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate)
+        assert _post(token, body, path="/pages").status == 200
+        assert held_during == [False]
+
     def test_a_failing_engine_still_returns_the_ocr_text(self, token, fake_pipeline,
                                                          isolated_db, monkeypatch):
         """A translation failure must not throw away real OCR text -- the
@@ -1061,11 +1101,16 @@ class TestRecapturingKeepsSavedWork:
         import scanlate
         drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
         db.save_bubbles(page["id"], [])
-        mine = {"x": 1, "y": 2, "w": 3, "h": 4, "source_text": "他", "translated_text": "job's",
-                "kind": "bubble", "font_category": "regular", "reading_order": 0}
 
         def translate_while_a_job_saves(bubbles, engine, drama_meta, **kwargs):
-            db.replace_bubbles_if_unchanged(page["id"], [], [mine])
+            # The read is stored before translating, so a job's write lands on it.
+            saved = db.load_bubbles(page["id"])
+            db.update_bubble_fields(saved[0]["id"], {"translated_text": "job's"},
+                                    expected={"translated_text": saved[0]["translated_text"],
+                                              "source_text": saved[0]["source_text"]},
+                                    page_id=page["id"])
+            for b in bubbles:
+                b["translated_text"] = "mine"
             return "ctx"
         monkeypatch.setattr(scanlate, "translate_page_bubbles", translate_while_a_job_saves)
         second = _post(token, body).payload
