@@ -18,7 +18,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
 | `extension/` | browser-side JavaScript (Chrome extension), not Python; `site_access.js` decides which origins the extension may ask the person to grant (no private or LAN hosts) | `extension/manifest.json`, bridge in `page_server.py` |
-| `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW) | `installer/build_installer.py` |
+| `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW); `installer/service.py` runs the Windows service and `installer/setup_lock.py` holds the named mutexes that keep Setup and the service commands apart | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
 | `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md` | `python tools/repo_map.py --help`, `python tools/route_table.py --write` |
