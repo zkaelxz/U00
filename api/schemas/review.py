@@ -177,6 +177,7 @@ class ReviewLinesPacingFlag(BaseModel):
     id: Optional[int] = None
     idx: int
     issue: str
+    severity: Optional[float] = None
     detail: Optional[str] = None
 
 

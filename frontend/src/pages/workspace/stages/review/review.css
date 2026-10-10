@@ -286,6 +286,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-flag-line { font-size: var(--text-sm); margin-top: 2px; }
 .review-flag-full { margin: 0; color: var(--warn); overflow-wrap: anywhere; }
 .review-hint-text { margin: 0; }
+/* Own wrapping row so tall phone hit areas never sit over the finding list's jump links. */
+.review-kinds { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-2) 0; }
 .review-count { white-space: nowrap; }
 @media (max-width: 640px) {
   /* Keep the first text line clear of the ⋯ corner: a float carves out only the part the button covers. */

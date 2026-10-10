@@ -19,6 +19,7 @@ import core as core_module
 import db
 import debug_view
 import raw_transcript
+import review_thresholds
 import scanlate
 import translate_engines
 from services.service_errors import InvalidInputError, NotFoundError
@@ -160,9 +161,10 @@ def get_coverage_report(drama_id: int) -> dict:
     """core.diagnose_line_coverage's result (long_lines, large_gaps,
     blank_zh, blank_en) with each entry's `id` (or `after_id`/`before_id`
     for gaps) added next to its idx."""
-    _, lines = _load_drama_and_lines(drama_id)
+    drama, lines = _load_drama_and_lines(drama_id)
     ids = {ln.idx: ln.id for ln in lines}
-    report = core_module.diagnose_line_coverage(lines)
+    report = core_module.diagnose_line_coverage(
+        lines, **review_thresholds.thresholds_for(drama).coverage_kwargs())
     out = {}
     for key, entries in report.items():
         rows = []
@@ -180,10 +182,14 @@ def get_coverage_report(drama_id: int) -> dict:
 
 def get_pacing_flags(drama_id: int) -> dict:
     """translate_engines.smart_segment_lines' flags as
-    {"flags": [{id, idx, issue, detail}], "count": n}."""
-    _, lines = _load_drama_and_lines(drama_id)
+    {"flags": [{id, idx, issue, severity, detail}], "count": n}, worst
+    first, at the title's thresholds (review_thresholds)."""
+    drama, lines = _load_drama_and_lines(drama_id)
     ids = {ln.idx: ln.id for ln in lines}
-    flags = [dict(f, id=ids.get(f["idx"])) for f in translate_engines.smart_segment_lines(lines)]
+    found = translate_engines.smart_segment_lines(
+        lines, **review_thresholds.thresholds_for(drama).pacing_kwargs())
+    flags = sorted((dict(f, id=ids.get(f["idx"])) for f in found),
+                   key=lambda f: -f["severity"])
     return {"flags": flags, "count": len(flags)}
 
 
