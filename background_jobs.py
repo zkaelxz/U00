@@ -1862,7 +1862,9 @@ def cancel_queued(job_id: str) -> bool:
         if not (job is None or job["status"] == "queued"):
             return False
         hooks = _clear_job_locked(job_id)
-        _delete_job_record(job_id)
+    # Outside the lock, as in clear_job: a busy database can make the
+    # delete wait seconds, and every job update waits on the lock.
+    _delete_job_record(job_id)
     _emit_change(job_id)
     _run_finish_hooks(hooks)
     return True

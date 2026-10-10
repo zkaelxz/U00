@@ -930,6 +930,24 @@ class TestCancelQueued:
         bg.clear_job("cq_missing")
         assert bg.cancel_queued("cq_missing") is True  # nothing to reach either way
 
+    def test_the_row_delete_does_not_hold_the_jobs_lock(self, monkeypatch):
+        """A delete waiting on a busy database must not stall every other
+        job's updates."""
+        free = []
+
+        def try_lock():
+            free.append(bg._lock.acquire(timeout=0.5))
+            if free[-1]:
+                bg._lock.release()
+
+        def delete(job_id):
+            t = threading.Thread(target=try_lock)
+            t.start()
+            t.join()
+        monkeypatch.setattr(db, "delete_job_record", delete)
+        assert bg.cancel_queued("cq_unlocked") is True
+        assert free == [True]
+
 
 class TestGpuSlotRemoved:
     """Step 4k: gpu_slot() had no real callers left -- diarization and dub
