@@ -227,10 +227,11 @@ class TestAWriteUnderTheJobsLockNeverWaitsLong:
         release = threading.Event()
         assert bg.start_job("st_held", lambda: release.wait(10.0))
         if failure == "disk":
-            # A non-lock failure must not follow up with its own write under the lock.
+            # A non-lock failure must not follow up with its own write under
+            # the lock: that write would wait out the holder below.
             def boom(*a, **k):
                 raise sqlite3.OperationalError("disk I/O error")
-            monkeypatch.setattr(db, "save_job_record", boom)
+            monkeypatch.setattr(job_store, "_write_row", boom)
         holding, done = threading.Event(), threading.Event()
 
         def hold():
@@ -349,18 +350,30 @@ class TestRowsOfGoneOwners:
         db.save_job_record("st_mid", "running", owner_pid=os.getpid())
         _set_row("st_mid", owner_instance="an-earlier-server")
         seen = db.get_job_record("st_mid")
-        real = db.save_job_record
         sweeps = []
+        # owner_gone waits on background_jobs._lock, which start_job holds
+        # for the whole write; another process's sweep has no such lock, so
+        # only the single transaction can keep its UPDATE out from between.
+        monkeypatch.setattr(job_store, "owner_gone", lambda record: True)
+        real_connect = job_store._connect
 
-        def sweep_in_between(job_id, *a, **k):
-            real(job_id, *a, **k)
-            if job_id == "st_mid" and not sweeps:
-                t = threading.Thread(
-                    target=lambda: sweeps.append(job_store.close_if_owner_gone(seen)))
-                sweeps.append(t)
-                t.start()
-                time.sleep(0.2)   # the sweep's UPDATE is ready to run now
-        monkeypatch.setattr(db, "save_job_record", sweep_in_between)
+        class SweepBeforeOwnerUpdate:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def execute(self, sql, *a):
+                if sql.startswith("UPDATE job_records SET kind") and not sweeps:
+                    t = threading.Thread(
+                        target=lambda: sweeps.append(job_store.close_if_owner_gone(seen)))
+                    sweeps.append(t)
+                    t.start()
+                    t.join(0.3)   # long enough to land if nothing holds it off
+                return self._conn.execute(sql, *a)
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+        monkeypatch.setattr(job_store, "_connect",
+                            lambda timeout=None: SweepBeforeOwnerUpdate(real_connect(timeout)))
         release = threading.Event()
         assert bg.start_job("st_mid", lambda: release.wait(5.0))
         try:
@@ -451,6 +464,91 @@ class TestRetriesNeverHoldTheJobsLock:
         finally:
             release.set()
             _finish("st_race2")
+
+
+    def test_a_sync_error_stored_after_a_newer_write_landed_is_rewritten(
+            self, isolated_db, monkeypatch):
+        real_save, real_store = db.save_job_record, job_store._store_sync_error
+        failing = [True]
+
+        def disk_error_once(job_id, *a, **k):
+            if failing[0]:
+                raise sqlite3.OperationalError("disk I/O error")
+            return real_save(job_id, *a, **k)
+
+        def store_after_a_transition(job_id, text, deadline=None):
+            failing[0] = False
+            with bg._lock:   # lands before the older sync_error is stored
+                bg._jobs["st_stale"]["message"] = "newer"
+                assert job_store.write_transition("st_stale", bg._jobs["st_stale"])
+            real_store(job_id, text, deadline)
+        release = threading.Event()
+        assert bg.start_job("st_stale", lambda: release.wait(5.0))
+        monkeypatch.setattr(db, "save_job_record", disk_error_once)
+        monkeypatch.setattr(job_store, "_store_sync_error", store_after_a_transition)
+        try:
+            with bg._lock:
+                job_store._pending.add("st_stale")
+            job_store.retry_pending()
+            row = db.get_job_record("st_stale")
+            assert (row["message"], row["sync_error"]) == ("newer", None)
+            assert "st_stale" not in job_store._pending
+        finally:
+            release.set()
+            _finish("st_stale")
+
+    def test_a_cleared_job_leaves_no_token_behind(self, isolated_db, monkeypatch):
+        real = db.save_job_record
+
+        def fail_final(job_id, *a, **k):
+            if k.get("status") == "done":
+                raise sqlite3.OperationalError("disk I/O error")
+            return real(job_id, *a, **k)
+        monkeypatch.setattr(db, "save_job_record", fail_final)
+        assert bg.start_job("st_gone", lambda: None)
+        assert _wait_for(lambda: bg.get_status("st_gone")["status"] == "done")
+        _finish("st_gone")
+        assert "st_gone" in job_store._pending and "st_gone" in job_store._last_write
+        job_store.retry_pending()
+        assert "st_gone" not in job_store._pending
+        assert "st_gone" not in job_store._last_write
+
+    def test_a_job_cleared_mid_retry_stays_owed_until_its_row_is_dropped(
+            self, isolated_db, monkeypatch):
+        real_save, real_drop = db.save_job_record, job_store._drop_cleared_row
+
+        def fail_final(job_id, *a, **k):
+            if k.get("status") == "done":
+                raise sqlite3.OperationalError("disk I/O error")
+            return real_save(job_id, *a, **k)
+        monkeypatch.setattr(db, "save_job_record", fail_final)
+        assert bg.start_job("st_mid_clear", lambda: None)
+        assert _wait_for(lambda: bg.get_status("st_mid_clear")["status"] == "done")
+        _finish()
+
+        def cleared_while_writing(job_id, *a, **k):
+            real_save(job_id, *a, **k)
+            with bg._lock:   # clear_job's in-memory part
+                bg._clear_job_locked(job_id)
+        owed_while_dropping = []
+
+        def drop(job_id, copy):
+            with bg._lock:
+                owed_while_dropping.append(job_id in job_store._pending)
+            real_drop(job_id, copy)
+        monkeypatch.setattr(db, "save_job_record", cleared_while_writing)
+        monkeypatch.setattr(job_store, "_drop_cleared_row", drop)
+        job_store.retry_pending()
+        assert owed_while_dropping == [True]
+        assert "st_mid_clear" not in job_store._pending
+        assert "st_mid_clear" not in job_store._last_write
+        assert db.get_job_record("st_mid_clear") is None
+
+    def test_one_failed_beat_does_not_raise_out_of_the_heartbeat(self, isolated_db, monkeypatch):
+        def boom():
+            raise RuntimeError("reconcile failed")
+        monkeypatch.setattr(bg, "reconcile_dead_workers", boom)
+        bg._heartbeat_once()
 
 
 class TestExitFlush:

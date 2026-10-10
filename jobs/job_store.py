@@ -183,6 +183,19 @@ def heartbeat_tick():
     """One beat of background_jobs' heartbeat thread: reconciles dead
     workers, keeps this process's live rows and GPU slots fresh so another
     process can tell a quiet job from a dead one, and retries failed writes."""
+    # The heartbeat thread has no handler of its own: one exception here
+    # would end every later beat, and live rows would then look dead.
+    try:
+        _heartbeat_tick()
+    except Exception as e:
+        with contextlib.suppress(Exception):
+            import applog
+            import translate_engines
+            applog.get_logger().warning(
+                "job heartbeat failed: " + translate_engines.redact_secrets(str(e))[:300])
+
+
+def _heartbeat_tick():
     import background_jobs as bj
     import job_force_stop
     bj.reconcile_dead_workers()
@@ -232,6 +245,7 @@ def retry_pending(deadline=None) -> None:
                 job = bj._jobs.get(job_id)
                 if job is None:
                     _pending.discard(job_id)
+                    _last_write.pop(job_id, None)
                     continue
                 # A landed write drops the token, so a pending job may have
                 # none; without one, a transition landing meanwhile would
@@ -256,8 +270,7 @@ def retry_pending(deadline=None) -> None:
             try:
                 current = bj._jobs.get(job_id)
                 if current is None:
-                    _pending.discard(job_id)
-                    _last_write.pop(job_id, None)
+                    pass   # still owed: settled below, once its row is dropped
                 elif current is not job or _last_write.get(job_id) != token:
                     # A transition wrote while this copy was in flight, and
                     # this older copy may have landed over it: write again.
@@ -271,10 +284,31 @@ def retry_pending(deadline=None) -> None:
                         sync_error = job["sync_error"]
             finally:
                 bj._lock.release()
-            if sync_error:
-                _store_sync_error(job_id, sync_error, deadline)
             if current is None:
                 _drop_cleared_row(job_id, copy)
+                # Owed until the row is gone: until then owner_gone must not
+                # read this process's row as an earlier server's to close.
+                if not _acquire(bj._lock, deadline):
+                    return
+                try:
+                    if job_id not in bj._jobs:
+                        _pending.discard(job_id)
+                        _last_write.pop(job_id, None)
+                finally:
+                    bj._lock.release()
+            if sync_error:
+                _store_sync_error(job_id, sync_error, deadline)
+                if not _acquire(bj._lock, deadline):
+                    return
+                try:
+                    # A transition that landed before the UPDATE above had
+                    # its cleared sync_error overwritten by this older one;
+                    # a full rewrite puts the row back in step.
+                    if job_id in bj._jobs and _last_write.get(job_id) != token:
+                        _pending.add(job_id)
+                        again = True
+                finally:
+                    bj._lock.release()
             bj._emit_change(job_id)
             if error is not None and _is_lock_error(error):
                 return
