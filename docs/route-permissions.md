@@ -109,6 +109,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/dependencies/{package}/install` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/test-upgrade` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/upgrade` | local_only() |
+| `GET /api/diagnostics/dependency-install` | admin.diagnostics |
 | `GET /api/diagnostics/gpu-torch` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/check` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/setup` | local_only() |

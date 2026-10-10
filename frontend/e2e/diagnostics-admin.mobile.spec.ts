@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
 import { openSettingsGroups } from './settingsNav'
 import { hitHeight, installHitArea } from './hitArea'
@@ -58,8 +59,7 @@ test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll
   }] } }))
   await page.route('**/api/diagnostics/log**', (r) =>
     r.fulfill({ json: { lines: [`12:00 ERROR ${long}`, '12:01 INFO fine'] } }))
-  await page.route('**/api/diagnostics/dependencies/**', (r) =>
-    r.fulfill({ json: { package: 'yt-dlp', ok: false, output_tail: [`ERROR: ${long}`] } }))
+  await mockDependencyInstall(page, () => ({ ok: false, output_tail: [`ERROR: ${long}`] }))
 
   await page.goto('/#/diagnostics')
   // The jobs summary is a banner with a 44px link to the Jobs page.
@@ -84,7 +84,7 @@ test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll
 
   await install.click()
   await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
-  await expect(page.getByTestId('install-result')).toContainText('Install failed for yt-dlp.')
+  await expect(page.getByTestId('install-result')).toContainText('Install failed for yt-dlp.', { timeout: 10_000 })
   await expect(page.getByTestId('install-result').locator('pre')).toBeVisible()
 
   const small = await page.locator('button:not(.link):not(.field-help-btn):not(.toggle), summary').evaluateAll((els) =>
