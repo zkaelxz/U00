@@ -107,7 +107,7 @@ test('a finished run shows as Last run after a fresh visit, and Retry starts it 
   await expect(card.getByRole('link', { name: 'All jobs' })).toHaveAttribute('href', '#/jobs')
   await expect(page.getByTestId('job-status')).toHaveCount(0)
 
-  // Retry runs the stage's own start with the current form; the live panel takes over.
+  // Retry runs the stage's own start with the current form, so the card offers it only once the form has loaded.
   await card.getByRole('button', { name: 'Retry' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(starts).toHaveLength(1)
