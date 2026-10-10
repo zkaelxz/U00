@@ -28,6 +28,13 @@ TIMEOUT_MESSAGE = "This job took too long and was stopped."
 # waits this much longer so a child that hangs before the watchdog starts
 # (a stuck import) still frees the GPU slot without a Cancel.
 PARENT_GRACE_S = 30
+# A child's queue feeder thread can land its last item well after the process
+# exits (slow on a loaded Windows PC under spawn); declaring the worker lost
+# earlier would discard a finished result.
+EXIT_DRAIN_GRACE_S = 2
+# Bounds the final queue flush in give_up: with the parent gone the join never
+# returns, and the watchdog must still end the process.
+FLUSH_TIMEOUT_S = 5
 
 
 def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=None):
@@ -47,7 +54,9 @@ def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=N
     def give_up():
         result_queue.put(timeout_item)
         result_queue.close()
-        result_queue.join_thread()
+        flush = threading.Thread(target=result_queue.join_thread, daemon=True)
+        flush.start()
+        flush.join(timeout=FLUSH_TIMEOUT_S)
         os._exit(0)
 
     watchdog = threading.Timer(timeout_s, give_up)
@@ -114,7 +123,7 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
 
 
 def _await_child(job_id, proc, channel, poll_s, deadline, on_item):
-    gone = False
+    drain_until = None
     while True:
         if background_jobs.is_cancel_requested(job_id):
             raise background_jobs.JobCancelled(job_id)
@@ -125,10 +134,10 @@ def _await_child(job_id, proc, channel, poll_s, deadline, on_item):
         except queue.Empty:
             if proc.is_alive():
                 continue
-            # The feeder thread can land its last item just after the exit.
-            if gone:
+            if drain_until is None:
+                drain_until = time.monotonic() + EXIT_DRAIN_GRACE_S
+            elif time.monotonic() > drain_until:
                 raise ChildFailed(background_jobs.WORKER_LOST_MESSAGE)
-            gone = True
             continue
         except OSError:
             raise ChildFailed(job_process_result.RESULT_FILE_ERROR) from None
@@ -136,7 +145,10 @@ def _await_child(job_id, proc, channel, poll_s, deadline, on_item):
             continue
         if item and item[0] == "item":
             if on_item is not None:
-                on_item(item[1])
+                try:
+                    on_item(item[1])
+                except Exception as exc:
+                    raise ChildFailed(redact_secrets(str(exc))) from None
             continue
         if item and item[0] == "ok":
             return item[1]
