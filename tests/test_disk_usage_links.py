@@ -448,9 +448,10 @@ class TestLinkBudget:
         _link(inside, in_root_link)
         sizes._deadline = time.monotonic() - 1
         for budget in (SimpleNamespace(hit=False), SimpleNamespace(hit=True)):
-            assert sizes.of([str(file_link)], budget) is None
-            # Told apart from a measurable folder only by opening the target,
-            # which a spent budget no longer does.
+            # Only Windows says "file" in the link's own entry; elsewhere
+            # telling needs the target, which a spent budget no longer opens.
+            expected = None if hasattr(os.lstat(file_link), "st_file_attributes") else (0, 0, False)
+            assert sizes.of([str(file_link)], budget) == expected
             assert sizes.of([str(in_root_link)], budget) == (0, 0, False)
         assert measured == []
 
@@ -537,7 +538,7 @@ def test_nothing_on_a_link_target_is_touched_past_the_deadline(tmp_path, monkeyp
     sizes = links.LinkedSizes(str(root), [], dus._within, lambda *a: None)
     sizes._deadline = time.monotonic() - 1
     assert sizes.of([str(link)] * 5, SimpleNamespace(hit=False)) == (0, 0, False)
-    assert touched == [str(link)]
+    assert touched == []
 
 
 def test_windows_directory_attribute_decides_without_stat_of_the_target(tmp_path, monkeypatch):
@@ -549,3 +550,12 @@ def test_windows_directory_attribute_decides_without_stat_of_the_target(tmp_path
     assert links._may_be_folder("X:\\gone") is True
     fake.st_file_attributes = 0
     assert links._may_be_folder("X:\\gone") is False
+
+
+def test_without_windows_attributes_a_link_is_assumed_a_folder_and_never_stated(monkeypatch):
+    import stat
+    from services import disk_usage_links as links
+    fake = type("S", (), {"st_mode": stat.S_IFLNK})()
+    monkeypatch.setattr(links.os, "lstat", lambda p: fake)
+    monkeypatch.setattr(links.os, "stat", lambda p, *a, **k: (_ for _ in ()).throw(AssertionError("target touched")))
+    assert links._may_be_folder("/Volumes/gone") is True

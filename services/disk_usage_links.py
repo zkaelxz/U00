@@ -94,14 +94,15 @@ def _may_be_folder(path: str) -> bool:
     target where that can stall: a file link then stays "not measured" after
     the deadline. Windows says so in the link's own entry (a directory
     symlink or junction carries the directory attribute). Elsewhere the entry
-    is just "a symlink", and there are no mapped drives to wait on, so the
-    target is stat'ed."""
+    is just "a symlink" and only the target says, but stat'ing it can hang on
+    a dead network mount (SMB under /Volumes, NFS, autofs, FUSE), so it is
+    assumed to be a folder and left unmeasured."""
     try:
         st = os.lstat(path)
         attrs = getattr(st, "st_file_attributes", None)
-        if attrs is not None:
-            return bool(attrs & stat.FILE_ATTRIBUTE_DIRECTORY)
-        return stat.S_ISDIR(os.stat(path).st_mode)
+        if attrs is None:
+            return True
+        return bool(attrs & stat.FILE_ATTRIBUTE_DIRECTORY)
     except OSError:
         return False
 

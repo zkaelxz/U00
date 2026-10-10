@@ -15,6 +15,7 @@ folder (symlinks are rejected). Errors use fixed text with no path echo.
 
 import json
 import os
+import stat
 import tempfile
 from typing import Dict
 
@@ -93,10 +94,18 @@ def set_download_language(drama_id: int, kind: str, filename: str, language: str
                 pass
 
 
+# A label is a few dozen bytes; the cap keeps a planted huge file from filling memory.
+_LABEL_MAX_BYTES = 4096
+
+
 def _download_language(base: str, name: str) -> str:
+    path = os.path.join(base, _LABEL_FILE)
     try:
-        with open(os.path.join(base, _LABEL_FILE), encoding="utf-8") as f:
-            data = json.load(f)
+        # lstat first: opening a FIFO blocks and a symlink can point at /dev/zero.
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            return ""
+        with open(path, encoding="utf-8") as f:
+            data = json.loads(f.read(_LABEL_MAX_BYTES))
     except (OSError, ValueError):
         return ""
     # Matching on the name keeps a stale label from describing a newer file.

@@ -1,5 +1,6 @@
 """Tests for Migration Slice 28: artifact convention + download endpoint."""
 
+import json
 import os
 
 import pytest
@@ -256,3 +257,28 @@ def test_subtitle_downloads_name_the_field_language(client, isolated_db):
         cd = _disposition(r)
         assert f'filename="Healing spell copies everything - Ep 12 - {label}.srt"' in cd
         assert "filename*=UTF-8''" in cd
+
+
+def _label_dir(did):
+    return os.path.dirname(artifact_service.output_path(did, "softsub_video", "x.mkv"))
+
+
+def test_symlinked_download_label_is_ignored(did, tmp_path):
+    name = f"softsub_video_{did}.mkv"
+    _write(did, "softsub_video", name)
+    real = tmp_path / "label.json"
+    real.write_text(json.dumps({"file": name, "language": "en"}))
+    try:
+        os.symlink(real, os.path.join(_label_dir(did), ".download.json"))
+    except (OSError, NotImplementedError):
+        pytest.skip("no symlinks here")
+    assert artifact_service.get_artifact(did, "softsub_video")["language"] == ""
+
+
+def test_oversized_download_label_is_ignored(did):
+    name = f"softsub_video_{did}.mkv"
+    _write(did, "softsub_video", name)
+    pad = "x" * 8192
+    with open(os.path.join(_label_dir(did), ".download.json"), "w") as f:
+        json.dump({"file": name, "language": "en", "pad": pad}, f)
+    assert artifact_service.get_artifact(did, "softsub_video")["language"] == ""
