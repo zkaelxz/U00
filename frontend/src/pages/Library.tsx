@@ -32,6 +32,7 @@ import {
   validateCreate, type CreateExtras,
 } from './libraryForm'
 import { GetStarted } from './libraryParity/GetStarted'
+import { MakeSubtitles } from './makeSubtitles/MakeSubtitles'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
   autofillHref, libraryHeadline, usageLine, usageSpent,
@@ -324,9 +325,9 @@ export default function LibraryPage() {
         </p>
       )}
 
-      {showGetStarted(stats.data?.total_dramas, startedDismissed) && (
-        <GetStarted pc={pc} onNew={() => setCreating(true)} onDismiss={() => setStartedDismissed(true)} />
-      )}
+      {showGetStarted(stats.data?.total_dramas, startedDismissed)
+        ? <GetStarted onDismiss={() => setStartedDismissed(true)} />
+        : <MakeSubtitles />}
 
       <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
 

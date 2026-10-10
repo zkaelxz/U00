@@ -69,6 +69,7 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/continue': EMPTY,
   '/api/library/filter-options': { studios: [], authors: [], voice_actors: [], custom_tags: [] },
   '/api/library/presets': EMPTY,
+  '/api/translate/engines': { items: [], default_engine: null },
   '/api/library/voice-bank': EMPTY,
   // Library tools lists the saved manga series.
   '/api/saved-comics/series': [],
