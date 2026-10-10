@@ -77,7 +77,7 @@ async function mockPage(page: Page, plan: unknown, planReply?: { status: number;
     return r.fulfill({ json: { cancelled: true } })
   })
   await page.route('**/api/diagnostics/dependencies/**', (r) => {
-    calls.push({ url: r.request().url(), body: null })
+    calls.push({ url: r.request().url(), body: r.request().postDataJSON() })
     return r.fulfill({ json: { package: 'x', ok: true, output_tail: [], hint: null } })
   })
   return {
@@ -121,6 +121,29 @@ test('a loaded package queues the install for restart, with the risk spelled out
   expect(calls[0].body).toEqual({ packages: ['paddleocr', 'paddlepaddle'], confirm: true, accept_risk: true })
   await expect(page.getByTestId('pending-install')).toContainText('paddleocr, paddlepaddle will install when you restart Baihe')
   await expect(page.getByTestId('task-ocr').getByText('pending install (restart)').first()).toBeVisible()
+  expect(unmocked).toEqual([])
+})
+
+test('Install now sends the downgrade the owner accepted with every package of the task', async ({ page }) => {
+  const risk = 'numpy 2.5.3 -> 2.3.5 is a downgrade of a package Baihe itself needs.'
+  const nowPlan = planFor(['paddleocr', 'paddlepaddle'], {
+    changes: [{ name: 'numpy', from_version: '2.5.3', to_version: '2.3.5', kind: 'downgrade' }],
+    summary: ['Change numpy 2.5.3 -> 2.3.5 (downgrade).'], needs_confirm: [risk],
+  })
+  const { unmocked, calls } = await mockPage(page, nowPlan)
+  await openPackages(page)
+  await startTaskInstall(page)
+  const panel = page.getByTestId('install-plan')
+  const installNow = panel.getByRole('button', { name: 'Install now' })
+  await expect(installNow).toBeDisabled()
+  expect(calls).toEqual([])
+  await panel.getByLabel('I understand, install anyway').check()
+  await installNow.click()
+
+  await expect.poll(() => calls.length).toBe(2)
+  expect(calls.map((c) => new URL(c.url).pathname)).toEqual([
+    '/api/diagnostics/dependencies/paddleocr/install', '/api/diagnostics/dependencies/paddlepaddle/install'])
+  for (const c of calls) expect(c.body).toEqual({ confirm: true, accept_risk: true, accepted_risks: [risk] })
   expect(unmocked).toEqual([])
 })
 

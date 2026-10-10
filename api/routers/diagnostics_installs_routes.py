@@ -5,9 +5,14 @@ services/diagnostics_installs_service.py):
 
 - Package install and the GPU PyTorch setup: `local_only()` + confirm=true,
   package names and the torch variant from the service's whitelists only.
-  Each returns the job id at once (409 while any job, restore, reset,
-  cleanup or install runs); the job holds the library exclusively until it
-  ends or is cancelled. The latest state is `admin.diagnostics`.
+  The install plan is rebuilt here, not trusted from the client: a clash or
+  a read-only install folder is 422; a downgrade or an unpreviewed install
+  the owner did not accept (accept_risk plus the accepted_risks they were
+  shown), a second plan in flight, or an install that must wait for the
+  next start is 409. Each
+  returns the job id at once (409 while any job, restore, reset, cleanup or
+  install runs); the job holds the library exclusively until it ends or is
+  cancelled, and puts the earlier packages back if pip fails or is cancelled. The latest state is `admin.diagnostics`.
 - Deno, the JavaScript runtime yt-dlp needs. Status is
   `admin.diagnostics`; the install is `local_only()` + confirm=true, 409
   while any job, restore, cleanup or install runs. The download URL comes
@@ -30,8 +35,8 @@ from api.diagnostics_install_schemas import (DiagnosticsDenoInstallRequest,
                                              DiagnosticsJobStarted,
                                              DiagnosticsUpgradeCheckRequest,
                                              DiagnosticsUpgradeCheckState)
-from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsGpuTorchSetupRequest,
-                         ErrorResponse)
+from api.schemas import (DiagnosticsDependencyInstallRequest,
+                         DiagnosticsGpuTorchSetupRequest, ErrorResponse)
 from services import diagnostics_installs_service as svc
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
@@ -53,9 +58,11 @@ def get_dependency_install():
              summary="PC only: pip-install a whitelisted optional package as a background "
                      "job (confirm=true)",
              responses=_ERRS)
-def post_install(body: DiagnosticsAdminConfirm,
+def post_install(body: DiagnosticsDependencyInstallRequest,
                  package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
-    return svc.start_dependency_install(package, confirm=body.confirm)
+    return svc.start_dependency_install(package, confirm=body.confirm,
+                                        accept_risk=body.accept_risk,
+                                        accepted_risks=body.accepted_risks)
 
 
 @router.post("/gpu-torch/setup", dependencies=[local_only()],

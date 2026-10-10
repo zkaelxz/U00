@@ -149,7 +149,6 @@ def test_parse_verify_output():
 def test_other_installs_carry_a_torch_pins_file_that_is_removed(monkeypatch):
     _no_jobs(monkeypatch)
     _versions(monkeypatch, torch="2.11.0+cu128", torchvision="0.26.0+cu128")
-    monkeypatch.setattr(svc.shutil, "which", lambda n: None)
     seen, pins = [], []
     _fake_pip(monkeypatch, seen, read_pins=pins)
     for fn in (svc.install_dependency, svc.upgrade_dependency):

@@ -109,6 +109,9 @@ def fakes(isolated_db, monkeypatch):
         "cuda_build": "12.8", "cuda_available": True, "device": "RTX", "error": None})
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
+    import install_plan
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: ({"install": []}, None))
+    monkeypatch.setattr(installs, "_writable", lambda folder: True)
     background_jobs.clear_job(installs.DEPENDENCY_JOB_ID)
     installs._DEPENDENCY.update(kind=None, package=None, last=None)
     yield calls
@@ -202,6 +205,27 @@ def test_install_runs_as_a_job_and_upgrade_stays_synchronous(client, fakes):
 def test_install_state_before_any_install(client):
     b = _clean(client.get("/api/diagnostics/dependency-install"))
     assert b["result"] is None and b["job"] is None and b["job_id"] == "dependency_install"
+
+
+def test_install_takes_only_the_risks_the_owner_was_shown(client, fakes, monkeypatch):
+    import install_plan
+    import pending_install
+    risk = "numpy 2.0 -> 1.0 is a downgrade of a package Baihe itself needs."
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: (
+        {"install": [{"metadata": {"name": "numpy", "version": "1.0"}}]}, None))
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "2.0"})
+    monkeypatch.setattr(install_plan, "app_required_names", lambda: {"numpy"})
+    url = "/api/diagnostics/dependencies/pydub/install"
+    for body in ({"confirm": True, "accept_risk": True, "accepted_risks": ["x" * 501]},
+                 {"confirm": True, "accept_risk": True, "accepted_risks": ["x"] * 21},
+                 {"confirm": True, "accept_risk": True, "accepted_risks": [1]}):
+        assert client.post(url, json=body).status_code == 422
+    r = client.post(url, json={"confirm": True, "accept_risk": True})
+    assert r.status_code == 409 and "numpy 2.0" in r.text
+    assert fakes == []
+    r = client.post(url, json={"confirm": True, "accept_risk": True, "accepted_risks": [risk]})
+    assert r.status_code == 200 and r.json()["started"] is True
+    assert _install_result(client)["result"]["ok"] is True
 
 
 def test_install_refusals(client, fakes, monkeypatch):
