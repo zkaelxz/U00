@@ -119,6 +119,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/model-cache/files/{kind}/{name}/delete` | local_only() |
 | `POST /api/diagnostics/model-cache/hf/{revision}/delete` | local_only() |
 | `POST /api/diagnostics/package-updates/check` | admin.diagnostics |
+| `GET /api/diagnostics/pending-install` | local_only() |
+| `POST /api/diagnostics/pending-install/cancel` | local_only() |
+| `POST /api/diagnostics/pending-install/dismiss` | local_only() |
+| `POST /api/diagnostics/pending-install/plan` | local_only() |
+| `POST /api/diagnostics/pending-install/queue` | local_only() |
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
 | `GET /api/diagnostics/real-model-check` | admin.diagnostics |

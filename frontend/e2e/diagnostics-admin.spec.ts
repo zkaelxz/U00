@@ -1,3 +1,4 @@
+import { mockPlainPlan } from './pendingInstallMocks'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSettingsGroups } from './settingsNav'
@@ -57,6 +58,7 @@ async function guard(page: Page): Promise<string[]> {
     unmocked.push(`${r.method()} ${r.url()}`)
     return route.abort()
   })
+  await mockPlainPlan(page)
   return unmocked
 }
 
@@ -113,7 +115,7 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
   await expect(page.getByTestId('install-running')).toHaveText(
     'Installing yt-dlp… this can take several minutes. Cancel it below if needed.')
-  expect(sent).toHaveLength(1)
+  await expect.poll(() => sent.length).toBe(1) // the install preview comes first
   expect(sent[0].postDataJSON()).toEqual({ confirm: true })
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
   await expect(page.getByTestId('diagnostics-summary')).toContainText('Installing yt-dlp')

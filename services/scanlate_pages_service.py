@@ -42,8 +42,10 @@ SLICE_STRIPS_DEFAULT = True
 
 JOB_PREFIX = "scanlate_"
 DETECT_BACKENDS = ("auto", "cv", "ml")
-_OCR_MODULES = {"manga_ocr": "manga_ocr", "paddle": "paddleocr",
-                "paddle_vl_manga": "transformers", "tesseract": "pytesseract"}
+# paddleocr 3.x doesn't pull in the paddlepaddle wheel (module `paddle`), so
+# "paddleocr importable" alone would report a backend that fails on first use.
+_OCR_MODULES = {"manga_ocr": ("manga_ocr",), "paddle": ("paddleocr", "paddle"),
+                "paddle_vl_manga": ("transformers",), "tesseract": ("pytesseract",)}
 _CHUNK = 1024 * 1024
 MAX_NOTES = 20
 _MAX_NOTE_CHARS = 500
@@ -161,8 +163,8 @@ def require_page(drama_id: int, page_id: int) -> dict:
 
 
 def ocr_backend_installed(backend: str) -> bool:
-    module = _OCR_MODULES.get(backend)
-    if not (module and importlib.util.find_spec(module) is not None):
+    modules = _OCR_MODULES.get(backend)
+    if not (modules and all(importlib.util.find_spec(m) is not None for m in modules)):
         return False
     if backend == "paddle_vl_manga":
         import ocr

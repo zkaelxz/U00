@@ -46,6 +46,7 @@ OPTIONAL_DEPENDENCIES = {
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
     "PIL": ("PIL", "OCR, Scanlate rendering, cover art upload", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
+    "paddlepaddle": ("paddle", "PaddleOCR engine", "feature"),
     "manga_ocr": ("manga_ocr", "OCR (Japanese manga backend)", "feature"),
     "jieba": ("jieba", "Chinese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pypinyin": ("pypinyin", "Chinese pinyin (Reader)", "feature"),
@@ -154,7 +155,7 @@ def canonical_dist(name: str) -> str:
 APPROX_DOWNLOAD_MB = {
     "faster-whisper": 80, "ctranslate2": 40, "opencv-python": 45, "anthropic": 2, "openai": 2,
     "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
-    "pydub": 1, "omnivoice": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "manga-ocr": 20,
+    "pydub": 1, "omnivoice": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "paddlepaddle": 200, "manga-ocr": 20,
     "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3,
     "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
@@ -257,9 +258,9 @@ INSTALL_TASKS = [
      "packages": ["omnivoice", "torch", "pydub", "huggingface_hub"]},
     {"id": "hardsub_ocr", "group": "Video", "label": "Read burned-in captions (OCR)",
      "help": "Pull hard-coded subtitles out of video frames.",
-     "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr"],
+     "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr", "paddlepaddle"],
      "recommended": ["pytesseract"],
-     "optional": ["paddleocr"]},
+     "optional": ["paddleocr", "paddlepaddle"]},
     {"id": "url_import", "group": "Video", "label": "Import from a URL",
      "help": "Download video from YouTube, Bilibili and other sites.",
      "packages": ["yt-dlp"]},
@@ -285,10 +286,10 @@ INSTALL_TASKS = [
      "optional": ["playwright", "lightnovel-crawler"]},
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
-     "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
-                  "safetensors", "huggingface_hub", "sentencepiece"],
-     "recommended": ["manga_ocr", "pypdf", "transformers", "torch", "safetensors",
-                     "huggingface_hub"],
+     "packages": ["cv2", "PIL", "numpy", "manga_ocr", "paddleocr", "paddlepaddle", "pypdf",
+                  "transformers", "torch", "safetensors", "huggingface_hub", "sentencepiece"],
+     "recommended": ["manga_ocr", "paddleocr", "paddlepaddle", "pypdf", "transformers", "torch",
+                     "safetensors", "huggingface_hub"],
      "optional": ["sentencepiece"]},
     {"id": "paid_engines", "group": "Translation", "label": "Claude and DeepSeek",
      "help": "Client libraries for the paid translation engines (keys go in Settings).",
@@ -1790,9 +1791,6 @@ def classify_update(name: str, installed_version: str, releases, constraints: di
         return {"status": "update", "latest": str(latest), "target": str(allowed[-1]),
                 "reason": reason if allowed[-1] != latest else None}
     return {"status": "held_back", "latest": str(latest), "target": None, "reason": reason}
-
-
-TASK_ROLES = ("required", "recommended", "optional")
 
 
 def task_package_role(task: dict, name: str) -> str:

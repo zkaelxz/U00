@@ -490,7 +490,7 @@ def app_service_env(data_dir, household_port: int = 0, allow_key_writes: bool = 
                 "BAIHE_API_AUTH": "off", "BAIHE_API_ENV": "production",
                 "BAIHE_API_ALLOW_KEY_WRITES": "1" if allow_key_writes else "0",
                 "BAIHE_DATA_DIR": str(data_dir),
-                "PYTHONNOUSERSITE": "1", "PYTHONUNBUFFERED": "1"})
+                "BAIHE_APPLY_PENDING": "1", "PYTHONNOUSERSITE": "1", "PYTHONUNBUFFERED": "1"})
     if household_port:
         env["BAIHE_API_HOUSEHOLD_PORT"] = str(int(household_port))
     return env

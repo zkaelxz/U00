@@ -209,6 +209,9 @@ if (Test-ApiHealth) {
     Read-Host "Press Enter to close"
     exit 1
 } else {
+    # Installs queued from Diagnostics run before the server imports anything
+    # (Windows can't replace files the running app has loaded). Never fails the launch.
+    & $Py -m pending_install
     Write-Host "Starting Baihe Studio at $AppUrl ..."
     Start-Process -FilePath $Py -ArgumentList "-m", "api" -WindowStyle Minimized
 

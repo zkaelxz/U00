@@ -24,6 +24,7 @@ import portable
 portable.activate_portable_mode()
 
 import argparse
+import os
 import sys
 from dataclasses import replace
 
@@ -202,6 +203,16 @@ def _run_servers(servers) -> bool:
     return bool(failed)
 
 
+def _apply_pending_install():
+    """The Windows service has no launcher in front of it, so the install
+    queued from Diagnostics runs here, before anything heavy is imported."""
+    try:
+        import pending_install
+        pending_install.apply(echo=True)
+    except Exception as exc:        # the server start comes first
+        print(f"Queued install skipped: {type(exc).__name__}", flush=True)
+
+
 def _grant_admin(email: str) -> int:
     from services import auth_service
     from services.service_errors import ServiceError
@@ -321,6 +332,8 @@ def main(argv=None) -> int:
         return _grant(args.email, args.permission)
     if args.command == "list-users":
         return _list_users()
+    if os.environ.get("BAIHE_APPLY_PENDING") == "1":
+        _apply_pending_install()
     _serve()
     return 0
 
