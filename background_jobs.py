@@ -1022,10 +1022,16 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                 "kill_whole_tree": kill_whole_tree, "start_method": start_method})
             _note_gpu_wait_reason_locked(job_id)
             return True
-        proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
-                                                   owner_user_id, start_method=start_method,
-                                                   run_settings=run_settings,
-                                                   initial_result=initial_result)
+        try:
+            proc, result_queue = _register_process_job(job_id, target, args, gpu_touching,
+                                                       description, owner_user_id,
+                                                       start_method=start_method,
+                                                       run_settings=run_settings,
+                                                       initial_result=initial_result)
+        except Exception:
+            # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
+            _release_gpu_slot(job_id, gpu_touching)
+            raise
         run = _jobs[job_id]
     try:
         proc.start()

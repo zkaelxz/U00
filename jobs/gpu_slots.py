@@ -194,19 +194,40 @@ def heartbeat(holders) -> None:
         conn.commit()
 
 
+def _kept_by_this_process(row) -> bool:
+    """A row this server instance wrote, or one of a job id it still lists:
+    a cleared or abandoned job's worker can still be on the GPU with no one
+    heartbeating its row."""
+    import background_jobs
+    if row["owner_pid"] == os.getpid() and row["owner_instance"] == job_store.INSTANCE_ID:
+        return True
+    return (row["holder"].startswith(UI_PREFIX)
+            and background_jobs.get_status(row["holder"][len(UI_PREFIX):]) is not None)
+
+
 def reap() -> int:
     """Deletes every row that no longer counts (_alive): an exited owner, an
     earlier server's row under this pid, or a stale heartbeat. Returns how
     many. The server runs it once at startup so the next GPU job does not
-    queue behind a holder that is gone."""
+    queue behind a holder that is gone.
+
+    Liveness is decided outside a write transaction because get_status takes
+    background_jobs._lock, which take() holds while it opens one. Each delete
+    therefore matches the row as it was read: a slot taken since rewrites
+    acquired_at/heartbeat_at, so it survives."""
     now = time.time()
     with contextlib.closing(db.get_conn()) as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        dead = [r["id"] for r in _rows(conn) if not _alive(r, now)]
-        for slot in dead:
-            conn.execute("DELETE FROM gpu_lock WHERE id = ?", (slot,))
+        rows = _rows(conn)
+    dead = [r for r in rows if not _alive(r, now) and not _kept_by_this_process(r)]
+    released = 0
+    with contextlib.closing(db.get_conn()) as conn:
+        for r in dead:
+            released += conn.execute(
+                "DELETE FROM gpu_lock WHERE id = ? AND holder = ? AND acquired_at = ? "
+                "AND heartbeat_at = ?",
+                (r["id"], r["holder"], r["acquired_at"], r["heartbeat_at"])).rowcount
         conn.commit()
-    return len(dead)
+    return released
 
 
 def clear(conn) -> None:

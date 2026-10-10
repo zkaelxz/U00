@@ -240,6 +240,19 @@ class TestTwoProcesses:
         assert tuple(row) == (os.getpid(), job_store.INSTANCE_ID, "job_1")
 
 
+    def test_the_cap_is_decided_inside_the_take_not_by_the_precount(self, isolated_db, monkeypatch):
+        """acquire's holder_count is only a shortcut: another process can take
+        a slot after it, so take() must re-count under BEGIN IMMEDIATE."""
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: {"memory_free_mb": 20000.0})
+        monkeypatch.setattr(gpu_slots, "GPU_PARALLEL_SETTLE_SECONDS", 0)
+        _row(1, f"cli:{OTHER_PID}", OTHER_PID, "aaaa")
+        _row(2, f"cli:{OTHER_PID + 1}", OTHER_PID + 1, "bbbb")
+        monkeypatch.setattr(gpu_slots, "holder_count", lambda exclude_holder=None: 1)
+        bg.set_gpu_max_parallel(2)
+        assert gpu_slots.acquire("ui:third", "x") is False
+        assert _holders() == {f"cli:{OTHER_PID}", f"cli:{OTHER_PID + 1}"}
+
+
 class TestReap:
     def test_frees_dead_pid_other_instance_and_stale_rows_only(self, isolated_db):
         _row(1, f"cli:{DEAD_PID}", DEAD_PID, "aaaa")
@@ -268,6 +281,41 @@ class TestReap:
         assert gpu_slots.take("ui:next") is False   # the fresh legacy row still counts
         assert gpu_slots.reap() == 1
         assert _holders() == {"ui:legacy_fresh"}
+
+
+    def test_keeps_this_instances_stale_row_of_a_cleared_job(self, isolated_db):
+        # A cleared job's worker still runs, but nothing heartbeats its row.
+        assert gpu_slots.take("ui:cleared", job_id="cleared")
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
+                         (gpu_slots.GPU_LOCK_STALE_SECONDS + 60,))
+            conn.commit()
+        assert gpu_slots.reap() == 0
+        assert _holders() == {"ui:cleared"}
+
+    def test_keeps_a_dead_looking_row_of_a_job_this_process_still_lists(self, isolated_db, monkeypatch):
+        _row(1, "ui:listed", age=gpu_slots.GPU_LOCK_STALE_SECONDS + 1)
+        _row(2, "ui:listed_too", DEAD_PID, "aaaa")
+        _row(3, "ui:unlisted", DEAD_PID, "bbbb")
+        monkeypatch.setattr(bg, "get_status", lambda job_id: (
+            {"status": "running"} if job_id in ("listed", "listed_too") else None))
+        assert gpu_slots.reap() == 1
+        assert _holders() == {"ui:listed", "ui:listed_too"}
+
+    def test_a_slot_taken_after_the_read_survives(self, isolated_db, monkeypatch):
+        _row(1, f"cli:{DEAD_PID}", DEAD_PID, "aaaa")
+        real = gpu_slots._kept_by_this_process
+
+        def taken_meanwhile(row):
+            # Another process takes the dead row over between reap's read and its delete.
+            with contextlib.closing(db.get_conn()) as conn:
+                conn.execute("UPDATE gpu_lock SET holder = 'cli:new', acquired_at = acquired_at + 1, "
+                             "heartbeat_at = heartbeat_at + 1, owner_pid = ? WHERE id = 1", (OTHER_PID,))
+                conn.commit()
+            return real(row)
+        monkeypatch.setattr(gpu_slots, "_kept_by_this_process", taken_meanwhile)
+        assert gpu_slots.reap() == 0
+        assert _holders() == {"cli:new"}
 
 
 class TestHeartbeatAndRelease:
@@ -334,6 +382,58 @@ class TestPreviousRunWaitMessage:
             assert bg.get_status("waiter")["message"].startswith("Waiting for a previous run")
         finally:
             bg.clear_all_jobs()
+
+
+class TestEveryJobPathReleases:
+    """A UI job's slot is freed on every way its run can end, and never
+    taken by a job that was cancelled while it waited."""
+
+    @pytest.fixture(autouse=True)
+    def _library(self, isolated_db, monkeypatch):
+        bg.set_gpu_limit_enabled(True)
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: False)
+        yield
+        bg.wait_for_job_threads(5.0)
+        bg.clear_all_jobs()
+
+    def test_a_raising_target_releases_its_slot(self):
+        def boom():
+            raise RuntimeError("model load failed")
+        assert bg.start_job("rel_raise", boom, gpu_touching=True)
+        assert bg.wait_for_job_threads(5.0)
+        assert bg.get_status("rel_raise")["status"] == "error"
+        assert _holders() == set()
+
+    def test_a_process_job_that_cannot_be_built_releases_its_slot(self, monkeypatch):
+        def no_fds():
+            raise OSError(24, "Too many open files")
+        monkeypatch.setattr(bg.multiprocessing, "Queue", no_fds)
+        with pytest.raises(OSError):
+            bg.start_process_job("rel_build", lambda q: None, gpu_touching=True)
+        assert _holders() == set()
+
+    def test_clearing_a_running_gpu_job_keeps_its_slot_until_the_worker_ends(self):
+        release = threading.Event()
+        assert bg.start_job("rel_clear", release.wait, 5, gpu_touching=True)
+        bg.clear_job("rel_clear")
+        # The thread still runs on the GPU: its slot must not be handed on.
+        assert _holders() == {"ui:rel_clear"}
+        release.set()
+        assert bg.wait_for_job_threads(5.0)
+        assert _holders() == set()
+
+    def test_a_job_cancelled_while_waiting_never_takes_a_slot(self):
+        release = threading.Event()
+        ran = []
+        assert bg.start_job("rel_hold", release.wait, 5, gpu_touching=True)
+        assert bg.start_job("rel_wait", lambda: ran.append(1), gpu_touching=True)
+        assert bg.get_status("rel_wait")["status"] == "queued"
+        bg.request_cancel("rel_wait")
+        assert bg.get_status("rel_wait")["status"] == "cancelled"
+        assert _holders() == {"ui:rel_hold"}
+        release.set()
+        assert bg.wait_for_job_threads(5.0)
+        assert ran == [] and _holders() == set()
 
 
 class TestOnlyThisModuleTouchesTheTable:

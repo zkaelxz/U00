@@ -181,7 +181,9 @@ A GPU job is queued instead of started when an earlier GPU job is already waitin
    dead when its pid has exited, when the pid is this process's but the instance is not
    (an earlier server had the pid), or when it has not been heartbeated for
    `GPU_LOCK_STALE_SECONDS` (10 min). A dead row is ignored by `acquire` and deleted by
-   `reap`, which the server runs once at startup. A row from before those columns existed
+   `reap`, which the server runs once at startup. `reap` never deletes a row this server
+   instance wrote or one whose job id it still lists (a cleared or abandoned worker may
+   still be on the GPU), and deletes only a row unchanged since it was read. A row from before those columns existed
    has only the heartbeat rule; while only such `ui:` rows hold the GPU, a queued job says
    it is waiting for a previous run (`previous_run_wait_message`). `release` and
    `heartbeat` touch only this process's rows, so two servers sharing a job id never free
