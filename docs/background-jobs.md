@@ -205,6 +205,8 @@ also stops the process; `cancel_line_jobs(drama_id)` cancels the line-writing jo
 (`LINE_WRITING_JOB_PREFIXES`) before something replaces all of a title's lines. The CLI
 does the same plus the `job_records` flag for jobs run by the API.
 
+A GPU job's worker is started through `services/gpu_process_job.py`: `start_gpu_process_job` for a pure process job, `run_in_child` for a thread job whose GPU stage must be killable and whose next stage needs the parent (`comparetx_`, `fixflag_`). Both run the body under `run_worker` (own process group, a deadline watchdog that closes the result queue before `os._exit`, scratch folder as the temp dir). The child never reads the database: the parent resolves settings and passes plain values.
+
 A worker whose server dies is not left running: a process job started with
 `start_own_process_group()` ends itself when its parent is gone
 (`exit_if_parent_gone`, from each progress report and a watchdog thread).
