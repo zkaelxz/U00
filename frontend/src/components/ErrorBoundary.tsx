@@ -1,6 +1,7 @@
 import { Component, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 
+import { useHolds } from '../hooks/useHolds'
 import { routeHref, useRoute } from '../router'
 import { copyText } from './clipboard'
 import { errorText } from './errorFallbackText'
@@ -8,11 +9,13 @@ import { errorText } from './errorFallbackText'
 function ErrorFallback({ error }: { error: unknown }) {
   const [copied, setCopied] = useState<'idle' | 'ok' | 'failed'>('idle')
   const text = errorText(error)
+  // The Diagnostics page is admin-only, so a member's crash screen must not send them there.
+  const canDiagnose = useHolds('admin.diagnostics')
   return (
     <main className="error-fallback" role="alert" data-testid="error-fallback">
       <h2>This page hit an error.</h2>
       <p className="muted">
-        The rest of the app still works: use the menu above, reload, or check Diagnostics.
+        The rest of the app still works: use the menu above{canDiagnose ? ', reload, or check Diagnostics' : ' or reload'}.
       </p>
       <pre className="error-fallback-text" data-testid="error-fallback-text">{text}</pre>
       <div className="error-fallback-actions">
@@ -25,7 +28,7 @@ function ErrorFallback({ error }: { error: unknown }) {
         <button type="button" className="primary" onClick={() => window.location.reload()}>
           Reload
         </button>
-        <a href="#/diagnostics">Open Diagnostics</a>
+        {canDiagnose && <a href="#/diagnostics">Open Diagnostics</a>}
       </div>
     </main>
   )
