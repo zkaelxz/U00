@@ -63,9 +63,12 @@ export const getSupportReport = (f?: Fetch) => getJson<DiagnosticsSupportReport>
 
 // Starts a background job (answers at once); follow it with getDependencyInstall
 // (api/diagnosticsInstalls.ts) and stop it with cancelDependencyInstall.
-export const installDependency = (name: string, f?: Fetch) =>
+// acceptRisk: the owner accepted the plan's downgrade of a package Baihe needs
+// (the server re-plans and answers 409 without it).
+export const installDependency = (name: string, f?: Fetch, acceptRisk = false) =>
   postJson<DiagnosticsJobStarted>(
-    `${BASE}/dependencies/${encodeURIComponent(name)}/install`, { confirm: true }, pcOnlyFetch(f),
+    `${BASE}/dependencies/${encodeURIComponent(name)}/install`,
+    acceptRisk ? { confirm: true, accept_risk: true } : { confirm: true }, pcOnlyFetch(f),
   )
 
 // target: the version the user confirmed (the last update check's); 409 if that check changed.

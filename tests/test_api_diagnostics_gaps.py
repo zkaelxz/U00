@@ -109,6 +109,9 @@ def fakes(isolated_db, monkeypatch):
         "cuda_build": "12.8", "cuda_available": True, "device": "RTX", "error": None})
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
+    import install_plan
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: ({"install": []}, None))
+    monkeypatch.setattr(installs.os, "access", lambda path, mode: True)
     background_jobs.clear_job(installs.DEPENDENCY_JOB_ID)
     installs._DEPENDENCY.update(kind=None, package=None, last=None)
     yield calls
