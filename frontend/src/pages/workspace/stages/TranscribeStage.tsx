@@ -11,7 +11,6 @@ import {
   updateTranscribeConfig,
   uploadAndTranscribe,
 } from '../../../api/workspace'
-import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanizeValue } from '../../../components/labels'
@@ -43,6 +42,7 @@ import {
   type RunFieldProblem,
   whisperModelWarning,
 } from '../sourceForm'
+import { PreflightCard } from '../../preflight/PreflightCard'
 import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
@@ -279,6 +279,15 @@ export default function TranscribeStage({
       cancelled = true
     }
   }, [])
+
+  // The card installed Whisper: take the server's new answer without touching unsaved form edits.
+  const reloadConfigWhenReady = (ok: boolean) => {
+    if (!ok) return
+    getTranscribeConfig(dramaId).then(
+      (c) => setConfig((cur) => (cur ? { ...cur, whisper_installed: c.whisper_installed } : c)),
+      () => undefined,
+    )
+  }
 
   // The raw novel feeds the automatic prompt: refresh only that, keeping unsaved form edits.
   const reloadAutoPrompt = () => {
@@ -585,14 +594,8 @@ export default function TranscribeStage({
         )}
       </div>
       {notInstalled && (
-        <div className="source-needed" id="transcribe-not-installed" role="note">
-          <span>
-            <strong>Transcription isn't installed yet.</strong> It turns audio or video into subtitles and is a
-            large download. Install it from Diagnostics (you'll see the size and confirm first).
-          </span>
-          <ButtonLink variant="primary" size="sm" className="button-link" href="#/diagnostics?install=transcription">
-            Install transcription
-          </ButtonLink>
+        <div id="transcribe-not-installed">
+          <PreflightCard needs={['whisper', 'ffmpeg', 'gpu']} whisperInstalled={false} onReady={reloadConfigWhenReady} />
         </div>
       )}
       {file && replaceUnconfirmed && !busy && (

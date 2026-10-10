@@ -69,9 +69,7 @@ def describe_job(job_id: str) -> str:
     return job_id
 
 
-# ---------------------------------------------------------------------------
 # Reads
-# ---------------------------------------------------------------------------
 
 def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     """Core requirements and file checks, the same facts check_setup.py
@@ -91,7 +89,8 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
                    "version": _redact(ff["version"]) if ff.get("version") else None,
                    "libass": ff.get("libass") if ff.get("found") else None},
         "js_runtime": {"found": bool(js.get("found")), "name": js.get("name")},
-        "browser": {"found": bool(browser.get("found")), "name": browser.get("name")},
+        "browser": {"found": bool(browser.get("found")), "name": browser.get("name"),
+                    "package": bool(browser.get("package"))},
         "cuda": {"torch_installed": bool(cuda.get("torch_installed")),
                  "cuda_available": cuda.get("cuda_available")},
         "files": {"all_present": bool(files["all_present"]),
