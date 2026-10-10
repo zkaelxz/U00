@@ -541,12 +541,12 @@ def _detect_soft_refusal_text(text: str):
 SDK_REQUEST_TIMEOUT = 300
 
 
-def _sdk_http_timeout():
-    import httpx
-    # read is a per-read idle bound (a non-streamed reply sends nothing until
-    # it is done); the short connect/pool bounds stop a dead host or an
-    # exhausted pool from eating it.
-    return httpx.Timeout(connect=10.0, read=SDK_REQUEST_TIMEOUT, write=30.0, pool=10.0)
+def _sdk_http_timeout(sdk):
+    # The SDK's own Timeout class: newer releases ship their own httpx and
+    # reject a Timeout from the httpx package. read is a per-read idle bound
+    # (a non-streamed reply sends nothing until it is done); the short
+    # connect/pool bounds stop a dead host or an exhausted pool eating it.
+    return sdk.Timeout(connect=10.0, read=SDK_REQUEST_TIMEOUT, write=30.0, pool=10.0)
 
 
 # max_retries=0: call_with_backoff and FallbackEngine are the retry layers the
@@ -554,9 +554,10 @@ def _sdk_http_timeout():
 # wait and keep re-billing in a thread nobody can stop.
 def make_anthropic_client(api_key: str):
     import anthropic
-    return anthropic.Anthropic(api_key=api_key, timeout=_sdk_http_timeout(), max_retries=0)
+    return anthropic.Anthropic(api_key=api_key, timeout=_sdk_http_timeout(anthropic), max_retries=0)
 
 
 def make_openai_client(api_key: str, base_url: str = None):
-    from openai import OpenAI
-    return OpenAI(api_key=api_key, base_url=base_url, timeout=_sdk_http_timeout(), max_retries=0)
+    import openai
+    return openai.OpenAI(api_key=api_key, base_url=base_url, timeout=_sdk_http_timeout(openai),
+                         max_retries=0)
