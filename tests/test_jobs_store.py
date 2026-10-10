@@ -236,6 +236,25 @@ class TestRowsOfGoneOwners:
         assert (row["status"], row["detail_state"], row["error"]) == (
             "cancelled", "interrupted", bg.INTERRUPTED_MESSAGE)
 
+    def test_a_stale_heartbeat_closes_a_dead_owners_row_not_a_live_ones(self, isolated_db):
+        """A live owner that stopped heartbeating (paused, under a debugger)
+        rewrites its row when it wakes, so heartbeat age must not close it."""
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait(timeout=30)
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            for job_id, pid in (("st_paused", other.pid), ("st_dead", gone.pid)):
+                db.save_job_record(job_id, "running", owner_pid=pid)
+                _set_row(job_id, owner_instance="another-server", updated_at=time.time() - 3600)
+            cutoff = time.time() - bg.STALE_JOB_SECONDS
+            assert job_store.close_stale("st_paused", cutoff) is False
+            assert db.get_job_record("st_paused")["status"] == "running"
+            assert job_store.close_stale("st_dead", cutoff) is True
+        finally:
+            other.kill()
+            other.wait(timeout=10)
+        assert db.get_job_record("st_dead")["detail_state"] == "interrupted"
+
     def test_a_close_loses_to_a_new_run_by_another_instance(self, isolated_db):
         db.save_job_record("st_race", "running", owner_pid=os.getpid())
         _set_row("st_race", owner_instance="an-earlier-server")
@@ -474,7 +493,9 @@ _OWNER_SCRIPT = r"""
 import os, sys, threading
 sys.path.insert(0, sys.argv[2])
 import db, background_jobs as bg
+from jobs import job_store
 db.configure_library_dir(sys.argv[1])
+job_store.register_exit_flush()   # as the server's lifespan does
 bg.start_job("st_owner", lambda: threading.Event().wait(60))
 assert db.get_job_record("st_owner")["status"] == "running"
 if sys.argv[3] == "kill":
@@ -484,7 +505,7 @@ if sys.argv[3] == "kill":
 
 @pytest.mark.parametrize("how", ["exit", "kill"])
 def test_an_exited_server_leaves_no_running_row(isolated_db, how):
-    """A clean exit closes the row itself (atexit); a hard kill skips atexit,
+    """A clean exit closes the row itself (the server's atexit hook); a hard kill skips atexit,
     so the next start's sweep closes it. Either way it ends interrupted."""
     proc = subprocess.run([sys.executable, "-c", _OWNER_SCRIPT, db.LIBRARY_DIR, REPO, how],
                           capture_output=True, text=True, timeout=60)
@@ -503,3 +524,45 @@ def test_each_jobs_module_imports_alone(module):
     proc = subprocess.run([sys.executable, "-c", f"import {module}"], cwd=REPO,
                           capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
+
+
+def test_importing_the_store_registers_no_exit_hook():
+    script = ("import atexit; calls = []; "
+              "atexit.register = lambda fn, *a, **k: calls.append(fn.__module__); "
+              "import jobs.job_store; print(calls.count('jobs.job_store'))")
+    proc = subprocess.run([sys.executable, "-c", script], cwd=REPO,
+                          capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "0"
+
+
+def test_starting_the_server_registers_the_exit_flush_once(isolated_db, monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    import atexit
+    import api.background as api_bg
+    from fastapi.testclient import TestClient
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    for name in ("start_background_services", "start_gpu_queue_poller", "stop_gpu_queue_poller",
+                 "start_reeval_scheduler", "stop_reeval_scheduler"):
+        monkeypatch.setattr(api_bg, name, lambda *a: None)
+    monkeypatch.setattr(api_bg, "start_remote_health_monitor", lambda settings: None)
+    monkeypatch.setattr(api_bg, "stop_remote_health_monitor", lambda: None)
+    registered = []
+    monkeypatch.setattr(atexit, "register", lambda fn, *a, **k: registered.append(fn))
+    monkeypatch.setattr(job_store, "_exit_hook_registered", False)
+    for _ in range(2):
+        with TestClient(create_app(ApiSettings(background_services=True))):
+            pass
+    assert registered.count(job_store._flush_unless_flushed) == 1
+
+
+def test_the_exit_hook_skips_a_flush_shutdown_already_ran(isolated_db, monkeypatch):
+    runs = []
+    monkeypatch.setattr(job_store, "_flushed", False)
+    real = job_store.flush_at_exit
+    monkeypatch.setattr(job_store, "flush_at_exit", lambda: (runs.append(1), real()))
+    job_store.flush_at_exit()          # shutdown_service.stop_services
+    job_store._flush_unless_flushed()  # atexit
+    assert len(runs) == 1

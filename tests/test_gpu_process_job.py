@@ -34,6 +34,12 @@ def items_then_hang_body(marker, scratch_dir, result_queue):
     hang_body(marker, scratch_dir, result_queue)
 
 
+def stuck_entry(body, timeout_s, scratch_dir, *args_and_queue):
+    """A worker stuck before its watchdog starts (a hung import)."""
+    *args, _queue = args_and_queue
+    body(*args, scratch_dir, _queue)
+
+
 def wait_until(predicate, what, timeout=60):
     deadline = time.time() + timeout
     while not predicate():
@@ -91,6 +97,30 @@ def test_the_parent_deadline_frees_a_child_that_never_starts_its_timer(
     assert time.monotonic() - started < 30
     assert str(err.value) == gpu_process_job.TIMEOUT_MESSAGE
     wait_until(lambda: pid_gone(int(open(marker).read())), "the worker outlived the run", 10)
+
+
+def test_past_its_budget_the_job_says_it_is_waiting_for_the_worker(
+        isolated_db, tmp_path, monkeypatch):
+    # The worker's watchdog never gets to fire; the parent's backstop does.
+    monkeypatch.setattr(gpu_process_job, "PARENT_GRACE_S", 3)
+    monkeypatch.setattr(gpu_process_job, "process_entry", stuck_entry)
+    marker = str(tmp_path / "started")
+    messages, outcome = [], []
+    real = background_jobs.update_progress
+    monkeypatch.setattr(background_jobs, "update_progress",
+                        lambda job_id, frac, message="": (messages.append(message),
+                                                          real(job_id, frac, message)))
+
+    def job():
+        try:
+            gpu_process_job.run_in_child("gpujob_stop", hang_body, (marker,), timeout_s=1)
+        except gpu_process_job.ChildFailed as exc:
+            outcome.append(str(exc))
+    assert background_jobs.start_job("gpujob_stop", job, description="Stuck")
+    assert background_jobs.wait_for_job_threads(60)
+    assert outcome == [gpu_process_job.TIMEOUT_MESSAGE]
+    assert messages == [gpu_process_job.STOPPING_MESSAGE]
+    background_jobs.clear_job("gpujob_stop")
 
 
 def test_cancel_kills_the_worker_and_keeps_the_items_already_sent(isolated_db, tmp_path):

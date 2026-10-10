@@ -34,6 +34,8 @@ _pending = set()
 # wrote in the meantime, or it could pass off an older state as landed.
 _last_write = {}
 _tokens = itertools.count()
+_exit_hook_registered = False
+_flushed = False
 
 
 def _storage_text(text):
@@ -320,10 +322,29 @@ def close_if_owner_gone(record: dict) -> bool:
                       (record["owner_pid"],))
 
 
+def owner_alive_elsewhere(pid) -> bool:
+    """True when `pid` (a row's owner_pid) is another process that still
+    runs: its row may be quiet but is not abandoned."""
+    import background_jobs as bj
+    return pid is not None and pid != os.getpid() and bj.owner_process_alive(pid)
+
+
 def close_stale(job_id: str, cutoff: float) -> bool:
     """Closes the row as interrupted only if its owner has not written or
-    heartbeated since `cutoff`."""
-    return _close_one(job_id, "COALESCE(updated_at, 0) < ?", (cutoff,))
+    heartbeated since `cutoff` and is not a live process. A paused owner
+    (laptop lid, debugger, a long GC) stops heartbeating but rewrites the
+    row when it wakes, which would flip a closed row back to running; only
+    a row with no owner_pid is judged by heartbeat age alone."""
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute("SELECT owner_pid FROM job_records WHERE job_id = ?",
+                           (job_id,)).fetchone()
+    if row is None:
+        return False
+    pid = row[0]
+    if owner_alive_elsewhere(pid):
+        return False
+    # The pid read above must still be the row's owner when it is closed.
+    return _close_one(job_id, "COALESCE(updated_at, 0) < ? AND owner_pid IS ?", (cutoff, pid))
 
 
 def sweep_dead_owners(stale_seconds: float) -> int:
@@ -376,11 +397,14 @@ def flush_at_exit() -> None:
     """Leaves no row of this server saying queued or running after it is
     gone: retries failed writes, closes this instance's still-active rows as
     interrupted and frees their GPU slots, all within EXIT_FLUSH_SECONDS.
-    Runs from atexit and from shutdown_service after the jobs' grace wait.
+    Runs from shutdown_service after the jobs' grace wait and, in the
+    server, at exit (register_exit_flush).
     A hard kill skips it; the next start's sweep (sweep_dead_owners) closes
     those rows instead."""
+    global _flushed
     import background_jobs as bj
     import job_force_stop
+    _flushed = True
     deadline = time.monotonic() + EXIT_FLUSH_SECONDS
     retry_pending(deadline)
     # A daemon worker can hold the lock while the interpreter exits.
@@ -413,4 +437,18 @@ def flush_at_exit() -> None:
                 + translate_engines.redact_secrets(str(exc))[:300])
 
 
-atexit.register(flush_at_exit)
+def _flush_unless_flushed() -> None:
+    # shutdown_service has usually flushed already; a second pass at exit
+    # would only spend EXIT_FLUSH_SECONDS redoing it.
+    if not _flushed:
+        flush_at_exit()
+
+
+def register_exit_flush() -> None:
+    """Only the server that runs jobs closes their rows at interpreter exit;
+    registering at import would hand the hook to every importer (tests,
+    cli.py, spawned GPU workers). Safe to call more than once."""
+    global _exit_hook_registered
+    if not _exit_hook_registered:
+        _exit_hook_registered = True
+        atexit.register(_flush_unless_flushed)

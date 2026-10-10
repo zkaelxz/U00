@@ -74,7 +74,8 @@ reach a client (`jobs_service._redact`).
 - **Closing someone else's row** is only ever one conditional `UPDATE ... WHERE status
   IN ('queued', 'running') AND owner_instance = ?` (or `owner_pid = ?` for a row from
   before `owner_instance`), so a live owner's write, heartbeat or new run always wins.
-- **Exit.** `job_store.flush_at_exit` (registered with `atexit`, and called by
+- **Exit.** `job_store.flush_at_exit` (registered with `atexit` by the API lifespan
+  through `job_store.register_exit_flush`, never at import, and called by
   `shutdown_service.stop_services` after the jobs' grace wait) retries failed writes,
   closes this instance's still-active rows as `interrupted` and deletes the
   `ui:<job id>` `gpu_lock` rows of its running jobs, all within
@@ -137,7 +138,10 @@ same id starts. The protections:
 - A GPU job also refreshes its `gpu_lock` row on every `update_progress`
   (`db.heartbeat_gpu_lock`).
 - A `queued`/`running` row is stale when its owner pid is gone (`owner_pid`, via
-  `owner_process_alive`) or `updated_at` is older than `STALE_JOB_SECONDS` (15 min).
+  `owner_process_alive`), or when `updated_at` is older than `STALE_JOB_SECONDS` (15 min)
+  and its owner pid is not another live process (`job_store.owner_alive_elsewhere`): a
+  paused owner (laptop lid, debugger) rewrites its row when it wakes, so heartbeat age
+  alone closes only a row with no `owner_pid`.
   `jobs_service.is_stale` and the sweep skip any job live in this process. Each close
   is one conditional `UPDATE` (`job_store.close_if_owner_gone`, `job_store.close_stale`),
   so a live owner's heartbeat, `done` or new run always wins.
