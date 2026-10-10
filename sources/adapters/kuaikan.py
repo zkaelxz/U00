@@ -182,7 +182,7 @@ class _LiteralParser:
         try:
             return env[name]
         except KeyError:
-            raise LayoutChanged(f"the referenced value {name!r} in the embedded state") from None
+            raise LayoutChanged("a defined value for every name in the embedded state") from None
 
     def parse_object(self, env):
         self.expect("{")

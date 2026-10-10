@@ -107,8 +107,8 @@ def _extract_data_blob(html: str) -> dict:
             if depth == 0:
                 try:
                     return json.loads(html[start:i + 1])
-                except ValueError as e:
-                    raise LayoutChanged(f"a readable chapters data blob ({e})") from None
+                except ValueError:
+                    raise LayoutChanged("a readable chapters data blob") from None
     raise LayoutChanged("the chapters page's embedded data")
 
 

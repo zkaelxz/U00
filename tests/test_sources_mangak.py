@@ -184,7 +184,7 @@ class TestPages:
                                        b"<html>blocked</html>", "")})
         with pytest.raises(SourceError) as e:
             a.download_page(PageRef("mangak", "chapter-2", 0, url))
-        assert "not an image" in str(e.value)
+        assert "image" in str(e.value) and "text/html" not in str(e.value)
 
 
 class TestParseUrl:

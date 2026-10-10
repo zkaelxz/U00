@@ -347,7 +347,7 @@ class PiaotianSource(SourceAdapter):
         book_id = _norm_id(chapter.series_id)
         cid = str(chapter.chapter_id or "").strip()
         if not re.fullmatch(_ID, cid):
-            raise SourceError(f"{chapter.chapter_id!r} is not a Piaotian chapter number.",
+            raise SourceError("This chapter has no valid Piaotian chapter number.",
                               FailureReason.UNKNOWN)
         if chapter.url:
             if not _accepted_host(chapter.url):

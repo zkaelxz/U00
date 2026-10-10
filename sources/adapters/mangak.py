@@ -61,7 +61,7 @@ class LayoutChanged(SourceError):
 def _safe_slug(value, what: str) -> str:
     slug = str(value or "")
     if not _SAFE_SLUG.fullmatch(slug):
-        raise LayoutChanged(f"a usable {what} (got {slug[:60]!r})")
+        raise LayoutChanged(f"a usable {what}")
     return slug
 
 
@@ -188,7 +188,7 @@ class MangaKSource(SourceAdapter):
         ctype = header(resp.headers, "content-type").split(";")[0].strip().lower()
         if ctype and not ctype.startswith("image/"):
             # An error or block page sent with a 200: never saved as a page.
-            raise SourceError(f"Page {page.index + 1} came back as {ctype[:40]}, not an image.",
+            raise SourceError(f"Page {page.index + 1} didn't come back as an image.",
                               FailureReason.HTTP_ERROR)
         name = urlsplit(page.url).path.rsplit("/", 1)[-1]
         ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ".webp"
