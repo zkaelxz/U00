@@ -18,6 +18,7 @@ import background_jobs
 import memory_headroom
 import ollama_unload
 import portable
+from lib import settings_schema
 from services.service_errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
@@ -180,41 +181,10 @@ def key_status(env_path: str = None) -> dict:
     return {key: bool(resolve_key(key, env_path)) for key in _ENGINE_KEY_NAMES}
 
 
-def _get_bool_setting(key: str) -> bool:
-    import db
-    try:
-        return bool(db.get_app_setting(key, False))
-    except Exception:
-        return False
-
-
-def get_use_gpu() -> bool:
-    """Persisted server-side GPU toggle for GPU-capable API jobs (Slice
-    23). Default False; a DB hiccup fails closed (CPU)."""
-    return _get_bool_setting("use_gpu")
-
-
-def get_gemini_free_tier() -> bool:
-    """Persisted 'Gemini is on the free tier' flag. Default False."""
-    return _get_bool_setting("gemini_free_tier")
-
-
-def get_offer_provider_models() -> bool:
-    """Opt-in: the Claude model picker also offers models Anthropic lists
-    (from the last manual model check) that the app doesn't know yet."""
-    return _get_bool_setting("offer_provider_models")
-
-
-def get_bulk_auto_resume() -> bool:
-    """Opt-in: resume interrupted bulk translation batches when the API
-    starts. Default False (a resumed batch can spend on the engine account)."""
-    return _get_bool_setting(BULK_AUTO_RESUME_KEY)
-
-
 def resolve_gemini_free_tier(value) -> bool:
     """A request's gemini_free_tier: None (omitted) means the persisted
     setting; an explicit True/False is kept."""
-    return get_gemini_free_tier() if value is None else bool(value)
+    return get("gemini_free_tier") if value is None else bool(value)
 
 
 def get_settings_overview(env_path: str = None) -> dict:
@@ -229,10 +199,10 @@ def get_settings_overview(env_path: str = None) -> dict:
         "gpu_max_parallel": background_jobs.get_gpu_max_parallel(),
         "unload_ollama_before_transcribe": ollama_unload.is_enabled(),
         "notify_on_completion": background_jobs.get_notify_on_completion(),
-        "use_gpu": get_use_gpu(),
-        "gemini_free_tier": get_gemini_free_tier(),
-        "bulk_auto_resume": get_bulk_auto_resume(),
-        "offer_provider_models": get_offer_provider_models(),
+        "use_gpu": get("use_gpu"),
+        "gemini_free_tier": get("gemini_free_tier"),
+        "bulk_auto_resume": get("bulk_auto_resume"),
+        "offer_provider_models": get("offer_provider_models"),
         "preferences": get_preferences(),
         "endpoints": endpoint_values(env_path),
         "upload_max_mb_from_env": media_upload_service.upload_limit_from_env(),
@@ -244,45 +214,58 @@ def get_settings_overview(env_path: str = None) -> dict:
     }
 
 
-BULK_AUTO_RESUME_KEY = "bulk.auto_resume"
+# Writable, non-secret switches whose value lives in app_settings under the
+# schema's store_key. Keys are never here (D2); preferences are the schema's
+# pref.* rows, endpoint URLs go through set_endpoint_url.
+_DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models")
 
-
-def _set_app_bool(key: str, enabled: bool):
-    import db
-    db.set_app_setting(key, bool(enabled))
-
-
-# Typed allow-list of writable, non-secret boolean settings.
-# Keys are never here (D2); preferences (paths, defaults, the cap) are in
-# _PREFERENCES below, endpoint URLs go through set_endpoint_url.
+# Switches whose owner (a root module) keeps its own storage and setter.
 _WRITABLE_SETTINGS = {
     "gpu_limit_enabled": background_jobs.set_gpu_limit_enabled,
     "unload_ollama_before_transcribe": ollama_unload.set_enabled,
     "notify_on_completion": background_jobs.set_notify_on_completion,
-    "use_gpu": lambda v: _set_app_bool("use_gpu", v),
-    "gemini_free_tier": lambda v: _set_app_bool("gemini_free_tier", v),
-    "bulk_auto_resume": lambda v: _set_app_bool(BULK_AUTO_RESUME_KEY, v),
-    "offer_provider_models": lambda v: _set_app_bool("offer_provider_models", v),
 }
+
+
+def _is_preference(key: str) -> bool:
+    setting = settings_schema.BY_KEY.get(key)
+    return setting is not None and setting.store_key.startswith(_PREF_PREFIX)
+
+
+def _preference_keys():
+    return [s.key for s in settings_schema.SETTINGS if s.store_key.startswith(_PREF_PREFIX)]
+
+
+def _refusal(key: str, reason: str) -> InvalidInputError:
+    """The message never echoes the offending value (it could be a pasted secret)."""
+    setting = settings_schema.BY_KEY[key]
+    if reason == "not true or false":
+        return InvalidInputError(f"Setting '{key}' must be true or false.")
+    if reason == "not an allowed choice":
+        return InvalidInputError(f"'{key}' is not one of the allowed choices.")
+    if reason == "not text":
+        return InvalidInputError(f"'{key}' must be text.")
+    if reason == "too long":
+        return InvalidInputError(f"'{key}' is too long.")
+    if reason == "control characters":
+        return InvalidInputError(f"'{key}' contains characters that are not allowed.")
+    kind = "whole number" if setting.type == "int" else "number"
+    low, high = (f"{n:g}" if n < 1e6 else str(int(n)) for n in (setting.min, setting.max))
+    return InvalidInputError(f"'{key}' must be a {kind} from {low} to {high}.")
 
 
 def set_settings(updates: dict, env_path: str = None) -> dict:
     """Applies a batch of non-secret toggles and preferences, then returns
     the refreshed overview. Validates everything before writing anything,
-    so a bad batch changes nothing. Error messages never echo the
-    offending value (it could be a pasted secret)."""
+    so a bad batch changes nothing."""
     cleaned = {}
     for key, value in updates.items():
-        if key == "gpu_max_parallel":
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise InvalidInputError("'gpu_max_parallel' must be a whole number.")
-            cleaned[key] = value  # clamped to 1..4 by the setter
-        elif key in _WRITABLE_SETTINGS:
-            if not isinstance(value, bool):
-                raise InvalidInputError(f"Setting '{key}' must be true or false.")
-            cleaned[key] = value
-        elif key in _PREFERENCES:
-            cleaned[key] = _PREFERENCES[key][1](value)
+        if key in _WRITABLE_SETTINGS or key in _DB_TOGGLES or key == "gpu_max_parallel" \
+                or _is_preference(key):
+            try:
+                cleaned[key] = settings_schema.validate(key, value, _choices_for(key))
+            except ValueError as exc:
+                raise _refusal(key, str(exc)) from None
             if key in memory_headroom.KEEP_FREE_KEYS.values():
                 _check_keep_free_fits(key, cleaned[key])
         else:
@@ -294,27 +277,19 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
             _WRITABLE_SETTINGS[key](value)
         else:
             import db
-            db.set_app_setting(_PREF_PREFIX + key, value)
+            db.set_app_setting(settings_schema.BY_KEY[key].store_key, value)
     return get_settings_overview(env_path)
 
 
-# --- Persisted PC-side preferences (settings parity G05, G08, G09, G13,
-# G14, G15). They live in db.app_settings under "pref.<name>" and the services that use them read
-# them through the getters below. Written only through set_settings
-# (POST /api/settings, local_only). A stored value that no longer
-# validates (e.g. an engine that was removed) reads back as the default.
+# --- Persisted PC-side preferences: rows of lib/settings_schema.py stored in
+# db.app_settings under "pref.<name>", read through get() and written only
+# through set_settings (POST /api/settings, local_only). A stored value that
+# no longer validates (e.g. an engine that was removed) reads back as the default.
 
 _PREF_PREFIX = "pref."
 # The last "Test" result per engine (engine_routing_service). A key
 # or endpoint write forgets it, so a stale "working" never outlives the key.
 ENGINE_TEST_PREFIX = "engine_test."
-_MAX_PATH_LENGTH = 1024
-_MAX_STYLE_NOTE_LENGTH = 2000
-_MAX_NUM_CTX = 1_048_576
-_MAX_MONTHLY_CAP = 1_000_000.0
-DEFAULT_UPLOAD_MB = 20480
-MIN_UPLOAD_MB = 100
-MAX_UPLOAD_MB = 1_048_576
 LOCALE_CHOICES = ("en-US", "en-GB", "en-AU")
 SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini", "openai")
 
@@ -339,145 +314,14 @@ def _cookie_browser_choices() -> tuple:
     return tuple(video_download.COOKIE_BROWSERS)
 
 
-def _one_of(name, choices_fn):
-    def check(value):
-        if not isinstance(value, str) or value not in choices_fn():
-            raise InvalidInputError(f"'{name}' is not one of the allowed choices.")
-        return value
-    return check
-
-
-def _optional_one_of(name, choices_fn):
-    inner = _one_of(name, choices_fn)
-
-    def check(value):
-        return None if value is None or value == "" else inner(value)
-    return check
-
-
-def _check_bool(name):
-    def check(value):
-        if not isinstance(value, bool):
-            raise InvalidInputError(f"Setting '{name}' must be true or false.")
-        return value
-    return check
-
-
-def _check_text(name, max_len, multiline=False):
-    def check(value):
-        if value is None:
-            return ""
-        if not isinstance(value, str):
-            raise InvalidInputError(f"'{name}' must be text.")
-        value = value.strip()
-        if len(value) > max_len:
-            raise InvalidInputError(f"'{name}' is too long.")
-        allowed = "\n\t" if multiline else ""
-        if any((ord(c) < 32 and c not in allowed) or ord(c) == 127 for c in value):
-            raise InvalidInputError(f"'{name}' contains characters that are not allowed.")
-        return value
-    return check
-
-
-def _check_int(name, low, high):
-    def check(value):
-        if value is None:
-            return 0
-        if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
-            raise InvalidInputError(f"'{name}' must be a whole number from {low} to {high}.")
-        return value
-    return check
-
-
-def _check_keep_free_gb(name):
-    """0 = off. Whether it fits this PC is checked on write only (set_settings):
-    reading must not probe the hardware."""
-    def check(value):
-        if value is None:
-            return 0.0
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value \
-                or not 0 <= value <= memory_headroom.MAX_KEEP_FREE_GB:
-            raise InvalidInputError(f"'{name}' must be a number of GB, 0 or more.")
-        return round(float(value), 1)
-    return check
-
-
 def _check_keep_free_fits(key: str, gb: float):
+    """Whether it fits this PC is checked on write only: reading must not
+    probe the hardware."""
     memory = "vram" if key == memory_headroom.KEEP_FREE_KEYS["vram"] else "ram"
     total = memory_headroom.total_mb(memory) if gb else None
     if total is not None and gb * 1024 > total:
         word = "graphics memory" if memory == "vram" else "RAM"
         raise InvalidInputError(f"'{key}' is more than this PC's {word} ({total / 1024:.1f} GB).")
-
-
-def _check_cap(value):
-    """None clears the saved cap (BAIHE_MONTHLY_CAP_USD in .env applies
-    again); 0 means no cap."""
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value \
-            or not 0 <= value <= _MAX_MONTHLY_CAP:
-        raise InvalidInputError("'monthly_cap_usd' must be a number from 0 to 1000000.")
-    return float(value)
-
-
-def _check_upload_mb(value):
-    """None puts the default back."""
-    if value is None:
-        return DEFAULT_UPLOAD_MB
-    if isinstance(value, bool) or not isinstance(value, int) \
-            or not MIN_UPLOAD_MB <= value <= MAX_UPLOAD_MB:
-        raise InvalidInputError(
-            f"'max_upload_mb' must be a whole number of MB from {MIN_UPLOAD_MB} to {MAX_UPLOAD_MB}.")
-    return value
-
-
-# name -> (default, validator). The validator returns the cleaned value
-# or raises InvalidInputError without echoing the input.
-_PREFERENCES = {
-    "default_engine": ("claude", _one_of("default_engine", _engine_choices)),
-    "default_locale": ("en-US", _one_of("default_locale", lambda: LOCALE_CHOICES)),
-    "default_style_note": ("", _check_text("default_style_note", _MAX_STYLE_NOTE_LENGTH,
-                                           multiline=True)),
-    # Starts translate batches at scene breaks. Safe on by default: a run's
-    # resume re-plans over the lines still untranslated, nothing is keyed by batch.
-    "scene_aware_batches": (True, _check_bool("scene_aware_batches")),
-    "episode_summary_engine": ("ollama", _one_of("episode_summary_engine",
-                                                 lambda: SUMMARY_ENGINE_CHOICES)),
-    "monthly_cap_usd": (None, _check_cap),
-    "max_upload_mb": (DEFAULT_UPLOAD_MB, _check_upload_mb),
-    # Memory kept free for other programs on this PC; see memory_headroom.py.
-    "keep_free_vram_gb": (0.0, _check_keep_free_gb("keep_free_vram_gb")),
-    "keep_free_ram_gb": (0.0, _check_keep_free_gb("keep_free_ram_gb")),
-    "ollama_num_ctx_override": (0, _check_int("ollama_num_ctx_override", 0, _MAX_NUM_CTX)),
-    "whisper_model_path": ("", _check_text("whisper_model_path", _MAX_PATH_LENGTH)),
-    "ocr_backend": ("auto", _one_of("ocr_backend", _ocr_choices)),
-    "ocr_prefer_paddle_vl_manga": (False, _check_bool("ocr_prefer_paddle_vl_manga")),
-    # Accepted risk (inventory G05): the program Tesseract runs is editable
-    # here. Writes are PC-only, like every other settings write.
-    "tesseract_cmd": ("", _check_text("tesseract_cmd", _MAX_PATH_LENGTH)),
-    # The lightnovel-crawler program, when it isn't on PATH. Same
-    # accepted risk as tesseract_cmd; services/lncrawl_service.py also only
-    # runs a file named lncrawl / lightnovel-crawler.
-    "lncrawl_cmd": ("", _check_text("lncrawl_cmd", _MAX_PATH_LENGTH)),
-    "cookies_browser": (None, _optional_one_of("cookies_browser", _cookie_browser_choices)),
-    # A path only; the file's contents are never read or returned here.
-    "cookies_file": ("", _check_text("cookies_file", _MAX_PATH_LENGTH)),
-}
-
-
-def preference_default(name: str):
-    return _PREFERENCES[name][0]
-
-
-def get_preference(name: str):
-    default, check = _PREFERENCES[name]
-    import db
-    try:
-        raw = db.get_app_setting(_PREF_PREFIX + name, default)
-        return check(raw)
-    except Exception:
-        return default
 
 
 def _voice_detector_choices() -> tuple:
@@ -495,26 +339,28 @@ _SCHEMA_CHOICES = {
 }
 
 
+def _choices_for(key: str):
+    setting = settings_schema.BY_KEY[key]
+    return _SCHEMA_CHOICES[setting.choices]() if setting.choices else None
+
+
 def get(key: str):
-    """The declared setting `key` (lib/settings_schema.py) as a typed value.
-    A missing, unreadable or invalid stored value reads as the schema default,
-    like get_preference. Keys held in .env are secrets and go through
-    resolve_key instead."""
+    """The one reader of a declared setting (lib/settings_schema.py), as a typed
+    value. A missing, unreadable or invalid stored value reads as the schema
+    default. Keys held in .env are secrets and go through resolve_key instead."""
     import db
-    from lib import settings_schema
     setting = settings_schema.BY_KEY[key]
     if setting.store != "db":
         raise ValueError(f"'{key}' is not stored in app_settings.")
     try:
-        choices = _SCHEMA_CHOICES[setting.choices]() if setting.choices else None
-        raw = db.get_app_setting(setting.store_key)
-        return settings_schema.coerce(key, raw, choices)
+        return settings_schema.coerce(key, db.get_app_setting(setting.store_key),
+                                      _choices_for(key))
     except Exception:
         return settings_schema.default_of(setting)
 
 
 def get_preferences() -> dict:
-    return {name: get_preference(name) for name in _PREFERENCES}
+    return {key: get(key) for key in _preference_keys()}
 
 
 def preference_choices() -> dict:
@@ -538,7 +384,7 @@ def get_monthly_cap_usd(env_path: str = None) -> float:
     """The monthly spending cap in USD, 0.0 = none: the saved Settings
     value when there is one, else BAIHE_MONTHLY_CAP_USD from .env or the
     environment."""
-    saved = get_preference("monthly_cap_usd")
+    saved = get("monthly_cap_usd")
     if saved is not None:
         return float(saved)
     return _parse_cap(resolve_key("monthly_cap_usd", env_path))
@@ -569,34 +415,11 @@ def undo_month_counter_reset() -> dict:
     return {"before": before, "after": month_spend_status()}
 
 
-def get_default_engine() -> str:
-    """The translation engine for a drama with none saved (Settings >
-    Defaults for new dramas; "claude" until changed)."""
-    return get_preference("default_engine")
-
-
-def get_ollama_num_ctx_override() -> int:
-    """0 = size the context window from the prompt (the default)."""
-    return get_preference("ollama_num_ctx_override")
-
-
-def get_whisper_model_path():
-    return get_preference("whisper_model_path") or None
-
-
-def get_tesseract_cmd():
-    return get_preference("tesseract_cmd") or None
-
-
-def get_lncrawl_cmd():
-    return get_preference("lncrawl_cmd") or None
-
-
 def get_cookie_settings() -> dict:
     """{cookies_browser, cookies_file} for video_download/live_translate;
     a cookies file wins over a browser there."""
-    return {"cookies_browser": get_preference("cookies_browser"),
-            "cookies_file": get_preference("cookies_file") or None}
+    return {"cookies_browser": get("cookies_browser"),
+            "cookies_file": get("cookies_file") or None}
 
 
 def resolve_ocr_backend(source_language: str, allowed=None, is_installed=None) -> str:
@@ -606,10 +429,10 @@ def resolve_ocr_backend(source_language: str, allowed=None, is_installed=None) -
     it to what the caller supports, falling back to its first entry; so
     does an "auto" pick that `is_installed(backend)` says is missing (an
     explicit pick is kept, so the caller can say it isn't installed)."""
-    backend = get_preference("ocr_backend")
+    backend = get("ocr_backend")
     auto = backend == "auto"
     if auto:
-        backend = _auto_ocr_backend(source_language, get_preference("ocr_prefer_paddle_vl_manga"))
+        backend = _auto_ocr_backend(source_language, get("ocr_prefer_paddle_vl_manga"))
     if allowed and (backend not in allowed
                     or (auto and is_installed is not None and not is_installed(backend))):
         return allowed[0]

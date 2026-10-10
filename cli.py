@@ -92,7 +92,7 @@ from lib.errors import DependencyUnavailableError, ServiceError
 
 def _gemini_free_tier(engine_name: str) -> bool:
     """The saved Settings "Gemini free tier" toggle, for the gemini engine only."""
-    return engine_name == "gemini" and settings_service.get_gemini_free_tier()
+    return engine_name == "gemini" and settings_service.get("gemini_free_tier")
 
 
 def _ollama_url(args):
@@ -385,7 +385,7 @@ def cmd_diarize(args):
             turns, model, embeddings = diarize.diarize(
                 audio_path, hf_token, num_speakers=num_speakers,
                 return_model=True, return_embeddings=True,
-                use_gpu=settings_service.get_use_gpu(),
+                use_gpu=settings_service.get("use_gpu"),
                 min_speakers=min_speakers, max_speakers=max_speakers, run_info=run_info,
                 on_progress=on_progress)
         finally:
@@ -482,7 +482,7 @@ def cmd_align(args):
         # (transcribe_service.get_transcribe_config); --fast still wins.
         cfg = transcribe_service.get_transcribe_config(d["id"])
         fast = getattr(args, "fast", False) or cfg["whisper_fast_mode"]
-        use_gpu = settings_service.get_use_gpu()
+        use_gpu = settings_service.get("use_gpu")
         language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
         db.heartbeat_gpu_lock(_gpu_holder)
@@ -496,7 +496,7 @@ def cmd_align(args):
             # Same refusal as the app, before any audio is processed.
             raise RuntimeError(
                 "use_groq is on but no Groq API key is configured. Set one in Settings first.")
-        local_model_path = settings_service.get_whisper_model_path()
+        local_model_path = settings_service.get("whisper_model_path") or None
         app_gpu_settings = raw_transcript.current_gpu_app_settings()
         gpu_fallback = []
         started = time.monotonic()
@@ -817,7 +817,7 @@ def cmd_transcribe(args):
         raise SystemExit(f"transcribe: {translate_engines.redact_secrets(e.message)}")
     label = f"#{args.id}"
     print(f"{label} transcribing (GPU setting: "
-          f"{'on' if settings_service.get_use_gpu() else 'off'})...", flush=True)
+          f"{'on' if settings_service.get('use_gpu') else 'off'})...", flush=True)
     outcome, message, result = _wait_for_job(job["job_id"], label)
     if result.get("device"):
         print(f"{label} device: {result['device']}")

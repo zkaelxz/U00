@@ -1,9 +1,10 @@
 """The declared settings schema (lib/settings_schema.py) against the code that
 reads and writes settings today.
 
-Retire the coverage guard (TestEveryKeyIsDeclared) and the old/new agreement
-test when the settings schema's second PR deletes `_PREFERENCES`: from then on
-the schema is the only declaration, and an undeclared key fails at its caller.
+TestEveryKeyIsDeclared is the coverage guard: it stays while some module can
+still read or write `app_settings` without going through `settings_service.get`;
+retire it when no module outside settings_service, db and lib touches the table
+for a declared key.
 """
 import json
 import math
@@ -29,14 +30,12 @@ STATE_KEYS = {
 # Keys built at run time, matched by (file, argument as written) so a new
 # dynamic key in another file has to be added here with its reason.
 DYNAMIC_KEYS = {
-    ("services/settings_service.py", "_PREF_PREFIX + key"):
-        "pref.<name>: every name is a row declared with store_key pref.<name>",
-    ("services/settings_service.py", "_PREF_PREFIX + name"):
-        "pref.<name>: every name is a row declared with store_key pref.<name>",
+    ("background_jobs.py", "key"):
+        "the _setting helper's own read; its callers are checked by test_background_jobs_setting_calls_are_declared",
+    ("services/settings_service.py", "settings_schema.BY_KEY[key].store_key"):
+        "the schema writer: the store_key of a declared, validated row",
     ("services/settings_service.py", "setting.store_key"):
         "the schema reader: the store_key of a declared row",
-    ("services/settings_service.py", "key"):
-        "helper arguments; the callers pass the literals checked below",
     ("services/settings_service.py", "ENGINE_TEST_GENERATION_PREFIX + engine"):
         "engine_test_gen.<engine>: one counter per engine, created on first key write",
     ("services/settings_service.py", "ENGINE_TEST_PREFIX + engine"):
@@ -158,31 +157,35 @@ class TestEveryKeyIsDeclared:
             f"test's STATE_KEYS / DYNAMIC_KEYS): {undeclared}")
         assert set(DYNAMIC_KEYS) == used_dynamic, "a DYNAMIC_KEYS entry no longer matches a call"
 
+    def test_background_jobs_setting_calls_are_declared(self):
+        # The DYNAMIC_KEYS exemption for background_jobs.py covers only the _setting
+        # helper's body, so every caller must still pass a declared literal key.
+        text = _read("background_jobs.py")
+        keys = [_first_argument(text, m.end() - 1) for m in re.finditer(r"\b_setting\(", text)]
+        calls = [k for k in keys if k != "key"]
+        assert calls, "no _setting( callers found; the guard is stale"
+        known = _store_keys()
+        assert [k for k in calls if k.strip('"') not in known or not k.startswith('"')] == []
+
     def test_state_keys_are_not_also_rows(self):
         assert not set(STATE_KEYS) & _store_keys()
 
     def test_preference_and_writable_keys_are_rows(self):
         pref_rows = {s.key for s in schema.SETTINGS if s.store_key.startswith("pref.")}
-        assert set(settings_service._PREFERENCES) == pref_rows
+        assert set(settings_service.get_preferences()) == pref_rows
         for name in settings_service._WRITABLE_SETTINGS:
             assert name in schema.BY_KEY, name
-        used = set()
-        for rel in _tracked("*.py"):
-            if not rel.startswith("tests/"):
-                used |= set(re.findall(r'get_preference\("([a-z_]+)"\)', _read(rel)))
-        assert used <= pref_rows
+        for name in settings_service._DB_TOGGLES:
+            assert name in schema.BY_KEY, name
 
-    def test_bare_literals_and_constants_are_rows(self):
-        keys = _store_keys()
+    def test_get_callers_name_db_rows(self):
+        names = {s.key for s in schema.SETTINGS if s.store == "db"}
         literals = set()
-        for rel in _tracked("services/*.py", "*.py"):
-            text = _read(rel)
-            literals |= set(re.findall(r'\b_get_bool_setting\("([a-z_.]+)"\)', text))
-            literals |= set(re.findall(r'\b_set_app_bool\("([a-z_.]+)"', text))
-        assert literals <= keys, literals - keys
-        import ollama_unload
-        assert settings_service.BULK_AUTO_RESUME_KEY in keys
-        assert ollama_unload.SETTING_KEY in keys
+        for rel in _tracked("*.py"):
+            if rel.startswith("tests/"):
+                continue
+            literals |= set(re.findall(r'\bsettings_service\.get\("([a-z_.]+)"\)', _read(rel)))
+        assert literals and literals <= names, literals - names
 
     @pytest.mark.parametrize("rel,prefix", [
         ("services/maintenance_assistant_service.py", "assistant."),
@@ -217,34 +220,36 @@ PROBES = [None, True, False, 0, 1, -1, 1.5, 2.25, 7.26, 99, 100, 500, 20480, 1_0
           "tab\t", "x" * 1025, "x" * 2001, {}, [], {"a": 1}]
 
 
-class TestAgreesWithPreferences:
-    """The old table and the schema coexist until the second PR; they must
-    accept and reject exactly the same values."""
+class TestWritesAndReadsAgree:
+    """One definition of valid: a write is refused exactly when a stored row of
+    the same value would read as the default."""
 
     def test_constants_match(self):
         import memory_headroom
-        assert schema.UPLOAD_MB_DEFAULT == settings_service.DEFAULT_UPLOAD_MB
-        assert schema.UPLOAD_MB_MIN == settings_service.MIN_UPLOAD_MB
-        assert schema.UPLOAD_MB_MAX == settings_service.MAX_UPLOAD_MB
-        assert schema._PATH_MAX == settings_service._MAX_PATH_LENGTH
-        assert schema._STYLE_NOTE_MAX == settings_service._MAX_STYLE_NOTE_LENGTH
-        assert schema._NUM_CTX_MAX == settings_service._MAX_NUM_CTX
-        assert schema._MONTHLY_CAP_MAX == settings_service._MAX_MONTHLY_CAP
+        import background_jobs
         assert schema._KEEP_FREE_GB_MAX == memory_headroom.MAX_KEEP_FREE_GB
+        assert schema.BY_KEY["gpu_max_parallel"].max == background_jobs.GPU_MAX_PARALLEL_LIMIT
 
-    @pytest.mark.parametrize("name", sorted(settings_service._PREFERENCES))
-    def test_default_and_validation(self, name):
-        default, check = settings_service._PREFERENCES[name]
+    @pytest.mark.parametrize("name", sorted(
+        s.key for s in schema.SETTINGS if s.store_key.startswith("pref.")))
+    def test_validate_accepts_what_coerce_keeps(self, name):
         row = schema.BY_KEY[name]
-        assert row.default == default
         choices = (settings_service._SCHEMA_CHOICES[row.choices]() if row.choices else None)
         for probe in PROBES:
             try:
-                expected = check(probe)
-            except InvalidInputError:
-                expected = default
-            got = schema.coerce(name, probe, choices)
-            assert got == expected and type(got) is type(expected), (name, probe, got, expected)
+                written = schema.validate(name, probe, choices)
+            except ValueError:
+                continue
+            assert schema.coerce(name, written, choices) == written, (name, probe)
+            if probe is not None and schema.coerce(name, probe, choices) != row.default:
+                assert written == schema.coerce(name, probe, choices), (name, probe)
+
+    def test_write_refusals_never_echo_the_value(self, isolated_db):
+        for name, bad in (("default_engine", "sk-secret"), ("tesseract_cmd", "a\x00sk-secret"),
+                          ("max_upload_mb", "sk-secret"), ("monthly_cap_usd", -1)):
+            with pytest.raises(InvalidInputError) as caught:
+                settings_service.set_settings({name: bad})
+            assert "sk-secret" not in str(caught.value)
 
 
 def _valid_and_bad(row):
@@ -326,3 +331,57 @@ def test_unknown_key_is_an_error(isolated_db):
 
 def test_nan_is_never_a_stored_number():
     assert schema.coerce("monthly_cap_usd", math.nan) is None
+
+
+# Root modules sit below services and may not import them, so each reads its
+# own rows with db.get_app_setting and lib.settings_schema.coerce.
+ROOT_READERS = {
+    "background_jobs.py": "gpu_limit_enabled, gpu_max_parallel and notify_on_completion gate "
+                          "job scheduling, below the service layer",
+    "ollama_unload.py": "unload_ollama_before_transcribe is read where the GPU is about to be used",
+}
+
+
+# Modules that still read a declared key with db.get_app_setting. Each one
+# parses its own stored document or is imported by settings_service (so cannot
+# call it back at import time); a read moves to settings_service.get when its
+# module is next changed. The list may only shrink: a new module is refused.
+OTHER_READERS = {
+    "engine_backends/pricing.py": "below services: cannot import settings_service",
+    "services/asr_options_service.py": "settings_service imports it for the voice detector choices",
+    "services/auto_backup_service.py": "normalises its own settings document",
+    "services/extension_service.py": "normalises the extension engine document",
+    "services/metadata_research_service.py": "reads its budget document",
+    "services/model_registry_service.py": "reads its cached provider check and extension engine",
+    "services/notification_service.py": "normalises the category document",
+    "services/ownership_service.py": "household share default, read on the ownership hot path",
+    "services/remote_health_service.py": "reads its own health document",
+    "services/sources_save_service.py": "reads the comic save folder document",
+    "services/transcribe_service.py": "reads the transcription speed document",
+    "services/update_service.py": "update check switch and timestamp",
+    "services/web_search_service.py": "normalises the web search document",
+}
+
+
+def test_declared_keys_are_read_through_one_reader():
+    modules = _module_files()
+    store_keys = _store_keys()
+    stray, seen_other = [], set()
+    for rel in _tracked("*.py"):
+        if rel.startswith(("tests/", "lib/")) or rel in ("db.py", "services/settings_service.py"):
+            continue
+        text = _read(rel)
+        assert "get_preference(" not in text, rel
+        for m in re.finditer(r"\bget_app_setting\(", text):
+            expr = _first_argument(text, m.end() - 1)
+            if _resolve_expression(rel, expr, modules) not in store_keys:
+                continue
+            if rel in OTHER_READERS:
+                seen_other.add(rel)
+            elif rel not in ROOT_READERS:
+                stray.append(f"{rel}: {expr}")
+    assert stray == [], ("read a declared key with settings_service.get (or, below the "
+                         f"service layer, add the module to ROOT_READERS with a reason): {stray}")
+    assert seen_other == set(OTHER_READERS), "drop a migrated module from OTHER_READERS"
+    for rel in ROOT_READERS:
+        assert "settings_schema.coerce(" in _read(rel), f"{rel} should coerce through the schema"

@@ -308,7 +308,7 @@ language. A line is given a `lang` only when it differs from the title's, and
 one that still can't be confirmed gets the `language_uncertain` flag.
 
 **Model folders and offline use.** Settings > "Offline Whisper model folder"
-(`whisper_model_path`, read by `settings_service.get_whisper_model_path`) is
+(`whisper_model_path`, read by `settings_service.get("whisper_model_path")`) is
 passed as `local_model_path` and used instead of a download. Downloads honour an
 HF token (`hf_token` key, `HF_TOKEN`). In portable mode `portable.py` redirects
 `HF_HOME`, `TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` under one

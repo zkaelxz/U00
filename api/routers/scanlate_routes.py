@@ -123,7 +123,7 @@ async def post_pages(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1))
 def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
     # The configured default is resolved first, so a household user can run
     # a drama whose default engine is a free one.
-    engine = body.engine or settings_service.get_default_engine()
+    engine = body.engine or settings_service.get("default_engine")
     require_engines_allowed(request, engine)
     return scanlate_run_service.start_run(
         drama_id, mode=body.mode, page_id=body.page_id, confirm=body.confirm, engine=engine,

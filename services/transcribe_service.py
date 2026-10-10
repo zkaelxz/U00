@@ -297,11 +297,11 @@ def get_transcribe_config(drama_id: int) -> dict:
         "asr_backend_notice": asr_options_service.removed_asr_backend_notice(drama),
         "whisper_size": whisper_size,
         "whisper_model_cached": whisper_models.is_whisper_model_cached(whisper_size),
-        "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get_use_gpu()),
-        "measured_speed_runs": measured_transcribe_runs(whisper_size, settings_service.get_use_gpu()),
-        "measured_stage_seconds": measured_stage_seconds(whisper_size, settings_service.get_use_gpu()),
-        "measured_diarize_speed": measured_diarize_speed(settings_service.get_use_gpu()),
-        "measured_diarize_runs": measured_diarize_runs(settings_service.get_use_gpu()),
+        "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get("use_gpu")),
+        "measured_speed_runs": measured_transcribe_runs(whisper_size, settings_service.get("use_gpu")),
+        "measured_stage_seconds": measured_stage_seconds(whisper_size, settings_service.get("use_gpu")),
+        "measured_diarize_speed": measured_diarize_speed(settings_service.get("use_gpu")),
+        "measured_diarize_runs": measured_diarize_runs(settings_service.get("use_gpu")),
         "whisper_installed": diagnostics.check_dependency("faster_whisper"),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
@@ -495,7 +495,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     update_transcribe_config if a run needs different ones.
     tesseract_cmd is an optional, client-supplied path to the tesseract
     binary; omitted, the saved Settings Tesseract path applies
-    (settings_service.get_tesseract_cmd).
+    (settings_service.get("tesseract_cmd")).
 
     Raises NotFoundError for an unknown drama id; UnsupportedOperationError
     if there's no audio available (non-hardsub_ocr modes) or no video
@@ -571,7 +571,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     min_pause_sec = stored_min_pause_sec(drama)
     separation_backend = drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"]
     prompt = _resolve_initial_prompt(drama_id, initial_prompt or "", extra_names or "")
-    use_gpu = settings_service.get_use_gpu()
+    use_gpu = settings_service.get("use_gpu")
     # Read here, in the parent, and frozen with the other settings for the saved run settings.
     gpu_app_settings = raw_transcript.current_gpu_app_settings()
     run_settings = run_settings_service.for_transcribe(
@@ -590,7 +590,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             prompt, video_path,
             drama.get("hardsub_ocr_backend") or default_hardsub_backend(source_language),
             drama.get("hardsub_interval_sec") or 1.0,
-            tesseract_cmd or settings_service.get_tesseract_cmd(), diarize_audio_path,
+            tesseract_cmd or settings_service.get("tesseract_cmd") or None, diarize_audio_path,
             use_gpu, asr_backend_choice, alignment_method,
             min_speakers=min_speakers, max_speakers=max_speakers,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
@@ -612,7 +612,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       bool(drama.get("realign_long_segments")),
                       bool(drama.get("whisper_fast_mode")), bool(drama.get("use_groq")), prompt,
                       use_gpu, asr_backend_choice, alignment_method,
-                      settings_service.get_whisper_model_path(),
+                      settings_service.get("whisper_model_path") or None,
                       asr_options_service.get_qwen_asr_batch_size(),
                       asr_options_service.get_vad_refine_timing(),
                       asr_options_service.get_mixed_languages(),
@@ -739,7 +739,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     chained speaker detection, already checked by start_transcribe_run.
 
     use_gpu is the persisted server-side toggle (db.app_settings, read via
-    settings_service.get_use_gpu() in start_transcribe_run, default off).
+    settings_service.get("use_gpu") in start_transcribe_run, default off).
 
     diarize_audio_path is resolved once in start_transcribe_run, from the
     drama's own stored audio_filename, independent of transcript_mode --
@@ -756,7 +756,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
             separate_vocals_first, separation_backend, realign_long_segments, whisper_fast_mode,
             use_groq, groq_api_key, initial_prompt, use_gpu, asr_backend_choice, alignment_method,
-            local_model_path=settings_service.get_whisper_model_path(),
+            local_model_path=settings_service.get("whisper_model_path") or None,
             qwen_batch_size=asr_options_service.get_qwen_asr_batch_size(),
             video_path=video_path, hardsub_ocr_backend=hardsub_ocr_backend,
             hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
@@ -839,7 +839,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                     max_speakers=max_speakers),
                 run_settings=run_settings_service.for_diarize(
                     expected_speakers, min_speakers, max_speakers,
-                    settings_service.get_use_gpu()))
+                    settings_service.get("use_gpu")))
         except ConflictError:
             # A clean stop cancels every job and refuses new ones, so one
             # that began after the lines were saved refuses the follow-up
@@ -970,7 +970,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     started = background_jobs.start_process_job(
         job_id, _autotune_all_worker,
         args=(audio_path, stored_whisper_size(drama),
-              drama.get("source_language") or "zh", settings_service.get_use_gpu(),
+              drama.get("source_language") or "zh", settings_service.get("use_gpu"),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
               drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
               presets.stored_vad_threshold(drama),
@@ -1107,7 +1107,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
                   stored_whisper_size(drama),
                   drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
                   drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-                  presets.stored_vad_threshold(drama), settings_service.get_use_gpu(), prompt,
+                  presets.stored_vad_threshold(drama), settings_service.get("use_gpu"), prompt,
                   stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),

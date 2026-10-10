@@ -25,6 +25,7 @@ import segment_splitting
 from services import transcribe_pipeline, transcribe_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
+from tests.saved_settings import patch_setting
 
 
 def _drama_with_audio(isolated_db, **fields):
@@ -685,7 +686,7 @@ class TestRunTranscribeAndApplyJob:
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
         from services import settings_service
-        monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+        patch_setting(monkeypatch, "use_gpu", True)
         diarize_calls = []
         monkeypatch.setattr(background_jobs, "start_process_job",
                             lambda job_id, target, args=(), **k: diarize_calls.append(

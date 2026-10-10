@@ -165,7 +165,7 @@ def extra_models(engine: str) -> list:
     """Models the provider listed in the last manual check that this app
     doesn't know yet; [] when the setting is off, no check has run or it
     failed for `engine`. Reads the cache only, never the network."""
-    if not settings_service.get_offer_provider_models():
+    if not settings_service.get("offer_provider_models"):
         return []
     return _listed_extras(engine)
 
@@ -324,7 +324,7 @@ def get_status() -> dict:
             "warnings": sum(1 for i in items if i["severity"] >= 2),
             "checked_at": check.get("checked_at"),
             "engines_checked": engines_checked,
-            "offer_provider_models": settings_service.get_offer_provider_models(),
+            "offer_provider_models": settings_service.get("offer_provider_models"),
             "extra_models": {e: x for e in _EXTRA_PREFIX if (x := extra_models(e))},
             "registry_updated": _registry_updated()}
 

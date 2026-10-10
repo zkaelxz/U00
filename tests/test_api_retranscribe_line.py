@@ -22,6 +22,7 @@ from core import Line
 from services import jobs_service, transcribe_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
+from tests.saved_settings import patch_setting
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 _PREFIXES = ("retranscribe_", "transcribe_", "fixflag_", "resegment_", "narration_",
@@ -245,7 +246,7 @@ class TestStart:
 
     def test_default_is_turbo_on_cpu_and_gpu_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
         for gpu in (True, False):
-            monkeypatch.setattr(transcribe_service.settings_service, "get_use_gpu", lambda gpu=gpu: gpu)
+            patch_setting(monkeypatch, "use_gpu", gpu)
             assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": ""}) == "large-v3-turbo"
             assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": "medium"}) == "medium"
 

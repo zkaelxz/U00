@@ -47,7 +47,7 @@ def test_off_by_default_touches_nothing(isolated_db, monkeypatch):
     bid = _pending_batch(did)
     calls = []
     monkeypatch.setattr(bt, "resume_pending", lambda *a, **k: calls.append(a) or {})
-    assert settings_service.get_bulk_auto_resume() is False
+    assert settings_service.get("bulk_auto_resume") is False
     assert settings_service.get_settings_overview()["bulk_auto_resume"] is False
     assert svc.resume_interrupted_at_startup() == {"enabled": False, "resumed": 0, "skipped": 0}
     assert calls == []

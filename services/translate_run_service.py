@@ -109,7 +109,7 @@ def get_translate_config(drama_id: int) -> dict:
         os.path.join(db.DRAMAS_DIR, str(drama_id), filename))
     lines = db.load_lines(drama_id)
     monthly_cap = month_cap_usd()
-    free_tier = settings_service.get_gemini_free_tier()
+    free_tier = settings_service.get("gemini_free_tier")
     engine_name = (drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     return {
@@ -127,8 +127,8 @@ def get_translate_config(drama_id: int) -> dict:
             for k in translate_engines.WORKFLOW_TIERS
             for t in [translate_engines.effective_tier(k)]],
         "defaults": get_translate_config_defaults(is_novel),
-        "default_locale": settings_service.get_preference("default_locale"),
-        "default_style_note": settings_service.get_preference("default_style_note"),
+        "default_locale": settings_service.get("default_locale"),
+        "default_style_note": settings_service.get("default_style_note"),
         "project_instructions": drama.get("project_instructions"),
         "series_instructions": drama.get("series_instructions"),
         "has_novel_reference": has_novel,
@@ -275,7 +275,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
     can't be built or a cloud pick has no key. Never fails the translation.
     allow_paid=False (an API caller without engines.paid) also skips a pick
     outside translate_engines.FREE_ENGINES: it would spend the owner's key."""
-    choice = settings_service.get_preference("episode_summary_engine")
+    choice = settings_service.get("episode_summary_engine")
     if not allow_paid and choice not in translate_engines.FREE_ENGINES:
         return None, None
     try:
@@ -287,7 +287,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
         if not api_key:
             return None, None
         return translate_engines.get_engine(
-            choice, api_key, free_tier=choice == "gemini" and settings_service.get_gemini_free_tier()
+            choice, api_key, free_tier=choice == "gemini" and settings_service.get("gemini_free_tier")
         ), choice
     except Exception as exc:
         from applog import get_logger
@@ -529,7 +529,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         job_id, drama_id, lines, engine, drama, style_note or "",
         novel_reference, force_retranslate, locale, glossary_terms,
         style_guidelines, engine_name, style_preset, context_window,
-        settings_service.get_ollama_num_ctx_override() or None, reflect=reflect,
+        settings_service.get("ollama_num_ctx_override") or None, reflect=reflect,
         cost_cap_usd=cost_cap,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
@@ -659,7 +659,7 @@ def resume_bulk_translations(drama_id: int) -> dict:
 
 
 def _spend_cap_used_up(engine_name: str) -> bool:
-    if not engine_cap_applies(engine_name, settings_service.get_gemini_free_tier()):
+    if not engine_cap_applies(engine_name, settings_service.get("gemini_free_tier")):
         return False
     monthly = month_cap_usd()
     _cap, refusal = translate_engines.resolve_cost_cap(
@@ -676,7 +676,7 @@ def resume_interrupted_at_startup() -> dict:
     raises; returns {"enabled", "resumed", "skipped"} counts."""
     out = {"enabled": False, "resumed": 0, "skipped": 0}
     try:
-        if not settings_service.get_bulk_auto_resume():
+        if not settings_service.get("bulk_auto_resume"):
             return out
         out["enabled"] = True
         pending = db.list_bulk_jobs(statuses=("submitted", "scheduled", "running"))

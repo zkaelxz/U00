@@ -97,7 +97,7 @@ def _build_engine(engine_name: str):
     try:
         return translate_engines.get_engine(
             engine_name, api_key, None,
-            free_tier=engine_name == "gemini" and settings_service.get_gemini_free_tier(),
+            free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
     except ImportError:

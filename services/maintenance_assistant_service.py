@@ -950,7 +950,7 @@ def build_engine(engine_name=None, model=None):
     from services import line_ai_service, settings_service
     require_cloud_consent(engine_name, model)
     engine = reader_service.llm_engine(engine_name, model)
-    line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get_gemini_free_tier())
+    line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get("gemini_free_tier"))
     return engine, engine_name, model
 
 
@@ -1218,7 +1218,7 @@ def build_review_engine():
     model = settings["review_model"]
     require_cloud_consent(name, model)  # the reviewer reads the same code and logs
     engine = reader_service.llm_engine(name, model)
-    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get_gemini_free_tier())
+    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get("gemini_free_tier"))
     return engine, name, model
 
 

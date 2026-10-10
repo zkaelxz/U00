@@ -20,6 +20,7 @@ from services import benchmark_lab_service as svc
 from services import settings_service, translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
+from tests.saved_settings import patch_setting
 
 
 def _wait(job_id=svc.JOB_ID, timeout=15):
@@ -456,7 +457,7 @@ class TestReviewFixes:
         assert 0 < len(detail["results"]) < 5
 
     def test_gemini_free_tier_not_capped(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: True)
+        patch_setting(monkeypatch, "gemini_free_tier", True)
         assert svc._cap_applies("gemini") is False
         assert svc._cap_applies("claude") is True
 

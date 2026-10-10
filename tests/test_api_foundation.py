@@ -413,7 +413,7 @@ class TestTranslateEndpoints:
     def test_engines_name_settings_default_engine(self, client, isolated_db):
         from services import settings_service
         body = client.get("/api/translate/engines").json()
-        assert body["default_engine"] == settings_service.get_default_engine()
+        assert body["default_engine"] == settings_service.get("default_engine")
         assert body["default_engine"] in {e["name"] for e in body["items"]}
 
     def test_engines_never_leak_a_key_value(self, client, isolated_db, monkeypatch):

@@ -15,6 +15,7 @@ from core import Line
 from services import (benchmark_lab_service, engine_routing_service,
                       translate_run_service as svc, translate_service)
 from services.service_errors import InvalidInputError
+from tests.saved_settings import patch_setting
 
 MESSAGE = "The nllb engine was removed. Pick another engine."
 
@@ -81,7 +82,7 @@ class TestBulkResume:
 
     def test_startup_resume_does_not_crash_on_it(self, isolated_db, monkeypatch):
         did, jid = self._job("submitted")
-        monkeypatch.setattr(svc.settings_service, "get_bulk_auto_resume", lambda: True)
+        patch_setting(monkeypatch, "bulk_auto_resume", True)
         monkeypatch.setattr(bulk_translate, "start_poller",
                             lambda *a, **k: pytest.fail("a removed engine must not poll"))
         out = svc.resume_interrupted_at_startup()

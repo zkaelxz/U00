@@ -136,7 +136,7 @@ def cmd_translate(args):
     # local Ollama); a missing/unreachable one just skips the summary
     # rather than failing the translate command.
     summary_engine_choice = (getattr(args, "episode_summary_engine", None)
-                             or settings_service.get_preference("episode_summary_engine"))
+                             or settings_service.get("episode_summary_engine"))
     summary_key = getattr(args, "episode_summary_api_key", None) or (
         None if summary_engine_choice == "ollama"
         else translate_service.resolve_api_key(summary_engine_choice))
@@ -185,7 +185,7 @@ def cmd_translate(args):
         try:
             validate_run_options(
                 engine_name, args.model if _own_flags(engine_name) else None,
-                locale=args.locale or settings_service.get_preference("default_locale"),
+                locale=args.locale or settings_service.get("default_locale"),
                 style_preset=style_preset,
                 context_window=_flag_or(args, "context_window", tdefaults),
                 context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
@@ -287,12 +287,12 @@ def cmd_translate(args):
             print(f"  #{did}: {frac*100:.0f}%", end="\r")
 
         style_note = (args.style_note if args.style_note is not None
-                      else settings_service.get_preference("default_style_note"))
-        scene_aware = settings_service.get_preference("scene_aware_batches")
+                      else settings_service.get("default_style_note"))
+        scene_aware = settings_service.get("scene_aware_batches")
         # Same settings the Workspace job records with each line.
         provenance = line_provenance_service.translate_run_tracker(
             d["id"], lines, engine, engine_name, glossary_terms,
-            locale=args.locale or settings_service.get_preference("default_locale"),
+            locale=args.locale or settings_service.get("default_locale"),
             style_preset=style_preset, reflect=bool(getattr(args, "reflect", False)),
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
@@ -318,11 +318,11 @@ def cmd_translate(args):
             lines, engine, drama_meta=d,
             style_note=style_note,
             novel_reference=novel_reference, force_retranslate=force, target_ids=target_ids,
-            locale=args.locale or settings_service.get_preference("default_locale"),
+            locale=args.locale or settings_service.get("default_locale"),
             glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
             ollama_num_ctx_override=(args.ollama_num_ctx if args.ollama_num_ctx is not None
-                                     else settings_service.get_ollama_num_ctx_override() or None),
+                                     else settings_service.get("ollama_num_ctx_override") or None),
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
