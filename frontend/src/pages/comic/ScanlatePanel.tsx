@@ -1,7 +1,7 @@
 /*
  * The Comic page's Translate panel: upload pages (PC only), pick an engine,
  * "Translate all pages" (skips pages that already have text), "Redo this
- * page", "Redo all…" (confirm), job progress and cancel, the current page's
+ * page" (confirm), "Redo all…" (confirm), job progress and cancel, the current page's
  * run notes, and ZIP/PDF export. One Scanlate job runs per drama; when it
  * finishes, onChanged() lets the viewer reload its pages so the typeset
  * images show. Server notes are rendered as text only.
@@ -280,14 +280,16 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }
         >
           {running && jobKind === 'run' ? 'Translating…' : `Translate ${targetName}`}
         </button>
-        <button
-          type="button"
-          className={buttonClass('secondary')}
-          disabled={!config || !!blocked || running || !pageId}
-          onClick={() => void start('page')}
-        >
-          {pageNumber ? `Redo page ${pageNumber}` : 'Redo this page'}
-        </button>
+        <ConfirmButton
+          name={pageNumber ? `page ${pageNumber}` : 'this page'}
+          label={pageNumber ? `Redo page ${pageNumber}…` : 'Redo this page…'}
+          verb="redo"
+          ariaLabel={pageNumber ? `Redo page ${pageNumber}` : 'Redo this page'}
+          confirmLabel={pageNumber ? `Replace text on page ${pageNumber}` : 'Replace text on this page'}
+          busy={running}
+          disabled={!config || !!blocked || !pageId}
+          onConfirm={() => void start('page')}
+        />
         {blocked && (
           <span id="scanlate-blocked" className="muted">
             {blocked}

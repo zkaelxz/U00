@@ -89,6 +89,13 @@ export interface BenchmarkConfig {
   model?: string
 }
 
+/** The engine that scores a translation run's outputs. allow_same_model must be true to judge with a tested model. */
+export interface BenchmarkJudgeConfig {
+  engine: string
+  model?: string
+  allow_same_model?: boolean
+}
+
 export interface BenchmarkRunRequest {
   stage: BenchmarkStage
   configs: BenchmarkConfig[]
@@ -97,6 +104,35 @@ export interface BenchmarkRunRequest {
   case_ids?: number[]
   label?: string
   prompt_version?: string
+  judge?: BenchmarkJudgeConfig
+}
+
+/** One output's judge scores, each 0-1. */
+export interface BenchmarkJudgeScore {
+  accuracy: number
+  tone: number
+  naturalness: number
+  overall: number
+}
+
+export interface BenchmarkJudgeSummary {
+  engine: string | null
+  model: string | null
+  status: string | null
+  same_as_tested: boolean
+  cost_usd: number
+  scored: number
+  average: Partial<Record<keyof BenchmarkJudgeScore, number | null>>
+  note: string | null
+}
+
+export interface BenchmarkJudgeEstimate {
+  engine: string
+  model: string | null
+  estimated_cost_usd: number
+  cap_applies: boolean
+  same_as_tested: string[]
+  warning: string | null
 }
 
 export interface BenchmarkConfigEstimate {
@@ -116,6 +152,8 @@ export interface BenchmarkEstimate {
   remaining_usd: number | null
   monthly_refusal: string | null
   estimate_above_cap: boolean
+  /** Present when the request asked for a judge; estimated_cost_usd already includes it. */
+  judge?: BenchmarkJudgeEstimate | null
 }
 
 export interface BenchmarkRunStarted {
@@ -148,6 +186,7 @@ export interface BenchmarkRun {
   context_settings: Record<string, unknown>
   case_filter: Record<string, unknown>
   delta_vs_first: number | null
+  judge?: BenchmarkJudgeSummary | null
 }
 
 export interface BenchmarkResult {
@@ -162,6 +201,7 @@ export interface BenchmarkResult {
   duration_seconds: number | null
   cost_usd: number
   error: string | null
+  judge?: BenchmarkJudgeScore | null
 }
 
 interface BenchmarkRunDetail {
@@ -216,6 +256,37 @@ export const addRegressionCase = (dramaId: number, lineId: number, f?: Fetch) =>
 // Reads pasted text only; nothing is downloaded.
 export const importGoldenSet = (body: BenchmarkImportRequest, f?: Fetch) =>
   postJson<BenchmarkImportResult>(`${BASE}/import`, body, pcOnlyFetch(f))
+
+export type BuildInclude = 'reviewed' | 'all'
+
+export interface BuildSetRequest {
+  drama_id: number
+  set_name: string
+  include: BuildInclude
+  line_start?: number
+  line_end?: number
+  scene_count?: number
+  lines_per_case: number
+  dry_run: boolean
+}
+
+export interface BuildSetResult {
+  set_name: string
+  tier: string
+  include: BuildInclude
+  lines_in_range: number
+  reviewed_lines: number
+  lines_used: number
+  case_count: number
+  added: number
+  skipped: number
+  dry_run: boolean
+}
+
+// Cases from a title's lines: its reviewed (hand-edited or approved) translations are the references.
+// dry_run only counts. PC only.
+export const buildBenchmarkSet = (body: BuildSetRequest, f?: Fetch) =>
+  postJson<BuildSetResult>(`${BASE}/sets/from-title`, body, pcOnlyFetch(f))
 
 // Spends nothing: what a run would cost and whether the monthly cap allows it.
 export const estimateBenchmark = (body: BenchmarkRunRequest, f?: Fetch) =>

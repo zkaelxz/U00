@@ -10,11 +10,9 @@ entries the model used) is returned with an explicit note instead of being
 guessed at, matched positionally, or otherwise fabricated.
 
   - explain_line():      real, currently-recorded history for one line.
-  - explain_job():       a background job's real timing/status.
 """
 
 import db
-import background_jobs
 import translate_engines
 
 CONTEXT_WINDOW_NOTE = (
@@ -29,11 +27,6 @@ GLOSSARY_MATCH_NOTE = (
     "in this line. Every translation prompt sends the whole glossary, not a "
     "per-line filtered subset, and Baihe doesn't yet record which entries the "
     "model actually used for a specific line, which would need that same reproducibility metadata.")
-
-PER_STAGE_TIMING_NOTE = (
-    "Per-stage timing is recorded for jobs run since it was "
-    "added; a job that marks no stages shows one \"Whole job\" row. Spend is the "
-    "estimate logged while each stage ran.")
 
 
 def explain_line(drama_id: int, line, all_lines=None, glossary_terms=None,
@@ -103,34 +96,4 @@ def explain_line(drama_id: int, line, all_lines=None, glossary_terms=None,
         "engine_source": engine_source,
         "provenance": provenance,
         "prompt_version_note": line_provenance_service.describe(provenance),
-    }
-
-
-def explain_job(job_id: str) -> dict:
-    """A background job's real recorded status/timing. Jobs live only in
-    background_jobs' in-memory tracker -- a job from a previous process
-    (an app restart) has nothing here at all."""
-    job = background_jobs.get_status(job_id)
-    if not job:
-        return {"job_id": job_id, "found": False}
-    started, finished = job.get("started_at"), job.get("finished_at")
-    duration = (finished - started) if started and finished else None
-    try:
-        from services import job_timing_service
-        runs = job_timing_service.list_runs(job_id, limit=1)
-    except Exception:
-        runs = []
-    return {
-        "job_id": job_id,
-        "found": True,
-        "status": job.get("status"),
-        "description": job.get("description"),
-        "message": job.get("message"),
-        "error": job.get("error"),
-        "gpu_touching": bool(job.get("gpu_touching")),
-        "started_at": started,
-        "finished_at": finished,
-        "duration_seconds": duration,
-        "per_stage_breakdown": runs[0]["stages"] if runs else None,
-        "per_stage_breakdown_note": PER_STAGE_TIMING_NOTE,
     }
