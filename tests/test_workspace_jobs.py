@@ -13,6 +13,7 @@ download failure, no audio detected) are recorded on the job result instead
 of raised. run_hardsub_ocr_job follows the same pattern."""
 
 import os
+import time
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,6 +28,8 @@ from services.workflow_service import compute_workspace_stage_index as _compute_
 import core as core_module
 from core import Line
 from tests import fake_engine
+from tests.gpu_inline import run_in_child_inline
+from services import fixflag_transcribe, gpu_process_job
 
 
 def _clear(job_id):
@@ -910,6 +913,7 @@ def test_fix_flagged_job_retranscribes_and_retranslates_with_audio(isolated_db, 
     with open(audio_path, "wb") as f:
         f.write(b"x")
 
+    monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
     # wt.core_module was the plain `core` module; patched directly now.
     monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
     monkeypatch.setattr(core_module, "transcribe_for_timing",
@@ -930,6 +934,82 @@ def test_fix_flagged_job_retranscribes_and_retranslates_with_audio(isolated_db, 
     assert summary["input_tokens"] == 10
     assert summary["output_tokens"] == 4
     _clear(job_id)
+
+
+def _three_flagged(isolated_db, tmp_path, job_id):
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=i, start=float(i), end=i + 1.0, zh=f"old{i}", en=f"old en{i}",
+                  flag="mistranslation", flag_note="check") for i in range(3)]
+    isolated_db.save_lines(did, lines)
+    audio_path = str(tmp_path / "audio.wav")
+    with open(audio_path, "wb") as f:
+        f.write(b"x")
+    return did, lines, audio_path
+
+
+def test_fix_flagged_cancel_mid_hearing_keeps_the_lines_heard(isolated_db, monkeypatch, tmp_path):
+    """Cancel lands while line 2 is being heard: the new source text of lines 1
+    and 2 is saved, nothing is translated after the Cancel so every line stays
+    flagged, and the job ends cancelled."""
+    job_id = "test_fixflag_cancel_mid"
+    did, lines, audio_path = _three_flagged(isolated_db, tmp_path, job_id)
+    monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
+    monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
+    heard = []
+
+    def hear(*a, **k):
+        heard.append(1)
+        if len(heard) == 2:
+            background_jobs.request_cancel(job_id)
+        return [{"start": 0.0, "end": 1.0, "text": f"new{len(heard)}"}]
+    monkeypatch.setattr(core_module, "transcribe_for_timing", hear)
+    with pytest.raises(background_jobs.JobCancelled):
+        run_fix_flagged_lines_job(job_id, did, lines, audio_path, "medium", False, "zh",
+                                  FakeFixEngine(), "claude")
+    loaded = isolated_db.load_lines(did)
+    assert [ln["zh"] for ln in loaded] == ["new1", "new2", "old2"]
+    assert [ln["flag"] for ln in loaded] == ["mistranslation"] * 3
+    assert [ln["en"] for ln in loaded] == ["old en0", "old en1", "old en2"]
+    _clear(job_id)
+
+
+def test_fix_flagged_timeout_mid_hearing_keeps_the_lines_heard(isolated_db, monkeypatch, tmp_path):
+    job_id = "test_fixflag_timeout_mid"
+    did, lines, audio_path = _three_flagged(isolated_db, tmp_path, job_id)
+
+    def times_out_after_one(jid, body, args, *, timeout_s, on_item=None, **kw):
+        on_item({"idx": 0, "text": "new0"})
+        raise gpu_process_job.ChildFailed(gpu_process_job.TIMEOUT_MESSAGE)
+    monkeypatch.setattr(gpu_process_job, "run_in_child", times_out_after_one)
+    run_fix_flagged_lines_job(job_id, did, lines, audio_path, "medium", False, "zh",
+                              FakeFixEngine(), "claude")
+    loaded = isolated_db.load_lines(did)
+    assert [ln["zh"] for ln in loaded] == ["new0", "old1", "old2"]
+    assert [ln["flag"] for ln in loaded] == [None, "mistranslation", "mistranslation"]
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["fixed_count"] == 1 and result["total_flagged"] == 3
+    assert gpu_process_job.TIMEOUT_MESSAGE in result["errors"]
+    _clear(job_id)
+
+
+def test_hear_flagged_worker_hides_the_ffmpeg_command_line(monkeypatch, tmp_path):
+    import subprocess
+
+    def cut_fails(*a, **k):
+        raise subprocess.CalledProcessError(1, ["ffmpeg", "-i", "/secret/dir/audio.wav"])
+    monkeypatch.setattr(core_module, "extract_audio_slice", cut_fails)
+    sent = []
+
+    class Sink:
+        def put(self, item):
+            sent.append(item)
+    fixflag_transcribe.hear_flagged_worker("/secret/dir/audio.wav", [(0, 0.0, 1.0)], {},
+                                           str(tmp_path), Sink())
+    entry = next(i[1] for i in sent if i[0] == "item")
+    assert "/secret" not in entry["error"] and "ffmpeg" not in entry["error"]
 
 
 def test_fix_flagged_job_skips_retranscription_with_no_audio(isolated_db, monkeypatch):
@@ -1105,11 +1185,15 @@ def test_fix_flagged_job_keeps_earlier_fixes_when_a_later_line_crashes(isolated_
     with open(audio_path, "wb") as f:
         f.write(b"x")
 
+    monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
     # wt.core_module was the plain `core` module; patched directly now.
     monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
 
+    heard = []
+
     def _fake_transcribe(slice_path, **kwargs):
-        if "_1.wav" in slice_path:
+        heard.append(slice_path)
+        if len(heard) == 2:
             raise RuntimeError("model download failed partway through")
         return [{"start": 0.0, "end": 1.0, "text": "重新转录"}]
 
@@ -1433,6 +1517,7 @@ def test_fix_flagged_hears_each_line_with_the_titles_saved_decoding(isolated_db,
     with open(audio_path, "wb") as f:
         f.write(b"x")
     seen = {}
+    monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
     monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
     monkeypatch.setattr(core_module, "transcribe_for_timing",
                         lambda *a, **k: seen.update(k) or [{"start": 0.0, "end": 1.0, "text": "新"}])
@@ -1445,4 +1530,46 @@ def test_fix_flagged_hears_each_line_with_the_titles_saved_decoding(isolated_db,
     assert seen["beam_size"] == 9 and seen["min_silence_duration_ms"] == 700
     assert seen["repeat_guard"] is True and seen["sensitivity_preset"] == "sensitive"
     assert seen["fast_mode"] is True
+    _clear(job_id)
+
+
+def hung_fixflag_hear(audio_path, windows, settings, scratch_dir, result_queue):
+    """gpu_process_job body for the real-process test: a Whisper call that never returns."""
+    with open(os.environ["FIXFLAG_TEST_MARKER"], "w") as f:
+        f.write(str(os.getpid()))
+    time.sleep(600)
+
+
+def test_fix_flagged_cancel_kills_the_whisper_process_within_bounded_time(
+        isolated_db, monkeypatch, tmp_path):
+    marker = str(tmp_path / "started")
+    monkeypatch.setenv("FIXFLAG_TEST_MARKER", marker)
+    monkeypatch.setattr(fixflag_transcribe, "hear_flagged_worker", hung_fixflag_hear)
+    audio_path = str(tmp_path / "audio.wav")
+    with open(audio_path, "wb") as f:
+        f.write(b"x")
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0.0, end=1.0, zh="旧", en="old", flag="mistranslation",
+                  flag_note="check")]
+    isolated_db.save_lines(did, lines)
+    job_id = "fixflag_real_process"
+    _clear(job_id)
+    assert background_jobs.start_job(
+        job_id, run_fix_flagged_lines_job, job_id, did, lines, audio_path, "medium", False, "zh",
+        FakeFixEngine(), "claude", gpu_touching=True)
+    deadline = time.time() + 60
+    while not os.path.exists(marker):
+        assert time.time() < deadline, "the Whisper process never started"
+        time.sleep(0.05)
+    pid = int(open(marker).read())
+    background_jobs.request_cancel(job_id)
+    deadline = time.time() + 15
+    while background_jobs.get_status(job_id)["status"] in ("running", "queued"):
+        assert time.time() < deadline, "Cancel did not end the job"
+        time.sleep(0.05)
+    assert background_jobs.get_status(job_id)["status"] == "cancelled"
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+    background_jobs.wait_for_job_threads(10)
+    assert isolated_db.load_lines(did)[0]["flag"] == "mistranslation"
     _clear(job_id)

@@ -7,13 +7,12 @@ only what it needs."""
 
 import os
 import subprocess
-import tempfile
-import threading
 
 import background_jobs
 import core as core_module
 import db
 import ollama_unload
+from services import gpu_process_job
 from translate_engines import redact_secrets
 
 # Proposed text kept in the job result: same cap as a line edit.
@@ -26,14 +25,18 @@ _SLICE_TIMEOUT_S = 120
 # part is generous.
 _BASE_TIMEOUT_S = 1800
 _PER_AUDIO_S = 10
+# Whisper pads every clip to 30 s, so a call costs about the same however
+# short the line; on CPU that is 10-30 s a call.
+_PER_WINDOW_S = 60
 
 
-def retranscribe_timeout_s(window_seconds: float) -> float:
+def retranscribe_timeout_s(window_seconds: float, window_count: int = 1) -> float:
     """How long the worker may run before it gives up. The base also covers a
     first-use model download, so it never depends on whether a half-fetched
     model folder looks cached; Cancel is always available for a download the
     user no longer wants."""
-    return _BASE_TIMEOUT_S + _PER_AUDIO_S * max(0.0, window_seconds)
+    return (_BASE_TIMEOUT_S + _PER_AUDIO_S * max(0.0, window_seconds)
+            + _PER_WINDOW_S * max(1, window_count))
 
 
 def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_fallback,
@@ -63,6 +66,9 @@ def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_
     return {"segments": [{"text": (seg.get("text") or "")} for seg in segments or []]}
 
 
+_TIMED_OUT = ("ok", {"failed_reason": "timeout"})
+
+
 def retranscribe_worker(audio_path, start, end, source_language, whisper_size, beam_size,
                         min_silence_ms, vad_threshold, use_gpu, initial_prompt,
                         hallucination_silence_sec, repeat_guard, preset, loading_message,
@@ -73,45 +79,35 @@ def retranscribe_worker(audio_path, start, end, source_language, whisper_size, b
     Ollama notice} or {"failed_reason", ...} for a slice or model-download
     failure or its own timeout; or ("error", type name, redacted message).
     Writes nothing to the database. Cancel kills the whole process, which is
-    what really frees the VRAM of a wedged CUDA call.
+    what really frees the VRAM of a wedged CUDA call. The watchdog and scratch
+    folder are gpu_process_job.run_worker's."""
+    gpu_process_job.run_worker(
+        _hear_one_line, timeout_s, scratch_dir, result_queue,
+        (audio_path, start, end, source_language, whisper_size, beam_size, min_silence_ms,
+         vad_threshold, use_gpu, initial_prompt, hallucination_silence_sec, repeat_guard,
+         preset, loading_message), on_timeout=_TIMED_OUT)
 
-    The timeout watchdog is a thread in this process: the stuck call (a
-    ctranslate2 future wait) releases the GIL, so the watchdog can still
-    report and end the process."""
-    background_jobs.start_own_process_group()
 
-    def give_up():
-        result_queue.put(("ok", {"failed_reason": "timeout"}))
-        result_queue.close()
-        result_queue.join_thread()
-        os._exit(0)
-
-    watchdog = threading.Timer(timeout_s, give_up)
-    watchdog.daemon = True
-    watchdog.start()
-    try:
-        os.makedirs(scratch_dir, exist_ok=True)
-        tempfile.tempdir = scratch_dir
-        slice_path = os.path.join(scratch_dir, "line.wav")
-        background_jobs.report_progress(result_queue, 0.1, loading_message)
-        gpu_fallback = []
-        heard = hear_window(
-            audio_path, start, end, source_language, slice_path, whisper_size, gpu_fallback,
-            use_gpu=use_gpu, initial_prompt=initial_prompt, beam_size=beam_size,
-            min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
-            hallucination_silence_sec=hallucination_silence_sec,
-            repeat_guard=repeat_guard, sensitivity_preset=preset)
-        if heard.get("failed_reason"):
-            result_queue.put(("ok", heard))
-            return
-        outcome = {**heard, **ollama_unload.take_notice_result()}
-        if gpu_fallback:
-            outcome["gpu_fallback"] = gpu_fallback[0]
-        result_queue.put(("ok", outcome))
-    except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
-    finally:
-        watchdog.cancel()
+def _hear_one_line(audio_path, start, end, source_language, whisper_size, beam_size,
+                   min_silence_ms, vad_threshold, use_gpu, initial_prompt,
+                   hallucination_silence_sec, repeat_guard, preset, loading_message,
+                   scratch_dir, result_queue):
+    slice_path = os.path.join(scratch_dir, "line.wav")
+    background_jobs.report_progress(result_queue, 0.1, loading_message)
+    gpu_fallback = []
+    heard = hear_window(
+        audio_path, start, end, source_language, slice_path, whisper_size, gpu_fallback,
+        use_gpu=use_gpu, initial_prompt=initial_prompt, beam_size=beam_size,
+        min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
+        hallucination_silence_sec=hallucination_silence_sec,
+        repeat_guard=repeat_guard, sensitivity_preset=preset)
+    if heard.get("failed_reason"):
+        result_queue.put(("ok", heard))
+        return
+    outcome = {**heard, **ollama_unload.take_notice_result()}
+    if gpu_fallback:
+        outcome["gpu_fallback"] = gpu_fallback[0]
+    result_queue.put(("ok", outcome))
 
 
 def apply_retranscribe_outcome(job_id, outcome, drama_id, line_id, zh_before, start, end):
@@ -159,51 +155,43 @@ def retranscribe_many_worker(audio_path, windows, whisper_size, beam_size, min_s
     line whose audio can't be cut is reported and the run goes on. Writes
     nothing to the database; Cancel kills the whole process like the one-line
     worker's. One watchdog covers the whole run."""
-    background_jobs.start_own_process_group()
+    gpu_process_job.run_worker(
+        _hear_many_lines, timeout_s, scratch_dir, result_queue,
+        (audio_path, windows, whisper_size, beam_size, min_silence_ms, vad_threshold, use_gpu,
+         initial_prompt, hallucination_silence_sec, repeat_guard, preset, loading_message),
+        on_timeout=_TIMED_OUT)
 
-    def give_up():
-        result_queue.put(("ok", {"failed_reason": "timeout"}))
-        result_queue.close()
-        result_queue.join_thread()
-        os._exit(0)
 
-    watchdog = threading.Timer(timeout_s, give_up)
-    watchdog.daemon = True
-    watchdog.start()
-    try:
-        os.makedirs(scratch_dir, exist_ok=True)
-        tempfile.tempdir = scratch_dir
-        slice_path = os.path.join(scratch_dir, "line.wav")
-        background_jobs.report_progress(result_queue, 0.02, loading_message)
-        gpu_fallback = []
-        heard_lines = []
-        for n, (line_id, start, end, language) in enumerate(windows):
-            heard = hear_window(
-                audio_path, start, end, language, slice_path, whisper_size, gpu_fallback,
-                # A failed GPU load would otherwise be retried for every line.
-                use_gpu=use_gpu and not gpu_fallback, initial_prompt=initial_prompt,
-                beam_size=beam_size, min_silence_duration_ms=min_silence_ms,
-                vad_threshold=vad_threshold, hallucination_silence_sec=hallucination_silence_sec,
-                repeat_guard=repeat_guard, sensitivity_preset=preset)
-            if heard.get("failed_reason") == "model_download":
-                result_queue.put(("ok", heard))
-                return
-            if heard.get("failed_reason"):
-                heard_lines.append({"line_id": line_id, "failed_reason": heard["failed_reason"]})
-            else:
-                text = " ".join((s.get("text") or "").strip() for s in heard["segments"]).strip()
-                heard_lines.append({"line_id": line_id, "text": text})
-            background_jobs.report_progress(
-                result_queue, 0.05 + 0.95 * (n + 1) / len(windows),
-                f"Heard line {n + 1} of {len(windows)}")
-        outcome = {"lines": heard_lines, **ollama_unload.take_notice_result()}
-        if gpu_fallback:
-            outcome["gpu_fallback"] = gpu_fallback[0]
-        result_queue.put(("ok", outcome))
-    except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
-    finally:
-        watchdog.cancel()
+def _hear_many_lines(audio_path, windows, whisper_size, beam_size, min_silence_ms,
+                     vad_threshold, use_gpu, initial_prompt, hallucination_silence_sec,
+                     repeat_guard, preset, loading_message, scratch_dir, result_queue):
+    slice_path = os.path.join(scratch_dir, "line.wav")
+    background_jobs.report_progress(result_queue, 0.02, loading_message)
+    gpu_fallback = []
+    heard_lines = []
+    for n, (line_id, start, end, language) in enumerate(windows):
+        heard = hear_window(
+            audio_path, start, end, language, slice_path, whisper_size, gpu_fallback,
+            # A failed GPU load would otherwise be retried for every line.
+            use_gpu=use_gpu and not gpu_fallback, initial_prompt=initial_prompt,
+            beam_size=beam_size, min_silence_duration_ms=min_silence_ms,
+            vad_threshold=vad_threshold, hallucination_silence_sec=hallucination_silence_sec,
+            repeat_guard=repeat_guard, sensitivity_preset=preset)
+        if heard.get("failed_reason") == "model_download":
+            result_queue.put(("ok", heard))
+            return
+        if heard.get("failed_reason"):
+            heard_lines.append({"line_id": line_id, "failed_reason": heard["failed_reason"]})
+        else:
+            text = " ".join((s.get("text") or "").strip() for s in heard["segments"]).strip()
+            heard_lines.append({"line_id": line_id, "text": text})
+        background_jobs.report_progress(
+            result_queue, 0.05 + 0.95 * (n + 1) / len(windows),
+            f"Heard line {n + 1} of {len(windows)}")
+    outcome = {"lines": heard_lines, **ollama_unload.take_notice_result()}
+    if gpu_fallback:
+        outcome["gpu_fallback"] = gpu_fallback[0]
+    result_queue.put(("ok", outcome))
 
 
 # Ceiling on the proposed plus original text kept in one run's job result, so
