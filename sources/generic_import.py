@@ -32,7 +32,9 @@ import io
 import re
 from dataclasses import dataclass, field
 from statistics import median
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
+
+from lib import url_guard
 
 from . import auth_browser, ladder, pacing, registry, store
 from .http import PacingPolicy, SourceClient
@@ -176,7 +178,6 @@ def _tag_hint(tag) -> str:
 # from every "//" in a long run, which is quadratic on a script full of
 # slashes; the scanner below finds each start's extension once instead.
 MANIFEST_URL_MAX_PATH = 2048
-MAX_SCRIPT_SCAN_CHARS = 2_000_000          # all of a page's script text, in total
 _URL_RUN = re.compile(r"""[^\s"'<>()]+""")
 _URL_START = re.compile(r"(?:https?:)?(?:\\?/){2}", re.I)
 _URL_EXT = re.compile(r"""\.(?:jpe?g|png|webp|gif|avif)(?:\?[^\s"'<>()]*)?""", re.I)
@@ -209,12 +210,8 @@ def manifest_candidates(html: str, page_url: str, skip=()) -> list:
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html or "", "html.parser")
     seen, out = set(skip), []
-    budget = MAX_SCRIPT_SCAN_CHARS
     for script in soup.find_all("script"):
-        if budget <= 0:
-            break
-        body = (script.string or script.get_text() or "")[:budget]
-        budget -= len(body)
+        body = script.string or script.get_text() or ""
         for raw in _manifest_urls(body):
             raw = raw.replace("\\/", "/")
             if raw.startswith("//"):
@@ -388,12 +385,12 @@ class DownloadBudget:
     """Caps for download_candidates, shared across every call for
     one page: how many downloads may be attempted (a failed or timed-out
     one counts too) and how many bytes may be kept in total (the per-image
-    byte cap is the client's own). With a budget, a response that says it
-    is neither an image nor a generic binary is refused, and so is one
-    whose header (read without decoding) shows a type outside
-    `allowed_formats` or more than `max_image_pixels`. Built from
-    services/page_import_limits.py by the API's pasted-URL comic import and
-    by default_budget()."""
+    byte cap is the client's own). With `allowed_formats`, a response that
+    says it is neither an image nor a generic binary is refused, and so is
+    one whose header (read without decoding) shows a type outside them;
+    with `max_image_pixels`, one over that many pixels. default_budget()
+    sets only the two caps; the API's pasted-URL comic import adds the
+    format and pixel gates of services/page_import_limits.py on top."""
     max_images: int
     max_total_bytes: int
     max_image_pixels: int = 0            # 0 = no pixel check
@@ -408,7 +405,7 @@ _BINARY_TYPES = ("", "application/octet-stream", "binary/octet-stream")
 def _refused_by_budget(c: ImageCandidate, resp, budget: DownloadBudget) -> str:
     ctype = next((str(v) for k, v in (resp.headers or {}).items()
                   if k.lower() == "content-type"), "").split(";")[0].strip().lower()
-    if not ctype.startswith("image/") and ctype not in _BINARY_TYPES:
+    if budget.allowed_formats and not ctype.startswith("image/") and ctype not in _BINARY_TYPES:
         return "couldn't download (the server didn't send an image)"
     if budget.total_bytes + len(resp.content) > budget.max_total_bytes:
         return "not downloaded (the page's images are over the total size limit)"
@@ -428,33 +425,32 @@ def _refused_by_budget(c: ImageCandidate, resp, budget: DownloadBudget) -> str:
 
 
 def default_budget() -> DownloadBudget:
-    """The page-upload rules the pasted-URL import applies, for a caller
-    that brings no budget of its own: without one, a page could keep up to
-    MAX_CANDIDATES images of the client's per-image cap each in memory."""
+    """The page-upload count and total-size caps, for a caller that brings
+    no budget of its own: without them, a page could keep up to
+    MAX_CANDIDATES images of the client's per-image cap each in memory.
+    No format or content-type gate: adapter chapters have always kept GIF
+    pages and pages a CDN mislabels (text/plain), and refusing them would
+    import a chapter with pages missing."""
     from services import page_import_limits as limits
-    return DownloadBudget(limits.MAX_FILES_PER_IMPORT, limits.MAX_IMPORT_BYTES,
-                          max_image_pixels=limits.MAX_IMAGE_PIXELS,
-                          allowed_formats=limits.ALLOWED_IMAGE_TYPES)
+    return DownloadBudget(limits.MAX_FILES_PER_IMPORT, limits.MAX_IMPORT_BYTES)
 
 
 def image_referer(image_url: str, page_url: str) -> str:
-    """The Referer for an image on `page_url`: the whole page URL for the
-    page's own origin, only its origin for any other host, so a chapter
-    URL's path and query (which can carry tokens) never reach a third-party
+    """The Referer for an image on `page_url`: the page URL (without
+    credentials or fragment, which a browser never sends) for the page's
+    own origin, only its origin for any other host, so a chapter URL's
+    path and query (which can carry tokens) never reach a third-party
     image server. Image CDNs that check the Referer check the site, not the
     page."""
     image, page = urlsplit(image_url), urlsplit(page_url)
     try:
         same = (image.scheme, image.hostname, image.port) == (page.scheme, page.hostname, page.port)
-        port = page.port
     except ValueError:                              # a malformed port
-        same, port = False, None
-    if same:
-        return page_url
-    host = page.hostname or ""
-    if ":" in host:
-        host = f"[{host}]"
-    return f"{page.scheme}://{host}{f':{port}' if port else ''}/"
+        same = False
+    origin = url_guard.referer_origin(page_url)
+    if not same or not origin:
+        return origin
+    return urlunsplit((page.scheme, page.netloc.rsplit("@", 1)[-1], page.path, page.query, ""))
 
 
 def download_candidates(candidates, page_url: str, client, budget: DownloadBudget = None) -> None:
@@ -470,9 +466,10 @@ def download_candidates(candidates, page_url: str, client, budget: DownloadBudge
             c.reject_reason = "not downloaded (too many images on the page)"
             continue
         budget.images += 1                      # every attempt counts, even a failed one
+        referer = image_referer(c.url, page_url)
         try:
             resp = client.get(c.url, classify_body=False,
-                              headers={"Referer": image_referer(c.url, page_url)},
+                              headers={"Referer": referer} if referer else {},
                               action=f"Checking image {c.order + 1}/{len(candidates)}")
         except SourceError as e:
             c.reject_reason = f"couldn't download ({e.reason.value})"
@@ -538,9 +535,8 @@ _DROP_HINT = re.compile(r"comment|sidebar|footer|header|nav|menu|breadcrumb|shar
                         r"advert|\bads?\b|recommend|login|copyright", re.I)
 
 
-# A container is a candidate only within these; their text still counts
-# towards the containers above them.
-MAX_TEXT_CONTAINERS = 5000
+# A container is a candidate only within this depth; its text still counts
+# towards the containers above it.
 MAX_TEXT_DEPTH = 200
 
 
@@ -621,7 +617,7 @@ def extract_main_text_heuristic(html: str) -> str:
             t.decompose()
     sizes = _text_sizes(soup)
     containers = [el for el in soup.find_all(["article", "div", "section", "main", "td"])
-                  if sizes[id(el)][3] <= MAX_TEXT_DEPTH][:MAX_TEXT_CONTAINERS]
+                  if sizes[id(el)][3] <= MAX_TEXT_DEPTH]
     best, best_len = None, 0
     for el in containers:
         paras = sum(sizes[id(p)][0] for p in el.find_all("p", recursive=False))

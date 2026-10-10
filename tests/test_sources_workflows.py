@@ -259,12 +259,17 @@ class TestGenericComicImport:
         assert generic_import.image_referer("http://site.invalid/a.png",
                                             "https://site.invalid/c/1") == "https://site.invalid/"
 
-    def test_downloads_without_a_budget_use_the_page_upload_rules(self, isolated_db, monkeypatch):
+    def test_same_origin_referer_drops_credentials_and_fragment(self):
+        assert generic_import.image_referer(
+            "http://site.invalid:8080/a.png", "http://user:pw@site.invalid:8080/c/1?k=v#top") \
+            == "http://site.invalid:8080/c/1?k=v"
+
+    def test_downloads_without_a_budget_use_the_page_upload_caps(self, isolated_db, monkeypatch):
         from services import page_import_limits as limits
         budget = generic_import.default_budget()
         assert (budget.max_images, budget.max_total_bytes) == (limits.MAX_FILES_PER_IMPORT,
                                                                limits.MAX_IMPORT_BYTES)
-        assert budget.allowed_formats == limits.ALLOWED_IMAGE_TYPES
+        assert (budget.allowed_formats, budget.max_image_pixels) == ((), 0)
         monkeypatch.setattr(generic_import, "default_budget",
                             lambda: generic_import.DownloadBudget(2, 10**9))
         t = ScriptedTransport({f"https://comic.invalid/{i}.png": image(800, 1200, i)
@@ -283,6 +288,12 @@ class TestGenericComicImport:
         found = generic_import.manifest_candidates(page, "https://comic.invalid/r/1")
         assert time.monotonic() - started < 2.0
         assert [c.url for c in found] == ["https://cdn.invalid/a/1.jpg"]
+
+    def test_manifest_scan_reads_every_script(self):
+        page = ("<script>" + "x " * 1_100_000 + "</script>"
+                "<script>var u='//cdn.invalid/late/1.jpg'</script>")
+        found = generic_import.manifest_candidates(page, "https://comic.invalid/r/1")
+        assert [c.url for c in found] == ["https://cdn.invalid/late/1.jpg"]
 
     def test_manifest_path_is_bounded(self):
         far = "//cdn.invalid/" + "a" * (generic_import.MANIFEST_URL_MAX_PATH + 10) + ".png"
@@ -312,6 +323,12 @@ class TestGenericNovelImport:
         text = generic_import.extract_main_text_heuristic(page)
         assert time.monotonic() - started < 3.0
         assert text.startswith("word")
+
+    def test_text_after_many_empty_containers_is_still_found(self):
+        chapter = "".join(f"<p>第{i}段 很长的一段正文内容。</p>" for i in range(40))
+        page = "<div></div>" * 6000 + f"<div class='chapter'>{chapter}</div>"
+        text = generic_import.extract_main_text_heuristic(page)
+        assert text.startswith("第0段") and "第39段" in text
 
     @pytest.mark.parametrize("use_trafilatura", [True, False])
     def test_extracts_main_text_into_the_raw_novel_path(self, isolated_db, monkeypatch,

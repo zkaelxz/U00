@@ -173,6 +173,10 @@ describe('outcomes', () => {
       'Imported · 12 pages', 'Imported · 1 page', 'Already imported', 'Failed: The site timed out.', 'No longer on the site',
     ])
     expect(outcomeText({ chapter_id: 'x', title: '', outcome: 'imported', chars: 3400 })).toBe('Imported · 3,400 characters')
+    expect(outcomeText({
+      chapter_id: 'x', title: '', outcome: 'imported', pages: 2,
+      skipped_pages: ['too small to be a page (10x10)', 'too small to be a page (10x10)', 'GIF is not an accepted image type'],
+    })).toBe('Imported · 2 pages · 3 images left out (too small to be a page (10x10); GIF is not an accepted image type)')
   })
   it('shows chapters a stopped run never reached', () => {
     const stopped: ChapterImportResult = {

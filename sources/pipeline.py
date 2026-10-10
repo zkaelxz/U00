@@ -483,6 +483,7 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                 ladder.check_terms(source, adapter.capabilities())
                 if adapter.supports("get_pages"):
                     pages = adapter.get_pages(ch)
+                    skipped = [redact_secrets(r) for r in adapter.skipped_pages(ch)]
                     state["pages"] = len(pages)
                     images = []
                     for j, page in enumerate(pages, start=1):
@@ -501,6 +502,8 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                         outcome = {"pages": add_page_images(
                             drama_id, images, ids_out=page_ids,
                             chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, source, ch.url))}
+                        if skipped:
+                            outcome["skipped_pages"] = skipped
                     except Exception:
                         _warn("Could not add a chapter's pages")
                         # If this raises, pages may remain: the chapter stays "partial".

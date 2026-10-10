@@ -11,6 +11,7 @@ back to the check between chunks. The caller supplies `make_error`, so each call
 keeps its own user-facing message and error class; this module never puts a
 URL, header or other response detail in an error. Standard library only.
 """
+import socket
 import threading
 import time
 from typing import Callable
@@ -25,17 +26,33 @@ def declared_length(resp):
     return int(raw) if raw.isascii() and raw.isdigit() else None
 
 
+def _shutdown_socket(resp) -> None:
+    # close() alone doesn't wake a thread blocked in recv() on either
+    # library's body; a socket shutdown does. urllib3 offers shutdown() on
+    # the raw body; httpx exposes its socket through the network stream.
+    shutdown = getattr(getattr(resp, "raw", None), "shutdown", None)
+    if callable(shutdown):
+        shutdown()
+        return
+    stream = (getattr(resp, "extensions", None) or {}).get("network_stream")
+    sock = stream.get_extra_info("socket") if stream is not None else None
+    if sock is not None:
+        sock.shutdown(socket.SHUT_RDWR)
+
+
 def _interrupt(resp, fired: threading.Event) -> None:
     fired.set()
-    # close() alone doesn't wake a thread blocked in recv() on a requests
-    # (urllib3) body; urllib3's shutdown() does. httpx's close() is enough.
     try:
-        shutdown = getattr(getattr(resp, "raw", None), "shutdown", None)
-        if callable(shutdown):
-            shutdown()
-        resp.close()
+        _shutdown_socket(resp)
     except Exception:
+        # urllib3 raises once its socket is gone or back in the pool; the
+        # close() below must still run.
         pass
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
 
 
 def read_capped(resp, cap_bytes: int, deadline_seconds: float,
