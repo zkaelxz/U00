@@ -150,7 +150,7 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
         </div>
       </form>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel jobId={jobId} job={job} pollError={pollError} lastRun={{ dramaId, ids: [burnPreviewJobId(dramaId)], retryFor: () => () => void render() }} />
       {info?.clip && (
         <figure className="stack" style={{ margin: 0 }} data-testid="burn-preview-clip">
           <video

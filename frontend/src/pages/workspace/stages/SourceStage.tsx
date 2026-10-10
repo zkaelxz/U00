@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
@@ -56,6 +56,7 @@ export default function SourceStage() {
   // The server says the drama has audio/video even if the status we read did not.
   const [serverHasMedia, setServerHasMedia] = useState(false)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  const transcribeRetry = useRef<(() => void) | null>(null)
   const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
@@ -284,6 +285,7 @@ export default function SourceStage() {
     >
       <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace}
         replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
+        retryRef={transcribeRetry}
         onJobStarted={(id, expected, sentFile) => {
           // Otherwise every later run would upload the same file again and keep another full copy.
           if (sentFile) {
@@ -329,7 +331,19 @@ export default function SourceStage() {
         <DetailsPanel openSignal={revealDetails} onAddCredits={addCredits} />
         <FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} liveEta={jobId.startsWith('transcribe_')} expectedSeconds={expectedSeconds} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        liveEta={!!jobId?.startsWith('transcribe_')}
+        expectedSeconds={expectedSeconds}
+        lastRun={{
+          dramaId,
+          ids: sourceJobIds(dramaId),
+          // Only a transcription has a form here to run again.
+          retryFor: (j) => (j.job_id.startsWith('transcribe_') ? () => transcribeRetry.current?.() : null),
+        }}
+      />
     </div>
   )
 }

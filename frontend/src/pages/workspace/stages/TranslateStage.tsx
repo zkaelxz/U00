@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { getPresets, updateDramaMetadata } from '../../../api/library'
@@ -320,6 +320,7 @@ function RunPanel({
   onRecheckOllama,
   busy,
   bulkPending,
+  retryRef,
 }: {
   config: TranslateRunConfig
   onStarted: (id: string) => void
@@ -329,6 +330,8 @@ function RunPanel({
   busy: boolean
   // The running job is a bulk batch (the busy reason points to Bulk batches).
   bulkPending: boolean
+  // Set to the Translate action, so the stage's Last run card can run it again with this form.
+  retryRef: MutableRefObject<(() => void) | null>
 }) {
   const { dramaId, drama } = useStage()
   const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
@@ -434,6 +437,9 @@ function RunPanel({
       onStarted(r.job_id)
     }, setError)
   }
+  useEffect(() => {
+    retryRef.current = () => start()
+  })
 
   return (
     <section className="panel" aria-label="Translate run">
@@ -738,6 +744,7 @@ export default function TranslateStage() {
   const [error, setError] = useState<unknown>(null)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   useReattachJob(translateJobIds(dramaId), adoptJob)
+  const retry = useRef<(() => void) | null>(null)
   const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
@@ -786,9 +793,15 @@ export default function TranslateStage() {
           onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
           onPresetApplied={(p) => setConfig((c) => (c ? withPresetEngine(c, p) : c))}
           onRecheckOllama={recheckOllama}
+          retryRef={retry}
         />
       )}
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        lastRun={{ dramaId, ids: translateJobIds(dramaId), retryFor: () => () => retry.current?.() }}
+      />
       <BulkBatchesPanel reloadKey={reloads} />
       <NovelFilePanel kind="reference" busy={busy} onChanged={() => setReloads((n) => n + 1)} />
       <GlossaryPanel focusReady={config !== null || error !== null} />

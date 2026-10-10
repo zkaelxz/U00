@@ -246,7 +246,8 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         )}
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      {/* No Retry: a re-split needs its own confirm step. */}
+      <JobPanel jobId={jobId} job={job} pollError={pollError} lastRun={{ dramaId, ids: [resplitJobId(dramaId)] }} />
     </div>
   )
 }

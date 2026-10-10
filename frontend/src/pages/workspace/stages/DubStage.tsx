@@ -241,7 +241,14 @@ export default function DubStage() {
           </div>
         </Section>
       )}
-      {jobId && <JobPanel job={job} pollError={pollError} note={narrationResumeNote(job?.message)} />}
+      <JobPanel
+        jobId={jobId}
+        job={job}
+        pollError={pollError}
+        note={narrationResumeNote(job?.message)}
+        // A narration is started from its own panel, so only a dub is run again from here.
+        lastRun={{ dramaId, ids: dubJobIds(dramaId), retryFor: (j) => (j.job_id.startsWith('dub_') ? start : null) }}
+      />
     </div>
   )
 }
