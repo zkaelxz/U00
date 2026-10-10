@@ -115,7 +115,7 @@ export interface BulkJobEntry {
   kind: string
   stage: string | null
   pipeline_id: string | null
-  /** submitting|submitted|scheduled|running|applied|cancelled|failed|auth_error */
+  /** submitting|submitted|scheduled|running|applying|needs_resubmit|applied|cancelled|failed|auth_error */
   status: string
   pending: boolean
   cancellable: boolean
