@@ -103,6 +103,27 @@ async function sendText({ text, sourceLanguage, targetLanguage, store }) {
   });
 }
 
+// The page's address becomes the title's source link, so only a public web page's is sent:
+// a page on this PC or the LAN (site_access.js decides which) saves its text without one.
+function publicPageUrl(url) {
+  try {
+    return permissionTarget(new URL(url)) ? url : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+async function saveNovelText({ dramaId, heading, text, source, url }) {
+  if (!dramaId) return { ok: false, error: "Pick a novel title to save into." };
+  if (!text) return { ok: false, error: "No text was captured on this page." };
+  const pageUrl = publicPageUrl(url);
+  return call("/novel", {
+    method: "POST",
+    body: { drama_id: dramaId, heading: heading || "", text,
+            source: pageUrl ? source || "" : "", url: pageUrl },
+  });
+}
+
 // An app that predates the advertised cap accepts at least this many.
 const FALLBACK_BATCH_IMAGES = 8;
 // Base64 of PNG pages is large; the bridge refuses a body over 64MB, so a
@@ -341,6 +362,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "sendText":
           respond(await sendText(message));
+          break;
+        case "saveNovelText":
+          respond(await saveNovelText(message));
           break;
         case "getSettings":
           respond({ ok: true, data: await settings() });

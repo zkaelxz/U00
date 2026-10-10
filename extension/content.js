@@ -632,6 +632,50 @@
     };
   }
 
+  // -- saving a novel page into a title -----------------------------------
+
+  // Prose, not a comic: no page-sized images (the same test the comic
+  // actions use) and a main text block of at least a few paragraphs.
+  const MIN_TEXT_PAGE_CHARS = 300;
+  // extension_novel_service.MAX_CAPTURE_CHARS, kept equal by a test. Over it
+  // the save is refused rather than cut, since a cut chapter would be saved
+  // as though it were whole.
+  const MAX_NOVEL_CHARS = 200000;
+
+  function isTextPage() {
+    return !candidateElements().length && mainContentBlock().length >= MIN_TEXT_PAGE_CHARS;
+  }
+
+  // Novel readers put the chapter title in the first heading; the tab title
+  // usually adds the book and site names, so it is only the fallback.
+  function chapterHeading() {
+    for (const tag of ["h1", "h2", "h3"]) {
+      const el = document.querySelector(tag);
+      const text = el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+      if (text) return text.slice(0, 200);
+    }
+    return (document.title || "").trim().slice(0, 200);
+  }
+
+  async function saveNovelText({ dramaId }) {
+    const selected = selectedText();
+    const text = selected || mainContentBlock();
+    if (!text) {
+      return { ok: false, error: "No chapter text found here. Select the text to save, or open the chapter itself." };
+    }
+    if (text.length > MAX_NOVEL_CHARS) {
+      return { ok: false, error: `That is more than ${MAX_NOVEL_CHARS} characters; select one chapter's worth and save that.` };
+    }
+    const response = await chrome.runtime.sendMessage({
+      type: "saveNovelText", dramaId, heading: chapterHeading(), text,
+      source: location.host, url: location.href,
+    });
+    if (!response || !response.ok) {
+      return response || { ok: false, error: "No answer from the extension's background worker." };
+    }
+    return { ok: true, data: { ...response.data, fromSelection: !!selected } };
+  }
+
   // -- text panel --------------------------------------------------------
 
   function ensureTextPanel() {
@@ -1403,6 +1447,9 @@
           case "captureChapter":
             respond(await captureChapter(message));
             break;
+          case "saveNovelText":
+            respond(await saveNovelText(message));
+            break;
           case "cancelCapture":
             respond({ ok: true, data: { cancelled: cancelCapture() } });
             break;
@@ -1418,6 +1465,8 @@
               translated: state.active.size,
               overlaysVisible: state.overlaysVisible,
               capture: state.capture ? { running: true, text: state.capture.text } : null,
+              textPage: isTextPage(),
+              hasSelection: !!selectedText(),
               // The page's own host. The popup uses this to key "which
               // drama does this site go to", rather than reading
               // `tab.url` -- that needs the `tabs` permission or an
@@ -1439,6 +1488,7 @@
   // Exposed for the popup's injected checks and for tests.
   window.__baihe = { canvasSignature, translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
+                     isTextPage, chapterHeading, saveNovelText,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, unreadableLog };
 })();

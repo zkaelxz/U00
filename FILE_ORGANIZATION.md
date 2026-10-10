@@ -200,6 +200,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `engine_routing_service.py`
 - `event_stream_service.py`
 - `export_service.py`
+- `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
 - `extension_service.py`
 - `fixflag_transcribe.py`
 - `bulk_job_view.py` (public view of a bulk_jobs row)
