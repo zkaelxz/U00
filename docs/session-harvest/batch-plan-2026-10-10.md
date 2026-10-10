@@ -28,3 +28,12 @@ B9 TEST TIDY (Sonnet; small) #1121 H2 (pytest warnings as errors for job threads
 Already in flight (do not relaunch): small-must-fixes (tsc, .env, GBK, backup vanish), fix-comic-reader (#1103 H3,M4,M6), #1174 (#1096 H4,H5,M12-14), #1115 (drama->title sweep, covers Lead A8, #1102 23), #1169 (regex), #1085/#1083/#1100/#1093.
 Owner-only: #1116 M6 rule; #1119 M7 check in browser; #1121 C2 re-transcribe timeout (PC check).
 Harvest additions (merged-PR notes, 45 rows in fix-queue-from-reviews.md): treat as CHEAP only if they are bugs: #1143 _verified-after-failure, #1141 409 conflict offers only Reload, #1140 stale doc line, #1107 Windows smoke test (owner checklist).
+
+B10 CLEAN (owner 2026-10-10: "left because it doesn't hurt" is not a reason; code must be supportable by a local LLM). Behaviour-preserving, tests first. Sequence after the named PRs merge so files do not collide.
+ C1 ONE redaction function: ~15 local copies (_redact in page_fetch, maintenance_assistant, discover_lookup, real_model_check, safe_fetch, diagnostics_gaps, diagnostics_installs, error_handlers, sources/adaptive; redact_* in jobs_service, benchmark_case, lncrawl) -> engine_backends/shared.redact_secrets (+ URL query strip). After #1126 merges. Not before: #1126 redaction rework crashed bug reports once.
+ C2 ONE contained(root, path) helper in lib/: voice_clone, saved_comics, artifact, jellyfin, disk_usage._within, installer/service._inside_or_same, installer/postinstall._inside. After #1131 and #1083 merge (installer files).
+ C3 live_agreement.py (StreamAgreement) is imported only by its test and expected_files.py; STATUS.md says it works. After live-lower-latency merges: if the pipeline does not adopt it, delete module + test + expected_files entry + fix STATUS line.
+ C4 CLI removal (W-CLI-REMOVE, ~220 KB cli*.py + tests/test_cli.py) already queued.
+ C5 db._grant_lines_read_for_reader_page in B1.
+ C6 oversized files, biggest first, one per session, no overlap with open PRs: db.py 298 KB (split plan in docs; waits #943 and the db.py owners), background_jobs.py 86 KB (frozen until gate 1), bulk_translate.py 79 KB, installer/service.py 79 KB (Services class cannot move until ServiceError/Layout/constants move, #1107 note), workspace_job_service.py 66 KB.
+ C7 test comments citing Step/B-/PR ids (45 in tests/): one comments-only PR per CLAUDE.md, behaviour unchanged.
