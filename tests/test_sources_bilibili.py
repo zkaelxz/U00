@@ -152,12 +152,16 @@ class TestMultipart:
     def test_explicit_p_url_downloads_only_that_part(self, tmp_path):
         # yt-dlp's own extractor resolves a ?p=2 URL to a single-entry
         # info dict (no "entries" key) -- simulated here directly.
+        seen_urls = []
+
         def provider(url, download, opts):
-            assert "p=2" not in url or True  # normalize_url already stripped it into the request
+            seen_urls.append(url)
             return {"id": "BV1yy411c7wxyz_p2", "title": "Part Two",
                     "webpage_url": "https://www.bilibili.com/video/BV1yy411c7wxyz?p=2", "ext": "mp4"}
         a = _adapter(provider)
         result = a.download("https://www.bilibili.com/video/BV1yy411c7wxyz?p=2", str(tmp_path))
+        assert seen_urls and all(u == "https://www.bilibili.com/video/BV1yy411c7wxyz?p=2"
+                                 for u in seen_urls)
         assert result["title"] == "Part Two"
         assert result["part_title"] is None  # no "entries" in the response -- not multipart-expanded
         assert os.path.exists(result["path"])

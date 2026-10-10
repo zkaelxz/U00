@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
+from lib.errors import InvalidInputError
 from services import settings_service
 
 SECRET = "sk-ant-TESTSECRET1234567890abcdef"
@@ -169,7 +170,7 @@ def test_secret_never_in_logs_or_errors(env_file, caplog):
 
 
 def test_service_error_does_not_echo_value():
-    with pytest.raises(Exception) as ei:
+    with pytest.raises(InvalidInputError) as ei:
         settings_service._validate_key_value(SECRET + "\nX")
     assert SECRET not in str(ei.value)
 

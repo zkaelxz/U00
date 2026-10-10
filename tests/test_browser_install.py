@@ -319,12 +319,11 @@ def test_auth_on_read_is_admin_and_install_is_pc_only(env):
     app = create_app(ApiSettings(auth_mode="on"))
     remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
     u = auth_service.add_user("kid@example.com")
-    for p in auth_service.PERMISSIONS:
-        if not p.startswith("admin."):
-            try:
-                auth_service.grant_permission(u["id"], p)
-            except Exception:
-                pass
+    member_permissions = [p for p in auth_service.PERMISSIONS
+                          if p not in auth_service.ADMIN_PERMISSIONS]
+    for p in member_permissions:
+        auth_service.grant_permission(u["id"], p)
+    assert set(member_permissions) <= set(auth_service.get_user(u["id"])["permissions"])
     kid = auth_service.create_session(u["id"])
     admin = auth_service.create_session(auth_service.grant_admin_local("a@example.com")["id"])
     path = "/api/diagnostics/browser"

@@ -373,15 +373,13 @@ class TestHfTokenInScanlateMlDetector:
         assert calls["model_token"] == "explicit-token"
 
     def test_falls_back_to_an_already_set_environment_token(self, monkeypatch, tmp_path):
-        import os
         calls = self._stub_torch_and_transformers(monkeypatch, tmp_path)
         scanlate_detect.__dict__.pop("_bubble_ml_model", None)
         scanlate_detect.__dict__.pop("_bubble_ml_processor", None)
-        os.environ["HF_TOKEN"] = "env-token"
+        monkeypatch.setenv("HF_TOKEN", "env-token")
         scanlate_detect.detect_bubbles_ml(calls["img_path"])
         assert calls["processor_token"] == "env-token"
         assert calls["model_token"] == "env-token"
-        os.environ.pop("HF_TOKEN", None)
 
     def test_no_token_available_does_not_crash(self, monkeypatch, tmp_path):
         calls = self._stub_torch_and_transformers(monkeypatch, tmp_path)

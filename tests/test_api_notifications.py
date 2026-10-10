@@ -417,9 +417,10 @@ def test_a_slow_dripping_server_is_cut_off_by_the_deadline(monkeypatch):
     port = srv.getsockname()[1]
     started = time.monotonic()
     try:
-        with pytest.raises(Exception):
+        with pytest.raises(TimeoutError, match="send deadline passed"):
             ns._pinned_post(f"http://slow.test:{port}/t", "127.0.0.1", b"x", {})
-        assert time.monotonic() - started < 4
+        elapsed = time.monotonic() - started
+        assert ns.SEND_DEADLINE * 0.8 <= elapsed < 4
     finally:
         stop.set()
         srv.close()

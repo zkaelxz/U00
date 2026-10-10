@@ -162,6 +162,24 @@ class TestSubmit:
         [job] = isolated_db.list_bulk_jobs(did)
         assert job["status"] == "failed" and "upstream exploded" in job["last_error"]
 
+    def test_a_key_in_the_provider_error_is_not_stored_or_shown(self, isolated_db):
+        from services.bulk_job_view import bulk_entry
+        secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789SECRET"
+        engine = _claude_engine()
+
+        def boom(requests):
+            raise RuntimeError(f"401 invalid x-api-key {secret}")
+        engine.client.messages.batches.create = boom
+        did = _drama(isolated_db)
+        with pytest.raises(RuntimeError):
+            _submit(isolated_db, did, engine)
+        [job] = isolated_db.list_bulk_jobs(did)
+        assert job["status"] == "failed" and job["last_error"]
+        assert "SECRET" not in job["last_error"] and secret not in job["last_error"]
+        # The stored row is checked separately: the view redacts again, which
+        # would hide a missing redaction at write time.
+        assert "SECRET" not in json.dumps(bulk_entry(job))
+
 
 # ---------------------------------------------------------------------------
 # Applying results (the part that must never misassign)
