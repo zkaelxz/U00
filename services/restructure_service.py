@@ -404,8 +404,9 @@ def _raise_if_cancelled(job_id):
 def _bounded(job_id, engine):
     if engine is None:
         return contextlib.nullcontext()
-    return llm_tasks.bounded_llm_calls(job_id, lambda: background_jobs.is_cancel_requested(job_id),
-                                       deadline=llm_tasks.request_deadline_for(engine))
+    return llm_tasks.bounded_job_calls(
+        job_id, lambda: background_jobs.is_cancel_requested(job_id),
+        deadline=llm_tasks.request_deadline_for(engine), lenient_empty=True)
 
 
 def _run_resegment_job(job_id, drama_id, lines, source_ids, language, engine, engine_name,

@@ -663,19 +663,20 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                 # Scope only for the cancel check: it lets call_with_backoff
                 # stop at its next retry instead of sleeping out a cancelled run.
                 with llm_tasks.bounded_llm_calls(
-                        job_id, lambda: background_jobs.is_cancel_requested(job_id),
-                        deadline=llm_tasks.request_deadline_for(engine)):
+                        job_id, lambda: background_jobs.is_cancel_requested(job_id)):
                     r = _run_translation(engine, case, api_key)
-                if background_jobs.is_cancel_requested(job_id):
-                    # The interrupted case would be saved as an engine error.
-                    status = "cancelled"
-                    break
                 if r["cost_usd"] or r["usage"]:
                     db.log_usage(None, cfg["engine"], getattr(engine, "model", cfg["model"]) or "",
                                  "benchmark", r["usage"].get("input_tokens", 0) or 0,
                                  r["usage"].get("output_tokens", 0) or 0, r["cost_usd"],
                                  r["usage"].get("cache_read_tokens", 0) or 0)
                 spent += r["cost_usd"]
+                # After the usage log: a request that finished and was billed
+                # while a cancel was pending still counts toward the cap.
+                if background_jobs.is_cancel_requested(job_id):
+                    # The interrupted case would be saved as an engine error.
+                    status = "cancelled"
+                    break
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu)
             score, metric, scorer = score_output(stage, r.get("output_text") or "",

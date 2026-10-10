@@ -102,6 +102,21 @@ def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
         _scope_var.reset(tokens[0])
 
 
+@contextlib.contextmanager
+def bounded_job_calls(job_id: str, cancel_check, deadline: float = None,
+                      lenient_empty: bool = False):
+    """bounded_llm_calls for a thread job that ends "cancelled": a cancel
+    inside a call or its retry wait raises TranslationCancelled, which
+    background_jobs would record as an error."""
+    import background_jobs
+    try:
+        with bounded_llm_calls(job_id, cancel_check, deadline=deadline,
+                               lenient_empty=lenient_empty):
+            yield
+    except TranslationCancelled:
+        raise background_jobs.JobCancelled(job_id) from None
+
+
 # A translation batch may legitimately make a second request (missing ids are
 # asked for once more), so its deadline is two client timeouts plus the margin.
 _BATCH_REQUESTS = 2

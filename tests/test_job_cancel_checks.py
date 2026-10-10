@@ -37,7 +37,7 @@ class TestOcrChapter:
     def test_cancel_stops_before_the_next_page(self, monkeypatch, tmp_path):
         pages = []
         monkeypatch.setattr(ocr, "extract_text_tesseract",
-                            lambda p, lang=None, tesseract_cmd=None: pages.append(p) or "text")
+                            lambda p, lang=None, tesseract_cmd=None, on_timeout=None: pages.append(p) or "text")
         _cancel_after(monkeypatch, 1)
         stage = tmp_path / "stage"
         stage.mkdir()
@@ -46,6 +46,23 @@ class TestOcrChapter:
                                "tesseract", "replace", "zh", "simplified")
         assert pages == ["a.png"]
         assert not stage.exists()
+
+    def test_timed_out_pages_are_counted_in_the_result(self, monkeypatch, tmp_path):
+        def fake(p, lang=None, tesseract_cmd=None, on_timeout=None):
+            if p == "b.png":
+                on_timeout()
+                return ""
+            return "text"
+        monkeypatch.setattr(ocr, "extract_text_tesseract", fake)
+        monkeypatch.setattr(novel, "_write_novel", lambda *a: 4)
+        results = []
+        monkeypatch.setattr(background_jobs, "set_result",
+                            lambda job_id, r: results.append(r))
+        stage = tmp_path / "stage"
+        stage.mkdir()
+        novel._run_ocr_job("ocrchapter_1", 1, str(stage), ["a.png", "b.png", "c.png"],
+                           "tesseract", "replace", "zh", "simplified")
+        assert results[0]["skipped_pages"] == 1
 
     def test_tesseract_call_carries_a_timeout(self, monkeypatch, tmp_path):
         pytesseract = pytest.importorskip("pytesseract")
@@ -98,6 +115,30 @@ class TestCloudResegment:
         assert len(calls) == 1 and not stored
 
 
+class TestResegmentCancelDuringCall:
+    @pytest.mark.parametrize("runner", ["apply", "preview"])
+    def test_cancel_inside_an_llm_call_ends_the_job_cancelled(self, monkeypatch, runner):
+        from engine_backends.shared import TranslationCancelled
+
+        def cancelling_call(*a, **k):
+            raise TranslationCancelled("cancelled")
+        monkeypatch.setattr(resegment, "llm_split_spans", cancelling_call)
+        monkeypatch.setattr(restructure, "_usage_logger", lambda *a: None)
+        lines = [Line(idx=0, start=0, end=1, zh="长" * 200)]
+        lines[0].id = 1
+        job_id = "resegment_cancelmid" if runner == "apply" else "resegpreview_cancelmid"
+
+        def job():
+            if runner == "apply":
+                restructure._run_resegment_job(job_id, 1, lines, [1], "zh", object(),
+                                               "claude", None, "simplified", 0.3)
+            else:
+                restructure._run_llm_preview_job(job_id, 1, lines, "zh", object(),
+                                                 "claude", None, "simplified", 0.3)
+        with pytest.raises(background_jobs.JobCancelled):
+            job()
+
+
 class TestAutoBackup:
     def test_cancel_between_files_removes_the_partial_archive(self, isolated_db, monkeypatch):
         for n in range(4):
@@ -108,6 +149,21 @@ class TestAutoBackup:
         with pytest.raises(background_jobs.JobCancelled):
             abs_._backup_job(abs_.JOB_ID, True)
         assert os.listdir(abs_._target_dir(create=False)) == []
+
+    def test_cancel_keeps_an_older_good_backup(self, isolated_db, monkeypatch):
+        target = abs_._target_dir(create=True)
+        good = os.path.join(target, "baihe_snapshot-20240101-000000.zip")
+        with open(good, "wb") as fh:
+            fh.write(b"older good backup")
+        for n in range(4):
+            with open(os.path.join(db.LIBRARY_DIR, f"media{n}.bin"), "wb") as fh:
+                fh.write(b"x" * 10)
+        _cancel_after(monkeypatch, 3)
+        with pytest.raises(background_jobs.JobCancelled):
+            abs_._backup_job(abs_.JOB_ID, True)
+        assert os.listdir(target) == ["baihe_snapshot-20240101-000000.zip"]
+        with open(good, "rb") as fh:
+            assert fh.read() == b"older good backup"
 
 
 class TestSigninDeadline:

@@ -382,16 +382,22 @@ def _raise_if_cancelled(job_id):
 
 def _run_ocr_job(job_id, drama_id, stage, paths, backend, mode, language, script,
                  tesseract_cmd=None):
+    skipped = []
     try:
         background_jobs.update_progress(job_id, 0.1, "Running OCR...")
         text = _clean(ocr_module.extract_text_from_images(
             paths, backend=backend, source_language=language, chinese_script=script,
-            tesseract_cmd=tesseract_cmd, before_page=lambda: _raise_if_cancelled(job_id)))
+            tesseract_cmd=tesseract_cmd, before_page=lambda: _raise_if_cancelled(job_id),
+            on_skip=skipped.append))
         if not text:
             background_jobs.set_result(job_id, {"failed_reason": "empty"})
             return
         background_jobs.update_progress(job_id, 0.9, "Saving text...")
+        _raise_if_cancelled(job_id)
         count = _write_novel(drama_id, text, mode)
-        background_jobs.set_result(job_id, {"char_count": count, "image_count": len(paths)})
+        result = {"char_count": count, "image_count": len(paths)}
+        if skipped:
+            result["skipped_pages"] = len(skipped)
+        background_jobs.set_result(job_id, result)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
