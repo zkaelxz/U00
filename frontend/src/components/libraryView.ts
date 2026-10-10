@@ -75,5 +75,5 @@ export function continueItems(reading: ReadingRow[], recent: RecentRow[]): Conti
   return all.filter((x) => (seen.has(x.dramaId) ? false : (seen.add(x.dramaId), true)))
 }
 
-/** "1 drama" / "3 dramas". */
+/** "1 title" / "3 titles". */
 export const countDramas = (n: number) => `${n} ${n === 1 ? 'title' : 'titles'}`

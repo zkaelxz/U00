@@ -38,13 +38,13 @@ export function defineComicWorkspaceTests() {
     })
   }
 
-  test('comic title: the header link is Open in Scanlate, the unused tabs are dimmed, Source stays', async ({ page }) => {
+  test('comic title: the header link is Open in Scanlate, the unused tabs are dimmed, Media stays', async ({ page }) => {
     await openAs(page, 'manhua', 'source')
     const header = page.locator('.workspace-header')
     const link = page.locator('.ws-actions').getByRole('link', { name: 'Open in Scanlate' })
     await expect(link).toBeVisible()
     await expect(link).toHaveAttribute('href', /#\/comic\/1$/)
-    await expect(link).toHaveClass(/btn-primary/)
+    await expect(link).toHaveClass(/btn-secondary/)
     await expect(header.getByRole('link', { name: 'Read', exact: true })).toHaveCount(0)
     const nav = page.getByRole('navigation', { name: 'Stages' })
     await expect(nav.locator('a[href$="/drama/1/translate"]')).toHaveAttribute('data-comic-skipped', 'true')
