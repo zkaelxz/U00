@@ -566,10 +566,10 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     try:
         background_jobs.run_cancellable(job_id, cmd, cwd=ddir, timeout=EXTRACT_TIMEOUT_SECONDS)
         failed = _SAVE_FAILED
-        from services import transcribe_service
+        from services import transcribe_pipeline, transcribe_service
         # Probed before install_media moves the file, and only when a
         # transcription will follow and need its deadline.
-        media_seconds = (transcribe_service._audio_duration_seconds(part_path)
+        media_seconds = (transcribe_pipeline._audio_duration_seconds(part_path)
                          if transcribe_options is not None else None)
         install_media(drama_id, {"source_video_filename": (staged, "source", ext),
                                  "audio_filename": (part_path, "audio", ".wav")})

@@ -27,7 +27,7 @@ import db
 import sensitivity_preset as presets
 import storage
 from services import (compare_transcription_service as compare, settings_service,
-                      transcribe_service, translate_service)
+                      transcribe_pipeline, transcribe_service, translate_service)
 from services.retranscribe_worker import (apply_retranscribe_many_outcome,
                                           retranscribe_many_worker, retranscribe_timeout_s)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -94,7 +94,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
                   transcribe_service.stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),
-                  transcribe_service._model_loading_message(
+                  transcribe_pipeline._model_loading_message(
                       size, core_module.is_whisper_model_cached(size)),
                   retranscribe_timeout_s(sum(w[2] - w[1] for w in windows)), scratch_dir),
             gpu_touching=True,
@@ -103,12 +103,12 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
             start_method="spawn",
             on_done=functools.partial(apply_retranscribe_many_outcome, drama_id=drama_id,
                                       bases=bases),
-            on_finish=functools.partial(transcribe_service._remove_scratch_dir, scratch_dir))
+            on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir))
     except BaseException:
-        transcribe_service._remove_scratch_dir(scratch_dir)
+        transcribe_pipeline._remove_scratch_dir(scratch_dir)
         raise
     if not started:
-        transcribe_service._remove_scratch_dir(scratch_dir)
+        transcribe_pipeline._remove_scratch_dir(scratch_dir)
         raise ConflictError("A re-transcription is already running for this drama.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(windows)}
 

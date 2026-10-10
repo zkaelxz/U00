@@ -361,7 +361,7 @@ class TestRunOutcome:
 
     @pytest.fixture(autouse=True)
     def _fakes(self, monkeypatch, tmp_path):
-        from services import transcribe_service
+        from services import transcribe_pipeline, transcribe_service
         import vad_segments
         monkeypatch.setattr(ab, "load_audio_16k", lambda path: np.zeros(16000 * 60, dtype="float32"))
         monkeypatch.setattr(ab, "extract_audio_slice", lambda a, s, e, out: open(out, "wb").close())
@@ -371,14 +371,14 @@ class TestRunOutcome:
                                 for _ in (audio if isinstance(audio, list) else [audio])]})())
         monkeypatch.setattr(vad_segments, "_silero_spans", lambda *a: [(1.0, 20.0)])
         monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models", lambda: None)
-        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda p: 30.0)
+        monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 30.0)
         self.tmp_path = tmp_path
 
     def _run(self, isolated_db, drama, language, choice="auto"):
-        from services import jobs_service, transcribe_service
+        from services import jobs_service, transcribe_pipeline
         asr_options_service.set_asr_options(voice_detector=choice)
         detector = asr_options_service.resolve_voice_detector(drama, language)
-        out = transcribe_service._transcribe_pipeline(
+        out = transcribe_pipeline._transcribe_pipeline(
             _Rep(), str(self.tmp_path / "a.wav"), "whisper", None, language, "simplified",
             "medium", 5, 300, 0.5, False, "auto", False, False, False, None, "", False,
             "qwen3_asr_vad", "whisper_diff", voice_detector=detector)

@@ -16,7 +16,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import (jobs_service, ownership_service, restructure_service, retime_service as svc,
-                      settings_service, transcribe_service)
+                      settings_service, transcribe_pipeline, transcribe_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
@@ -282,7 +282,7 @@ class TestJob:
             a["end"] = 6.005
             b["start"], b["end"] = 6.005, 9.5
             return [a, b]
-        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda path: 9.0)
+        monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda path: 9.0)
         monkeypatch.setattr(forced_align, "refine_segment_timing", shift)
         _run(did, ids)
         (p,) = svc.get_retime_result(did)["proposals"]
@@ -337,7 +337,7 @@ class TestJob:
 
     def test_last_line_is_clamped_to_media_duration(self, monkeypatch, _env):
         did, ids = _drama(2)
-        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda path: 10.0)
+        monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda path: 10.0)
         monkeypatch.setattr(
             forced_align, "refine_segment_timing",
             lambda audio, groups, language, **kw: [{**groups[0][0], "end": 13.0}])

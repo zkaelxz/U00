@@ -298,7 +298,7 @@ class TestAddGapLines:
         def boom(*a):
             raise AssertionError("audio work before the cheap refusals")
         monkeypatch.setattr(svc, "_pauses", boom)
-        monkeypatch.setattr(svc.transcribe_service, "_audio_duration_seconds", boom)
+        monkeypatch.setattr(svc.transcribe_pipeline, "_audio_duration_seconds", boom)
         for kwargs, exc in (({"expected_line_ids": []}, ConflictError),
                             ({"expected_line_ids": ids, "start": 2.0}, ConflictError)):
             args = {"expected_line_ids": ids, "start": 3.0, "end": 100.0, **kwargs}
@@ -327,7 +327,7 @@ class TestAddGapLines:
 
     def test_a_stretch_past_the_end_of_the_audio_is_refused(self, isolated_db, monkeypatch):
         did, ids = _drama(isolated_db)
-        monkeypatch.setattr(svc.transcribe_service, "_audio_duration_seconds", lambda p: 30.0)
+        monkeypatch.setattr(svc.transcribe_pipeline, "_audio_duration_seconds", lambda p: 30.0)
         with pytest.raises(InvalidInputError):
             svc.add_gap_lines(did, ids, start=30.0, end=40.0, after_line_id=ids[3])
         assert len(isolated_db.load_line_objects(did)) == 4
@@ -335,7 +335,7 @@ class TestAddGapLines:
 
     def test_unknown_audio_length_skips_the_check(self, isolated_db, monkeypatch):
         did, ids = _drama(isolated_db)
-        monkeypatch.setattr(svc.transcribe_service, "_audio_duration_seconds", lambda p: None)
+        monkeypatch.setattr(svc.transcribe_pipeline, "_audio_duration_seconds", lambda p: None)
         svc.add_gap_lines(did, ids, start=30.0, end=40.0, after_line_id=ids[3])
 
     def test_needs_stored_audio(self, isolated_db):

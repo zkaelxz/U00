@@ -892,8 +892,8 @@ class TestTranscribeConfigEndpoints:
         # Mocked so the real background thread never touches a real model
         # or the network -- this test only checks the job is registered
         # and pollable through the existing jobs API.
-        import services.transcribe_service as transcribe_service_module
-        monkeypatch.setattr(transcribe_service_module, "transcribe_for_timing",
+        import services.transcribe_pipeline as transcribe_pipeline_module
+        monkeypatch.setattr(transcribe_pipeline_module, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
 
         resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})

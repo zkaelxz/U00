@@ -7,7 +7,7 @@ import os
 import pytest
 
 import background_jobs
-from services import diarization_service, transcribe_service
+from services import diarization_service, transcribe_pipeline, transcribe_service
 from services.service_errors import InvalidInputError
 
 
@@ -61,7 +61,7 @@ def test_the_chained_diarization_gets_the_range(isolated_db, monkeypatch):
     background_jobs.clear_job(job_id)
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
-    monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+    monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
     monkeypatch.setattr(transcribe_service.core_module, "load_whisper_model",
                         lambda *a, **k: object())  # never a real model

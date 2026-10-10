@@ -311,8 +311,8 @@ def test_speaker_time_summary_overlap_and_order(monkeypatch):
     diarize.save_turns(db.drama_dir(did), [
         {"start": 0, "end": 10, "speaker": "A"}, {"start": 8, "end": 12, "speaker": "B"},
         {"start": 20, "end": 30, "speaker": "A"}, {"start": 5, "end": 5, "speaker": "C"}])
-    from services import transcribe_service
-    monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda p: 50.0)
+    from services import transcribe_pipeline
+    monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 50.0)
     s = diarization_service.speaker_time_summary(did)
     assert [x["label"] for x in s["speakers"]] == ["A", "B"]
     assert s["speakers"][0] == {"label": "A", "seconds": 20.0, "percent": 83.3, "turns": 2}

@@ -160,7 +160,7 @@ _STAGE_PREFIXES = (
 
 
 class StageRecorder:
-    """A no-op reporter for services.transcribe_service._transcribe_pipeline
+    """A no-op reporter for services.transcribe_pipeline._transcribe_pipeline
     that notes when each stage's first message arrives, so stage durations come
     from the real pipeline without changing it."""
 
@@ -239,7 +239,7 @@ def run_clip(profile: dict, audio_path, expected_texts=None) -> dict:
     baseline's, so a run tests the aligner alone); None aligns the run's own."""
     sys.path.insert(0, str(REPO_ROOT))
     import core
-    from services import transcribe_service as ts
+    from services import transcribe_pipeline as ts
 
     use_gpu = bool(profile.get("use_gpu", True))
     qwen = profile.get("asr_backend") == "qwen3"
