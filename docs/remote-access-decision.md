@@ -5,7 +5,7 @@ It replaces D6 (Tailscale + Tailscale Serve) in [`migration-review.md`](archive/
 **D5 stays** (admin actions are PC-only, on a separate loopback listener); built, see "D5: two listeners" below.
 
 **Key entry (decided 2026-09-29):** the launcher (`start.bat`/`start.ps1`) sets `BAIHE_API_ALLOW_KEY_WRITES=1` unless the user already set it (an explicit `0` opts out), so API keys can be entered in the React Settings form at the PC, or by editing `.env`. Key writes stay `local_only()` and still require a direct loopback peer and Host, no proxy headers, and Origin, if sent, is loopback (`api/routers/settings_routes.py:_require_local_admin`); values are written to `.env` and never returned. `python -m api` started directly leaves the flag off.
-Status: step 133 (users, sessions, permissions, static test) is built, see "Step 133" below; the step 134 sign-in backend (slice A1) is built on its branch, see "Step 134 backend" below; the rest is not. Implementation steps are proposed as 133-140 in [`baihe-roadmap-master.md`](archive/baihe-roadmap-master.md) section 5.
+Status: sign-in, ownership, the D5 listeners and sharing are merged (see `STATUS.md`); the sections below describe them as built. Left for the owner: the LAN test with a real certificate and the router port. Implementation steps are proposed as 133-140 in [`baihe-roadmap-master.md`](archive/baihe-roadmap-master.md) section 5.
 
 ## Context
 
