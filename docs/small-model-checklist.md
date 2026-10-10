@@ -24,8 +24,9 @@ there and shrink only.
      CLI/app parity: a setting changed in the app must match `cli.py`.
 6. More than about four files to change? Stop. Split the task and say so.
 7. Make the smallest change. Run the matching test file first:
-   `python -m pytest -q tests/test_<area>.py`. Then the full suite:
-   `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`.
+   `python -m pytest -q tests/test_<area>.py`. Then the quick guards:
+   `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`.
+   CI runs the full suite; don't run it locally.
 8. Rules that bite most:
    - Match LLM results to lines by id, never by position.
    - Pass error text through `translate_engines.redact_secrets`; keys in headers only.
@@ -48,7 +49,7 @@ Objective: <one line: symptom, or what moves where>
 Allowed files: <paths; anything else means stop and ask>
 Must not change: <behaviour, public names, API shapes, schema>
 Callers: <from `git grep -nw <name>`>
-Tests: `python -m pytest -q <files>`, then <wave suite or full suite>
+Tests: `python -m pytest -q <files>`, then the quick guards (CI runs the full suite)
 Done when: <tests pass with counts; for a split, AGENTS.md "Splitting files">
 
 ## Using a local coding agent (Ollama + OpenCode or Aider)
@@ -67,7 +68,7 @@ Tests are mocked, so no GPU, models or keys are needed. Optional libraries missi
 
 Test commands (run from the repo root unless noted):
 - One area: `python -m pytest -q tests/test_<area>.py` (areas: `docs/testing-and-ci.md`).
-- Full suite, once at the end: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`.
+- Quick guards before pushing: `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`. CI runs the full suite.
 - Frontend, from `frontend/`: `npx tsc --noEmit && npx vitest run`.
 - Playwright (`frontend/e2e/`) only for a UI flow, with the Chromium already on the machine
   (`docs/testing-and-ci.md`). Never run `playwright install`.
@@ -115,7 +116,7 @@ about 5.5k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
 
 Branch and PR flow: one task per branch off the latest `baihe-subtitler`
 (`git fetch origin && git checkout -b <task-name> origin/baihe-subtitler`; roadmap steps use `step-<id>-<short-name>`).
-Run the area test, then the full suite and the frontend commands if you touched `frontend/`. Push and open a
+Run the area test, then the quick guards, and the frontend commands if you touched `frontend/`. Push and open a
 draft PR into `baihe-subtitler`; the owner merges when CI is green. Finish with a short summary: what
 changed, commands run with pass counts, what you're unsure about.
 

@@ -23,7 +23,7 @@ You bring one existing PR branch up to date with `baihe-subtitler`. The lead nam
 **Run, in this order:**
 1. The quick guard tests (permissions, file organization, size, static analysis, db). Push as soon as they pass, so the branch stops conflicting while the slow runs go: `git push -u origin <branch>` (retry network failures up to 4 times, backing off 2s, 4s, 8s, 16s).
 2. The PR's own tests: `python -m pytest -q tests/test_<area>.py`.
-3. The full suite: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`.
+3. The tests of every area the merge touched (the conflicted files' areas in `docs/testing-and-ci.md`); CI runs the full suite on the pushed branch.
 4. The frontend, if the PR or the merge touched `frontend/`: `cd frontend && npx tsc --noEmit && npx vitest run`.
 5. Playwright only if needed, with the preinstalled Chromium. Never `playwright install`.
 

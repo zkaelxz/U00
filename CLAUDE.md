@@ -14,11 +14,11 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Small context window? Follow `docs/small-model-checklist.md`; `python tools/repo_map.py` prints the symbol map on demand. Local models (OpenCode) read `AGENTS.md`, not this file: when you change a rule AGENTS.md repeats, change it there too.
 
 ## Tests
-- While iterating: `python -m pytest -q tests/test_<area>.py`. Full suite: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`.
+- While iterating: `python -m pytest -q tests/test_<area>.py`. Before pushing: the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`. CI runs the full suite on every PR (about 17 minutes); don't run it locally as well.
 - Frontend: `cd frontend && npx tsc --noEmit && npx vitest run`; Playwright in `frontend/e2e/` (use the preinstalled Chromium; never `playwright install`).
 - Tests are mocked: no network, GPU, real models or real keys. Use the `isolated_db` fixture for anything touching the database, and `pytest.importorskip` for optional libraries.
 - Wait for background job threads before asserting. Poll a background process with `kill -0 <pid>`, never `pgrep -f` on a pattern that also matches your own command line.
-- CI is the merge gate while the repo is public; if it becomes private or Actions minutes run out, the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands is the gate. Never skip or weaken a test.
+- CI is the merge gate while the repo is public. Only if it becomes private or Actions minutes run out does the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands become the gate. Never skip or weaken a test.
 
 ## Rules learned from real bugs
 - Match LLM results back to lines by explicit id, never by list position (`translate_engines.request_translations_with_retry`, `parse_id_keyed_json`).
