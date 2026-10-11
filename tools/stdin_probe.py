@@ -20,6 +20,11 @@ for name, middle in VARIANTS.items():
                 f.write('@echo off\nsetlocal enabledelayedexpansion\nset "A="\nset "B="\nset "C="\nset "R="\n'
                         'set /p A="a? "\n' + middle + '\nset /p B="b? "\nset /p C="c? "\n'
                         'echo.\necho RESULT A=[!A!] B=[!B!] C=[!C!]\n')
-            out = subprocess.run(["cmd", "/d", "/c", bat], input=data, capture_output=True, timeout=60).stdout
-            res = [l for l in out.decode("utf-8", "replace").splitlines() if l.startswith("RESULT")]
+            ans = os.path.join(d, "answers.txt")
+            with open(ans, "wb") as f:
+                f.write(data)
+            with open(ans, "rb") as fin:
+                out = subprocess.run(["cmd", "/d", "/c", bat], stdin=fin, capture_output=True, timeout=60).stdout
+            res = [l.strip() for l in out.decode("utf-8", "replace").replace("\r", "\n").splitlines()
+                   if l.startswith("RESULT")]
             print(f"{name:32} {label:5} {res}", flush=True)
