@@ -207,7 +207,7 @@ not in Live (its size list waits for a benchmark).
 | Size | `model.bin` 1.51 GB (`memory_headroom` estimate 2.6 GB VRAM, 2.0 GB RAM, not measured) |
 | Licence | the CTranslate2 repo's card says MIT; the original `kotoba-tech/kotoba-whisper-v2.0` says Apache-2.0 |
 | File-set rule | the same as `ja-1.5b` (`lib/ct2_repo.py`) |
-| Timing | segment timestamps only: `whisper_models.WORD_TIMESTAMP_UNSUPPORTED` makes `core.transcribe_for_timing` and the mixed-language runner pass `word_timestamps=False`. The stock `config.json` carries large-v3's `alignment_heads` (decoder layers 7-19) on a 2-layer decoder, which is what crashes word timestamps. The pipeline then refines the segment times with the Qwen3 forced aligner (`forced_align.refine_whisper_segments`); if it is not installed, errors, or the run is mixed-language, the segment times are kept, every line is flagged `timing_uncertain` and the job reports why. |
+| Timing | segment timestamps only: `whisper_models.WORD_TIMESTAMP_UNSUPPORTED` makes `core.transcribe_for_timing` and the mixed-language runner pass `word_timestamps=False`. The stock `config.json` carries large-v3's `alignment_heads` (decoder layers 7-19) on a 2-layer decoder, which is what crashes word timestamps. The pipeline then refines the segment times with the Qwen3 forced aligner (`forced_align.refine_whisper_segments`); if it is not installed, errors, or the run is mixed-language, the segment times are kept, no line is flagged, and the job reports "Line timing was not refined (reason)" as a partial result. |
 
 No benchmark of `kotoba-v2` in this app exists yet; the speed and accuracy claims above are the model card's.
 

@@ -71,7 +71,7 @@ function whisperModelHelp(size: string, notDownloaded: boolean): string | undefi
   const parts = [
     notDownloaded ? 'This model will be downloaded on first use.' : '',
     size === 'ja-1.5b' ? 'Its licence is not declared; use it for personal work.' : '',
-    size === 'kotoba-v2' ? 'It gives line timing only. The Qwen3 forced aligner refines it when installed; otherwise the lines are flagged for a timing check.' : '',
+    size === 'kotoba-v2' ? 'It gives line timing only. The Qwen3 forced aligner refines it when installed; otherwise the Whisper line times are kept and the job says so.' : '',
   ].filter(Boolean)
   return parts.length ? parts.join(' ') : undefined
 }

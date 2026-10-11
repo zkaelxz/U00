@@ -78,17 +78,14 @@ _MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v3-turbo": "~1.6 GB", "larg
                          "base": "~150 MB", "tiny": "~75 MB"}
 
 
-COARSE_TIMING_NOTE = ("This model gives line timing only, so the line may start or end a little "
-                      "off -- check it lines up.")
-
-
 def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep, qwen_device,
                                     on_fallback, notices, mixed, stage_max) -> list:
     """Word timing for a Whisper model that cannot give it: the Qwen3 forced aligner
     refines the segment times. Where it cannot run (not installed, a mixed-language run
     whose spans have different languages, a download or alignment error) the segment
-    times are kept and every line is flagged timing_uncertain, so the transcription
-    itself is never lost to the optional step."""
+    times are kept and the job reports why, so the transcription itself is never lost
+    to the optional step. Lines are not flagged: plain Whisper segment times are normal
+    timing, and a flag on every line would bury the ones that really need a check."""
     import forced_align
     import qwen3_native
     problem = ("Mixed-language runs are not refined by the forced aligner." if mixed
@@ -117,7 +114,7 @@ def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep
         finally:
             ticker.stop()
     notices.append(f"Line timing was not refined ({problem})")
-    return [{**seg, "flag": "timing_uncertain", "flag_note": COARSE_TIMING_NOTE} for seg in segments]
+    return segments
 
 
 def _separation_device_label(kind: str) -> str:

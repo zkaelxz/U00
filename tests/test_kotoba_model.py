@@ -214,13 +214,13 @@ class TestRefinement:
         assert [s["start"] for s in out] == [0.25, 3.25] and not notices
         assert all("flag" not in s for s in out)
 
-    def test_without_the_aligner_segment_times_are_kept_and_flagged_coarse(self, monkeypatch):
+    def test_without_the_aligner_segment_times_are_kept_and_the_reason_is_reported(self, monkeypatch):
         out, notices = self.run(
             monkeypatch, problem="Japanese forced alignment needs the nagisa package.",
             refine=lambda *a, **k: pytest.fail("must not load the aligner"))
         assert [(s["start"], s["end"]) for s in out] == [(0.0, 2.0), (3.0, 5.0)]
-        assert {s["flag"] for s in out} == {"timing_uncertain"}
-        assert "nagisa" in notices[0]
+        assert not any("flag" in s for s in out)
+        assert "Line timing was not refined" in notices[0] and "nagisa" in notices[0]
 
     @pytest.mark.parametrize("error", [
         qwen3_native.TransformersUnavailableError("transformers is too old"),
@@ -230,12 +230,12 @@ class TestRefinement:
             raise error
         out, notices = self.run(monkeypatch, refine=refine)
         assert [s["text"] for s in out] == ["a", "b"] and notices
-        assert {s["flag"] for s in out} == {"timing_uncertain"}
+        assert not any("flag" in s for s in out)
 
     def test_a_mixed_language_run_is_not_sent_to_the_aligner(self, monkeypatch):
         out, notices = self.run(monkeypatch, mixed=True,
                                 refine=lambda *a, **k: pytest.fail("one language per run"))
-        assert {s["flag"] for s in out} == {"timing_uncertain"} and "Mixed" in notices[0]
+        assert not any("flag" in s for s in out) and "Mixed" in notices[0]
 
     def test_a_cancel_propagates_and_frees_the_models(self, monkeypatch):
         import background_jobs
@@ -286,11 +286,11 @@ class TestPipelineWiring:
         assert [ln.end for ln in out["lines"]] == [2.5, 5.5]
         assert not any(ln.flag for ln in out["lines"]) and not out["coverage_warning"]
 
-    def test_kotoba_without_the_aligner_keeps_segment_times_and_flags_them(self, monkeypatch, tmp_path):
+    def test_kotoba_without_the_aligner_keeps_segment_times_and_reports_why(self, monkeypatch, tmp_path):
         out, _ = self.run(monkeypatch, tmp_path, KEY, "Japanese forced alignment needs nagisa.")
         assert [ln.end for ln in out["lines"]] == [2.0, 5.0]
-        assert {ln.flag for ln in out["lines"]} == {"timing_uncertain"}
-        assert "nagisa" in out["coverage_warning"]
+        assert not any(ln.flag for ln in out["lines"])
+        assert "Line timing was not refined" in out["coverage_warning"] and "nagisa" in out["coverage_warning"]
 
     def test_other_models_never_touch_the_aligner(self, monkeypatch, tmp_path):
         out, _ = self.run(monkeypatch, tmp_path, "large-v3-turbo", "should not matter")
