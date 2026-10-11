@@ -1524,6 +1524,171 @@ class TestReflectStageSubmitFailure:
         job = isolated_db.get_bulk_job(jid)
         assert job["result_summary"]["drafts_applied"] == 2 and "unreachable" in job["last_error"]
 
+    def _answer(self, isolated_db, engine, job_id, prefix, skip=()):
+        by_key = {}
+        for r in isolated_db.list_bulk_job_lines(job_id):
+            by_key.setdefault(r["request_key"], []).append(r["line_id"])
+        batches = engine.client.messages.batches
+        batches.results_list = [_succeeded(k, {str(i): f"{prefix}-{i}" for i in ids})
+                                for k, ids in by_key.items() if k not in skip]
+        batches.status = "ended"
+        return by_key
+
+    def _to_stage(self, isolated_db, stage, n=2):
+        engine, did, jid = self._pipeline(isolated_db, n=n)
+        provider = bp.ClaudeBatchProvider(engine)
+        by_key = self._answer(isolated_db, engine, jid, "draft")
+        ids = [i for v in by_key.values() for i in v]
+        assert bt.check_once(jid, provider, engine=engine) == "applied"
+        pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        if stage == "expressive":
+            reflect = bt.sibling_stage_job(pipeline, "reflect")
+            self._answer(isolated_db, engine, reflect["id"], "critique")
+            assert bt.check_once(reflect["id"], provider, engine=engine) == "applied"
+        return engine, did, ids, bt.sibling_stage_job(pipeline, stage), provider
+
+    def _edit(self, isolated_db, did, line_id, text):
+        lines = isolated_db.load_line_objects(did)
+        for ln in lines:
+            if ln.id == line_id:
+                ln.en = text
+        isolated_db.save_lines(did, lines, fields=("en",))
+
+    def _expired_gemini(self, monkeypatch):
+        _patch_http(monkeypatch, get=lambda url, headers=None, timeout=None, stream=None: _Resp(
+            {"name": "batches/x", "metadata": {"state": "BATCH_STATE_EXPIRED"}}))
+        return bp.make_provider("gemini", te.GeminiEngine("gm-key"))
+
+    @pytest.mark.parametrize("stage", ["reflect", "expressive"])
+    def test_a_gemini_batch_that_expires_keeps_the_paid_drafts(self, isolated_db, monkeypatch, stage):
+        engine, did, ids, job, _ = self._to_stage(isolated_db, stage)
+        self._edit(isolated_db, did, ids[0], "Mine")
+        sent = len(engine.client.messages.batches.created)
+
+        status = bt.check_once(job["id"], self._expired_gemini(monkeypatch), engine=engine)
+
+        assert status == "failed"
+        assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)} == {
+            ids[0]: "Mine", ids[1]: f"draft-{ids[1]}"}
+        saved = isolated_db.get_bulk_job(job["id"])
+        assert saved["result_summary"]["drafts_applied"] == 1 and "EXPIRED" in saved["last_error"]
+        assert len(engine.client.messages.batches.created) == sent
+        assert bt.check_once(job["id"], self._expired_gemini(monkeypatch), engine=engine) == "failed"
+
+    def test_a_reflect_batch_that_returns_nothing_keeps_the_paid_drafts(self, isolated_db):
+        engine, did, ids, job, provider = self._to_stage(isolated_db, "reflect")
+        engine.client.messages.batches.results_list = []
+
+        assert bt.check_once(job["id"], provider, engine=engine) == "failed"
+        assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)} == {
+            i: f"draft-{i}" for i in ids}
+
+    def test_an_expressive_request_missing_from_the_results_keeps_its_drafts(self, isolated_db):
+        _engine, did, ids, job, _ = self._to_stage(isolated_db, "expressive", n=21)
+        by_key = {}
+        for r in isolated_db.list_bulk_job_lines(job["id"]):
+            by_key.setdefault(r["request_key"], []).append(r["line_id"])
+        answered, missing = sorted(by_key.items(), key=lambda kv: -len(kv[1]))
+        results = [(answered[0], json.dumps({str(i): f"final-{i}" for i in answered[1]}), None, None)]
+
+        bt.apply_results_for_job(job["id"], results)
+
+        en = {ln.id: ln.en for ln in isolated_db.load_line_objects(did)}
+        assert all(en[i] == f"final-{i}" for i in answered[1])
+        assert all(en[i] == f"draft-{i}" for i in missing[1])
+
+    def test_a_resubmit_re_entry_does_not_bring_back_a_cleared_draft(self, isolated_db, monkeypatch):
+        # 21 lines go out as requests of 20 and 1; the 1-line reflection will fail.
+        engine, did, ids, reflect, provider = self._to_stage(isolated_db, "reflect", n=21)
+        sizes = {}
+        for r in isolated_db.list_bulk_job_lines(reflect["id"]):
+            sizes.setdefault(r["request_key"], []).append(r["line_id"])
+        lone_key = min(sizes, key=lambda k: len(sizes[k]))
+        lone = sizes[lone_key][0]
+        self._answer(isolated_db, engine, reflect["id"], "critique", skip=(lone_key,))
+        self._break_submit(monkeypatch, engine, times=1)
+
+        assert bt.check_once(reflect["id"], provider, engine=engine) == "needs_resubmit"
+        assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)}[lone] == f"draft-{lone}"
+        self._edit(isolated_db, did, lone, "")
+
+        assert bt.check_once(reflect["id"], provider, engine=engine) == "applied"
+        assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)}[lone] == ""
+
+    def _lines(self, isolated_db, did):
+        return {ln.id: ln.en for ln in isolated_db.load_line_objects(did)}
+
+    def _one_failed_reflection(self, isolated_db, monkeypatch=None, submit_failures=0):
+        """21 lines = reflect requests of 20 and 1; the 1-line one is left unanswered."""
+        engine, did, ids, reflect, provider = self._to_stage(isolated_db, "reflect", n=21)
+        sizes = {}
+        for r in isolated_db.list_bulk_job_lines(reflect["id"]):
+            sizes.setdefault(r["request_key"], []).append(r["line_id"])
+        lone_key = min(sizes, key=lambda k: len(sizes[k]))
+        self._answer(isolated_db, engine, reflect["id"], "critique", skip=(lone_key,))
+        if submit_failures:
+            self._break_submit(monkeypatch, engine, times=submit_failures)
+        return engine, did, reflect, provider, sizes[lone_key][0]
+
+    def test_an_expired_expressive_batch_does_not_overwrite_a_reverted_draft(self, isolated_db, monkeypatch):
+        engine, did, reflect, provider, lone = self._one_failed_reflection(isolated_db)
+        assert bt.check_once(reflect["id"], provider, engine=engine) == "applied"
+        assert self._lines(isolated_db, did)[lone] == f"draft-{lone}"
+        self._edit(isolated_db, did, lone, "")
+        expressive = bt.sibling_stage_job(reflect["pipeline_id"], "expressive")
+
+        status = bt.check_once(expressive["id"], self._expired_gemini(monkeypatch), engine=engine)
+
+        en = self._lines(isolated_db, did)
+        assert status == "failed" and en[lone] == ""
+        assert all(v == f"draft-{k}" for k, v in en.items() if k != lone)
+
+    def test_a_cancel_after_the_claim_stays_cancelled_but_the_drafts_are_written(
+            self, isolated_db, monkeypatch):
+        engine, did, ids, job, _ = self._to_stage(isolated_db, "reflect")
+        real = bt._apply_reflect_drafts
+
+        def cancelled_while_applying(*a, **k):
+            written = real(*a, **k)
+            bt.cancel_bulk_job(job["id"])
+            return written
+        monkeypatch.setattr(bt, "_apply_reflect_drafts", cancelled_while_applying)
+
+        assert bt.check_once(job["id"], self._expired_gemini(monkeypatch), engine=engine) == "cancelled"
+        assert isolated_db.get_bulk_job(job["id"])["status"] == "cancelled"
+        assert self._lines(isolated_db, did) == {i: f"draft-{i}" for i in ids}
+
+    def test_the_last_resort_drafts_leave_a_line_the_user_reverted_between_attempts(
+            self, isolated_db, monkeypatch):
+        engine, did, reflect, provider, lone = self._one_failed_reflection(
+            isolated_db, monkeypatch, submit_failures=100)
+        assert bt.check_once(reflect["id"], provider, engine=engine) == "needs_resubmit"
+        self._edit(isolated_db, did, lone, "")
+
+        statuses = [bt.check_once(reflect["id"], provider, engine=engine)
+                    for _ in range(bt.STAGE_SUBMIT_ATTEMPTS - 1)]
+
+        assert statuses[-1] == "applied"
+        en = self._lines(isolated_db, did)
+        assert en[lone] == "" and all(v == f"draft-{k}" for k, v in en.items() if k != lone)
+
+    def test_an_expressive_batch_that_returns_nothing_keeps_the_paid_drafts(self, isolated_db):
+        engine, did, ids, job, provider = self._to_stage(isolated_db, "expressive")
+        engine.client.messages.batches.results_list = []
+
+        assert bt.check_once(job["id"], provider, engine=engine) == "failed"
+        assert self._lines(isolated_db, did) == {i: f"draft-{i}" for i in ids}
+
+    def test_a_failed_batch_left_applying_by_a_restart_is_failed_without_rewriting_lines(self, isolated_db):
+        engine, did, ids, job, _ = self._to_stage(isolated_db, "expressive")
+        isolated_db.update_bulk_job(job["id"], status="applying")
+        background_jobs.clear_all_jobs()
+
+        bt.resume_pending(did, lambda e, m: engine)
+
+        assert isolated_db.get_bulk_job(job["id"])["status"] == "failed"
+        assert self._lines(isolated_db, did) == {i: "" for i in ids}
+
     def test_the_monthly_cap_is_checked_before_the_next_stage_is_submitted(self, isolated_db):
         engine, did, jid = self._pipeline(isolated_db)
         ids = self._faithful_results(isolated_db, engine, jid)
@@ -1671,3 +1836,63 @@ class TestResumeWhileOuterJobIsActive:
         assert asked == []
         assert isolated_db.get_bulk_job(bulk_id)["status"] == "running"
         assert not background_jobs.is_running(bt.poll_job_id(bulk_id))
+
+
+class TestResumeAndSchedulerRaces:
+    def _offpeak(self, isolated_db, status):
+        did = _drama(isolated_db, n=2)
+        bulk_id = bt.schedule_offpeak_translation(
+            did, isolated_db.load_line_objects(did), "deepseek", "m", {})
+        isolated_db.update_bulk_job(bulk_id, status=status)
+        return did, bulk_id
+
+    def test_resume_does_not_rerun_an_offpeak_job_that_finishes_between_check_and_write(
+            self, isolated_db, monkeypatch):
+        did, bulk_id = self._offpeak(isolated_db, "running")
+
+        def finishes_in_the_gap(job):
+            isolated_db.update_bulk_job(bulk_id, status="applied")
+            return False
+        monkeypatch.setattr(bt, "_polled_by_outer_job", finishes_in_the_gap)
+        asked = []
+
+        out = bt.resume_pending(did, lambda e, m: asked.append(e) or object())
+
+        assert out == {} and asked == []
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "applied"
+
+    def test_resume_treats_a_force_stopped_outer_job_with_a_live_worker_as_running(self, isolated_db):
+        import threading
+        import job_force_stop
+        did, bulk_id = self._offpeak(isolated_db, "running")
+        release = threading.Event()
+        worker = threading.Thread(target=release.wait, args=(10,), daemon=True)
+        worker.start()
+        job_force_stop._abandoned[f"bulk_translate_{did}"] = worker
+        asked = []
+        try:
+            out = bt.resume_pending(did, lambda e, m: asked.append(e) or object())
+        finally:
+            release.set()
+            worker.join()
+            job_force_stop._abandoned.clear()
+
+        assert out == {bulk_id: "running"} and asked == []
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "running"
+
+    def test_the_scheduler_does_not_start_a_run_that_was_cancelled_in_the_gap(
+            self, isolated_db, monkeypatch):
+        did, bulk_id = self._offpeak(isolated_db, "scheduled")
+        saturday_noon = datetime.datetime(2099, 9, 26, 12, 0)
+        isolated_db.update_bulk_job(bulk_id, scheduled_for=saturday_noon.isoformat())
+
+        def cancelled_in_the_gap():
+            isolated_db.update_bulk_job(bulk_id, status="cancelled")
+            return saturday_noon
+        monkeypatch.setattr(bt, "run_scheduled_job",
+                            lambda *a, **k: pytest.fail("a cancelled job must not run"))
+
+        bt.run_bulk_poller("t_race", bulk_id, engine=object(), now_fn=cancelled_in_the_gap,
+                           sleep=lambda s: None)
+
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "cancelled"
