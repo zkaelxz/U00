@@ -347,3 +347,22 @@ def test_dub_mix_does_not_normalize_and_limits_without_makeup_gain(tmp_path):
     assert "amix=inputs=2:duration=first:normalize=0" in graph
     assert "alimiter=limit=0.977:level=0" in graph
     assert graph.index("amix") < graph.index("alimiter")
+
+
+class TestBurnInNeverNeedsNvenc:
+    """A card without NVENC (a Tesla V100) must export on the CPU, so no
+    burn-in command may name a hardware encoder or decoder."""
+
+    def test_no_burn_in_command_names_a_hardware_codec(self, monkeypatch):
+        cmds = []
+        monkeypatch.setattr(ve.subprocess, "run", lambda cmd, **k: cmds.append(cmd))
+        ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4")
+        ve.render_preview_clip("in.mp4", "[ASS]", "out.mp4", 0.0, 5.0)
+        ve.burn_subtitles("in.mp4", "1\n00:00:00,000 --> 00:00:01,000\nhi\n", "out.mp4")
+        ve.burn_ass("in.mp4", "[ASS]", "out.mp4")
+        assert len(cmds) == 4
+        flat = " ".join(" ".join(c) for c in cmds)
+        assert "nvenc" not in flat and "cuda" not in flat and "-hwaccel" not in flat
+        # Re-encoding clips ask for libx264; the full burn-ins leave the video
+        # encoder to ffmpeg's default for the container (libx264 for mp4).
+        assert all("libx264" in c for c in cmds[:2])

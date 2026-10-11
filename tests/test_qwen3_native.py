@@ -36,7 +36,7 @@ def fake_torch(monkeypatch):
     torch = types.ModuleType("torch")
     torch.bfloat16, torch.float16 = "bfloat16", "float16"
     torch.inference_mode = lambda: _NoGrad()
-    torch.cuda = types.SimpleNamespace(is_bf16_supported=lambda: True)
+    torch.cuda = types.SimpleNamespace(is_bf16_supported=lambda including_emulation=True: True)
     monkeypatch.setitem(sys.modules, "torch", torch)
     return torch
 
@@ -148,9 +148,28 @@ def test_loading_with_an_old_transformers_fails_before_touching_the_model(monkey
 def test_the_dtype_is_bfloat16_and_float16_on_a_gpu_without_bfloat16(fake_torch):
     assert qwen3_native.pick_dtype(fake_torch, use_gpu=False) == "bfloat16"
     assert qwen3_native.pick_dtype(fake_torch, use_gpu=True) == "bfloat16"
-    fake_torch.cuda = types.SimpleNamespace(is_bf16_supported=lambda: False)
+    fake_torch.cuda = types.SimpleNamespace(
+        is_bf16_supported=lambda including_emulation=True: including_emulation)
     assert qwen3_native.pick_dtype(fake_torch, use_gpu=True) == "float16"
     assert qwen3_native.pick_dtype(fake_torch, use_gpu=False) == "bfloat16"
+
+
+def test_a_volta_card_gets_float16_even_though_torch_emulates_bfloat16(fake_torch):
+    # V100: is_bf16_supported() is True through emulation, which is slow.
+    fake_torch.cuda = types.SimpleNamespace(
+        is_bf16_supported=lambda including_emulation=True: including_emulation,
+        get_device_capability=lambda: (7, 0))
+    assert qwen3_native.pick_dtype(fake_torch, use_gpu=True) == "float16"
+
+
+def test_an_older_torch_without_the_emulation_flag_falls_back_to_compute_capability(fake_torch):
+    def old_check():
+        return True
+    fake_torch.cuda = types.SimpleNamespace(
+        is_bf16_supported=old_check, get_device_capability=lambda: (7, 0))
+    assert qwen3_native.pick_dtype(fake_torch, use_gpu=True) == "float16"
+    fake_torch.cuda.get_device_capability = lambda: (8, 6)
+    assert qwen3_native.pick_dtype(fake_torch, use_gpu=True) == "bfloat16"
 
 
 def test_audio_loading_gives_16k_mono_float32(monkeypatch):

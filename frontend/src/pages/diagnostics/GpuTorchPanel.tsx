@@ -84,6 +84,7 @@ export function GpuTorchPanel({ refreshKey, action }: {
           </div>
           <p className="muted" data-testid="gpu-torch-recommended">
             Recommended: {status.recommended.label}, from <code>{status.recommended.index_url}</code>.
+            {status.recommended_reason ? ` ${status.recommended_reason}` : ''}
           </p>
           {status.problems.map((p) => <p key={p} className="warn">{p}</p>)}
           {probeError && <p className="error" role="alert">{probeError}</p>}

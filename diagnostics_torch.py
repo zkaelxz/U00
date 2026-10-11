@@ -243,6 +243,15 @@ TORCH_VARIANTS = {
                      "torchaudio": "2.11.0+cu128"},
         "needs_nvidia": True,
     },
+    # Same versions as cu128, for cards older than compute 7.5 (Volta, e.g. a V100):
+    # from PyTorch 2.11 the cu128 wheels no longer contain sm_70 kernels.
+    "cu126": {
+        "label": "NVIDIA GPU, older cards (CUDA 12.6)",
+        "index_url": "https://download.pytorch.org/whl/cu126",
+        "versions": {"torch": "2.11.0+cu126", "torchvision": "0.26.0+cu126",
+                     "torchaudio": "2.11.0+cu126"},
+        "needs_nvidia": True,
+    },
     "cpu": {
         "label": "CPU only (no NVIDIA GPU)",
         "index_url": "https://download.pytorch.org/whl/cpu",
@@ -252,6 +261,9 @@ TORCH_VARIANTS = {
     },
 }
 TORCH_RECOMMENDED_VARIANT_GPU = "cu128"
+TORCH_OLD_GPU_VARIANT = "cu126"
+# Cards below this compute capability have no kernels in the cu128 wheels.
+CU128_MIN_COMPUTE = 7.5
 # CPython versions the triple above has wheels for (inclusive).
 TORCH_SUPPORTED_PYTHON = ((3, 10), (3, 14))
 
@@ -291,6 +303,34 @@ def nvidia_driver_info():
         return {"gpu_name": name[:120], "driver_version": driver[:40]}
     except Exception:
         return None
+
+
+def lowest_compute_capability():
+    """The lowest compute capability among the NVIDIA GPUs (7.0 for a V100),
+    or None when nvidia-smi is missing, fails (drivers too old for the
+    compute_cap query) or prints something else. Never raises."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True)
+        caps = [float(x) for x in result.stdout.split() if re.fullmatch(r"\d+\.\d+", x)]
+    except Exception:
+        return None
+    return min(caps) if caps else None
+
+
+def recommended_gpu_variant():
+    """(variant, reason) for a machine with an NVIDIA GPU. reason is plain
+    words, or None for the default; an unknown compute capability gets the
+    default."""
+    cap = lowest_compute_capability()
+    if cap is not None and cap < CU128_MIN_COMPUTE:
+        return TORCH_OLD_GPU_VARIANT, (
+            f"Your GPU has compute capability {cap:.1f}, and the CUDA 12.8 PyTorch no longer "
+            "includes support for cards that old, so the CUDA 12.6 build is recommended.")
+    return TORCH_RECOMMENDED_VARIANT_GPU, None
 
 
 def driver_check(driver_version, system: str = None) -> dict:
@@ -392,6 +432,7 @@ def torch_setup_pip_args(variant: str, project_root: str = None) -> list:
 # the torch this process may already have imported. Prints one JSON line.
 TORCH_VERIFY_SCRIPT = """
 import json
+import re
 out = {}
 try:
     import torch
@@ -400,7 +441,18 @@ try:
     out["cuda_available"] = bool(torch.cuda.is_available())
     if out["cuda_available"]:
         out["device"] = torch.cuda.get_device_name(0)
-        torch.zeros(1, device="cuda")
+        archs = torch.cuda.get_arch_list()
+        out["devices"] = []
+        for i in range(torch.cuda.device_count()):
+            major, minor = torch.cuda.get_device_capability(i)
+            # Native kernels, or PTX built for this arch or an older one (JIT-compiled).
+            ptx = [int(m.group(1)) for m in (re.match(r"compute_(\d+)", a) for a in archs) if m]
+            supported = ("sm_%d%d" % (major, minor)) in archs or any(
+                p <= major * 10 + minor for p in ptx)
+            out["devices"].append({"index": i, "name": torch.cuda.get_device_name(i)[:120],
+                                   "capability": "%d.%d" % (major, minor), "supported": supported})
+            if supported:
+                torch.zeros(1, device="cuda:%d" % i)
 except Exception as e:
     out["error"] = type(e).__name__ + ": " + str(e)[:300]
 for name in ("torchvision", "torchaudio"):
@@ -410,6 +462,23 @@ for name in ("torchvision", "torchaudio"):
         out[name + "_error"] = type(e).__name__ + ": " + str(e)[:300]
 print(json.dumps(out))
 """
+
+
+NO_KERNELS_PREFIX = "This PyTorch build has no kernels for your GPU"
+
+
+def unsupported_gpu_message(devices, torch_version=None):
+    """Plain words for the GPUs the verify script found without kernels in
+    this build, or None when every GPU is covered (or none were listed).
+    Already on the cu126 build there is no other build to suggest."""
+    bad = [d for d in devices or [] if d.get("supported") is False]
+    if not bad:
+        return None
+    cards = ", ".join(f"{d.get('name') or 'GPU ' + str(d.get('index'))} (compute {d.get('capability')})"
+                      for d in bad)
+    if (torch_version or "").endswith("+" + TORCH_OLD_GPU_VARIANT):
+        return f"{NO_KERNELS_PREFIX} {cards}."
+    return f"{NO_KERNELS_PREFIX} {cards}; install the {TORCH_OLD_GPU_VARIANT} build."
 
 
 def parse_torch_verify_output(stdout: str) -> dict:
