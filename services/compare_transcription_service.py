@@ -21,7 +21,8 @@ import sensitivity_preset as presets
 import source_change
 import translate_engines
 from services import (asr_options_service, compare_hear_worker, gpu_process_job, jobs_service,
-                      retranscribe_worker, settings_service, transcribe_pipeline, transcribe_service,
+                      retranscribe_worker, settings_service, timing_settings_service, transcribe_pipeline,
+                      transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
@@ -298,7 +299,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "language": drama.get("source_language") or "zh",
          "beam_size": drama.get("beam_size") or tuning["beam_size"],
          "min_silence_ms": drama.get("min_silence_ms") or tuning["min_silence_ms"],
-         "vad_threshold": presets.stored_vad_threshold(drama),
+         "vad_threshold": timing_settings_service.vad_threshold_for(drama),
          "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
          "hallucination_silence_sec": transcribe_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),

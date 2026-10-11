@@ -16,6 +16,8 @@ masked. Prompts and other free text have no key here.
 """
 import re
 
+from lib import settings_schema
+
 _NAME = "name"
 _INT = "int"
 _NUM = "num"
@@ -41,6 +43,11 @@ ALLOWED_KEYS = {
     "style_note": _BOOL, "pronoun_hint": _BOOL, "genre_notes": _BOOL, "overwrite_manual": _BOOL,
     "reply_without_thinking": _BOOL,
 }
+
+# Timing and splitting rows a run used when they differ from the default (an unchanged
+# run records none), so Details shows what was customised.
+ALLOWED_KEYS.update({s.key: _INT if s.type == "int" else _NUM for s in settings_schema.SETTINGS
+                     if s.section in settings_schema.TIMING_SECTIONS})
 
 # Letters, digits and . _ : + - / @ only, starting alphanumeric: "large-v3",
 # "qwen2.5:7b", "Org/Model-1.7B". No backslash, drive colon, space or "://".
@@ -127,13 +134,14 @@ def for_translate(drama, include_genre_notes, default_female_pronouns, glossary_
 def for_transcribe(drama, source_language, chinese_script, whisper_size, beam_size,
                    min_silence_ms, vad_threshold, preset, hallucination_silence_sec,
                    min_pause_sec, separation_backend, use_gpu, asr_backend, alignment_method,
-                   transcript_mode, diarize, min_speakers, max_speakers) -> dict:
+                   transcript_mode, diarize, min_speakers, max_speakers, timing=None) -> dict:
     """build() for a transcription run: the values the run resolved, plus the
-    drama's 0/1 toggle columns as booleans (an int would be dropped)."""
+    drama's 0/1 toggle columns as booleans (an int would be dropped). `timing`:
+    the Timing and splitting values that differ from the default."""
     toggles = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
                "use_groq", "whisper_repeat_guard", "split_by_sentences")
     return build(
-        {k: bool(drama.get(k)) for k in toggles}, source_language=source_language,
+        {k: bool(drama.get(k)) for k in toggles}, timing or {}, source_language=source_language,
         chinese_script=chinese_script, whisper_size=whisper_size, beam_size=beam_size,
         min_silence_ms=min_silence_ms, vad_threshold=vad_threshold, sensitivity_preset=preset,
         hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,

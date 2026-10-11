@@ -38,13 +38,15 @@ forced_align.py -- see that module's docstring.
 
 import os
 import tempfile
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import memory_headroom
-from core import extract_audio_slice, transcribe_for_timing
+import word_align
+from core import STOCK_PHRASE_ISOLATION_SEC, extract_audio_slice, transcribe_for_timing
 from whisper_models import ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname
 import qwen3_native
-from segment_splitting import SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, SplitRules
+from segment_splitting import (DEFAULT_FLOORS, SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS,
+                               PieceFloors, SplitRules)
 from forced_align import LANGUAGE_NAMES
 
 # Not a documented Qwen3-ASR limit (the model card states no maximum
@@ -93,6 +95,59 @@ SENTENCE_SPLIT_RULES = SplitRules(max_seconds=SPLIT_MAX_SECONDS, max_chars=SPLIT
 # Whisper's speech-detection pause in that mode (faster-whisper's own default):
 # shorter pauses feed it sentence fragments; lines are cut afterwards instead.
 SENTENCE_SPLIT_MIN_SILENCE_MS = 2000
+
+
+
+class AsrTuning(NamedTuple):
+    """Every threshold a transcription run takes from Settings > Timing and splitting.
+    The defaults are the module constants, so a run handed nothing behaves as it always
+    has; services/timing_settings_service builds one from the saved settings."""
+    sentence_min_silence_ms: int = SENTENCE_SPLIT_MIN_SILENCE_MS
+    max_seconds: float = SPLIT_MAX_SECONDS
+    max_cjk_chars: int = SPLIT_MAX_CJK_CHARS
+    floors: PieceFloors = DEFAULT_FLOORS
+    repeat_min_repeats: int = 4
+    stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC
+    realign_min_seconds: float = word_align.REALIGN_MIN_SECONDS
+    realign_pause_seconds: float = word_align.REALIGN_PAUSE_SECONDS
+    # Qwen3 speech detection (the short-window backend and language detection). Literals,
+    # not vad_segments' constants, so importing this module does not import numpy;
+    # tests/test_timing_settings.py checks they match.
+    vad_threshold: float = 0.5
+    vad_min_silence_ms: int = 300
+    vad_min_speech_ms: int = 250
+    vad_pad_ms: int = 100
+    merge_gap_s: float = MERGE_GAP_S
+    merge_gap_mixed_s: float = MERGE_GAP_MIXED_S
+    span_cap_s: float = 15.0
+    span_cap_search_s: float = 3.0
+    context_pad_s: float = CONTEXT_PAD_S
+    # The long-window backend
+    long_vad_threshold: float = LONG_VAD_KWARGS["threshold"]
+    long_vad_min_speech_ms: int = LONG_VAD_KWARGS["min_speech_ms"]
+    long_vad_pad_ms: int = LONG_VAD_KWARGS["pad_ms"]
+    long_merge_gap_s: float = LONG_MERGE_GAP_S
+    long_window_s: float = LONG_WINDOW_S
+    long_cut_search_s: float = LONG_CUT_SEARCH_S
+    # The ASMR voice detector's on and off thresholds (asmr_vad.START_THRESHOLD and
+    # STOP_THRESHOLD; literals for the same reason as the VAD ones above).
+    asmr_start: float = 0.5
+    asmr_stop: float = 0.35
+
+
+DEFAULT_TUNING = AsrTuning()
+
+
+def _changed(**pairs) -> dict:
+    """{name: value} for each (value, default) pair whose value differs from its default."""
+    return {name: value for name, (value, default) in pairs.items() if value != default}
+
+
+def sentence_split_rules(tuning: AsrTuning = DEFAULT_TUNING) -> SplitRules:
+    """SENTENCE_SPLIT_RULES with the run's line limits."""
+    return SplitRules(max_seconds=tuning.max_seconds, max_chars=tuning.max_cjk_chars,
+                      per_sentence=True, count_latin=False)
+
 
 # Below this much audio a low figure says little (a short clip can be one line).
 COVERAGE_MIN_AUDIO_SECONDS = 30.0
@@ -358,7 +413,8 @@ class Qwen3ASRVadBackend:
     def transcribe(self, audio_path, language, use_gpu=False, batch_size=1, progress_cb=None,
                    cancel_check=None, refine_timing=False, vad_fn=None,
                    mixed_languages=False, stage_cb=None, on_device=None,
-                   on_gpu_fallback=None, detector="standard", on_notice=None, prompt=None):
+                   on_gpu_fallback=None, detector="standard", on_notice=None, prompt=None,
+                   tuning: AsrTuning = DEFAULT_TUNING):
         """Segments as {"start", "end", "text"} (plus "flag"/"flag_note" where
         refined timing is uncertain). cancel_check() is called between batches
         and between aligned spans and should raise to stop; nothing is written
@@ -383,7 +439,7 @@ class Qwen3ASRVadBackend:
         can't run, Silero is used and on_notice(text) says why. "auto_asmr" is
         the same but falls back without a notice. An explicit
         vad_fn wins.
-        prompt: see Qwen3ASRBackend.transcribe."""
+        prompt: see Qwen3ASRBackend.transcribe. tuning: the run's thresholds (AsrTuning)."""
         import vad_segments
         from core import filter_hallucinated_segments
         from segment_splitting import split_long_segments
@@ -403,23 +459,36 @@ class Qwen3ASRVadBackend:
         if vad_fn is None and detector in ("asmr", "auto_asmr"):
             import asmr_vad
             # Chosen by Auto, the user never asked for it: fall back quietly.
-            vad_fn = asmr_vad.vad_fn_or_fallback(on_notice if detector == "asmr" else None)
+            vad_fn = asmr_vad.vad_fn_or_fallback(
+                on_notice if detector == "asmr" else None,
+                **_changed(start=(tuning.asmr_start, 0.5), stop=(tuning.asmr_stop, 0.35)))
         if stage_cb:
             stage_cb("Finding speech (CPU)")
         # A short pause inside a sentence is not a place to cut: Qwen3-ASR does
         # worse on the halves. Language detection keeps the finer spans so a
         # quick change of speaker and language is not merged into one.
         long_windows = self.long_windows and not mixed_languages
+        # A default run calls the helpers exactly as it always has: only what differs is passed.
+        if long_windows:
+            detect = {"threshold": tuning.long_vad_threshold,
+                      "min_speech_ms": tuning.long_vad_min_speech_ms,
+                      "pad_ms": tuning.long_vad_pad_ms,
+                      **_changed(min_silence_ms=(tuning.vad_min_silence_ms, 300))}
+            merge_gap, cap = tuning.long_merge_gap_s, {
+                "max_s": tuning.long_window_s, "search_window_s": tuning.long_cut_search_s}
+        else:
+            detect = _changed(threshold=(tuning.vad_threshold, 0.5),
+                              min_silence_ms=(tuning.vad_min_silence_ms, 300),
+                              min_speech_ms=(tuning.vad_min_speech_ms, 250),
+                              pad_ms=(tuning.vad_pad_ms, 100))
+            merge_gap = tuning.merge_gap_mixed_s if mixed_languages else tuning.merge_gap_s
+            cap = _changed(max_s=(tuning.span_cap_s, 15.0),
+                           search_window_s=(tuning.span_cap_search_s, 3.0))
         spans = vad_segments.cap_spans(
             vad_segments.merge_close(
-                vad_segments.speech_spans(audio, sr, vad_fn=vad_fn,
-                                          **(LONG_VAD_KWARGS if long_windows else {})),
-                gap_s=(LONG_MERGE_GAP_S if long_windows
-                       else MERGE_GAP_MIXED_S if mixed_languages else MERGE_GAP_S)),
-            audio, sr,
-            **({"max_s": LONG_WINDOW_S, "search_window_s": LONG_CUT_SEARCH_S}
-               if long_windows else {}))
-        windows = vad_segments.context_windows(spans, len(audio) / sr, CONTEXT_PAD_S)
+                vad_segments.speech_spans(audio, sr, vad_fn=vad_fn, **detect), gap_s=merge_gap),
+            audio, sr, **cap)
+        windows = vad_segments.context_windows(spans, len(audio) / sr, tuning.context_pad_s)
         # Frees the ONNX session before Qwen loads.
         del audio, vad_fn
         if not spans:
@@ -463,8 +532,11 @@ class Qwen3ASRVadBackend:
                     # The aligner replaces the estimated times, so only an
                     # unrefined run needs them marked as guesses.
                     flag_estimated=not refine_timing,
-                    **({"rules": SENTENCE_SPLIT_RULES} if long_windows else {})))
-        pieces = filter_hallucinated_segments(pieces)
+                    max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
+                    floors=tuning.floors,
+                    **({"rules": sentence_split_rules(tuning)} if long_windows else {})))
+        pieces = filter_hallucinated_segments(pieces, tuning.repeat_min_repeats,
+                                              tuning.stock_isolation_sec)
         groups = {}
         for p in pieces:
             groups.setdefault(p.pop("span"), []).append(p)

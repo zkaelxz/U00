@@ -29,7 +29,8 @@ import sensitivity_preset as presets
 import source_change
 import storage
 from services import (compare_transcription_service as compare, settings_service,
-                      transcribe_pipeline, transcribe_service, translate_service)
+                      timing_settings_service, transcribe_pipeline, transcribe_service,
+                      translate_service)
 from services.retranscribe_worker import (apply_retranscribe_many_outcome,
                                           retranscribe_many_worker, retranscribe_timeout_s)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -92,7 +93,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
             args=(audio_path, windows, size,
                   drama.get("beam_size") or tuning["beam_size"],
                   drama.get("min_silence_ms") or tuning["min_silence_ms"],
-                  presets.stored_vad_threshold(drama), settings_service.get("use_gpu"), prompt,
+                  timing_settings_service.vad_threshold_for(drama), settings_service.get("use_gpu"), prompt,
                   transcribe_service.stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),

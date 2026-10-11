@@ -256,6 +256,16 @@ def _refusal(key: str, reason: str) -> InvalidInputError:
     return InvalidInputError(f"'{key}' must be a {kind} from {low} to {high}.")
 
 
+def _check_ordered_pairs(cleaned: dict) -> None:
+    """A write must leave each ORDERED_PAIRS pair in order, whichever half it changes."""
+    for lower, upper, why in settings_schema.ORDERED_PAIRS:
+        if lower in cleaned or upper in cleaned:
+            low = cleaned[lower] if lower in cleaned else get(lower)
+            high = cleaned[upper] if upper in cleaned else get(upper)
+            if low >= high:
+                raise InvalidInputError(f"'{lower}' {why} ({high:g} s).")
+
+
 def _developer_mode_on() -> bool:
     # Imported here: the maintenance assistant imports this module.
     from services import maintenance_assistant_service
@@ -280,6 +290,7 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
                 _check_keep_free_fits(key, cleaned[key])
         else:
             raise InvalidInputError("Unknown or non-writable setting.")
+    _check_ordered_pairs(cleaned)
     for key, value in cleaned.items():
         if key == "gpu_max_parallel":
             background_jobs.set_gpu_max_parallel(value)

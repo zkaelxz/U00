@@ -60,7 +60,8 @@ from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
 from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
-                      settings_service, source_service, timing_check_service, transcribe_pipeline,
+                      settings_service, source_service, timing_check_service, timing_settings_service,
+                      transcribe_pipeline,
                       vocabulary_hint_service)
 from services.qwen3_requirements_service import (
     import_failure_message, require_qwen3_packages, require_vad_backend_packages)
@@ -304,7 +305,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
         "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
-        "effective_vad_threshold": presets.stored_vad_threshold(drama),
+        "effective_vad_threshold": timing_settings_service.vad_threshold_for(drama),
         "hallucination_silence_sec": stored_hallucination_silence_sec(drama),
         "min_pause_sec": stored_min_pause_sec(drama),
         "separate_vocals_first": bool(drama.get("separate_vocals_first")),
@@ -565,7 +566,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     check_whisper_size_for_language(whisper_size, source_language)
     beam_size = drama.get("beam_size") or _DEFAULT_TUNING["beam_size"]
     min_silence_ms = drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"]
-    vad_threshold = presets.stored_vad_threshold(drama)
+    vad_threshold = timing_settings_service.vad_threshold_for(drama)
     preset = presets.normalize(drama.get("sensitivity_preset"))
     hallucination_silence_sec = stored_hallucination_silence_sec(drama)
     min_pause_sec = stored_min_pause_sec(drama)
@@ -576,11 +577,13 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     use_gpu = settings_service.get("use_gpu")
     # Read here, in the parent, and frozen with the other settings for the saved run settings.
     gpu_app_settings = raw_transcript.current_gpu_app_settings()
+    # Resolved here for the same reason: the worker process must not read the database.
+    timing = timing_settings_service.values()
     run_settings = run_settings_service.for_transcribe(
         drama, source_language, chinese_script, whisper_size, beam_size, min_silence_ms,
         vad_threshold, preset, hallucination_silence_sec, min_pause_sec, separation_backend,
         use_gpu, asr_backend_choice, alignment_method, transcript_mode, bool(hf_token),
-        min_speakers, max_speakers)
+        min_speakers, max_speakers, timing=timing_settings_service.changed(timing))
     if transcript_mode == "hardsub_ocr":
         started = background_jobs.start_job(
             job_id, _run_transcribe_and_apply_job, job_id, drama_id, audio_path, transcript_mode,
@@ -621,7 +624,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       hallucination_silence_sec, min_pause_sec,
                       bool(drama.get("whisper_repeat_guard")),
                       bool(drama.get("split_by_sentences")), preset, voice_detector,
-                      qwen_prompt, scratch_dir),
+                      qwen_prompt, timing, scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
                 run_settings=run_settings,
                 # Spawn, not Linux's default fork: a forked child of a process
@@ -991,7 +994,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
                   stored_whisper_size(drama),
                   drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
                   drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-                  presets.stored_vad_threshold(drama), settings_service.get("use_gpu"), prompt,
+                  timing_settings_service.vad_threshold_for(drama), settings_service.get("use_gpu"), prompt,
                   stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),
