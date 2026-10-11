@@ -404,6 +404,7 @@ class TestCmdTranslateSpendingCaps:
     class _Engine:
         name = "claude"
         supports_reference = True
+        checks_replies = False  # echoes the source script back
         model = "claude-sonnet-5"
 
         def __init__(self):
@@ -1137,6 +1138,7 @@ class TestCliGpuLock:
     class _OllamaEngine:
         name = "ollama"
         supports_reference = True
+        checks_replies = False  # echoes the source script back
         model = "qwen3:8b"
 
         def __init__(self):
@@ -1484,6 +1486,7 @@ class TestCmdDoctor:
 class _SeqEngine:
     """Claude-shaped fake returning canned raw responses, one per call."""
     supports_reference = True
+    checks_replies = False  # echoes the source script back
     model = "fake-model"
 
     def __init__(self, responses):

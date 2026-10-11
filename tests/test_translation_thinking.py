@@ -145,6 +145,7 @@ class _Capturing:
     name = "fake"
     model = "fake"
     supports_reference = True
+    checks_replies = False  # echoes the source script back
 
     def __init__(self):
         self.contexts = []

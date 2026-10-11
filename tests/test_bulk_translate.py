@@ -604,6 +604,7 @@ class TestDeepSeekOffPeak:
         class FakeDeepSeek:
             name = "deepseek"
             supports_reference = True
+            checks_replies = False  # echoes the source script back
             model = "deepseek-v4-flash"
 
             def __init__(self):
@@ -1304,6 +1305,7 @@ class TestSpokenLanguage:
 
         class Engine:
             model = "m"
+            checks_replies = False  # echoes the source script back
 
             def translate_batch(self, zh_lines, context):
                 seen.append((list(zh_lines), context.get("line_languages")))
@@ -1729,7 +1731,7 @@ class TestBulkReflectMatchesLiveReflect:
 
         seen = []
         monkeypatch.setattr(translate_pipeline, "call_llm_json",
-                            lambda eng, prompt, **k: seen.append(prompt) or "{}")
+                            lambda eng, prompt, system=None, **k: seen.append(f"{system}\n\n{prompt}") or "{}")
         names = translation_guide.build_speaker_labels(
             isolated_db.list_characters_with_series_names(did), [])
         ctx = te.build_translation_context(engine, drama, novel_reference=self._novel,
@@ -1765,6 +1767,7 @@ class TestOffPeakRunFinishes:
         class Engine:
             name = "deepseek"
             supports_reference = True
+            checks_replies = False  # echoes the source script back
             model = "deepseek-v4-flash"
 
             def __init__(self):

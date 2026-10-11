@@ -8,6 +8,7 @@ import threading
 import time
 from .fallback import (FALLBACK_BACKOFF_BASE_SECONDS, FALLBACK_BACKOFF_CAP_SECONDS,
                        FALLBACK_TRANSIENT_RETRIES, FallbackEngine)
+from .flag_reasons import FLAG_REASONS, SYSTEM_FLAG_REASONS
 from .gemini import GeminiEngine
 from .local import (OllamaEngine, _ollama_chat, abort_check_var, estimate_ollama_num_ctx,
                     ollama_chat_timeout, strip_ollama_thinking)
@@ -19,6 +20,7 @@ from .shared import (
     LLMTaskTimeout,
     build_numbered_lines,
     call_with_backoff,
+    claude_usage,
     extract_first_json_value,
     language_name,
     parse_flag_entries,
@@ -276,7 +278,7 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None,
 
 
 def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "[]",
-                   usage_cb=None) -> str:
+                   usage_cb=None, system: str = None) -> str:
     """
     Shared single-prompt LLM call for every feature that isn't a
     translation batch: emotion tagging, translation notes, glossary
@@ -300,10 +302,16 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     Translate job's own usage_cb -- so a caller can log real spend here
     too, instead of only translation ever reaching the cost dashboard.
 
+    system: instructions that are the same on every call of a run. They go in
+    the provider's system slot so a prefix cache can serve them; on Claude
+    the call then reports (input, output, cache_read, cache_write) to usage_cb
+    instead of two numbers, so only a caller whose usage_cb takes four passes it.
+
     Always has a total deadline; inside bounded_llm_calls it can also be
     cancelled and reports retries.
     """
-    return _bounded(lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb), engine)
+    return _bounded(lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system),
+                    engine)
 
 
 def _bounded(fn, engine, deadline: float = None, on_late_result=None):
@@ -359,21 +367,32 @@ def _deepseek_kwargs(engine, max_tokens) -> dict:
     return kwargs
 
 
-def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
+def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None) -> str:
     client = getattr(engine, "client", None)
+    chat_messages = ([{"role": "system", "content": system}] if system else []) + [
+        {"role": "user", "content": prompt}]
     if client is not None and hasattr(client, "messages"):
+        extra = ({"system": [{"type": "text", "text": system,
+                              "cache_control": {"type": "ephemeral"}}]} if system else {})
         resp = call_with_backoff(lambda: client.messages.create(
             model=engine.model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": prompt}], **extra,
         ))
         if usage_cb and hasattr(resp, "usage"):
-            usage_cb(getattr(resp.usage, "input_tokens", 0),
-                     getattr(resp.usage, "output_tokens", 0))
+            if system:
+                # Claude's own input_tokens leaves out cached tokens, so the
+                # bill would be undercounted without the cache fields.
+                u = claude_usage(resp.usage)
+                usage_cb(u["input_tokens"], u["output_tokens"],
+                         u["cache_read_tokens"], u["cache_write_tokens"])
+            else:
+                usage_cb(getattr(resp.usage, "input_tokens", 0),
+                         getattr(resp.usage, "output_tokens", 0))
         return "".join(b.text for b in resp.content if b.type == "text").strip()
 
     if client is not None:
         resp = call_with_backoff(lambda: client.chat.completions.create(
-            model=engine.model, messages=[{"role": "user", "content": prompt}],
+            model=engine.model, messages=chat_messages,
             **(_deepseek_kwargs(engine, max_tokens) if _is_deepseek(engine)
                else {"max_tokens": max_tokens}),
         ))
@@ -394,7 +413,9 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{engine.model}:generateContent")
         data, _ = call_with_backoff(lambda: post_json(
-            url, {"contents": [{"parts": [{"text": prompt}]}]}, timeout=120,
+            url, {"contents": [{"parts": [{"text": prompt}]}],
+                  **({"systemInstruction": {"parts": [{"text": system}]}} if system else {})},
+            timeout=120,
             headers={"x-goog-api-key": engine.api_key}, label="Gemini"))
         usage = data.get("usageMetadata") or {}
         if usage_cb:
@@ -405,16 +426,15 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
             return fallback
 
     if isinstance(engine, OpenAIEngine):
-        return call_with_backoff(lambda: engine.chat(
-            [{"role": "user", "content": prompt}], usage_cb=usage_cb))
+        return call_with_backoff(lambda: engine.chat(chat_messages, usage_cb=usage_cb))
 
     if isinstance(engine, OllamaEngine):
         data = _ollama_chat(engine.base_url, {
             "model": engine.model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": chat_messages,
             "stream": False,
             "format": "json",
-            "options": {"num_ctx": estimate_ollama_num_ctx(prompt, "")},
+            "options": {"num_ctx": estimate_ollama_num_ctx(system or "", prompt)},
         })
         if usage_cb:
             usage_cb(data.get("prompt_eval_count", 0), data.get("eval_count", 0))
@@ -693,44 +713,6 @@ def generate_episode_summary(lines, engine, usage_cb=None) -> str:
     if isinstance(data, dict) and isinstance(data.get("summary"), str):
         return data["summary"].strip()
     return ""
-
-
-# Kept intentionally to what's actually assessable from the text alone --
-# "speaker uncertain" and "overlapping speech"/"audio unclear" would need
-# real diarization-confidence or audio evidence this codebase doesn't
-# expose yet (see diarize.py), not something worth guessing at from text.
-FLAG_REASONS = {
-    "uncertain_translation": "Possible mistranslation or awkward phrasing worth a second look",
-    "ambiguous_reference": "A pronoun or reference ('she', 'that place') that isn't clearly resolved",
-    "name_uncertain": "A name or term that might be misspelled or inconsistently romanized",
-    "slang_idiom": "Slang or an idiom that may not have translated well",
-}
-
-# Flags the app sets itself (not offered to the LLM as a reason to pick).
-SYSTEM_FLAG_REASONS = {
-    "timing_uncertain": "Timing uncertain -- forced alignment fell back to approximate timing",
-    "language_uncertain": ("Language uncertain -- the text doesn't match the language detected "
-                           "for this line"),
-    "timing_overlap": "Overlaps the next line -- exports trim it",
-    "timing_drift": "Timing disagrees with the audio -- the line may start or end away from the speech",
-    "reading_speed": "Too fast to read -- too many characters for the time it's shown",
-    "factual_detail": ("Auto QC: a number, date, name, amount or unit differs between the "
-                       "source and the translation"),
-    "gap_untranscribed": ("Added for a stretch with no subtitle line -- check the text "
-                          "heard there"),
-    "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
-                            "result wasn't applied; translate this line again"),
-    "source_changed": ("Source changed -- the source text was changed after this line was "
-                       "translated; retranslate it or keep the English"),
-    "pronoun_check": ("Pronoun check -- the translation says he/him but no he/him character "
-                      "is set for this speaker"),
-    "content_blocked": ("Blocked by the translation engine's own content-moderation system -- "
-                        "see the note for which engine and its stated reason"),
-}
-
-
-def flag_reason_label(flag: str) -> str:
-    return FLAG_REASONS.get(flag) or SYSTEM_FLAG_REASONS.get(flag) or flag
 
 
 def matching_glossary_terms(zh: str, glossary_terms) -> list:

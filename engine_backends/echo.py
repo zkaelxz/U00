@@ -11,6 +11,9 @@ class EchoEngine:
     name = "echo"
     prefix = "[EN]"
     supports_reference = True
+    # It returns the source on purpose, which the merged/shifted/untranslated
+    # check would flag on every line and re-ask for.
+    checks_replies = False
 
     def __init__(self, api_key: str = None, model: str = "echo-offline"):
         self.model = model

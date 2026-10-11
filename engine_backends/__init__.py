@@ -19,5 +19,8 @@ translate_engines at call time.
   engine_registry.py    ENGINES, capability tags, notes, model overrides, get_engine
   fallback.py           the translate fallback chain
   standalone.py         standalone text translation
+  flag_reasons.py       flag keys and their labels
+  reflect_prompts.py    the three Reflect-mode prompts
+  translation_guard.py  merged/shifted/untranslated reply checks
   translate_pipeline.py Reflect mode and the per-run translate loop
 """
