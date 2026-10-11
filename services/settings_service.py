@@ -339,6 +339,19 @@ _SCHEMA_CHOICES = {
 }
 
 
+_warned_unreadable_keys = set()
+
+
+def _warn_unreadable_once(key: str) -> None:
+    # Once per key so a locked database doesn't flood the log on every read; the
+    # exception text is left out because it can carry a path.
+    if key in _warned_unreadable_keys:
+        return
+    _warned_unreadable_keys.add(key)
+    import applog
+    applog.get_logger().warning("Setting '%s' could not be read; using its default.", key)
+
+
 def _choices_for(key: str):
     setting = settings_schema.BY_KEY[key]
     return _SCHEMA_CHOICES[setting.choices]() if setting.choices else None
@@ -356,6 +369,7 @@ def get(key: str):
         return settings_schema.coerce(key, db.get_app_setting(setting.store_key),
                                       _choices_for(key))
     except Exception:
+        _warn_unreadable_once(key)
         return settings_schema.default_of(setting)
 
 
