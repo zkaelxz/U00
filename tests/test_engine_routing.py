@@ -56,11 +56,11 @@ class TestResolve:
 
     def test_pref_backed_capabilities_share_the_existing_setting(self, isolated_db):
         routing.set_capability_engine("translation.cheap", "ollama")
-        assert settings_service.get_default_engine() == "ollama"
+        assert settings_service.get("default_engine") == "ollama"
         settings_service.set_settings({"episode_summary_engine": "claude"})
         assert routing.resolve_capability("summary.episode") == "claude"
         routing.set_capability_engine("translation.cheap", None)
-        assert settings_service.get_default_engine() == "claude"
+        assert settings_service.get("default_engine") == "claude"
 
     def test_refuses_an_engine_without_the_capability(self, isolated_db):
         with pytest.raises(InvalidInputError):
@@ -75,12 +75,12 @@ class TestResolve:
     def test_offered_choices_match_what_can_be_saved(self, isolated_db):
         for name in routing.engine_choices("translation.cheap"):
             routing.set_capability_engine("translation.cheap", name)
-            assert settings_service.get_default_engine() == name
+            assert settings_service.get("default_engine") == name
 
     def test_stronger_engine_is_off_until_picked_even_when_equal_to_default(self, isolated_db):
         entry = routing._capability_entry("translation.high_quality")
         assert entry["is_default"] is True and entry["unset_label"] == "Off (no suggestions)"
-        default = settings_service.get_default_engine()
+        default = settings_service.get("default_engine")
         entry = routing.set_capability_engine("translation.high_quality", default)
         assert entry["is_default"] is False and entry["engine"] == default
         assert routing.is_configured("translation.high_quality")
@@ -91,7 +91,7 @@ class TestResolve:
 
     def test_a_stale_stored_value_reads_back_as_the_default(self, isolated_db):
         db.set_app_setting("capability.llm.instructions", "fake_mt")  # not an LLM
-        assert routing.resolve_capability("llm.instructions") == settings_service.get_default_engine()
+        assert routing.resolve_capability("llm.instructions") == settings_service.get("default_engine")
 
     def test_never_switches_on_a_missing_key(self, isolated_db, no_keys):
         routing.set_capability_engine("translation.high_quality", "claude")

@@ -22,9 +22,11 @@ import background_jobs
 import core as core_module
 import whisper_models
 import segment_splitting
+from jobs import gpu_slots
 from services import transcribe_pipeline, transcribe_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
+from tests.saved_settings import patch_setting
 
 
 def _drama_with_audio(isolated_db, **fields):
@@ -100,6 +102,7 @@ class TestGetTranscribeConfig:
             "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": result["whisper_installed"],
+            "gpu_runtime": result["gpu_runtime"],
             "beam_size": 5,
             "min_silence_ms": 300,
             "vad_threshold": 0.5,
@@ -685,7 +688,7 @@ class TestRunTranscribeAndApplyJob:
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
         from services import settings_service
-        monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+        patch_setting(monkeypatch, "use_gpu", True)
         diarize_calls = []
         monkeypatch.setattr(background_jobs, "start_process_job",
                             lambda job_id, target, args=(), **k: diarize_calls.append(
@@ -1613,7 +1616,7 @@ class TestTranscribeProcessJob:
                    and m.startswith("Transcribing... 50%") for f, m in messages)
         assert max(f for f, _ in messages) < 1.0
         assert _wait_until(lambda: not os.path.exists(scratch[0]))
-        assert _wait_until(lambda: isolated_db.gpu_lock_holder_count() == 0)
+        assert _wait_until(lambda: gpu_slots.holder_count() == 0)
         _clear(job_id)
 
     def test_vocals_are_separated_in_the_scratch_folder_then_kept(self, isolated_db, monkeypatch):
@@ -1653,7 +1656,7 @@ class TestTranscribeProcessJob:
             info = json.load(f)
         assert info["temp"].startswith(transcribe_service.storage.temp_root())
         assert background_jobs.get_status(job_id)["status"] == "running"
-        assert isolated_db.gpu_lock_holder_count() == 1
+        assert gpu_slots.holder_count() == 1
 
         started = time.monotonic()
         background_jobs.request_cancel(job_id)
@@ -1666,7 +1669,7 @@ class TestTranscribeProcessJob:
         assert _wait_until(lambda: not os.path.exists(info["temp"]))
         assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧的"]
         assert not os.path.exists(os.path.join(ddir, "raw_transcript.json"))
-        assert _wait_until(lambda: isolated_db.gpu_lock_holder_count() == 0)
+        assert _wait_until(lambda: gpu_slots.holder_count() == 0)
         _clear(job_id)
 
 

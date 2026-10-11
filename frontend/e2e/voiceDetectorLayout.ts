@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { openTranscribeOptions } from './sourceHelpers'
 
 type State = 'not-downloaded' | 'failed' | 'downloaded' | 'standard'
@@ -63,4 +63,28 @@ export async function expectStackedLayout(page: Page, state: State, maxHeight: n
     client: document.documentElement.clientWidth,
   }))
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+}
+
+// A tall neighbour (the Voice detector's note and button) once stretched the whole grid row, so every other
+// field's input dropped to the bottom of its cell, away from its label.
+export async function expectInputsBesideLabels(page: Page) {
+  const gaps = await page.locator('.source-grid > .field-item, .source-grid > .field-with-extras > .field-item').evaluateAll((items) =>
+    items.map((item) => {
+      const label = item.querySelector('label')!.getBoundingClientRect()
+      const control = item.querySelector('.field-control')!.getBoundingClientRect()
+      return { name: item.querySelector('label')!.textContent, gap: control.top - label.bottom }
+    }))
+  expect(gaps.length, 'fields in the grid').toBeGreaterThan(4)
+  for (const { name, gap } of gaps) {
+    expect(gap, `${name}: input sits right under its label`).toBeLessThan(12)
+  }
+}
+
+// The closed select must show its whole selected text, or cut it with an ellipsis rather than mid-letter.
+export async function expectSelectTextReadable(select: Locator) {
+  const style = await select.evaluate((el) => {
+    const s = getComputedStyle(el)
+    return { overflow: s.textOverflow }
+  })
+  expect(style.overflow, 'long selected text ends in an ellipsis').toBe('ellipsis')
 }

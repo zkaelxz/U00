@@ -85,6 +85,12 @@ For an installed copy (Setup .exe) that serves household users. "Data folder" is
 5. Press "Start arena". When done, tick the runs in the recent-runs list and press "Compare" to see scores side by side (Model Arena).
 6. Use the winner: pick that engine on the drama's Translate page. (Not verified: whether the drama remembers it as its own setting.)
 
+## Branches to keep
+Never delete these when cleaning up branches; they are the only record of the work they hold.
+- `legacy/streamlit` (and the `pre-streamlit-removal` tag): the removed Streamlit app.
+- `claude/baihe-subtitle-planning-95qyvq`: the earlier planning steps, which exist nowhere else.
+- `main`: the original default branch.
+
 ## Logs, support report, locked-out admin
 - Log: `logs/app.log` in the library folder (installed default: `%LOCALAPPDATA%\Baihe Studio\library\logs`). Diagnostics -> "Log" shows recent lines.
 - Header "Report a problem" -> "Copy a report for a bug" copies or downloads a support report (secrets are removed).

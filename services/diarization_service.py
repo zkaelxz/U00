@@ -17,7 +17,8 @@ from typing import Optional
 import background_jobs
 import db
 import diarize
-from services import drama_service, run_settings_service, settings_service, transcribe_pipeline
+from services import (drama_service, ownership_service, run_settings_service, settings_service,
+                      transcribe_pipeline)
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
@@ -236,7 +237,7 @@ def worker_options(min_speakers: Optional[int] = None,
                    max_speakers: Optional[int] = None) -> dict:
     """The options dict diarize.diarize_subprocess_worker takes: the
     persisted use_gpu setting and the speaker range."""
-    return {"use_gpu": settings_service.get_use_gpu(),
+    return {"use_gpu": settings_service.get("use_gpu"),
             "min_speakers": min_speakers or None, "max_speakers": max_speakers or None}
 
 
@@ -266,6 +267,8 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     if overwrite_manual and confirm is not True:
         raise InvalidInputError("overwrite_manual=true replaces speakers you corrected by hand "
                                 "and needs confirm=true as well.")
+    if overwrite_manual:
+        ownership_service.require_acting_lines_edit()
     try:
         expected_speakers, min_speakers, max_speakers = diarize.validate_speaker_hints(
             expected_speakers, min_speakers, max_speakers)
@@ -296,7 +299,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
                                    min_speakers, max_speakers),
         run_settings=run_settings_service.for_diarize(
-            expected_speakers, min_speakers, max_speakers, settings_service.get_use_gpu(),
+            expected_speakers, min_speakers, max_speakers, settings_service.get("use_gpu"),
             overwrite_manual=overwrite_manual))
     if not started:
         raise ConflictError(f"A diarization job is already running for drama {drama_id}.")

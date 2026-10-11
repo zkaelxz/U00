@@ -26,6 +26,8 @@ COMPILED_SUFFIXES = (".pyd", ".so", ".dll", ".dylib")
 CV2_FLAVOURS = ("opencv-python", "opencv-python-headless", "opencv-contrib-python",
                 "opencv-contrib-python-headless")
 _METADATA_DIRS = (".dist-info", ".egg-info", ".data")
+UNCHECKED_RISK = ("Baihe couldn't check this install for clashes or downgrades of packages it "
+                  "needs.")
 
 
 def _canon(name: str) -> str:
@@ -37,7 +39,7 @@ def _vkey(version: str):
     try:
         return version_mod.Version(version)
     except Exception:
-        return version_mod.Version("0")
+        return None          # unknown order: neither an upgrade nor a downgrade
 
 
 def parse_report(doc) -> list:
@@ -126,12 +128,18 @@ def _classify(report: list, installed: dict) -> list:
         have = installed.get(name)
         if have is None:
             kind = "install"
-        elif _vkey(version) > _vkey(have):
-            kind = "upgrade"
-        elif _vkey(version) < _vkey(have):
-            kind = "downgrade"
         else:
-            continue
+            new, old = _vkey(version), _vkey(have)
+            if new is None or old is None:
+                if version == have:
+                    continue
+                # pip's report lists only what it will install, so pip replaces
+                # this even though neither direction can be told.
+                kind = "change"
+            elif new == old:
+                continue
+            else:
+                kind = "upgrade" if new > old else "downgrade"
         changes.append({"name": name, "from": have, "to": version, "kind": kind})
     return changes
 
@@ -159,20 +167,19 @@ def _summary(changes: list) -> list:
     return lines
 
 
-def run_dry_run(keys: list, runner=run_captured):
-    """(report doc or None, why) from `pip install --dry-run --report`."""
+def _dry_run(argv: list, runner):
     fd, report_path = tempfile.mkstemp(prefix="baihe-plan-", suffix=".json")
     os.close(fd)
-    pins = install_registry.write_torch_pins(keys)
     try:
-        argv = install_registry.install_argv(keys, torch_pins_path=pins)
-        argv += ["--dry-run", "--quiet", "--report", report_path]
+        argv = argv + ["--dry-run", "--quiet", "--report", report_path]
         try:
             proc = runner(argv, PLAN_TIMEOUT_SECONDS)
         except OSError:
             return None, "pip could not be run to preview the change."
         if proc.timed_out:
             return None, "pip could not be run to preview the change."
+        if proc.returncode is None:
+            return None, "pip did not stop in time."
         if proc.returncode != 0:
             text = (proc.stdout or "") + (proc.stderr or "")
             if "conflict" in text.lower() or "ResolutionImpossible" in text:
@@ -184,12 +191,37 @@ def run_dry_run(keys: list, runner=run_captured):
         except (OSError, ValueError):
             return None, "this pip cannot preview an install."
     finally:
-        for path in (report_path, pins):
-            if path:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+        try:
+            os.remove(report_path)
+        except OSError:
+            pass
+
+
+def run_dry_run(keys: list, runner=run_captured):
+    """(report doc or None, why) from `pip install --dry-run --report`."""
+    pins = install_registry.write_torch_pins(keys)
+    try:
+        return _dry_run(install_registry.install_argv(keys, torch_pins_path=pins), runner)
+    finally:
+        if pins:
+            try:
+                os.remove(pins)
+            except OSError:
+                pass
+
+
+def downgrade_risks(argv: list, runner=run_captured, installed: dict = None,
+                    required: set = None, mins: dict = None) -> list:
+    """The needs_confirm sentences for one literal `pip install` argv that
+    isn't a registry key list (a fallback command): each downgrade of a
+    package Baihe needs, or UNCHECKED_RISK when pip can't preview it."""
+    report, _why = _dry_run(list(argv), runner)
+    if report is None:
+        return [UNCHECKED_RISK]
+    installed = pending_install.snapshot() if installed is None else installed
+    return _risks(_classify(parse_report(report), installed),
+                  app_required_names() if required is None else required,
+                  diagnostics.required_min_versions() if mins is None else mins)
 
 
 def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, report=None,
@@ -201,7 +233,7 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
     mode "restart": a package pip would replace is in use here (Windows only),
     a job is running, or no preview was possible on Windows. blocked: reasons
     the plan can't run at all. needs_confirm: risks the owner must accept
-    explicitly."""
+    explicitly, including running now with no preview."""
     windows = (os.name == "nt") if windows is None else windows
     keys = list(keys)
     plan = {"keys": keys, "available": False, "mode": "now", "installs": [], "changes": [],
@@ -222,6 +254,9 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
         plan["note"] = ("Couldn't preview what will change: " + (why or "no preview.")
                         + (" It will install when you restart Baihe." if windows else ""))
         plan["mode"] = "restart" if windows else "now"
+        if not windows:
+            # Running now without a preview skips the clash and downgrade checks.
+            plan["needs_confirm"].append(UNCHECKED_RISK)
         return plan
     installed = pending_install.snapshot() if installed is None else installed
     changes = _classify(parse_report(report), installed)
