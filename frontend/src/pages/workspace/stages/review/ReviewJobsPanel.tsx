@@ -8,6 +8,7 @@ import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useSession } from '../../../../hooks/useSession'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
 import { reviewJobIds, reviewKindOf } from '../../stageJobIds'
 import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
@@ -39,6 +40,7 @@ import {
   type GoToLine,
 } from './reviewResults'
 import { NO_KEY_ENGINES_HELP } from '../../../../helpText'
+import { holds } from '../../../diagnostics/adminUsers'
 
 const KINDS: { kind: BulkKind; label: string; what: string }[] = [
   { kind: 'consistency', label: 'Check consistency', what: 'Consistency check' },
@@ -125,6 +127,9 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
   })
   const busy = jobId !== null && !done && !pollError
   const noFlagged = flaggedCount === 0
+  // Fixing rewrites existing source and English, so the server also wants lines.edit.
+  const session = useSession()
+  const noEdit = session.status === 'ready' && !holds(session, 'lines.edit')
 
   useEffect(() => {
     let cancelled = false
@@ -273,10 +278,11 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
           <legend>Fix flagged lines</legend>
           <p className="muted review-fix-hint">Redoes the source and English of every flagged line.</p>
           <div className="review-actions">
-            <button type="button" className={buttonClass('secondary')} disabled={busy || noFlagged} onClick={startFix}>
+            <button type="button" className={buttonClass('secondary')} disabled={busy || noFlagged || noEdit} onClick={startFix}>
               Fix flagged lines
             </button>
             {noFlagged && <span className="muted">Still needed: a flagged line.</span>}
+            {noEdit && <span className="muted">Needs permission to edit lines; ask an admin.</span>}
           </div>
           {problem && (
             <p className="error" role="alert">

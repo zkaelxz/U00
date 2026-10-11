@@ -4,9 +4,10 @@ services/page_import_limits.py -- the page-upload rules for comic pages
 pages to a drama. Used today by the pasted-URL comic import and its reviewed
 import (Sources parity SO06/SO10, services/sources_import_service.py and
 services/sources_extraction_service.py) and the Scanlate page upload
-(services/scanlate_pages_service.py). Not yet adopted: the S-4 adapter
-chapter import (sources/pipeline.py run_import_job's page downloads).
-UI-free.
+(services/scanlate_pages_service.py). Adapter chapter imports
+(sources/generic_import.default_budget) take only the per-import count and
+total-size caps: they keep GIF pages and pages a CDN mislabels, and report
+what they leave out. UI-free.
 
   * Accepted: PNG, JPEG and WebP images (PDF too where a path can receive
     one; the pasted-URL import can't). Anything else is skipped.

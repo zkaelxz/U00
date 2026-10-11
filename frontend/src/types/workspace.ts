@@ -49,6 +49,8 @@ export interface TranscribeConfig {
   measured_diarize_runs?: number
   // False when faster-whisper isn't installed (transcription can't run).
   whisper_installed: boolean
+  // CUDA runtime DLLs Whisper needs on the GPU; "unknown" off Windows or without a CUDA device.
+  gpu_runtime: { status: 'ok' | 'missing' | 'unknown'; reason: string | null }
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
@@ -90,6 +92,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'measured_diarize_speed'
     | 'measured_diarize_runs'
     | 'whisper_installed'
+    | 'gpu_runtime'
     | 'has_video_source'
     | 'effective_vad_threshold'
   >
@@ -294,7 +297,7 @@ export interface RetranscribeManyStarted {
 }
 
 // Raw line text (the proposal is only readable here, never in the job record).
-// had_english: applying it clears that line's translation.
+// had_english: applying it keeps that English and flags the line source_changed.
 export interface RetranscribeManyProposal {
   line_id: number
   number: number

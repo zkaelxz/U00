@@ -102,14 +102,14 @@ def decode_page_data(html: str, cid: int) -> list:
     key = _XOR_KEYS[cid % 10].encode("ascii")
     try:
         raw = base64.b64decode(m.group(1))
-    except Exception as e:
-        raise LayoutChanged(f"a readable base64 DATA payload ({e})") from None
+    except Exception:
+        raise LayoutChanged("a readable base64 DATA payload") from None
     xored = bytes(b ^ key[i % 8] for i, b in enumerate(raw))
     try:
         decrypted = base64.b64decode(xored).decode("utf-8")
         items = json.loads(decrypted)
-    except Exception as e:
-        raise LayoutChanged(f"a readable page list after decoding ({e})") from None
+    except Exception:
+        raise LayoutChanged("a readable page list after decoding") from None
     urls = [item.get("url", "") for item in items if isinstance(item, dict)]
     urls = [u for u in urls if u]
     if not urls:

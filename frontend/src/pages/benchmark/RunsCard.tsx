@@ -5,7 +5,7 @@ import { Badge } from '../../components/Badge'
 import { buttonClass } from '../../components/uiClasses'
 import { BenchSection } from './BenchSection'
 import {
-  STAGE_LABELS, arenaGroups, compareProblem, formatCost, formatLatency, formatScore, formatWhen, runConfigLabel,
+  STAGE_LABELS, arenaGroups, compareProblem, formatCost, formatLatency, formatScore, formatWhen, judgeRunLine, runConfigLabel,
   runStatusLabel, runStatusTone, stageLabel, toggleCompare,
 } from './benchmarkForm'
 
@@ -83,7 +83,18 @@ type ListProps = { runs: BenchmarkRun[]; selected: number[]; onToggle: (id: numb
 const runName = (r: BenchmarkRun) => r.label || runConfigLabel(r)
 
 function ScoreCell({ r }: { r: BenchmarkRun }) {
-  return <span className="num">{formatScore(r.aggregate_score)}</span>
+  const judged = r.judge?.average?.overall
+  return (
+    <>
+      <span className="num">{formatScore(r.aggregate_score)}</span>
+      {judged != null && (
+        <span className="muted num bench-judge-score" title={judgeRunLine(r.judge)}>
+          {' '}
+          · judge {formatScore(judged)}
+        </span>
+      )}
+    </>
+  )
 }
 
 function RunTable({ runs, selected, onToggle, onOpen }: ListProps) {
@@ -124,7 +135,10 @@ function RunTable({ runs, selected, onToggle, onOpen }: ListProps) {
               <td className="num"><ScoreCell r={r} /></td>
               <td className="num">{r.passed_count}/{r.scored_count}</td>
               <td className="num">{formatLatency(r.avg_latency_seconds)}</td>
-              <td className="num">{formatCost(r.total_cost_usd)}</td>
+              <td className="num">
+                {formatCost(r.total_cost_usd)}
+                {r.judge && <div className="muted">+ {formatCost(r.judge.cost_usd)} judge</div>}
+              </td>
               <td className="num">{formatWhen(r.created_at)}</td>
               <td className="bench-cell-action">
                 <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Results of run ${r.id}`} onClick={() => onOpen(r.id)}>
@@ -159,6 +173,7 @@ function RunCards({ runs, selected, onToggle, onOpen }: ListProps) {
           <p className="num">
             Score <strong><ScoreCell r={r} /></strong> · {r.passed_count}/{r.scored_count} passed · {formatLatency(r.avg_latency_seconds)} ·{' '}
             {formatCost(r.total_cost_usd)}
+            {r.judge ? ` (+ ${formatCost(r.judge.cost_usd)} judge)` : ''}
           </p>
           {r.note && <p className="muted">{r.note}</p>}
           <div className="bench-run-card-foot">

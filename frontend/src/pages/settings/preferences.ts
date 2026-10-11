@@ -39,54 +39,6 @@ export function changedPreferences(
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string }
 
-/** Monthly cap in USD. Blank means "use .env" (null); 0 means no cap. */
-export function parseCap(raw: string): Parsed<number | null> {
-  const t = raw.trim()
-  if (!t) return { ok: true, value: null }
-  if (!/^\d+(\.\d{1,2})?$/.test(t)) return { ok: false, error: 'Enter an amount like 20 or 12.50.' }
-  const n = Number(t)
-  if (n > 1_000_000) return { ok: false, error: 'That cap is too large.' }
-  return { ok: true, value: n }
-}
-
-const MAX_NUM_CTX = 1_048_576
-
-/** Ollama num_ctx override: blank or 0 means automatic. */
-export function parseNumCtx(raw: string): Parsed<number> {
-  const t = raw.trim()
-  if (!t) return { ok: true, value: 0 }
-  if (!/^\d+$/.test(t)) return { ok: false, error: 'Enter a whole number of tokens, or 0.' }
-  const n = Number(t)
-  if (n > MAX_NUM_CTX) return { ok: false, error: `At most ${MAX_NUM_CTX.toLocaleString('en-US')}.` }
-  return { ok: true, value: n }
-}
-
-/** Keep-free memory in GB (mirrors settings_service._check_keep_free_gb). Blank means off. */
-export function parseKeepFreeGb(raw: string): Parsed<number> {
-  const t = raw.trim()
-  if (!t) return { ok: true, value: 0 }
-  if (!/^\d+(\.\d)?$/.test(t)) return { ok: false, error: 'Enter a number of GB like 4 or 2.5, or 0.' }
-  const n = Number(t)
-  if (n > 1024) return { ok: false, error: 'That is more memory than any PC has.' }
-  return { ok: true, value: n }
-}
-
-export const MIN_UPLOAD_MB = 100
-export const MAX_UPLOAD_MB = 1_048_576
-
-/** Upload size limit in MB (mirrors settings_service._check_upload_mb). Blank puts the default back. */
-export function parseUploadMb(raw: string, defaultMb: number): Parsed<number> {
-  const t = raw.trim()
-  if (!t) return { ok: true, value: defaultMb }
-  const n = Number(t)
-  if (!/^\d+$/.test(t) || n < MIN_UPLOAD_MB || n > MAX_UPLOAD_MB) {
-    return { ok: false, error: `Enter a whole number of MB from ${MIN_UPLOAD_MB} to ${MAX_UPLOAD_MB.toLocaleString('en-US')}.` }
-  }
-  return { ok: true, value: n }
-}
-
-export const DEFAULT_UPLOAD_MB = 20480
-
 const MAX_PATH = 1024
 
 /** A file or folder path on the Baihe PC: one line, not too long. */

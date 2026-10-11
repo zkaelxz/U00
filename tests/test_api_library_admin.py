@@ -36,9 +36,12 @@ def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
-def _new(title="T", status="aligned", **fields):
+def _new(title="T", status="aligned", translated=False, **fields):
     did = db.create_drama(title_en=title, source_language="zh", **fields)
     db.update_drama(did, status=status)
+    if translated:
+        from core import Line
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
     return did
 
 
@@ -90,7 +93,7 @@ def _fake_running(monkeypatch, drama_id):
 
 class TestBulkStatusTags:
     def test_status_per_id_results(self, client):
-        a, b = _new("A"), _new("B")
+        a, b = _new("A", translated=True), _new("B", translated=True)
         r = _clean(client.post(f"{BASE}/bulk/status",
                                json={"drama_ids": [a, 999, b, a], "status": "translated"}))
         assert r.status_code == 200, r.text
@@ -276,7 +279,7 @@ class TestExportBackupArtifacts:
             assert any(n.endswith("english.srt") for n in zf.namelist())
 
     def test_export_explicit_ids_and_duplicate(self, client):
-        a = _new("A", "translated")
+        a = _new("A", "translated", translated=True)
         b = _new("B", "aligned")
         _put_job(las.EXPORT_JOB_ID)
         assert client.post(f"{BASE}/export", json={"drama_ids": [a]}).status_code == 409
@@ -632,7 +635,7 @@ class TestMaintenanceBlocksArchiving:
                                            ("/backup", {"database_only": True}),
                                            ("/backup/user", {})])
     def test_409_during_delete_or_cleanup(self, client, path, body):
-        _new("A", "translated")
+        _new("A", "translated", translated=True)
         assert background_jobs.enter_maintenance()
         try:
             r = client.post(BASE + path, json=body)
