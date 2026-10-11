@@ -1,14 +1,17 @@
 <#
 .SYNOPSIS
 Starts llama-server with Qwen3.6-35B-A3B, then OpenCode in the repo root.
-Run from PowerShell: .\tools\start-local-coder.ps1 [-LlamaDir E:\llama] [-Terminal]
+Run from PowerShell: .\tools\start-local-coder.ps1 [-LlamaDir E:\llama] [-Terminal] [-GpuProfile 12gb|32gb]
+-GpuProfile 12gb (default) is the tested recipe. 32gb is UNTESTED: written for a 32 GB card
+(Tesla V100) that holds the whole model, so nothing is offloaded to system RAM.
 Opens OpenCode's web UI in the browser; -Terminal uses the terminal UI instead.
 Press Ctrl+C (web) or exit OpenCode (terminal) to stop both programs.
 #>
 param(
     [string]$LlamaDir = 'E:\llama',
     [int]$TimeoutSec = 1800,
-    [switch]$Terminal
+    [switch]$Terminal,
+    [ValidateSet('12gb', '32gb')][string]$GpuProfile = '12gb'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,6 +39,24 @@ $serverArgs = @(
     '-t', $cores, '-b', '2048', '-ub', '2048',
     '--reasoning', 'off', '--jinja', '--port', $port
 )
+
+if ($GpuProfile -eq '32gb') {
+    # UNTESTED. The Q4_K_M weights (about 21 GB) plus a 64k q8_0 KV cache should fit in 32 GB,
+    # so drop --n-cpu-moe and keep the experts on the GPU. The context stays 65536 to match
+    # limit.context in opencode.json; raise both together if you want more.
+    $serverArgs = @(
+        '-hf', 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
+        '--fit', 'off', '-ngl', '99',
+        '-c', '65536', '-fa', 'on', '-ctk', 'q8_0', '-ctv', 'q8_0',
+        '-t', $cores, '-b', '2048', '-ub', '2048',
+        '--reasoning', 'off', '--jinja', '--port', $port
+    )
+}
+
+# The model's shell inherits this. Only the deprecation and syntax warning categories are
+# silenced: a blanket -W ignore would also switch off pytest.ini's unhandled-thread-exception
+# guard, and a test with a crashing thread would pass. -o addopts= drops pytest.ini's -v.
+$env:PYTEST_ADDOPTS = '-q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short'
 
 # -NoNewWindow keeps llama-server attached to this console, so closing the window
 # kills it too; a separate window would leave it holding the GPU. Its output goes
