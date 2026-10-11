@@ -22,6 +22,8 @@ export interface TranslateRunConfig {
   locales: string[]
   workflow_tiers: WorkflowTier[]
   defaults: { context_window: number; context_window_ahead: number; batch_size: number }
+  // {engine: {model: default batch size}}; '' is the engine's own default model.
+  batch_size_defaults?: Record<string, Record<string, number>>
   // Settings > Defaults for new dramas (optional: older servers omit them).
   default_locale?: string
   default_style_note?: string
@@ -92,7 +94,7 @@ export interface TranslateRunStartBody {
   force_retranslate: boolean
   context_window: number
   context_window_ahead: number
-  batch_size: number
+  batch_size?: number
   job_cost_cap_usd?: number
   fallback_chain?: FallbackEngine[]
   reflect?: boolean

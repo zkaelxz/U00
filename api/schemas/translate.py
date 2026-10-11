@@ -119,6 +119,8 @@ class TranslateRunConfig(BaseModel):
     locales: List[str]
     workflow_tiers: List[TranslateRunWorkflowTier]
     defaults: TranslateRunDefaults
+    # {engine: {model: default batch size}}; "" is the engine's own default model.
+    batch_size_defaults: Dict[str, Dict[str, int]] = {}
     default_locale: str = "en-US"
     default_style_note: str = ""
     project_instructions: Optional[str] = None
