@@ -49,6 +49,47 @@ def test_run_translates_only_empty_lines_and_keeps_manual_edits(isolated_db):
     assert ens["你好"] and ens["谢谢"]
 
 
+def test_english_typed_while_the_run_works_is_kept(isolated_db, monkeypatch):
+    from tests.fake_engine import FakeEngine
+    did = _seed([("你好", ""), ("谢谢", "")])
+    real = FakeEngine.translate_batch
+
+    def user_types_then_translate(self, zh_lines, context):
+        [ln] = [ln for ln in db.load_line_objects(did) if ln.zh == "谢谢"]
+        if not ln.en:
+            ln.en = "Typed while it ran"
+            db.save_lines(did, [ln], fields=("en",))
+        return real(self, zh_lines, context)
+    monkeypatch.setattr(FakeEngine, "translate_batch", user_types_then_translate)
+    job = _wait(svc.start_translate_run(did, engine_name="fake")["job_id"])
+    assert job["status"] == "done"
+    rows = {r["zh"]: r for r in db.load_lines(did)}
+    assert rows["谢谢"]["en"] == "Typed while it ran"
+    assert rows["你好"]["en"].startswith("[TEST]")
+    assert job["result"]["kept_your_edit"] == [rows["谢谢"]["id"]]
+    # The version the run saved holds the kept edit, so restoring it later
+    # doesn't bring the machine English back over it.
+    [version] = db.list_translation_versions(did)
+    saved = {ln["zh"]: ln["en"] for ln in db.get_translation_version(version["id"])["lines"]}
+    assert saved["谢谢"] == "Typed while it ran"
+
+
+def test_refused_force_start_takes_no_undo_point(isolated_db, monkeypatch):
+    did = _seed([("你好", "old")])
+    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+    with pytest.raises(ConflictError):
+        svc.start_translate_run(did, engine_name="fake", force_retranslate=True)
+    assert db.list_line_history(did) == []
+
+
+def test_force_retranslate_keeps_an_undo_point_of_the_old_english(isolated_db):
+    did = _seed([("你好", "old")])
+    _wait(svc.start_translate_run(did, engine_name="fake", force_retranslate=True)["job_id"])
+    [snap] = db.list_line_history(did)
+    assert snap["label"] == "before force re-translate"
+    assert [ln["en"] for ln in db.get_line_history_snapshot(snap["id"])] == ["old"]
+
+
 def test_line_ids_restrict_targets_and_write_is_by_id(isolated_db):
     did = _seed([("一", ""), ("二", ""), ("三", "")])
     rows = db.load_lines(did)
@@ -64,9 +105,9 @@ def test_write_is_field_scoped_en_only(isolated_db, monkeypatch):
     calls = []
     real = db.save_lines
 
-    def spy(d, ls, fields=None):
+    def spy(d, ls, fields=None, **kw):
         calls.append(fields)
-        return real(d, ls, fields=fields)
+        return real(d, ls, fields=fields, **kw)
     monkeypatch.setattr(db, "save_lines", spy)
     _wait(svc.start_translate_run(did, engine_name="fake")["job_id"])
     # Translation writes `en`; finish_translation_run's density pass writes
