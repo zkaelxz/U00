@@ -237,6 +237,55 @@ class TestRetention:
         assert len(names) == 7 and all(n.endswith(".json") for n in names)
         assert _texts(ddir) == [f"run{i}" for i in range(6)] + ["run0"]
 
+    def test_the_rename_is_made_durable_before_the_plain_file_is_removed(
+            self, tmp_path, monkeypatch):
+        ddir = str(tmp_path)
+        _runs(ddir, 6)
+        events = []
+        real_remove = os.remove
+        monkeypatch.setattr(rt.db, "fsync_dir", lambda path: events.append("fsync"))
+        monkeypatch.setattr(
+            rt.os, "remove",
+            lambda path: (events.append("remove") if path.endswith(".json") else None,
+                          real_remove(path))[1])
+        _runs(ddir, 1)
+        assert events == ["fsync", "remove"]
+
+    def test_a_failed_fsync_keeps_the_plain_file(self, tmp_path, monkeypatch):
+        ddir = str(tmp_path)
+        _runs(ddir, 6)
+
+        def broken(path):
+            raise OSError("disk full")
+        monkeypatch.setattr(rt.db, "fsync_dir", broken)
+        with contextlib.suppress(OSError):
+            _runs(ddir, 1)
+        assert _texts(ddir)[1] == "run1"
+        assert os.path.exists(os.path.join(ddir, "raw_transcript.json"))
+        second = rt.list_raw_transcripts(ddir)[1]
+        assert second.endswith(".json") and os.path.exists(second)
+
+    def test_a_check_that_fails_after_another_process_removed_the_plain_file_keeps_the_copy(
+            self, tmp_path, monkeypatch):
+        ddir = str(tmp_path)
+        _runs(ddir, 6)
+        second_plain = rt.list_raw_transcripts(ddir)[1]
+        real_same = rt._same_content
+        calls = []
+
+        def interleaved(packed_path, plain):
+            calls.append(packed_path)
+            if len(calls) == 1:
+                return real_same(packed_path, plain)    # nothing packed yet
+            # Another process verified the same .gz and removed the plain
+            # file between our write and our read-back, which now fails.
+            os.remove(second_plain)
+            return False
+        monkeypatch.setattr(rt, "_same_content", interleaved)
+        rt._compress(second_plain)
+        assert os.path.exists(second_plain + ".gz")
+        assert rt.read_raw_transcript(second_plain + ".gz")["text"] == "run1"
+
     def test_a_plain_file_that_cant_be_removed_is_listed_once_and_removed_later(
             self, tmp_path, monkeypatch):
         ddir = str(tmp_path)
