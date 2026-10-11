@@ -748,6 +748,63 @@ class TestPaidEngines:
         assert r.status_code not in (401, 403)
 
 
+class TestJobQueue:
+    """/api/queue: jobs.start on every route; titles must be the caller's, a
+    paid Translate item needs engines.paid, and only the PC owner runs it."""
+
+    def test_needs_jobs_start(self, isolated_db):
+        c = _remote(_app())
+        u, s = _user_named("viewer@example.com")
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        assert c.get("/api/queue", headers=_h(s)).status_code == 403
+        did = db.create_drama(title_en="T", source_language="zh")
+        assert c.post("/api/queue/items", json={"drama_id": did, "step": "export"},
+                      headers=_h(s)).status_code == 403
+        assert c.post("/api/queue/start", json={}, headers=_h(s)).status_code == 403
+
+    def test_members_queue_their_own_titles_only_and_cannot_run_it(self, isolated_db):
+        c = _remote(_app())
+        a, sa = _user_named("a@example.com", "jobs.start")
+        b, sb = _user_named("b@example.com", "jobs.start")
+        mine = db.create_drama(title_en="Mine", owner_user_id=a["id"], is_private=1)
+        theirs = db.create_drama(title_en="Theirs", owner_user_id=b["id"], is_private=1)
+        shared = db.create_drama(title_en="Shared", owner_user_id=b["id"], is_private=0)
+        add = "/api/queue/items"
+        for did in (theirs, shared, 999999):
+            assert c.post(add, json={"drama_id": did, "step": "export"},
+                          headers=_h(sa)).status_code == 404
+        assert c.post(add, json={"drama_id": mine, "step": "dub"}, headers=_h(sa)).status_code == 422
+        r = c.post(add, json={"drama_id": mine, "step": "export"}, headers=_h(sa))
+        assert r.status_code == 200 and [i["title"] for i in r.json()["items"]] == ["Mine"]
+        c.post(add, json={"drama_id": theirs, "step": "export"}, headers=_h(sb))
+        assert [i["title"] for i in c.get("/api/queue", headers=_h(sb)).json()["items"]] == ["Theirs"]
+        item = r.json()["items"][0]["id"]
+        assert c.post(f"/api/queue/items/{item}/remove", json={}, headers=_h(sb)).status_code == 404
+        for path, body in (("/api/queue/start", {}), ("/api/queue/pause", {}),
+                           ("/api/queue/schedule", {"time": "02:00"}),
+                           ("/api/queue/policy", {"stop_on_failure": True})):
+            assert c.post(path, json=body, headers=_h(sa)).status_code == 403, path
+
+    def test_paid_translate_item_needs_engines_paid(self, isolated_db):
+        c = _remote(_app())
+        a, sa = _user_named("a@example.com", "jobs.start")
+        did = db.create_drama(title_en="T", owner_user_id=a["id"], is_private=1,
+                              translation_engine="claude")
+        body = {"drama_id": did, "step": "translate"}
+        assert c.post("/api/queue/items", json=body, headers=_h(sa)).status_code == 403
+        auth_service.grant_permission(a["id"], "engines.paid")
+        r = c.post("/api/queue/items", json=body, headers=_h(sa))
+        assert r.status_code == 200 and r.json()["items"][0]["paid"] is True
+
+    def test_the_pc_owner_runs_the_queue(self, isolated_db):
+        c = _local(_app("off"))
+        assert c.post("/api/queue/schedule", json={"time": "25:00"}).status_code == 422
+        r = c.post("/api/queue/schedule", json={"time": "02:00"})
+        assert r.status_code == 200 and r.json()["schedule"]["time"] == "02:00"
+        assert c.post("/api/queue/pause", json={}).status_code == 200
+        assert c.get("/api/queue").json()["can_control"] is True
+
+
 # --- tokens, cookies, rate limit, CLI ------------------------------------------
 
 def _all_db_text():
