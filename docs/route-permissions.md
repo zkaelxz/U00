@@ -2,7 +2,7 @@
 
 The route -> permission table `tests/test_api_permissions.py` checks against the app. The permission model and the reasoning behind each row are in [`remote-access-decision.md`](remote-access-decision.md).
 
-One row per route (`METHOD /path`), sorted by path and then method, and no counts or totals: the test derives them from the app, so a new route adds one row and touches no shared line. Declarations: a permission name, `public()`, `authenticated()` or `local_only()`. Rows are for the auth-on app with the frontend built. The table is generated from the decorators: after adding or changing a route run `python tools/route_table.py --write`, never edit rows by hand; the prose above the table is the only part to edit.
+One row per route (`METHOD /path`), sorted by path and then method, and no counts or totals: the test derives them from the app, so a new route adds one row and touches no shared line. Declarations: a permission name (several joined by ` + ` when the route needs all of them, e.g. `review.use + lines.read` for a review view that shows line text), `public()`, `authenticated()` or `local_only()`. Rows are for the auth-on app with the frontend built. The table is generated from the decorators: after adding or changing a route run `python tools/route_table.py --write`, never edit rows by hand; the prose above the table is the only part to edit.
 
 | Route | Declaration |
 |---|---|
@@ -63,7 +63,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/benchmark/runs/{run_id}` | admin.diagnostics |
 | `GET /api/benchmark/sets` | admin.diagnostics |
 | `POST /api/benchmark/sets/from-title` | local_only() |
-| `GET /api/characters/dramas/{drama_id}` | library.read |
+| `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |
 | `POST /api/characters/dramas/{drama_id}/character` | lines.edit |
 | `GET /api/characters/dramas/{drama_id}/clone-engines` | library.read |
 | `POST /api/characters/dramas/{drama_id}/merge-speakers` | lines.edit |
@@ -230,7 +230,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/jobs/{job_id}/stages` | library.read |
 | `GET /api/language-packs` | library.read |
 | `GET /api/language-packs/defaults/{language}` | library.read |
-| `POST /api/language-packs/defaults/{language}` | admin.settings |
+| `POST /api/language-packs/defaults/{language}` | local_only() |
 | `GET /api/language-packs/dramas/{drama_id}` | library.read |
 | `POST /api/language-packs/dramas/{drama_id}` | lines.edit |
 | `GET /api/language-packs/packs/{pack_id}` | library.read |
@@ -257,7 +257,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/library/presets/{preset_id}/delete` | local_only() |
 | `POST /api/library/presets/{preset_id}/rename` | admin.library |
 | `GET /api/library/recent` | library.read |
-| `GET /api/library/search` | library.read |
+| `GET /api/library/search` | library.read + lines.read |
 | `GET /api/library/series` | library.read |
 | `GET /api/library/stats` | library.read |
 | `GET /api/library/voice-bank` | library.read |
@@ -403,7 +403,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/review/dramas/{drama_id}/find-replace/preview` | lines.read |
 | `GET /api/review/dramas/{drama_id}/flagged-adjacent` | lines.read |
 | `GET /api/review/dramas/{drama_id}/history` | review.use |
-| `GET /api/review/dramas/{drama_id}/history/{history_id}` | review.use |
+| `GET /api/review/dramas/{drama_id}/history/{history_id}` | review.use + lines.read |
 | `GET /api/review/dramas/{drama_id}/lines` | lines.read |
 | `GET /api/review/dramas/{drama_id}/lines/{line_id}/original-text` | lines.read |
 | `GET /api/review/dramas/{drama_id}/lines/{line_id}/provenance` | lines.read |
@@ -413,9 +413,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/review/dramas/{drama_id}/search` | lines.read |
 | `GET /api/review/dramas/{drama_id}/source-changed` | lines.read |
 | `GET /api/review/dramas/{drama_id}/tendencies` | review.use |
-| `GET /api/review/dramas/{drama_id}/tm-suggestions` | review.use |
+| `GET /api/review/dramas/{drama_id}/tm-suggestions` | review.use + lines.read |
 | `GET /api/review/dramas/{drama_id}/versions` | review.use |
-| `GET /api/review/dramas/{drama_id}/versions/compare` | review.use |
+| `GET /api/review/dramas/{drama_id}/versions/compare` | review.use + lines.read |
 | `POST /api/review/dramas/{drama_id}/versions/{version_id}/activate` | lines.edit |
 | `POST /api/review/dramas/{drama_id}/versions/{version_id}/delete` | local_only() |
 | `GET /api/saved-comics/chapters` | library.read |

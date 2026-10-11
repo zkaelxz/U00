@@ -153,24 +153,30 @@ def session_token(request: Request):
     return request.cookies.get(session_cookie_name(request))
 
 
-def require_permission(permission: str):
-    if permission not in auth_service.PERMISSIONS:
-        raise ValueError(f"unknown permission {permission!r}; add it to "
-                         "services/auth_service.py PERMISSIONS first")
+def require_permission(*permissions: str):
+    """The caller needs every permission listed. Several make one
+    declaration, labelled "a + b" in docs/route-permissions.md, so a route
+    that shows line text can need lines.read on top of its own permission."""
+    if not permissions:
+        raise ValueError("require_permission needs at least one permission")
+    for permission in permissions:
+        if permission not in auth_service.PERMISSIONS:
+            raise ValueError(f"unknown permission {permission!r}; add it to "
+                             "services/auth_service.py PERMISSIONS first")
 
     def dependency(request: Request):
         if not is_auth_enabled(request.app):
             request.state.principal = local_owner_principal()
             return request.state.principal
         principal = _authenticate(request)
-        if permission not in principal["permissions"]:
+        if not set(permissions) <= set(principal["permissions"]):
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = principal
         ownership_service.note_acting_principal(principal)
         require_path_visible(request, principal)
         return principal
 
-    return _marked(dependency, "permission", permission)
+    return _marked(dependency, "permission", " + ".join(permissions))
 
 
 # Path parameters that name an owned item. Every route whose path

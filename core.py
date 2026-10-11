@@ -12,6 +12,7 @@ import tempfile
 from dataclasses import dataclass, field, replace
 
 import source_change
+import video_export
 import whisper_models
 from segment_splitting import (_word_dicts, encode_line_words, line_words, tighten_to_words,
                                words_for_text)
@@ -800,7 +801,7 @@ def extract_audio_from_video(video_path: str, out_path: str):
     """Pulls the audio track out of a video file via ffmpeg, so the
     same timing/alignment pipeline can run on it as on audio-only files."""
     import subprocess
-    cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
+    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path, "-vn", "-acodec", "pcm_s16le",
            "-ar", "16000", "-ac", "1", out_path]
     subprocess.run(cmd, check=True, capture_output=True, timeout=EXTRACT_AUDIO_TIMEOUT_SECONDS)
     return out_path
@@ -820,7 +821,8 @@ def extract_audio_slice(audio_path: str, start: float, end: float, out_path: str
     SLICE_TIMEOUT_SECONDS; None disables it) raises
     subprocess.TimeoutExpired if ffmpeg runs longer."""
     import subprocess
-    cmd = ["ffmpeg", "-y", "-i", audio_path, "-ss", str(max(start, 0.0)), "-to", str(end),
+    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", audio_path,
+           "-ss", str(max(start, 0.0)), "-to", str(end),
            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", out_path]
     subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
     return out_path

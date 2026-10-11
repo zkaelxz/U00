@@ -20,3 +20,17 @@ test('previewing a snapshot shows what would change and writes nothing', async (
   await expect(preview).toHaveCount(0)
   expect(calls.restores).toBe(0)
 })
+
+test('without permission to read lines: TM and the preview show a plain note, the rest of Records still works', async ({ page }) => {
+  const forbidden = { status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }
+  await page.route('**/api/review/dramas/3/tm-suggestions*', (route) => route.fulfill(forbidden))
+  await mockSnapshot(page)
+  await page.route('**/api/review/dramas/3/history/7', (route) => route.fulfill(forbidden))
+  const note = 'Seeing line text needs permission to read lines. Ask the owner of the main PC.'
+  const list = page.getByTestId('history-list')
+  await expect(list).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Translation memory suggestions' })).toBeVisible()
+  await list.getByRole('button', { name: 'Preview' }).click()
+  await expect(page.getByText(note)).toHaveCount(2)
+  await expect(page.getByTestId('snapshot-preview')).toHaveCount(0)
+})

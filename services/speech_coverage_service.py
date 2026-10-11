@@ -25,6 +25,7 @@ import background_jobs
 import db
 import raw_transcript
 import vad_segments
+import video_export
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -158,7 +159,8 @@ def _audio_seconds(path) -> Optional[float]:
 
 def _decode_chunk(path: str, start: float, seconds: float):
     """16 kHz mono float samples of [start, start + seconds) via ffmpeg."""
-    cmd = ["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(seconds), "-i", path,
+    cmd = ["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(seconds),
+           *video_export.local_input(), "-i", path,
            "-f", "f32le", "-ac", "1", "-ar", str(_SAMPLE_RATE), "-"]
     out = subprocess.run(cmd, check=True, capture_output=True, timeout=_DECODE_TIMEOUT_SECONDS)
     return np.frombuffer(out.stdout, dtype=np.float32)
