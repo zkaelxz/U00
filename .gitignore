@@ -2,6 +2,11 @@
 # it's your data, it's large, and it may contain purchased content.
 library/
 
+# Optional personal VTuber name list (licence-restricted: never commit or share).
+# A non-installed copy keeps its data folder in this checkout.
+/vtuber_names.json
+/vtuber_names.json.part
+
 # Secrets
 .env
 *.key

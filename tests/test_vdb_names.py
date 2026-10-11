@@ -123,7 +123,7 @@ def test_write_is_atomic_when_replacing_fails(data_dir, monkeypatch):
         raise OSError("disk full")
     monkeypatch.setattr(vn.os, "replace", boom)
     _fake_get(monkeypatch, {"vtbs": [_entry(default="新名字")]})
-    with pytest.raises(OSError):
+    with pytest.raises(DependencyUnavailableError):
         vn.fetch()
     assert os.listdir(data_dir) == [vn.FILE_NAME]
     assert vn.entries_for_text("旧名字") == ["旧名字"]
@@ -174,6 +174,43 @@ def test_matching_is_bounded(data_dir, monkeypatch):
     assert vn.matches_for_text("名字0001" * 5000)[0][1] == vn.MAX_COUNT_PER_NAME
 
 
+def test_every_file_the_service_writes_is_git_ignored():
+    # A non-installed copy keeps its data folder in the git checkout, and the list is
+    # licence-restricted, so it must never be committable by mistake.
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for name in (vn.FILE_NAME, vn.FILE_NAME + vn.TEMP_SUFFIX):
+        r = subprocess.run(["git", "check-ignore", "-q", name], cwd=root)
+        assert r.returncode == 0, f"{name} is not in .gitignore"
+
+
+@pytest.mark.parametrize("entry", [{"type": ["vtuber"], "name": {"default": "名字名字"}},
+                                   {"type": {"a": 1}, "name": {"default": "名字名字"}}])
+def test_a_list_or_dict_type_is_skipped_not_fatal(entry):
+    assert vn.parse_list({"vtbs": [entry, _entry(default="好名字")]}) == (1, ["好名字"])
+
+
+def test_a_hostile_download_is_a_fixed_error_not_a_crash(data_dir, monkeypatch):
+    for body in (b"[" * 200000 + b"]" * 200000, b'{"vtbs": [{"type": ["x"]}], "meta": []}' + b"\x00"):
+        _fake_get(monkeypatch, body)
+        with pytest.raises(DependencyUnavailableError, match="expected format"):
+            vn.fetch()
+    assert os.listdir(data_dir) == []
+
+
+def test_a_nested_stored_file_reads_as_not_downloaded(data_dir):
+    (data_dir / vn.FILE_NAME).write_text("[" * 200000 + "]" * 200000, encoding="utf-8")
+    assert vn.status()["downloaded"] is False and vn.entries_for_text("名字名字") == []
+
+
+def test_a_failed_write_is_a_fixed_error_without_a_path(data_dir, monkeypatch):
+    _fake_get(monkeypatch, FIXTURE)
+    monkeypatch.setattr(vn.os, "makedirs", lambda *a, **k: (_ for _ in ()).throw(OSError(str(data_dir))))
+    with pytest.raises(DependencyUnavailableError) as exc:
+        vn.fetch()
+    assert str(data_dir) not in exc.value.message and "could not be saved" in exc.value.message
+
+
 # --- per title ----------------------------------------------------------------
 
 def _drama(**kw):
@@ -218,7 +255,7 @@ def test_nothing_is_added_without_a_download(isolated_db, data_dir):
     assert vn.block_for(db.get_drama(did), _lines("白上フブキ")) == ""
 
 
-def test_deleting_a_title_drops_its_choice(isolated_db):
+def test_deleting_a_title_drops_its_choice(isolated_db, data_dir):
     a, b = _drama(), _drama()
     vn.set_title(a, True)
     vn.set_title(b, True)
@@ -292,7 +329,7 @@ def test_a_failed_download_answers_without_url_or_path(isolated_db, data_dir, mo
     assert r.status_code >= 400 and "vtbs.moe" not in r.text and str(data_dir) not in r.text
 
 
-def test_title_routes_check_ownership(isolated_db):
+def test_title_routes_check_ownership(isolated_db, data_dir):
     a_id, a = _login("a@example.com")
     b_id, b = _login("b@example.com")
     private = db.create_drama(title_en="P", source_language="zh", owner_user_id=a_id, is_private=1)

@@ -41,6 +41,7 @@ SOURCE_URL = "https://vdb.vtbs.moe/json/list.json"
 SOURCE_NAME = "dd-center/vdb"
 LICENCE = "VTuber Public Database International License v1.0 (CC BY-NC-SA 4.0 plus GPL text)"
 FILE_NAME = "vtuber_names.json"
+TEMP_SUFFIX = ".part"   # both names are in .gitignore: a non-installed copy keeps its data folder in the checkout
 
 MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
 FETCH_TIMEOUT = (10, 30)       # connect, read
@@ -90,7 +91,7 @@ def parse_list(data) -> Tuple[int, List[str]]:
     names = set()
     kept = 0
     for entry in vtbs:
-        if not isinstance(entry, dict) or entry.get("type") not in KEPT_TYPES or entry.get("bot") is True:
+        if not isinstance(entry, dict) or not isinstance(entry.get("type"), str) or entry["type"] not in KEPT_TYPES or entry.get("bot") is True:
             continue
         name = entry.get("name")
         if not isinstance(name, dict):
@@ -112,7 +113,7 @@ def parse_list(data) -> Tuple[int, List[str]]:
 # --- file ---------------------------------------------------------------------
 
 def _write_atomic(path: str, payload: dict) -> None:
-    tmp = path + ".part"
+    tmp = path + TEMP_SUFFIX
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:
@@ -146,7 +147,7 @@ def _load() -> Optional[dict]:
             if not isinstance(header, dict) or not isinstance(names, list):
                 return None
             names = [n for n in map(_clean_name, names) if n]
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, RecursionError):
             return None
         _cache = {"stamp": stamp, "header": header, "names": names}
         return _cache
@@ -191,19 +192,22 @@ def fetch() -> dict:
             raise DependencyUnavailableError("The VTuber database could not be downloaded.")
         try:
             data = json.loads(resp.body)
-        except ValueError:
+            kept, names = parse_list(data)
+            meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+        except (ValueError, TypeError, RecursionError):
             raise DependencyUnavailableError("The VTuber database was not in the expected format.") from None
-        kept, names = parse_list(data)
         if not names:
             raise DependencyUnavailableError("The VTuber database had no usable names.")
-        meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
         upstream = meta.get("timestamp")
-        _write_atomic(_path(), {
-            "header": {"source": SOURCE_NAME, "licence": LICENCE,
-                       "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                       "upstream_timestamp": upstream if isinstance(upstream, (int, float, str)) else None,
-                       "entry_count": kept},
-            "names": names})
+        try:
+            _write_atomic(_path(), {
+                "header": {"source": SOURCE_NAME, "licence": LICENCE,
+                           "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                           "upstream_timestamp": upstream if isinstance(upstream, (int, float, str)) else None,
+                           "entry_count": kept},
+                "names": names})
+        except OSError:
+            raise DependencyUnavailableError("The VTuber names could not be saved.") from None
         return status()
     finally:
         _lock.release()
