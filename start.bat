@@ -46,8 +46,7 @@ REM                            the prebuilt release zip instead (docs/RELEASE.md
 REM   start.bat --python-version 3.12 -- Step 79: pin the Python version
 REM                            used to create the venv, via the `py`
 REM                            launcher (`py -3.12`), for an optional
-REM                            dependency that needs a specific version
-REM                            (e.g. qwen-asr recommends a clean 3.12 env).
+REM                            dependency that needs a specific version.
 REM                            A PYTHON_VERSION marker file next to this
 REM                            script (containing just "3.12") does the
 REM                            same thing without needing the flag every

@@ -23,6 +23,6 @@ def test_cmd_transcribe_prints_the_notice(monkeypatch, capsys):
         id=1, whisper_size=None, asr_backend=None, beam_size=None, min_silence_ms=None, min_pause=None,
         vad_threshold=None, sensitivity=None, separation_backend=None, separate_vocals=None,
         language=None, chinese_script=None, diarize=False, num_speakers=None, min_speakers=None,
-        max_speakers=None, initial_prompt=None, extra_names=None)
+        max_speakers=None, initial_prompt=None, extra_names=None, vocab_hint=None)
     cli.cmd_transcribe(args)
     assert "WARNING: Ollama still has a model loaded (a:1b)." in capsys.readouterr().out

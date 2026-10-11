@@ -1,12 +1,13 @@
 """Step 103: batched Qwen3-ASR re-transcription (asr_backend.Qwen3ASRBackend
 batch_size) and the setting behind it (services/asr_options_service,
 api/routers/asr_options_routes). The model is faked: no GPU, network or
-real qwen-asr."""
+real transformers."""
 import os
 
 import pytest
 
 import asr_backend as ab
+import qwen3_native
 
 
 class FakeResult:
@@ -17,12 +18,6 @@ class FakeResult:
 def _segments(n, length=2.0):
     return [{"start": i * length, "end": (i + 1) * length, "text": f"whisper {i}"}
             for i in range(n)]
-
-
-@pytest.fixture(autouse=True)
-def tested_qwen_version(monkeypatch):
-    """Batching only runs on the tested qwen-asr version; pretend it's installed."""
-    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: ab.QWEN_ASR_BATCH_TESTED_VERSION)
 
 
 @pytest.fixture
@@ -187,30 +182,30 @@ def test_a_batch_that_raises_is_retried_one_segment_at_a_time(monkeypatch, slice
     assert [s["text"] for s in out] == ["seg_0.wav", "seg_1.wav"]
 
 
-@pytest.mark.parametrize("version", ["0.0.7", "0.1.0", None])
-def test_any_other_qwen_asr_version_runs_one_segment_per_call(monkeypatch, sliced, version):
-    """Texts are assigned back in batch order, which is only checked for 0.0.6."""
-    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: version)
+def test_a_whole_batch_is_one_call_whatever_the_transformers_version(monkeypatch, sliced):
+    """Results come back in input order (qwen3_native checks the count), so the
+    saved size is honoured with no version gate."""
+    monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "5.99.0")
     model = EchoModel()
     _use_model(monkeypatch, model)
     out = ab.Qwen3ASRBackend().transcribe("/a.wav", "zh", whisper_segments=_segments(3),
                                           batch_size=4)
-    assert model.calls == [1, 1, 1]
+    assert model.calls == [3]
     assert [s["text"] for s in out] == ["seg_0.wav", "seg_1.wav", "seg_2.wav"]
 
 
-def test_effective_batch_size(monkeypatch):
+def test_effective_batch_size():
     assert ab.effective_qwen_batch_size(8) == 8
     assert ab.effective_qwen_batch_size(1) == 1
     assert ab.effective_qwen_batch_size(None) == 1
-    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: "0.0.9")
-    assert ab.effective_qwen_batch_size(8) == 1
+    assert ab.effective_qwen_batch_size(0) == 1
 
 
-def test_route_reports_whether_batching_can_run(isolated_db, monkeypatch):
+@pytest.mark.parametrize("version,available", [("5.19.0", True), ("5.15.0", True),
+                                               ("5.14.1", False), ("4.57.6", False), (None, False)])
+def test_route_reports_whether_qwen3_can_run(isolated_db, monkeypatch, version, available):
     from services import asr_options_service as svc
-    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: "0.0.9")
+    monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: version)
     opts = svc.get_asr_options()
-    assert opts["qwen_asr_version"] == "0.0.9" and opts["qwen_asr_batching_available"] is False
-    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: "0.0.6")
-    assert svc.get_asr_options()["qwen_asr_batching_available"] is True
+    assert opts["qwen_asr_version"] == version
+    assert opts["qwen_asr_batching_available"] is available

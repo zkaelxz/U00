@@ -24,10 +24,13 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/SYSTRAN/faster-whisper",
      "help": "The default speech-to-text engine used to transcribe dialogue when you start a "
              "new drama."},
-    {"name": "Qwen3-ASR", "kind": "package", "package": "qwen-asr",
-     "url": "https://github.com/QwenLM/Qwen3-ASR",
-     "help": "An alternative speech-to-text engine to Whisper, used for transcription when "
-             "selected in Settings."},
+    {"name": "Qwen3-ASR", "kind": "package", "package": "transformers", "min_version": "5.15",
+     "url": "https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf",
+     "help": "An alternative speech-to-text engine to Whisper, run by transformers 5.15 or "
+             "newer. Models download from Hugging Face on first use: about 4.1 GB for 1.7B, "
+             "1.6 GB for 0.6B and 1.8 GB for the forced aligner. Weights cached by the older "
+             "qwen-asr package (Qwen/Qwen3-ASR-1.7B, ...) aren't reused, so the first run "
+             "downloads them again."},
     {"name": "SenseVoice (FunASR)", "kind": "package", "package": "funasr",
      "url": "https://github.com/modelscope/FunASR",
      "help": "An alternate transcription engine that also tags emotion and non-speech sounds "
@@ -92,6 +95,10 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
             try:
                 version = importlib.metadata.version(entry["package"])
                 installed = True
+                # Still "installed" (the Update button fixes it), but the row
+                # must not read as ready.
+                if diagnostics.below_min_version(version, entry.get("min_version")):
+                    version += f" (needs {entry['min_version']} or newer)"
             except importlib.metadata.PackageNotFoundError:
                 version = "not installed"
                 installed = False

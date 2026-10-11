@@ -27,7 +27,7 @@ from tests.saved_settings import patch_setting
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
-    monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature: None)
+    monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature, language=None: None)
     monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     patch_setting(monkeypatch, "use_gpu", True)
     calls = {"groups": [], "languages": [], "use_gpu": [], "shift": -0.4,
@@ -98,7 +98,7 @@ class TestStart:
             svc.start_retime(novel, [1])
         did, ids = _drama()
 
-        def missing(feature):
+        def missing(feature, language=None):
             raise DependencyUnavailableError("needs qwen-asr")
         monkeypatch.setattr(transcribe_service, "require_qwen3_packages", missing)
         with pytest.raises(DependencyUnavailableError):

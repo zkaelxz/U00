@@ -16,7 +16,7 @@ settings, stored in db.app_settings like use_gpu.
   standard (Silero) one otherwise; "asmr" and "standard" force one. The ASMR
   model is a separate, user-requested download (asmr_vad.py); without it, or
   without onnxruntime, a run falls back to standard and says so.
-- stored_asr_backend: a title's backend, or the default for its language.
+- stored_asr_backend: a title's saved backend, Whisper when none is saved.
 
 UI-free. Writes are PC-only (the router uses local_only()).
 """
@@ -25,6 +25,7 @@ import importlib.util
 
 import background_jobs
 import db
+import qwen3_native
 from services.service_errors import ConflictError, InvalidInputError
 
 ASMR_VAD_JOB_ID = "asmr_vad_download"
@@ -41,12 +42,6 @@ ASR_BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "qwen3_asr_long"
 # Backends that used to be offered. A title may still have one saved, so it
 # loads as the default backend with a notice; the saved value is left alone.
 REMOVED_ASR_BACKENDS = {"moss_td": "MOSS-Transcribe-Diarize"}
-# Languages whose default backend is Qwen3-ASR on long windows, when it is
-# installed: the Qwen3-ASR model card reports about a third of Whisper
-# large-v3's character error rate on Chinese benchmarks and a lower one on
-# Japanese. The only Japanese clip measured here (docs/asr-experiments.md) was
-# run before this backend existed, on the short-span one.
-QWEN_LONG_DEFAULT_LANGUAGES = ("zh", "ja")
 
 
 def get_qwen_asr_batch_size() -> int:
@@ -108,13 +103,9 @@ def resolve_voice_detector(drama, source_language=None) -> str:
 
 
 def _qwen_batching_status() -> tuple:
-    """(installed qwen-asr version or None, whether batching can run with it)."""
-    try:
-        import asr_backend
-        version = asr_backend.installed_qwen_asr_version()
-        return version, version == asr_backend.QWEN_ASR_BATCH_TESTED_VERSION
-    except Exception:
-        return None, False
+    """(installed transformers version or None, whether Qwen3-ASR can run with it)."""
+    version = qwen3_native.installed_transformers_version()
+    return version, version is not None and qwen3_native.transformers_problem() is None
 
 
 def _asmr_vad_status() -> dict:
@@ -129,8 +120,9 @@ def get_asr_options() -> dict:
     qwen_version, batching_available = _qwen_batching_status()
     return {
         "qwen_asr_batch_size": get_qwen_asr_batch_size(),
-        # Batching runs only with the tested qwen-asr; any other version
-        # sends one segment at a time whatever the saved size.
+        # Qwen3-ASR (and so batching) runs on transformers 5.15+; with an
+        # older one it can't run at all. The field names predate the move
+        # off the qwen-asr package and are kept for the frontend.
         "qwen_asr_version": qwen_version,
         "qwen_asr_batching_available": batching_available,
         "qwen_asr_batch_min": MIN_BATCH_SIZE,
@@ -211,18 +203,10 @@ def removed_asr_backend_notice(drama):
 
 
 def stored_asr_backend(drama) -> str:
-    """The drama's saved backend; one that never saved a choice (or saved a
-    removed one) gets Qwen3-ASR
-    on long windows for Chinese and Japanese when qwen-asr, torch and
-    faster-whisper (its speech detector) are installed, else Whisper. A title
-    with Groq on keeps Whisper: the VAD backends run locally and would
-    silently bypass Groq."""
+    """The drama's saved backend, else Whisper. A title that never chose Qwen3
+    stays on Whisper: Qwen3-ASR downloads several GB of weights on first use,
+    and transformers 5.15+ alone (which other features install) is no sign the
+    user wants that. A saved backend that has been removed also reads as
+    Whisper."""
     saved = drama.get("asr_backend_choice")
-    if saved and saved not in REMOVED_ASR_BACKENDS:
-        return saved
-    if (not drama.get("use_groq")
-            and (drama.get("source_language") or "zh") in QWEN_LONG_DEFAULT_LANGUAGES
-            and all(importlib.util.find_spec(m) is not None
-                    for m in ("qwen_asr", "torch", "faster_whisper"))):
-        return "qwen3_asr_long"
-    return "whisper"
+    return saved if saved and saved not in REMOVED_ASR_BACKENDS else "whisper"
