@@ -57,7 +57,7 @@ test('says what to install when the reading library is missing', async ({ page }
     json: { ...VARIANTS, available: false, reason: 'Japanese kanji readings need the pykakasi package (pip install pykakasi).', candidates: [] },
   }))
   await page.route('**/api/glossary/dramas/1/name-clusters', (route) => route.fulfill({
-    json: { available: false, reason: 'Japanese kanji readings need the pykakasi package (pip install pykakasi).', lines_scanned: 0, truncated: false, clusters: [] },
+    json: { available: false, reason: 'Japanese kanji readings need the pykakasi package (pip install pykakasi).', lines_scanned: 0, truncated: false, clusters: [], known_vtuber_names: [] },
   }))
   const glossary = await openGlossary(page)
   await glossary.getByRole('button', { name: 'Find similar spellings of ヤロ' }).click()
@@ -69,7 +69,7 @@ test('says what to install when the reading library is missing', async ({ page }
 test('possible names: a cluster can be named, but needs a series first', async ({ page }) => {
   await page.route('**/api/glossary/dramas/1/name-clusters', (route) => route.fulfill({
     json: {
-      available: true, reason: '', lines_scanned: 50, truncated: false,
+      available: true, reason: '', lines_scanned: 50, truncated: false, known_vtuber_names: [],
       clusters: [{
         suggested_original: 'ミカ', existing_term: null, total: 5,
         spellings: [
@@ -87,4 +87,16 @@ test('possible names: a cluster can be named, but needs a series first', async (
   await expect(names).toContainText('may be one name')
   await expect(names.getByRole('button', { name: 'Make a term from ミカ' })).toBeDisabled()
   await expect(names.getByText('Still needed: a series (above).')).toBeVisible()
+})
+
+test('empty results say so for both scans', async ({ page }) => {
+  await page.route('**/api/glossary/dramas/1/variants?*', (route) => route.fulfill({ json: { ...VARIANTS, candidates: [] } }))
+  await page.route('**/api/glossary/dramas/1/name-clusters', (route) => route.fulfill({
+    json: { available: true, reason: '', lines_scanned: 50, truncated: false, clusters: [], known_vtuber_names: [] },
+  }))
+  const glossary = await openGlossary(page)
+  await glossary.getByRole('button', { name: 'Find similar spellings of ヤロ' }).click()
+  await expect(glossary.getByRole('region', { name: 'Similar spellings of ヤロ' })).toContainText('No other spellings found in 120 lines.')
+  await glossary.getByRole('button', { name: 'Find possible names' }).click()
+  await expect(glossary.getByRole('region', { name: 'Possible names' })).toContainText('No recurring names found yet.')
 })

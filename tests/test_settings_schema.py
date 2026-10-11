@@ -49,6 +49,8 @@ DYNAMIC_KEYS = {
         "title-scoped: the language pack chosen for one title",
     ("services/language_pack_service.py", "_DEFAULT_KEY.format(language)"):
         "per language: the default language pack",
+    ("services/vdb_names_service.py", "_TITLE_KEY.format(drama_id)"):
+        "title-scoped: whether one title uses the downloaded VTuber names",
     ("services/benchmark_judge_service.py", "_setting_key(sid)"):
         "benchmark_judge.<session>: blind-judge pass state for one benchmark session",
     ("services/benchmark_judge_service.py", "_setting_key(session_id)"):
@@ -406,3 +408,14 @@ def test_declared_keys_are_read_through_one_reader():
     assert seen_other == set(OTHER_READERS), "drop a migrated module from OTHER_READERS"
     for rel in ROOT_READERS:
         assert "settings_schema.coerce(" in _read(rel), f"{rel} should coerce through the schema"
+
+
+def test_reply_guard_setting_defaults_to_auto_and_maps_to_the_pipeline_argument(isolated_db):
+    assert settings_service.get("translate_reply_guard") == "auto"
+    assert settings_service.reply_guard_override() is None
+    for mode, expected in (("on", True), ("off", False), ("auto", None)):
+        settings_service.set_settings({"translate_reply_guard": mode})
+        assert settings_service.reply_guard_override() is expected
+        assert settings_service.run_options()["check_replies"] is expected
+    with pytest.raises(Exception):
+        settings_service.set_settings({"translate_reply_guard": "sometimes"})
