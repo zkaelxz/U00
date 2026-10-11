@@ -1434,3 +1434,62 @@ def test_bulk_delete_continues_when_the_language_pack_cleanup_fails(isolated_db,
     r = las.bulk_delete([a, b], confirm=True, confirm_text="DELETE")
     assert r["deleted"] == 2
     assert db.get_drama(a) is None and db.get_drama(b) is None
+
+
+def _record_swap(monkeypatch, events, fail_verify=False):
+    """Records fsyncs (by file name) and renames in order, and the live
+    library.db check after the swap, noting whether the previous library
+    still sat beside it at that moment."""
+    real_fsync, real_rename, real_check = os.fsync, os.rename, wjs._require_quick_check
+    live = os.path.join(db.LIBRARY_DIR, "library.db")
+
+    def fsync(fd):
+        events.append(("fsync", os.path.basename(os.readlink(f"/proc/self/fd/{fd}"))))
+        real_fsync(fd)
+
+    def rename(src, dst):
+        events.append(("rename", os.path.basename(src), os.path.basename(dst)))
+        real_rename(src, dst)
+
+    def check(path, message):
+        if os.path.abspath(path) == os.path.abspath(live):
+            events.append(("verify", any(".pre_restore_" in n for n in _leftovers())))
+            if fail_verify:
+                raise ValueError(message)
+        real_check(path, message)
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "rename", rename)
+    monkeypatch.setattr(wjs, "_require_quick_check", check)
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="names fds through /proc")
+def test_restore_flushes_the_staged_databases_before_the_swap(isolated_db, monkeypatch):
+    _new("A")
+    src_store.track_series("site", "s1", "Tracked")
+    data = _backup_bytes()
+    events = []
+    _record_swap(monkeypatch, events)
+    _restore(data)
+    first_rename = next(i for i, e in enumerate(events) if e[0] == "rename")
+    flushed = {e[1] for e in events[:first_rename] if e[0] == "fsync"}
+    assert {"library.db", "sources.db"} <= flushed
+    # The previous library is only removed once the swapped-in one checks out.
+    assert ("verify", True) in events[first_rename:]
+    assert not _leftovers()
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="names fds through /proc")
+def test_a_restored_library_that_fails_its_check_is_rolled_back(isolated_db, monkeypatch):
+    a = _new("Live")
+    data = _backup_bytes()
+    b = _new("Added later")
+    _write("notes.txt", b"live file")
+    events = []
+    _record_swap(monkeypatch, events, fail_verify=True)
+    with pytest.raises(InvalidInputError):
+        _restore(data)
+    assert ("verify", True) in events
+    assert db.get_drama(a) is not None and db.get_drama(b) is not None
+    with open(os.path.join(db.LIBRARY_DIR, "notes.txt"), "rb") as f:
+        assert f.read() == b"live file"
+    assert not _leftovers()

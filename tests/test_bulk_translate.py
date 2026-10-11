@@ -1919,3 +1919,86 @@ class TestResumeAndSchedulerRaces:
                            sleep=lambda s: None)
 
         assert isolated_db.get_bulk_job(bulk_id)["status"] == "cancelled"
+
+
+class TestApplyKeepsEditsSavedDuringTheApply:
+    """An edit saved between an apply's load and its save (e.g. while it
+    flags dense lines) is kept, and the saved version holds it."""
+
+    @staticmethod
+    def _edit_after_load(monkeypatch, isolated_db, did, edit):
+        real_load, done = isolated_db.load_line_objects, []
+
+        def load(drama_id, *a, **kw):
+            loaded = real_load(drama_id, *a, **kw)
+            if not done:
+                done.append(True)
+                fresh = real_load(did)
+                edit(fresh)
+                isolated_db.save_lines(did, fresh, fields=("en", "flag", "flag_note"))
+            return loaded
+        monkeypatch.setattr(bt.db, "load_line_objects", load)
+
+    def _apply_translation(self, monkeypatch, isolated_db, edit):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3)
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        bulk_id = _submit(isolated_db, did, engine)
+        batches = engine.client.messages.batches
+        _answer_every_request(batches)
+        batches.status = "ended"
+        self._edit_after_load(monkeypatch, isolated_db, did, edit)
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
+        [active] = [v for v in isolated_db.list_translation_versions(did) if v["is_active"]]
+        version = {ln["id"]: ln["en"] for ln in isolated_db.get_translation_version(active["id"])["lines"]}
+        rows = {r["id"]: r["en"] for r in isolated_db.load_lines(did)}
+        return ids, rows, version, isolated_db.get_bulk_job(bulk_id)["result_summary"]
+
+    def test_an_edit_to_an_applied_line_wins_and_is_counted(self, monkeypatch, isolated_db):
+        def edit(fresh):
+            fresh[1].en = "Typed during the apply"
+        ids, rows, version, summary = self._apply_translation(monkeypatch, isolated_db, edit)
+        assert rows[ids[1]] == "Typed during the apply"
+        assert version[ids[1]] == "Typed during the apply"
+        assert rows[ids[0]] == version[ids[0]] == "EN[第0句]"
+        assert summary["kept_your_edit"] == 1 and summary["applied"] == 2
+
+    def test_an_edit_to_an_unrelated_line_survives_in_the_version_too(self, monkeypatch, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3)
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        lines = isolated_db.load_line_objects(did)
+        lines[2].en = "Already mine"
+        isolated_db.save_lines(did, lines, fields=("en",))
+        bulk_id = _submit(isolated_db, did, engine)  # line 2 has English: not a target
+        batches = engine.client.messages.batches
+        _answer_every_request(batches)
+        batches.status = "ended"
+
+        def edit(fresh):
+            fresh[2].en = "Reworded during the apply"
+        self._edit_after_load(monkeypatch, isolated_db, did, edit)
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
+        [active] = [v for v in isolated_db.list_translation_versions(did) if v["is_active"]]
+        version = {ln["id"]: ln["en"] for ln in isolated_db.get_translation_version(active["id"])["lines"]}
+        rows = {r["id"]: r["en"] for r in isolated_db.load_lines(did)}
+        assert rows[ids[2]] == version[ids[2]] == "Reworded during the apply"
+        assert rows[ids[0]] == "EN[第0句]"
+
+    def test_a_flag_set_on_a_line_during_a_flag_apply_is_kept(self, monkeypatch, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+        jid = bt.submit_bulk_flag(did, lines, engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+
+        def edit(fresh):
+            fresh[0].flag, fresh[0].flag_note = "slang_idiom", "mine"
+        self._edit_after_load(monkeypatch, isolated_db, did, edit)
+        payload = [{"line_idx": i, "reason": "uncertain_translation", "note": "auto"} for i in ids]
+        summary = bt.apply_flag_results(jid, [(key, json.dumps(payload), {}, None)])
+        final = {r["id"]: (r["flag"], r["flag_note"]) for r in isolated_db.load_lines(did)}
+        assert final[ids[0]] == ("slang_idiom", "mine")
+        assert final[ids[1]] == ("uncertain_translation", "auto")
+        assert summary["kept_your_edit"] == 1 and summary["applied"] == 1

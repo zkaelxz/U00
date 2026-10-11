@@ -22,6 +22,8 @@ import emotion
 import core as core_module
 import whisper_models
 from core import transcribe_for_timing
+from services.library_restore_sql import (_open_carry_conn, _ro_uri, _schema_sql_allowed,
+                                          _table_names)
 from services import (auth_service, fixflag_transcribe, fixflag_translate, job_timing_service,
                       language_pack_service, library_restore_sql, line_provenance_service,
                       run_settings_service, settings_service, timing_settings_service,
@@ -638,24 +640,6 @@ _RESTORE_SKIPPED_SIDECARS = tuple(f"{base}{ext}" for base in ("library.db", "sou
                                   for ext in ("-wal", "-shm", "-journal"))
 
 
-def _ro_uri(path: str, ro: bool = True) -> str:
-    from urllib.parse import quote
-    return f"file:{quote(os.path.abspath(path))}" + ("?mode=ro" if ro else "")
-
-
-def _open_carry_conn(path: str):
-    import sqlite3
-    conn = sqlite3.connect(_ro_uri(path, ro=False), uri=True, isolation_level=None)
-    conn.execute("PRAGMA trusted_schema = OFF")
-    return conn
-
-
-def _table_names(conn, schema: str) -> list:
-    return [r[0] for r in conn.execute(
-        f"SELECT name FROM {schema}.sqlite_master WHERE type = 'table' "
-        "AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
-
-
 def _current_state_marker(library_dir: str):
     """(max audit_log id, sources settings rows) of the live library,
     compared right before the swap so a sign-in or settings change made
@@ -692,21 +676,9 @@ SOURCES_DB_NOT_CARRIED = ("The current sources.db could not be copied into the r
                           "library (it may be damaged); nothing was changed. To restore "
                           "without it, move sources.db out of the library folder (tracked "
                           "series and source settings go with it) and try again.")
-RESTORE_DB_ERRORS = (BAD_LIBRARY_DB, BAD_SOURCES_DB, SOURCES_DB_NOT_CARRIED)
-
-def _schema_sql_allowed(sql: str) -> bool:
-    """True only for CREATE TABLE / CREATE [UNIQUE] INDEX text (comments
-    and whitespace ignored, case-insensitive). Everything else -- triggers,
-    views, virtual tables, TEMP objects -- is refused, whatever
-    sqlite_master's `type` column claims (SQLite re-parses `sql` and
-    ignores `type`, so a writable_schema-planted row can lie about it)."""
-    import re
-    text = re.sub(r"--[^\n]*|/\*.*?(\*/|$)", " ", sql, flags=re.S)
-    text = " ".join(text.split()).upper()
-    if not re.match(r"CREATE (TABLE|(UNIQUE )?INDEX)[ \"'`\[(]", text + " "):
-        return False
-    # Generated columns: quick_check and the row copy would evaluate them.
-    return "GENERATED" not in text and not re.search(r"\bAS ?\(", text)
+RESTORED_DB_FAILED = ("The restored library.db failed a check once in place; your previous "
+                      "library was put back unchanged.")
+RESTORE_DB_ERRORS = (BAD_LIBRARY_DB, BAD_SOURCES_DB, SOURCES_DB_NOT_CARRIED, RESTORED_DB_FAILED)
 
 
 def _check_uploaded_db(db_path: str, message: str, need_table: str = None) -> None:
@@ -926,6 +898,20 @@ def _require_quick_check(path: str, message: str) -> None:
         raise ValueError(message)
 
 
+def _fsync_dir(path: str) -> None:
+    # Windows can't open a directory to flush it; NTFS journals renames.
+    if os.name == "nt":
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
 def _remove_entry(path: str):
     import shutil
     if os.path.isdir(path) and not os.path.islink(path):
@@ -1027,6 +1013,13 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             raise ConflictError("Sign-in or source settings changed while the restore was "
                                 "being prepared; nothing was changed -- try again.")
 
+        # The renames can reach disk before the staged data does: a power
+        # loss after the old library is deleted must not leave empty files.
+        for name in ("library.db", "sources.db"):
+            if os.path.isfile(os.path.join(staging_dir, name)):
+                with open(os.path.join(staging_dir, name), "r+b") as fh:
+                    os.fsync(fh.fileno())
+        _fsync_dir(staging_dir)
         old_dir = None
         if os.path.exists(library_dir):
             old_dir = f"{library_dir}.pre_restore_{int(time.time())}"
@@ -1037,7 +1030,16 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             if old_dir is not None:
                 os.rename(old_dir, library_dir)
             raise
-        staging_dir = None
+        failed_dir, staging_dir = staging_dir, None
+        _fsync_dir(parent_dir)
+        try:
+            _require_quick_check(os.path.join(library_dir, "library.db"), RESTORED_DB_FAILED)
+        except ValueError:
+            os.rename(library_dir, failed_dir)
+            staging_dir = failed_dir
+            if old_dir is not None:
+                os.rename(old_dir, library_dir)
+            raise
         if old_dir is not None:
             carried = True
             for name in kept:

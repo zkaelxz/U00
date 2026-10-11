@@ -28,7 +28,8 @@ import time
 import uuid
 
 import background_jobs
-from bulk_providers import BulkAuthError, make_provider
+from bulk_providers import (BulkAuthError, is_deepseek_offpeak, make_provider,
+                            next_deepseek_offpeak_start)
 import db
 import emotion
 import job_force_stop
@@ -41,13 +42,6 @@ BULK_ENGINES = ("claude", "gemini", "deepseek")
 # normal per-token price.
 BATCH_PRICE_FACTOR = 0.5
 POLL_INTERVAL_SECONDS = 60
-
-# DeepSeek's peak hours, UTC, Monday-Friday (datetime.weekday() 0-4);
-# every other hour, and weekends, bill at half price. Checked against
-# api-docs.deepseek.com/quick_start/pricing in September 2026. Chinese
-# public holidays are off-peak too, but aren't listed here -- on one of
-# those a job just waits for a window it didn't strictly need to.
-DEEPSEEK_PEAK_HOURS_UTC = ((1, 4), (6, 10))
 
 
 def zh_hash(text: str) -> str:
@@ -76,27 +70,6 @@ def _polled_by_outer_job(job: dict) -> bool:
 
 def _utcnow():
     return datetime.datetime.utcnow()
-
-
-# ---------------------------------------------------------------------------
-# DeepSeek off-peak window
-# ---------------------------------------------------------------------------
-
-def is_deepseek_offpeak(now: datetime.datetime) -> bool:
-    if now.weekday() >= 5:
-        return True
-    return not any(start <= now.hour < end for start, end in DEEPSEEK_PEAK_HOURS_UTC)
-
-
-def next_deepseek_offpeak_start(now: datetime.datetime) -> datetime.datetime:
-    """now itself if it's already off-peak, else the end of the current
-    peak window."""
-    if is_deepseek_offpeak(now):
-        return now
-    for start, end in DEEPSEEK_PEAK_HOURS_UTC:
-        if start <= now.hour < end:
-            return now.replace(hour=end, minute=0, second=0, microsecond=0)
-    return now
 
 
 # ---------------------------------------------------------------------------
@@ -515,21 +488,30 @@ def _parse_strict(text: str, expected_ids: list) -> dict:
     return translate_engines.parse_id_keyed_json(stripped, expected_ids)
 
 
-def _save_applied_english(job: dict, current: list, applied: int, changed_flag: bool, label: str):
-    if applied:
+def _save_applied_english(job: dict, current: list, counts: dict, label: str):
+    did = job["drama_id"]
+    if counts["applied"]:
         from services import reading_speed_dismissal_service as dismissals
-        changed_flag = dismissals.flag_dense_lines(job["drama_id"], current) > 0 or changed_flag
-    if applied or changed_flag:
-        db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
-    if applied:
-        db.save_translation_version(
-            job["drama_id"], current, label=label, engine=job["engine"],
-            model=job["model"] or "", make_active=True)
+        dismissals.flag_dense_lines(did, current)
+    # Compare-and-set against the load: an edit saved since then is kept,
+    # and a flag is not computed from English the user has since replaced.
+    new_en = [ln for ln in current if ln.en != ln.orig["en"]]
+    kept = db.save_lines(did, new_en, fields=("en", "flag", "flag_note"), only_if_unchanged=True)
+    db.save_lines(did, [ln for ln in current if ln.en == ln.orig["en"]], fields=("flag", "flag_note"),
+                  only_if_unchanged=True, guard_fields=("en",))
+    counts["applied"] -= len(kept)
+    counts["kept_your_edit"] += len(kept)
+    if counts["applied"]:
+        # From the database, not `current`: restoring the version must not
+        # bring stale English back over an edit kept above.
+        db.save_translation_version(did, db.load_line_objects(did), label=label,
+                                    engine=job["engine"], model=job["model"] or "", make_active=True)
         # Applying SOME lines must not claim the whole drama is translated.
         _status = dict(translation_engine=job["engine"])
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
         db.update_drama(job["drama_id"], **_status)
+    return kept
 
 
 def apply_bulk_results(bulk_job_id: int, results) -> dict:
@@ -547,7 +529,6 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "missing": 0, "failed_requests": 0, "unknown_requests": 0}
-    changed_flag = False
 
     for key, text, usage, error in results:
         if usage and usage.get("input_tokens"):
@@ -582,7 +563,6 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
                 if not ln.flag:
                     ln.flag = "bulk_source_changed"
                     ln.flag_note = f"Bulk result not applied: {translation}"
-                    changed_flag = True
                 continue
             if (ln.en or "") != (row_by_id[lid]["en_at_submit"] or ""):
                 counts["kept_your_edit"] += 1
@@ -593,8 +573,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
             source_change.clear_for_new_english(ln)
             counts["applied"] += 1
 
-    _save_applied_english(job, current, counts["applied"], changed_flag,
-                          f"{job['engine']} bulk · {args.get('style_preset', '')}")
+    _save_applied_english(job, current, counts, f"{job['engine']} bulk · {args.get('style_preset', '')}")
     # Nothing newly applied can still complete the title (lines typed meanwhile).
     mark_translated_if_complete(job["drama_id"])
     return counts
@@ -673,7 +652,7 @@ def _apply_reflect_faithful(job: dict, results) -> dict:
             counts["drafted"] += 1
 
     if changed_flag:
-        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"))
+        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"), only_if_unchanged=True)
     db.set_bulk_job_line_result_texts(job["id"], result_texts)
     return counts
 
@@ -768,7 +747,7 @@ def _apply_reflect_reflection(job: dict, results) -> dict:
             counts["critiqued" if critique else "no_critique_needed"] += 1
 
     if changed_flag:
-        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"))
+        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"), only_if_unchanged=True)
     db.set_bulk_job_line_result_texts(job["id"], result_texts)
     return counts
 
@@ -908,12 +887,11 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
     notes = []
-    changed_flag = False
     for lid, text in text_by_id.items():
         row = row_by_id[lid]
         ln = cur_by_id.get(lid)
         if _stale_line(ln, row["zh_hash"]):
-            changed_flag = _drop_or_flag_stale(ln, counts) or changed_flag
+            _drop_or_flag_stale(ln, counts)
             continue
         if (ln.en or "") != (row["en_at_submit"] or ""):
             counts["kept_your_edit"] += 1
@@ -930,8 +908,10 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
         if critique:
             notes.append({"line_id": lid, "term": "", "note_type": "reflection", "note": critique})
 
-    _save_applied_english(job, current, counts["applied"], changed_flag, label)
+    kept = _save_applied_english(job, current, counts, label)
     mark_translated_if_complete(job["drama_id"])
+    # A critique of English that never landed would describe the wrong text.
+    notes = [n for n in notes if n["line_id"] not in kept]
     if notes:
         db.save_translation_notes(job["drama_id"], notes)
     return counts
@@ -954,6 +934,7 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0,
               "unparsable_entries": 0}
+    mine = set()
 
     for key, text, usage, error in results:
         _log_generic_usage(job, usage, "flag_review_bulk")
@@ -990,9 +971,13 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
             ln.flag = reason
             ln.flag_note = f.get("note", "")
             counts["applied"] += 1
+            mine.add(lid)
 
     if counts["applied"] or counts["flagged_source_changed"]:
-        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"))
+        kept = mine & db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"),
+                                    only_if_unchanged=True)
+        counts["applied"] -= len(kept)
+        counts["kept_your_edit"] += len(kept)
     return counts
 
 
@@ -1103,7 +1088,7 @@ def apply_emotion_results(bulk_job_id: int, results) -> dict:
         id_by_idx = {cur_by_id[lid].idx: lid for lid in to_save}
         db.save_emotions(job["drama_id"], by_idx, id_by_idx=id_by_idx)
     if changed_flag:
-        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"))
+        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"), only_if_unchanged=True)
     return counts
 
 
