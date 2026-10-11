@@ -213,9 +213,10 @@ def _spans(word: str, text: str) -> list:
     return [m.span() for m in re.finditer(pattern, text)]
 
 
-def matching_entries(choices: dict, text: str, user_terms=None,
-                     limit: int = MAX_PROMPT_ENTRIES, language: Optional[str] = None) -> list:
-    """Pack entries to send for `text`, as dicts with source, en, note, context,
+def select_entries(choices: dict, text: str, user_terms=None,
+                   limit: int = MAX_PROMPT_ENTRIES, language: Optional[str] = None) -> tuple:
+    """(entries, dropped): the pack entries to send for `text` and how many
+    matches the `limit` cap cut. Entries for `text`, as dicts with source, en, note, context,
     category and pack. `choices` is {pack id: style or None} for the packs
     turned on. An entry is dropped when its source is not in `text` or when
     the user's own glossary has a term (or alias) with the same source, so the
@@ -224,7 +225,12 @@ def matching_entries(choices: dict, text: str, user_terms=None,
     and over the user's terms, enabled or not, and only enabled entries are
     returned: 様 must not fire inside お疲れ様 or the user's お嬢様 just because
     the pack holding the longer word is off. Order is stable (pack order, then
-    file order) so the same text always gives the same prompt."""
+    file order) so the same text always gives the same prompt.
+
+    When more than `limit` entries match, the ones with the most spans in
+    `text` that no longer word claimed are kept (ties: pack order, then file
+    order), so a long run keeps the terms it actually uses most instead of
+    whichever pack came first. Entries come back in that rank order."""
     taken = _user_sources(user_terms)
     packs = all_packs()
     languages = {language} if language else {packs[i]["language"] for i in choices if i in packs}
@@ -244,14 +250,14 @@ def matching_entries(choices: dict, text: str, user_terms=None,
     # One flag per character instead of a list of spans: this runs on a whole
     # run's text, and checking each candidate against every claimed span was quadratic.
     claimed = bytearray(len(text))
-    keep = set()
+    keep = {}
     for src in sorted(claimants, key=lambda w: -len(w)):
         spans = [sp for sp in _spans(src, text) if not any(claimed[sp[0]:sp[1]])]
         if spans:
-            keep.add(src)
+            keep[src] = len(spans)
             for start, end in spans:
                 claimed[start:end] = b"\x01" * (end - start)
-    found = []
+    found, counts = [], []
     for pack_id in in_scope:
         for entry in packs[pack_id]["entries"]:
             src = entry["source"]
@@ -259,7 +265,16 @@ def matching_entries(choices: dict, text: str, user_terms=None,
                 found.append({"source": src, "en": rendering(entry, packs[pack_id], choices[pack_id]),
                               "note": entry["note"], "context": entry["context"],
                               "category": entry["category"], "pack": pack_id})
-    return found[:limit]
+                counts.append(keep[src])
+    # sorted() is stable, so equal counts stay in pack and file order.
+    ranked = sorted(range(len(found)), key=lambda i: -counts[i])
+    return [found[i] for i in ranked[:limit]], max(0, len(found) - limit)
+
+
+def matching_entries(choices: dict, text: str, user_terms=None,
+                     limit: int = MAX_PROMPT_ENTRIES, language: Optional[str] = None) -> list:
+    """The entries of select_entries(), without the dropped count."""
+    return select_entries(choices, text, user_terms, limit, language)[0]
 
 
 def build_pack_block(entries) -> str:

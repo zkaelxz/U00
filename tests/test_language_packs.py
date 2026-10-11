@@ -55,6 +55,54 @@ class TestBuiltInFiles:
         assert en("zh-address", "姐姐") == "big sis" and en("zh-address", "哥哥") == "big brother"
         assert en("zh-address", "姐姐", "pinyin") == "jiejie"
 
+    def test_file_name_equals_pack_id(self):
+        import os
+        for name in os.listdir(lp.PACK_DIR):
+            if name.endswith(".json"):
+                with open(os.path.join(lp.PACK_DIR, name), encoding="utf-8") as f:
+                    assert json.load(f)["id"] == name[:-len(".json")]
+
+    def test_vtuber_packs_load_core_before_names(self):
+        ids = list(lp.all_packs())
+        assert ids.index("ja-vtuber-core") < ids.index("ja-vtuber-names")
+        assert ids.index("zh-vtuber-core") < ids.index("zh-vtuber-names")
+
+    @pytest.mark.parametrize("pack_id, count", [("ja-vtuber-core", 164), ("ja-vtuber-names", 42),
+                                                ("zh-vtuber-core", 139), ("zh-vtuber-names", 35)])
+    def test_vtuber_pack_sizes(self, pack_id, count):
+        assert len(lp.all_packs()[pack_id]["entries"]) == count
+
+    def test_vtuber_style_defaults(self):
+        packs = lp.all_packs()
+        assert packs["ja-vtuber-core"]["styles"]["default"] == "romanised"
+        assert packs["zh-vtuber-core"]["styles"]["default"] == "fan"
+        assert not packs["ja-vtuber-names"]["styles"]["options"]
+        assert not packs["zh-vtuber-names"]["styles"]["options"]
+        entry = next(e for e in packs["ja-vtuber-core"]["entries"] if e["source"] == "てぇてぇ")
+        assert lp.rendering(entry, packs["ja-vtuber-core"]) == "teetee"
+        assert lp.rendering(entry, packs["ja-vtuber-core"], "natural") == "precious"
+
+    def test_zh_vtuber_core_has_a_traditional_twin_for_each_converted_form(self):
+        sources = {e["source"] for e in lp.all_packs()["zh-vtuber-core"]["entries"]}
+        twins = [("单推", "單推"), ("贴贴", "貼貼"), ("联动", "聯動"), ("舰长", "艦長"), ("总督", "總督"),
+                 ("毕业", "畢業"), ("转生", "轉生"), ("个人势", "個人勢"), ("企业势", "企業勢"),
+                 ("虚拟主播", "虛擬主播"), ("杂谈", "雜談"), ("同时视听", "同時視聽")]
+        assert [t for t in twins if not {t[0], t[1]} <= sources] == []
+        by_source = {e["source"]: e for e in lp.all_packs()["zh-vtuber-core"]["entries"]}
+        assert all(by_source[s]["en"] == by_source[t]["en"] for s, t in twins)
+
+    def test_vtuber_names_keep_the_romanised_form_in_every_style(self):
+        by_source = {e["source"]: e for e in lp.all_packs()["ja-vtuber-names"]["entries"]}
+        assert by_source["兎田ぺこら"]["en"] == "Usada Pekora" and by_source["こんぺこ"]["en"] == "Konpeko"
+
+    def test_vtuber_packs_do_not_repeat_a_source_of_an_earlier_pack_of_the_language(self):
+        seen = {}
+        for pack in lp.all_packs().values():
+            for e in pack["entries"]:
+                if "vtuber" in pack["id"]:
+                    assert (pack["language"], e["source"]) not in seen, (pack["id"], e["source"])
+                seen.setdefault((pack["language"], e["source"]), pack["id"])
+
     def test_every_pack_says_it_is_a_starter_pack(self):
         assert all("Starter pack, review it" in p["description"] for p in lp.all_packs().values())
 
@@ -198,6 +246,48 @@ class TestSelection:
         assert time.perf_counter() - start < 10.0
         assert {"さん", "様"} <= {e["source"] for e in found}
 
+    def test_more_than_the_cap_keeps_the_most_frequent_entries(self):
+        lp._cache = {"t-pack": lp.validate_pack(
+            _pack(entries=[{"source": f"w{i:03d}", "en": "x"} for i in range(100)]), "f")}
+        try:
+            # the last 10 entries in file order appear 3 times, all others once
+            text = " ".join(f"w{i:03d}" for i in range(100)) + " " + " ".join(
+                f"w{i:03d}" for i in list(range(90, 100)) * 2)
+            found, dropped = lp.select_entries({"t-pack": None}, text)
+            sources = [e["source"] for e in found]
+            assert len(sources) == lp.MAX_PROMPT_ENTRIES and dropped == 100 - lp.MAX_PROMPT_ENTRIES
+            assert sources[:10] == [f"w{i:03d}" for i in range(90, 100)]
+            assert sources[10:13] == ["w000", "w001", "w002"]
+        finally:
+            lp._cache = None
+
+    def test_equal_counts_keep_pack_then_file_order(self):
+        lp._cache = {"a-pack": lp.validate_pack(_pack(id="a-pack", entries=[
+                         {"source": "bb", "en": "1"}, {"source": "aa", "en": "2"}]), "f"),
+                     "b-pack": lp.validate_pack(_pack(id="b-pack", entries=[{"source": "cc", "en": "3"}]), "f")}
+        try:
+            found = lp.matching_entries({"b-pack": None, "a-pack": None}, "cc aa bb aa bb cc")
+            assert [e["source"] for e in found] == ["bb", "aa", "cc"]
+            found = lp.matching_entries({"a-pack": None, "b-pack": None}, "cc cc aa bb")
+            assert [e["source"] for e in found] == ["cc", "bb", "aa"]
+        finally:
+            lp._cache = None
+
+    def test_only_spans_not_claimed_by_a_longer_word_count(self):
+        lp._cache = {"t-pack": lp.validate_pack(_pack(entries=[
+            {"source": "短", "en": "s"}, {"source": "短い", "en": "l"}, {"source": "他", "en": "o"}]), "f")}
+        try:
+            # 短 occurs 3 times but two of them sit inside 短い, so it counts once
+            found = lp.matching_entries({"t-pack": None}, "短い 短い 短 他 他", limit=2)
+            assert [e["source"] for e in found] == ["短い", "他"]
+        finally:
+            lp._cache = None
+
+    def test_matching_entries_is_the_entries_of_select_entries(self):
+        text = "田中さん、山田様。先輩"
+        assert lp.matching_entries({"ja-address": None}, text) == lp.select_entries({"ja-address": None}, text)[0]
+        assert lp.select_entries({"ja-address": None}, "ありがとう") == ([], 0)
+
     def test_prompt_is_capped(self):
         pack = lp.validate_pack(_pack(entries=[{"source": f"w{i}", "en": "x"} for i in range(100)]), "f")
         lp._cache = {"t-pack": pack}
@@ -229,6 +319,16 @@ class TestSelection:
         text = "老婆 阿姨 叔叔 大小姐 姐姐"
         first = lp.build_pack_block(lp.matching_entries({"zh-address": None, "zh-common": None}, text))
         assert first == lp.build_pack_block(lp.matching_entries({"zh-address": None, "zh-common": None}, text))
+
+    def test_capped_prompt_is_identical_across_calls(self):
+        pack = lp.validate_pack(_pack(entries=[{"source": f"w{i:03d}", "en": "x"} for i in range(100)]), "f")
+        lp._cache = {"t-pack": pack}
+        try:
+            text = " ".join(f"w{i:03d}" for i in range(100)) + " w050 w099 w099"
+            blocks = {lp.build_pack_block(lp.matching_entries({"t-pack": None}, text)) for _ in range(3)}
+            assert len(blocks) == 1 and "w099 → default" in blocks.pop().split("\n")[1]
+        finally:
+            lp._cache = None
 
     def test_full_block_stays_bounded(self):
         # 60 entries is the cap; the zh set fills it. About 5.2k chars (~1.5k tokens) today.
@@ -290,7 +390,7 @@ class TestTitleChoice:
     def test_only_packs_for_the_titles_language_are_offered_and_accepted(self, isolated_db):
         did = _drama(isolated_db, "ja", ["先輩"])
         ids = {p["id"] for p in svc.get_title_packs(did)["packs"]}
-        assert ids == {"ja-address", "ja-common", "shared-drama"}
+        assert ids == {"ja-address", "ja-common", "ja-vtuber-core", "ja-vtuber-names", "shared-drama"}
         with pytest.raises(InvalidInputError):
             svc.set_title_packs(did, {"packs": {"ko-address": None}})
         with pytest.raises(InvalidInputError):
@@ -309,6 +409,27 @@ class TestTitleChoice:
         isolated_db.update_drama(did, source_language="ko")
         assert svc.entries_for_text(isolated_db.get_drama(did), "先生") == []
         assert svc.block_for(isolated_db.get_drama(did), [Line(0, 0, 1, "先生")]) == ""
+
+    def test_dropped_matches_are_logged_without_the_text(self, isolated_db, monkeypatch):
+        import applog
+        pack = lp.validate_pack(_pack(entries=[{"source": f"w{i:03d}", "en": "x"} for i in range(70)]), "f")
+        monkeypatch.setattr(lp, "_cache", {"t-pack": pack})
+        did = _drama(isolated_db, "ja", ["x"])
+        svc.set_title_packs(did, {"packs": {"t-pack": None}})
+        text = " ".join(f"w{i:03d}" for i in range(70))
+        block = svc.block_for(isolated_db.get_drama(did), [Line(0, 0, 1, text)])
+        log = "\n".join(applog.tail(20))
+        assert block.count("→ default") == lp.MAX_PROMPT_ENTRIES
+        assert "10 matching entries" in log and f"title {did}" in log and "w000" not in log
+        svc.block_for(isolated_db.get_drama(did), [Line(0, 0, 1, "w001")])
+        assert "\n".join(applog.tail(20)).count("matching entries") == 1
+
+    def test_block_for_is_identical_for_the_same_run(self, isolated_db):
+        did = _drama(isolated_db, "zh", ["x"])
+        svc.set_title_packs(did, {"packs": {"zh-address": None, "zh-common": None, "zh-vtuber-core": None}})
+        lines = [Line(0, 0, 1, "姐姐 老师 联动 联动 草"), Line(1, 1, 2, "哥哥 联动 毕业")]
+        drama = isolated_db.get_drama(did)
+        assert svc.block_for(drama, lines) == svc.block_for(drama, list(lines)) != ""
 
     def test_unknown_pack_and_title(self, isolated_db):
         with pytest.raises(NotFoundError):

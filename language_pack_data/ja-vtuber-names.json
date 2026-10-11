@@ -1,0 +1,261 @@
+{
+ "id": "ja-vtuber-names",
+ "version": 1,
+ "language": "ja",
+ "title": "Japanese VTuber names",
+ "description": "Starter pack, review it. Agency, unit and talent names, fan names and greetings, kept romanised. Re-check after any agency reorganisation.",
+ "entries": [
+  {
+   "source": "ホロライブ",
+   "en": "hololive",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Brands merged 2026-09-07. Lowercase styling not verified on the post-merger site"
+  },
+  {
+   "source": "ホロライブプロダクション",
+   "en": "hololive production",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Brands merged 2026-09-07. Lowercase styling not verified on the post-merger site"
+  },
+  {
+   "source": "ホロスターズ",
+   "en": "HOLOSTARS",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "ホロメン",
+   "en": "Holomem",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "にじさんじ",
+   "en": "NIJISANJI",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "ホロライブゲーマーズ",
+   "en": "hololive GAMERS",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "ホロライブファンタジー",
+   "en": "hololive Fantasy (Gen 3)",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "ホロふぉーす",
+   "en": "holoForce (Gen 4)",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "ねぽらぼ",
+   "en": "NePoLaBo (Gen 5)",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "秘密結社holoX",
+   "en": "Secret Society holoX",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "魔フィア",
+   "en": "MaFia (HOLOSTARS Gen 3)",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "兎田ぺこら",
+   "en": "Usada Pekora",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. ぺこーら is her self-name: keep as \"Pekora\", never \"she\""
+  },
+  {
+   "source": "ぺこら",
+   "en": "Pekora",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. ぺこーら is her self-name: keep as \"Pekora\", never \"she\""
+  },
+  {
+   "source": "ぺこーら",
+   "en": "Pekora",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. ぺこーら is her self-name: keep as \"Pekora\", never \"she\""
+  },
+  {
+   "source": "宝鐘マリン",
+   "en": "Houshou Marine",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "常闇トワ",
+   "en": "Tokoyami Towa",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Self-styled 常闇トワ様 becomes \"Towa-sama\""
+  },
+  {
+   "source": "月ノ美兎",
+   "en": "Tsukino Mito",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Uses わたくし"
+  },
+  {
+   "source": "奏手イヅル",
+   "en": "Kanade Izuru",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "野うさぎ同盟",
+   "en": "Nousagi Alliance",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Pekora's fans. Bare 野うさぎ (wild rabbit) is not a fan name"
+  },
+  {
+   "source": "兎田ふぁみりあ",
+   "en": "Pekora Familia",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Membership name"
+  },
+  {
+   "source": "宝鐘の一味",
+   "en": "Houshou no Ichimi",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Marine's crew. Romanisation is ours, not official"
+  },
+  {
+   "source": "星詠み",
+   "en": "Hoshiyomi",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Suisei's fans"
+  },
+  {
+   "source": "ころねすきー",
+   "en": "Koronesuki",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "すこん部",
+   "en": "Sukonbu",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "ミオファ",
+   "en": "Miofa",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "おにぎりゃー",
+   "en": "Onigiryaa",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "常闇眷属",
+   "en": "Tokoyami Kenzoku",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "こよりの助手くん",
+   "en": "Koyori's assistants (joshu-kun)",
+   "category": "streamer",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "こんぺこ",
+   "en": "Konpeko",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "こんこんきーつね",
+   "en": "Konkon kitsune",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Fubuki"
+  },
+  {
+   "source": "おはこん",
+   "en": "Ohakon",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Fubuki"
+  },
+  {
+   "source": "ひるこん",
+   "en": "Hirukon",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Fubuki"
+  },
+  {
+   "source": "よるこん",
+   "en": "Yorukon",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Fubuki"
+  },
+  {
+   "source": "おつこーん",
+   "en": "Otsukon",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name."
+  },
+  {
+   "source": "こんばんみぉーん",
+   "en": "Konbanmion",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Mio"
+  },
+  {
+   "source": "こんまっする",
+   "en": "Konmassuru",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Noel"
+  },
+  {
+   "source": "こんやっぴー",
+   "en": "Konyappi",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Towa"
+  },
+  {
+   "source": "おつやっぴー",
+   "en": "Otsuyappi",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Towa"
+  },
+  {
+   "source": "こんこよ",
+   "en": "Konkoyo",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Koyori"
+  },
+  {
+   "source": "ぉぁよ",
+   "en": "Oayo",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Korone"
+  },
+  {
+   "source": "ゆびゆび",
+   "en": "yubi yubi",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Korone"
+  },
+  {
+   "source": "ヨーソロー",
+   "en": "Yousoro",
+   "category": "phrase",
+   "note": "Keep, do not translate; third-person self-reference keeps the name. Marine. Nautical \"steady as she goes\""
+  }
+ ]
+}
