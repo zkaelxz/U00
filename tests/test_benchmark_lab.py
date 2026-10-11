@@ -17,6 +17,7 @@ import background_jobs
 import db
 import translate_engines
 from services import benchmark_lab_service as svc
+from services import benchmark_scoring_service as scoring
 from services import settings_service, translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
@@ -66,22 +67,22 @@ def _run(stage="translation", configs=None, **kw):
 
 class TestScoring:
     def test_cer_ignores_whitespace_and_counts_edits(self):
-        assert svc.error_rate("你好 世界", "你好世界") == 0.0
-        assert svc.error_rate("你好世", "你好世界") == pytest.approx(0.25)
+        assert scoring.error_rate("你好 世界", "你好世界") == 0.0
+        assert scoring.error_rate("你好世", "你好世界") == pytest.approx(0.25)
 
     def test_wer_counts_words(self):
-        assert svc.error_rate("the cat sat", "the cat sat down", unit="word") == pytest.approx(0.25)
+        assert scoring.error_rate("the cat sat", "the cat sat down", unit="word") == pytest.approx(0.25)
 
     def test_metric_per_stage(self, monkeypatch):
         _hide_sacrebleu(monkeypatch)
-        assert svc.score_output("translation", "a", "a") == (1.0, "similarity", "builtin")
-        assert svc.score_output("ocr", "你好", "你好")[:2] == (1.0, "cer")
-        assert svc.score_output("transcription", "hi", "hi", "zh")[1] == "cer"
-        assert svc.score_output("transcription", "hi there", "hi there", "en")[1] == "wer"
-        assert svc.score_output("ocr", "x", None) == (None, "cer", None)
+        assert scoring.score_output("translation", "a", "a") == (1.0, "similarity", "builtin")
+        assert scoring.score_output("ocr", "你好", "你好")[:2] == (1.0, "cer")
+        assert scoring.score_output("transcription", "hi", "hi", "zh")[1] == "cer"
+        assert scoring.score_output("transcription", "hi there", "hi there", "en")[1] == "wer"
+        assert scoring.score_output("ocr", "x", None) == (None, "cer", None)
 
     def test_score_is_never_negative(self):
-        score = svc.score_output("ocr", "完全不同的很长很长的文字", "对")[0]
+        score = scoring.score_output("ocr", "完全不同的很长很长的文字", "对")[0]
         assert score == 0.0
 
 
@@ -121,16 +122,16 @@ class TestScorerChoice:
     def test_fallback_matches_old_numbers_without_jiwer(self, monkeypatch, stage, output, ref,
                                                         lang, expected):
         _hide_jiwer(monkeypatch)
-        score, _metric, scorer = svc.score_output(stage, output, ref, lang)
+        score, _metric, scorer = scoring.score_output(stage, output, ref, lang)
         assert scorer == "builtin"
         assert score == pytest.approx(expected)
-        assert score == pytest.approx(max(0.0, 1.0 - svc.error_rate(
+        assert score == pytest.approx(max(0.0, 1.0 - scoring.error_rate(
             output, ref, "char" if stage == "ocr" or lang == "zh" else "word")))
 
     def test_fallback_keeps_the_length_bound(self, monkeypatch):
         _hide_jiwer(monkeypatch)
         started = time.monotonic()
-        assert svc.score_output("ocr", "x" * 200000, "你好")[::2] == (0.0, "builtin")
+        assert scoring.score_output("ocr", "x" * 200000, "你好")[::2] == (0.0, "builtin")
         assert time.monotonic() - started < 2
 
     def test_run_records_builtin_scorer_without_jiwer(self, isolated_db, monkeypatch):
@@ -151,45 +152,45 @@ class TestJiwerScorer:
         pytest.importorskip("jiwer")
 
     def test_standard_cer_and_wer(self):
-        assert svc.score_output("ocr", "你好世", "你好世界") == (pytest.approx(0.75), "cer", "jiwer")
-        score, metric, scorer = svc.score_output("transcription", "the cat sat", "the cat sat down", "en")
+        assert scoring.score_output("ocr", "你好世", "你好世界") == (pytest.approx(0.75), "cer", "jiwer")
+        score, metric, scorer = scoring.score_output("transcription", "the cat sat", "the cat sat down", "en")
         assert (metric, scorer) == ("wer", "jiwer") and score == pytest.approx(0.75)
 
     def test_same_normalisation_on_both_sides(self):
         # Case, punctuation and extra whitespace are removed from reference
         # and output alike, so only real word/character errors count.
-        assert svc.score_output("transcription", "The  cat, sat.", "the cat sat", "en")[0] == 1.0
-        assert svc.score_output("transcription", "the cat sat", "The cat, sat!", "en")[0] == 1.0
-        assert svc.score_output("transcription", "你好，世界", "你好 世界。", "zh")[0] == 1.0
+        assert scoring.score_output("transcription", "The  cat, sat.", "the cat sat", "en")[0] == 1.0
+        assert scoring.score_output("transcription", "the cat sat", "The cat, sat!", "en")[0] == 1.0
+        assert scoring.score_output("transcription", "你好，世界", "你好 世界。", "zh")[0] == 1.0
 
     def test_ocr_keeps_punctuation(self):
         # User decision: punctuation is part of what OCR read, so it counts.
-        assert svc.score_output("ocr", "你好，世界", "你好，世界。") == (pytest.approx(5 / 6), "cer", "jiwer")
-        assert svc.score_output("ocr", "Hello, World", "hello, world")[0] == 1.0  # case still ignored
-        assert svc.score_output("ocr", "……", "……")[::2] == (1.0, "jiwer")
+        assert scoring.score_output("ocr", "你好，世界", "你好，世界。") == (pytest.approx(5 / 6), "cer", "jiwer")
+        assert scoring.score_output("ocr", "Hello, World", "hello, world")[0] == 1.0  # case still ignored
+        assert scoring.score_output("ocr", "……", "……")[::2] == (1.0, "jiwer")
         # Non-ASCII spaces are dropped too, from both sides.
-        assert svc.score_output("ocr", "你好世", "你好\u3000世界")[0] == pytest.approx(0.75)
-        assert svc.score_output("ocr", "你好\u00a0世界", "你好世界")[0] == 1.0
+        assert scoring.score_output("ocr", "你好世", "你好\u3000世界")[0] == pytest.approx(0.75)
+        assert scoring.score_output("ocr", "你好\u00a0世界", "你好世界")[0] == 1.0
 
     def test_transform_is_built_once(self):
         import jiwer
-        assert svc._jiwer_transform(jiwer, "char", True) is svc._jiwer_transform(jiwer, "char", True)
-        assert svc._jiwer_transform(jiwer, "word") is not svc._jiwer_transform(jiwer, "char")
+        assert scoring._jiwer_transform(jiwer, "char", True) is scoring._jiwer_transform(jiwer, "char", True)
+        assert scoring._jiwer_transform(jiwer, "word") is not scoring._jiwer_transform(jiwer, "char")
 
     def test_empty_output_is_all_deletions(self):
-        assert svc.score_output("ocr", "", "你好世界")[::2] == (0.0, "jiwer")
-        assert svc.score_output("transcription", "", "the cat", "en")[::2] == (0.0, "jiwer")
+        assert scoring.score_output("ocr", "", "你好世界")[::2] == (0.0, "jiwer")
+        assert scoring.score_output("transcription", "", "the cat", "en")[::2] == (0.0, "jiwer")
 
     def test_empty_after_normalisation_falls_back(self):
         # A punctuation-only reference has nothing left for jiwer to score.
-        assert svc.score_output("transcription", "……", "……", "zh")[::2] == (1.0, "builtin")
+        assert scoring.score_output("transcription", "……", "……", "zh")[::2] == (1.0, "builtin")
 
     def test_length_bound_kept(self):
         started = time.monotonic()
-        score, _metric, scorer = svc.score_output("ocr", "x" * 200000, "你好")
+        score, _metric, scorer = scoring.score_output("ocr", "x" * 200000, "你好")
         assert (score, scorer) == (0.0, "jiwer") and time.monotonic() - started < 2
         # Same numbers as the built-in scorer on a plain (unnormalised) case.
-        assert svc._jiwer_error_rate("x" * 200000, "你好", "char") == svc.error_rate("x" * 200000, "你好")
+        assert scoring._jiwer_error_rate("x" * 200000, "你好", "char") == scoring.error_rate("x" * 200000, "你好")
 
 
 class TestCasesAndImport:
@@ -635,7 +636,7 @@ class TestLeadReviewFixes:
 
     def test_long_output_scoring_is_bounded(self):
         started = time.monotonic()
-        rate = svc.error_rate("x" * 200000, "你好")
+        rate = scoring.error_rate("x" * 200000, "你好")
         assert rate > 1 and time.monotonic() - started < 2
 
 
@@ -682,12 +683,12 @@ class TestJobCostCap:
 class TestTranslationMetric:
     def test_without_sacrebleu_uses_difflib_and_old_threshold(self, monkeypatch):
         _hide_sacrebleu(monkeypatch)
-        assert svc.score_output("translation", "abcd", "abce")[1:] == ("similarity", "builtin")
+        assert scoring.score_output("translation", "abcd", "abce")[1:] == ("similarity", "builtin")
         assert svc.pass_threshold("similarity") == svc.PASS_THRESHOLD
 
     def test_chrf_pairs(self):
         pytest.importorskip("sacrebleu")
-        score = lambda a, b: svc.score_output("translation", a, b)
+        score = lambda a, b: scoring.score_output("translation", a, b)
         assert score("I love you so much", "I love you so much") == (1.0, "chrf", "sacrebleu")
         assert score("", "你好")[0] == 0.0
         assert benchmark.translation_similarity("", "") == (1.0, "chrf")

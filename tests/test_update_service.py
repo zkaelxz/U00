@@ -267,6 +267,47 @@ def test_stable_release_is_preferred_over_a_same_base_beta(http, monkeypatch):
     assert s["latest"] == "0.1.0" and s["update_available"] is True
 
 
+def test_the_highest_usable_release_is_offered_not_the_first_listed(http, monkeypatch):
+    _beta_mode(monkeypatch)
+    # A later-created older beta is listed first; it must not hide the newer ones.
+    http.add(API_URL, body=_beta_list({"tag": "v0.1.0-beta.2", "prerelease": True},
+                                      {"tag": "v0.2.0"},
+                                      {"tag": "v0.1.0-beta.9", "prerelease": True}))
+    assert us.check()["latest"] == "0.2.0"
+    http.add(API_URL, body=_beta_list({"tag": "v0.1.0-beta.2", "prerelease": True},
+                                      {"tag": "v0.1.0-beta.10", "prerelease": True},
+                                      {"tag": "v0.1.0-beta.9", "prerelease": True}))
+    assert us.check()["latest"] == "0.1.0-beta.10"
+
+
+def test_a_newer_release_that_is_not_usable_does_not_win(http, monkeypatch):
+    _beta_mode(monkeypatch)
+    http.add(API_URL, body=_beta_list({"tag": "v0.9.0", "draft": True},
+                                      {"tag": "v0.8.0", "with_hash": False},
+                                      {"tag": "v0.2.0"}))
+    assert us.check()["latest"] == "0.2.0"
+    db.set_app_setting("update.include_prereleases", False)
+    http.add(API_URL, body=_beta_list({"tag": "v0.3.0-beta.1", "prerelease": True},
+                                      {"tag": "v0.2.0"}))
+    assert us.check()["latest"] == "0.2.0"
+
+
+def test_install_refuses_a_verified_beta_once_the_option_is_off(verified, http, monkeypatch):
+    monkeypatch.setattr(us.sys, "platform", "win32")
+    monkeypatch.setattr(us, "current_version", lambda: "0.1.0-beta.1")
+    db.set_app_setting("update.include_prereleases", True)
+    db.set_app_setting("assistant.developer_mode", True)
+    name = "BaiheStudio-Setup-0.1.0-beta.2.exe"
+    http.add(API_URL, body=_release(tag="v0.1.0-beta.2", prerelease=True))
+    http.add(HASH_URL, body=_hash_file(name=name))
+    us.check()
+    us.download()
+    db.set_app_setting("update.include_prereleases", False)
+    with pytest.raises(ConflictError):
+        us.install()
+    assert FakePopen.calls == []
+
+
 def test_turning_the_option_off_stops_an_offered_beta_from_downloading(http, monkeypatch):
     _beta_mode(monkeypatch)
     http.add(API_URL, body=_release(tag="v0.1.0-beta.2", prerelease=True))

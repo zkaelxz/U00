@@ -194,6 +194,11 @@ def is_network_error(exc: Exception) -> bool:
 
 
 def _hub_dir() -> str:
+    # huggingface_hub's own order: HF_HUB_CACHE overrides HF_HOME/hub. Looking
+    # elsewhere would call a downloaded model missing, or an unpinned one present.
+    explicit = os.environ.get("HF_HUB_CACHE")
+    if explicit:
+        return explicit
     hub = os.environ.get("HF_HOME") or os.path.join(
         os.path.expanduser("~"), ".cache", "huggingface")
     return os.path.join(hub, "hub")
@@ -204,7 +209,10 @@ def _pinned_snapshot(model_size: str):
     Another revision of the same repo is not the reviewed one, so it does not count."""
     repo, revision = PINNED_CT2_REPOS[model_size]
     folder = os.path.join(_hub_dir(), "models--" + repo.replace("/", "--"), "snapshots", revision)
-    return folder if os.path.isfile(os.path.join(folder, "model.bin")) else None
+    # Every required file, not just the weights: faster-whisper fetches a missing
+    # tokenizer.json from the unpinned openai/whisper-tiny repo.
+    from lib.ct2_repo import CT2_REQUIRED
+    return folder if all(os.path.isfile(os.path.join(folder, n)) for n in CT2_REQUIRED) else None
 
 
 def is_whisper_model_cached(model_size: str) -> bool:

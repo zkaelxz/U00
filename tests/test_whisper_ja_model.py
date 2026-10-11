@@ -85,11 +85,40 @@ def make_snapshot(hf_home, revision=REVISION, weights=True):
     folder = hf_home / ("models--" + REPO.replace("/", "--")) / "snapshots" / revision
     folder.mkdir(parents=True)
     if weights:
-        (folder / "model.bin").write_bytes(b"x")
+        for name in ct2_repo.CT2_REQUIRED:
+            (folder / name).write_bytes(b"x")
     return folder
 
 
+class TestCacheLocation:
+    def test_hf_hub_cache_wins_over_hf_home(self, monkeypatch, tmp_path, hf_home):
+        monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hubcache"))
+        assert wm._hub_dir() == str(tmp_path / "hubcache")
+        monkeypatch.delenv("HF_HUB_CACHE")
+        assert wm._hub_dir() == str(hf_home)
+
+    def test_default_is_under_the_home_cache(self, monkeypatch):
+        monkeypatch.delenv("HF_HOME", raising=False)
+        monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+        assert wm._hub_dir() == os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+
+    def test_pinned_and_generic_checks_both_follow_hf_hub_cache(self, monkeypatch, tmp_path, hf_home):
+        cache = tmp_path / "hubcache"
+        monkeypatch.setenv("HF_HUB_CACHE", str(cache))
+        make_snapshot(cache)
+        generic = cache / "models--Systran--faster-whisper-small" / "snapshots" / "r1"
+        generic.mkdir(parents=True)
+        (generic / "model.bin").write_bytes(b"x")
+        assert wm.is_whisper_model_cached(KEY) and wm.is_whisper_model_cached("small")
+
+
 class TestPinnedDownload:
+    def test_a_snapshot_missing_a_required_file_is_not_cached(self, hf_home):
+        folder = make_snapshot(hf_home)
+        (folder / "tokenizer.json").unlink()
+        assert wm._pinned_snapshot(KEY) is None
+        assert not wm.is_whisper_model_cached(KEY)
+
     def test_downloads_only_allowed_files_at_the_pinned_revision(self, monkeypatch, tmp_path, hf_home):
         hub = FakeHub(monkeypatch, tmp_path)
         path = wm._fetch_pinned_model(KEY, "tok")
@@ -143,7 +172,9 @@ class TestCacheAndEstimates:
         assert not wm.is_whisper_model_cached(KEY)
         make_snapshot(hf_home, weights=False)
         assert not wm.is_whisper_model_cached(KEY)
-        (hf_home / ("models--" + REPO.replace("/", "--")) / "snapshots" / REVISION / "model.bin").write_bytes(b"x")
+        folder = hf_home / ("models--" + REPO.replace("/", "--")) / "snapshots" / REVISION
+        for name in ct2_repo.CT2_REQUIRED:
+            (folder / name).write_bytes(b"x")
         assert wm.is_whisper_model_cached(KEY)
 
     def test_other_models_are_still_matched_by_exact_name(self, hf_home):
