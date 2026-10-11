@@ -1,5 +1,6 @@
 """Transcript first, translation filled in later, in the same cue."""
 import copy
+import threading
 import time
 
 import pytest
@@ -11,10 +12,14 @@ import live_translate as lt
 
 
 class FakeEngine:
-    def __init__(self, fail_on=()):
+    def __init__(self, fail_on=(), hold_prefix=None, gate=None):
         self.fail_on = fail_on
+        self.hold_prefix = hold_prefix
+        self.gate = gate
 
     def translate_batch(self, lines, context):
+        if self.hold_prefix and lines[0].startswith(self.hold_prefix):
+            self.gate.wait(5)
         if lines[0] in self.fail_on:
             raise RuntimeError("api down")
         return [f"EN {lines[0]}"]
@@ -99,10 +104,21 @@ def test_ids_run_on_across_chunks_and_a_mid_chunk_result_holds_the_earlier_chunk
         return real_set_result(job_id, result, **kw)
     monkeypatch.setattr(background_jobs, "set_result", record)
 
+    # Chunk 2's translation is held until its pending cues have been published, so a snapshot
+    # with chunk 1 settled and chunk 2 pending must exist whatever the thread scheduling.
+    gate = threading.Event()
+    engine = FakeEngine(hold_prefix="00001", gate=gate)
     assert background_jobs.start_job("live_ids", lt.run_live_job, "live_ids", "http://example.com/live",
-                                     str(out_dir), 10, "zh", "small", FakeEngine(),
+                                     str(out_dir), 10, "zh", "small", engine,
                                      poll_interval=0.05, overlap_seconds=0)
+
+    def settled_then_pending():
+        return [r for r in list(published) if len(r) == 4
+                and [c["translation"] for c in r] == ["done", "done", "pending", "pending"]]
     end = time.monotonic() + 5
+    while time.monotonic() < end and not settled_then_pending():
+        time.sleep(0.02)
+    gate.set()
     while time.monotonic() < end and not (published and len(published[-1]) == 4
                                           and all(c["translation"] == "done" for c in published[-1])):
         time.sleep(0.02)
@@ -112,8 +128,7 @@ def test_ids_run_on_across_chunks_and_a_mid_chunk_result_holds_the_earlier_chunk
     final = published[-1]
     assert [c["id"] for c in final] == [0, 1, 2, 3]
     # While the second chunk was still being translated, its pending cues sat after the settled first chunk.
-    mid = [r for r in published if len(r) == 4 and r[2]["translation"] == "pending"]
+    mid = settled_then_pending()
     assert mid
     assert [c["id"] for c in mid[0]] == [0, 1, 2, 3]
-    assert [c["translation"] for c in mid[0][:2]] == ["done", "done"]
     assert all(len(r) <= 4 for r in published)
