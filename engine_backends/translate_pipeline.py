@@ -10,7 +10,11 @@ from .pricing import estimate_cost_for_engine
 from .prompts import (MALE_PRONOUN_WORD, batch_context_for, build_stable_prompt, is_male_speaker_label,
                       known_male_names, pronoun_batch_note, pronoun_default_active,
                       pronoun_neutral_texts)
+from .reflect_prompts import (build_reflect_expressive_task, build_reflect_faithful_task,
+                              build_reflect_reflection_task)
 from .thinking import title_thinking
+from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
+from .translation_guard import allowed_source_runs, guard_batch
 from .shared import (
     ContentModerationBlocked,
     FreeTierDailyLimitReached,
@@ -18,7 +22,6 @@ from .shared import (
     _backoff_wait_var,
     _cancel_check_var,
     _id_keyed_batch_request,
-    build_numbered_lines,
     call_with_backoff,
     is_english_line,
     spoken_language_tag,
@@ -30,83 +33,11 @@ import source_change
 from memory_headroom import HeadroomError
 
 
-def build_reflect_faithful_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
-                                  speaker_by_id: dict = None) -> str:
-    """Reflect mode's pass 1 (faithfulness) prompt for one batch of ids.
-    Shared by reflect_translate_batch (live, in-process) and
-    bulk_translate.py's Reflect pipeline -- both build
-    byte-for-byte the same prompt for the same ids/lines."""
-    numbered = build_numbered_lines(
-        ids, [zh_by_id[i] for i in ids],
-        [speaker_by_id.get(i) for i in ids] if speaker_by_id else None)
-    return (
-        f"{instructions}\n\n"
-        "This is the FAITHFULNESS pass of a multi-stage translation: translate each line "
-        "below preserving its exact literal meaning, grammar and information -- word choice "
-        "and register still matter, but don't optimize yet for how naturally it reads as a "
-        "subtitle; a later pass polishes that. Keep names and glossary terms consistent as "
-        "instructed above.\n\n"
-        'Return ONLY a JSON object mapping each line number to its translation, e.g. '
-        '{"1": "...", "2": "..."}. No preamble, no markdown fences.\n\n'
-        + batch_ctx +
-        f"Lines:\n{numbered}"
-    )
-
-
-def build_reflect_reflection_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
-                                    draft_by_id: dict) -> str:
-    """Reflect mode's pass 2 (reflection/critique) prompt -- see
-    build_reflect_faithful_prompt's docstring. draft_by_id: pass 1's own
-    saved output for each id (never empty here -- the caller only
-    includes ids that got an actual faithfulness draft)."""
-    pairs = "\n".join(f"{i}. {zh_by_id[i]} -> {draft_by_id[i]}" for i in ids)
-    return (
-        f"{instructions}\n\n"
-        "This is the REFLECTION pass: for each numbered line below (source -> a literal "
-        "draft translation), critique that SPECIFIC draft -- where it's technically correct "
-        "but reads unnaturally as a subtitle, plus accuracy, pronoun/gender choices, glossary "
-        "use, tone and register. One or two plain sentences per line. Skip a line's key "
-        "entirely if the draft is already good -- don't invent a critique to fill space.\n\n"
-        'Return ONLY a JSON object mapping each line number to its critique, e.g. '
-        '{"1": "..."}. Omit a key entirely for a line that needs no critique. No preamble, '
-        "no markdown fences.\n\n"
-        + batch_ctx +
-        f"Lines:\n{pairs}"
-    )
-
-
-def build_reflect_expressive_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
-                                    draft_by_id: dict, critique_by_id: dict) -> str:
-    """Reflect mode's pass 3 (expressiveness/rewrite) prompt -- see
-    build_reflect_faithful_prompt's docstring. critique_by_id: pass 2's
-    own saved output; an id with none (the draft was already judged
-    good) just gets no "Critique:" line, same as the live path."""
-    parts = []
-    for i in ids:
-        entry = f"{i}. Source: {zh_by_id[i]}\n   Draft: {draft_by_id[i]}"
-        critique = critique_by_id.get(i)
-        if critique:
-            entry += f"\n   Critique: {critique}"
-        parts.append(entry)
-    return (
-        f"{instructions}\n\n"
-        "This is the EXPRESSIVENESS pass: rewrite each line's draft translation using its "
-        "critique (where one is given) so it reads naturally as a subtitle -- fluent, "
-        "well-paced, in-register -- while keeping the source's exact meaning. A line with no "
-        "critique is probably already close; still return your best final wording for every "
-        "line.\n\n"
-        'Return ONLY a JSON object mapping each line number to its final translation, e.g. '
-        '{"1": "..."}. No preamble, no markdown fences.\n\n'
-        + batch_ctx +
-        "Lines:\n" + "\n".join(parts)
-    )
-
-
 REFLECT_PASSES = ("draft", "critique", "rewrite")
 
 
 def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1,
-                            pass_cb=None):
+                            pass_cb=None, passes: int = len(REFLECT_PASSES)):
     """
     "High quality" Reflect mode: three separate LLM passes for
     one batch, instead of translate_batch's single call --
@@ -149,7 +80,17 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     pass_cb: optional callable (pass_no, name) invoked as each pass is
     about to start (pass_no 1-3, name from REFLECT_PASSES), so a caller can
     show which of the three slow calls is running.
+
+    passes: 3 (default) runs all of the above; 1 stops after the faithfulness
+    draft and returns it as the translation with no critiques. Internal: no
+    setting selects it.
+
+    The stable instructions go in a system block (cached on Claude), so the
+    three passes and every later batch re-read them from the cache.
+    usage_cb must therefore accept (input, output, cache_read, cache_write).
     """
+    if passes not in (1, len(REFLECT_PASSES)):
+        raise ValueError("Reflect runs 1 pass (draft only) or all 3")
     if not getattr(engine, "supports_reference", False):
         raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run Reflect "
                            "mode (needs an LLM engine, not a translation-only one).")
@@ -181,11 +122,12 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
                                    context.get("source_language", "zh")) + batch_ctx
 
     def call(prompt):
-        return call_llm_json(engine, prompt, max_tokens=4000, fallback="{}", usage_cb=usage_cb)
+        return call_llm_json(engine, prompt, max_tokens=4000, fallback="{}", usage_cb=usage_cb,
+                             system=instructions)
 
     def build_faithful_batch(batch_ids):
-        return build_reflect_faithful_prompt(
-            instructions, batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids},
+        return build_reflect_faithful_task(
+            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids},
             {i: speaker_names[pos[i]] for i in batch_ids} if speaker_names else None)
 
     def announce(pass_no):
@@ -195,10 +137,12 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     announce(1)
     direct_map = _id_keyed_batch_request(ids, build_faithful_batch, call, max_retries)
     direct = {i: direct_map.get(str(i), "") for i in ids}
+    if passes == 1:
+        return [direct[i] for i in ids], ["" for _ in ids]
 
     def build_reflection_batch(batch_ids):
-        return build_reflect_reflection_prompt(
-            instructions, batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct)
+        return build_reflect_reflection_task(
+            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct)
 
     # Only ids with an actual faithfulness draft go on to reflection/
     # expressiveness -- there's nothing sensible to critique or rewrite
@@ -217,8 +161,8 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
                    if has_draft_ids else {})
 
     def build_expressive_batch(batch_ids):
-        return build_reflect_expressive_prompt(
-            instructions, batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct,
+        return build_reflect_expressive_task(
+            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct,
             {i: critique_map.get(str(i)) for i in batch_ids})
 
     if has_draft_ids:
@@ -519,6 +463,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     stop_run = []
     translated = []
     spent = 0.0
+    allowed_runs = allowed_source_runs(glossary_terms, style_guidelines)
 
     def record_usage(inp, out, cache_read=0, cache_write=0):
         nonlocal spent
@@ -718,6 +663,35 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                    "error": f"{len(empty)} of {len(chunk)} lines got no "
                                             f"translation (reply may have been cut off; "
                                             f"try a smaller batch size)"})
+                # Sentence mode redistributes one sentence over its fragments, so
+                # fragment lengths say nothing there.
+                if (allow_bisect and not reflect and not groups
+                        and getattr(engine, "checks_replies", True)):
+                    _guard_merged_or_shifted(chunk)
+
+        def _guard_merged_or_shifted(chunk):
+            def stop():
+                return bool(stop_run or (cancel_check_cb and cancel_check_cb())
+                            or (cost_cap_usd is not None and spent >= cost_cap_usd)
+                            or (isinstance(engine, FallbackEngine) and engine.cap_exhausted()))
+
+            def redo(lines_to_redo):
+                try:
+                    return _call_engine(lines_to_redo, _context_for(lines_to_redo))
+                except TranslationCancelled:
+                    return None
+                except Exception as e:
+                    if isinstance(e, (FreeTierDailyLimitReached, HeadroomError, LLMTaskTimeout)):
+                        stop_run.append(True)
+                    import applog
+                    applog.get_logger().warning(
+                        f"merge/shift re-ask skipped for batch {bi}: {redact_secrets(str(e))}")
+                    return None
+
+            for ln, _reason in guard_batch(chunk, redo, stop, allowed_runs):
+                if not ln.flag:
+                    ln.flag = "uncertain_translation"
+                    ln.flag_note = MERGE_SHIFT_FLAG_NOTE
 
         wait_token = _backoff_wait_var.set(_on_wait if detail_cb else None)
         try:

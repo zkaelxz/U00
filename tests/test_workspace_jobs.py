@@ -106,6 +106,7 @@ class _CapPricedEngine:
     """$2.00 per batch on claude-sonnet-5 (1M input tokens each)."""
     name = "claude"
     supports_reference = True
+    checks_replies = False  # echoes the source script back
     model = "claude-sonnet-5"
 
     def __init__(self):
