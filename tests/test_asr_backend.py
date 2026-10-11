@@ -180,7 +180,7 @@ class TestLoadQwen3Asr:
         fake_torch = types.ModuleType("torch")
         fake_torch.bfloat16 = "bfloat16"
         fake_torch.float16 = "float16"
-        fake_torch.cuda = types.SimpleNamespace(is_bf16_supported=lambda: True)
+        fake_torch.cuda = types.SimpleNamespace(is_bf16_supported=lambda including_emulation=True: True)
         sys.modules["torch"] = fake_torch
 
         import qwen3_native

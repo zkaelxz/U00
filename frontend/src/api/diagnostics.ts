@@ -91,8 +91,8 @@ export const getGpuTorch = (f?: Fetch) => getJson<DiagnosticsGpuTorchStatus>(`${
 export const checkGpuTorch = (f?: Fetch) => postJson<DiagnosticsGpuTorchStatus>(`${BASE}/gpu-torch/check`, {}, f)
 
 // A job like installDependency: ~2.5 GB for the CUDA build.
-export const setupGpuTorch = (variant: 'cu128' | 'cpu', f?: Fetch) =>
-  postJson<DiagnosticsJobStarted>(`${BASE}/gpu-torch/setup`, { confirm: true, variant }, pcOnlyFetch(f))
+export const setupGpuTorch = (variant?: 'cu128' | 'cu126' | 'cpu', f?: Fetch) =>
+  postJson<DiagnosticsJobStarted>(`${BASE}/gpu-torch/setup`, { confirm: true, ...(variant ? { variant } : {}) }, pcOnlyFetch(f))
 
 export const resetLibrary = (f?: Fetch) =>
   postJson<DiagnosticsResetResult>(

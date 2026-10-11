@@ -18,6 +18,12 @@ from services import diagnostics_gaps_service as svc
 FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
 
 
+@pytest.fixture(autouse=True)
+def _no_real_nvidia_smi(monkeypatch):
+    # The default variant depends on the card's compute capability; never ask a real one.
+    monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda n: None)
+
+
 def _versions(monkeypatch, **have):
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: have.get(name))
 
@@ -346,3 +352,158 @@ def test_cuda_check_refused_while_a_job_runs(monkeypatch):
     monkeypatch.setattr(svc, "_verify_torch_once", lambda: pytest.fail("no check"))
     with pytest.raises(svc.AdminActionJobsRunning):
         svc.check_gpu_torch()
+
+
+# ---- Volta (compute 7.0): the cu126 build ----
+
+def _smi(monkeypatch, stdout, returncode=0):
+    monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda n: "/usr/bin/nvidia-smi")
+
+    def run(cmd, **kw):
+        if returncode:
+            raise subprocess.CalledProcessError(returncode, cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout, "")
+    monkeypatch.setattr(diagnostics_torch.subprocess, "run", run)
+
+
+def test_cu126_is_the_same_triple_from_its_own_index():
+    spec = diagnostics_torch.TORCH_VARIANTS["cu126"]
+    assert spec["versions"] == {"torch": "2.11.0+cu126", "torchvision": "0.26.0+cu126",
+                                "torchaudio": "2.11.0+cu126"}
+    assert spec["needs_nvidia"] is True
+    first, second = diagnostics_torch.torch_setup_pip_args("cu126")
+    assert "https://download.pytorch.org/whl/cu126" in first
+    assert "torch==2.11.0+cu126" in second
+
+
+@pytest.mark.parametrize("stdout,cap", [("7.0\n", 7.0), ("8.6\n7.0\n", 7.0), ("8.9\n", 8.9),
+                                         ("[N/A]\n", None), ("", None)])
+def test_lowest_compute_capability_reads_nvidia_smi(monkeypatch, stdout, cap):
+    _smi(monkeypatch, stdout)
+    assert diagnostics_torch.lowest_compute_capability() == cap
+
+
+def test_lowest_compute_capability_is_none_when_nvidia_smi_is_missing_or_old(monkeypatch):
+    monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda n: None)
+    assert diagnostics_torch.lowest_compute_capability() is None
+    _smi(monkeypatch, "", returncode=2)     # old drivers reject compute_cap
+    assert diagnostics_torch.lowest_compute_capability() is None
+
+
+def test_recommendation_is_cu126_below_compute_7_5_and_says_why(monkeypatch):
+    _gpu(monkeypatch)
+    monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: 7.0)
+    variant, reason = diagnostics_torch.recommended_gpu_variant()
+    assert variant == "cu126" and "7.0" in reason and "CUDA 12.8" in reason
+    monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: 7.5)
+    assert diagnostics_torch.recommended_gpu_variant() == ("cu128", None)
+    monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: None)
+    assert diagnostics_torch.recommended_gpu_variant() == ("cu128", None)
+
+
+def test_status_and_default_setup_pick_cu126_for_a_v100(monkeypatch):
+    _no_jobs(monkeypatch)
+    _gpu(monkeypatch)
+    monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: 7.0)
+    _versions(monkeypatch)
+    status = svc.get_gpu_torch_status()
+    assert status["recommended"]["variant"] == "cu126" and "7.0" in status["recommended_reason"]
+    assert [v["variant"] for v in status["variants"]] == ["cu128", "cu126", "cpu"]
+    seen = []
+    _fake_pip(monkeypatch, seen)
+    monkeypatch.setattr(svc, "verify_torch", lambda: {
+        **GOOD_VERIFY, "torch": "2.11.0+cu126"})
+    out = svc.setup_gpu_torch(confirm=True)
+    assert out["variant"] == "cu126" and out["ok"] is True
+    assert "https://download.pytorch.org/whl/cu126" in seen[0][0]
+
+
+class _FakeTorch:
+    """torch as the verify script sees it: `cards` is [(name, (major, minor))]."""
+    __version__ = "2.11.0+cu128"
+
+    def __init__(self, cards, arch_list):
+        class _V:
+            cuda = "12.8"
+        self.version = _V()
+        self.zeros_on = []
+        outer = self
+
+        class _Cuda:
+            is_available = staticmethod(lambda: bool(cards))
+            device_count = staticmethod(lambda: len(cards))
+            get_device_name = staticmethod(lambda i: cards[i][0])
+            get_device_capability = staticmethod(lambda i: cards[i][1])
+            get_arch_list = staticmethod(lambda: arch_list)
+        self.cuda = _Cuda()
+        self.zeros = lambda n, device=None: outer.zeros_on.append(device)
+
+
+def _run_verify(monkeypatch, capsys, fake):
+    monkeypatch.setitem(__import__("sys").modules, "torch", fake)
+    exec(diagnostics_torch.TORCH_VERIFY_SCRIPT, {})
+    return diagnostics_torch.parse_torch_verify_output(capsys.readouterr().out)
+
+
+def test_verify_script_reports_a_gpu_the_build_has_no_kernels_for(monkeypatch, capsys):
+    fake = _FakeTorch([("Tesla V100-PCIE-32GB", (7, 0))], ["sm_75", "sm_80", "sm_86", "sm_120"])
+    data = _run_verify(monkeypatch, capsys, fake)
+    assert data["cuda_available"] is True and "error" not in data
+    assert data["devices"] == [{"index": 0, "name": "Tesla V100-PCIE-32GB",
+                                "capability": "7.0", "supported": False}]
+    assert fake.zeros_on == []     # a kernel launch on it would only fail later
+
+
+def test_verify_script_checks_every_gpu_not_just_device_0(monkeypatch, capsys):
+    fake = _FakeTorch([("RTX 3080 Ti", (8, 6)), ("Tesla V100", (7, 0))], ["sm_75", "sm_86"])
+    data = _run_verify(monkeypatch, capsys, fake)
+    assert [d["supported"] for d in data["devices"]] == [True, False]
+    assert fake.zeros_on == ["cuda:0"]
+
+
+def test_verify_script_accepts_ptx_from_an_older_arch(monkeypatch, capsys):
+    fake = _FakeTorch([("Tesla V100", (7, 0))], ["sm_80", "compute_70"])
+    assert _run_verify(monkeypatch, capsys, fake)["devices"][0]["supported"] is True
+
+
+def test_no_kernels_message_names_the_card_and_the_cu126_fix():
+    msg = diagnostics_torch.unsupported_gpu_message(
+        [{"index": 0, "name": "Tesla V100", "capability": "7.0", "supported": False},
+         {"index": 1, "name": "RTX 3080 Ti", "capability": "8.6", "supported": True}])
+    assert msg == ("This PyTorch build has no kernels for your GPU Tesla V100 (compute 7.0); "
+                   "install the cu126 build.")
+    assert diagnostics_torch.unsupported_gpu_message([{"supported": True}]) is None
+    assert diagnostics_torch.unsupported_gpu_message(None) is None
+
+
+def test_setup_fails_with_the_no_kernels_message_instead_of_passing(monkeypatch):
+    _no_jobs(monkeypatch)
+    _gpu(monkeypatch)
+    monkeypatch.setattr(svc, "verify_torch", lambda: {
+        **GOOD_VERIFY, "error": diagnostics_torch.unsupported_gpu_message(
+            [{"name": "Tesla V100", "capability": "7.0", "supported": False}])})
+    _fake_pip(monkeypatch, [])
+    out = svc.setup_gpu_torch("cu128", confirm=True)
+    assert out["ok"] is False and "can't run on your GPU" in out["hint"]
+    assert "install the cu126 build" in out["verify"]["error"]
+
+
+def test_verify_torch_surfaces_the_no_kernels_message(monkeypatch):
+    devices = [{"index": 0, "name": "Tesla V100", "capability": "7.0", "supported": False}]
+    monkeypatch.setattr(svc.proc_run, "run_captured", lambda *a, **k: _captured(
+        __import__("json").dumps({"torch": "2.11.0+cu128", "cuda_available": True,
+                                  "devices": devices})))
+    out = svc.verify_torch()
+    assert "no kernels for your GPU" in out["error"]
+
+
+def test_verify_script_ignores_the_suffix_on_ptx_arch_names(monkeypatch, capsys):
+    fake = _FakeTorch([("Tesla V100", (7, 0))], ["sm_90a", "compute_90a"])
+    data = _run_verify(monkeypatch, capsys, fake)
+    assert "error" not in data and data["devices"][0]["supported"] is False
+
+
+def test_no_kernels_message_on_the_cu126_build_does_not_suggest_it_again():
+    devices = [{"index": 0, "name": "Tesla V100", "capability": "7.0", "supported": False}]
+    msg = diagnostics_torch.unsupported_gpu_message(devices, "2.11.0+cu126")
+    assert msg == "This PyTorch build has no kernels for your GPU Tesla V100 (compute 7.0)."

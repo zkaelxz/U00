@@ -178,7 +178,7 @@ export interface DiagnosticsTorchPackage {
 }
 
 export interface DiagnosticsTorchVariant {
-  variant: 'cu128' | 'cpu'
+  variant: 'cu128' | 'cu126' | 'cpu'
   label: string
   index_url: string
   versions: Record<string, string>
@@ -204,6 +204,7 @@ export interface DiagnosticsGpuTorchStatus {
   state: GpuTorchState
   python_supported: boolean
   recommended: DiagnosticsTorchVariant
+  recommended_reason?: string | null
   variants: DiagnosticsTorchVariant[]
   probe: DiagnosticsTorchVerify | null
 }

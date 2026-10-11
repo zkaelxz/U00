@@ -132,7 +132,7 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
     }
     return last
   })
-  const installGpu = () => install('GPU PyTorch', (onJob) => runInstallJob(() => setupGpuTorch('cu128'), onJob, 'GPU PyTorch'))
+  const installGpu = () => install('GPU PyTorch', (onJob) => runInstallJob(() => setupGpuTorch(), onJob, 'GPU PyTorch'))
 
   if (!rows.length) return null
   const readOnly = pc === 'remote'
