@@ -16,7 +16,8 @@ SHORT_MIN_EXPECTED = 6         # short sources ("嗯") have no meaningful minimu
 SOFT_LONG_FACTOR = 1.8         # looser bounds, used only beside a line that already looks wrong
 SOFT_SHORT_FACTOR = 0.4
 SOFT_MIN_EXPECTED = 4
-DUPLICATE_MIN_WORDS = 4        # "I don't know." is a legitimate reply to several different sources
+DUPLICATE_MIN_WORDS = 5        # "There was no gun." is a legitimate reply to near-identical sources (measured: 4 words flagged 26% of ja batches)
+CONTAINED_MIN_WORDS = 6        # a short reply inside a longer one ("He's Red John." in a question about him) is normal dialogue
 SWAP_MIN_EXPECTED = 6          # swap-fit needs lines long enough for length to tell them apart
 SWAP_IMPROVEMENT = 0.5         # swapped replies must fit at least twice as well to count as shifted
 
@@ -95,7 +96,9 @@ def duplicate_positions(sources: list, replies: list) -> set:
             # A source that contains the other legitimately yields a reply that does.
             if sources[i] in sources[j] or sources[j] in sources[i]:
                 continue
-            if norm[i] == norm[j] or (len(norm[j]) > len(norm[i]) and f" {norm[i]} " in f" {norm[j]} "):
+            contained = (len(norm[j]) > len(norm[i]) and len(norm[i].split()) >= CONTAINED_MIN_WORDS
+                         and f" {norm[i]} " in f" {norm[j]} ")
+            if norm[i] == norm[j] or contained:
                 found.update((i, j))
     return found
 

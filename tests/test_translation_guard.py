@@ -72,6 +72,25 @@ class TestChecks:
     def test_short_identical_replies_for_different_lines_are_fine(self):
         assert guard.duplicate_positions(["嗯", "哦"], ["I see.", "I see."]) == set()
 
+    def test_four_word_identical_replies_for_near_identical_sources_are_fine(self):
+        assert guard.duplicate_positions(["銃が無かった", "銃は無かった"],
+                                         ["- There was no gun.", "- There was no gun."]) == set()
+
+    def test_five_word_identical_replies_for_different_lines_are_still_caught(self):
+        assert guard.duplicate_positions(["今日は寒い", "明日は暑い"],
+                                         ["It is very cold today.", "It is very cold today."]) == {0, 1}
+
+    def test_a_short_reply_inside_a_longer_one_is_fine(self):
+        assert guard.duplicate_positions(
+            ["彼はレッドジョンだ", "どうして彼がレッドジョンだと分かった"],
+            ["He's Red John.", "How did you know he was Red John?"]) == set()
+
+    def test_a_long_reply_swallowed_by_a_longer_one_is_still_caught(self):
+        long_reply = "We have to leave this place right now."
+        assert guard.duplicate_positions(
+            ["早く出よう", "何を言っているの"],
+            [long_reply, "Why are you saying that? " + long_reply]) == {0, 1}
+
     def test_allowed_runs_come_from_the_glossary_and_guidelines(self):
         runs = guard.allowed_source_runs([{"term_original": "白鹤", "term_translation": "Baihe"}],
                                          "- 青云 -> Qingyun")
