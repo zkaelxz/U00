@@ -158,19 +158,27 @@ export function runProblemFromError(err: unknown): RunFieldProblem | null {
 }
 
 export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
-// Offered only for a Japanese title (the server refuses it for any other language) and
-// never the default: it needs a GPU in practice and its licence is not declared.
-export const JA_ONLY_WHISPER_SIZES = ['ja-1.5b']
 export const DEFAULT_WHISPER_SIZE = 'large-v3-turbo'
 
-export function isJaOnlyWhisperSize(size: string): boolean {
-  return JA_ONLY_WHISPER_SIZES.includes(size)
+/** {model: {language: reason}} from the server (whisper_models.WHISPER_LANGUAGE_RULES): the only place the rules live. */
+export type WhisperExclusions = Record<string, Record<string, string>>
+
+export interface WhisperChoice {
+  size: string
+  /** Why the model is not selectable for the language, or null when it is. */
+  reason: string | null
 }
 
-/** The Whisper models the picker lists for a language; a saved one that is not offered is kept so it stays visible. */
-export function whisperSizeChoices(language: string, current: string): string[] {
-  const offered = language === 'ja' ? [...WHISPER_SIZES, ...JA_ONLY_WHISPER_SIZES] : WHISPER_SIZES
-  return offered.includes(current) || isJaOnlyWhisperSize(current) ? offered : [current, ...offered]
+export function whisperExclusionReason(exclusions: WhisperExclusions | undefined, size: string, language: string): string | null {
+  return exclusions?.[size]?.[language] ?? null
+}
+
+/** Every model the picker lists for a language, each with the reason it is disabled (if it is).
+ *  A model only the server table names is listed too; an unknown saved one is kept so it stays visible. */
+export function whisperSizeChoices(language: string, current: string, exclusions?: WhisperExclusions): WhisperChoice[] {
+  const sizes = [...WHISPER_SIZES, ...Object.keys(exclusions ?? {}).filter((s) => !WHISPER_SIZES.includes(s))]
+  if (!sizes.includes(current)) sizes.unshift(current)
+  return sizes.map((size) => ({ size, reason: whisperExclusionReason(exclusions, size, language) }))
 }
 
 // What our benchmarks showed for turbo vs large-v3 (docs/asr-experiments.md):

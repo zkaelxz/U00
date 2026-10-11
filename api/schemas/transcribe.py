@@ -144,6 +144,10 @@ class TranscribeConfig(BaseModel):
     # Set when the saved backend was removed and the default is shown instead.
     asr_backend_notice: Optional[str] = None
     whisper_size: str
+    # Set when the saved model is not recommended for the title's language and the default is shown instead.
+    whisper_size_notice: Optional[str] = None
+    # {model: {language: reason}} for models not recommended for a language.
+    whisper_exclusions: Dict[str, Dict[str, str]]
     whisper_model_cached: bool
     # Audio seconds per second of work on the last finished run of this model and device.
     measured_speed: Optional[float] = None
@@ -429,6 +433,8 @@ class CompareOptions(BaseModel):
     saved_asr_backend: str
     saved_alignment_method: str
     whisper_sizes: List[str]
+    source_language: str
+    whisper_exclusions: Dict[str, Dict[str, str]]
     backends: List[CompareBackendOption]
     translation_engine: str
     # Why the Qwen3 forced aligner (Re-time) can't run here, or None.
