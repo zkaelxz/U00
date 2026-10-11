@@ -618,7 +618,7 @@ export default function TranscribeStage({
         <p className="muted" role="note" data-testid="whisper-size-notice">{switchedNotice ?? config?.whisper_size_notice}</p>
       )}
       {whisperChoices.filter((o) => o.reason).map((o) => (
-        <p key={o.size} className="muted" role="note">{o.size}: {o.reason}</p>
+        <p key={o.size} className="muted" data-testid="whisper-exclusion-reason">{o.size}: {o.reason}</p>
       ))}
       {haveTranscript && (
         <Field label="Transcript text">
