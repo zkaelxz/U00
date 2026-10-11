@@ -54,6 +54,12 @@ describe('buildAssRequest', () => {
       field: 'en', preset: 'Clean', per_speaker_colors: true, include_notes: false, notes_as_separate_line: false,
     })
   })
+  it('tidy cue timing is off by default and remembered through the draft', () => {
+    expect(emptyAssForm('Clean').tidyTiming).toBe(false)
+    const saved = { form: { ...emptyAssForm('Clean'), tidyTiming: true } }
+    expect(assFormFromDraft(saved)?.tidyTiming).toBe(true)
+    expect(assFormFromDraft({ form: { field: 'en' } })?.tidyTiming).toBe(false)
+  })
   it('maps overrides', () => {
     const f = { ...emptyAssForm('Clean'), size: '48', bold: 'yes' as const, primary: '#FFFFFF', wrapEn: '30', includeNotes: true, notesAsSeparateLine: true }
     expect(buildAssRequest(f, opts).request).toMatchObject({
