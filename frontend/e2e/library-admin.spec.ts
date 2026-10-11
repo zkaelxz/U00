@@ -11,7 +11,15 @@ const presetsSummary = (page: Page) => page.locator('summary', { hasText: 'Prese
 async function createDrama(page: Page, title: string): Promise<number> {
   const r = await page.request.post('/api/dramas', { data: { source_language: 'zh', title_en: title } })
   expect(r.ok()).toBeTruthy()
-  return (await r.json()).id
+  const id = (await r.json()).id
+  // One translated line: the API refuses status "translated" for a title without one.
+  const srt = '1\n00:00:01,000 --> 00:00:02,000\n你好\nHello\n'
+  const imp = await page.request.post(`/api/subtitle-import/dramas/${id}/apply`, {
+    headers: { 'X-Baihe-Local': '1' },
+    multipart: { file: { name: 'a.srt', mimeType: 'text/plain', buffer: Buffer.from(srt) }, mode: 'source', split_bilingual: 'true' },
+  })
+  expect(imp.ok()).toBeTruthy()
+  return id
 }
 
 test.describe('selection bar (real API)', () => {

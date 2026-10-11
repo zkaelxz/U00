@@ -64,7 +64,9 @@ class ReaderPageResponse(BaseModel):
 
 class NovelAttachTextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    text: str = Field(max_length=2_000_000)
+    # Only a memory guard: the service owns the real 2,000,000-character limit
+    # so its refusal can say so, which a schema error cannot.
+    text: str = Field(max_length=8_000_000)
     mode: str = Field(default="replace", max_length=10)
 
 
@@ -74,6 +76,8 @@ class NovelAttachResult(BaseModel):
     epub_chapters: Optional[int] = None
     chapter_from: Optional[int] = None
     chapter_to: Optional[int] = None
+    # EPUB attach only: set when spine entries pointed at files that couldn't be read.
+    warning: Optional[str] = None
 
 
 class NovelAttachFromSourcesRequest(BaseModel):
@@ -297,6 +301,8 @@ class NovelFileStatus(BaseModel):
 
 class NovelFileUploadResult(NovelFileStatus):
     replaced: bool
+    # Set when the text wasn't UTF-8 and its encoding was guessed.
+    warning: Optional[str] = None
 
 
 class NovelReferenceRemoveResult(BaseModel):

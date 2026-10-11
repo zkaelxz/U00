@@ -2338,6 +2338,21 @@ def test_snapshot_waits_for_a_concurrent_writer_instead_of_failing(isolated_db):
     assert errors == []
 
 
+class TestSearchWildcards:
+    def test_percent_and_underscore_in_a_search_are_literal(self, isolated_db):
+        from core import Line
+        a = isolated_db.create_drama(title_en="100% Sure")
+        b = isolated_db.create_drama(title_en="Plain", summary="a_b")
+        isolated_db.create_drama(title_en="Other")
+        assert [d["id"] for d in isolated_db.list_dramas(search="%")] == [a]
+        assert [d["id"] for d in isolated_db.list_dramas(search="_")] == [b]
+        assert isolated_db.list_dramas(search="a\\b") == []
+        isolated_db.save_lines(a, [Line(idx=0, start=0.0, end=1.0, zh="九十%", en="half"),
+                                   Line(idx=1, start=1.0, end=2.0, zh="别的", en="x_y")])
+        assert [r["idx"] for r in isolated_db.search_lines_globally("%")] == [0]
+        assert [r["idx"] for r in isolated_db.search_lines_globally("_")] == [1]
+
+
 def _stored_version():
     return db.get_app_setting(db.APP_VERSION_SETTING)
 

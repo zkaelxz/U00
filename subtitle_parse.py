@@ -38,6 +38,10 @@ LRC_LAST_LINE_SECONDS = 4.0
 FORMATS = ("srt", "vtt", "ass", "lrc")
 # What the import UI offers; any other Python codec could read non-text bytes.
 ALLOWED_ENCODINGS = ("utf-8", "utf-16", "gb18030", "big5", "cp932", "cp949", "cp1252")
+# Names people type for the same bytes. Python's own shift_jis/gbk are narrower
+# than cp932/gb18030 and would reject files those two read, so map up.
+_ENCODING_ALIASES = {"shiftjis": "cp932", "sjis": "cp932", "mskanji": "cp932", "windows31j": "cp932",
+                     "gbk": "gb18030", "gb2312": "gb18030", "cp936": "gb18030"}
 
 
 class SubtitleParseError(ValueError):
@@ -88,6 +92,25 @@ _WESTERN_FALLBACK = ("cp1252",)
 _BOMS = ((b"\xff\xfe\x00\x00", "utf-32"), (b"\x00\x00\xfe\xff", "utf-32"),
          (b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16"))
 _SUSPECT_CHARS = re.compile(r"[\ue000-\uf8ff\ufffd\x00-\x08\x0b\x0c\x0e-\x1f]")
+_KANA = re.compile(r"[\u3041-\u3096\u30a1-\u30fa]")
+
+
+def reads_as_shift_jis(data: bytes) -> bool:
+    """True when the bytes decode cleanly as cp932 and the result has kana.
+    GB18030 decodes most Shift-JIS into plausible-looking hanzi, so this has
+    to outrank it whatever language the title is set to."""
+    try:
+        text = data.decode("cp932")
+    except UnicodeDecodeError:
+        return False
+    return bool(_KANA.search(text)) and not _SUSPECT_CHARS.search(text)
+
+
+def legacy_codec_order(data: bytes, language: Optional[str] = None) -> tuple:
+    order = _LEGACY_BY_LANGUAGE.get(language or "", _LEGACY_DEFAULT)
+    if order[0] != "cp932" and reads_as_shift_jis(data):
+        return ("cp932",) + tuple(c for c in order if c != "cp932")
+    return order
 
 
 def _utf16_without_bom(data: bytes) -> Optional[str]:
@@ -111,8 +134,9 @@ def decode_subtitle_bytes(data: bytes, encoding: Optional[str] = None,
     never a silent fallback. guessed is True only when UTF-8 was ruled out and
     a legacy codec was picked from the fallback list."""
     if encoding:
+        alias = _ENCODING_ALIASES.get(re.sub(r"[\s_-]", "", encoding).lower())
         try:
-            canonical = codecs.lookup(encoding).name
+            canonical = alias or codecs.lookup(encoding).name
         except (LookupError, ValueError):
             # An encoding name with a NUL makes codecs.lookup raise ValueError, not LookupError.
             canonical = None
@@ -142,7 +166,7 @@ def decode_subtitle_bytes(data: bytes, encoding: Optional[str] = None,
         return data.decode("utf-8"), "utf-8", False
     except UnicodeDecodeError:
         pass
-    for name in _LEGACY_BY_LANGUAGE.get(language or "", _LEGACY_DEFAULT) + _WESTERN_FALLBACK:
+    for name in legacy_codec_order(data, language) + _WESTERN_FALLBACK:
         try:
             text = data.decode(name)
         except UnicodeDecodeError:

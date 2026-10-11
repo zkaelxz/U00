@@ -91,7 +91,8 @@ def _write_novel(drama_id: int, text: str, mode: str) -> int:
         old = _read_novel(drama_id).rstrip()
         text = f"{old}\n\n{text}" if old else text
     if len(text) > MAX_TEXT_CHARS:
-        raise InvalidInputError("The combined novel text is too large.")
+        raise InvalidInputError(
+            f"The combined novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
     final = _novel_path(drama_id, create=True)
     fd, tmp = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=os.path.dirname(final))
     try:
@@ -121,7 +122,7 @@ def attach_text(drama_id: int, text: str, mode: str = "replace") -> dict:
     if not text:
         raise InvalidInputError("The novel text is empty.")
     if len(text) > MAX_TEXT_CHARS:
-        raise InvalidInputError("The novel text is too large.")
+        raise InvalidInputError(f"The novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
     _check_idle(drama_id)
     return {"char_count": _write_novel(drama_id, text, mode)}
 
@@ -162,8 +163,9 @@ def _safe_name(name: str) -> bool:
     return ".." not in name.split("/")
 
 
-def _spine_order(zf, names) -> list:
-    """Reading order from the OPF spine; falls back to sorted names."""
+def _spine_order(zf, names) -> tuple:
+    """(reading order from the OPF spine, spine entries that pointed at no
+    readable file); falls back to sorted names with 0 dropped."""
     try:
         container = zf.read("META-INF/container.xml")
         if b"<!ENTITY" in container:
@@ -177,18 +179,19 @@ def _spine_order(zf, names) -> list:
         root = ElementTree.fromstring(opf)
         manifest = {i.get("id"): i.get("href") for i in root.iterfind(".//{*}manifest/{*}item")}
         base = posixpath.dirname(opf_name)
-        ordered = []
+        ordered, dropped = [], 0
         for ref in root.iterfind(".//{*}spine/{*}itemref"):
             href = manifest.get(ref.get("idref"))
-            if href:
-                full = posixpath.normpath(posixpath.join(base, href.split("#")[0]))
-                if full in names and full not in ordered:
-                    ordered.append(full)
+            full = posixpath.normpath(posixpath.join(base, href.split("#")[0])) if href else None
+            if full is None or full not in names:
+                dropped += 1
+            elif full not in ordered:
+                ordered.append(full)
         if ordered:
-            return ordered
+            return ordered, dropped
     except Exception:
         pass
-    return sorted(n for n in names if n.lower().endswith(_HTML_EXTENSIONS))
+    return sorted(n for n in names if n.lower().endswith(_HTML_EXTENSIONS)), 0
 
 
 def extract_epub_text(fileobj) -> str:
@@ -198,8 +201,14 @@ def extract_epub_text(fileobj) -> str:
 
 
 def extract_epub_chapters(fileobj) -> list:
-    """The EPUB's text as one entry per reading-order document that has any
-    text (the chapters a range picks from). Same checks as extract_epub_text."""
+    return extract_epub_chapters_counting_drops(fileobj)[0]
+
+
+def extract_epub_chapters_counting_drops(fileobj) -> tuple:
+    """(chapters, dropped): the EPUB's text as one entry per reading-order
+    document that has any text (the chapters a range picks from), and how
+    many spine entries named a file that isn't in the EPUB. Same checks as
+    extract_epub_text."""
     try:
         zf = zipfile.ZipFile(fileobj)
     except (zipfile.BadZipFile, OSError):
@@ -215,7 +224,8 @@ def extract_epub_chapters(fileobj) -> list:
                 raise InvalidInputError("That EPUB contains an unsafe entry.")
         names = {i.filename for i in infos if not i.is_dir()}
         chunks = []
-        for name in _spine_order(zf, names):
+        order, dropped = _spine_order(zf, names)
+        for name in order:
             if not name.lower().endswith(_HTML_EXTENSIONS):
                 continue
             try:
@@ -229,7 +239,7 @@ def extract_epub_chapters(fileobj) -> list:
             text = _html_to_text(raw)
             if text:
                 chunks.append(text)
-    return chunks
+    return chunks, dropped
 
 
 def _check_range(chapter_from, chapter_to, total: int):
@@ -272,15 +282,19 @@ def _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to) -> dict
         raise InvalidInputError("The uploaded EPUB is too large.")
     if not data:
         raise InvalidInputError("The uploaded file is empty.")
-    chapters = extract_epub_chapters(io.BytesIO(data))
+    chapters, dropped = extract_epub_chapters_counting_drops(io.BytesIO(data))
     if not chapters:
         raise InvalidInputError("No readable text was found in that EPUB.")
     start, end = _check_range(chapter_from, chapter_to, len(chapters))
     text = _clean("\n\n".join(chapters[start - 1:end]))
     if not text:
         raise InvalidInputError("No readable text was found in that EPUB.")
-    return {"char_count": _write_novel(drama_id, text, mode), "epub_chapters": len(chapters),
-            "chapter_from": start, "chapter_to": end}
+    result = {"char_count": _write_novel(drama_id, text, mode), "epub_chapters": len(chapters),
+              "chapter_from": start, "chapter_to": end}
+    if dropped:
+        result["warning"] = (f"{dropped} chapter{'s' if dropped != 1 else ''} listed in the EPUB "
+                             "couldn't be found inside it and were left out.")
+    return result
 
 
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.save_novel_text

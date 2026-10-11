@@ -48,9 +48,11 @@ import logging
 import os
 import tempfile
 import time
+from typing import Optional
 
 import background_jobs
 import db
+import subtitle_parse
 from services import drama_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -142,35 +144,55 @@ def _fallbacks(language: str, script: str) -> tuple:
     return {"ja": ("cp932",), "ko": ("cp949",), "en": ("cp1252",)}.get(language, ())
 
 
-def decode_text(data: bytes, language: str = "", script: str = "") -> str:
+def decode_text_guessing(data: bytes, language: str = "", script: str = "") -> tuple:
+    """(text, guessed_encoding): the encoding name only when a legacy codec
+    was picked for lack of any proof, else None."""
     for bom, encoding in _BOMS:
         if data.startswith(bom):
-            return data.decode(encoding, errors="replace")
+            return data.decode(encoding, errors="replace"), None
     try:
-        return data.decode("utf-8")
+        return data.decode("utf-8"), None
     except UnicodeDecodeError:
         pass
-    for encoding in _fallbacks(language, script):
+    fallbacks = _fallbacks(language, script)
+    if "cp932" not in fallbacks[:1] and subtitle_parse.reads_as_shift_jis(data):
+        fallbacks = ("cp932",) + fallbacks
+    for encoding in fallbacks:
         try:
-            return data.decode(encoding)
+            return data.decode(encoding), encoding
         except UnicodeDecodeError:
             continue
-    return data.decode("utf-8", errors="replace")
+    return data.decode("utf-8", errors="replace"), "utf-8"
+
+
+def decode_text(data: bytes, language: str = "", script: str = "") -> str:
+    return decode_text_guessing(data, language, script)[0]
 
 
 def _clean(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "").strip()
 
 
-def _read_text(fileobj, ext: str, language: str, script: str) -> str:
+def _read_text(fileobj, ext: str, language: str, script: str) -> tuple:
+    """(text, guessed_encoding or None)."""
     cap = MAX_EPUB_BYTES if ext == ".epub" else MAX_TEXT_BYTES
     data = fileobj.read(cap + 1)
     if len(data) > cap:
         raise InvalidInputError("The uploaded file is too large.")
     if not data:
         raise InvalidInputError("The uploaded file is empty.")
-    raw = extract_epub_text(io.BytesIO(data)) if ext == ".epub" else decode_text(data, language, script)
-    return _checked_text(raw, "No readable text was found in that file.")
+    if ext == ".epub":
+        raw, guessed = extract_epub_text(io.BytesIO(data)), None
+    else:
+        raw, guessed = decode_text_guessing(data, language, script)
+    return _checked_text(raw, "No readable text was found in that file."), guessed
+
+
+def _guess_warning(encoding) -> Optional[str]:
+    if not encoding:
+        return None
+    return (f"The file isn't UTF-8; it was read as {encoding}. Check the text, and re-save "
+            "the file as UTF-8 if the characters look wrong.")
 
 
 def _checked_text(raw: str, empty_message: str) -> str:
@@ -186,6 +208,11 @@ def _pasted_text(text) -> str:
     if not isinstance(text, str):
         raise InvalidInputError("The text must be a string.")
     return _checked_text(text, "The pasted text is empty.")
+
+
+def _with_warning(result: dict, guessed) -> dict:
+    warning = _guess_warning(guessed)
+    return {**result, "warning": warning} if warning else result
 
 
 def _write_atomic(drama_id: int, filename: str, text: str):
@@ -226,7 +253,8 @@ def upload_reference(drama_id: int, client_filename, fileobj) -> dict:
     drama = _require_drama(drama_id)
     ext = _extension(client_filename, REFERENCE_EXTENSIONS)
     _require_idle(drama_id)
-    return _store_reference(drama_id, drama, _read_text(fileobj, ext, "en", ""))
+    text, guessed = _read_text(fileobj, ext, "en", "")
+    return _with_warning(_store_reference(drama_id, drama, text), guessed)
 
 
 def save_reference_text(drama_id: int, text) -> dict:
@@ -281,9 +309,9 @@ def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
     drama = _require_drama(drama_id)
     ext = _extension(client_filename, RAW_NOVEL_EXTENSIONS)
     _require_raw_novel_idle(drama_id)
-    text = _read_text(fileobj, ext, drama.get("source_language") or "zh",
-                      drama.get("chinese_script") or "simplified")
-    return _store_raw_novel(drama_id, text)
+    text, guessed = _read_text(fileobj, ext, drama.get("source_language") or "zh",
+                               drama.get("chinese_script") or "simplified")
+    return _with_warning(_store_raw_novel(drama_id, text), guessed)
 
 
 def save_raw_novel_text(drama_id: int, text) -> dict:

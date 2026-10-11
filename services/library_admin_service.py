@@ -52,6 +52,7 @@ import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
 from services import (auth_service, drama_service, ownership_service, settings_service,
                       translate_run_service, translate_service)
+from services import library_translated_guard
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -230,7 +231,7 @@ def bulk_set_status(drama_ids, status: str) -> dict:
     """Sets only `status` on each drama. Per-id results."""
     if status not in STATUSES:
         raise InvalidInputError("Unknown status.", details={"allowed": list(STATUSES)})
-    return _bulk_apply(drama_ids, lambda did: db.update_drama(did, status=status))
+    return library_translated_guard.set_status(_bulk_apply, drama_ids, status)
 
 
 def bulk_set_tags(drama_ids, tag: str, present: bool) -> dict:
@@ -439,21 +440,8 @@ def start_export_zip(drama_ids=None) -> dict:
     """Job: zips english/chinese/bilingual SRT (+ dub track) for each
     translated/dubbed/exported drama -- the picked ones, or all of them.
     Returns {job_id, drama_ids}; with explicit ids also `results`, one per
-    requested id ({drama_id, ok, error: not_found|not_translated})."""
-    results = None
-    if drama_ids is None:
-        ids = [d["id"] for d in db.list_dramas() if d.get("status") in _EXPORTABLE_STATUSES]
-    else:
-        ids, results = [], []
-        for did in _check_ids(drama_ids):
-            drama = db.get_drama(did)
-            if drama is None:
-                results.append({"drama_id": did, "ok": False, "error": "not_found"})
-            elif drama.get("status") not in _EXPORTABLE_STATUSES:
-                results.append({"drama_id": did, "ok": False, "error": "not_translated"})
-            else:
-                ids.append(did)
-                results.append({"drama_id": did, "ok": True})
+    requested id ({drama_id, ok, error: not_found|not_translated|no_translated_lines})."""
+    ids, results = library_translated_guard.pick_exportable(drama_ids, _check_ids, _EXPORTABLE_STATUSES)
     if not ids:
         raise InvalidInputError("No translated dramas to export.",
                                 details={"results": results} if results is not None else None)

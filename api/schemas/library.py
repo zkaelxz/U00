@@ -5,7 +5,7 @@ storage, media and export.
 from enum import Enum
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, model_validator
 
 from services.library_admin_service import MAX_BULK_IDS as _MAX_BULK_IDS, STATUSES as _LIBRARY_STATUSES
 import db as _db
@@ -263,6 +263,14 @@ class DramaCreateRequest(BaseModel):
     series_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
     new_series_name: Optional[str] = Field(default=None, max_length=300)
     preset_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
+
+    @model_validator(mode="after")
+    def _needs_a_title(self):
+        # Here, not in drama_service: the CLI and importers create untitled
+        # rows through the service on purpose.
+        if not (self.title_en.strip() or self.title_zh.strip()):
+            raise ValueError("A title is required.")
+        return self
 
 
 class DramaMetadataUpdate(BaseModel):
@@ -687,7 +695,7 @@ class LibraryStorageCleanRequest(BaseModel):
 
 class LibraryBulkItem(BaseModel):
     """One requested drama's outcome. error: not_found, job_running,
-    delete_failed or not_translated."""
+    delete_failed, not_translated or no_translated_lines."""
     drama_id: int
     ok: bool
     error: Optional[str] = None

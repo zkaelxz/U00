@@ -79,6 +79,8 @@ def _check_text(name, value):
         raise InvalidInputError(f"{name} is too long (max {cap} characters).")
     if name == "source_url" and value and not value.startswith(("http://", "https://")):
         raise InvalidInputError("source_url must be empty or start with http:// or https://.")
+    if name in _STRIPPED and "\x00" in value:
+        raise InvalidInputError(f"{name} must not contain a NUL character.")
     return value.strip() if name in _STRIPPED else value
 
 
