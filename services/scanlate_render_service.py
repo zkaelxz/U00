@@ -49,7 +49,7 @@ def _pages_dir(drama_id: int) -> str:
     path = os.path.join(base, "pages")
     os.makedirs(path, exist_ok=True)
     if os.path.islink(path) or os.path.realpath(path) != path:
-        raise NotFoundError("This drama's pages folder is not usable.")
+        raise NotFoundError("This title's pages folder is not usable.")
     return path
 
 
@@ -148,7 +148,7 @@ def start_render(drama_id: int, page_id: int = None) -> dict:
         if not ids:
             raise UnsupportedOperationError("No page has text regions yet. Translate first.")
     return pages_svc.start_drama_job(drama_id, _render_job, pages_svc.job_id(drama_id),
-                                     drama_id, ids, description=f"Scanlate render (drama {drama_id})")
+                                     drama_id, ids, description=f"Scanlate render (title {drama_id})")
 
 
 # --- S8: export -------------------------------------------------------------
@@ -250,9 +250,9 @@ def start_export(drama_id: int, formats=EXPORT_FORMATS) -> dict:
         raise InvalidInputError("formats must be 'zip' and/or 'pdf'.")
     page_count = len(db.list_pages(drama_id))
     if not page_count:
-        raise UnsupportedOperationError("This drama has no pages to export.")
+        raise UnsupportedOperationError("This title has no pages to export.")
     if "pdf" in formats and page_count > MAX_PDF_EXPORT_PAGES:
         raise InvalidInputError(_PDF_TOO_MANY)
     return pages_svc.start_drama_job(drama_id, _export_job, pages_svc.job_id(drama_id),
                                      drama_id, formats,
-                                     description=f"Scanlate export (drama {drama_id})")
+                                     description=f"Scanlate export (title {drama_id})")

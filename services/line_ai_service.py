@@ -110,7 +110,7 @@ def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier,
     line = next((ln for ln in core.lines_from_rows(db.load_lines(drama_id))
                  if ln.id == line_id), None)
     if line is None:
-        raise NotFoundError(f"No line with id {line_id} in this drama.")
+        raise NotFoundError(f"No line with id {line_id} in this title.")
     if not (line.zh or "").strip():
         raise UnsupportedOperationError("This line has no source text.")
     if need_en and not (line.en or "").strip():

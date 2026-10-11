@@ -45,7 +45,7 @@ MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -99,7 +99,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
                                 f"use one of {', '.join(TAG_ENGINES)}.")
     text = _read_novel(drama_id)
     if not text.strip():
-        raise InvalidInputError("This drama has no novel text attached yet.")
+        raise InvalidInputError("This title has no novel text attached yet.")
     api_key = _api_key(engine_name)
     if not api_key:
         raise MissingKeyError(engine_name)
@@ -108,9 +108,9 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     started = background_jobs.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
         gpu_touching=translate_engines.ollama_touches_local_gpu(engine_name, model),
-        description=f"Chunk & tag (drama {drama_id})", fresh=bool(fresh))
+        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh))
     if not started:
-        raise ConflictError("A narration chunk & tag run is already active for this drama.")
+        raise ConflictError("A narration chunk & tag run is already active for this title.")
     return {"job_id": job_id}
 
 

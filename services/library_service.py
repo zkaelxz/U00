@@ -90,10 +90,10 @@ def get_library_drama(drama_id: int) -> dict:
     of `db.get_drama`'s bare None, so every caller reports the same
     thing the same way."""
     if not isinstance(drama_id, int) or isinstance(drama_id, bool) or drama_id < 1:
-        raise InvalidInputError("A drama id is a positive whole number.")
+        raise InvalidInputError("A title id is a positive whole number.")
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 

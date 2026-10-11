@@ -46,7 +46,7 @@ _DUB_ORIGINAL_DB = -20.0   # "mix original audio in quietly"
 def _get_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -58,7 +58,7 @@ def _require_ffmpeg():
 def _refuse_duplicate(job_id: str, label: str, drama_id: int):
     job = background_jobs.get_status(job_id)
     if job and job["status"] in ("running", "queued"):
-        raise ConflictError(f"The {label} export is already running for drama {drama_id}.")
+        raise ConflictError(f"The {label} export is already running for title {drama_id}.")
 
 
 _video_start_lock = threading.Lock()
@@ -72,9 +72,9 @@ def _start_video_job(drama_id: int, job_id: str, target, *args, description: str
         for prefix in _VIDEO_JOB_PREFIXES:
             job = background_jobs.get_status(f"{prefix}{drama_id}")
             if job and job["status"] in ("running", "queued"):
-                raise ConflictError(f"A video export is already running for drama {drama_id}.")
+                raise ConflictError(f"A video export is already running for title {drama_id}.")
         if not background_jobs.start_job(job_id, target, *args, description=description):
-            raise ConflictError(f"A video export is already running for drama {drama_id}.")
+            raise ConflictError(f"A video export is already running for title {drama_id}.")
     return {"job_id": job_id}
 
 
@@ -83,7 +83,7 @@ def _source_video(drama: dict, drama_id: int) -> str:
     video_path = os.path.join(db.drama_dir(drama_id), filename) if filename else ""
     if (not filename or filename != os.path.basename(filename)
             or not os.path.isfile(video_path)):
-        raise InvalidInputError("No source video uploaded for this drama.")
+        raise InvalidInputError("No source video uploaded for this title.")
     return video_path
 
 
@@ -133,7 +133,7 @@ def start_audiobook_export(drama_id: int) -> dict:
     drama = _get_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     if not lines:
-        raise InvalidInputError("This drama has no lines to export.")
+        raise InvalidInputError("This title has no lines to export.")
     ddir = db.drama_dir(drama_id)
     if not os.path.isfile(os.path.join(ddir, "narration_track.wav")):
         raise InvalidInputError("There is no narration yet. Create it in Dub first.")
@@ -145,9 +145,9 @@ def start_audiobook_export(drama_id: int) -> dict:
     started = background_jobs.start_job(
         job_id, _audiobook_job, job_id, drama_id, lines, ddir, title, narrate_original,
         export_service.narration_language(drama),
-        description=f"Audiobook export (drama #{drama_id})")
+        description=f"Audiobook export (title #{drama_id})")
     if not started:
-        raise ConflictError(f"The audiobook export is already running for drama {drama_id}.")
+        raise ConflictError(f"The audiobook export is already running for title {drama_id}.")
     return {"job_id": job_id}
 
 
@@ -179,7 +179,7 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
     missing), ConflictError (already running). Returns {"job_id": ...}."""
     drama = _get_drama(drama_id)
     if not db.load_line_objects(drama_id):
-        raise InvalidInputError("This drama has no lines to export.")
+        raise InvalidInputError("This title has no lines to export.")
     video_path = _source_video(drama, drama_id)
     ass_text = export_service.generate_ass_text(drama_id, **ass_options)
     _require_ffmpeg()
@@ -190,7 +190,7 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
     return _start_video_job(drama_id, job_id, _burned_video_job, job_id, drama_id, video_path,
                             ass_text, ext,
                             export_service.field_language(drama, ass_options.get("field", "en")),
-                            description=f"Burned-in video export (drama #{drama_id})")
+                            description=f"Burned-in video export (title #{drama_id})")
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
     (a video export already running). Returns {"job_id": ...}."""
     drama = _get_drama(drama_id)
     if not db.load_line_objects(drama_id):
-        raise InvalidInputError("This drama has no lines to export.")
+        raise InvalidInputError("This title has no lines to export.")
     video_path = _source_video(drama, drama_id)
     srt_text = export_service.generate_subtitle_text(drama_id, "srt", field,
                                                      include_notes=include_notes)
@@ -234,7 +234,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
     language = "eng" if field == "en" else "und"
     return _start_video_job(drama_id, job_id, _softsub_video_job, job_id, drama_id, video_path,
                             srt_text, ext, language, export_service.field_language(drama, field),
-                            description=f"Soft-subtitle video export (drama #{drama_id})")
+                            description=f"Soft-subtitle video export (title #{drama_id})")
 
 
 # ---------------------------------------------------------------------------
@@ -283,4 +283,4 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
     return _start_video_job(drama_id, job_id, _dubbed_video_job, job_id, drama_id, video_path,
                             dub_path, ext, _DUB_ORIGINAL_DB if keep_original else None,
                             export_service.narration_language(drama),
-                            description=f"Dubbed video export (drama #{drama_id})")
+                            description=f"Dubbed video export (title #{drama_id})")

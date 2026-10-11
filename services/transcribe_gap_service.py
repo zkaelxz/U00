@@ -88,7 +88,7 @@ def list_gaps(drama_id: int, min_gap: float = MIN_GAP_SECONDS) -> dict:
     MAX_ADD_SECONDS comes as `parts` equal consecutive windows, each one
     addable on its own. NotFoundError for an unknown drama."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = db.load_line_objects(drama_id)
     gaps = find_line_gaps(lines, min_gap)
     coverage = _coverage_gaps(drama_id)
@@ -197,7 +197,7 @@ def add_gap_lines(drama_id: int, expected_line_ids, *, start, end,
     drama = restructure._require_drama(drama_id)
     audio_path = transcribe_service._drama_audio_path(drama_id, drama)
     if audio_path is None:
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     # The cheap refusals come before any audio work so a stale or blocked
     # request can't tie up a worker thread decoding; structural_write checks
     # them again under the lock.

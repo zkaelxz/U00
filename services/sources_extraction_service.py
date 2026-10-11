@@ -168,7 +168,7 @@ MAX_HEADINGS = 20
 MAX_LINKS = 80
 MAX_PAGE_NUMBER = ai_extract.MAX_PAGES
 NUMBER_FROM = ("title", "url")
-_NO_REVIEW = "There's no extraction to review for this drama. Import the link again."
+_NO_REVIEW = "There's no extraction to review for this title. Import the link again."
 _STALE = "This review changed since it was loaded. Reload it and try again."
 _NOT_OFFERED = "That choice isn't one this review offered."
 
@@ -830,7 +830,7 @@ def start_review_import(drama_id: int, revision: str, principal=None,
     media = (drama.get("media_type") or "").lower()
     if rv.kind == "novel":
         if media not in imp.NOVEL_MEDIA_TYPES:
-            raise InvalidInputError("Novel text imports into a novel drama.")
+            raise InvalidInputError("Novel text imports into a novel title.")
         if rv.recovery and rv.recovery["chapter_id"] in src_store.imported_chapter_ids(
                 rv.recovery["source"], rv.recovery["series_id"], drama_id):
             raise ConflictError("That chapter was imported since this review opened.")
@@ -845,7 +845,7 @@ def start_review_import(drama_id: int, revision: str, principal=None,
         if pages is not None:
             raise InvalidInputError(_NOT_OFFERED, details={"field": "pages"})
         if media not in imp.COMIC_MEDIA_TYPES:
-            raise InvalidInputError("Comic pages import into a manhua, manga or manhwa drama.")
+            raise InvalidInputError("Comic pages import into a manhua, manga or manhwa title.")
         kept = _kept_ids(rv, data)
         if not kept:
             raise InvalidInputError("No image is marked as a page.")

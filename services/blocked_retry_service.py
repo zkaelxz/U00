@@ -69,11 +69,11 @@ def _log_failure(what: str, exc: Exception):
 def _load(drama_id: int, line_id: int):
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     for ln in db.load_line_objects(drama_id):
         if ln.id == line_id:
             return drama, ln
-    raise NotFoundError(f"No line with id {line_id} in this drama.")
+    raise NotFoundError(f"No line with id {line_id} in this title.")
 
 
 def _reload(drama_id: int, line_id: int) -> dict:
@@ -84,7 +84,7 @@ def _refuse_if_line_job_running(drama_id: int):
     for prefix in _CONFLICTING_JOB_PREFIXES:
         status = background_jobs.get_status(f"{prefix}{drama_id}")
         if status and status.get("status") in ("running", "queued"):
-            raise ConflictError("A translation job is running for this drama -- wait for it "
+            raise ConflictError("A translation job is running for this title -- wait for it "
                                 "to finish before retrying a line.")
 
 

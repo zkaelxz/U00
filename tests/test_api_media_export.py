@@ -130,7 +130,7 @@ def test_audiobook_no_lines_422(client, isolated_db):
     did = isolated_db.create_drama(title_en="Empty")
     r = client.post(f"/api/export/dramas/{did}/audiobook")
     assert r.status_code == 422
-    assert _error(r)["message"] == "This drama has no lines to export."
+    assert _error(r)["message"] == "This title has no lines to export."
 
 
 def test_audiobook_no_narration_422(client, drama):
@@ -220,7 +220,7 @@ def test_burned_video_no_lines_422(client, isolated_db):
 def test_burned_video_no_source_video_422(client, drama):
     r = client.post(f"/api/export/dramas/{drama}/burned-video")
     assert r.status_code == 422
-    assert _error(r)["message"] == "No source video uploaded for this drama."
+    assert _error(r)["message"] == "No source video uploaded for this title."
 
 
 def test_burned_video_traversal_filename_rejected(client, drama, isolated_db):
@@ -333,7 +333,7 @@ def test_softsub_bad_body_422(client, drama, isolated_db, body, fake_ffmpeg):
 def test_softsub_guards(client, drama, isolated_db, monkeypatch):
     assert client.post("/api/export/dramas/999/softsub-video").status_code == 404
     r = client.post(f"/api/export/dramas/{drama}/softsub-video")
-    assert r.status_code == 422 and _error(r)["message"] == "No source video uploaded for this drama."
+    assert r.status_code == 422 and _error(r)["message"] == "No source video uploaded for this title."
     empty = isolated_db.create_drama(title_en="Empty")
     _add_video(isolated_db, empty)
     assert client.post(f"/api/export/dramas/{empty}/softsub-video").status_code == 422

@@ -65,7 +65,7 @@ def require_drama(drama_id) -> dict:
             and 0 < drama_id <= drama_service.MAX_ID:
         drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError("No drama with that id.")
+        raise NotFoundError("No title with that id.")
     return drama
 
 
@@ -89,7 +89,7 @@ def analyze_media(drama_id: int) -> dict:
     drama = require_drama(drama_id)
     path = _stored_media_path(drama_id, drama)
     if path is None:
-        raise InvalidInputError("This drama has no media file yet.")
+        raise InvalidInputError("This title has no media file yet.")
     try:
         probe = media_inspect.run_ffprobe(path)
     except media_inspect.ProbeError as e:

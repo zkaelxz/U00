@@ -69,7 +69,7 @@ def describe_job(job_id: str) -> str:
     prefix, _, suffix = job_id.rpartition("_")
     if prefix in _JOB_LABELS and suffix.isdigit():
         drama = db.get_drama(int(suffix))
-        title = (drama.get("title_en") or drama.get("title_zh") or f"drama #{suffix}") if drama else f"drama #{suffix} (deleted)"
+        title = (drama.get("title_en") or drama.get("title_zh") or f"title #{suffix}") if drama else f"title #{suffix} (deleted)"
         return f"{_JOB_LABELS[prefix]} -- {title}"
     return job_id
 

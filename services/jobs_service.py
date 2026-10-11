@@ -330,7 +330,7 @@ def derive_outcome(status, error, result):
         failed = bulk.get("failed_count") or 0
         skipped = bulk.get("skipped_count") or 0
         unfinished = bulk.get("partial_count") or 0
-        parts = [f"Translated {done} drama(s)."]
+        parts = [f"Translated {done} title(s)."]
         if unfinished:
             parts.append(f"{unfinished} only partly translated.")
         if failed:

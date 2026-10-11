@@ -43,7 +43,7 @@ def _drama_path(drama_id: int) -> str:
 def _get_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -118,7 +118,7 @@ def _shown_engine(character, clone) -> str:
     return clone["engine"] if clone else stored
 
 
-MISSING_CLIP_WARNING = ("This speaker's reference clip is missing from the drama folder, so "
+MISSING_CLIP_WARNING = ("This speaker's reference clip is missing from the title folder, so "
                         "cloning it will fail. Upload or extract a new clip.")
 
 
@@ -338,7 +338,7 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
         if narration_language not in NARRATION_LANGUAGE_OPTIONS:
             raise InvalidInputError("Unknown narration language.")
         if not is_narration:
-            raise InvalidInputError("Narration language only applies to narration dramas.")
+            raise InvalidInputError("Narration language only applies to narration titles.")
     max_speedup, max_slowdown = resolve_pacing_limits(max_speedup, max_slowdown)
 
     if narration_language is None:
@@ -360,7 +360,7 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
             raise InvalidInputError("Keeping background music only applies to video dubs.")
         background_source = _source_audio_path(drama)
         if background_source is None:
-            raise InvalidInputError("This drama has no source audio to take background music from.")
+            raise InvalidInputError("This title has no source audio to take background music from.")
         missing_bg = _missing_separation_dependency(separation_backend)
         if missing_bg:
             raise DependencyUnavailableError(missing_bg)
@@ -368,7 +368,7 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
     job_id = f"dub_{drama_id}"
     job = background_jobs.get_status(job_id)
     if job and job["status"] in ("running", "queued"):
-        raise ConflictError(f"A dub job is already running for drama {drama_id}.")
+        raise ConflictError(f"A dub job is already running for title {drama_id}.")
     if is_narration and narration_language != (drama.get("narration_language") or "translation"):
         db.update_drama(drama_id, narration_language=narration_language)
 
@@ -392,9 +392,9 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
     started = background_jobs.start_process_job(
         job_id, worker, args=worker_args,
         gpu_touching=dub.clone_map_uses_local_model(clone_map),
-        description=f"Dub generation (drama #{drama_id})",
+        description=f"Dub generation (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
         on_done=lambda _jid, result: apply_dub_result(drama_id, result))
     if not started:
-        raise ConflictError(f"A dub job is already running for drama {drama_id}.")
+        raise ConflictError(f"A dub job is already running for title {drama_id}.")
     return {"job_id": job_id}

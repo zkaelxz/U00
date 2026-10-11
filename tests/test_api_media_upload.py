@@ -913,7 +913,7 @@ def test_video_exports_refuse_plainly_once_the_video_was_replaced_by_audio(clien
     for path in ("burned-video", "softsub-video", "dubbed-video"):
         r = client.post(f"/api/export/dramas/{did}/{path}", json={})
         assert r.status_code == 422, (path, r.text)
-        assert r.json()["error"]["message"] == "No source video uploaded for this drama."
+        assert r.json()["error"]["message"] == "No source video uploaded for this title."
     assert ran == []
 
 

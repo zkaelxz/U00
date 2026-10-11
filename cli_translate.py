@@ -84,7 +84,7 @@ def _resolve_glossary_terms(drama: dict, refs) -> list:
         hits = [t for t in terms
                 if (ref.isdigit() and t["id"] == int(ref)) or (t.get("term_original") or "") == ref]
         if not hits:
-            raise SystemExit(f"--term {ref!r} matches no term in this drama's glossary.")
+            raise SystemExit(f"--term {ref!r} matches no term in this title's glossary.")
         if len(hits) > 1:
             raise SystemExit(f"--term {ref!r} matches {len(hits)} glossary terms "
                              f"(ids {', '.join(str(t['id']) for t in hits)}); use the id.")
@@ -100,7 +100,7 @@ def cmd_translate(args):
                                          reflect=getattr(args, "reflect", False))
     glossary_affected = getattr(args, "glossary_affected", False)
     if glossary_affected and not args.id:
-        raise SystemExit("--glossary-affected needs --id (one drama at a time, as in the app).")
+        raise SystemExit("--glossary-affected needs --id (one title at a time, as in the app).")
     if getattr(args, "include_hand_edited", False) and not glossary_affected:
         raise SystemExit("--include-hand-edited only applies with --glossary-affected.")
     if getattr(args, "term", None) and not glossary_affected:
@@ -196,7 +196,7 @@ def cmd_translate(args):
         except ServiceError as e:
             raise SystemExit(f"translate: {e.message}")
         if background_jobs.is_running(f"translate_{d['id']}"):
-            print(f"#{d['id']} skipped: a translation is already running for this drama "
+            print(f"#{d['id']} skipped: a translation is already running for this title "
                   f"in the app.")
             return
         engine = _engine_for(engine_name)
@@ -391,7 +391,7 @@ def add_translate_parser(sub):
     p_translate.add_argument("--episode-summary-engine", default=None,
                              choices=list(translate_engines.ENGINES),
                              help="Engine for the once-per-episode running-summary call "
-                                  "made after a drama finishes translating, fed forward as "
+                                  "made after a title finishes translating, fed forward as "
                                   "continuity context into the next episode of the same series. "
                                   "Defaults to the Settings episode-summary engine (local Ollama "
                                   "until changed; a fixed once-per-episode cost); if "
@@ -405,7 +405,7 @@ def add_translate_parser(sub):
                               help="Matches the Workspace tab's own style-guidance preset -- "
                                    "affects phrasing/pacing guidance, not language or content. "
                                    "Defaults to the same per-content-mode preset Workspace picks "
-                                   "(\"novel\" for a novel-narration drama, \"audio_drama\" "
+                                   "(\"novel\" for a novel-narration title, \"audio_drama\" "
                                    "otherwise) unless set explicitly.")
     p_translate.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                              help="Default: the Settings English variant (en-US until changed).")
@@ -446,7 +446,7 @@ def add_translate_parser(sub):
                                   "about 3x as much. The critique is saved as a translation note "
                                   "per line.")
     p_translate.add_argument("--cost-cap", type=float, default=None,
-                           help="Stop a drama's translation once its estimated spend reaches this "
+                           help="Stop a title's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")
     p_translate.add_argument("--monthly-cap", type=float, default=None,
                            help="Refuse to start / stop once this calendar month's logged spend "

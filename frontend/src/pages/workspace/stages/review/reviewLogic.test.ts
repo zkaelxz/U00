@@ -136,8 +136,8 @@ describe('structure guards', () => {
     expect(pageStillMatches([1, 2], [1, 7], 'flagged', 1)).toBe(false)
   })
   it('turns a 409 into plain text', () => {
-    expect(structureErrorText(new ApiError(409, { code: 'conflict', message: 'A background job is still running' }))).toBe(JOB_RUNNING_MESSAGE)
-    expect(structureErrorText(new ApiError(409, { code: 'conflict', message: "This title's lines changed" }))).toBe(LINES_CHANGED_MESSAGE)
+    expect(structureErrorText(new ApiError(409, { code: 'conflict', message: 'A background job is still running for this title -- wait for it to finish or cancel it before restructuring lines.' }))).toBe(JOB_RUNNING_MESSAGE)
+    expect(structureErrorText(new ApiError(409, { code: 'conflict', message: "This title's lines changed since you loaded them -- reload and try again." }))).toBe(LINES_CHANGED_MESSAGE)
     expect(structureErrorText(new ApiError(422, { code: 'invalid_input', message: 'x' }))).toBeNull()
   })
   it('matches running jobs to the title by id suffix', () => {
@@ -227,7 +227,7 @@ describe('AI re-segmentation preview (R47)', () => {
     expect(llmApplyProblem(err(422, 'Re-segmenting would clear translations, flags or notes on the lines being split -- pass confirm=true.'))).toBe('confirm')
     expect(llmApplyProblem(err(409, "This title's lines changed since the preview -- run the preview again."))).toBe('changed')
     expect(llmApplyProblem(err(409, "This title's lines changed since you loaded them -- reload and try again."))).toBe('changed')
-    expect(llmApplyProblem(err(409, 'A background job is still running for this title -- wait for it to finish.'))).toBe('job')
+    expect(llmApplyProblem(err(409, 'A background job is still running for this title -- wait for it to finish or cancel it before restructuring lines.'))).toBe('job')
     expect(llmApplyProblem(err(409, 'A re-segmentation is already running for this title.'))).toBe('job')
     expect(llmApplyProblem(err(404, 'No LLM re-segmentation preview is ready for this title -- run the preview first.'))).toBe('gone')
     expect(llmApplyProblem(err(503, 'down'))).toBeNull()
@@ -397,7 +397,7 @@ describe('undo of a structural edit', () => {
     expect(UNDO_NOTES_MESSAGE).toContain('move or copy the note first')
     const otherReason = new ApiError(409, { code: 'conflict', message: 'The lines were edited', details: { reason: 'other' } })
     expect(undoRefusal(otherReason)).toEqual({ text: UNDO_CHANGED_MESSAGE, keepOffer: false })
-    const job = new ApiError(409, { code: 'conflict', message: 'A background job is still running' })
+    const job = new ApiError(409, { code: 'conflict', message: 'A background job is still running for this title -- wait for it to finish or cancel it before restructuring lines.' })
     expect(undoRefusal(job)).toEqual({ text: JOB_RUNNING_MESSAGE, keepOffer: true })
     expect(undoRefusal(new ApiError(404, { code: 'not_found', message: 'x' }))).toEqual({ text: UNDO_GONE_MESSAGE, keepOffer: false })
     expect(UNDO_GONE_MESSAGE).toContain('Records → Line history')
