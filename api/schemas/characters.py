@@ -517,3 +517,5 @@ class GlossaryNameClusters(BaseModel):
     lines_scanned: int
     truncated: bool
     clusters: List[GlossaryNameCluster] = Field(default_factory=list)
+    # Names from the optional downloaded VTuber list found in the lines; empty unless the title opted in.
+    known_vtuber_names: List[GlossaryNameCluster] = Field(default_factory=list)
