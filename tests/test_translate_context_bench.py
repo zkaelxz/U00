@@ -221,3 +221,46 @@ def test_default_window_is_longest_translated_run_capped_at_300():
     rows = [{"id": i, "idx": i, "zh": "字", "en": "x"} for i in range(400)]
     assert bench.choose_window(rows, None, None) == list(range(300))
     assert bench.choose_window(rows, 10, 12) == [10, 11, 12]
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "0", "-1"])
+def test_non_finite_or_non_positive_max_usd_is_refused(title, live, writes, capsys, tmp_path, value):
+    assert bench.main([str(title), "--yes", f"--max-usd={value}", "--from", "0", "--to", "100000",
+                       "--out", str(tmp_path / "r.md")]) == 2
+    assert "finite number above zero" in capsys.readouterr().out
+    assert live.calls == 0 and writes == []
+
+
+def test_a_nan_estimate_refuses(title, live, writes, capsys, tmp_path, monkeypatch):
+    monkeypatch.setattr(bench.translate_engines, "estimate_cost_for_engine",
+                        lambda *a, **k: float("nan"))
+    assert bench.main([str(title), "--yes", "--out", str(tmp_path / "r.md")]) == 2
+    assert live.calls == 0 and writes == []
+
+
+def test_monthly_cap_wins_over_a_larger_max_usd(title, live, writes, capsys, tmp_path, monkeypatch):
+    db.log_usage(None, "claude", "claude-sonnet-5-5", "translate", 1, 1, 0.99)
+    patch_setting(monkeypatch, "monthly_cap_usd", 1.0)
+    assert bench.main([str(title), "--yes", "--max-usd", "50", "--out", str(tmp_path / "r.md")]) == 2
+    assert "above the $0.01 limit" in capsys.readouterr().out
+    assert live.calls == 0
+
+
+def test_default_report_goes_to_the_data_folder_not_the_title_folder(title, live, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(bench.portable, "data_dir", lambda: str(tmp_path))
+    assert bench.main([str(title), "--yes", "--config", "10:2/2"]) == 0
+    assert (tmp_path / bench.REPORT_NAME).is_file()
+    assert str(tmp_path) not in capsys.readouterr().out
+
+
+def test_report_is_not_written_over_a_file_swapped_in_during_the_run(title, live, capsys, tmp_path):
+    out = tmp_path / "r.md"
+    real_create = live.messages.create
+
+    def create(**kw):
+        out.write_text("CLAUDE_API_KEY=keep-me\n", encoding="utf-8")  # appears after the first check
+        return real_create(**kw)
+    live.messages.create = create
+    bench.main([str(title), "--yes", "--out", str(out), "--config", "10:2/2"])
+    assert out.read_text(encoding="utf-8") == "CLAUDE_API_KEY=keep-me\n"
+    assert "Could not write" in capsys.readouterr().out

@@ -320,6 +320,9 @@ def effective_cap(engine_name: str, max_usd: float) -> float:
     cap, refusal = translate_engines.resolve_cost_cap(max_usd, monthly, spend)
     if refusal:
         raise Refusal(refusal)
+    # NaN compares false against everything, so a bad cap would pass every later check.
+    if cap is None or not math.isfinite(cap) or cap <= 0:
+        raise Refusal("No usable spending limit; nothing was spent.")
     return cap
 
 
@@ -374,7 +377,7 @@ def run_all(plan: Plan, configs, dry: bool, cap: float, api_key: str):
     spent = 0.0
     for cfg in configs:
         remaining = cap - spent
-        if remaining <= 0:
+        if not remaining > 0:
             results.append((cfg, Stats(not_run="budget used up before this config"), Recorder(), {}))
             continue
         engine = build_engine(plan, api_key)
@@ -531,9 +534,10 @@ def format_report(plan: Plan, configs, results, edge: int, cap: float) -> str:
     return "\n".join(out)
 
 
-def default_report_path(title_id: int) -> str:
-    folder = os.path.join(db.DRAMAS_DIR, str(title_id))
-    return os.path.join(folder if os.path.isdir(folder) else portable.data_dir(), REPORT_NAME)
+def default_report_path() -> str:
+    # The data folder, as self_test does: the title's own folder holds the library's media and
+    # is backed up and exported with it.
+    return os.path.join(portable.data_dir(), REPORT_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -556,11 +560,11 @@ def run(args) -> int:
     configs = label_configs([parse_config(c) for c in (args.config or DEFAULT_CONFIGS)])
     if len(configs) > MAX_CONFIGS:
         raise Refusal(f"At most {MAX_CONFIGS} configs per run.")
-    if args.max_usd <= 0:
-        raise Refusal("--max-usd must be above zero.")
+    if not math.isfinite(args.max_usd) or args.max_usd <= 0:
+        raise Refusal("--max-usd must be a finite number above zero.")
     if args.edge < 1:
         raise Refusal("--edge must be at least 1.")
-    out = args.out or (default_report_path(args.title_id) if args.yes else None)
+    out = args.out or (default_report_path() if args.yes else None)
     # Before any paid call: a refused file must not cost money.
     if out and self_test._refuse_to_overwrite(out, REPORT_TITLE):
         raise Refusal("Refusing to write the report: that file exists and is not a previous "
@@ -573,7 +577,7 @@ def run(args) -> int:
     total = sum(r[1].cost for r in estimate)
     gate_total = total * ESTIMATE_MARGIN
     _print_estimate(configs, estimate, cap, gate_total)
-    if gate_total > cap:
+    if not math.isfinite(gate_total) or not gate_total <= cap:
         raise Refusal(f"Estimate ${gate_total:.2f} is above the ${cap:.2f} limit. Lower the window "
                       "(--from/--to), use fewer configs, or raise --max-usd.")
     if not args.yes:
@@ -587,6 +591,9 @@ def run(args) -> int:
     report = format_report(plan, configs, results, args.edge, cap)
     spent = sum(r[1].cost for r in results)
     try:
+        # The first check was minutes ago; the file may have been replaced since.
+        if self_test._refuse_to_overwrite(out, REPORT_TITLE):
+            raise OSError("report path changed")
         Path(out).write_text(report + "\n", encoding="utf-8")
         saved = f"Report written to {Path(out).name}"
     except OSError:
