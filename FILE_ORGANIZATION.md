@@ -21,8 +21,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW); `installer/service.py` runs the Windows service (`Services`; its siblings are `service_layout.py` folder safety, `service_config.py` config, XML and Caddyfile text, `service_control.py` sc/icacls/netsh commands, `service_checks.py` health checks and `service_cli.py` the command line) and `installer/setup_lock.py` holds the named mutexes that keep Setup and the service commands apart | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
-| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`); `windows_script_checks.py` runs setup.bat, start.bat and uninstall.bat on the Windows CI runner (`docs/testing-and-ci.md`); `self_test.py` runs the owner's hardware checks in one go and writes a redacted report (`docs/runbook.md` 2c); `ja_whisper_models.py` fetches or converts and checks Japanese Whisper fine-tune folders for the Benchmark Lab (`docs/asr-experiments.md`) | `python tools/repo_map.py --help`, `python tools/route_table.py --write`, `python tools/ja_whisper_models.py --help`, `python -m tools.self_test` |
-| `tests/` | pytest suite; tests enforce most rules in `CLAUDE.md` | `python -m pytest -q` |
+| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`); `windows_script_checks.py` runs setup.bat, start.bat and uninstall.bat on the Windows CI runner (`docs/testing-and-ci.md`); `self_test.py` runs the owner's hardware checks in one go and writes a redacted report (`docs/runbook.md` 2c); `translate_context_bench.py` re-translates one window of a title under several batch-size/context configs with Claude (dry run unless `--yes`, spend-capped, saves nothing to the title) and writes a comparison report; `ja_whisper_models.py` fetches or converts and checks Japanese Whisper fine-tune folders for the Benchmark Lab (`docs/asr-experiments.md`) | `python tools/repo_map.py --help`, `python tools/route_table.py --write`, `python tools/ja_whisper_models.py --help`, `python -m tools.self_test`, `python -m tools.translate_context_bench TITLE_ID` |
 | `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md`, `docs/user-guide.md` |
 | `library/` | your data (gitignored, created automatically) | n/a |
 
@@ -45,8 +44,11 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db/` (package: `__init__.py` holds what has not moved out yet and re-exports the rest, so callers keep `db.<name>`)
+  - `db/app_settings.py` (cross-process app settings, the metadata research cache and results, field provenance)
   - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
   - `db/benchmark.py` (accuracy benchmark cases and runs, Benchmark Lab sessions and results)
+  - `db/job_records.py` (the job_records mirror of background job status)
+  - `db/usage.py` (usage and cost log, monthly spend and its reset, re-costing, the standalone translate tool's history)
 - `diagnostics.py`
 - `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
@@ -94,6 +96,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `emotion.py`
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
+- `glossary_phonetic.py` (sound-alike keys and edit distance for names in kana, kanji, hanzi, Hangul and Latin; offline, all thresholds in one block)
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
 - `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
@@ -236,6 +239,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
 - `glossary_service.py`
+- `glossary_variants_service.py` (read-only scans: other spellings of a glossary term in the source lines, and names that recur under several spellings)
 - `jellyfin_service.py`
 - `keep_original_service.py` (the per-title "Keep original files" pin: which files are originals, storage cleanup, Trash and export)
 - `job_checkpoint_service.py`
