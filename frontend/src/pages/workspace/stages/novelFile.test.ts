@@ -7,6 +7,8 @@ import {
   epubSizeProblem,
   novelFileStatusLine,
   novelFileSummary,
+  novelSections,
+  stableNovelSections,
   pasteProblem,
   pastedCount,
 } from './novelFile'
@@ -69,5 +71,56 @@ describe('epubSizeProblem', () => {
     expect(epubSizeProblem({ name: 'b.EPUB', size: MAX_NOVEL_EPUB_BYTES })).toBeNull()
     expect(epubSizeProblem({ name: 'b.epub', size: MAX_NOVEL_EPUB_BYTES + 1 })).toMatch(/50 MB limit for EPUB/)
     expect(epubSizeProblem({ name: 'b.txt', size: MAX_NOVEL_EPUB_BYTES + 1 })).toBeNull()
+  })
+})
+
+describe('novelSections', () => {
+  const none = { text: false, raw: false }
+
+  it('hides the novel UI on a streamer VOD with no novel', () => {
+    expect(novelSections('audio', 'streamer_vod', 'streamer_vod', none)).toBe('hidden')
+    expect(novelSections('audio', 'other', 'streamer_vod', none)).toBe('hidden')
+    expect(novelSections('audio', 'streamer_vod', null, null)).toBe('hidden')
+  })
+
+  it('shows the full panels once text or a raw novel exists', () => {
+    expect(novelSections('audio', 'streamer_vod', 'streamer_vod', { text: true, raw: false })).toBe('full')
+    expect(novelSections('audio', 'audio_drama', 'audio_drama', { text: false, raw: true })).toBe('full')
+  })
+
+  it('offers one optional row to other titles with nothing attached', () => {
+    expect(novelSections('audio', 'audio_drama', 'audio_drama', none)).toBe('optional')
+    expect(novelSections('audio', 'audio_drama', null, null)).toBe('optional')
+  })
+
+  it('always shows the full panels for novels, comics and novel narration', () => {
+    expect(novelSections('novel', 'novel', null, none)).toBe('full')
+    expect(novelSections('comic', 'manga', null, none)).toBe('full')
+    expect(novelSections('audio', 'novel_narration', null, none)).toBe('full')
+    expect(novelSections('audio', 'audio_drama', 'novel_narration', none)).toBe('full')
+  })
+})
+
+describe('stableNovelSections', () => {
+  it('keeps the optional row after a raw novel is saved from it', () => {
+    expect(stableNovelSections('audio', 'full', true, false)).toBe('optional')
+  })
+
+  it('keeps the full panels after the novel is removed from Transcribe', () => {
+    expect(stableNovelSections('audio', 'optional', false, true)).toBe('full')
+  })
+
+  it('does not hold a streamer VOD that lost its novel', () => {
+    expect(stableNovelSections('audio', 'hidden', false, true)).toBe('hidden')
+  })
+
+  it('follows the fresh answer when the layout has not been shown yet', () => {
+    expect(stableNovelSections('audio', 'full', false, false)).toBe('full')
+    expect(stableNovelSections('audio', 'optional', false, false)).toBe('optional')
+  })
+
+  it('never turns a novel or comic into the optional row', () => {
+    expect(stableNovelSections('novel', 'full', true, false)).toBe('full')
+    expect(stableNovelSections('comic', 'full', true, false)).toBe('full')
   })
 })

@@ -26,6 +26,7 @@ from services.workspace_job_service import (run_transcribe_job, run_hardsub_ocr_
                                  run_fix_flagged_lines_job, run_translate_job)
 from services.workflow_service import compute_workspace_stage_index as _compute_workspace_stage_index
 import core as core_module
+import whisper_models
 from core import Line
 from tests import fake_engine
 from tests.gpu_inline import run_in_child_inline
@@ -569,7 +570,7 @@ def test_model_download_failure_is_recorded_not_raised(monkeypatch):
                                       "error": None, "cancel_requested": False, "result": None}
 
     def fake_transcribe(*a, **k):
-        raise core_module.ModelDownloadError("network unreachable")
+        raise whisper_models.ModelDownloadError("network unreachable")
 
     monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", fake_transcribe)
 
@@ -953,7 +954,8 @@ def _three_flagged(isolated_db, tmp_path, job_id):
 def test_fix_flagged_cancel_mid_hearing_keeps_the_lines_heard(isolated_db, monkeypatch, tmp_path):
     """Cancel lands while line 2 is being heard: the new source text of lines 1
     and 2 is saved, nothing is translated after the Cancel so every line stays
-    flagged, and the job ends cancelled."""
+    flagged (the two with new source text and old English as source_changed),
+    and the job ends cancelled."""
     job_id = "test_fixflag_cancel_mid"
     did, lines, audio_path = _three_flagged(isolated_db, tmp_path, job_id)
     monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
@@ -971,7 +973,7 @@ def test_fix_flagged_cancel_mid_hearing_keeps_the_lines_heard(isolated_db, monke
                                   FakeFixEngine(), "claude")
     loaded = isolated_db.load_lines(did)
     assert [ln["zh"] for ln in loaded] == ["new1", "new2", "old2"]
-    assert [ln["flag"] for ln in loaded] == ["mistranslation"] * 3
+    assert [ln["flag"] for ln in loaded] == ["source_changed", "source_changed", "mistranslation"]
     assert [ln["en"] for ln in loaded] == ["old en0", "old en1", "old en2"]
     _clear(job_id)
 

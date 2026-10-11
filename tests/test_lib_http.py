@@ -114,6 +114,8 @@ def _serve_headers(monkeypatch, *responses):
 @pytest.mark.parametrize("target", [
     "http://attacker.example/", "https://other.example/", "https://a.example:8443/",
     "http://a.example/"])  # https -> http on the same host
+
+
 def test_credentials_are_dropped_when_a_redirect_changes_origin(monkeypatch, target):
     seen = _serve_headers(monkeypatch, Resp(307, headers={"Location": target}), Resp(200, b"ok"))
     http.get("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
@@ -264,6 +266,16 @@ def test_session_credential_headers_do_not_follow_a_cross_origin_redirect():
     assert "Authorization" in first and "Authorization" not in second and second["X-Plain"] == "1"
 
 
+def test_session_credentials_stay_stripped_on_a_hop_back_to_the_first_origin():
+    s, adapter = _session((302, b"", {"Location": "http://b.example/"}),
+                          (302, b"", {"Location": "http://a.example/back"}), (200, b"", {}))
+    s.headers.update({"X-Api-Key": "k"})
+    s.get("http://a.example/", headers={"Authorization": "x"}, allow_redirects=True)
+    back = adapter.sent[2][2]
+    assert adapter.sent[2][0] == "http://a.example/back"
+    assert "Authorization" not in back and "X-Api-Key" not in back
+
+
 def test_session_cap_is_enforced_on_a_streamed_body_however_it_is_read():
     for read in (lambda r: r.content, lambda r: list(r.iter_content(10)),
                  lambda r: r.raw.read(1000), lambda r: r.raw.read1(1000)):
@@ -347,3 +359,103 @@ def test_session_auth_is_refused_on_a_cross_origin_redirect():
     with pytest.raises(http.FetchError):
         s.get("http://a.example/", allow_redirects=True)
     assert len(adapter.sent) == 1
+
+
+@pytest.mark.parametrize("status,ok", [(200, True), (204, True), (301, False), (302, False),
+                                       (307, False), (404, False), (500, False)])
+
+
+def test_ok_is_true_only_for_2xx(status, ok):
+    assert http.Response(status, {}, b"", "http://a.example/").ok is ok
+
+
+def test_an_unfollowed_redirect_from_an_unguarded_call_is_not_ok(monkeypatch):
+    _serve(monkeypatch, Resp(302, headers={"Location": "http://proxy.example/"}))
+    assert not http.get("http://a.example/", timeout=5, max_bytes=100, guard=None).ok
+
+
+def test_response_headers_are_case_insensitive(monkeypatch):
+    _serve(monkeypatch, Resp(200, b"x", headers={"Content-Type": "text/html"}))
+    headers = _get().headers
+    assert headers.get("Content-Type") == "text/html"
+    assert headers.get("content-type") == "text/html"
+
+
+def _serve_calls(monkeypatch, *responses):
+    it, calls = iter(responses), []
+
+    def fake(url, ip, headers, timeout=None, method="GET", **kw):
+        calls.append((url, method, headers, kw))
+        return next(it)
+    monkeypatch.setattr(http, "pinned_get", fake)
+    return calls
+
+
+@pytest.mark.parametrize("status", [307, 308])
+def test_a_307_or_308_keeps_the_post_method_and_body(monkeypatch, status):
+    calls = _serve_calls(monkeypatch, Resp(status, headers={"Location": "https://other.example/x"}),
+                         Resp(200, b"ok"))
+    http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+              headers={"Authorization": "k", "Accept": "a/b"}, json={"q": 1})
+    assert [c[1] for c in calls] == ["POST", "POST"]
+    assert calls[1][3] == {"json": {"q": 1}}
+    assert calls[1][2] == {"Accept": "a/b"}  # credentials still stripped cross-origin
+
+
+@pytest.mark.parametrize("status", [301, 302, 303])
+def test_a_301_302_or_303_becomes_a_bodiless_get(monkeypatch, status):
+    calls = _serve_calls(monkeypatch, Resp(status, headers={"Location": "/next"}), Resp(200, b"ok"))
+    http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+              json={"q": 1})
+    assert [c[1] for c in calls] == ["POST", "GET"]
+    assert calls[1][3] == {}
+
+
+@pytest.mark.parametrize("kw", [{"files": {"f": b"x"}}, {"data": iter([b"x"])}])
+def test_a_307_is_refused_when_the_body_cannot_be_resent(monkeypatch, kw):
+    calls = _serve_calls(monkeypatch, Resp(307, headers={"Location": "https://a.example/x"}),
+                         Resp(200, b"ok"))
+    with pytest.raises(http.FetchError) as e:
+        http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None, **kw)
+    assert str(e.value) == http.FETCH_FAILED
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("data", [b"x", "x", {"a": "1"}])
+def test_a_307_resends_a_replayable_data_body(monkeypatch, data):
+    calls = _serve_calls(monkeypatch, Resp(307, headers={"Location": "/x"}), Resp(200, b"ok"))
+    http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None, data=data)
+    assert calls[1][3] == {"data": data}
+
+
+def test_a_plain_get_redirect_is_unaffected_by_the_resend_rule(monkeypatch):
+    calls = _serve_calls(monkeypatch, Resp(302, headers={"Location": "/x"}), Resp(200, b"ok"))
+    http.get("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None)
+    assert [c[0] for c in calls] == ["https://a.example/", "https://a.example/x"]
+
+
+def test_credentials_stay_stripped_on_a_hop_back_to_the_first_origin(monkeypatch):
+    seen = _serve_headers(monkeypatch,
+                          Resp(302, headers={"Location": "https://b.example/"}),
+                          Resp(302, headers={"Location": "https://a.example/back"}),
+                          Resp(200, b"ok"))
+    http.get("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+             allow_redirects=True, max_redirects=3,
+             headers={"Authorization": "k", "Accept": "a/b"})
+    assert seen[0][1] == {"Authorization": "k", "Accept": "a/b"}
+    assert seen[1][1] == seen[2][1] == {"Accept": "a/b"}
+
+
+def test_params_json_and_data_are_sent_on_the_first_hop_only(monkeypatch):
+    calls = _serve_calls(monkeypatch, Resp(307, headers={"Location": "/x?q=1"}),
+                         Resp(308, headers={"Location": "/y?q=1"}), Resp(200, b"ok"))
+    http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+              params={"q": "1"}, json={"j": 1})
+    assert calls[0][3] == {"params": {"q": "1"}, "json": {"j": 1}}
+    assert calls[1][3] == calls[2][3] == {"json": {"j": 1}}  # params dropped, body kept
+
+    calls = _serve_calls(monkeypatch, Resp(302, headers={"Location": "/x"}), Resp(200, b"ok"))
+    http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+              params={"q": "1"}, data=b"d")
+    assert calls[0][3] == {"params": {"q": "1"}, "data": b"d"}
+    assert calls[1][3] == {}

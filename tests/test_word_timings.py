@@ -10,6 +10,7 @@ import pytest
 
 import background_jobs
 import core
+import whisper_models
 import segment_splitting
 import db
 import resegment
@@ -599,9 +600,9 @@ def test_transcription_stores_words_with_the_lines_it_creates(monkeypatch):
     job_id = f"transcribe_{did}"
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
-    monkeypatch.setattr(core, "is_whisper_model_cached", lambda size: True)
-    monkeypatch.setattr(core, "load_whisper_model", lambda *a, **k: None)
-    monkeypatch.setattr(core, "get_whisper_device_info",
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: None)
+    monkeypatch.setattr(whisper_models, "get_whisper_device_info",
                         lambda *a, **k: {"device": "cpu", "compute_type": "int8"})
     monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: [
         {"start": START, "end": END, "text": TEXT, "words": WORDS},

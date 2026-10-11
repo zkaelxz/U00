@@ -103,6 +103,27 @@ async function sendText({ text, sourceLanguage, targetLanguage, store }) {
   });
 }
 
+// The page's address becomes the title's source link, so only a public web page's is sent:
+// a page on this PC or the LAN (site_access.js decides which) saves its text without one.
+function publicPageUrl(url) {
+  try {
+    return permissionTarget(new URL(url)) ? url : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+async function saveNovelText({ dramaId, heading, text, source, url }) {
+  if (!dramaId) return { ok: false, error: "Pick a novel title to save into." };
+  if (!text) return { ok: false, error: "No text was captured on this page." };
+  const pageUrl = publicPageUrl(url);
+  return call("/novel", {
+    method: "POST",
+    body: { drama_id: dramaId, heading: heading || "", text,
+            source: pageUrl ? source || "" : "", url: pageUrl },
+  });
+}
+
 // An app that predates the advertised cap accepts at least this many.
 const FALLBACK_BATCH_IMAGES = 8;
 // Base64 of PNG pages is large; the bridge refuses a body over 64MB, so a
@@ -157,6 +178,7 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
   const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
   let firstError = null;
   for (const batch of planBatches(images, cap, filterPages !== false ? 2 : 1)) {
+    // /pages is the only route that runs the page filter, so a chapter of two or more images uses it even if the filter later leaves one.
     const answer = await call(batch.length === 1 && images.length === 1 ? "/page" : "/pages", {
       method: "POST",
       body: {
@@ -228,12 +250,14 @@ function sniffImageType(bytes) {
 }
 
 function base64Of(bytes) {
-  let binary = "";
+  const pieces = [];
   const chunk = 0x8000;      // chunked, so a big page can't blow the stack
   for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    pieces.push(String.fromCharCode.apply(null, bytes.subarray(i, i + chunk)));
   }
-  return btoa(binary);
+  // One join instead of `+=`: a 12 MB page would otherwise regrow the string hundreds of times.
+  // Synchronous on purpose; FileReader would make every caller async for no gain.
+  return btoa(pieces.join(""));
 }
 
 async function readCapped(response, controller) {
@@ -341,6 +365,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "sendText":
           respond(await sendText(message));
+          break;
+        case "saveNovelText":
+          respond(await saveNovelText(message));
           break;
         case "getSettings":
           respond({ ok: true, data: await settings() });

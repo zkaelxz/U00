@@ -53,6 +53,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`research/twmanga-vetting.md`** — dated browser-tier vetting of `twmanga.com` (a `baozimh.com` mirror): headers, image delivery, redirect chain, policies, verdict.
 - **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
 - **`design/`** and **`specs/`** — the UI refresh spec (after screenshots; the before set is in `archive/screens-before/`), the navigation proposal, the GPU-worker plan and the Step 141 proposal.
+- **`specs/stereo-track.md`** — the stereo-track DSP (`stereo_cues.py`, `stereo_render.py`, `loudness.py`): method, conventions, measured accuracy and limits.
 - **`STATUS.md`** — current state, in-flight work and what's next.
 - **`archive/`** — historical records kept for reference, not sources of
   truth: the migration review, handoff and React/FastAPI phase log, the

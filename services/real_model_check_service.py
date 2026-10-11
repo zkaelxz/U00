@@ -19,6 +19,7 @@ guard as the other Diagnostics actions; the `smoke` CLI command
 same checks. Reasons never carry paths or URLs.
 """
 
+import whisper_models
 import contextlib
 import importlib.util
 import os
@@ -31,6 +32,7 @@ import requests
 
 import background_jobs
 import diagnostics
+import diagnostics_report
 import memory_headroom
 from engine_backends.local import strip_ollama_thinking
 from services import diagnostics_gaps_service as gaps
@@ -73,7 +75,7 @@ class _CouldNotCheck(Exception):
 
 
 def _redact(text) -> str:
-    return diagnostics.redact_for_support("" if text is None else str(text))[:300]
+    return diagnostics_report.redact_for_support("" if text is None else str(text))[:300]
 
 
 def _installed(module: str) -> bool:
@@ -150,13 +152,13 @@ def _check_asr(speech_clip=None, expected_text=None) -> str:
     # No global ASR setting exists (the choice is per title), so this is
     # the backend a new Chinese title would get.
     backend = asr_options_service.stored_asr_backend({"source_language": _LANGUAGE})
-    use_gpu = settings_service.get_use_gpu()
+    use_gpu = settings_service.get("use_gpu")
     if backend == "whisper":
         import core
         size = transcribe_service.default_whisper_size()
         if not _installed("faster_whisper"):
             raise _Skip("faster-whisper is not installed.")
-        if not core.is_whisper_model_cached(size):
+        if not whisper_models.is_whisper_model_cached(size):
             raise _Skip(f"The Whisper {size} model is not downloaded.")
     else:
         if not _installed("qwen_asr"):
@@ -395,7 +397,7 @@ def run_checks(speech_clip=None, expected_text=None, before_check=None, on_resul
         # told to free for this check.
         try:
             import core
-            core.release_gpu_models()
+            whisper_models.release_gpu_models()
         except Exception:
             pass
     return results

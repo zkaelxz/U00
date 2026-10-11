@@ -257,6 +257,8 @@ def test_compressed_body_decoded_bytes_are_capped(net):
     ("deflate", zlib.compress(b"<html>hi</html>")[2:-4]),   # raw deflate, as some servers send
     ("identity", b"<html>hi</html>"),
 ])
+
+
 def test_gzip_and_deflate_are_decoded(net, encoding, body):
     net(FakeResp([body[:3], body[3:]], headers={"Content-Encoding": encoding}))
     r = http._requests_transport("GET", PAGE, {}, None, 5, limits=_limits())
@@ -360,3 +362,73 @@ def test_preview_endless_empty_deflate_blocks_cancel_ends_the_job(api, net):
 def test_thread_session_is_the_guarded_front_door_session():
     s = http._thread_session()
     assert s.guard is http._guard and s.timeout and s.max_bytes >= http.MAX_IMAGE_BYTES
+
+
+@pytest.fixture
+def two_hosts(isolated_db, monkeypatch):
+    """Two real loopback servers standing in for comic.example and
+    ads.third.party: the first redirects /ad/go to the second and /hop to
+    its own /final; both record the Referer each path was fetched with."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    pytest.importorskip("requests")
+    seen, servers = {}, []
+
+    def make(name):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen[(name, self.path)] = self.headers.get("Referer")
+                if name == "comic" and self.path in ("/ad/go?id=5", "/hop"):
+                    target = (f"http://ads.third.party:{servers[1].server_port}/b.jpg"
+                              if self.path.startswith("/ad/") else "/final")
+                    self.send_response(302)
+                    self.send_header("Location", target)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *a):
+                pass
+        return Handler
+
+    for name in ("comic", "ads"):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), make(name))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        servers.append(srv)
+    monkeypatch.setattr(url_guard, "resolve_public", lambda u: "127.0.0.1")
+    http.reset_pacing_state()
+    yield f"http://comic.example:{servers[0].server_port}", seen
+    for srv in servers:
+        srv.shutdown()
+        srv.server_close()
+    http.reset_pacing_state()
+
+
+def test_a_redirect_to_another_host_gets_only_the_referer_origin(two_hosts):
+    base, seen = two_hosts
+    page = f"{base}/read/1?token={SECRET}"
+    r = http._requests_transport("GET", f"{base}/ad/go?id=5", {"Referer": page}, None, 5,
+                                 limits=_limits())
+    assert r.content == b"ok"
+    assert seen[("comic", "/ad/go?id=5")] == page
+    assert seen[("ads", "/b.jpg")] == f"{base}/"
+
+
+def test_a_same_origin_redirect_keeps_the_full_referer(two_hosts):
+    base, seen = two_hosts
+    page = f"{base}/read/1?token={SECRET}"
+    http._requests_transport("GET", f"{base}/hop", {"Referer": page}, None, 5, limits=_limits())
+    assert seen[("comic", "/final")] == page
+
+
+def test_cross_origin_headers_drop_credentials_and_trim_the_referer():
+    out = url_guard.cross_origin_headers({
+        "Authorization": "Bearer x", "cookie": "a=b", "Accept": "image/*",
+        "Referer": f"https://u:p@comic.example:8443/read/1?token={SECRET}#p2"})
+    assert out == {"Accept": "image/*", "Referer": "https://comic.example:8443/"}
+    assert url_guard.cross_origin_headers({"Referer": "about:blank"}) == {}

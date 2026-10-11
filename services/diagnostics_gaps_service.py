@@ -9,7 +9,7 @@ non-UI functions (dependency install/upgrade, library reset).
 
 No HTTP types. Every string that could carry a
 secret, a token, the OS username or a local path goes through
-diagnostics.redact_for_support (which applies
+diagnostics_report.redact_for_support (which applies
 translate_engines.redact_secrets first); nothing here returns a path.
 
 The benchmark, the maintenance assistant and the source-access tests have
@@ -19,7 +19,6 @@ sources_signin_service).
 
 import os
 import re
-import shutil
 import sys
 import tempfile
 import threading
@@ -29,7 +28,9 @@ import background_jobs
 import job_process_kill
 import db
 import diagnostics
+import diagnostics_report
 import diagnostics_torch as gpu_torch
+import install_plan
 import install_registry
 import upgrade_check
 from lib import proc as proc_run
@@ -54,7 +55,7 @@ _JOB_LABELS = {
 
 
 def _redact(text) -> str:
-    return diagnostics.redact_for_support("" if text is None else str(text))
+    return diagnostics_report.redact_for_support("" if text is None else str(text))
 
 
 def default_project_root() -> str:
@@ -84,7 +85,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     py = diagnostics.check_python_version()
     ff = diagnostics.check_ffmpeg()
     js = diagnostics.check_js_runtime()
-    cuda = diagnostics.check_cuda()
+    cuda = gpu_torch.check_cuda_isolated()
     browser = diagnostics.check_browser()
     files = diagnostics.check_file_completeness(project_root)
     return {
@@ -109,7 +110,7 @@ def get_model_versions(ollama_model: str = None) -> list:
     return [{"name": m["name"], "version": _redact(m["version"]), "url": m["url"],
              "installed": bool(m["installed"]), "package": m.get("package"),
              "help": m.get("help", "")}
-            for m in diagnostics.get_model_engine_versions(ollama_model)]
+            for m in diagnostics_report.get_model_engine_versions(ollama_model)]
 
 
 def get_model_cache(hf_cache_dir: str = None) -> dict:
@@ -156,7 +157,7 @@ def get_pyannote_readiness(check_access: bool = False, api=None) -> dict:
         "models": None,
     }
     if check_access and (api is not None or _hf_hub_importable()):
-        results = diagnostics.check_pyannote_gated_access(token, api=api)
+        results = diagnostics_report.check_pyannote_gated_access(token, api=api)
         out["models"] = [{"model": r["model"], "accessible": bool(r["accessible"])}
                          for r in results]
     out["ready"] = bool(out["pyannote_installed"] and out["hf_token_configured"]
@@ -210,11 +211,11 @@ def build_support_report(recent_error_lines: int = 20) -> str:
     recent log errors -- all passed through redact_for_support."""
     import platform
     from services import settings_service
-    results = diagnostics.run_full_diagnostics(
+    results = diagnostics_report.run_full_diagnostics(
         default_project_root(), db.LIBRARY_DIR, settings_service.key_status())
     cache = diagnostics.scan_hf_cache()
-    report = diagnostics.format_diagnostics_report(
-        results, cache, diagnostics.get_model_engine_versions())
+    report = diagnostics_report.format_diagnostics_report(
+        results, cache, diagnostics_report.get_model_engine_versions())
     extra = [f"OS: {platform.system()} {platform.release()} ({platform.machine()})"]
     errors = [ln for ln in get_log_tail(LOG_TAIL_MAX)
               if "ERROR" in ln or "Traceback" in ln][-max(0, int(recent_error_lines)):]
@@ -291,17 +292,9 @@ def _pip(command: str, *args) -> list:
 
 
 def _install_commands(name: str) -> list:
-    """(command, timeout) pairs for an install. torch, torchvision or
-    torchaudio on a machine with an NVIDIA GPU installs the whole matched
-    CUDA triple (gpu_torch.torch_setup_pip_args), never one of the three
-    alone: a plain `pip install torchaudio` resolves its own torch and can
-    swap a CUDA build for a CPU one. `--force-reinstall --no-deps` first
-    downloads every wheel before replacing anything, so a timeout during
-    the (~2.5 GB) download leaves the old torch in place; a second plain
-    install then adds any missing dependencies (e.g. the nvidia-* wheels
-    on Linux). Everything else is a plain install."""
-    if name in gpu_torch.TORCH_FAMILY and shutil.which("nvidia-smi"):
-        return _torch_setup_commands(gpu_torch.TORCH_RECOMMENDED_VARIANT_GPU)
+    """(command, timeout) pairs for a plain install. torch, torchvision or
+    torchaudio on an NVIDIA PC never reaches here: the install plan refuses
+    them (install_registry.unqueueable_reason) for the GPU PyTorch setup."""
     return [(_pip("install", diagnostics.pip_install_name(name),
                   *diagnostics.constraints_pip_args(default_project_root())),
              PIP_TIMEOUT_SECONDS)]
@@ -441,12 +434,33 @@ def _qwen_asr_fallback_commands(_name: str) -> list:
             for args in diagnostics.qwen_asr_fallback_pip_args()]
 
 
+def _qwen_asr_fallback_refusal():
+    """The fallback's dependency command isn't the plan the owner accepted,
+    so it gets its own preview: a downgrade of something Baihe needs (or no
+    preview at all) stops it rather than running unchecked."""
+    cmd = _qwen_asr_fallback_commands("qwen-asr")[0][0]
+    pins = install_registry.write_torch_pins(["qwen-asr"])
+    try:
+        risks = install_plan.downgrade_risks(cmd + (["-c", pins] if pins else []))
+    finally:
+        if pins:
+            try:
+                os.remove(pins)
+            except OSError:
+                pass
+    return " ".join(risks) or None
+
+
 def _install_qwen_asr(confirm, job_id: str = None) -> dict:
     """The normal install; if it fails building `sox` (see
     diagnostics.QWEN_ASR_FALLBACK_DEPS), installs qwen-asr without it."""
     watch = diagnostics.SoxBuildWatch()
     result = _run_pip("qwen-asr", confirm, _install_commands, sox_watch=watch, job_id=job_id)
     if result["ok"] or not watch.failed:
+        return result
+    refusal = _qwen_asr_fallback_refusal()
+    if refusal:
+        result["hint"] = refusal + " So Qwen3-ASR was not installed without `sox`."
         return result
     retry = _run_pip("qwen-asr", confirm, _qwen_asr_fallback_commands, job_id=job_id)
     note = "Installing Qwen3-ASR without its `sox` dependency, which Baihe doesn't use."
@@ -530,6 +544,7 @@ def _clear_update_cache() -> None:
     with _UPDATES_LOCK:
         _UPDATES.update(checked_at=None, packages={},
                         generation=_UPDATES.get("generation", 0) + 1)
+    gpu_torch.forget_gpu_status()
 
 
 def cached_update(name: str):

@@ -12,7 +12,7 @@ table so other processes (and a restarted server) can see a job's last
 known state. While this process has queued or running jobs, a daemon
 heartbeat thread bumps their `updated_at` so a stale-record sweep
 elsewhere can tell a quiet live job from one whose owner process died.
-A failed mirror write is logged and never breaks the job.
+A failed write never breaks the job; jobs/job_store.py retries it.
 
 Rules for anything run this way:
   - Do the work through functions that only touch plain Python objects
@@ -36,6 +36,7 @@ import traceback
 import gpu_probe
 import job_force_stop
 import job_process_result
+from lib import settings_schema
 from job_process_kill import _kill_worker_group, _stop_process, kill_tree, reap_worker  # noqa: F401
 
 _jobs = {}
@@ -73,46 +74,10 @@ def _emit_change(job_id) -> None:
             pass
 
 
-def _storage_text(text):
-    """job_records lands in backups: secrets and URL query strings out."""
-    if not text:
-        return text
-    from translate_engines import redact_for_storage
-    return redact_for_storage(text)
-
-
 def _mirror_locked(job_id):
-    """Caller must already hold _lock. Writes this job's current
-    status-transition fields to the cross-process
-    job_records table -- a best-effort mirror, never on the hot path of
-    update_progress()'s own per-tick calls. A DB hiccup here must never
-    break the job it's describing, so any exception is swallowed after
-    logging; the in-memory _jobs dict stays the real, authoritative
-    state for the process that owns the job either way."""
-    job = _jobs.get(job_id)
-    if job is None:
-        return
-    result_json = None
-    try:
-        from services.jobs_service import project_result_json
-        result_json = project_result_json(job.get("result"), job.get("run_settings"))
-    except Exception:
-        import applog
-        applog.get_logger().warning(f"job {job_id}: could not project result", exc_info=True)
-    try:
-        import db
-        db.save_job_record(
-            job_id, status=job.get("status"), progress=job.get("progress"),
-            message=_storage_text(job.get("message")), error=_storage_text(job.get("error")),
-            description=job.get("description"), gpu_touching=bool(job.get("gpu_touching")),
-            started_at=job.get("started_at"), finished_at=job.get("finished_at"),
-            result_json=result_json, owner_user_id=job.get("owner_user_id"),
-            owner_pid=os.getpid())
-    except Exception:
-        import applog
-        applog.get_logger().warning(f"job {job_id}: failed to mirror status to job_records",
-                                    exc_info=True)
-    _emit_change(job_id)
+    """Caller holds _lock. Writes this job's row (jobs/job_store.py)."""
+    from jobs import job_store
+    job_store.write_transition(job_id, _jobs.get(job_id))
     _ensure_heartbeat()
 
 
@@ -130,37 +95,8 @@ _heartbeat_thread = None
 
 
 def _heartbeat_once():
-    reconcile_dead_workers()
-    job_force_stop.refresh_abandoned_gpu_rows()
-    with _lock:
-        live = [j for j, job in _jobs.items() if job.get("status") in ("queued", "running")]
-        running_gpu = [j for j in live if _jobs[j]["status"] == "running"
-                       and _jobs[j].get("gpu_touching")]
-    # A job that reports no progress (dub) never refreshes its own row.
-    for j in running_gpu:
-        try:
-            import db
-            db.heartbeat_gpu_lock(f"ui:{j}")
-        except Exception:
-            pass
-    if live:
-        try:
-            import db
-            db.touch_job_records(live)
-        except Exception as e:
-            # Best-effort; never breaks a job. Logged (redacted) because a
-            # live job whose heartbeat can't be written for
-            # STALE_JOB_SECONDS looks dead to another process's checks.
-            # This process's own checks and sweep still see it as live
-            # (jobs_service.sweep_stale_job_records skips in-process jobs).
-            try:
-                import applog
-                import translate_engines
-                applog.get_logger().warning(
-                    "job heartbeat write failed: "
-                    + translate_engines.redact_secrets(str(e))[:300])
-            except Exception:
-                pass
+    from jobs import job_store
+    job_store.heartbeat_tick()
 
 
 def _heartbeat_loop():
@@ -215,14 +151,18 @@ def _warn(what, exc):
         pass
 
 
-def get_gpu_limit_enabled() -> bool:
+def _setting(key):
     import db
+    return settings_schema.coerce(key, db.get_app_setting(key))
+
+
+def get_gpu_limit_enabled() -> bool:
     try:
-        return bool(db.get_app_setting("gpu_limit_enabled", True))
+        return _setting("gpu_limit_enabled")
     except Exception as exc:
         # Never let a DB hiccup block a job from starting -- the GPU
         # guard is a soft, best-effort convenience, not a correctness
-        # requirement. On a read error the limit stays on (the default).
+        # requirement. On a read error the limit stays on.
         _warn("could not read the GPU-limit setting; keeping the limit on", exc)
         return True
 
@@ -234,13 +174,8 @@ def set_gpu_limit_enabled(enabled: bool):
 
 # How many GPU-touching jobs may run at once while the GPU limit is on,
 # across this process and any cli.py run. 1 (the default) is one at a time.
-# The upper bound matches db.GPU_LOCK_MAX_SLOTS (the gpu_lock table's CHECK).
+# The upper bound matches gpu_slots.GPU_LOCK_MAX_SLOTS (the gpu_lock table's CHECK).
 GPU_MAX_PARALLEL_LIMIT = 4
-# A job joins one that is already running only with at least this much
-# free VRAM per nvidia-smi, and only once the newest running job has had
-# this long to load its model (so the free-VRAM reading includes it).
-GPU_PARALLEL_RESERVE_MB = 2048
-GPU_PARALLEL_SETTLE_SECONDS = 30
 
 
 def _clamp_gpu_max_parallel(value) -> int:
@@ -252,9 +187,8 @@ def _clamp_gpu_max_parallel(value) -> int:
 
 
 def get_gpu_max_parallel() -> int:
-    import db
     try:
-        return _clamp_gpu_max_parallel(db.get_app_setting("gpu_max_parallel", 1))
+        return _setting("gpu_max_parallel")
     except Exception as exc:
         # Fails safe: one GPU job at a time.
         _warn("could not read the GPU jobs-at-once setting; using 1", exc)
@@ -266,54 +200,6 @@ def set_gpu_max_parallel(value: int):
     db.set_app_setting("gpu_max_parallel", _clamp_gpu_max_parallel(value))
 
 
-def _vram_room_for_another_gpu_job() -> bool:
-    """True only when nvidia-smi reports at least GPU_PARALLEL_RESERVE_MB
-    free. No reading (no nvidia-smi, a failed query) is False: without it
-    nothing can tell whether a second model fits, so jobs run one at a time.
-    No per-job size estimate is used: none is known before a job loads."""
-    try:
-        load = gpu_probe.external_gpu_load()
-    except Exception as exc:
-        _warn("GPU memory check failed; running GPU jobs one at a time", exc)
-        return False
-    free_mb = (load or {}).get("memory_free_mb")
-    return free_mb is not None and free_mb >= GPU_PARALLEL_RESERVE_MB
-
-
-def try_take_gpu_slot(holder: str, description: str = None, check_external_load: bool = False) -> bool:
-    """Claims a cross-process GPU slot (db.gpu_lock) for `holder`; True if
-    taken. Shared by UI jobs and cli.py so both follow the same cap.
-
-    The first holder needs only a free lock (and, with check_external_load,
-    no other application loading the GPU). Joining running holders needs
-    gpu_max_parallel > 1, fewer holders than that, enough free VRAM and the
-    settle time (see GPU_PARALLEL_SETTLE_SECONDS). The utilization check is
-    skipped when joining: Baihe's own running job is what loads the GPU
-    then, and free VRAM already counts every application's use.
-
-    May raise from the database; callers decide whether that queues/waits."""
-    import db
-    cap = get_gpu_max_parallel()
-    if cap > 1:
-        others = db.gpu_lock_holder_count(exclude_holder=holder)
-        if others >= cap:
-            return False
-        if others:
-            if not _vram_room_for_another_gpu_job():
-                return False
-            return db.try_acquire_gpu_lock(holder, description, max_holders=cap,
-                                           settle_seconds=GPU_PARALLEL_SETTLE_SECONDS)
-    if check_external_load:
-        try:
-            if gpu_probe.external_gpu_is_busy():
-                return False
-        except Exception as exc:
-            # Fails open on purpose: this check is optional (no nvidia-smi is
-            # normal and returns False without raising), the locks remain.
-            _warn("external GPU load check failed; ignoring it", exc)
-    return db.try_acquire_gpu_lock(holder, description)
-
-
 # An optional local desktop notification when a
 # background job finishes, so a long job (especially a bulk
 # series-translate, which can run unattended for a while) doesn't
@@ -323,9 +209,8 @@ def try_take_gpu_slot(holder: str, description: str = None, check_external_load:
 
 
 def get_notify_on_completion() -> bool:
-    import db
     try:
-        return bool(db.get_app_setting("notify_on_completion", False))
+        return _setting("notify_on_completion")
     except Exception:
         # _notify_job_finished's own contract is "never raises" -- a DB
         # hiccup here must not break the job it's reporting on. Fails
@@ -442,8 +327,8 @@ def _note_gpu_wait_reason_locked(job_id):
             load = gpu_probe.external_gpu_load()
             reason = external_gpu_wait_message(load) if load else None
             if reason is None:
-                from services import gpu_lock_recovery_service
-                reason = gpu_lock_recovery_service.previous_run_wait_message()
+                from jobs import gpu_slots
+                reason = gpu_slots.previous_run_wait_message()
         except Exception as exc:
             _warn("GPU wait-reason check failed", exc)
     job["gpu_wait_external"] = reason
@@ -470,7 +355,7 @@ def _gpu_slot_available_locked(job_id, description):
     running right now -- nothing else, in this process, another one
     (cross-process), or a completely different application, currently
     holds the GPU. This module's own guard is in-process state, invisible
-    to a `cli.py` run, so db.gpu_lock is the cross-process coordination point.
+    to a `cli.py` run, so jobs/gpu_slots.py is the cross-process coordination point.
 
     Both of those locks only know about GPU-touching work Baihe
     itself started -- neither can see a different application on the same
@@ -492,7 +377,7 @@ def _gpu_slot_available_locked(job_id, description):
     after this returns True, not just probe.
 
     With gpu_max_parallel > 1, a job may also join running ones, up to
-    that many in total; see try_take_gpu_slot for the free-VRAM guardrail.
+    that many in total; see gpu_slots.acquire for the free-VRAM guardrail.
 
     No nvidia-smi (or a failing external check) is ignored for the first
     job, and means one at a time beyond it. A failing cross-process lock
@@ -501,7 +386,8 @@ def _gpu_slot_available_locked(job_id, description):
     if _running_gpu_job_count_locked(job_id) >= get_gpu_max_parallel():
         return False
     try:
-        if try_take_gpu_slot(f"ui:{job_id}", description, check_external_load=True):
+        from jobs import gpu_slots
+        if gpu_slots.acquire(f"ui:{job_id}", description, job_id=job_id, check_external_load=True):
             return True
         _note_gpu_wait_reason_locked(job_id)
         return False
@@ -531,13 +417,13 @@ def _release_gpu_slot(job_id, gpu_touching, run=None):
     if not gpu_touching:
         return
     try:
-        import db
+        from jobs import gpu_slots
         with _lock:
             current = _jobs.get(job_id)
             if (run is not None and current is not None and current is not run
                     and current.get("status") == "running"):
                 return
-            db.release_gpu_lock(f"ui:{job_id}")
+            gpu_slots.release(f"ui:{job_id}")
     except Exception:
         pass
 
@@ -741,6 +627,7 @@ def reconcile_dead_workers() -> list:
                 continue
             job["status"] = "error"
             job["error"] = WORKER_LOST_MESSAGE
+            job["detail_state"] = "lost"
             job["finished_at"] = time.time()
             _mirror_locked(job_id)
             lost.append((job_id, job))
@@ -1138,10 +1025,16 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                 "kill_whole_tree": kill_whole_tree, "start_method": start_method})
             _note_gpu_wait_reason_locked(job_id)
             return True
-        proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
-                                                   owner_user_id, start_method=start_method,
-                                                   run_settings=run_settings,
-                                                   initial_result=initial_result)
+        try:
+            proc, result_queue = _register_process_job(job_id, target, args, gpu_touching,
+                                                       description, owner_user_id,
+                                                       start_method=start_method,
+                                                       run_settings=run_settings,
+                                                       initial_result=initial_result)
+        except Exception:
+            # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
+            _release_gpu_slot(job_id, gpu_touching)
+            raise
         run = _jobs[job_id]
     try:
         proc.start()
@@ -1563,8 +1456,8 @@ def update_progress(job_id: str, frac: float, message: str = ""):
         # process before it's actually done. Best-effort, same reasoning
         # as _gpu_slot_available_locked -- never raises into a job thread.
         try:
-            import db
-            db.heartbeat_gpu_lock(f"ui:{job_id}")
+            from jobs import gpu_slots
+            gpu_slots.heartbeat([f"ui:{job_id}"])
         except Exception:
             pass
 
@@ -1782,7 +1675,7 @@ def owner_process_alive(pid) -> bool:
     return True
 
 
-def request_cancel(job_id: str):
+def request_cancel(job_id: str, requested_at=None):
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check
     is_cancel_requested() between units of work, since a thread can't be
@@ -1803,7 +1696,7 @@ def request_cancel(job_id: str):
         if job is None:
             return
         job["cancel_requested"] = True
-        job.setdefault("cancel_requested_at", time.time())
+        job.setdefault("cancel_requested_at", requested_at or time.time())
         if job.get("status") == "queued":
             job["status"] = "cancelled"
             job["finished_at"] = time.time()
@@ -1824,12 +1717,11 @@ _db_cancel_check_failed = set()   # job ids whose check failure was already logg
 
 
 def _db_cancel_requested(job_id: str) -> bool:
-    """A cancel requested from another process (the API
-    host) lives in job_records. Checked at most once per
-    _DB_CANCEL_CHECK_INTERVAL seconds per job so a tight job loop doesn't
-    hit SQLite every iteration; on a hit the in-memory flag is set so
-    later checks are free. Only for jobs this process owns and that are
-    still queued/running. A DB error means "not requested"."""
+    """A cancel requested from another process (the API host) lives in
+    job_records. Checked at most once per _DB_CANCEL_CHECK_INTERVAL seconds
+    per job so a tight job loop doesn't hit SQLite every iteration; on a hit
+    the in-memory flag and the requester's time are set. Only for queued/
+    running jobs this process owns. A DB error means "not requested"."""
     with _lock:
         job = _jobs.get(job_id)
         if job is None or job.get("status") not in ("queued", "running"):
@@ -1841,8 +1733,8 @@ def _db_cancel_requested(job_id: str) -> bool:
             return False
         _last_db_cancel_check[job_id] = now
     try:
-        import db
-        requested = db.is_job_record_cancel_requested(job_id)
+        from jobs import job_store
+        requested = job_store.row_cancel_time(job_id)
     except Exception as exc:
         # Retried on the next call rather than after the interval, and
         # logged once per job: an unseen failure hides a cross-process Cancel.
@@ -1855,8 +1747,8 @@ def _db_cancel_requested(job_id: str) -> bool:
             _warn(f"job {job_id}: could not read a cancel request from job_records", exc)
         return False
     if requested:
-        request_cancel(job_id)
-    return requested
+        request_cancel(job_id, requested)
+    return bool(requested)
 
 
 def is_cancel_requested(job_id: str) -> bool:
@@ -1927,7 +1819,9 @@ def cancel_queued(job_id: str) -> bool:
         if not (job is None or job["status"] == "queued"):
             return False
         hooks = _clear_job_locked(job_id)
-        _delete_job_record(job_id)
+    # Outside the lock, as in clear_job: a busy database can make the
+    # delete wait seconds, and every job update waits on the lock.
+    _delete_job_record(job_id)
     _emit_change(job_id)
     _run_finish_hooks(hooks)
     return True

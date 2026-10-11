@@ -16,6 +16,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { copyText } from '../components/clipboard'
 import { humanize } from '../components/labels'
 import { buttonClass } from '../components/uiClasses'
+import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
@@ -59,6 +60,10 @@ export default function TranslatePage() {
   const [clearing, setClearing] = useState(false)
   const [clearError, setClearError] = useState<unknown>(null)
   const pc = usePcOnly()
+  // POST /api/translate needs engines.paid for every engine, free ones included.
+  const canTranslate = useHolds('engines.paid')
+  // Keys are written on the main PC only, so a remote viewer has no key UI to be sent to.
+  const canAddKey = pc !== 'remote'
 
   const refreshHistory = useCallback(() => translateApi.history(HISTORY_LIMIT).then(setHistory, setError), [])
 
@@ -155,8 +160,9 @@ export default function TranslatePage() {
       </header>
       {showLocalOnlyNote(engines, engine) && (
         <p className="translate-note" role="note" data-testid="local-only-note">
-          No cloud translator is set up. Quick translate is using Ollama on this PC. Start Ollama, or add a key in{' '}
-          <a href="#/settings">Settings</a>.
+          No cloud translator is set up. Quick translate is using Ollama on this PC. Start Ollama, or {canAddKey
+            ? <>add a key in <a href="#/settings">Settings</a></>
+            : 'ask the PC owner to add a key'}.
         </p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -237,8 +243,8 @@ export default function TranslatePage() {
                 <button
                   type="submit"
                   className={buttonClass('primary')}
-                  disabled={loading || noKey}
-                  aria-describedby={noKey ? 'translate-needs-key' : undefined}
+                  disabled={loading || noKey || !canTranslate}
+                  aria-describedby={!canTranslate ? 'translate-needs-permission' : noKey ? 'translate-needs-key' : undefined}
                 >
                   {loading ? 'Translating…' : 'Translate'}
                 </button>
@@ -251,10 +257,15 @@ export default function TranslatePage() {
                   Clear
                 </button>
               </div>
-              {noKey && selected && (
+              {!canTranslate && (
+                <p id="translate-needs-permission" className="translate-warning">
+                  Quick translate isn't allowed for this account. Ask the PC owner.
+                </p>
+              )}
+              {canTranslate && noKey && selected && (
                 <p id="translate-needs-key" className="translate-warning">
                   Still needed: an API key for {engineShortName(selected)}.{' '}
-                  <a href="#/settings">Add it in Settings</a>
+                  {canAddKey ? <a href="#/settings">Add it in Settings</a> : 'Ask the PC owner to add it.'}
                 </p>
               )}
             </div>

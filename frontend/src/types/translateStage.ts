@@ -115,7 +115,7 @@ export interface BulkJobEntry {
   kind: string
   stage: string | null
   pipeline_id: string | null
-  /** submitting|submitted|scheduled|running|applied|cancelled|failed|auth_error */
+  /** submitting|submitted|scheduled|running|applying|needs_resubmit|applied|cancelled|failed|auth_error */
   status: string
   pending: boolean
   cancellable: boolean
@@ -193,6 +193,16 @@ export type GlossaryAffectedRunBody = Omit<TranslateRunStartBody, 'force_retrans
   preview_hash: string
   include_hand_edited: boolean
   term_ids?: number[]
+}
+
+// Review's "Retranslate these": the Translate run options plus the lines to redo.
+export type SourceChangedRunBody = Omit<TranslateRunStartBody, 'force_retranslate' | 'bulk'> & {
+  line_ids: number[]
+}
+
+export interface SourceChangedRunStarted extends TranslateRunStarted {
+  // The lines the run will translate: those still flagged when it started.
+  line_ids: number[]
 }
 
 export interface GlossaryAffectedRunStarted extends TranslateRunStarted {
