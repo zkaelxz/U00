@@ -89,7 +89,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   // On a phone the sticky strip has no room for a second row, so the buttons sit just below it and scroll away.
   const actions = (
     <div className="ws-actions">
-      <SourceLink href={drama?.source_url} className={buttonClass('secondary', 'sm', 'ws-source')} />
+      <SourceLink href={drama?.source_url} dramaId={id} className={buttonClass('secondary', 'sm', 'ws-source')} />
       {drama && (
         <ButtonLink
           href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}

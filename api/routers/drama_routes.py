@@ -13,6 +13,8 @@ Content-Length is checked against the cap before any of the body is read
 (chunked bodies are refused), and the body stream itself is counted, like
 the bug-report upload. The metadata update also takes "+ New series"
 (`new_series_name`) and `series_id: 0` to take a drama out of its series.
+GET /{id}/source-link (local_only) is the one response that may carry the
+link as imported, query included (services/source_link_service.py).
 Series rename and presets CRUD are not in this router.
 """
 
@@ -29,8 +31,9 @@ from api.auth import local_only, require_permission
 from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
-                         DramaDeleteResult, DramaDetail, DramaMetadataUpdate, ErrorResponse)
-from services import cover_art_service, drama_service
+                         DramaDeleteResult, DramaDetail, DramaMetadataUpdate, DramaSourceLink,
+                         ErrorResponse)
+from services import cover_art_service, drama_service, source_link_service
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
@@ -56,6 +59,16 @@ def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
     return to_detail(drama_service.update_drama_metadata(
         drama_id, principal=request.state.principal,
         **payload.model_dump(exclude_unset=True)))
+
+
+# local_only: the stored link may carry a query or token, so only the PC
+# owner's own browser may read it; everyone else gets the cleaned link in
+# the drama detail.
+@router.get("/{drama_id}/source-link", dependencies=[local_only()], response_model=DramaSourceLink,
+            summary="The title's source link as imported or typed (PC only; may carry a query)",
+            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def get_source_link(drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return source_link_service.source_link(drama_id)
 
 
 _COVER_MULTIPART_OVERHEAD = 64 * 1024

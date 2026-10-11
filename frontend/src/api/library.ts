@@ -53,6 +53,11 @@ export const createDrama = (body: DramaCreateRequest, f?: Fetch) =>
 export const updateDramaMetadata = (id: number, body: DramaMetadataUpdate, f?: Fetch) =>
   postJson<DramaDetail>(`/api/dramas/${id}/metadata`, body, f)
 
+// PC only: the source link as imported or typed, query included (the
+// drama detail's source_url is the cleaned form).
+export const getSourceLink = (id: number, f?: Fetch) =>
+  getJson<{ url: string }>(`/api/dramas/${id}/source-link`, f)
+
 // The API refuses unless both confirmation params match; the typed-word
 // check in the UI is a second gate on top of that.
 export const deleteDrama = (id: number, f?: Fetch) =>

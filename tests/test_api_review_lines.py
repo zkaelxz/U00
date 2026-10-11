@@ -159,6 +159,9 @@ class TestFindReplacePreview:
     def test_slow_regex_is_readable_422(self, client, bad):
         did = db.create_drama(title_en="D")
         db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="a" * 30 + "!")])
+        # The first request to a new app pays FastAPI's one-off route setup
+        # (close to the bound on a busy runner); the bound is for the refusal.
+        assert self._post(client, did, find="zzz", replace="z").status_code == 200
         started = time.monotonic()
         r = self._post(client, did, find=bad, replace="z", use_regex=True)
         assert time.monotonic() - started < 1.0

@@ -227,6 +227,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_retranslate_service.py`
 - `glossary_service.py`
 - `jellyfin_service.py`
+- `keep_original_service.py` (the per-title "Keep original files" pin: which files are originals, storage cleanup, Trash and export)
 - `job_checkpoint_service.py`
 - `job_stage_service.py`
 - `job_timing_service.py`
@@ -286,6 +287,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `shutdown_service.py`
 - `source_change_service.py` (Review's lines whose source changed after translation: the list, "Keep English" and "Retranslate these")
 - `source_domains_service.py`
+- `source_link_service.py` (a title's cleaned and full source link; the full one only for the PC-only route)
 - `source_service.py`
 - `sources_extension_service.py`
 - `sources_extraction_service.py`

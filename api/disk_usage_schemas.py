@@ -131,6 +131,9 @@ class DiskUsageTrashItem(BaseModel):
     file_count: Optional[int] = None
     trashed_at: Optional[str] = None
     restorable: bool
+    from_kept_title: bool = Field(
+        False, description="It came from the folder of a title with \"Keep original files\" on; "
+                           "the delete confirmation names that.")
 
 
 class DiskUsageTrashList(BaseModel):

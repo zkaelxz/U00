@@ -115,9 +115,19 @@ def format_bytes(n: int) -> str:
     return f"{n:.1f} PB"
 
 
-def scan_drama_storage(drama_dir: str) -> dict:
+def _kept(rel: str, keep) -> bool:
+    """`rel` is, or is a folder holding, one of the `keep` paths (relative
+    to the drama folder): a title's pinned originals, which no category may
+    remove even if its name patterns happen to match them."""
+    rel = os.path.normpath(rel)
+    return any(k == rel or k.startswith(rel + os.sep) for k in keep)
+
+
+def scan_drama_storage(drama_dir: str, keep=()) -> dict:
     """Reports how much space each cleanable category is using in one
-    drama's folder, plus the total and how much is safely reclaimable."""
+    drama's folder, plus the total and how much is safely reclaimable.
+    Paths in `keep` are not counted as reclaimable."""
+    keep = [os.path.normpath(k) for k in keep]
     result = {"total_bytes": 0, "categories": {}, "reclaimable_bytes": 0}
     if not os.path.isdir(drama_dir):
         return result
@@ -127,9 +137,11 @@ def scan_drama_storage(drama_dir: str) -> dict:
         size = 0
         for d in cfg.get("pattern_dirs", []):
             p = os.path.join(drama_dir, d)
-            if os.path.isdir(p):
+            if os.path.isdir(p) and not _kept(d, keep):
                 size += _dir_size(p)
-        for _rel, full in _matching_files(drama_dir, cfg):
+        for rel, full in _matching_files(drama_dir, cfg):
+            if _kept(rel, keep):
+                continue
             try:
                 size += os.path.getsize(full)
             except OSError:
@@ -139,9 +151,10 @@ def scan_drama_storage(drama_dir: str) -> dict:
     return result
 
 
-def scan_library_storage(library_dir: str, drama_ids) -> dict:
+def scan_library_storage(library_dir: str, drama_ids, keep_for=None) -> dict:
     """Library-wide storage report, with a per-drama breakdown sorted
-    biggest-first so the space hogs are obvious."""
+    biggest-first so the space hogs are obvious. `keep_for(drama_id)`: the
+    paths in that drama's folder never counted as reclaimable."""
     dramas_dir = os.path.join(library_dir, "dramas")
     per_drama = []
     totals = {"total_bytes": 0, "reclaimable_bytes": 0,
@@ -149,7 +162,7 @@ def scan_library_storage(library_dir: str, drama_ids) -> dict:
 
     for did in drama_ids:
         ddir = os.path.join(dramas_dir, str(did))
-        scan = scan_drama_storage(ddir)
+        scan = scan_drama_storage(ddir, keep_for(did) if keep_for else ())
         if scan["total_bytes"]:
             per_drama.append({"drama_id": did, **scan})
             totals["total_bytes"] += scan["total_bytes"]
@@ -162,11 +175,13 @@ def scan_library_storage(library_dir: str, drama_ids) -> dict:
     return totals
 
 
-def clean_drama_storage(drama_dir: str, categories) -> dict:
+def clean_drama_storage(drama_dir: str, categories, keep=()) -> dict:
     """Deletes the given cleanable categories from one drama's folder.
     Only touches regenerable artifacts -- source audio/video, the
     reference novel, voice-clone reference clips, and the mixed dub
-    track are never removed by this, regardless of what's requested."""
+    track are never removed by this, regardless of what's requested.
+    Paths in `keep` (relative to the folder) are never removed."""
+    keep = [os.path.normpath(k) for k in keep]
     freed = 0
     removed = []
     if not os.path.isdir(drama_dir):
@@ -178,11 +193,13 @@ def clean_drama_storage(drama_dir: str, categories) -> dict:
             continue
         for d in cfg.get("pattern_dirs", []):
             p = os.path.join(drama_dir, d)
-            if os.path.isdir(p):
+            if os.path.isdir(p) and not _kept(d, keep):
                 freed += _dir_size(p)
                 shutil.rmtree(p, ignore_errors=True)
                 removed.append(d + "/")
         for rel, full in _matching_files(drama_dir, cfg):
+            if _kept(rel, keep):
+                continue
             try:
                 size = os.path.getsize(full)
                 os.remove(full)

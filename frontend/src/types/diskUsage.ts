@@ -73,6 +73,8 @@ export type DiskUsageTrashItem = {
   file_count: number | null
   trashed_at: string | null
   restorable: boolean
+  // From the folder of a title with "Keep original files" on.
+  from_kept_title?: boolean
 }
 
 export type DiskUsageTrashList = {

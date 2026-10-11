@@ -6,6 +6,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas import DramaDetail
+
 
 class ResearchRequest(BaseModel):
     """No keys: the Gemini key is resolved server-side."""
@@ -82,7 +84,7 @@ class ResearchApplied(BaseModel):
     saved_alternates: list[str]
     confirmed: list[str]
     kept: list[str]
-    drama: dict
+    drama: DramaDetail
 
 
 class ProvenanceRow(BaseModel):
