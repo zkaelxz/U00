@@ -15,6 +15,8 @@ import os
 import sys
 import zipfile
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diagnostics
@@ -280,3 +282,13 @@ class TestStreamProcessTimeout:
             [sys.executable, "-c", "import time; time.sleep(30)"], timeout=1))
         assert items[-1]["timed_out"] is True
         assert items[-1]["returncode"] != 0
+
+
+def test_an_installed_copy_without_tests_is_refused_before_anything_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(upgrade_check, "_make_throwaway_venv",
+                        lambda *a, **k: pytest.fail("no environment without a suite"))
+    items = list(upgrade_check.check_upgrade_candidate("pydub", "2.0.0", project_root=str(tmp_path)))
+    assert items == [{"done": True, "ok": False, "verdict": "incomplete",
+                      "reason": upgrade_check.NO_TEST_SUITE, "version": "2.0.0",
+                      "new_failures": [], "preexisting_failures": [], "conflicts": []}]
+    assert upgrade_check.test_suite_available(str(tmp_path)) is False

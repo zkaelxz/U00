@@ -100,6 +100,21 @@ def test_overview_reads_the_gpu_without_loading_torch_or_ctranslate2(
     assert gpu["whisper"]["ctranslate2_cuda_devices"] == 1
 
 
+def test_transcribe_config_reads_the_whisper_gpu_runtime_without_loading_ctranslate2(
+        isolated_db, fake_gpu_modules, monkeypatch):
+    """Loading ctranslate2 or cuBLAS in the server would lock their DLLs too."""
+    import whisper_models
+    from services import transcribe_service
+    # In-process, whisper_gpu_runtime() would import the fake ctranslate2.
+    monkeypatch.setattr(whisper_models.sys, "platform", "win32")
+    did = isolated_db.create_drama(title_en="D")
+
+    runtime = transcribe_service.get_transcribe_config(did)["gpu_runtime"]
+
+    assert "torch" not in sys.modules and "ctranslate2" not in sys.modules
+    assert runtime == {"status": "unknown", "reason": None}
+
+
 def test_setup_checks_and_bug_report_read_the_gpu_without_loading_torch(
         isolated_db, fake_gpu_modules, monkeypatch):
     """The Diagnostics page fetches the setup checks alongside the overview,
