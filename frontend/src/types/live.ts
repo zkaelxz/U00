@@ -13,6 +13,8 @@ export interface LiveSessionStart {
   max_minutes: number
   use_gpu: boolean
   reply_without_thinking: boolean
+  /** A title whose glossary and language packs the translation may use (read-only). */
+  glossary_drama_id?: number
 }
 
 export interface LiveOllamaCheck {
