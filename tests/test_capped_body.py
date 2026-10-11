@@ -1,4 +1,8 @@
 """lib/capped_body.read_capped: cap, declared length, deadline, close."""
+import socket
+import threading
+import time
+
 import pytest
 
 from lib import capped_body
@@ -127,3 +131,92 @@ def test_reads_an_httpx_response():
     assert resp.is_closed
     assert capped_body.read_capped(httpx.Response(200, stream=httpx.ByteStream(b"ok")),
                                    5, 10.0, Boom) == b"ok"
+
+
+def test_the_timer_still_closes_when_shutdown_raises():
+    """urllib3's shutdown() raises when the socket is gone or the connection
+    went back to the pool; close() must still run to wake the read."""
+    class Raw:
+        def shutdown(self):
+            raise ValueError("no socket")
+
+    class Blocking(Resp):
+        def __init__(self):
+            super().__init__([])
+            self.raw = Raw()
+            self.woken = threading.Event()
+
+        def iter_content(self, size):
+            self.woken.wait(5)
+            raise OSError("closed")
+            yield b""
+
+        def close(self):
+            super().close()
+            self.woken.set()
+
+    r = Blocking()
+    started = time.monotonic()
+    with pytest.raises(TooSlow):
+        capped_body.read_capped(r, 100, 0.2, Boom, make_deadline_error=TooSlow)
+    assert time.monotonic() - started < 2
+
+
+@pytest.fixture
+def dripping_server(request):
+    """A loopback HTTP server that declares a large body and sends it one
+    byte every `request.param` seconds (default 0.2), so no single read
+    ever times out at that pace."""
+    interval = getattr(request, "param", 0.2)
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    stop = threading.Event()
+
+    def handle(conn):
+        with conn:
+            conn.recv(4096)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n")
+            try:
+                while not stop.wait(interval):
+                    conn.sendall(b"x")
+            except OSError:
+                pass
+
+    def serve():
+        while not stop.is_set():
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=handle, args=(conn,), daemon=True).start()
+
+    threading.Thread(target=serve, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.getsockname()[1]}/"
+    stop.set()
+    srv.close()
+
+
+class TooSlow(Exception):
+    pass
+
+
+def test_the_deadline_stops_a_real_dripping_requests_body(dripping_server):
+    requests = pytest.importorskip("requests")
+    resp = requests.get(dripping_server, stream=True, timeout=5)
+    started = time.monotonic()
+    with pytest.raises(TooSlow):
+        capped_body.read_capped(resp, 10**6, 1.0, Boom, make_deadline_error=TooSlow)
+    assert time.monotonic() - started < 4
+
+
+@pytest.mark.parametrize("dripping_server", [3.0], indirect=True)
+def test_the_deadline_stops_a_real_dripping_httpx_body(dripping_server):
+    """A byte only every 3 s: the read is blocked inside recv when the 1 s
+    deadline fires, so only the timer's interrupt can end it in time."""
+    httpx = pytest.importorskip("httpx")
+    with httpx.Client(timeout=5) as client, client.stream("GET", dripping_server) as resp:
+        started = time.monotonic()
+        with pytest.raises(TooSlow):
+            capped_body.read_capped(resp, 10**6, 1.0, Boom, make_deadline_error=TooSlow)
+        assert time.monotonic() - started < 2.5

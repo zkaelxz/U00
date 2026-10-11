@@ -135,7 +135,9 @@ async def _lifespan(app: FastAPI):
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,
     and job records left running by a dead process are closed, as
-    are stale sign-in sessions (expired, idle or of a deactivated user).
+    are stale sign-in sessions (expired, idle or of a deactivated user);
+    the exit flush of this server's own job rows is registered here, not
+    at import, so tests, cli.py and GPU workers never run it.
     The household listener's app does none of this, at start or stop: it
     shares the process with the admin listener, whose lifespan owns it."""
     if getattr(app.state.settings, "is_household", False):
@@ -148,21 +150,18 @@ async def _lifespan(app: FastAPI):
         finally:
             lncrawl_service.shutdown()
         return
+    from jobs import job_store
     from services import jobs_service
+    job_store.register_exit_flush()
     try:
         jobs_service.sweep_stale_job_records()
     except Exception:
         logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
-    from services import gpu_lock_recovery_service
+    from jobs import gpu_slots
     try:
-        gpu_lock_recovery_service.release_orphaned_server_holders()
+        gpu_slots.reap()
     except Exception:
         logging.getLogger(__name__).warning("Orphaned GPU slot release failed", exc_info=True)
-    import live_whisper
-    try:
-        live_whisper.release_stale_claims()
-    except Exception:
-        logging.getLogger(__name__).warning("Live Whisper GPU claim release failed", exc_info=True)
     from services import auth_service
     try:
         auth_service.sweep_stale_sessions()

@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+import bulk_providers
 import bulk_translate as bt
 import db
 import translate_engines as te
@@ -15,6 +16,7 @@ from api.server import create_app
 from core import Line
 from services import translate_run_service as svc
 from services import translate_service
+from tests.saved_settings import patch_setting
 from services.service_errors import (ConflictError, InvalidInputError,
                                       UnsupportedOperationError)
 
@@ -88,8 +90,9 @@ def _env(monkeypatch):
 def _fake_engines(monkeypatch, ended=True):
     engine = te.ClaudeEngine("sk-ant-fake")
     monkeypatch.setattr(te, "get_engine", lambda *a, **k: engine)
-    monkeypatch.setattr(bt, "make_provider",
-                        lambda choice, e: FakeProvider(_current["did"], ended=ended))
+    for module in (bulk_providers, bt):
+        monkeypatch.setattr(module, "make_provider",
+                            lambda choice, e: FakeProvider(_current["did"], ended=ended))
     return engine
 
 
@@ -223,3 +226,13 @@ def test_resume_starts_poller_for_pending_job(isolated_db, monkeypatch):
     out = svc.resume_bulk_translations(did)
     assert out == {"drama_id": did, "jobs": [{"bulk_job_id": bid, "state": "polling"}]}
     bt.cancel_bulk_job(bid)
+
+
+def test_offpeak_schedule_stores_the_runs_batching(isolated_db, monkeypatch):
+    patch_setting(monkeypatch, "scene_aware_batches", True)
+    did = _seed([("一", ""), ("二", "")], engine="deepseek")
+    submit = svc._bulk_submitter(did, db.get_drama(did), type("E", (), {"model": "m"})(), "deepseek",
+                                 False, None, [], "", "", "en-US", "audio_drama", 6, 2, 7, False,
+                                 None, None, None)
+    args = db.get_bulk_job(submit())["translate_args"]
+    assert (args["batch_size"], args["context_window_ahead"], args["scene_aware_batches"]) == (7, 2, True)

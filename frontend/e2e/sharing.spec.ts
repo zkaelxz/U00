@@ -153,3 +153,13 @@ test('household member: only their own share-new-items switch, no item list, fit
   expect(box && box.height).toBeGreaterThanOrEqual(24)
   expect(unmocked).toEqual([])
 })
+
+test('admin: with no titles or series the list offers the way to the Library', async ({ page }) => {
+  await mockSharing(page, ADMIN_ME)
+  await page.route('**/api/sharing/items*', (route) => route.fulfill({ json: { total: 0, offset: 0, limit: 100, items: [] } }))
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Preferences')
+  const card = page.getByRole('region', { name: 'Sharing' })
+  await expect(card.getByText('There are no titles or series yet.')).toBeVisible()
+  await expect(card.getByRole('link', { name: 'Go to Library' })).toHaveAttribute('href', '#/library')
+})

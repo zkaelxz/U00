@@ -3,6 +3,7 @@ tests/test_db.py -- tests for db.py, using the isolated_db fixture so
 nothing here ever touches your real library.
 """
 
+import ast
 import contextlib
 import gc
 import shutil
@@ -12,11 +13,13 @@ import sys
 import os
 import tempfile
 import threading
+import time
 import weakref
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
 from core import Line
+from jobs import gpu_slots
 
 
 class TestDramaCRUD:
@@ -1379,102 +1382,102 @@ class TestGpuLock:
     coordination point both sides check."""
 
     def test_free_lock_is_acquired(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
-        holder, description = isolated_db.gpu_lock_status()
+        assert gpu_slots.take("ui:job1", "Transcription") is True
+        holder, description = gpu_slots.status()
         assert holder == "ui:job1"
         assert description == "Transcription"
 
     def test_held_lock_refuses_a_different_holder(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is False
+        assert gpu_slots.take("ui:job1", "Transcription") is True
+        assert gpu_slots.take("cli:1234", "CLI dub") is False
         # Still job1's -- the failed attempt above must not have touched it.
-        holder, description = isolated_db.gpu_lock_status()
+        holder, description = gpu_slots.status()
         assert holder == "ui:job1"
         assert description == "Transcription"
 
     def test_same_holder_can_reacquire_its_own_lock(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
+        assert gpu_slots.take("ui:job1", "Transcription") is True
+        assert gpu_slots.take("ui:job1", "Transcription") is True
 
     def test_release_frees_it_for_someone_else(self, isolated_db):
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
-        isolated_db.release_gpu_lock("ui:job1")
-        assert isolated_db.gpu_lock_status() == (None, None)
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is True
+        gpu_slots.take("ui:job1", "Transcription")
+        gpu_slots.release("ui:job1")
+        assert gpu_slots.status() == (None, None)
+        assert gpu_slots.take("cli:1234", "CLI dub") is True
 
     def test_releasing_the_wrong_holder_is_a_no_op(self, isolated_db):
         """A lock that went stale and was taken over by someone else must
         not be released out from under its new, legitimate holder by a
         late release() call from whoever held it before."""
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
-        isolated_db.release_gpu_lock("cli:1234")  # never held it
-        holder, _ = isolated_db.gpu_lock_status()
+        gpu_slots.take("ui:job1", "Transcription")
+        gpu_slots.release("cli:1234")  # never held it
+        holder, _ = gpu_slots.status()
         assert holder == "ui:job1"
 
     def test_stale_lock_is_taken_over(self, isolated_db):
         """A holder that crashed without releasing shouldn't permanently
         block the GPU -- a lock whose heartbeat is older than
         GPU_LOCK_STALE_SECONDS is treated as abandoned."""
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        gpu_slots.take("ui:job1", "Transcription")
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ? WHERE id = 1",
-                    (isolated_db.GPU_LOCK_STALE_SECONDS + 1,))
+                    (gpu_slots.GPU_LOCK_STALE_SECONDS + 1,))
         conn.commit()
         conn.close()
-        assert isolated_db.gpu_lock_status() == (None, None)
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is True
+        assert gpu_slots.status() == (None, None)
+        assert gpu_slots.take("cli:1234", "CLI dub") is True
 
     def test_heartbeat_keeps_a_long_running_holder_from_going_stale(self, isolated_db):
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        gpu_slots.take("ui:job1", "Transcription")
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ? WHERE id = 1",
-                    (isolated_db.GPU_LOCK_STALE_SECONDS - 1,))
+                    (gpu_slots.GPU_LOCK_STALE_SECONDS - 1,))
         conn.commit()
         conn.close()
-        isolated_db.heartbeat_gpu_lock("ui:job1")
+        gpu_slots.heartbeat(["ui:job1"])
         # Refreshed -- still held, and a competing holder is still refused.
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is False
+        assert gpu_slots.take("cli:1234", "CLI dub") is False
 
     def test_status_is_free_when_nothing_has_ever_held_it(self, isolated_db):
-        assert isolated_db.gpu_lock_status() == (None, None)
+        assert gpu_slots.status() == (None, None)
 
     def test_max_holders_allows_that_many_and_no_more(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
-        assert isolated_db.try_acquire_gpu_lock("cli:1", "B", max_holders=2) is True
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is False
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C") is False  # a cap of 1 too
-        assert isolated_db.gpu_lock_holder_count() == 2
-        assert isolated_db.gpu_lock_holder_count(exclude_holder="ui:a") == 1
-        isolated_db.release_gpu_lock("ui:a")
-        assert isolated_db.gpu_lock_status() == ("cli:1", "B")  # only its own row went
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True
+        assert gpu_slots.take("ui:a", "A", max_holders=2) is True
+        assert gpu_slots.take("cli:1", "B", max_holders=2) is True
+        assert gpu_slots.take("ui:c", "C", max_holders=2) is False
+        assert gpu_slots.take("ui:c", "C") is False  # a cap of 1 too
+        assert gpu_slots.holder_count() == 2
+        assert gpu_slots.holder_count(exclude_holder="ui:a") == 1
+        gpu_slots.release("ui:a")
+        assert gpu_slots.status() == ("cli:1", "B")  # only its own row went
+        assert gpu_slots.take("ui:c", "C", max_holders=2) is True
 
     def test_max_holders_is_capped_by_the_table(self, isolated_db):
-        for i in range(isolated_db.GPU_LOCK_MAX_SLOTS):
-            assert isolated_db.try_acquire_gpu_lock(f"ui:{i}", max_holders=99) is True
-        assert isolated_db.try_acquire_gpu_lock("ui:extra", max_holders=99) is False
+        for i in range(gpu_slots.GPU_LOCK_MAX_SLOTS):
+            assert gpu_slots.take(f"ui:{i}", max_holders=99) is True
+        assert gpu_slots.take("ui:extra", max_holders=99) is False
 
     def test_settle_seconds_refuses_joining_a_fresh_holder(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2, settle_seconds=60) is True
-        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is False
+        assert gpu_slots.take("ui:a", "A", max_holders=2, settle_seconds=60) is True
+        assert gpu_slots.take("ui:b", "B", max_holders=2, settle_seconds=60) is False
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET acquired_at = acquired_at - 61")
         conn.commit()
         conn.close()
-        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is True
+        assert gpu_slots.take("ui:b", "B", max_holders=2, settle_seconds=60) is True
 
     def test_a_stale_holder_does_not_count_and_heartbeat_is_per_holder(self, isolated_db):
-        isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2)
-        isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2)
+        gpu_slots.take("ui:a", "A", max_holders=2)
+        gpu_slots.take("ui:b", "B", max_holders=2)
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
-                     (isolated_db.GPU_LOCK_STALE_SECONDS + 1,))
+                     (gpu_slots.GPU_LOCK_STALE_SECONDS + 1,))
         conn.commit()
         conn.close()
-        isolated_db.heartbeat_gpu_lock("ui:b")
-        assert isolated_db.gpu_lock_holder_count() == 1
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True  # took a's slot
-        assert isolated_db.try_acquire_gpu_lock("ui:d", "D", max_holders=2) is False
+        gpu_slots.heartbeat(["ui:b"])
+        assert gpu_slots.holder_count() == 1
+        assert gpu_slots.take("ui:c", "C", max_holders=2) is True  # took a's slot
+        assert gpu_slots.take("ui:d", "D", max_holders=2) is False
 
     def test_old_single_row_table_is_migrated_keeping_the_holder(self, isolated_db):
         conn = isolated_db.get_conn()
@@ -1482,12 +1485,12 @@ class TestGpuLock:
         conn.execute("""CREATE TABLE gpu_lock (id INTEGER PRIMARY KEY CHECK (id = 1),
                         holder TEXT NOT NULL, description TEXT, acquired_at REAL NOT NULL,
                         heartbeat_at REAL NOT NULL)""")
+        conn.execute("INSERT INTO gpu_lock VALUES (1, 'cli:1', 'CLI', ?, ?)", (time.time(), time.time()))
         conn.commit()
         conn.close()
-        assert isolated_db.try_acquire_gpu_lock("cli:1", "CLI") is True
         isolated_db.init_db()
-        assert isolated_db.gpu_lock_status() == ("cli:1", "CLI")
-        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
+        assert gpu_slots.status() == ("cli:1", "CLI")
+        assert gpu_slots.take("ui:a", "A", max_holders=2) is True
 
 
 class TestImportTimeSafety:
@@ -1497,21 +1500,51 @@ class TestImportTimeSafety:
     real library/library.db before isolated_db redirects it."""
 
     @staticmethod
-    def _copy_db_and_deps(temp_dir):
-        # db.py imports core.py (for LINE_FIELDS), and core.py imports
-        # segment_splitting.py and whisper_models.py; all four are self-contained (stdlib-only), so
-        # copying them is enough to import db.py with a real, separate
-        # interpreter, in a directory with nothing else in it -- the only way
-        # to observe a genuinely fresh module import rather than the
-        # already-imported module every other test in this process shares.
+    def _imported_modules(path):
+        # Function-level imports count too: init_db imports device_tokens
+        # lazily, and the first-call test needs it present.
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names.add(node.module.split(".")[0])
+        return names
+
+    @classmethod
+    def _copy_db_and_deps(cls, temp_dir):
+        # Copy db.py plus every local module it imports
+        # (transitively, lazy ones too), computed from the source so a split that adds an
+        # import to core or db doesn't need this test edited. Copying only
+        # those into an otherwise empty directory is the only way to observe a
+        # genuinely fresh import rather than the module every other test in
+        # this process shares; a dependency that isn't local (stdlib or
+        # third-party) is left to the interpreter. Nothing is excluded on
+        # purpose: a heavy module reached from db.py would be copied here and
+        # then trip the "no library/ side effect" assertions in the tests.
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for name in ("db.py", "core.py", "segment_splitting.py", "whisper_models.py"):
-            shutil.copy(os.path.join(project_root, name), os.path.join(temp_dir, name))
-        # db.py takes its library location from portable.data_dir() (Step 80b).
-        shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
-        # init_db creates the extension device-token table from its own module.
-        shutil.copy(os.path.join(project_root, "device_tokens.py"),
-                    os.path.join(temp_dir, "device_tokens.py"))
+
+        def local_source(name):
+            for base in (project_root, os.path.join(project_root, "lib")):
+                for rel in (name + ".py", os.path.join(name, "__init__.py")):
+                    if os.path.isfile(os.path.join(base, rel)):
+                        return base, rel
+            return None
+
+        seen, queue = set(), ["db"]
+        while queue:
+            name = queue.pop()
+            found = local_source(name)
+            if name in seen or found is None:
+                continue
+            seen.add(name)
+            base, rel = found
+            dest = os.path.join(temp_dir, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy(os.path.join(base, rel), dest)
+            queue.extend(cls._imported_modules(os.path.join(base, rel)))
+        assert {"db", "core"} <= seen, seen
 
     def test_bare_import_does_not_touch_any_library_dir(self):
         temp_dir = tempfile.mkdtemp(prefix="baihe_import_check_")
@@ -1959,6 +1992,7 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
 _INIT_DB_MIGRATED_COLUMNS = {
     "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id", "kind",
                     "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
+    "gpu_lock": ("owner_pid", "owner_instance", "job_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
               "word_timings"),
     "dramas": (
@@ -2185,6 +2219,28 @@ class TestInitDbSchema:
                 "SELECT translation_engine, is_private FROM dramas").fetchone() == ("claude", 0)
         finally:
             conn.close()
+
+    def test_library_read_holders_get_lines_read_once_for_the_reader_page(self, isolated_db):
+        from services import auth_service
+        reader = auth_service.add_user("reader@example.com")["id"]
+        nobody = auth_service.add_user("nobody@example.com")["id"]
+        for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+            if p != "library.read":
+                isolated_db.auth_revoke_permission(reader, p)
+            isolated_db.auth_revoke_permission(nobody, p)
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:   # as before the migration ran
+            conn.execute("DELETE FROM app_settings WHERE key = 'migrations.reader_page_lines_read'")
+            conn.commit()
+        finally:
+            conn.close()
+        isolated_db.init_db()
+        assert set(isolated_db.auth_get_permissions(reader)) == {"library.read", "lines.read"}
+        assert not isolated_db.auth_get_permissions(nobody)
+        # Once only: a later revoke survives the next start.
+        isolated_db.auth_revoke_permission(reader, "lines.read")
+        isolated_db.init_db()
+        assert set(isolated_db.auth_get_permissions(reader)) == {"library.read"}
 
 
 # Tables with a line_id that a full sync deliberately leaves alone when a line

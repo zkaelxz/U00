@@ -143,8 +143,9 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             # A refused local load repeats identically; retrying only delays the message.
             # A deadline has already waited as long as the call may; a retry would
             # bill a second request while the abandoned one may still be running.
+            # An over-cap or too-slow reply was already billed; a quick retry bills it twice.
             if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached, HeadroomError,
-                              LLMTaskTimeout)):
+                              LLMTaskTimeout, ProviderResponseTooLarge)):
                 raise
             if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
                 # FallbackEngine already retried and tried every engine.
@@ -198,11 +199,17 @@ class _ErrorResponse:
         from requests.structures import CaseInsensitiveDict
         self.status_code = resp.status
         self.headers = CaseInsensitiveDict(resp.headers)
-        self.text = resp.text()
+        self.text = redact_secrets(resp.text())
         self.ok = False
 
 
 PROVIDER_UNREACHABLE = "The provider could not be reached."
+PROVIDER_REDIRECTED = "The provider answered with a redirect, which is not followed."
+
+
+class ProviderRedirected(http.FetchError):
+    """A vendor endpoint answered 3xx. Unlike a transport blip it repeats
+    identically, so the fallback chain switches engines instead of retrying."""
 
 
 def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict] = None,
@@ -214,9 +221,9 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
     origin). The exception types are the ones `call_with_backoff` keys on: a
     non-2xx reply is a requests.HTTPError carrying the status (429/503/529
     back off, anything else gets one quick retry), a reply over the cap or
-    past the deadline is ProviderResponseTooLarge, and a transport failure or
-    redirect is a lib.http.FetchError with fixed text; fallback.py recognises
-    it as transient.
+    past the deadline is ProviderResponseTooLarge, and a transport failure
+    is a lib.http.FetchError with fixed text (transient for
+    fallback.py); a redirect is the ProviderRedirected subclass (not transient).
     Every message is fixed text, so the key in `headers` cannot reach one.
     """
     import requests
@@ -239,7 +246,7 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
                                                 + (f": {detail}" if detail else "")),
                                  response=_ErrorResponse(resp))
     if resp.status >= 300:  # redirects are not followed, so there is no reply to read
-        raise http.FetchError(PROVIDER_UNREACHABLE)
+        raise ProviderRedirected(PROVIDER_REDIRECTED)
     from requests.structures import CaseInsensitiveDict
     return json.loads(resp.body), CaseInsensitiveDict(resp.headers)
 
@@ -323,7 +330,34 @@ def safe_url(url) -> str:
 
 # A path segment that looks like a credential (a long random run, or a
 # Telegram-style bot<id>:<key>), e.g. a path-signed CDN or bot file link.
-_TOKEN_SEGMENT = re.compile(r"^(?:bot\d+:.+|[A-Za-z0-9_\-.~:=]{32,})$")
+_BOT_TOKEN_SEGMENT = re.compile(r"^bot\d+:.+$")
+_SEGMENT_PART = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _random_part(part: str) -> bool:
+    """Digits mixed with letters, or a capital after the first letter. A
+    slug's words are lowercase or Capitalised and its numbers stand alone."""
+    has_alpha = any(c.isalpha() for c in part)
+    return ((has_alpha and any(c.isdigit() for c in part))
+            or (any(c.isupper() for c in part[1:]) and any(c.islower() for c in part)))
+
+
+def _segment_holds_secret(segment: str) -> bool:
+    if _BOT_TOKEN_SEGMENT.match(segment):
+        return True
+    parts = [p for p in _SEGMENT_PART.split(segment) if p]
+    random_parts = [p for p in parts if _random_part(p)]
+    # A key-like prefix alone also matches slugs (sk-ii-skincare-review).
+    if redact_secrets(segment) != segment and random_parts:
+        return True
+    # Short ids (an 11-char video id) are not secrets; a long one is when it
+    # holds an unbroken run no slug word reaches (hex, a JWT) or is mostly
+    # random-looking pieces (base64url split on - and _).
+    if len(segment) < 20:
+        return False
+    return (any(len(p) >= 32 for p in parts)
+            or any(len(p) >= 16 for p in random_parts)
+            or 2 * sum(map(len, random_parts)) >= sum(map(len, parts)))
 
 
 def display_url(url) -> str:
@@ -331,7 +365,7 @@ def display_url(url) -> str:
     path, no query, fragment, userinfo or ;params. A pasted link can carry
     a signed token; a path that looks like it holds one is dropped, leaving
     only the host. Anything else (unparsable, scheme-less, file://) gives ""."""
-    from urllib.parse import urlsplit
+    from urllib.parse import unquote, urlsplit
     try:
         parts = urlsplit(str(url or "").strip())
         host = parts.hostname or ""
@@ -343,8 +377,7 @@ def display_url(url) -> str:
     if ":" in host:
         host = f"[{host}]"          # IPv6 keeps its brackets
     path = parts.path.split(";", 1)[0]
-    if (redact_secrets(path) != path
-            or any(_TOKEN_SEGMENT.match(seg) for seg in path.split("/") if seg)):
+    if any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg))):
         path = "/"
     return f"{parts.scheme.lower()}://{host}{port}{path}"
 
