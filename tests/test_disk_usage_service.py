@@ -11,6 +11,7 @@ import pytest
 
 import background_jobs
 import db
+from jobs import gpu_slots
 from services import auto_backup_service as abs_
 from services import disk_usage_service as dus
 from services import disk_usage_trash_service as dts
@@ -471,7 +472,7 @@ class TestExclusiveHold:                                   # M1
         from services import library_admin_service
         monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
         assert dus._busy_under_hold() is False
-        assert db.try_acquire_gpu_lock("cli-test-holder", "CLI transcribe")
+        assert gpu_slots.take("cli-test-holder", "CLI transcribe")
         try:
             assert dus._busy_under_hold() is True
             with pytest.raises(ConflictError):
@@ -479,7 +480,7 @@ class TestExclusiveHold:                                   # M1
             with pytest.raises(ConflictError):
                 dus.move("library/backups/auto", str(tree), confirm=True)
         finally:
-            db.release_gpu_lock("cli-test-holder")
+            gpu_slots.release("cli-test-holder")
         assert renames == [] and background_jobs.exclusive_active() is False
         assert dus._busy_under_hold() is False
 
@@ -489,7 +490,7 @@ class TestExclusiveHold:                                   # M1
 
         def boom():
             raise RuntimeError("locked")
-        monkeypatch.setattr(db, "gpu_lock_status", boom)
+        monkeypatch.setattr(gpu_slots, "status", boom)
         assert dus._busy_under_hold() is True
 
     def test_a_job_that_appears_after_the_look_stops_the_move(self, tree, renames, monkeypatch):
@@ -844,7 +845,7 @@ class TestSecondReview:
         assert renames == []
 
     def test_installer_entries_are_in_the_allow_list(self):
-        from installer import service as installer_service
+        from installer import service_layout as installer_service
         assert installer_service.DATA_FOLDER_ENTRIES <= dus._baihe_top_level_names()
         assert "saved_comics" in dus._baihe_top_level_names()
 
@@ -944,7 +945,7 @@ class TestTrashProtection:
         assert dus.TRASH_DIRNAME in dus._baihe_top_level_names()
 
     def test_installer_allows_the_trash_folder(self):
-        from installer import service as installer_service
+        from installer import service_layout as installer_service
         assert dus.TRASH_DIRNAME in installer_service.DATA_FOLDER_ENTRIES
 
     def test_trash_root_and_everything_in_it_is_protected_and_cannot_be_cleared_or_moved(

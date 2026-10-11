@@ -49,11 +49,11 @@ from services.service_errors import (ConflictError, ForbiddenError, InvalidInput
 
 HOUSEHOLD_SHARE_KEY = "household.share_by_default"
 _DRAMA_IN_SERIES_MESSAGE = "Make the whole series private instead"
-_PRIVATE_SERIES_MESSAGE = "That series is private, so only its owner's dramas can go in it."
-_PC_DRAMA_IN_SERIES_MESSAGE = "This series holds a drama owned at the PC; ask an admin."
+_PRIVATE_SERIES_MESSAGE = "That series is private, so only its owner's titles can go in it."
+_PC_DRAMA_IN_SERIES_MESSAGE = "This series holds a title owned at the PC; ask an admin."
 _NEW_SERIES_PRIVATE_MESSAGE = (
-    "A new series starts private, so it can't take someone else's drama. Create the series "
-    "first and share it in Settings > Sharing, then add the drama; or pick a shared series.")
+    "A new series starts private, so it can't take someone else's title. Create the series "
+    "first and share it in Settings > Sharing, then add the title; or pick a shared series.")
 _KINDS = ("drama", "series")
 
 
@@ -142,7 +142,7 @@ def can_edit_drama(principal, drama_id: int) -> bool:
 
 
 def _not_found(kind: str):
-    return NotFoundError("Drama not found." if kind == "drama" else "Series not found.")
+    return NotFoundError("Title not found." if kind == "drama" else "Series not found.")
 
 
 _ADMIN_CHANGE_AT_PC = "An admin can change other people's private items only at the PC."
@@ -221,7 +221,7 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     item_id = _item_id(item_id)
     row = db.get_item_ownership(kind, item_id)
     if not row or not _visible(principal, kind, row):
-        raise NotFoundError("Drama not found." if kind == "drama" else "Series not found.")
+        raise NotFoundError("Title not found." if kind == "drama" else "Series not found.")
     admin = _may_override(principal)
     if not (admin or _is_owner(principal, row)):
         raise ForbiddenError("Only the owner or an admin can change this.")
@@ -240,7 +240,7 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     if kind == "drama":
         raise ConflictError(_DRAMA_IN_SERIES_MESSAGE)   # it joined a series meanwhile
     # Otherwise those dramas would vanish for the people who own them.
-    raise ConflictError("Move other people's dramas out of this series first.")
+    raise ConflictError("Move other people's titles out of this series first.")
 
 
 SHARING_PAGE_MAX = 200
@@ -300,7 +300,7 @@ def assign_drama_series(principal, drama_id, series_id) -> None:
     drama's own private flag (user decision 4)."""
     drama = db.get_item_ownership("drama", _item_id(drama_id))
     if not drama:
-        raise NotFoundError("Drama not found.")
+        raise NotFoundError("Title not found.")
     series_id = check_series_assignment(principal, series_id, drama.get("owner_user_id"))
     if not db.assign_drama_series(drama["id"], series_id):
         raise ConflictError(_PRIVATE_SERIES_MESSAGE)   # the series went private meanwhile
@@ -311,11 +311,11 @@ def unassign_drama_series(principal, drama_id) -> None:
     Leaving a private series keeps the drama private (db.unassign_drama_series)."""
     drama = db.get_item_ownership("drama", _item_id(drama_id))
     if not drama or not _visible(principal, "drama", drama):
-        raise NotFoundError("Drama not found.")
+        raise NotFoundError("Title not found.")
     if not _visible(principal, "drama", drama, writing=True):
         raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
     if not db.unassign_drama_series(drama["id"]):
-        raise NotFoundError("Drama not found.")
+        raise NotFoundError("Title not found.")
 
 
 def check_new_series_assignment(principal, name: str, drama_owner_user_id) -> None:

@@ -288,6 +288,9 @@ def local_only():
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
 PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded",
                   "x-real-ip", "tailscale-user-login", "cf-connecting-ip", "cf-ray", "via")
+# Proxies add headers outside the exact list (x-forwarded-port, cf-ipcountry,
+# ...); any of them means the request did not come straight from this PC.
+PROXY_HEADER_PREFIXES = ("x-forwarded-", "forwarded", "x-real-ip", "tailscale-", "cf-", "via")
 
 
 def host_name(netloc: str) -> str:
@@ -313,7 +316,8 @@ def _is_local_scope(client_host, headers) -> bool:
     host_header = headers.get("host", "")
     if "@" in host_header or host_name(host_header) not in LOOPBACK_HOSTS:
         return False
-    if any(h in headers for h in PROXY_HEADERS):
+    if (any(h in headers for h in PROXY_HEADERS)
+            or any(name.lower().startswith(PROXY_HEADER_PREFIXES) for name in headers.keys())):
         return False
     origin = headers.get("origin")
     if origin is not None:

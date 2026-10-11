@@ -486,3 +486,10 @@ def test_leaving_a_private_series_keeps_the_drama_private(isolated_db):
 def test_split_by_sentences_defaults_on_for_chinese_and_japanese(isolated_db, lang, expected):
     d = ds.create_drama(source_language=lang)
     assert bool(db.get_drama(d["id"])["split_by_sentences"]) is expected
+
+
+def test_metadata_title_with_nul_is_rejected(isolated_db):
+    d = ds.create_drama(source_language="zh", title_en="T")
+    with pytest.raises(InvalidInputError):
+        ds.update_drama_metadata(d["id"], title_en="a\x00b")
+    assert db.get_drama(d["id"])["title_en"] == "T"

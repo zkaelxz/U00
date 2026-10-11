@@ -47,7 +47,8 @@ import time
 import action_tiers
 import db
 import diagnostics
-from lib import proc as proc_run
+from engine_backends import echo
+from lib import http, proc as proc_run
 from services import diagnostics_gaps_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
@@ -338,7 +339,7 @@ def set_settings(updates: dict) -> dict:
             merged = _cloud_consent()
             for eng, allowed in value.items():
                 _check_engine_name(eng, "cloud_consent engine")
-                # Ollama can be on another machine, so it may need consent too.
+                # Ollama may be on another machine.
                 if not isinstance(allowed, bool):
                     raise InvalidInputError("cloud_consent is for cloud engines, as true/false.")
                 merged[eng] = allowed
@@ -360,9 +361,10 @@ def set_settings(updates: dict) -> dict:
     current = get_settings()
     for eng, mod in (("engine", "model"), ("review_engine", "review_model")):
         if eng in cleaned and mod not in cleaned and cleaned[eng] != current[eng]:
-            cleaned[mod] = None  # a model name belongs to the engine it was saved with
+            cleaned[mod] = None  # a model belongs to its engine
     for key, value in cleaned.items():
         db.set_app_setting(_SETTINGS_PREFIX + key, value)
+    echo.set_enabled(developer_mode_enabled())
     return get_settings()
 
 
@@ -950,7 +952,7 @@ def build_engine(engine_name=None, model=None):
     from services import line_ai_service, settings_service
     require_cloud_consent(engine_name, model)
     engine = reader_service.llm_engine(engine_name, model)
-    line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get_gemini_free_tier())
+    line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get("gemini_free_tier"))
     return engine, engine_name, model
 
 
@@ -997,7 +999,11 @@ def _tier_failure(error: ServiceError, engine_name: str, ladder: list) -> Servic
     if reason == "no_key":
         reason = "unavailable"
     if reason is None:
-        if isinstance(error, UnsupportedOperationError):
+        if isinstance(error, http.FetchError):
+            # Ollama that isn't running surfaces as a fetch failure, which is
+            # a DependencyUnavailableError and would read as "not set up".
+            reason = "unreachable"
+        elif isinstance(error, UnsupportedOperationError):
             # The monthly cap refusal, or an engine that can't chat.
             reason = "spend_cap" if "spending cap" in error.message else "unavailable"
         else:
@@ -1218,7 +1224,7 @@ def build_review_engine():
     model = settings["review_model"]
     require_cloud_consent(name, model)  # the reviewer reads the same code and logs
     engine = reader_service.llm_engine(name, model)
-    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get_gemini_free_tier())
+    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get("gemini_free_tier"))
     return engine, name, model
 
 

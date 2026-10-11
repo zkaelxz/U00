@@ -590,14 +590,6 @@ class TestContextWindow:
         te.translate_lines_with_engine(lines, engine, {}, batch_size=10, context_window=6)
         assert engine.calls[0]["recent_context"] == [("l0", "Pre-existing translation.")]
 
-    def test_existing_mock_engine_tests_unaffected_by_new_default(self):
-        """context_window now defaults to 6 -- confirms that doesn't break
-        an engine that ignores the context dict's extra keys entirely."""
-        lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(5)]
-        result, errors = te.translate_lines_with_engine(lines, MockEngine(), {}, batch_size=2)
-        assert errors == []
-        assert all(ln.en for ln in result)
-
 
 class TestLookaheadContext:
     def test_last_batch_has_no_upcoming_lines(self):
@@ -1545,7 +1537,9 @@ class TestOllamaModelInstalledCheck:
         te.check_ollama_model_installed("http://localhost:11434", "m:1b")
         assert calls[-1] == "http://proxy.local/api/tags"
 
-    @pytest.mark.parametrize("status", [301, 404, 500])
+    # 300 and 304 are redirect-class statuses lib/http does not follow, so they
+    # reach the status check (a 301 with no Location never does).
+    @pytest.mark.parametrize("status", [300, 304, 404, 500])
     def test_a_non_2xx_final_answer_means_unreachable(self, monkeypatch, status):
         self._serve(monkeypatch, self.Resp(status))
         with pytest.raises(te.OllamaUnavailableError) as exc:

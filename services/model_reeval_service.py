@@ -80,7 +80,7 @@ def get_production(capability: str = "translation") -> dict:
     """The model re-evaluations compare against: the recorded production
     model, or Settings' default engine with its built-in default model."""
     _check_capability(capability)
-    engine = settings_service.get_default_engine()
+    engine = settings_service.get("default_engine")
     saved = _json_setting(_PRODUCTION_KEY, {}).get(capability)
     # The promoted record counts only while Settings still uses its engine: a
     # later change of the default engine in Settings wins.

@@ -100,7 +100,7 @@ def _build_engine(engine_name: str):
     if not api_key:
         raise MissingKeyError(engine_name)
     return translate_engines.get_engine(
-        engine_name, api_key, free_tier=settings_service.get_gemini_free_tier())
+        engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"))
 
 
 # ----- input checks ---------------------------------------------------------

@@ -68,6 +68,25 @@ test('opens at page 1, pages forward and updates ?page', async ({ page }) => {
   }
 })
 
+test('a page that fails to load hides the previous page and offers Retry', async ({ page }) => {
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  let fail = true
+  await page.route(/\/api\/reader\/dramas\/2\/page\?.*page=2/, (route) =>
+    fail ? route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } }) : route.fallback())
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(label(page)).toHaveText('Page 2 of 3')
+  await expect(page.getByRole('alert')).toBeVisible()
+  // Page 1's text must not sit under the "Page 2" label.
+  await expect(page.locator('iframe.reader-frame')).toHaveCount(0)
+
+  fail = false
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(frameRows(page)).toHaveCount(40)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0)
+})
+
 test('text size and lines per page persist across a reload', async ({ page }) => {
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
@@ -315,6 +334,14 @@ test('no Edit in Translate link without the lines.edit permission', async ({ pag
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
 
+  test('a title that fails to load shows its number, not Loading', async ({ page }) => {
+    await page.route('**/api/library/dramas/2', (route) =>
+      route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } }))
+    await page.goto('/#/read/2?page=1')
+    await expect(page.getByRole('alert')).toBeVisible()
+    await expect(page.locator('.reader-title')).toHaveText('Title #2')
+  })
+
   test('library cards have a 44px Read link, hidden in select mode', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByTestId('drama-count')).toBeVisible()
@@ -369,6 +396,18 @@ test.describe('phone', () => {
     await bar.getByRole('button', { name: 'Next page' }).tap()
     await expect(page).toHaveURL(/page=3$/)
     await expect(label(page)).toHaveText('Page 3 of 3')
+  })
+
+  test('a failed page keeps a 44px Retry and hides the previous page', async ({ page }) => {
+    await page.goto('/#/read/2?page=1')
+    await expect(frameRows(page)).toHaveCount(40)
+    await page.route(/\/api\/reader\/dramas\/2\/page\?.*page=2/, (route) =>
+      route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } }))
+    await page.locator('.reader-bottom').getByRole('button', { name: 'Next page' }).tap()
+    await expect(page.getByRole('alert')).toBeVisible()
+    await expect(page.locator('iframe.reader-frame')).toHaveCount(0)
+    const retry = await page.getByRole('button', { name: 'Retry' }).boundingBox()
+    expect(retry!.height).toBeGreaterThanOrEqual(44)
   })
 
   test('Edit in Translate is reachable on a phone and lands on the Glossary', async ({ page }) => {

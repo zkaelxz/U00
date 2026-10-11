@@ -114,7 +114,7 @@ class TestEncodings:
             sp.parse_subtitle(data, encoding="utf-8")
 
     @pytest.mark.parametrize("name", ["ascii", "rot13", "hex", "base64", "idna", "punycode",
-                                      "unicode_escape", "latin-1", "shift_jis"])
+                                      "unicode_escape", "latin-1"])
     def test_encoding_outside_the_ui_allowlist_is_refused(self, name):
         with pytest.raises(sp.SubtitleParseError, match="Unsupported"):
             sp.parse_subtitle(b"[00:01.00]hi\n", encoding=name)
@@ -398,3 +398,19 @@ class TestMatchingScales:
         assert list(sp.match_cues_to_lines([sp.Cue(1.0, 3.0, "tie", 1)], lines)) == []  # 1.0 is not over half of 2.0
         assert list(sp.match_cues_to_lines([sp.Cue(0.5, 2.9, "x", 1)], lines)) == [0]
         assert list(sp.match_cues_to_lines([sp.Cue(2.0, 2.0, "pt", 1)], lines)) == [1]
+
+
+class TestEncodingAliases:
+    @pytest.mark.parametrize("alias,canonical", [
+        ("shift_jis", "cp932"), ("sjis", "cp932"), ("Shift-JIS", "cp932"),
+        ("gbk", "gb18030"), ("GB2312", "gb18030")])
+    def test_common_names_map_to_the_offered_codec(self, alias, canonical):
+        sample = "こんにちは世界" if canonical == "cp932" else "你好,世界"
+        text, used, guessed = sp.decode_subtitle_bytes(sample.encode(canonical), alias)
+        assert (text, used, guessed) == (sample, canonical, False)
+
+    def test_shift_jis_with_kana_is_not_read_as_gb18030_under_a_chinese_title(self):
+        data = "[00:01.00]こんにちは世界、元気ですか。\n".encode("cp932")
+        parsed = sp.parse_subtitle(data, language="zh")
+        assert parsed.encoding == "cp932" and parsed.encoding_guessed
+        assert parsed.cues[0].text == "こんにちは世界、元気ですか。"

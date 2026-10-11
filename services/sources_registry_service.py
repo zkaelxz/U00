@@ -499,7 +499,7 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
         return list_tracked(principal)
     if drama_id is not None and (db.get_drama(drama_id) is None or not
                                  ownership_service.can_edit_drama(principal, drama_id)):
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     status = background_jobs.get_status(search.SERIES_JOB_PREFIX + source) or {}
     result = status.get("result") if status.get("status") == "done" else None
     if (not isinstance(result, dict) or result.get("series_id") != series_id

@@ -716,6 +716,8 @@ SYSTEM_FLAG_REASONS = {
                           "heard there"),
     "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
                             "result wasn't applied; translate this line again"),
+    "source_changed": ("Source changed -- the source text was changed after this line was "
+                       "translated; retranslate it or keep the English"),
     "pronoun_check": ("Pronoun check -- the translation says he/him but no he/him character "
                       "is set for this speaker"),
     "content_blocked": ("Blocked by the translation engine's own content-moderation system -- "

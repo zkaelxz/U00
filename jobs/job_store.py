@@ -12,6 +12,7 @@ import itertools
 import os
 import secrets
 import sqlite3
+import threading
 import time
 
 import db
@@ -24,6 +25,10 @@ ACTIVE = ("queued", "running")
 _WRITE_TRIES = 3
 _RETRY_DELAY = 0.05
 EXIT_FLUSH_SECONDS = 2.0
+# A paused owner (laptop lid, debugger) wakes within hours and rewrites its
+# row; a server killed without its exit hook never does, and after a reboot
+# Windows may hand its pid to an unrelated process that looks like it.
+STALE_ALIVE_CEILING_SECONDS = 6 * 3600
 # A write under background_jobs._lock waits no longer than this for another
 # process's write lock: every get_status waits on that lock too.
 UNDER_LOCK_BUSY_SECONDS = 0.5
@@ -38,6 +43,12 @@ _pending = set()
 # in the meantime, or it could pass off an older state as landed.
 _last_write = {}
 _tokens = itertools.count()
+# One retry_pending at a time (the heartbeat's and the exit flush's can
+# overlap): two copying the same job write it twice, and the older copy can
+# land after the exit flush has returned. Taken before background_jobs._lock.
+_retry_lock = threading.Lock()
+_exit_hook_registered = False
+_flushed = False
 
 
 def _storage_text(text):
@@ -181,6 +192,19 @@ def heartbeat_tick():
     """One beat of background_jobs' heartbeat thread: reconciles dead
     workers, keeps this process's live rows and GPU slots fresh so another
     process can tell a quiet job from a dead one, and retries failed writes."""
+    # The heartbeat thread has no handler of its own: one exception here
+    # would end every later beat, and live rows would then look dead.
+    try:
+        _heartbeat_tick()
+    except Exception as e:
+        with contextlib.suppress(Exception):
+            import applog
+            import translate_engines
+            applog.get_logger().warning(
+                "job heartbeat failed: " + translate_engines.redact_secrets(str(e))[:300])
+
+
+def _heartbeat_tick():
     import background_jobs as bj
     import job_force_stop
     bj.reconcile_dead_workers()
@@ -190,9 +214,9 @@ def heartbeat_tick():
         running_gpu = [j for j in live if bj._jobs[j]["status"] == "running"
                        and bj._jobs[j].get("gpu_touching")]
     # A job that reports no progress (dub) never refreshes its own row.
-    for j in running_gpu:
-        with contextlib.suppress(Exception):
-            db.heartbeat_gpu_lock(f"ui:{j}")
+    from jobs import gpu_slots
+    with contextlib.suppress(Exception):
+        gpu_slots.heartbeat(f"ui:{j}" for j in running_gpu)
     if live:
         try:
             db.touch_job_records(live)
@@ -220,6 +244,15 @@ def retry_pending(deadline=None) -> None:
     update_progress or a Jobs poll; the lock is held only to copy the job
     and to apply the outcome. Stops at the first "database is locked" (the
     rest would wait on the same lock) and at `deadline` (time.monotonic())."""
+    if not _acquire(_retry_lock, deadline):
+        return
+    try:
+        _retry_pending(deadline)
+    finally:
+        _retry_lock.release()
+
+
+def _retry_pending(deadline):
     import background_jobs as bj
     for _ in range(_WRITE_TRIES):
         if not _acquire(bj._lock, deadline):
@@ -230,6 +263,7 @@ def retry_pending(deadline=None) -> None:
                 job = bj._jobs.get(job_id)
                 if job is None:
                     _pending.discard(job_id)
+                    _last_write.pop(job_id, None)
                     continue
                 # A landed write drops the token, so a pending job may have
                 # none; without one, a transition landing meanwhile would
@@ -254,8 +288,7 @@ def retry_pending(deadline=None) -> None:
             try:
                 current = bj._jobs.get(job_id)
                 if current is None:
-                    _pending.discard(job_id)
-                    _last_write.pop(job_id, None)
+                    pass   # still owed: settled below, once its row is dropped
                 elif current is not job or _last_write.get(job_id) != token:
                     # A transition wrote while this copy was in flight, and
                     # this older copy may have landed over it: write again.
@@ -269,10 +302,31 @@ def retry_pending(deadline=None) -> None:
                         sync_error = job["sync_error"]
             finally:
                 bj._lock.release()
-            if sync_error:
-                _store_sync_error(job_id, sync_error, deadline)
             if current is None:
                 _drop_cleared_row(job_id, copy)
+                # Owed until the row is gone: until then owner_gone must not
+                # read this process's row as an earlier server's to close.
+                if not _acquire(bj._lock, deadline):
+                    return
+                try:
+                    if job_id not in bj._jobs:
+                        _pending.discard(job_id)
+                        _last_write.pop(job_id, None)
+                finally:
+                    bj._lock.release()
+            if sync_error:
+                _store_sync_error(job_id, sync_error, deadline)
+                if not _acquire(bj._lock, deadline):
+                    return
+                try:
+                    # A transition that landed before the UPDATE above had
+                    # its cleared sync_error overwritten by this older one;
+                    # a full rewrite puts the row back in step.
+                    if job_id in bj._jobs and _last_write.get(job_id) != token:
+                        _pending.add(job_id)
+                        again = True
+                finally:
+                    bj._lock.release()
             bj._emit_change(job_id)
             if error is not None and _is_lock_error(error):
                 return
@@ -343,10 +397,35 @@ def close_if_owner_gone(record: dict) -> bool:
                       (record["owner_pid"],))
 
 
+def owner_alive_elsewhere(pid, updated_at, now=None) -> bool:
+    """True when `pid` (a row's owner_pid) is another process that still
+    runs and the row was written within STALE_ALIVE_CEILING_SECONDS: its
+    row may be quiet but is not abandoned."""
+    import background_jobs as bj
+    now = time.time() if now is None else now
+    if (updated_at or 0) < now - STALE_ALIVE_CEILING_SECONDS:
+        return False
+    return pid is not None and pid != os.getpid() and bj.owner_process_alive(pid)
+
+
 def close_stale(job_id: str, cutoff: float) -> bool:
     """Closes the row as interrupted only if its owner has not written or
-    heartbeated since `cutoff`."""
-    return _close_one(job_id, "COALESCE(updated_at, 0) < ?", (cutoff,))
+    heartbeated since `cutoff` and is not a live process (owner_alive_elsewhere).
+    A paused owner (laptop lid, debugger, a long GC) stops heartbeating but
+    rewrites the row when it wakes, which would flip a closed row back to
+    running; only a row with no owner_pid, or one quiet past the ceiling, is
+    judged by heartbeat age alone."""
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute("SELECT owner_pid, updated_at FROM job_records WHERE job_id = ?",
+                           (job_id,)).fetchone()
+    if row is None:
+        return False
+    pid, updated_at = row
+    if owner_alive_elsewhere(pid, updated_at):
+        return False
+    # The pid read above must still be the row's owner, and any write since
+    # the read moves updated_at past `cutoff`, so a woken owner always wins.
+    return _close_one(job_id, "COALESCE(updated_at, 0) < ? AND owner_pid IS ?", (cutoff, pid))
 
 
 def sweep_dead_owners(stale_seconds: float) -> int:
@@ -399,11 +478,14 @@ def flush_at_exit() -> None:
     """Leaves no row of this server saying queued or running after it is
     gone: retries failed writes, closes this instance's still-active rows as
     interrupted and frees their GPU slots, all within EXIT_FLUSH_SECONDS.
-    Runs from atexit and from shutdown_service after the jobs' grace wait.
+    Runs from shutdown_service after the jobs' grace wait and, in the
+    server, at exit (register_exit_flush).
     A hard kill skips it; the next start's sweep (sweep_dead_owners) closes
     those rows instead."""
+    global _flushed
     import background_jobs as bj
     import job_force_stop
+    _flushed = True
     deadline = time.monotonic() + EXIT_FLUSH_SECONDS
     retry_pending(deadline)
     # A daemon worker can hold the lock while the interpreter exits.
@@ -424,8 +506,9 @@ def flush_at_exit() -> None:
         with contextlib.closing(_connect(max(0.0, deadline - time.monotonic()))) as conn:
             for job_id in active:
                 _close(conn, job_id, "owner_instance = ?", (INSTANCE_ID,))
+            from jobs import gpu_slots
             for holder in gpu_holders:
-                conn.execute("DELETE FROM gpu_lock WHERE holder = ?", (holder,))
+                gpu_slots.release(holder, conn=conn)
             conn.commit()
     except Exception as exc:
         with contextlib.suppress(Exception):
@@ -436,4 +519,18 @@ def flush_at_exit() -> None:
                 + translate_engines.redact_secrets(str(exc))[:300])
 
 
-atexit.register(flush_at_exit)
+def _flush_unless_flushed() -> None:
+    # shutdown_service has usually flushed already; a second pass at exit
+    # would only spend EXIT_FLUSH_SECONDS redoing it.
+    if not _flushed:
+        flush_at_exit()
+
+
+def register_exit_flush() -> None:
+    """Only the server that runs jobs closes their rows at interpreter exit;
+    registering at import would hand the hook to every importer (tests,
+    cli.py, spawned GPU workers). Safe to call more than once."""
+    global _exit_hook_registered
+    if not _exit_hook_registered:
+        _exit_hook_registered = True
+        atexit.register(_flush_unless_flushed)

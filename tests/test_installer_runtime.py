@@ -117,6 +117,27 @@ class TestLaunch:
         launcher.apply_pending_install("python", {}, True)
         assert ran == []
 
+    def test_a_lock_of_a_really_dead_pid_is_not_waited_for(self, data_dir, monkeypatch):
+        import subprocess
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        proc.wait()
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"pid": proc.pid, "time": int(time.time())}))
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran == []
+
+    def test_a_lock_with_an_oversized_pid_does_not_crash_the_launcher(self, data_dir, monkeypatch):
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"pid": 10 ** 30, "time": int(time.time())}))
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran == []
+
     def test_a_lock_held_by_a_live_pid_is_waited_for(self, data_dir, monkeypatch, capsys):
         lock = data_dir / "pending_install" / "apply.lock"
         lock.parent.mkdir(parents=True)
@@ -224,20 +245,20 @@ class TestServicePort:
 
     @pytest.mark.parametrize("value", ['"8711"', "true", "8711.0", "80", "70000", "8756", "8610"])
     def test_an_unusable_stored_port_means_the_default_like_the_service(self, tmp_path, value):
-        import service
+        from installer import service_config
         path = self._ours(tmp_path, ', "api_port": ' + value)
-        assert launcher.service_port(path) == launcher.DEFAULT_PORT == service.stored_api_port(path)
+        assert launcher.service_port(path) == launcher.DEFAULT_PORT == service_config.stored_api_port(path)
 
     def test_no_config_means_no_service(self, tmp_path):
         assert launcher.service_port(tmp_path / "missing.json") is None
 
     def test_as_strict_as_the_service(self, tmp_path):
-        import service
+        from installer import service_config, service_layout
         for port in (1023, 1024, 8600, 8601, 8610, 8611, 8756, 65535, 65536):
             path = self._ours(tmp_path, f', "api_port": {port}')
-            assert launcher.service_port(path) == service.stored_api_port(path), port
-        assert launcher.SERVICE_CONFIG_PATH == (service.ADMIN_FOLDER_NAME, "helper",
-                                                service.CONFIG_FILE_NAME)
+            assert launcher.service_port(path) == service_config.stored_api_port(path), port
+        assert launcher.SERVICE_CONFIG_PATH == (service_layout.ADMIN_FOLDER_NAME, "helper",
+                                                service_layout.CONFIG_FILE_NAME)
 
     def test_found_in_program_files_on_windows(self, monkeypatch):
         monkeypatch.undo()       # the autouse stand-in

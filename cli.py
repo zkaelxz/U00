@@ -82,7 +82,7 @@ import real_model_check_cli
 import background_jobs
 import cli_subtitle
 import cli_timing
-from jobs import job_store
+from jobs import gpu_slots, job_store
 from services import (dub_service, export_service, glossary_service, jobs_service, lines_service,
                       narration_service, review_extras_service, settings_service, transcribe_pipeline,
                       transcribe_service)
@@ -92,7 +92,7 @@ from lib.errors import DependencyUnavailableError, ServiceError
 
 def _gemini_free_tier(engine_name: str) -> bool:
     """The saved Settings "Gemini free tier" toggle, for the gemini engine only."""
-    return engine_name == "gemini" and settings_service.get_gemini_free_tier()
+    return engine_name == "gemini" and settings_service.get("gemini_free_tier")
 
 
 def _ollama_url(args):
@@ -125,30 +125,29 @@ def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
 @contextlib.contextmanager
 def _gpu_lock(description: str, poll_interval: float = 5.0):
     """Cross-process GPU guard, shared with the live UI's
-    background_jobs.py through the gpu_lock table in the shared library.db
-    (see db.try_acquire_gpu_lock's own docstring). The CLI never starts
+    background_jobs.py through jobs/gpu_slots.py. The CLI never starts
     background jobs, so the in-process guard never covers a CLI
-    run; it takes a slot through background_jobs.try_take_gpu_slot, so the
+    run; it takes a slot through gpu_slots.acquire, so the
     "GPU jobs at once" setting and its free-VRAM check apply to a CLI run
     the same as to the app's jobs. Waits and
     retries rather than failing outright, matching this module's own
     "built for unattended overnight runs" framing -- yields the holder id
     a caller running a multi-drama batch under this lock can use to send
-    its own periodic heartbeat_gpu_lock() calls, so a long batch doesn't
+    its own periodic gpu_slots.heartbeat() calls, so a long batch doesn't
     look abandoned partway through. poll_interval is a test-only knob;
     real callers use the 5-second default."""
     holder = f"cli:{os.getpid()}"
     waited = False
-    while not background_jobs.try_take_gpu_slot(holder, description):
+    while not gpu_slots.acquire(holder, description):
         if not waited:
-            _busy_with = db.gpu_lock_status()[1] or "another job"
+            _busy_with = gpu_slots.status()[1] or "another job"
             print(f"Waiting for the GPU -- busy with: {_busy_with}")
             waited = True
         time.sleep(poll_interval)
     try:
         yield holder
     finally:
-        db.release_gpu_lock(holder)
+        gpu_slots.release(holder)
 
 
 def _run_batch(dramas, step_fn, label: str):
@@ -169,7 +168,7 @@ def _run_batch(dramas, step_fn, label: str):
 
     print(f"\n--- {label} summary: {len(succeeded)} succeeded, {len(failed)} failed ---")
     if failed:
-        print("Failed drama IDs (re-run this command to retry just these, with --id):")
+        print("Failed title IDs (re-run this command to retry just these, with --id):")
         for fid, err in failed:
             print(f"  #{fid}: {err}")
     return succeeded, failed
@@ -368,7 +367,7 @@ def cmd_diarize(args):
             print(f"#{d['id']} skipped: no lines yet (transcribe first).")
             return
         print(f"#{d['id']} detecting speakers...")
-        db.heartbeat_gpu_lock(_gpu_holder)
+        gpu_slots.heartbeat([_gpu_holder])
         try:
             run_info = {}
             last_beat = [time.monotonic()]
@@ -379,13 +378,13 @@ def cmd_diarize(args):
                     print(f"#{d['id']} {message}.")
                 if time.monotonic() - last_beat[0] > 30:
                     last_beat[0] = time.monotonic()
-                    db.heartbeat_gpu_lock(_gpu_holder)
+                    gpu_slots.heartbeat([_gpu_holder])
 
             started = time.monotonic()
             turns, model, embeddings = diarize.diarize(
                 audio_path, hf_token, num_speakers=num_speakers,
                 return_model=True, return_embeddings=True,
-                use_gpu=settings_service.get_use_gpu(),
+                use_gpu=settings_service.get("use_gpu"),
                 min_speakers=min_speakers, max_speakers=max_speakers, run_info=run_info,
                 on_progress=on_progress)
         finally:
@@ -419,7 +418,7 @@ def _qwen3_missing(exc) -> RuntimeError:
     return RuntimeError(
         "Qwen3-ASR isn't installed, so Qwen3 forced alignment can't run. "
         "Install qwen-asr from Diagnostics (or: pip install qwen-asr torch), "
-        f"or change this drama's alignment method. ({detail})")
+        f"or change this title's alignment method. ({detail})")
 
 
 def _read_transcript_option(args):
@@ -429,7 +428,7 @@ def _read_transcript_option(args):
     if not source:
         return None
     if not args.id:
-        print("--transcript needs --id: one transcript can't be aligned to several dramas.",
+        print("--transcript needs --id: one transcript can't be aligned to several titles.",
               file=sys.stderr)
         sys.exit(2)
     try:
@@ -482,10 +481,10 @@ def cmd_align(args):
         # (transcribe_service.get_transcribe_config); --fast still wins.
         cfg = transcribe_service.get_transcribe_config(d["id"])
         fast = getattr(args, "fast", False) or cfg["whisper_fast_mode"]
-        use_gpu = settings_service.get_use_gpu()
+        use_gpu = settings_service.get("use_gpu")
         language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
-        db.heartbeat_gpu_lock(_gpu_holder)
+        gpu_slots.heartbeat([_gpu_holder])
         if cfg["separate_vocals_first"]:
             audio_path = audio_preprocess.separate_vocals(
                 audio_path, os.path.join(os.path.dirname(audio_path), "vocals.wav"),
@@ -496,7 +495,7 @@ def cmd_align(args):
             # Same refusal as the app, before any audio is processed.
             raise RuntimeError(
                 "use_groq is on but no Groq API key is configured. Set one in Settings first.")
-        local_model_path = settings_service.get_whisper_model_path()
+        local_model_path = settings_service.get("whisper_model_path") or None
         app_gpu_settings = raw_transcript.current_gpu_app_settings()
         gpu_fallback = []
         started = time.monotonic()
@@ -642,7 +641,7 @@ def cmd_dub(args):
         if keep_bg:
             bg_source = (os.path.join(ddir, d["audio_filename"]) if d.get("audio_filename") else None)
             if not bg_source or not os.path.exists(bg_source):
-                print(f"#{d['id']} skipped: --keep-background needs the drama's source audio.")
+                print(f"#{d['id']} skipped: --keep-background needs the title's source audio.")
                 return
         print(f"#{d['id']} generating {'narration' if is_narration else 'dub'} track...")
 
@@ -654,7 +653,7 @@ def cmd_dub(args):
 
         def _progress(frac, did=d["id"]):
             if _gpu_holder_box[0]:
-                db.heartbeat_gpu_lock(_gpu_holder_box[0])
+                gpu_slots.heartbeat([_gpu_holder_box[0]])
             print(f"  #{did}: {frac*100:.0f}%", end="\r")
 
         _dub_gpu_ctx = (_gpu_lock(f"CLI dub #{d['id']}")
@@ -699,12 +698,12 @@ def cmd_inspect_line(args):
     import debug_view
     drama = db.get_drama(args.id)
     if not drama:
-        print(f"No drama #{args.id}")
+        print(f"No title #{args.id}")
         return
     lines = db.load_line_objects(args.id)
     line = next((ln for ln in lines if ln.idx == args.line - 1), None)
     if not line:
-        print(f"No line #{args.line} in drama #{args.id} ({len(lines)} line(s) total)")
+        print(f"No line #{args.line} in title #{args.id} ({len(lines)} line(s) total)")
         return
     info = debug_view.explain_line(args.id, line, lines)
     print(f"Line #{args.line} (id {line.id}) -- {info['zh']}")
@@ -740,7 +739,7 @@ def cmd_set_language(args):
     label = core_module.normalize_line_lang(lang) or "title language"
     msg = f"#{args.id}: set {label} on {result['updated']} line(s)"
     if result["skipped_ids"]:
-        msg += f"; skipped {len(result['skipped_ids'])} id(s) not in this drama: " + \
+        msg += f"; skipped {len(result['skipped_ids'])} id(s) not in this title: " + \
             ", ".join(str(i) for i in result["skipped_ids"])
     print(msg)
 
@@ -817,7 +816,7 @@ def cmd_transcribe(args):
         raise SystemExit(f"transcribe: {translate_engines.redact_secrets(e.message)}")
     label = f"#{args.id}"
     print(f"{label} transcribing (GPU setting: "
-          f"{'on' if settings_service.get_use_gpu() else 'off'})...", flush=True)
+          f"{'on' if settings_service.get('use_gpu') else 'off'})...", flush=True)
     outcome, message, result = _wait_for_job(job["job_id"], label)
     if result.get("device"):
         print(f"{label} device: {result['device']}")
@@ -848,7 +847,7 @@ def cmd_qc(args):
     and uses no engine, so it never spends anything."""
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas()
     if args.id and dramas[0] is None:
-        raise SystemExit(f"qc: No drama with id {args.id}.")
+        raise SystemExit(f"qc: No title with id {args.id}.")
 
     def step(d):
         r = export_service.run_auto_qc_flagging(d["id"])
@@ -963,10 +962,10 @@ def _parse_line_ids(text):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Headless batch driver for the drama library")
+    p = argparse.ArgumentParser(description="Headless batch driver for the title library")
     sub = p.add_subparsers(dest="command", required=True)
 
-    p_narrate = sub.add_parser("narrate-prep", help="Chunk + speaker-tag a novel-narration drama (no audio)")
+    p_narrate = sub.add_parser("narrate-prep", help="Chunk + speaker-tag a novel-narration title (no audio)")
     p_narrate.add_argument("--id", type=int, default=None)
     p_narrate.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
     p_narrate.add_argument("--api-key", default=None)
@@ -1004,13 +1003,13 @@ def main():
     p_align = sub.add_parser("align")
     p_align.add_argument("--id", type=int, default=None)
     p_align.add_argument("--whisper-size", default=None, choices=list(WHISPER_MODELS),
-                         help="Defaults to the drama's own saved choice (Workspace's own "
+                         help="Defaults to the title's own saved choice (Workspace's own "
                               f"'3. Recognition accuracy'), or '{DEFAULT_WHISPER_SIZE}' if it has none.")
     p_align.add_argument("--fast", action="store_true",
                          help="Batched decoding (~4x faster on a GPU, more VRAM)")
     p_align.add_argument("--transcript", default=None, metavar="FILE",
                          help="Chinese transcript to align (- for stdin); needs --id. "
-                              "Default: <drama folder>/transcript.txt.")
+                              "Default: <title folder>/transcript.txt.")
     p_align.set_defaults(func=cmd_align)
 
     p_diarize = sub.add_parser("diarize", help="Re-run speaker detection on stored audio (no re-transcription)")
@@ -1040,7 +1039,7 @@ def main():
                             "slowing off)")
     p_dub.add_argument("--keep-background", action="store_true",
                        help="Dub (not narration): mix the original's background music/ambience "
-                            "(the source audio minus its vocals, via the drama's separation "
+                            "(the source audio minus its vocals, via the title's separation "
                             "backend) back under the dub track")
     # No argparse choices: a removed engine name gets the same plain refusal
     # as the API instead of a generic "invalid choice" error.
@@ -1154,7 +1153,7 @@ def main():
                            default=None, help="Include the genre guidance and save that.")
     p_run.add_argument("--transcript", default=None, metavar="FILE",
                        help="Chinese transcript to align (- for stdin); needs --id. "
-                            "Default: <drama folder>/transcript.txt.")
+                            "Default: <title folder>/transcript.txt.")
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.add_argument("--ollama-url", default=None)
@@ -1163,7 +1162,7 @@ def main():
     p_run.add_argument("--context-window-ahead", type=int, default=None)
     p_run.add_argument("--batch-size", type=int, default=None)
     p_run.add_argument("--cost-cap", type=float, default=None,
-                       help="Stop a drama's translation once its estimated spend reaches this "
+                       help="Stop a title's translation once its estimated spend reaches this "
                             "many USD (finished lines are kept).")
     p_run.add_argument("--monthly-cap", type=float, default=None,
                        help="Refuse to start / stop once this calendar month's logged spend "
