@@ -41,6 +41,15 @@ class NotFoundError(ServiceError):
     code = "not_found"
 
 
+class NewerDatabaseError(ServiceError):
+    """library.db was last opened by a newer Baihe than this one, so this
+    build would misread columns it doesn't know. Raised at startup, where it
+    is printed and logged; it names the backups folder, so it is not meant
+    for an API response."""
+
+    code = "newer_database"
+
+
 class UnsupportedOperationError(ServiceError):
     """Well-formed, but not something this record/engine can do (e.g.
     a manga project asked to transcribe audio). HTTP 400

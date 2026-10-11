@@ -25,8 +25,8 @@ export interface RetranscribeRequest {
 // load, the title's full-transcribe settings, Fast mode off) and lists what it
 // heard next to what is there now. Nothing is written until "Apply selected":
 // the server then replaces the source text of those lines that are unchanged
-// since the run, clears their English so Translate counts them again, and
-// takes a history snapshot first.
+// since the run, keeps their English but flags it "Source changed", and takes
+// a history snapshot first.
 export function RetranscribeLines({
   dramaId,
   jobRunning,
@@ -112,13 +112,13 @@ export function RetranscribeLines({
     if (!result || chosen.length === 0) return
     setError(null)
     setApplying(true)
-    const clearing = new Set(chosen.filter((p) => p.had_english).map((p) => p.line_id))
+    const translated = new Set(chosen.filter((p) => p.had_english).map((p) => p.line_id))
     applyRetranscribeLines(dramaId, { job_id: result.job_id, items: applyItems(rows, checked) })
       .then((r) => {
         const done = new Set(r.applied)
         setResult((cur) => (cur ? { ...cur, proposals: cur.proposals.filter((p) => !done.has(p.line_id)) } : cur))
         setChecked((cur) => new Set([...cur].filter((id) => !done.has(id))))
-        setNote(applyNote(r, r.applied.filter((id) => clearing.has(id)).length))
+        setNote(applyNote(r, r.applied.filter((id) => translated.has(id)).length))
         onChanged()
       }, setError)
       .finally(() => setApplying(false))
@@ -132,8 +132,8 @@ export function RetranscribeLines({
         <div className="compare-panel" data-testid="retranscribe-lines">
           <p className="muted">
             Runs speech recognition again on just the ticked lines’ audio, with this title’s transcribe settings, and
-            shows what it heard next to what is there now. Nothing changes until you press “Apply selected”; the
-            English of each line you apply is cleared so it can be translated again.
+            shows what it heard next to what is there now. Nothing changes until you press “Apply selected”; a
+            translated line keeps its English and is marked “Source changed” so you can retranslate it or keep it.
           </p>
           <p data-testid="retranscribe-lines-count">{selectedIds.length} line{selectedIds.length === 1 ? '' : 's'} ticked</p>
           <div className="review-actions">
@@ -196,7 +196,7 @@ export function RetranscribeLines({
                             <td lang="zh" data-label="Now">{p.base_zh || <span className="muted">(empty)</span>}</td>
                             <td lang="zh" data-label="Heard">
                               {p.proposed_zh}
-                              {p.had_english && <span className="muted"> · clears its English</span>}
+                              {p.had_english && <span className="muted"> · keeps its English, marked Source changed</span>}
                             </td>
                           </tr>
                         ))}

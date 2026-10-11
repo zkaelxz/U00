@@ -52,7 +52,7 @@ def _read_drama_file(drama_id: int, filename: Optional[str]) -> str:
 
 def _default_engine() -> str:
     from services import settings_service
-    return settings_service.get_default_engine()
+    return settings_service.get("default_engine")
 
 
 def novel_glossary_engine(drama_id: int) -> str:
@@ -237,7 +237,7 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
     ConflictError if the stored engine changed since."""
     from services import settings_service, translate_service
 
-    stored_engine = drama.get("translation_engine") or settings_service.get_default_engine()
+    stored_engine = drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name is not None and engine_name != stored_engine:
         raise ConflictError("This drama's engine changed; check it and start again.")
     engine_name = stored_engine
@@ -249,7 +249,7 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
         raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key,
-        free_tier=engine_name == "gemini" and settings_service.get_gemini_free_tier(),
+        free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
     return engine_name, engine
@@ -291,7 +291,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     engine_name, engine = _glossary_engine(drama, engine_name)
     from services import settings_service, translate_run_service
     translate_run_service.refuse_when_cap_spent(engine_name,
-                                                settings_service.get_gemini_free_tier())
+                                                settings_service.get("gemini_free_tier"))
     job_id = novel_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
@@ -553,7 +553,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
             "This drama has no source lines yet; transcribe or import them first.")
     engine_name, engine = _glossary_engine(drama, engine_name)
     translate_run_service.refuse_when_cap_spent(engine_name,
-                                                settings_service.get_gemini_free_tier())
+                                                settings_service.get("gemini_free_tier"))
 
     job_id = lines_glossary_job_id(drama_id)
     started = _start_extraction_job(

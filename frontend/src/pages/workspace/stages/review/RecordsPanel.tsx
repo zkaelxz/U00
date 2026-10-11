@@ -16,6 +16,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
+import { afterLinesWrite, beforeLinesWrite } from './linesController'
 import { keptNote, restoreLossText, structureErrorText } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { retireUndoOffer } from './undoOffer'
@@ -61,6 +62,8 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
   const [activated, setActivated] = useState<string | null>(null)
   const [activateError, setActivateError] = useState<unknown>(null)
   const [jumpNote, setJumpNote] = useState<string | null>(null)
+  // Why a write is waiting: the open line edit could not be saved first.
+  const [held, setHeld] = useState<string | null>(null)
   const tmDismissed = useTmDismissed(dramaId)
 
   useEffect(() => {
@@ -121,13 +124,20 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
 
   // "Use this version": the server rewrites only each line's English (by
   // line id) after saving a snapshot, then the panel and lines reload.
-  const switchToVersion = (v: VersionItem) => {
+  const switchToVersion = async (v: VersionItem) => {
     setActivateError(null)
     setActivated(null)
     setActivating(v.id)
+    const blocked = await beforeLinesWrite(dramaId, 'all')
+    setHeld(blocked)
+    if (blocked) {
+      setActivating(null)
+      return
+    }
     activateVersion(dramaId, v.id)
       .then(
         (r) => {
+          afterLinesWrite(dramaId, 'all')
           setError(null)
           setActivated(
             `Now using “${r.label || `Version ${v.id}`}” (${r.lines_changed} line${r.lines_changed === 1 ? '' : 's'} changed). The lines before it are saved in Line history.` +
@@ -142,12 +152,19 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
 
   // The restore endpoint needs the drama's current line ids; the snapshot of
   // the current lines is taken by the server before anything is replaced.
-  const restore = (h: HistoryItem) => {
+  const restore = async (h: HistoryItem) => {
     setBusy(true)
+    const blocked = await beforeLinesWrite(dramaId, 'all')
+    setHeld(blocked)
+    if (blocked) {
+      setBusy(false)
+      return
+    }
     listAllLines(dramaId)
       .then((all) => restoreSnapshot(dramaId, h.id, all.map((l) => l.id)))
       .then(
         () => {
+          afterLinesWrite(dramaId, 'all')
           setError(null)
           setRestoring(null)
           // The lines changed shape: any one-click Undo would now be refused.
@@ -169,6 +186,12 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       (snap) => setLoss({ id: h.id, lines: snap.lines_with_notes_removed ?? 0 }),
       () => {},
     )
+  }
+
+  const acceptSuggestion = async (lineId: number, s: TmSuggestion) => {
+    const blocked = await beforeLinesWrite(dramaId, [lineId])
+    setHeld(blocked)
+    if (!blocked) act(acceptTm(dramaId, lineId, s.entry_id, s.en).then(() => afterLinesWrite(dramaId, [lineId])))
   }
 
   // A note's line (R43): the editor above opens it, on whatever page it is.
@@ -202,11 +225,12 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       ) : (
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
       )}
+      {held && <p role="status" data-testid="records-held">{held}</p>}
       {restored && <p role="status" data-testid="restore-status">{restored}</p>}
       {notes.length > 0 && (
         <>
           <h4>Notes</h4>
-          <ul data-testid="notes-list">
+          <ul className="records-list" data-testid="notes-list">
             {notes.map((n) => (
               <li key={n.id}>
                 <span className="muted">#{n.line_idx === null ? '?' : lineNumber(n.line_idx)}</span> <strong>{n.term}</strong> ({n.note_type}) {n.note}{' '}
@@ -227,7 +251,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       {tm.length > 0 && (
         <>
           <h4>Translation memory suggestions</h4>
-          <ul data-testid="tm-list">
+          <ul className="records-list" data-testid="tm-list">
             {tm.map((s) => (
               <li key={s.entry_id}>
                 <span className="muted">#{lineNumber(s.line_idx)}</span> {s.suggestion}{' '}
@@ -236,7 +260,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                   <button
                     type="button"
                     className={buttonClass('secondary', 'sm')}
-                    onClick={() => act(acceptTm(dramaId, s.line_id as number, s.entry_id, s.en))}
+                    onClick={() => void acceptSuggestion(s.line_id as number, s)}
                   >
                     Accept
                   </button>
@@ -252,7 +276,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       {versions.length > 0 && (
         <>
           <h4>Translation versions</h4>
-          <ul data-testid="versions-list" ref={versionsRef}>
+          <ul className="records-list" data-testid="versions-list" ref={versionsRef}>
             {versions.map((v) => (
               <li key={v.id} data-version-id={v.id}>
                 {v.label ?? `Version ${v.id}`} · {v.engine} {v.model}
@@ -273,7 +297,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                     confirmLabel={`Confirm: replace the English with ${v.label ?? `Version ${v.id}`}`}
                     busy={activating === v.id}
                     disabled={jobRunning || (activating !== null && activating !== v.id)}
-                    onConfirm={() => switchToVersion(v)}
+                    onConfirm={() => void switchToVersion(v)}
                   />
                 )}
               </li>
@@ -289,7 +313,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       {history.length > 0 && (
         <>
           <h4>Line history</h4>
-          <ul data-testid="history-list">
+          <ul className="records-list" data-testid="history-list">
             {history.map((h) => (
               <li key={h.id}>
                 {capFirst(h.label ?? `Snapshot ${h.id}`)} <span className="muted">{h.created_at}</span>{' '}
@@ -313,7 +337,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                     action="Restore snapshot"
                     busy={busy}
                     blocked={jobRunning ? JOB_RUNNING_MESSAGE : null}
-                    onConfirm={() => restore(h)}
+                    onConfirm={() => void restore(h)}
                     onCancel={() => setRestoring(null)}
                   >
                     <p className="muted">

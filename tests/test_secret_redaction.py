@@ -44,3 +44,12 @@ def test_deepl_pro_key_after_auth_header_redacted(redactor):
 ])
 def test_ordinary_text_untouched(redactor, text):
     assert redactor(text) == text
+
+
+def test_signed_url_and_bare_signature_params_are_stripped_for_support():
+    text = diagnostics_report.redact_for_support(
+        "GET https://cdn.example.com/a/b?token=abc&sig=xyz failed; X-Amz-Signature=deadbeef "
+        "access_token=tok1 sig=s2")
+    for leaked in ("abc", "xyz", "deadbeef", "tok1", "s2", "?"):
+        assert leaked not in text
+    assert "https://cdn.example.com/a/b failed" in text

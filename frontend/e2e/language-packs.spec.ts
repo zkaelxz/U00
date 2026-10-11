@@ -61,3 +61,17 @@ test('the default for the language is saved', async ({ page }) => {
   await expect(page.getByText('Saved. Japanese titles without their own choice now use these packs.')).toBeVisible()
   expect(seen.defaults).toEqual([{ packs: { 'ja-address': 'romanised' } }])
 })
+
+test('toggling two packs in quick succession keeps both on', async ({ page }) => {
+  await inSeriesSeven(page)
+  const seen = await mockLanguagePacks(page)
+  await openPacks(page)
+  const a = page.getByRole('switch', { name: 'Use Japanese honorifics and address terms for this title' })
+  const b = page.getByRole('switch', { name: 'Use Japanese kinship, roles and set phrases for this title' })
+  await a.click()
+  await b.click()
+  await expect.poll(() => seen.posts.length).toBe(2)
+  expect(Object.keys((seen.posts[1] as { packs: object }).packs).sort()).toEqual(['ja-address', 'ja-common'])
+  await expect(a).toHaveAttribute('aria-checked', 'true')
+  await expect(b).toHaveAttribute('aria-checked', 'true')
+})

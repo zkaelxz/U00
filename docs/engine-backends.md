@@ -20,8 +20,8 @@ name from the `engine_backends/` package so `import translate_engines` and
 | `shared.py` | usage totals, `call_with_backoff`, secret redaction, id-keyed request and parsing, moderation detection |
 | `prompts.py` | prompt builders shared by the LLM engines |
 | `claude.py` | `ClaudeEngine` (Anthropic SDK) |
-| `openai_compat.py` | `DeepSeekEngine` (OpenAI SDK pointed at `api.deepseek.com`), `OpenAIEngine` (plain `requests` call to Chat Completions) |
-| `gemini.py` | `GeminiEngine` (plain `requests` call to `generateContent`), free-tier pacing and rate status |
+| `openai_compat.py` | `DeepSeekEngine` (OpenAI SDK pointed at `api.deepseek.com`), `OpenAIEngine` (call through `lib.http` to Chat Completions) |
+| `gemini.py` | `GeminiEngine` (call through `lib.http` to `generateContent`), free-tier pacing and rate status |
 | `local.py` | `OllamaEngine` (REST to a local server), `check_ollama_reachable` |
 | `llm_tasks.py` | `call_llm_json` and the single-prompt helpers (speaker tagging, pacing rewrite, consistency check, episode summary, flagging) |
 | `engine_registry.py` | `ENGINES`, capability tags, notes, model overrides, `get_engine` |
@@ -35,8 +35,8 @@ Engine map today:
 |---|---|---|---|
 | `claude` | `ClaudeEngine` | `anthropic` SDK | key |
 | `deepseek` | `DeepSeekEngine` | `openai` SDK | key |
-| `openai` | `OpenAIEngine` | `requests` | key |
-| `gemini` | `GeminiEngine` | `requests` | key (free-tier keys are paced client-side) |
+| `openai` | `OpenAIEngine` | `lib.http` | key |
+| `gemini` | `GeminiEngine` | `lib.http` | key (free-tier keys are paced client-side) |
 | `ollama` | `OllamaEngine` | `requests` to the local server | none; a running Ollama |
 
 The `deepseek` engine needs the `openai` package, which is why
@@ -308,7 +308,7 @@ language. A line is given a `lang` only when it differs from the title's, and
 one that still can't be confirmed gets the `language_uncertain` flag.
 
 **Model folders and offline use.** Settings > "Offline Whisper model folder"
-(`whisper_model_path`, read by `settings_service.get_whisper_model_path`) is
+(`whisper_model_path`, read by `settings_service.get("whisper_model_path")`) is
 passed as `local_model_path` and used instead of a download. Downloads honour an
 HF token (`hf_token` key, `HF_TOKEN`). In portable mode `portable.py` redirects
 `HF_HOME`, `TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` under one
