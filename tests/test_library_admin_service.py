@@ -3,6 +3,7 @@ import io
 import json
 import os
 import time
+import types
 import zipfile
 
 import pytest
@@ -1282,3 +1283,26 @@ def test_export_skips_translated_titles_with_no_translated_lines(isolated_db):
     assert [(x["drama_id"], x["ok"]) for x in explicit["results"]] == [(good, True), (hollow, False)]
     with pytest.raises(InvalidInputError):
         las.start_export_zip([hollow])
+
+
+def test_bulk_delete_continues_when_the_language_pack_cleanup_fails(isolated_db, monkeypatch):
+    import sqlite3
+
+    from services import language_pack_service
+
+    a, b = _new("A"), _new("B")
+
+    class Locked:
+        def execute(self, *args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        def close(self):
+            pass
+    # Only forget_title sees the failing connection; the rest of the delete is real.
+    real_db = language_pack_service.db
+    monkeypatch.setattr(language_pack_service, "db", types.SimpleNamespace(
+        get_conn=lambda: Locked(), get_app_setting=real_db.get_app_setting))
+    language_pack_service.forget_title(a)  # must not raise
+    r = las.bulk_delete([a, b], confirm=True, confirm_text="DELETE")
+    assert r["deleted"] == 2
+    assert db.get_drama(a) is None and db.get_drama(b) is None
