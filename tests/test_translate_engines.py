@@ -2252,6 +2252,93 @@ class TestFlagUncertainLines:
         assert lines[0].flag_note == "new note"
 
 
+class _RawReplyFlagEngine(FakeFlaggingEngine):
+    def __init__(self, raw):
+        super().__init__()
+        self.raw = raw
+        self.prompts = []
+
+    def create(self, model, max_tokens, messages):
+        self.prompts.append(messages[0]["content"])
+        return type("Resp", (), {"content": [_FakeBlock(self.raw)]})()
+
+
+class TestFlagPassDefects:
+    @pytest.mark.parametrize("raw_id", ["[1]", "1", " 1 ", 1, "[ 1 ]"])
+    def test_line_idx_formats_all_land_on_the_right_line(self, raw_id):
+        import json as _json
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A"),
+                 Line(idx=1, start=1, end=2, zh="b", en="B")]
+        raw = _json.dumps([{"line_idx": raw_id, "reason": "slang_idiom", "note": "n"}])
+        te.flag_uncertain_lines(lines, _RawReplyFlagEngine(raw), batch_size=10)
+        assert lines[0].flag is None
+        assert lines[1].flag == "slang_idiom"
+
+    def test_unparsable_entry_is_skipped_not_fatal(self):
+        import json as _json
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        raw = _json.dumps([{"line_idx": "first", "reason": "slang_idiom"},
+                           {"line_idx": [0], "reason": "slang_idiom"},
+                           {"line_idx": True, "reason": "slang_idiom"},
+                           {"line_idx": "[0]", "reason": "name_uncertain", "note": "ok"}])
+        te.flag_uncertain_lines(lines, _RawReplyFlagEngine(raw), batch_size=10)
+        assert lines[0].flag == "name_uncertain"
+
+    @pytest.mark.parametrize("system_flag", ["timing_uncertain", "content_blocked"])
+    def test_system_flag_and_note_survive_the_model(self, system_flag):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag=system_flag, flag_note="app note"),
+                 Line(idx=1, start=1, end=2, zh="b", en="B")]
+        engine = FakeFlaggingEngine(flags_for={0: ("slang_idiom", "model"), 1: ("slang_idiom", "model")})
+        te.flag_uncertain_lines(lines, engine, batch_size=10)
+        assert (lines[0].flag, lines[0].flag_note) == (system_flag, "app note")
+        assert (lines[1].flag, lines[1].flag_note) == ("slang_idiom", "model")
+
+    @pytest.mark.parametrize("lang,name", [("zh", "Chinese"), ("ja", "Japanese"),
+                                           ("ko", "Korean")])
+    def test_prompts_name_the_source_language(self, lang, name):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        assert f"Below are {name} source lines" in te.build_flag_prompt(lines, source_language=lang)
+        assert f"Below are {name} source lines" in te.build_consistency_prompt(
+            lines, source_language=lang)
+
+    @pytest.mark.parametrize("value,expected", [(2.0, 2), ("2", 2), (" 2 ", 2), ("[2]", 2),
+                                                (2, 2), (2.5, None), (True, None), ("x", None),
+                                                ([2], None), (None, None)])
+    def test_parse_line_id(self, value, expected):
+        assert te.parse_line_id(value) == expected
+
+    def test_system_flagged_lines_are_not_sent_to_the_model(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag="timing_uncertain"),
+                 Line(idx=1, start=1, end=2, zh="b", en="B")]
+        engine = _RawReplyFlagEngine("[]")
+        te.flag_uncertain_lines(lines, engine)
+        assert "[0]" not in engine.prompts[0] and "[1]" in engine.prompts[0]
+
+    def test_only_system_flagged_lines_makes_no_model_call(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag="content_blocked")]
+        engine = _RawReplyFlagEngine("[]")
+        te.flag_uncertain_lines(lines, engine)
+        assert engine.prompts == []
+
+    def test_stats_count_unparsable_entries_and_batches(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        stats = {}
+        te.flag_uncertain_lines(lines, _RawReplyFlagEngine('[{"line_idx": "x"}, {"line_idx": 0}]'),
+                                stats=stats)
+        assert stats == {"unparsable_entries": 1, "failed_batches": 0, "total_batches": 1}
+
+    def test_unknown_language_is_neutral_and_never_chinese(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        for prompt in (te.build_flag_prompt(lines), te.build_consistency_prompt(lines, "xx")):
+            assert "Chinese" not in prompt
+
+    def test_source_language_reaches_the_flag_prompt(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        engine = _RawReplyFlagEngine("[]")
+        te.flag_uncertain_lines(lines, engine, source_language="ja")
+        assert "Japanese source lines" in engine.prompts[0]
+
+
 class SequentialClaudeShapedEngine:
     """Claude-shaped fake returning canned raw response strings in order,
     one per call -- used to test the id-keyed retry mechanism directly

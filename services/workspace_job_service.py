@@ -435,7 +435,7 @@ def _raise_if_cancelled(job_id):
         raise background_jobs.JobCancelled(job_id)
 
 
-def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
+def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
     """
     Runs flag_uncertain_lines in a background thread -- same reasoning as
     the jobs above. Unlike emotion detection, the result IS persisted (via
@@ -450,8 +450,9 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
     user's value; the job's result for that line is dropped.
     """
     started_with = {ln.id: (ln.flag or "", ln.flag_note or "") for ln in lines}
+    stats = {}
     translate_engines.flag_uncertain_lines(
-        lines, engine,
+        lines, engine, source_language=lang, stats=stats,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
         usage_cb=lambda inp, out: db.log_usage(
@@ -473,17 +474,17 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
     saved = {r["id"]: bool(r["flag"]) for r in db.load_lines(drama_id)}
     flagged = sum(saved.get(ln.id, False) if ln.id is not None else bool(ln.flag)
                   for ln in lines)
-    background_jobs.set_result(job_id, {"flagged_count": flagged})
+    background_jobs.set_result(job_id, {"flagged_count": flagged, **stats})
 
 
-def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
+def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
     """
     Runs check_consistency_llm in a background thread. Backgrounding it,
     same as Review queue and Emotion detection, is what lets it run at the same time as those instead of forcing them
     to queue up one after another.
     """
     issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
-        lines, engine,
+        lines, engine, source_language=lang,
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
