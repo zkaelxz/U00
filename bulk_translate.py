@@ -62,6 +62,13 @@ def poll_job_id(bulk_job_id: int) -> str:
     return f"bulkpoll_{bulk_job_id}"
 
 
+def _polled_by_outer_job(job: dict) -> bool:
+    """run_bulk_translate_job polls under its own id, not poll_job_id."""
+    kind = job.get("kind") or "translate"
+    kind = {"reflect": "translate", "translation_notes": "notes"}.get(kind, kind)
+    return background_jobs.is_running(f"bulk_{kind}_{job['drama_id']}")
+
+
 def _utcnow():
     return datetime.datetime.utcnow()
 
@@ -502,6 +509,24 @@ def _parse_strict(text: str, expected_ids: list) -> dict:
     return translate_engines.parse_id_keyed_json(stripped, expected_ids)
 
 
+def _save_applied_english(job: dict, current: list, applied: int, changed_flag: bool, label: str):
+    if applied:
+        import subtitle_formats
+        mode = subtitle_formats.flagging_mode_of(db.get_drama(job["drama_id"]))
+        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
+    if applied or changed_flag:
+        db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
+    if applied:
+        db.save_translation_version(
+            job["drama_id"], current, label=label, engine=job["engine"],
+            model=job["model"] or "", make_active=True)
+        # Applying SOME lines must not claim the whole drama is translated.
+        _status = dict(translation_engine=job["engine"])
+        if untranslated_line_count(job["drama_id"]) == 0:
+            _status["status"] = "translated"
+        db.update_drama(job["drama_id"], **_status)
+
+
 def apply_bulk_results(bulk_job_id: int, results) -> dict:
     """Applies (request_key, text, usage, error) results to the drama's
     CURRENT lines, by line id. Returns counts of what happened."""
@@ -563,24 +588,8 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
             source_change.clear_for_new_english(ln)
             counts["applied"] += 1
 
-    if counts["applied"]:
-        import subtitle_formats
-        mode = subtitle_formats.flagging_mode_of(db.get_drama(job["drama_id"]))
-        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
-    if counts["applied"] or changed_flag:
-        db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
-    if counts["applied"]:
-        db.save_translation_version(
-            job["drama_id"], current, label=f"{job['engine']} bulk · {args.get('style_preset', '')}",
-            engine=job["engine"], model=job["model"] or "", make_active=True)
-        # Mark the drama "translated" only when no line is left
-        # untranslated: a batch that applied SOME lines (dropped/flagged/
-        # kept-your-edit lines aside) must not claim the whole drama. Same
-        # untranslated_line_count() == 0 gate as finish_translation_run.
-        _status = dict(translation_engine=job["engine"])
-        if untranslated_line_count(job["drama_id"]) == 0:
-            _status["status"] = "translated"
-        db.update_drama(job["drama_id"], **_status)
+    _save_applied_english(job, current, counts["applied"], changed_flag,
+                          f"{job['engine']} bulk · {args.get('style_preset', '')}")
     # Nothing newly applied can still complete the title (lines typed meanwhile).
     mark_translated_if_complete(job["drama_id"])
     return counts
@@ -592,6 +601,19 @@ def _stale_line(ln, expected_hash: str) -> bool:
     kind below applies before touching anything, same as apply_bulk_results'
     own zh_hash check."""
     return ln is None or zh_hash(ln.zh) != expected_hash
+
+
+def _drop_or_flag_stale(ln, counts: dict) -> bool:
+    """Counts a stale line; True when it was newly flagged."""
+    if ln is None:
+        counts["dropped_deleted"] += 1
+        return False
+    counts["flagged_source_changed"] += 1
+    if ln.flag:
+        return False
+    ln.flag = "bulk_source_changed"
+    ln.flag_note = "Source text changed while a bulk Reflect job was pending"
+    return True
 
 
 def apply_reflect_stage_results(bulk_job_id: int, results) -> dict:
@@ -637,14 +659,7 @@ def _apply_reflect_faithful(job: dict, results) -> dict:
             row = row_by_id[lid]
             ln = cur_by_id.get(lid)
             if _stale_line(ln, row["zh_hash"]):
-                if ln is not None:
-                    counts["flagged_source_changed"] += 1
-                    if not ln.flag:
-                        ln.flag = "bulk_source_changed"
-                        ln.flag_note = "Source text changed while a bulk Reflect job was pending"
-                        changed_flag = True
-                else:
-                    counts["dropped_deleted"] += 1
+                changed_flag = _drop_or_flag_stale(ln, counts) or changed_flag
                 continue
             draft = (draft_map.get(str(lid)) or "").strip()
             if not draft:
@@ -736,14 +751,7 @@ def _apply_reflect_reflection(job: dict, results) -> dict:
             row = row_by_id[lid]
             ln = cur_by_id.get(lid)
             if _stale_line(ln, row["zh_hash"]):
-                if ln is not None:
-                    counts["flagged_source_changed"] += 1
-                    if not ln.flag:
-                        ln.flag = "bulk_source_changed"
-                        ln.flag_note = "Source text changed while a bulk Reflect job was pending"
-                        changed_flag = True
-                else:
-                    counts["dropped_deleted"] += 1
+                changed_flag = _drop_or_flag_stale(ln, counts) or changed_flag
                 continue
             critique = (critique_map.get(str(lid)) or "").strip()
             # A line the model chose not to critique is a normal, expected
@@ -788,7 +796,14 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
     rows = db.list_bulk_job_lines(job["id"])
     survivors = [r["line_id"] for r in rows
                  if (r["result_text"] if nxt == "reflect" else r["result_text"] is not None)]
-    if not survivors or sibling_stage_job(job["pipeline_id"], nxt, skip_failed=True) is not None:
+    if sibling_stage_job(job["pipeline_id"], nxt, skip_failed=True) is not None:
+        return _leave_applying(job["id"], "applied", result_summary=summary, last_error=None)
+    if nxt == "expressive":
+        # Failed reflections never reach the expressive stage; keep their paid drafts.
+        failed = {r["line_id"] for r in rows if r["result_text"] is None}
+        summary["drafts_applied"] = summary.get("drafts_applied", 0) + (
+            _apply_reflect_drafts(job, failed) if failed else 0)
+    if not survivors:
         return _leave_applying(job["id"], "applied", result_summary=summary, last_error=None)
     if engine is None:
         return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
@@ -809,7 +824,7 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
         if summary["next_stage_attempts"] < STAGE_SUBMIT_ATTEMPTS:
             return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
                                    last_error=f"The next Reflect stage couldn't be sent yet: {error}")
-    summary["drafts_applied"] = _apply_reflect_drafts(job)
+    summary["drafts_applied"] = summary.get("drafts_applied", 0) + _apply_reflect_drafts(job)
     return _leave_applying(job["id"], "applied", result_summary=summary,
                            last_error=f"The next Reflect stage wasn't sent ({error}); "
                                       "the first-pass drafts were used instead.")
@@ -823,9 +838,10 @@ def _leave_applying(job_id: int, status: str, **fields) -> str:
     return status
 
 
-def _apply_reflect_drafts(job: dict) -> int:
+def _apply_reflect_drafts(job: dict, only_ids=None) -> int:
     faithful = job if job["stage"] == "faithful" else sibling_stage_job(job["pipeline_id"], "faithful")
-    rows = {r["line_id"]: r for r in db.list_bulk_job_lines(faithful["id"]) if r["result_text"]}
+    rows = {r["line_id"]: r for r in db.list_bulk_job_lines(faithful["id"])
+            if r["result_text"] and (only_ids is None or r["line_id"] in only_ids)}
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0, "kept_your_edit": 0}
     _write_reflect_english(job, rows, {lid: r["result_text"] for lid, r in rows.items()}, {}, counts,
                            f"{job['engine']} bulk reflect (first-pass drafts)")
@@ -864,6 +880,10 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
         request_ids = ids_by_key[key]
         if error or text is None:
             counts["failed_requests"] += 1
+            # Paid draft stands in; its unused critique isn't kept as a note.
+            for lid in request_ids:
+                final_by_id[lid] = draft_by_id.get(lid) or ""
+                critique_by_id.pop(lid, None)
             continue
         final_map = _parse_strict(text, [str(lid) for lid in request_ids])
         for lid in request_ids:
@@ -884,14 +904,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
         row = row_by_id[lid]
         ln = cur_by_id.get(lid)
         if _stale_line(ln, row["zh_hash"]):
-            if ln is not None:
-                counts["flagged_source_changed"] += 1
-                if not ln.flag:
-                    ln.flag = "bulk_source_changed"
-                    ln.flag_note = "Source text changed while a bulk Reflect job was pending"
-                    changed_flag = True
-            else:
-                counts["dropped_deleted"] += 1
+            changed_flag = _drop_or_flag_stale(ln, counts) or changed_flag
             continue
         if (ln.en or "") != (row["en_at_submit"] or ""):
             counts["kept_your_edit"] += 1
@@ -908,21 +921,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
         if critique:
             notes.append({"line_id": lid, "term": "", "note_type": "reflection", "note": critique})
 
-    if counts["applied"]:
-        import subtitle_formats
-        mode = subtitle_formats.flagging_mode_of(db.get_drama(job["drama_id"]))
-        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
-    if counts["applied"] or changed_flag:
-        db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
-    if counts["applied"]:
-        db.save_translation_version(
-            job["drama_id"], current, label=label, engine=job["engine"],
-            model=job["model"] or "", make_active=True)
-        # Same "translated" gate as apply_bulk_results above.
-        _status = dict(translation_engine=job["engine"])
-        if untranslated_line_count(job["drama_id"]) == 0:
-            _status["status"] = "translated"
-        db.update_drama(job["drama_id"], **_status)
+    _save_applied_english(job, current, counts["applied"], changed_flag, label)
     mark_translated_if_complete(job["drama_id"])
     if notes:
         db.save_translation_notes(job["drama_id"], notes)
@@ -1401,7 +1400,7 @@ def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None)
                     "The app stopped while applying these results; lines without a result "
                     "can be run again."))
             continue
-        if background_jobs.is_running(poll_job_id(job["id"])):
+        if background_jobs.is_running(poll_job_id(job["id"])) or _polled_by_outer_job(job):
             out[job["id"]] = "running"
             continue
         if job["status"] == "running":

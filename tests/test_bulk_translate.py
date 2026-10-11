@@ -1647,3 +1647,27 @@ class TestOffPeakRunFinishes:
         assert json.loads(isolated_db.get_drama(did)["last_translate_errors"])
         assert isolated_db.get_bulk_job(bulk_id)["status"] == "applied"
         background_jobs.clear_job("t_ds_finish")
+
+
+class TestResumeWhileOuterJobIsActive:
+    def test_resume_leaves_a_running_offpeak_job_under_its_outer_job_alone(self, isolated_db):
+        # run_bulk_translate_job polls under bulk_translate_<drama>, so the
+        # bulkpoll_<id> id is free while a paid off-peak run is in flight.
+        import threading
+        did = _drama(isolated_db, n=2)
+        lines = isolated_db.load_line_objects(did)
+        bulk_id = bt.schedule_offpeak_translation(did, lines, "deepseek", "m", {})
+        isolated_db.update_bulk_job(bulk_id, status="running")
+        release = threading.Event()
+        outer = f"bulk_translate_{did}"
+        assert background_jobs.start_job(outer, lambda: release.wait(10))
+        asked = []
+        try:
+            out = bt.resume_pending(did, lambda e, m: asked.append((e, m)) or object())
+        finally:
+            release.set()
+            _wait_for(outer)
+        assert out == {bulk_id: "running"}
+        assert asked == []
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "running"
+        assert not background_jobs.is_running(bt.poll_job_id(bulk_id))
