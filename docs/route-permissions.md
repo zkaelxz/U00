@@ -209,6 +209,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/glossary/dramas/{drama_id}/instructions/project` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/instructions/series` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/name-clusters` | lines.read |
+| `GET /api/glossary/dramas/{drama_id}/name-consistency` | lines.read |
+| `GET /api/glossary/dramas/{drama_id}/spelling-suggestions` | lines.read |
+| `POST /api/glossary/dramas/{drama_id}/spelling-suggestions` | jobs.start |
+| `POST /api/glossary/dramas/{drama_id}/spelling-suggestions/cancel` | jobs.cancel |
 | `GET /api/glossary/dramas/{drama_id}/terms` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/terms` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/terms/bulk-delete` | lines.edit |

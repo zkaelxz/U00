@@ -19,6 +19,8 @@ import type {
   GlossaryTerm,
   GlossaryTermUpsert,
   GlossaryVariants,
+  NameConsistency,
+  SpellingSuggestStatus,
   SourceChangedRunBody,
   SourceChangedRunStarted,
   TranslateErrorsDismissed,
@@ -32,6 +34,7 @@ import type {
   TranslatePresetApplied,
   WorkflowTierApplied,
 } from '../types/translateStage'
+import type { JobCancelResult } from '../types/jobs'
 import { apiUrl, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
@@ -128,3 +131,15 @@ export const applyVoiceBankEntry = (id: number, speakerLabel: string, voiceBankI
     { speaker_label: speakerLabel, voice_bank_id: voiceBankId },
     f,
   )
+
+/** One model call (paid unless the engine is free) proposing how a known name may be spelled in the lines. */
+export const startSpellingSuggestions = (id: number, termId: number, english: string, f?: Fetch) =>
+  postJson<{ job_id: string; engine: string }>(`/api/glossary/dramas/${id}/spelling-suggestions`, { term_id: termId, english }, f)
+export const getSpellingSuggestions = (id: number, f?: Fetch) =>
+  getJson<SpellingSuggestStatus>(`/api/glossary/dramas/${id}/spelling-suggestions`, f)
+export const cancelSpellingSuggestions = (id: number, runId: string, f?: Fetch) =>
+  postJson<JobCancelResult>(`/api/glossary/dramas/${id}/spelling-suggestions/cancel`, { run_id: runId }, f)
+/** Lines where the term's name is not rendered as `english` (read-only, no engine, no cost). */
+export const getNameConsistency = (id: number, termId: number, english: string, f?: Fetch) =>
+  getJson<NameConsistency>(
+    `/api/glossary/dramas/${id}/name-consistency?term_id=${termId}&english=${encodeURIComponent(english)}`, f)
