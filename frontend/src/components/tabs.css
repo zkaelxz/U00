@@ -7,5 +7,6 @@
 @media (max-width: 640px) {
   /* Scrolls inside the row so the page itself never scrolls sideways. */
   .ui-tabs { overflow-x: auto; gap: var(--space-1); scrollbar-width: thin; }
-  .ui-tab { flex: 0 0 auto; padding-inline: var(--space-3); white-space: nowrap; }
+  /* Equal shares with wrapping labels; below min-width the row scrolls instead of squeezing. */
+  .ui-tab { flex: 1 1 0; min-width: 5rem; padding-inline: var(--space-2); text-align: center; line-height: 1.2; flex-wrap: wrap; }
 }
