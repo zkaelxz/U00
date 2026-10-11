@@ -18,7 +18,7 @@ test('Language packs fits a phone: no sideways page scroll with a pack open', as
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Translation and keys')
   const card = page.getByRole('region', { name: 'Language packs', exact: true })
-  await card.locator('summary').click()
+  await card.locator('summary').last().click()
   await expect(card.getByRole('table')).toContainText('先輩')
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
   expect(overflow).toBe(false)

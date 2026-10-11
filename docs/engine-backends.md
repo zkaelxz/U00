@@ -323,7 +323,7 @@ checked against it, and a span that disagrees is retried once in the title's
 language. A line is given a `lang` only when it differs from the title's, and
 one that still can't be confirmed gets the `language_uncertain` flag.
 
-**Model folders and offline use.** Settings > "Offline Whisper model folder"
+**Model folders and offline use.** Settings > System > Offline, paths and limits > "Offline Whisper model folder"
 (`whisper_model_path`, read by `settings_service.get("whisper_model_path")`) is
 passed as `local_model_path` and used instead of a download. Downloads honour an
 HF token (`hf_token` key, `HF_TOKEN`). In portable mode `portable.py` redirects

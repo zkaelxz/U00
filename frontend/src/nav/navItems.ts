@@ -1,6 +1,6 @@
 /*
  * One list of the app's navigation items. The left rail, the nav drawer, the
- * command palette and the Customize menu all read it, so a new page is added
+ * command palette and the Menu items all read it, so a new page is added
  * here once.
  *
  * `requires` records the permission the page's data routes need
@@ -139,7 +139,7 @@ function isVisible(i: NavItem, ctx: NavContext): boolean {
   return isAllowed(i, ctx) && !isHiddenByChoice(i, ctx)
 }
 
-/** Every item this person may see before their own hiding, once each in registry order: the "Customize menu" list. */
+/** Every item this person may see before their own hiding, once each in registry order: the "Menu items" list. */
 export function customizableNavItems(ctx: NavContext): NavItem[] {
   return NAV_ITEMS.filter((i) => isAllowed(i, ctx))
 }

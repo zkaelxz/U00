@@ -1,4 +1,4 @@
-// Pure helpers for Settings > Browser extension devices
+// Pure helpers for Settings > Extension tokens per computer
 // (ExtensionDevicesCard.tsx). The server decides everything (own tokens
 // only, 404 for anything else, 403 without extension.send or for an admin
 // account away from the PC); these only decide what to show and word it.

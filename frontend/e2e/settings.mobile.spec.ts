@@ -10,10 +10,9 @@ test.beforeEach(async ({ page }) => {
 // and the page has no sideways scroll.
 test('settings switches have 44px touch targets on a phone', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
-  for (const tab of ['System', 'Preferences'] as const) {
+  for (const tab of ['Translation and keys', 'Costs', 'Notifications and backups', 'Sharing and devices', 'Integrations', 'System'] as const) {
     await openSettingsGroups(page, tab)
-    if (tab === 'Preferences') await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible() // the seeded API leaves the bridge off or on; either way it is a switch
+    if (tab === 'Integrations') await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible() // the seeded API leaves the bridge off or on; either way it is a switch
     const switches = page.locator('.settings-panel:not([hidden])').getByRole('switch')
     for (const sw of await switches.all()) {
       // elementFromPoint only sees the viewport; centre it so the +-21px probes stay on screen.
@@ -37,18 +36,23 @@ test('settings switches have 44px touch targets on a phone', async ({ page }) =>
 })
 
 for (const width of [360, 390]) {
-  test(`phone ${width}: tabs are a 3-column grid of 44px buttons and search spans the width`, async ({ page }) => {
+  test(`phone ${width}: the six tabs are one row of 44px buttons that scrolls inside the bar, and search spans the width`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/settings')
     const tabs = page.getByRole('tab')
-    await expect(tabs).toHaveCount(3)
+    await expect(tabs).toHaveCount(6)
     const boxes = await Promise.all((await tabs.all()).map((t) => t.boundingBox()))
     for (const b of boxes) expect(b!.height).toBeGreaterThanOrEqual(44)
-    expect(new Set(boxes.map((b) => Math.round(b!.y))).size).toBe(1) // one row, three columns
+    expect(new Set(boxes.map((b) => Math.round(b!.y))).size).toBe(1) // one row, however narrow
     const search = await page.getByRole('searchbox', { name: 'Search settings' }).boundingBox()
     const list = await page.getByRole('tablist').boundingBox()
     expect(Math.abs(search!.width - list!.width)).toBeLessThan(2)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    expect(await page.evaluate(() => { const l = document.querySelector('[role=tablist]')!; return l.scrollWidth <= l.clientWidth })).toBe(true)
+    // The row is wider than the screen, so it scrolls inside itself; a tab off the edge is reachable.
+    expect(await page.evaluate(() => { const l = document.querySelector('[role=tablist]')!; return l.scrollWidth > l.clientWidth })).toBe(true)
+    await page.getByRole('tab', { name: 'System', exact: true }).click()
+    await expect(page.getByRole('tab', { name: 'System', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab', { name: 'System', exact: true })).toBeInViewport()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 }

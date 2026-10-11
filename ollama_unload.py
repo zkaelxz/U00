@@ -21,7 +21,7 @@ from lib import http, settings_schema
 
 DEFAULT_BASE_URL = "http://localhost:11434"
 SETTING_KEY = "unload_ollama_before_transcribe"
-SETTING_LABEL = "Free Ollama's GPU memory before transcribing"
+SETTING_LABEL = "Free local-model memory before transcribing"
 
 # The whole unload-and-wait step never takes longer than this.
 UNLOAD_WAIT_SECONDS = 10.0

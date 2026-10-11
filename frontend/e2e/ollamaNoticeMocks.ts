@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test'
 
 export const OLLAMA_NOTICE =
-  "Ollama still has a model loaded (gemma4:26b), which may make transcription run out of GPU memory and fall back to the CPU. Free it with: ollama stop gemma4:26b, or turn on Settings > Free Ollama's GPU memory before transcribing."
+  "Ollama still has a model loaded (gemma4:26b), which may make transcription run out of GPU memory and fall back to the CPU. Free it with: ollama stop gemma4:26b, or turn on Settings > Free local-model memory before transcribing."
 
 // A finished transcription whose result carries the Ollama notice, as the
 // Jobs list receives it (the notice is also the job's outcome message).

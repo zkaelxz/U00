@@ -7,8 +7,8 @@
  * each block shows "PC only".
  *
  * Layout (UI refresh §3.12): Defaults and Spending are Cards;
- * OCR, offline, downloads and server addresses are rare, so they are
- * Sections inside one "Advanced" Card. Their fields are generated from the
+ * OCR, offline, downloads, program locations and server addresses are rare, so they are
+ * Sections inside one "Offline, paths and limits" Card. Their fields are generated from the
  * declared settings (SchemaCard); the server addresses are .env values and
  * stay hand-written.
  */
@@ -146,34 +146,56 @@ function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolea
   )
 }
 
-// How the Advanced section's rows fold. A row of the section that no fold names lands in
+// How the "Offline, paths and limits" card's rows fold. A row of the section that no fold names lands in
 // "Other", so a newly declared setting shows up without touching this list.
 const ADVANCED_FOLDS: { title: string; keys: string[] }[] = [
-  { title: 'OCR', keys: ['ocr_backend', 'ocr_prefer_paddle_vl_manga', 'tesseract_cmd'] },
-  { title: 'Offline and performance', keys: ['whisper_model_path', 'ollama_num_ctx_override', 'keep_free_vram_gb', 'keep_free_ram_gb'] },
-  { title: 'Downloads', keys: ['cookies_browser', 'cookies_file', 'lncrawl_cmd'] },
+  { title: 'OCR', keys: ['ocr_backend', 'ocr_prefer_paddle_vl_manga'] },
+  { title: 'Offline models', keys: ['whisper_model_path', 'ollama_num_ctx_override'] },
+  { title: 'Downloads', keys: ['cookies_browser'] },
+  { title: 'Program locations', keys: ['cookies_file', 'tesseract_cmd', 'lncrawl_cmd'] },
   { title: 'Uploads', keys: ['max_upload_mb'] },
 ]
+
+// These two live in the Jobs and GPU card, so the generic "Other" fold must not pick them up here.
+const KEEP_FREE_KEYS = ['keep_free_vram_gb', 'keep_free_ram_gb']
+
+export function KeepFreeMemory({ schema, settings, onSettings }: Props) {
+  const p = settings.preferences
+  return (
+    <SchemaCard
+      schema={schema}
+      settings={settings}
+      onSettings={onSettings}
+      section="Advanced"
+      keys={KEEP_FREE_KEYS}
+      title="Keep free memory"
+      summary={p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve'}
+    />
+  )
+}
+
+export const ADVANCED_TITLE = 'Offline, paths and limits'
 
 export function AdvancedCard(props: AdvancedProps) {
   const remote = usePcOnly() === 'remote'
   const { schema, settings, onSettings, openSignal = 0, uploadsSignal = 0 } = props
   const p = settings.preferences
-  const named = new Set(ADVANCED_FOLDS.flatMap((f) => f.keys))
+  const named = new Set([...ADVANCED_FOLDS.flatMap((f) => f.keys), ...KEEP_FREE_KEYS])
   const other = (schema ?? []).filter((r) => r.section === 'Advanced' && !r.custom && !r.dev_only && !named.has(r.key)).map((r) => r.key)
   const common = { schema, settings, onSettings, section: 'Advanced' }
+  const locations = [p.cookies_file_configured, p.tesseract_cmd_configured, p.lncrawl_cmd_configured].filter(Boolean).length
   const summaries: Record<string, string> = {
     OCR: OCR_LABELS[p.ocr_backend] ?? humanizeValue(p.ocr_backend),
-    'Offline and performance': [
-      p.whisper_model_path ? 'Whisper folder set' : 'Whisper downloads',
+    'Offline models': [
+      p.whisper_model_path_configured ? 'Whisper folder set' : 'Whisper downloads',
       p.ollama_num_ctx_override ? `num_ctx ${p.ollama_num_ctx_override}` : 'num_ctx auto',
-      p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve',
     ].join(' · '),
-    Downloads: `Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`,
+    Downloads: `Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file_configured ? 'file' : '')}`,
+    'Program locations': `${locations} of 3 set`,
     Uploads: `Limit ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`,
   }
   return (
-    <Card title="Advanced" meta="OCR, offline models, memory to keep free, downloads, uploads, server addresses" aria-label="Advanced">
+    <Card title={ADVANCED_TITLE} meta="OCR, offline models, downloads, program locations, uploads, server addresses" aria-label={ADVANCED_TITLE}>
       {ADVANCED_FOLDS.map((fold) => (
         <SchemaCard
           key={fold.title}

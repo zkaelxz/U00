@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { expectDiscoverGone, expectLockedItemsCannotBeSwitchedOff, hideDiscoverFromSettings } from './customizeMenu'
 
-// Settings > Customize menu on a phone: the drawer follows the choice and the switches keep a 44px target.
+// Settings > Menu items on a phone: the drawer follows the choice and the switches keep a 44px target.
 
 test('hiding Discover removes it from the drawer, the address still loads and the choice survives a reload', async ({ page }) => {
   const card = await hideDiscoverFromSettings(page)

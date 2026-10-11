@@ -1,7 +1,7 @@
 /*
- * Settings > Transcription experiments (Step 103). All are off by
+ * Settings > System > Advanced transcription. All are off by
  * default and PC only:
- *   - Qwen3-ASR batch size: how many lines go to Qwen3-ASR at once when a
+ *   - Qwen3-ASR batch size (Developer Mode only): how many lines go to Qwen3-ASR at once when a
  *     drama's ASR backend is Qwen3 ASR. 1 is the original one-at-a-time run.
  *   - Mixed languages: detect the spoken language per speech span.
  * Another device sees "PC only" and makes no calls.
@@ -16,8 +16,9 @@ import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
+import { useDeveloperMode } from '../assistant/developerMode'
 
-const TITLE = 'Transcription experiments'
+const TITLE = 'Advanced transcription'
 
 export function TranscriptionExperimentsCard() {
   const pc = usePcOnly()
@@ -36,6 +37,8 @@ function Controls() {
   const [batch, setBatch] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [saving, setSaving] = useState(false)
+  // The batch size is a developer knob: its higher values were never compared with real audio.
+  const developerMode = useDeveloperMode()
 
   useEffect(() => {
     let live = true
@@ -87,34 +90,38 @@ function Controls() {
     <Card title={TITLE} meta={meta} aria-label={TITLE}>
       {error ? <ErrorBanner error={error} /> : null}
       <div className="settings-form">
-        <Field
-          label="Qwen3-ASR batch size"
-          help="Lines sent to Qwen3-ASR at once (Qwen3 ASR backend). 1 sends one at a time (the tested way). Higher can be faster on a GPU but is not checked against real audio, so compare the text before relying on it."
-          error={batchError}
-        >
-          <input
-            type="number"
-            inputMode="numeric"
-            min={opts.qwen_asr_batch_min}
-            max={opts.qwen_asr_batch_max}
-            value={batch}
-            onChange={(e) => setBatch(e.target.value)}
-            aria-label="Qwen3-ASR batch size"
-          />
-        </Field>
-        <p className="muted" data-testid="qwen-batching-note">
-          {batchingNote(opts)}
-        </p>
-        <div className="settings-actions">
-          <button
-            type="button"
-            className={buttonClass('secondary')}
-            disabled={saving || parsed === null || parsed === opts.qwen_asr_batch_size}
-            onClick={() => parsed !== null && save({ qwen_asr_batch_size: parsed })}
-          >
-            Save batch size
-          </button>
-        </div>
+        {developerMode && (
+          <>
+            <Field
+              label="Qwen3-ASR batch size"
+              help="Lines sent to Qwen3-ASR at once (Qwen3 ASR backend). 1 sends one at a time (the tested way). Higher can be faster on a GPU but is not checked against real audio, so compare the text before relying on it."
+              error={batchError}
+            >
+              <input
+                type="number"
+                inputMode="numeric"
+                min={opts.qwen_asr_batch_min}
+                max={opts.qwen_asr_batch_max}
+                value={batch}
+                onChange={(e) => setBatch(e.target.value)}
+                aria-label="Qwen3-ASR batch size"
+              />
+            </Field>
+            <p className="muted" data-testid="qwen-batching-note">
+              {batchingNote(opts)}
+            </p>
+            <div className="settings-actions">
+              <button
+                type="button"
+                className={buttonClass('secondary')}
+                disabled={saving || parsed === null || parsed === opts.qwen_asr_batch_size}
+                onClick={() => parsed !== null && save({ qwen_asr_batch_size: parsed })}
+              >
+                Save batch size
+              </button>
+            </div>
+          </>
+        )}
         <div className="setting-list">
           <Field
             label="Refine line timing with the forced aligner"

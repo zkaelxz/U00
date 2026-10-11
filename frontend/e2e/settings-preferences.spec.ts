@@ -93,8 +93,8 @@ async function mockSettings(page: Page) {
   return { state, posts, unmocked }
 }
 
-// Defaults and Spending are always-open Cards; the rest are
-// Sections (folds) inside the Advanced Card.
+// Defaults and Spending are Cards (the helper opens them); the rest are
+// Sections (folds) inside the Offline, paths and limits Card or the Jobs and GPU Card.
 const CARDS = ['Translation style', 'Spending']
 const block = (page: Page, title: string) =>
   CARDS.includes(title)
@@ -135,7 +135,7 @@ test('defaults for new titles save only what changed', async ({ page }) => {
 test('spending, offline and OCR fields check input before saving', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Costs')
 
   const spend = await open(page, 'Spending')
   await spend.getByLabel('Monthly cap', { exact: true }).fill('lots')
@@ -147,22 +147,32 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await expect(spend.getByTestId('cap-effective')).toHaveText('Cap in effect: $12.50 a month.')
 
   await openSettingsGroups(page, 'System')
-  const offline = await open(page, 'Offline and performance')
+  const offline = await open(page, 'Offline models')
   await offline.getByLabel('Ollama context window', { exact: true }).fill('1.5')
   await offline.getByRole('button', { name: 'Save' }).click()
   await expect(offline.getByRole('alert')).toContainText('whole number')
   await offline.getByLabel('Ollama context window', { exact: true }).fill('16384')
-  await offline.getByLabel('Keep free graphics memory', { exact: true }).fill('4')
   await offline.getByLabel('Offline Whisper model folder', { exact: true }).fill('D:\\models\\whisper-small')
   await offline.getByRole('button', { name: 'Save' }).click()
   await expect(offline.getByRole('status')).toHaveText('Saved.')
 
+  // The keep-free-memory limits live in the Jobs and GPU card, in this one place.
+  const keepFree = await open(page, 'Keep free memory')
+  await keepFree.getByLabel('Keep free graphics memory', { exact: true }).fill('4')
+  await keepFree.getByRole('button', { name: 'Save' }).click()
+  await expect(keepFree.getByRole('status')).toHaveText('Saved.')
+  await expect(page.getByLabel('Keep free graphics memory', { exact: true })).toHaveCount(1)
+
   const ocr = await open(page, 'OCR')
   await ocr.getByLabel('Default backend', { exact: true }).selectOption('manga_ocr')
   await ocr.getByRole('switch', { name: 'Japanese: prefer PaddleOCR-VL' }).click()
-  await ocr.getByLabel('Tesseract program', { exact: true }).fill('  C:\\Tess\\tesseract.exe ')
   await ocr.getByRole('button', { name: 'Save' }).click()
   await expect(ocr.getByRole('status')).toHaveText('Saved.')
+
+  const locations = await open(page, 'Program locations')
+  await locations.getByLabel('Tesseract program', { exact: true }).fill('  C:\\Tess\\tesseract.exe ')
+  await locations.getByRole('button', { name: 'Save' }).click()
+  await expect(locations.getByRole('status')).toHaveText('Saved.')
 
   const dl = await open(page, 'Downloads')
   await dl.getByLabel('Cookies from browser', { exact: true }).selectOption('firefox')
@@ -171,8 +181,10 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 
   expect(posts.map((p) => p.body)).toEqual([
     { monthly_cap_usd: 12.5 },
-    { whisper_model_path: 'D:\\models\\whisper-small', ollama_num_ctx_override: 16384, keep_free_vram_gb: 4 },
-    { ocr_backend: 'manga_ocr', ocr_prefer_paddle_vl_manga: true, tesseract_cmd: 'C:\\Tess\\tesseract.exe' },
+    { whisper_model_path: 'D:\\models\\whisper-small', ollama_num_ctx_override: 16384 },
+    { keep_free_vram_gb: 4 },
+    { ocr_backend: 'manga_ocr', ocr_prefer_paddle_vl_manga: true },
+    { tesseract_cmd: 'C:\\Tess\\tesseract.exe' },
     { cookies_browser: 'firefox' },
   ])
   expect(unmocked).toEqual([])
@@ -217,8 +229,8 @@ test('away from the PC the preference blocks say PC only', async ({ page }) => {
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
-  for (const title of ['Translation style', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
+  for (const title of ['Translation style', 'Spending', 'OCR', 'Offline models', 'Downloads', 'Program locations', 'Keep free memory', 'Server addresses']) {
+    await openSettingsGroups(page, title === 'Translation style' ? 'Translation and keys' : title === 'Spending' ? 'Costs' : 'System')
     // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
     await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
       title === 'Server addresses' ? /^\d of 1 set · PC only$/ : 'PC only')

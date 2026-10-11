@@ -5,9 +5,9 @@ import { openSettingsGroups } from './settingsNav'
 // scroll, and the buttons are at least 44px tall. Reads come from the real
 // seeded API; any write is aborted and recorded.
 
-// Cards are always open; the Advanced Card's Sections are opened here.
+// Cards open with Expand all; the Sections of the Offline, paths and limits card are opened here.
 const CARDS = ['Translation style', 'Spending']
-const SECTIONS = ['OCR', 'Offline and performance', 'Downloads', 'Uploads', 'Server addresses']
+const SECTIONS = ['OCR', 'Offline models', 'Downloads', 'Program locations', 'Uploads', 'Server addresses']
 
 test('settings preference sections fit a phone with 44px targets', async ({ page }) => {
   const unmocked: string[] = []
@@ -18,9 +18,8 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
     return route.abort()
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
   for (const title of [...CARDS, ...SECTIONS]) {
-    await openSettingsGroups(page, CARDS.includes(title) ? 'Translation and keys' : 'System')
+    await openSettingsGroups(page, title === 'Spending' ? 'Costs' : CARDS.includes(title) ? 'Translation and keys' : 'System')
     let s = page.getByRole('region', { name: title, exact: true })
     if (SECTIONS.includes(title)) {
       s = page.locator(`details.section:has(> summary > .section-title:text-is("${title}"))`)

@@ -18,8 +18,8 @@ export const TOGGLES: { key: SettingsToggleKey; label: string }[] = [
   { key: 'gpu_limit_enabled', label: 'Limit GPU jobs running at once' },
   { key: 'notify_on_completion', label: 'Notify when a job finishes' },
   { key: 'use_gpu', label: 'Use the GPU for transcription' },
-  { key: 'unload_ollama_before_transcribe', label: "Free Ollama's GPU memory before transcribing" },
-  { key: 'bulk_auto_resume', label: 'Resume batches on start' },
+  { key: 'unload_ollama_before_transcribe', label: 'Free local-model memory before transcribing' },
+  { key: 'bulk_auto_resume', label: 'Resume translation batches on start' },
 ]
 
 // A toggle update carries one known boolean, never a key or URL.

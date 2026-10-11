@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { openSettingsGroups } from './settingsNav'
 
-test('Loaded now fits a phone: no sideways page scroll, 44px buttons', async ({ page }) => {
+test('Models in memory fits a phone: no sideways page scroll, 44px buttons', async ({ page }) => {
   await page.route('**/api/settings/loaded-models**', (route) =>
     route.fulfill({
       json: {
@@ -18,9 +17,8 @@ test('Loaded now fits a phone: no sideways page scroll, 44px buttons', async ({ 
   await page.route('**/api/meta', (route) =>
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: true } }),
   )
-  await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
-  const card = page.getByRole('region', { name: 'Loaded now', exact: true })
+  await page.goto('/#/diagnostics?card=loaded-models')
+  const card = page.getByRole('region', { name: 'Models in memory', exact: true })
   await expect(card.getByTestId('loaded-table')).toBeVisible()
   for (const b of await card.getByRole('button').all()) {
     expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(43)

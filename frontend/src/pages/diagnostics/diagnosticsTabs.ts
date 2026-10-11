@@ -17,6 +17,7 @@ export const CARD_TAB = {
   speaker: 'packages',
   'model-status': 'models',
   models: 'models',
+  'loaded-models': 'models',
   'test-models': 'models',
   ports: 'system',
   log: 'system',

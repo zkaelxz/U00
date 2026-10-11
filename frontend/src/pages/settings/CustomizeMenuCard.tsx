@@ -1,5 +1,5 @@
 /*
- * Settings > Customize menu: a switch per menu item this person can see.
+ * Settings > Menu items: a switch per menu item this person can see.
  * Hiding only tidies the menu for them; the page still opens by its address.
  * Library and Settings are shown but locked on.
  */
@@ -18,7 +18,7 @@ export function CustomizeMenuCard() {
   const [hidden, setHidden] = useHiddenNav(session)
   const items = customizableNavItems({ session, pcMode, developerMode })
   return (
-    <Card title="Customize menu" meta="Hidden items stay reachable by address" aria-label="Customize menu">
+    <Card title="Menu items" meta="Hidden items stay reachable by address" aria-label="Menu items">
       <ul className="setting-list customize-menu">
         {items.map((i) => {
           const locked = isNavLocked(i)

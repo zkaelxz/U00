@@ -33,7 +33,7 @@ test('shows a no-matches state', async ({ page }) => {
   await expectNoMatches(page, viaButton(page))
 })
 
-test('a page hidden through Customize menu is not listed', async ({ page }) => {
+test('a page hidden through Menu items is not listed', async ({ page }) => {
   await expectHiddenItemNotListed(page, viaButton(page))
   await expect(paletteInput(page)).toHaveCount(0)
 })

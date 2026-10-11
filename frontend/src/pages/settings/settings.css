@@ -13,6 +13,8 @@
 .settings-panel[hidden], .settings-card[hidden], .settings-card:empty { display: none; }
 .settings-card { min-width: 0; scroll-margin-top: var(--space-4); }
 
+.settings-fold-controls { display: flex; justify-content: flex-end; gap: var(--space-2); }
+
 /* One row per key or channel: name, status badge, action on the right; the
    form for that row opens underneath it. */
 .settings-page .status-list { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
