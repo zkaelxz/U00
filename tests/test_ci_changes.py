@@ -106,10 +106,16 @@ def test_full_ci_label_runs_everything_even_for_notes():
     assert pr("docs/a.md", labels=["bug"])["run_full_pytest"] is False
 
 
-@pytest.mark.parametrize("event", ["push", "workflow_dispatch", "schedule", ""])
+@pytest.mark.parametrize("event", ["push", "workflow_dispatch", "schedule", "merge_group", ""])
 def test_anything_but_a_pull_request_runs_everything(event):
     assert ci_changes.classify(["reports/a.md"], event) == ALL
     assert ci_changes.classify(["docs/a.md"], event) == ALL
+
+
+def test_merge_group_runs_everything_even_for_a_notes_only_diff():
+    # The queue's merged result is what lands, so no path filter may skip a job there.
+    _, got = _run(["--event", "merge_group", "--labels-json", "[]"], "reports/a.md\n")
+    assert got == {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true"}
 
 
 def test_unreadable_diff_runs_everything():

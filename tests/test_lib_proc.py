@@ -1,5 +1,6 @@
 """lib.proc: the one runner for long external commands. Real child
 processes (python -c), no network; the POSIX cases need process groups."""
+import logging
 import os
 import signal
 import sys
@@ -193,6 +194,9 @@ def test_kill_tree_failure_does_not_raise_and_logs_only_the_type(monkeypatch, ca
 
     monkeypatch.setattr(proc_kill.os, "killpg", boom, raising=False)
     monkeypatch.setattr(proc_kill.subprocess, "run", boom)
+    # applog.get_logger() turns propagation off for the process once any earlier test has
+    # called it, and caplog listens on the root logger.
+    monkeypatch.setattr(logging.getLogger("baihe"), "propagate", True)
     with caplog.at_level("WARNING", logger="baihe"):
         proc_kill.kill_tree(_Proc())
     assert "PermissionError" in caplog.text
