@@ -3,9 +3,9 @@ services/update_service.py -- check for, download and hand off to a newer
 Windows installer published on the project's public GitHub Releases.
 
 - Check: one unauthenticated GET of the repository's newest releases (the
-  first page). The newest one that is a `v<version>` release (not a draft or
-  pre-release) with its BaiheStudio-Setup-<version>.exe and `.sha256` is
-  offered: the same repository also publishes other releases (`frontend-v*`)
+  first page). The newest one that is a `v<version>` release (not a draft;
+  not a pre-release unless Developer Mode's "include pre-releases" is on)
+  with its BaiheStudio-Setup-<version>.exe and `.sha256` is offered: the same repository also publishes other releases (`frontend-v*`)
   that must not hide the installer. The repository is a setting,
   BAIHE_UPDATE_REPO in .env (default zkaelxz/U00), so installers can move to
   a separate public repository without a code change.
@@ -65,6 +65,7 @@ REPO_ENV = "BAIHE_UPDATE_REPO"
 DEFAULT_REPO = "zkaelxz/U00"
 AUTO_CHECK_KEY = "update.auto_check"
 LAST_CHECK_KEY = "update.last_check_at"
+INCLUDE_PRERELEASES_KEY = "update.include_prereleases"
 AUTO_CHECK_SECONDS = 24 * 3600
 
 API_HOSTS = frozenset({"api.github.com"})
@@ -119,20 +120,31 @@ _monotonic = time.monotonic
 
 # --- versions -----------------------------------------------------------------
 
+def _pre_key(pre):
+    """Sort key for the part after `-`, by SemVer: numeric identifiers sort
+    below alphanumeric ones and a shorter list below a longer one with the
+    same start (beta.2 < beta.10, beta < beta.1)."""
+    return tuple((0, int(part), "") if part.isdigit() else (1, 0, part)
+                 for part in pre.split("."))
+
+
 def parse_version(text):
-    """(major, minor, patch, is_release) or None. Build metadata (+...) is
-    ignored; a pre-release (-rc1) sorts before its release."""
+    """(major, minor, patch, is_release, pre_key) or None. Build metadata
+    (+...) is ignored. Tuples compare in version order: a pre-release (-beta.2)
+    sorts before its own release and after the previous one."""
     m = _VERSION_RE.match(str(text or "").strip())
     if not m:
         return None
-    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0), m.group(4) is None)
+    pre = m.group(4)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0), pre is None,
+            _pre_key(pre[1:]) if pre else ())
 
 
-def is_newer(latest, current) -> bool:
-    """True only when `latest` is a release (not a pre-release) and sorts
-    after `current`. Anything unparsable is never newer."""
+def is_newer(latest, current, include_prereleases=False) -> bool:
+    """True when `latest` sorts after `current`. A pre-release counts only
+    with `include_prereleases`. Anything unparsable is never newer."""
     lv, cv = parse_version(latest), parse_version(current)
-    return bool(lv and cv and lv[3] and lv > cv)
+    return bool(lv and cv and (lv[3] or include_prereleases) and lv > cv)
 
 
 def _is_installed() -> bool:
@@ -178,6 +190,17 @@ def custom_source() -> bool:
         return releases_repo() != DEFAULT_REPO
     except UnsupportedOperationError:
         return True
+
+
+def include_prereleases() -> bool:
+    """Developer Mode's "include pre-releases". Ignored while Developer Mode
+    is off, so switching it off also stops betas being offered."""
+    from services import maintenance_assistant_service, settings_service
+    try:
+        return (settings_service.get(INCLUDE_PRERELEASES_KEY) is True
+                and maintenance_assistant_service.developer_mode_enabled())
+    except Exception:
+        return False
 
 
 def get_auto_check() -> bool:
@@ -268,15 +291,17 @@ def _plain_notes(text) -> str:
     return text if len(text) <= NOTES_MAX_CHARS else text[:NOTES_MAX_CHARS].rstrip() + "…"
 
 
-def _parse_release(data):
+def _parse_release(data, allow_prereleases=False):
     """The internal release record, or None when this release offers nothing
-    usable (a draft, a pre-release, a tag that isn't v<version>, no installer
-    or no `.sha256`)."""
-    if not isinstance(data, dict) or data.get("draft") or data.get("prerelease"):
+    usable (a draft, a pre-release unless allowed, a tag that isn't
+    v<version>, no installer or no `.sha256`)."""
+    if not isinstance(data, dict) or data.get("draft"):
         return None
     tag = data.get("tag_name")
     parsed = parse_version(tag)
-    if not str(tag).startswith("v") or not parsed or not parsed[3]:
+    if not str(tag).startswith("v") or not parsed:
+        return None
+    if not allow_prereleases and (data.get("prerelease") or not parsed[3]):
         return None
     version = str(tag).strip().lstrip("v")
     exe_name = f"BaiheStudio-Setup-{version}.exe"
@@ -298,6 +323,7 @@ def check() -> dict:
     Install can only ever start the version the card names."""
     global _release, _verified
     repo = releases_repo()
+    allow_pre = include_prereleases()
     lookup = "no_installer_release"
     try:
         resp = _open(f"https://api.github.com/repos/{repo}/releases?per_page={RELEASES_PER_PAGE}",
@@ -314,8 +340,10 @@ def check() -> dict:
             with _lock:
                 _state.update(checked_at=time.time(), check_error=message)
             raise DependencyUnavailableError(message) from None
-    # Newest first, as GitHub lists them.
-    release = next((r for r in map(_parse_release, data if isinstance(data, list) else [])
+    # Newest first, as GitHub lists them. Whether it is newer than this copy is
+    # decided in status() and download(), not here.
+    release = next((r for r in (_parse_release(d, allow_pre)
+                                for d in (data if isinstance(data, list) else []))
                     if r is not None), None)
     if release is not None:
         lookup = "found"
@@ -364,7 +392,8 @@ def status() -> dict:
         verified_name = _verified["name"] if verified else None
     installed = _is_installed()
     return {"current": current, "installed": installed, "latest": s["latest"],
-            "update_available": bool(s["latest"] and current and is_newer(s["latest"], current)),
+            "update_available": bool(s["latest"] and current
+                                     and is_newer(s["latest"], current, include_prereleases())),
             "notes": s["notes"], "installer_name": s["installer_name"], "size": s["size"],
             "checked_at": s["checked_at"], "check_error": s["check_error"],
             "release_lookup": s["lookup"],
@@ -415,10 +444,10 @@ def cleanup_leftovers() -> None:
     folder = updates_dir()
     if not os.path.isdir(folder):
         return
-    current = current_version()
+    current, allow_pre = current_version(), include_prereleases()
     for name in os.listdir(folder):
         m = re.match(r"^BaiheStudio-Setup-(.+)\.exe(\.part)?$", name)
-        if m and (m.group(2) or not is_newer(m.group(1), current)):
+        if m and (m.group(2) or not is_newer(m.group(1), current, allow_pre)):
             try:
                 os.remove(os.path.join(folder, name))
             except OSError:
@@ -451,7 +480,8 @@ def download() -> dict:
     global _verified
     with _lock:
         release = _release
-    if release is None or not is_newer(release["version"], current_version()):
+    if release is None or not is_newer(release["version"], current_version(),
+                                       include_prereleases()):
         raise ConflictError("There is no newer version to download. Check for updates first.")
     if release["exe_size"] and release["exe_size"] > MAX_INSTALLER_BYTES:
         raise _too_big()
@@ -520,12 +550,12 @@ def start_download() -> dict:
     if not _is_installed():
         raise UnsupportedOperationError("Updates are for the installed app. A source checkout "
                                         "updates with git.")
-    current = current_version()
+    current, allow_pre = current_version(), include_prereleases()
     # Checked and set under one lock: two clicks can't start two downloads.
     with _lock:
         if _state["download"] == "downloading":
             raise ConflictError("A download is already running.")
-        if _release is None or not is_newer(_release["version"], current):
+        if _release is None or not is_newer(_release["version"], current, allow_pre):
             raise ConflictError("There is no newer version to download. Check for updates first.")
         _verified = None
         _state.update(download="downloading", downloaded_bytes=0, download_error=None)
