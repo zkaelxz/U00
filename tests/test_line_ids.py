@@ -145,6 +145,18 @@ class TestConcurrentWritesByLineId:
         rows = isolated_db.load_lines(did)
         assert rows[0]["en"] == "She came." and rows[0]["flag"] == "ambiguous_reference"
 
+    def test_a_job_copy_with_a_changed_flag_saves_only_its_own_field(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="她来了")])
+        job = isolated_db.load_line_objects(did)
+        job[0].flag = "ambiguous_reference"       # changed on the job's copy, not its to write
+        job[0].en = "She came."
+        isolated_db.save_lines(did, job, fields=("en",))
+
+        [row] = isolated_db.load_lines(did)
+        assert row["en"] == "She came."
+        assert not row["flag"]
+
     def test_the_pages_save_doesnt_wipe_what_a_job_wrote_meanwhile(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好"),

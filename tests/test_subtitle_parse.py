@@ -306,9 +306,16 @@ class TestHostileInput:
         row = "[00:01.00]" * 700 + "x\n"
         self._fast((row * 40).encode(), "a.lrc")
 
-    def test_srt_cue_count_is_capped_while_parsing(self):
+    def test_srt_cue_count_is_capped_while_parsing(self, monkeypatch):
+        # Counted rather than timed: a wall-clock limit failed at 1.04 s on a loaded
+        # CI runner. A parser that built every cue first would see the full count.
         data = ("1\n00:00:01,000 --> 00:00:02,000\nx\n\n" * (sp.MAX_CUES + 5)).encode()
-        self._fast(data, "a.srt")
+        seen = []
+        real = sp._check_cue_count
+        monkeypatch.setattr(sp, "_check_cue_count", lambda count: (seen.append(count), real(count))[1])
+        with pytest.raises(sp.SubtitleParseError):
+            sp.parse_subtitle(data, "a.srt")
+        assert max(seen) == sp.MAX_CUES + 1
 
     def test_numeric_entity_with_thousands_of_digits_is_not_a_server_error(self):
         data = ("1\n00:00:01,000 --> 00:00:02,000\n&#" + "9" * 5000 + "\n").encode()
