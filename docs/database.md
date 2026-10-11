@@ -58,11 +58,15 @@ for backup and restore operations see `runbook.md`.
   working. A submodule reaches everything else as `db.<name>` (never a
   relative import or a copy of a path global); `tests/test_split_guards.py`
   enforces it. Moved so far: `db/benchmark.py` (accuracy benchmark cases and
-  runs, Benchmark Lab sessions and results) and `db/auth.py` (auth storage:
+  runs, Benchmark Lab sessions and results), `db/auth.py` (auth storage:
   users, permissions, sessions, audit log, and the ownership and sharing
-  fields of dramas and series). Their tables are still created by `init_db` in
-  `db/__init__.py` (`_init_benchmark_lab_schema` and `_create_auth_tables`
-  included).
+  fields of dramas and series), `db/usage.py` (usage and cost log, monthly
+  spend and its reset, re-costing, the standalone translate tool's history),
+  `db/app_settings.py` (app settings, the metadata research cache and
+  results, field provenance) and `db/job_records.py` (the job_records mirror).
+  Their tables are still created by `init_db` in `db/__init__.py`
+  (`_init_benchmark_lab_schema`, `_create_auth_tables`,
+  `_migrate_job_records_columns` and `_migrate_gpu_lock_slots` included).
 
 ## 2. Schema creation and migrations
 
