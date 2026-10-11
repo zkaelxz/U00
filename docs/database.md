@@ -63,12 +63,15 @@ for backup and restore operations see `runbook.md`.
   fields of dramas and series), `db/usage.py` (usage and cost log, monthly
   spend and its reset, re-costing, the standalone translate tool's history),
   `db/app_settings.py` (app settings, the metadata research cache and
-  results, field provenance), `db/job_records.py` (the job_records mirror)
-  and `db/speakers.py` (characters, speaker rename and merge with its undo,
-  series characters and voice links, the voice bank).
+  results, field provenance), `db/job_records.py` (the job_records mirror),
+  `db/speakers.py` (characters, speaker rename and merge with its undo,
+  series characters and voice links, the voice bank) and `db/comic_pages.py`
+  (comic pages and their bubbles for scanlation: page rows, the id-preserving
+  bubble edits that bump a page's rev, the legacy full replace).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
-  `_migrate_job_records_columns` and `_migrate_gpu_lock_slots` included).
+  `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and
+  `_migrate_scanlate_columns` included).
 
 ## 2. Schema creation and migrations
 
@@ -110,7 +113,7 @@ Things to know:
   - `test_old_database_upgrades_to_the_fresh_schema` builds a fresh database,
     drops every listed column (`_make_old_shape`), runs `init_db()` and requires
     the schema (`_schema_shape`) to equal the fresh one.
-  - `test_every_added_column_is_listed` scans `db.py` (`_alter_columns_in_db_py`:
+  - `test_every_added_column_is_listed` scans every module of the `db` package (`_alter_columns_in_db_py`:
     written-out `ALTER TABLE t ADD COLUMN c` plus constant `("col", "TYPE ...")`
     / `("table", "col", "TYPE ...")` tuples) and fails if a column is not in the
     dict. `_ALTERS_WITH_OWN_MIGRATION` exempts the two `reading_history`
@@ -121,7 +124,7 @@ Things to know:
 ## 3. Table map (`library.db`)
 
 "Written by" names the module that normally owns the writes; a function in
-`db.py` does the SQL. Tables with an `ON DELETE CASCADE` foreign key to `dramas`
+a function in the `db` package does the SQL. Tables with an `ON DELETE CASCADE` foreign key to `dramas`
 or `series` go when the parent goes.
 
 | Table | Purpose and key columns | Written by | How rows are written |
@@ -376,7 +379,7 @@ Add a table:
    `FOREIGN KEY ... ON DELETE CASCADE` to `dramas` or `series` when it belongs to
    one. No foreign key means `delete_drama` must clean it explicitly (as for
    `line_provenance`, `job_checkpoints`).
-2. Put its access functions in `db.py`; services call those.
+2. Put its access functions in the `db` package; services call those.
 3. Decide its backup behaviour: add it to `USER_BACKUP_TABLES` in
    `library_admin_service` (the my-items backup treats every table explicitly),
    and to `CHILD_TABLES`, `_SKIPPED_TABLES` or the line-reference lists in

@@ -12,9 +12,9 @@ there and shrink only.
    - `python tools/repo_map.py --find "<word>"` (names, signatures, docstrings)
    - `python tools/repo_map.py` for the layer map (~3.5k tokens).
 3. Follow the layers down: `frontend/src/api` -> `api/routers` -> `services` ->
-   root module -> `db.py`. Write the candidate file list.
+   root module -> `db/`. Write the candidate file list.
 4. Open the top two files only. List one first: `python tools/repo_map.py <module>`.
-   Read only the needed functions by line range. Never open `db.py` whole:
+   Read only the needed functions by line range. Never open `db/__init__.py` whole (about 220 KB):
    `python tools/repo_map.py db`, then `--part N`.
 5. Read the package `README.md`. Find the tests:
    - `tests/test_<area>.py` for the area.
@@ -124,7 +124,7 @@ Stop and ask the owner before touching:
 - auth, sessions, permissions policy or remote access (`api/auth.py`, `action_tiers.py`, `docs/route-permissions.md`
   policy, anything that widens who can call a route);
 - API keys, secrets, redaction, `.env`, or anything that logs, stores or returns error text from an outbound call;
-- `db.py` splits, table rebuilds or any migration that isn't a plain `ADD COLUMN`;
+- `db/` splits (moving a domain into `db/<domain>.py`), table rebuilds or any migration that isn't a plain `ADD COLUMN`;
 - `background_jobs.py`, process-job workers, locks, threads, GPU slots;
 - a test you want to skip, delete or loosen, or an `OVERSIZED_*` allowlist number you want to raise;
 - a change needing more than about four files.
@@ -165,7 +165,7 @@ and the model starts forgetting the rules. These habits keep it fresh.
   docs.ollama.com/faq on 2026-10-08; a quantised cache can lower quality, so keep `q8_0` before trying `q4_0`.
 - **Commit often, review the diff yourself.** `git diff` after every task: look for files you didn't name, deleted
   tests, loosened asserts, and comments naming a PR or Step. A local model that "fixes" a test by editing it is wrong.
-- **Stop and ask** for the list in "Stop and ask the owner" above: auth and remote access, `db.py` splits and
+- **Stop and ask** for the list in "Stop and ask the owner" above: auth and remote access, `db/` splits and
   migrations, concurrency, keys and error text, frozen files (size allowlists), skipped or loosened tests.
 
 Example (a real small fix: `docs/STATUS.md` says the CPU Whisper fallback is still `medium`, but
