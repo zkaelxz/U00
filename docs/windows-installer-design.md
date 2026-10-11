@@ -344,7 +344,10 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
    the data folder, before going ahead. When Setup made that folder, the
    warning says plainly that the whole folder goes, including any files the
    user put there. Answering No puts the other boxes back the way they were.
-   Cancel aborts the uninstall.
+   Cancel aborts the uninstall. Ticking the library box (or Remove everything)
+   then asks for the library's size and the exact word `DELETE` (case-sensitive,
+   backups live inside the library); anything else keeps the library and
+   cancels Remove everything. Same rule as `uninstall.bat`.
 3. The program is removed: `{app}\python` (including pip-installed packages),
    `{app}\app` and `{app}\service`, but only when Baihe Studio put them there (the install
    has its `manifest.json`); then the shortcuts and the uninstall entry.
@@ -375,7 +378,10 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
 - **Shared, left in place and listed as such:**
   - Playwright's browsers (`%LOCALAPPDATA%\ms-playwright`);
   - pip's download cache;
-  - Hugging Face's default cache in `%USERPROFILE%\.cache`;
+  - Hugging Face's cache (`HF_HOME`, else `%USERPROFILE%\.cache\huggingface`),
+    PyTorch's (`TORCH_HOME`, else `.cache\torch`) and Ollama's models
+    (`OLLAMA_MODELS`, else `.ollama\models`), each with its size;
+  - Python, Git, ffmpeg and Node.js, if installed with winget;
   - Deno in `%USERPROFILE%\.deno`;
   - automatic backups pointed at a folder outside the data folder.
 - **Failures.** A folder or file that can't be deleted (in use) is listed as
