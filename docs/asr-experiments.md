@@ -14,6 +14,7 @@ table) is in `archive/asr-experiments-history.md`.
 | Option | Where | Default | Notes |
 |---|---|---|---|
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
+| Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
 | ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`. |
 | Qwen3-ASR batch size | Settings > Transcription experiments (PC only) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
@@ -144,6 +145,32 @@ changing the model of any title:
 If the setting is empty or the folder is missing, the arm is refused with a message
 pointing at the setting. Only runs started on the PC can use it. The memory-headroom
 check is skipped for a folder, as it is for any local path.
+
+#### whisper-ja 1.5B in the app
+
+`ja-1.5b` appears in the Workspace Whisper model list, the Compare transcription list and the
+Benchmark Lab only for Japanese titles or cases; the server refuses it for any other source
+language (a title saved with it whose language is later changed falls back to the default),
+and `cli.py align` skips such a title. It is never the default.
+
+| | |
+|---|---|
+| Repository | `TransWithAI/whisper-ja-1.5B-ct2` (CTranslate2 build of efwkjn's whisper-ja-1.5B), pinned in `whisper_models.PINNED_CT2_REPOS`; clients send the key, never a repo id or revision |
+| Revision | `1527314b14da5bdf0d14e7328649d4fa26840188` |
+| Size | `model.bin` about 3.1 GB; in practice it needs a GPU (`memory_headroom` estimate 4.2 GB VRAM, 3.3 GB RAM, not measured) |
+| `model.bin` sha256 | to be filled after the owner's first download (`tools/ja_whisper_models.py fetch ja-1.5b` prints it) |
+| Licence | none declared; the training data terms are mixed. Opt-in, personal use only |
+| File-set rule | Before the first download the repo's files at the pinned revision are listed (`lib/ct2_repo.py`, the same rule `tools/ja_whisper_models.py` uses). Only `model.bin`, `config.json`, `tokenizer.json`, `vocabulary.json` or `vocabulary.txt` and `preprocessor_config.json` are downloaded (`allow_patterns`); README, LICENSE and `.gitattributes` are allowed in the listing but never fetched. Any other file, including any `.py`, `.pt`, `.pkl` or second `.bin`, refuses the whole download with a plain message, nothing fetched. faster-whisper loads it with no `trust_remote_code`. |
+
+CPU sample test (40 clips per set, int8, beam 5; character error rate, lower is better; each cell has the two figures as reported by the sample run, and what separates them was not recorded here):
+
+| Set | whisper-ja 1.5B | large-v3-turbo |
+|---|---|---|
+| Galgame shard 114 | 0.050 / 0.085 | 0.094 / 0.398 |
+| joujiboi | 0.200 / 0.232 | 0.333 / 0.357 |
+
+Word timestamps work out of the box and no repetition loops appeared. anime-whisper (its word
+timestamps break) and kotoba (only ties turbo) are not in the app; the 760M sibling is not added.
 
 #### Trying a Japanese fine-tune
 

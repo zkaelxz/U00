@@ -38,6 +38,9 @@ import {
   TRANSCRIBE_DRAFT_SHAPE,
   TRANSCRIBE_DRAFT_STAGE,
   validateConfig,
+  DEFAULT_WHISPER_SIZE,
+  isJaOnlyWhisperSize,
+  whisperSizeChoices,
   type RunField,
   type RunFieldProblem,
   whisperModelWarning,
@@ -58,10 +61,17 @@ import { promptFields } from './transcribePrompt'
 import { VoiceDetectorField } from './VoiceDetectorField'
 import './source.css'
 
-const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
 // The value stays the model name; the text says which is the default and its Japanese/Korean caveat.
 const WHISPER_LABELS: Record<string, string> = {
   'large-v3-turbo': 'large-v3-turbo (default)',
+  'ja-1.5b': 'Japanese (whisper-ja 1.5B): anime and games, opt-in, about 3 GB, needs a GPU',
+}
+function whisperModelHelp(size: string, notDownloaded: boolean): string | undefined {
+  const parts = [
+    notDownloaded ? 'This model will be downloaded on first use.' : '',
+    isJaOnlyWhisperSize(size) ? 'Its licence is not declared; use it for personal work.' : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' ') : undefined
 }
 const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
 // Display names for the Advanced backend choices (the option value stays raw).
@@ -338,6 +348,13 @@ export default function TranscribeStage({
   }
   const fieldError = (f: RunField) => (fieldProblem?.field === f ? fieldProblem.message : null)
 
+  // The language picker above can leave a Japanese-only model behind; the server would refuse the run.
+  useEffect(() => {
+    if (cf && language !== 'ja' && isJaOnlyWhisperSize(cf.whisper_size)) {
+      setCf((s) => (s ? { ...s, whisper_size: DEFAULT_WHISPER_SIZE } : s))
+    }
+  }, [cf, language])
+
   const setC = <K extends keyof ConfigForm>(k: K, v: ConfigForm[K]) => {
     setSaved(false)
     setFieldProblem(null)
@@ -570,9 +587,9 @@ export default function TranscribeStage({
           </select>
         </Field>
         {cf && (
-          <Field label="Whisper model" help={config && !config.whisper_model_cached ? 'This model will be downloaded on first use.' : undefined}>
+          <Field label="Whisper model" help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached)}>
             <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
-              {(WHISPER_SIZES.includes(cf.whisper_size) ? WHISPER_SIZES : [cf.whisper_size, ...WHISPER_SIZES]).map((o) => (
+              {whisperSizeChoices(language, cf.whisper_size).map((o) => (
                 <option key={o} value={o}>{WHISPER_LABELS[o] ?? o}</option>
               ))}
             </select>
