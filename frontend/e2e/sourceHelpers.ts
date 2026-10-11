@@ -15,3 +15,7 @@ export async function enableDeveloperMode(page: Page) {
       ? route.fulfill({ json: { developer_mode: true, engine: null, model: null, engine_choices: [] } })
       : route.fallback())
 }
+
+/** Two animation frames: React has committed and run the effects of whatever the last response or event changed. */
+export const nextFrames = (page: Page) =>
+  page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))))

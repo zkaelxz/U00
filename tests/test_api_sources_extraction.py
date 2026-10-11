@@ -7,6 +7,7 @@ extraction ladder itself (sources/adaptive.py) runs for real."""
 import time
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -141,7 +142,7 @@ def test_engine_list_names_only(client):
 
 
 def test_default_engine_not_usable_is_none(client, monkeypatch):
-    monkeypatch.setattr(settings_service, "get_default_engine", lambda: "google")
+    patch_setting(monkeypatch, "default_engine", "google")
     assert client.get("/api/sources/url/ai-engines").json()["default"] is None
     did = db.create_drama(title_en="N", media_type="novel")
     r = client.post("/api/sources/url/import",
@@ -355,6 +356,17 @@ def test_comic_download_caps_and_content_type(client, env, comic, monkeypatch):
     assert reasons["006.png"] == "not downloaded (too many images on the page)"
     assert "006.png" not in " ".join(comic.got)          # never requested
     assert res["pages_added"] == len(db.list_pages(did)) == 3
+
+
+def test_comic_budget_takes_its_caps_from_the_shared_default(client, env, comic, monkeypatch):
+    from sources import generic_import
+    env["fetch"].pages[COMIC_URL] = comic_page_html(6)
+    monkeypatch.setattr(generic_import, "default_budget",
+                        lambda: generic_import.DownloadBudget(3, 10**9))
+    did = _comic_drama()
+    res = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
+    reasons = [s["reason"] for s in res.json()["result"]["skipped"]]
+    assert reasons.count("not downloaded (too many images on the page)") == 4
 
 
 def test_comic_needs_review_writes_nothing(client, env, comic, monkeypatch):

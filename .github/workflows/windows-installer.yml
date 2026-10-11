@@ -428,11 +428,11 @@ jobs:
           @'
           import pathlib, sys
           sys.path.insert(0, sys.argv[1])
-          import service
-          if service.port_answers(service.DEFAULT_HOUSEHOLD_PORT):
+          import service_checks, service_config
+          if service_checks.port_answers(service_config.DEFAULT_HOUSEHOLD_PORT):
               sys.exit("the household port is listening")
           text = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
-          pathlib.Path(sys.argv[3]).write_text(service.render_caddyfile(text, "baihe.example.com", service.DEFAULT_HOUSEHOLD_PORT, sys.argv[4]), encoding="utf-8")
+          pathlib.Path(sys.argv[3]).write_text(service_config.render_caddyfile(text, "baihe.example.com", service_config.DEFAULT_HOUSEHOLD_PORT, sys.argv[4]), encoding="utf-8")
           '@ | Set-Content -Path $script -Encoding utf8
           & $py -I -S $script "$admin\helper\lib\installer" "$admin\helper\lib\deploy\caddy\Caddyfile.template" "$test\Caddyfile" $test
           if ($LASTEXITCODE -ne 0) { Write-Error "couldn't render the Caddyfile"; exit 1 }
