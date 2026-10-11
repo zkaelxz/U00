@@ -91,7 +91,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
             args=(audio_path, windows, size,
                   drama.get("beam_size") or tuning["beam_size"],
                   drama.get("min_silence_ms") or tuning["min_silence_ms"],
-                  presets.stored_vad_threshold(drama), settings_service.get_use_gpu(), prompt,
+                  presets.stored_vad_threshold(drama), settings_service.get("use_gpu"), prompt,
                   transcribe_service.stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),

@@ -289,7 +289,7 @@ def _bulk_translate_plan(ids, principal=None):
             skipped.append({"drama_id": did, "reason": "job_running"})
         else:
             queued.append(did)
-            engines[did] = drama.get("translation_engine") or settings_service.get_default_engine()
+            engines[did] = drama.get("translation_engine") or settings_service.get("default_engine")
     return queued, skipped, engines
 
 
@@ -335,7 +335,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
     ids = _check_ids(drama_ids)
     if default_locale is None:
-        default_locale = settings_service.get_preference("default_locale")
+        default_locale = settings_service.get("default_locale")
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")
@@ -362,7 +362,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,
         default_locale=default_locale,
         ollama_base_url=settings_service.resolve_key("ollama_url") or None,
-        gemini_free_tier=settings_service.get_gemini_free_tier(),
+        gemini_free_tier=settings_service.get("gemini_free_tier"),
         models={}, monthly_cap=cap, expected_engines=expected_engines,
         allow_paid_summary=allow_paid_summary,
         include_genre_notes=include_genre_notes,
