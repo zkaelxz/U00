@@ -6,9 +6,12 @@ the GUI and CLI (no Streamlit/database dependency).
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pytest
+
 import core
 import whisper_models
 import segment_splitting
+from segment_splitting import encode_line_words, line_words
 
 from core import (
     Line, fmt_ts, lines_to_srt, lines_to_bilingual_srt,
@@ -122,7 +125,68 @@ class TestAlignTranscriptToTiming:
         assert lines[0].end > lines[0].start
 
 
+    def test_line_ends_where_its_last_character_ends(self):
+        # Characters get evenly spaced slots; a line used to end at the START
+        # of its last character's slot, one character early.
+        segments = [{"start": 0.0, "end": 4.0, "text": "你好世界"}]
+        lines = align_transcript_to_timing(["你好世界。"], segments)
+        assert lines[0].start == 0.0
+        assert lines[0].end == pytest.approx(4.0)
+
+    def test_second_line_still_starts_after_the_first_ends(self):
+        segments = [{"start": 0.0, "end": 4.0, "text": "你好世界再见朋友"}]
+        first, second = align_transcript_to_timing(["你好世界。", "再见朋友。"], segments)
+        assert first.end == pytest.approx(2.0)
+        assert second.start >= first.end
+
+
 class TestMergeAdjacentShortLines:
+    def test_korean_lines_keep_the_space_between_words(self):
+        lines = [Line(idx=0, start=0.0, end=0.5, zh="안녕", en="Hi", speaker="A"),
+                 Line(idx=1, start=0.6, end=1.0, zh="하세요", en="there", speaker="A")]
+        assert merge_adjacent_short_lines(lines)[0].zh == "안녕 하세요"
+
+    def test_korean_space_survives_sentence_punctuation_on_the_first_line(self):
+        lines = [Line(idx=0, start=0.0, end=0.5, zh="안녕.", en="Hi", speaker="A"),
+                 Line(idx=1, start=0.6, end=1.0, zh="하세요", en="there", speaker="A")]
+        assert merge_adjacent_short_lines(lines)[0].zh == "안녕. 하세요"
+
+    def test_chinese_and_japanese_lines_join_without_a_space(self):
+        for a, b in (("你好", "世界"), ("こんにちは", "元気"), ("你好。", "世界"), ("はい。", "元気")):
+            lines = [Line(idx=0, start=0.0, end=0.5, zh=a, en="x", speaker="A"),
+                     Line(idx=1, start=0.6, end=1.0, zh=b, en="y", speaker="A")]
+            assert merge_adjacent_short_lines(lines)[0].zh == a + b
+
+    def test_labelled_speaker_change_never_merges(self):
+        lines = [Line(idx=0, start=0.0, end=0.5, zh="你好", en="x", speaker="A"),
+                 Line(idx=1, start=0.6, end=1.0, zh="世界", en="y", speaker="B"),
+                 Line(idx=2, start=1.1, end=1.4, zh="再见", en="z", speaker=None)]
+        assert len(merge_adjacent_short_lines(lines)) == 3
+
+    def test_unlabelled_turn_change_dash_never_merges(self):
+        for mark in ("-", "—", "－"):
+            lines = [Line(idx=0, start=0.0, end=0.5, zh="你骗人", en="x"),
+                     Line(idx=1, start=0.6, end=1.0, zh=mark + "我没有", en="y")]
+            assert len(merge_adjacent_short_lines(lines)) == 2
+
+    def test_merged_line_keeps_id_and_words_that_spell_its_text(self):
+        def words(text, start):
+            return encode_line_words(text, [{"word": text, "start": start, "end": start + 0.4}])
+        first = Line(idx=0, start=0.0, end=0.5, zh="안녕", en="x", speaker="A", id=7,
+                     word_timings=words("안녕", 0.0))
+        second = Line(idx=1, start=0.6, end=1.0, zh="하세요", en="y", speaker="A", id=8,
+                      word_timings=words("하세요", 0.6))
+        merged = merge_adjacent_short_lines([first, second])
+        assert [ln.id for ln in merged] == [7] and merged[0].merged_ids == [8]
+        assert [w["word"] for w in line_words(merged[0])] == ["안녕", "하세요"]
+
+    def test_words_are_dropped_when_one_line_has_none(self):
+        first = Line(idx=0, start=0.0, end=0.5, zh="你好", en="x", id=1,
+                     word_timings=encode_line_words(
+                         "你好", [{"word": "你好", "start": 0.0, "end": 0.4}]))
+        second = Line(idx=1, start=0.6, end=1.0, zh="世界", en="y", id=2)
+        assert merge_adjacent_short_lines([first, second])[0].word_timings is None
+
     def test_merges_two_short_same_speaker_lines(self, sample_lines):
         merged = merge_adjacent_short_lines(sample_lines)
         assert len(merged) < len(sample_lines)
@@ -461,6 +525,50 @@ class TestFilterHallucinatedSegments:
                     self._seg(2, 3, "world")]
         result = filter_hallucinated_segments(segments, min_repeat_count=4)
         assert result == segments
+
+    def test_repeats_that_differ_only_in_punctuation_collapse(self):
+        segments = [self._seg(i, i + 1, text) for i, text in
+                    enumerate(["好的。", "好的", "好的！", "好的,"])] + [self._seg(4, 5, "再见")]
+        assert filter_hallucinated_segments(segments) == [segments[0], segments[4]]
+
+    def test_a_phrase_looped_inside_one_segment_is_cut_to_one_copy(self):
+        seg = {**self._seg(0, 30, "多谢" * 8 + "。"), "words": [{"word": "x"}]}
+        assert filter_hallucinated_segments([seg]) == [self._seg(0, 30, "多谢。")]
+
+    def test_a_single_character_run_loops_only_at_a_higher_count(self):
+        loop = self._seg(0, 30, "谢" * 22)
+        laugh = self._seg(40, 41, "哈哈哈哈哈哈")
+        assert filter_hallucinated_segments([loop, laugh]) == [self._seg(0, 30, "谢"), laugh]
+
+    def test_a_loop_after_real_speech_keeps_the_speech(self):
+        seg = self._seg(0, 30, "我们走吧，好不好，好不好，好不好，好不好")
+        assert filter_hallucinated_segments([seg]) == [self._seg(0, 30, "我们走吧，好不好")]
+
+    @pytest.mark.parametrize("text", [
+        "100,000,000", "$1,000,000,000", "no no no no", "Go! Go! Go! Go!",
+        "はい。はい。はい。はい。", "好的好的好的", "哈" * 8, "哈" * 9, "ㅋ" * 9, "啊" * 9])
+    def test_real_speech_and_numbers_are_never_cut(self, text):
+        seg = self._seg(0, 30, text)
+        assert filter_hallucinated_segments([seg]) == [seg]
+
+    def test_a_real_loop_is_cut_and_logged(self, monkeypatch):
+        import applog
+        messages = []
+
+        class _Log:
+            def info(self, message):
+                messages.append(message)
+        # A fake logger: the real one's propagation depends on which tests ran before.
+        monkeypatch.setattr(applog, "get_logger", lambda *a, **k: _Log())
+        seg = self._seg(12.0, 40.0, "谢谢你" * 30)
+
+        assert filter_hallucinated_segments([seg]) == [self._seg(12.0, 40.0, "谢谢你")]
+        assert len(messages) == 1
+        assert "12.0-40.0s" in messages[0] and "87 characters" in messages[0]
+
+    def test_a_short_repeat_inside_a_segment_is_real_speech(self):
+        seg = self._seg(0, 3, "好的好的好的")
+        assert filter_hallucinated_segments([seg]) == [seg]
 
     def test_a_long_run_is_collapsed_to_the_first_occurrence(self):
         segments = ([self._seg(i, i + 1, "thanks for watching") for i in range(5)]
@@ -1059,6 +1167,19 @@ class TestTranscribeWithGroq:
         assert captured["data"]["model"] == core.GROQ_DEFAULT_MODEL
         assert captured["data"]["language"] == "en"
         assert captured["timeout"] is not None  # never an unbounded hang
+
+    def test_looped_output_is_filtered_like_the_local_path(self, tmp_path, monkeypatch):
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        looped = [{"start": float(i), "end": i + 1.0, "text": "Thank you."} for i in range(5)]
+        looped.append({"start": 10.0, "end": 12.0, "text": "See you tomorrow."})
+        monkeypatch.setattr("lib.http.pinned_get",
+                            lambda *a, **k: self._FakeResponse(segments=looped))
+
+        result = core.transcribe_with_groq(str(audio), "en", "fake-groq-key")
+
+        assert result == [{"start": 0.0, "end": 1.0, "text": "Thank you."},
+                          {"start": 10.0, "end": 12.0, "text": "See you tomorrow."}]
 
     def test_blank_segments_are_dropped(self, monkeypatch, tmp_path):
         import core

@@ -27,6 +27,7 @@ import segment_splitting
 import storage
 from asr_backend import coverage_warning
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
+from diarize import select_device
 from services import settings_service
 from services.qwen3_requirements_service import import_failure_message
 from translate_engines import redact_secrets
@@ -530,6 +531,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 try:
                     segments = word_align.realign_oversized_segments(
                         segments, audio_path, source_language, chinese_script=chinese_script,
+                        # The job already holds a GPU slot (gpu_touching); use_gpu is the
+                        # user's choice, so a CPU-only run never touches CUDA.
+                        device=select_device(use_gpu),
                         progress_cb=_align_progress, cancel_check=rep.cancelled)
                 finally:
                     align_ticker.stop()

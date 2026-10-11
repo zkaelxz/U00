@@ -873,6 +873,32 @@ class TestRunTranscribeAndApplyJob:
         assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "cancelled"}
         _clear(job_id)
 
+    @pytest.mark.parametrize("gpu_available", [True, False])
+    def test_realign_runs_on_the_device_the_gpu_choice_selects(
+            self, isolated_db, monkeypatch, gpu_available):
+        import word_align
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 20.0, "text": "hi"}])
+        monkeypatch.setattr(transcribe_pipeline, "select_device",
+                            lambda use_gpu: "cuda" if use_gpu and gpu_available else "cpu")
+        devices = []
+
+        def fake_realign(segments, *a, device=None, **k):
+            devices.append(device)
+            return segments
+        monkeypatch.setattr(word_align, "realign_oversized_segments", fake_realign)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", True, False, False, None, None, None,
+            use_gpu=True)
+
+        assert devices == ["cuda" if gpu_available else "cpu"]
+        _clear(job_id)
+
     def test_realign_error_is_reported_but_lines_still_saved(self, isolated_db, monkeypatch):
         import word_align
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")

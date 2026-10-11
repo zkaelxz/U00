@@ -420,6 +420,62 @@ class TestAlignerLoadedOncePerRun:
         assert loads == ["cuda"]
         assert seen == [sentinel] * 4
 
+    def test_a_gpu_that_cannot_load_the_model_falls_back_to_the_cpu(self, monkeypatch):
+        monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
+        monkeypatch.setattr("memory_headroom.before_load", lambda *a, **k: None)
+        loads, used = [], []
+
+        def fake_load(device="cpu"):
+            loads.append(device)
+            if device == "cuda":
+                raise RuntimeError("CUDA out of memory")
+            return object()
+        monkeypatch.setattr(word_align, "load_aligner", fake_load)
+        monkeypatch.setattr(word_align, "realign_long_segment",
+                            lambda audio, seg, lang, **k: used.append(k["device"]) or [seg])
+
+        word_align.realign_oversized_segments(
+            [{"start": 0.0, "end": 20.0, "text": "long"}], "/fake.wav", "zh", device="cuda")
+
+        assert loads == ["cuda", "cpu"]
+        assert used == ["cpu"]
+
+    def test_a_cuda_error_during_inference_finishes_the_run_on_the_cpu(self, monkeypatch):
+        monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
+        monkeypatch.setattr("memory_headroom.before_load", lambda *a, **k: None)
+        monkeypatch.setattr(word_align, "load_aligner", lambda device="cpu": f"model-{device}")
+        calls = []
+
+        def fake_align(slice_path, words, device="cpu", aligner=None):
+            calls.append(device)
+            if device == "cuda":
+                raise RuntimeError("CUDA out of memory. Tried to allocate 2 GiB")
+            return [(w, i * 10.0, i * 10.0 + 1.0) for i, w in enumerate(words)]
+        monkeypatch.setattr(word_align, "align_words", fake_align)
+        monkeypatch.setattr(word_align, "_release_gpu", lambda: calls.append("release"))
+        import core
+        monkeypatch.setattr(core, "extract_audio_slice",
+                            lambda a, s, e, out, **k: open(out, "wb").close())
+        import segment
+        monkeypatch.setattr(segment, "segment_and_annotate",
+                            lambda text, language, chinese_script="simplified":
+                            [("你好", None), ("世界", None)])
+
+        segments = [{"start": 0.0, "end": 20.0, "text": "你好世界"},
+                    {"start": 30.0, "end": 50.0, "text": "你好世界"}]
+        out = word_align.realign_oversized_segments(
+            segments, "/fake.wav", "zh", device="cuda", min_pause_seconds=0.5)
+
+        # Both segments were split (not left whole) and the GPU was tried only once.
+        assert len(out) > len(segments)
+        assert calls.count("cuda") == 1 and calls.count("cpu") >= 2
+
+    def test_the_model_stays_full_precision(self):
+        # The owner's V100 has no native bf16, so nothing here may cast the model.
+        import inspect
+        source = inspect.getsource(word_align)
+        assert "bfloat16" not in source and ".half()" not in source
+
     def test_no_load_when_nothing_is_oversized(self, monkeypatch):
         monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
         loads = []
