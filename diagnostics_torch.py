@@ -6,11 +6,16 @@ verify helpers behind Diagnostics > "GPU PyTorch".
 """
 
 import json
+import os
 import platform
 import re
 import shutil
 import subprocess
+import sys
+import threading
+import time
 
+import background_jobs
 import diagnostics
 
 
@@ -59,6 +64,96 @@ def get_gpu_status() -> dict:
     except Exception:
         return {"available": False, "torch_cuda_version": torch_cuda_version,
                 "message": "GPU info unavailable."}
+
+
+# Importing torch or ctranslate2 in the server opens a CUDA context that keeps
+# their DLLs locked until the process exits, so GPU PyTorch setup can't replace
+# them (WinError 5). The overview asks a short-lived child instead.
+_GPU_STATUS_SCRIPT = (
+    "import json, diagnostics_torch, whisper_models\n"
+    "out = dict(diagnostics_torch.get_gpu_status())\n"
+    "out['whisper'] = whisper_models.gpu_status()\n"
+    "out['gpu_runtime'] = whisper_models.whisper_gpu_runtime()\n"
+    "print(json.dumps(out))\n")
+# A cold `import torch` on Windows with antivirus scanning the DLLs can take
+# minutes, as the post-install verify allows for.
+GPU_STATUS_CHILD_TIMEOUT_SECONDS = 180
+# The answer only changes when the torch family or the driver does, so a
+# good one is kept until an install (forget_gpu_status) or an hour passes; a
+# failed probe is retried sooner.
+GPU_STATUS_CACHE_SECONDS = 3600
+GPU_STATUS_RETRY_SECONDS = 30
+GPU_CHECK_PAUSED_MESSAGE = "GPU check paused while an install runs."
+_gpu_status_lock = threading.Lock()
+_gpu_status_cache = {"at": None, "value": None}
+
+
+def _gpu_status_unavailable(message: str = "GPU info unavailable.") -> dict:
+    return {"available": False, "message": message,
+            "whisper": {"ctranslate2_cuda_devices": None, "torch_cuda_available": None,
+                        "errors": []},
+            "gpu_runtime": {"status": "unknown", "reason": None}}
+
+
+def _gpu_status_from_child() -> dict:
+    from lib import proc as proc_run
+    try:
+        proc = proc_run.run_captured(
+            [sys.executable, "-c", _GPU_STATUS_SCRIPT], GPU_STATUS_CHILD_TIMEOUT_SECONDS,
+            cwd=os.path.dirname(os.path.abspath(__file__)))
+    except OSError:
+        return _gpu_status_unavailable()
+    if proc.timed_out:
+        return _gpu_status_unavailable("GPU info unavailable -- the GPU check took too long.")
+    data = parse_torch_verify_output(proc.stdout)
+    if ("error" in data or not isinstance(data.get("whisper"), dict)
+            or not isinstance(data.get("gpu_runtime"), dict)):
+        return _gpu_status_unavailable()
+    data["probed"] = True
+    return data
+
+
+def get_gpu_status_isolated() -> dict:
+    """get_gpu_status() plus whisper_models.gpu_status() under "whisper" and
+    whisper_models.whisper_gpu_runtime() under "gpu_runtime", measured in a
+    child process so this process never loads torch or ctranslate2. Cached (see GPU_STATUS_CACHE_SECONDS); one child at a time."""
+    with _gpu_status_lock:
+        at, value = _gpu_status_cache["at"], _gpu_status_cache["value"]
+        ttl = GPU_STATUS_CACHE_SECONDS if (value or {}).get("probed") else GPU_STATUS_RETRY_SECONDS
+        if at is None or time.monotonic() - at > ttl:
+            # A child importing torch while GPU PyTorch setup replaces its
+            # files can lock them (WinError 5) or read a half-written install.
+            if background_jobs.exclusive_active():
+                value = value if at is not None else _gpu_status_unavailable(
+                    GPU_CHECK_PAUSED_MESSAGE)
+            else:
+                value = _gpu_status_from_child()
+                _gpu_status_cache.update(at=time.monotonic(), value=value)
+    out = json.loads(json.dumps(value))
+    out.pop("probed", None)
+    return out
+
+
+def forget_gpu_status() -> None:
+    """Drops the cached answer after an install, so the page shows the new
+    torch rather than the one before it."""
+    with _gpu_status_lock:
+        _gpu_status_cache.update(at=None, value=None)
+
+
+def check_cuda_isolated() -> dict:
+    """diagnostics.check_cuda()'s answer, read through
+    get_gpu_status_isolated() so the server never imports torch.
+    "cuda_available" is None when torch couldn't be imported or the check
+    didn't finish."""
+    if not diagnostics.check_dependency("torch"):
+        return {"torch_installed": False, "cuda_available": None}
+    gpu = get_gpu_status_isolated()
+    if gpu.get("available"):
+        return {"torch_installed": True, "cuda_available": True}
+    # get_gpu_status() sets torch_cuda_version only once torch imported.
+    return {"torch_installed": True,
+            "cuda_available": False if "torch_cuda_version" in gpu else None}
 
 
 def gpu_torch_mismatch() -> bool:

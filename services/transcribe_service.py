@@ -51,6 +51,7 @@ import whisper_models
 import segment_splitting
 import db
 import diagnostics
+import diagnostics_torch
 import raw_transcript
 import sensitivity_preset as presets
 import storage
@@ -290,7 +291,9 @@ def get_transcribe_config(drama_id: int) -> dict:
         "measured_diarize_speed": measured_diarize_speed(settings_service.get("use_gpu")),
         "measured_diarize_runs": measured_diarize_runs(settings_service.get("use_gpu")),
         "whisper_installed": diagnostics.check_dependency("faster_whisper"),
-        "gpu_runtime": whisper_models.whisper_gpu_runtime(),
+        # Loading ctranslate2 or cuBLAS here would lock their DLLs in the
+        # server; the isolated GPU check measures it in a child.
+        "gpu_runtime": diagnostics_torch.get_gpu_status_isolated()["gpu_runtime"],
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
