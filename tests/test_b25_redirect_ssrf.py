@@ -276,3 +276,13 @@ class TestB25ReviewFixes:
         tiers = {AccessTier.RENDERED_BROWSER: lambda u: called.append(u)}
         result = ladder.run_ladder("http://169.254.169.254/latest/", tiers, log=False)
         assert called == [] and not result.ok
+
+
+class TestOversizedBodyIsARefusal:
+    def test_an_oversized_image_through_the_real_session_is_the_sources_refusal(self, fake_net):
+        from sources import http
+        routes, _ = fake_net
+        routes["example.org"] = (200, {"Content-Type": "image/png"},
+                                 b"x" * (http.MAX_IMAGE_BYTES + 1))
+        with pytest.raises(http.ResponseTooLarge):
+            http._requests_transport("GET", "https://example.org/big.png", {}, None, 5)

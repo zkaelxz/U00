@@ -39,7 +39,7 @@ import re
 from urllib.parse import quote, urlsplit
 
 from ..base import SourceAdapter
-from ..lzstring import decompress_from_base64
+from ..lzstring import LZStringTooLarge, decompress_from_base64
 from ..models import (ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
 from ..registry import register
@@ -49,9 +49,12 @@ MIRRORS = ["https://www.manhuagui.com", "https://tw.manhuagui.com",
 IMAGE_SERVERS = ["https://i.hamreus.com", "https://cf.hamreus.com"]
 CRAWL_DELAY = 10.0
 
-_PACKED = re.compile(r'window\[".*?"\](\(.*\)\s*\{[\s\S]+\}\s*\(.*\))')
-_PACKED_CONTENT = re.compile(r"""['"]([0-9A-Za-z+/=]+)['"]\[['"].*?['"]\]\(['"].*?['"]\)""")
-_JSON_BLOCK = re.compile(r"\{.*\}", re.S)
+# The packed call is located with str.find and brace counting, and every
+# regex group here has a fixed upper bound: the page is attacker-controlled,
+# and an unbounded `.*?` or `[\s\S]+` here backtracks for seconds on a few KB.
+_PACKER_HEAD = re.compile(r"\([^(){}]{0,16}\([^)]{0,64}\)\s*\{")
+_PACKED_CONTENT = re.compile(
+    r"""['"]([0-9A-Za-z+/=]+)['"]\[['"][^'"]{0,64}['"]\]\(['"][^'"]{0,64}['"]\)""")
 # ASCII-only, like the JS packer's own \w -- Python's default \w would also
 # match CJK, gluing a packed key to adjacent Chinese text ("第a话").
 _WORD = re.compile(r"\w+", re.ASCII)
@@ -103,6 +106,10 @@ def unpack_packer(script: str) -> str:
 
     def sub(m):
         key = m.group(0)
+        # Base-62 decoding is quadratic in the token's length, and 62**6 is
+        # far past any real word list, so a longer token can't be an index.
+        if len(key) > 6:
+            return key
         i = _radix62(key)
         if 0 <= i < len(words) and words[i]:
             return words[i]
@@ -110,27 +117,80 @@ def unpack_packer(script: str) -> str:
     return _WORD.sub(sub, payload)
 
 
+class TooLarge(SourceError):
+    """A compressed payload expands past what this app accepts. Not a
+    layout change: the adapter read it fine, it is just too big."""
+
+    def __init__(self, what: str):
+        super().__init__(f"{what} is larger than this app accepts.", FailureReason.UNKNOWN)
+
+
+def _lz_decode(data: str, what: str, too_large: str) -> str:
+    try:
+        return decompress_from_base64(data)
+    except LZStringTooLarge:
+        raise TooLarge(too_large) from None
+    except ValueError:
+        raise LayoutChanged(what) from None
+
+
+def _packed_call(html: str) -> str:
+    """The `(function(p,a,c,k,e,d){...}(...))` call a chapter page passes
+    to `window["eval"]`, or "" when the page has none."""
+    start = html.find('window["')
+    while start >= 0:
+        call = html.find('"]', start + 8, start + 8 + 64)
+        head = _PACKER_HEAD.match(html, call + 2) if call >= 0 else None
+        if not head:
+            start = html.find('window["', start + 8)
+            continue
+        depth = 0
+        i = head.end() - 1
+        while i < len(html):
+            c = html[i]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        else:
+            return ""
+        line_end = html.find("\n", i)
+        if line_end < 0:
+            line_end = len(html)
+        end = html.rfind(")", i, line_end)
+        if end >= 0:
+            return html[call + 2:end + 1]
+        start = html.find('window["', line_end)
+    return ""
+
+
 def decode_image_data(html: str) -> dict:
     """The {"files", "path", "sl"} object a chapter page's script builds."""
-    m = _PACKED.search(html or "")
-    if not m:
+    code = _packed_call(html or "")
+    if not code:
         raise LayoutChanged("the chapter page's image script")
-    code = m.group(1)
 
     def expand(match):
-        decoded = decompress_from_base64(match.group(1))
+        decoded = _lz_decode(match.group(1), "readable page data in the image script",
+                             "This chapter's page list")
         if decoded is None:
             raise LayoutChanged("readable page data in the image script")
         return "'" + decoded + "'.split('|')"
     code = _PACKED_CONTENT.sub(expand, code, count=1)
     unpacked = unpack_packer(code.replace("\\'", "-"))
-    jm = _JSON_BLOCK.search(unpacked)
-    if not jm:
+    start = unpacked.find("{")
+    end = unpacked.rfind("}")
+    if start < 0 or end < start:
         raise LayoutChanged("the image list inside the page script")
     try:
-        return json.loads(jm.group(0))
-    except ValueError as e:
-        raise LayoutChanged(f"valid image data ({e})") from None
+        return json.loads(unpacked[start:end + 1])
+    except RecursionError:
+        raise LayoutChanged("valid image data") from None
+    except ValueError:
+        raise LayoutChanged("valid image data") from None
 
 
 def _soup(html: str):
@@ -250,7 +310,8 @@ class ManhuaguiSource(SourceAdapter):
             if not self.allow_adult:
                 raise ContentHidden(self.adult_hidden_message("this work's chapter list"),
                                     FailureReason.COOKIE_REQUIRED)
-            decoded = decompress_from_base64(hidden.get("value") or "")
+            decoded = _lz_decode(hidden.get("value") or "", "the hidden chapter list",
+                                 "This work's chapter list")
             if not decoded:
                 raise LayoutChanged("the hidden chapter list")
             fragment = _soup(decoded)

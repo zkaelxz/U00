@@ -98,6 +98,8 @@ Lines you rewrite in Review are recorded as before/after pairs. After 8 or more,
 
 Review > AI review > "Flag lines for a second look" asks the translation engine to flag only the already-translated lines worth a second look (possible mistranslation, unresolved pronoun, uncertain name, idiom). Flags are saved, can be filtered with the "Flagged" tab, and clear when you edit the line or dismiss the flag.
 
+A line marked "Source changed" had its source text changed (by an edit, a re-transcription or Fix flagged) after it was translated: its English is kept but may no longer match, and Translate and Export show how many such lines remain. In Review checks, "Retranslate these" translates exactly those lines again with the Translate stage's starting options, and "Keep English for all" (or "Keep English" on one line) keeps the English as it is and removes the mark.
+
 ### Emotion-aware translation
 
 Lines are tagged with an emotional register (14, including sarcasm, dry humour, suppressed anger) plus an intensity, and the tags are folded into the next translation run for charged lines only. Tags also map to TTS rate and pitch for dubbing.
@@ -196,7 +198,7 @@ Raw and translated text side by side, for proofing and language learning.
 - **Series**: dramas sharing a glossary or characters get a consolidated view.
 - **Search and bulk actions**: a global search over every drama's original and translated lines; bulk status, delete (typed confirm) and translate (skips dramas without a key, lines, or already running).
 - **Library tools** (page): export all as a zip, per-drama export package (with a manifest of what was included), backup and restore, presets, voice bank, storage scan with quality presets (Archival, Balanced, Minimal; only regenerable files are removed), and a disk usage view with a Trash folder. Disk usage never follows a link or junction when it counts a folder: the folder's size is what is inside it, and the folders the links lead to are shown apart as "Linked folder, stored elsewhere" with their own size, and as "plus N in linked folders" next to the total. Those are not counted in the folder's size or percentage, and a link, or a folder holding one, can't be moved to Trash from here.
-- **Backup and restore**: a database-only snapshot or a full zip with media, streamed to disk; restore validates the zip first and needs a typed confirm. Signed-in browser sessions from Sources are not included. Automatic backups are opt-in (Settings). See `docs/runbook.md` section 3.
+- **Backup and restore**: a database-only snapshot or a full zip with media, streamed to disk; restore validates the zip first and needs a typed confirm. Signed-in browser sessions from Sources are not included. Automatic backups are opt-in (Settings). See `docs/runbook.md` section 3. Baihe records which version last opened your library and refuses to start if that was a newer version than the one you are running, since an older build could misread the newer data. Upgrade Baihe, or restore a backup from the backups folder in your Baihe data folder.
 - **Translation versions**: every translation run is saved with its engine and model; compare versions side by side and activate one (the current one is snapshotted first).
 - **Undo**: line snapshots are taken before risky edits (a force re-translate, an applied merge, a re-transcribe, a shorten, a cleanup, activating a version); restore from Review > "Versions and history" > "Line history" (the 10 most recent are kept).
 - **Drama IDs skip numbers after a deletion, on purpose.** Lines, glossaries and versions reference a drama by id, so reusing one could re-attach stale rows or conflict with an older backup. The Library shows a separate sequential **#** column.
@@ -225,7 +227,7 @@ Limits: the CV detector misses borderless or irregular bubbles; inpainting is Op
 
 ### Browser extension
 
-A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Preferences > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Details: [`browser-extension.md`](browser-extension.md).
+A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Preferences > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Pages of one title are translated one at a time, each with the context of the page that finished just before it: that follows the order captures get their turn, not page order, so a page sent out of order (or racing another) reads the wrong neighbour's context, and one that waits over 30 seconds behind a slow engine is translated without context. Details: [`browser-extension.md`](browser-extension.md).
 
 ### Metadata romanization
 

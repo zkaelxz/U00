@@ -42,6 +42,26 @@ class TestPageSideFallback:
         out = _run("content", "canvas_tainted_url_from_data_attribute")
         assert out["ok"] is True and len(out["sent"]) == 1
 
+    def test_two_canvases_each_use_the_image_at_their_own_position(self):
+        out = _run("content", "two_canvases_map_to_their_own_images")
+        assert out["ok"] is True
+        assert out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg", "https://s1.bzcdn.net/p/2.jpg"]
+        assert len(out["sent"]) == 2 and out["unverified"] == 2
+
+    def test_ambiguous_sibling_images_are_refused_not_guessed(self):
+        out = _run("content", "ambiguous_images_map_to_no_canvas")
+        assert out["ok"] is False and out["fetched"] == [] and out["sent"] == []
+        assert "wouldn't let this page's image be read" in out["error"]
+
+    def test_a_sibling_image_that_is_elsewhere_on_screen_is_not_used(self):
+        out = _run("content", "an_image_elsewhere_is_not_the_canvas_image")
+        assert out["ok"] is False and out["fetched"] == []
+
+    def test_a_partial_read_still_offers_the_missing_site(self):
+        out = _run("content", "partial_read_still_asks_for_the_site")
+        assert out["ok"] is True and len(out["sent"]) == 1
+        assert out["partialOrigins"] == ["https://s1.bzcdn.net"]
+
     def test_no_discoverable_url_keeps_the_original_clear_error(self):
         out = _run("content", "canvas_tainted_no_url")
         assert out["ok"] is False and "code" not in out
@@ -77,6 +97,12 @@ class TestWholeChapterCapture:
     def test_capture_asks_for_the_site_instead_of_scrolling_for_nothing(self):
         out = _run("content", "capture_tainted_img_needs_permission")
         assert out["code"] == "NEEDS_SITE_ACCESS" and out["origins"] == ["https://s1.bzcdn.net"]
+
+    def test_a_tainted_canvas_is_downloaded_once_across_capture_steps(self):
+        out = _run("content", "capture_fetches_a_tainted_canvas_once")
+        assert out["ok"] is True
+        assert out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg"]
+        assert len(out["sent"]) == 1 and out["unverified"] == 1
 
     def test_capture_with_no_url_keeps_the_clear_error(self):
         out = _run("content", "capture_tainted_canvas_no_url")

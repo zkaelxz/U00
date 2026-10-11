@@ -199,6 +199,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const appLook = resolveTheme(useThemePref(), useMediaQuery('(prefers-color-scheme: dark)'))
   const [prefs, setPrefsState] = useState<ReaderPrefs>(() => loadPrefs(browserStorage()))
   const [title, setTitle] = useState<string | null>(null)
+  const [titleFailed, setTitleFailed] = useState(false)
   const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [sourceLanguage, setSourceLanguage] = useState('und')
   const [mediaType, setMediaType] = useState<string | null>(null)
@@ -223,6 +224,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   useEffect(() => {
     // Title A's link must not show on title B while B loads, or if B's load fails.
     setSourceUrl(null)
+    setTitleFailed(false)
     let cancelled = false
     api.getDrama(id).then(
       (d) => {
@@ -233,7 +235,9 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         setMediaType(d.media_type)
       },
       (e) => {
-        if (!cancelled) setError(e)
+        if (cancelled) return
+        setTitleFailed(true)
+        setError(e)
       },
     )
     readerApi.overview(id).then((ov) => {
@@ -369,7 +373,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       {phone ? (
         <header className="reader-phone-head">
           <a href={routeHref({ name: 'library' })} className="reader-back" aria-label="Back to Library">‹</a>
-          <span className="reader-title">{title ?? 'Loading…'}</span>
+          <span className="reader-title">{title ?? (titleFailed ? `Title #${id}` : 'Loading…')}</span>
           <SourceLink href={sourceUrl} />
           {aa}
         </header>
