@@ -165,6 +165,18 @@ def _fake_engine_installed():
 
 
 @pytest.fixture(autouse=True)
+def _echo_engine_off_after_each_test():
+    """Turning Developer Mode on registers the Echo engine in the process-wide
+    engine tables; a test that does so (assistant, source-domain and role tests)
+    would otherwise leave it there for whichever test the worker runs next, such
+    as the free-engine labelling tests."""
+    yield
+    echo = sys.modules.get("engine_backends.echo")
+    if echo is not None:
+        echo.set_enabled(False)
+
+
+@pytest.fixture(autouse=True)
 def _live_whisper_not_loaded():
     """A Live job loads Whisper before it captures; no test may load a real
     model. The real function stays on `warm_up.real` for its own tests.
