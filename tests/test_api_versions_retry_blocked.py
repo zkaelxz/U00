@@ -4,6 +4,7 @@ content-blocked line): services/translation_version_service.py,
 services/blocked_retry_service.py and their routers. isolated_db + fakes;
 no network, no models, no real engines.
 """
+import contextlib
 import os
 import threading
 
@@ -53,11 +54,18 @@ def _no_leak(resp, *needles):
         assert n not in text
 
 
+@contextlib.contextmanager
 def _hold_job(job_id):
-    """A running background job that waits until released."""
+    """A running background job that waits until the block exits. It joins the
+    job thread on exit: its completion path touches the database, so it must
+    not outlive the isolated_db fixture."""
     gate = threading.Event()
     assert background_jobs.start_job(job_id, lambda: gate.wait(5))
-    return gate
+    try:
+        yield
+    finally:
+        gate.set()
+        assert background_jobs.wait_for_job_threads(5, [job_id])
 
 
 # ---------------------------------------------------------------------------
@@ -183,13 +191,10 @@ class TestActivateApi:
     def test_409_while_a_line_writing_job_runs(self, client):
         did, _ = _seed()
         vid = _version_over_current(did, ["Hi", "Bye"])
-        gate = _hold_job(f"translate_{did}")
-        try:
+        with _hold_job(f"translate_{did}"):
             r = client.post(_act(did, vid), json={"confirm": True})
             assert r.status_code == 409 and r.json()["error"]["code"] == "conflict"
             assert db.load_lines(did)[0]["en"] == "Hello"
-        finally:
-            gate.set()
 
     def test_409_when_lines_restructured(self, client):
         did, _ = _seed()
@@ -283,12 +288,9 @@ class TestRetryService:
         did, ids = _blocked()
         built = []
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: built.append(a))
-        gate = _hold_job(f"translate_{did}")
-        try:
+        with _hold_job(f"translate_{did}"):
             with pytest.raises(ConflictError):
                 blocked_retry_service.retry_blocked_line(did, ids[1], "fake")
-        finally:
-            gate.set()
         assert built == []
 
     @pytest.mark.parametrize("answer", [[], ["a", "b"], [""], None])
@@ -421,12 +423,9 @@ class TestRetryApi:
 
     def test_409_while_translate_job_runs(self, client):
         did, ids = _blocked()
-        gate = _hold_job(f"translate_{did}")
-        try:
+        with _hold_job(f"translate_{did}"):
             r = client.post(_retry(did, ids[1]), json={"engine": "fake"})
             assert r.status_code == 409
-        finally:
-            gate.set()
 
     def test_missing_key_503(self, client, monkeypatch):
         did, ids = _blocked()
