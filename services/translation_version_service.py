@@ -36,14 +36,14 @@ SNAPSHOT_LABEL = "before switching version"
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
 def _owned_version(drama_id: int, version_id: int) -> dict:
     v = db.get_translation_version(version_id)
     if v is None or v.get("drama_id") != drama_id:
-        raise NotFoundError(f"No translation version {version_id} for drama {drama_id}.")
+        raise NotFoundError(f"No translation version {version_id} for title {drama_id}.")
     return v
 
 
@@ -59,7 +59,7 @@ def activate_version(drama_id: int, version_id: int, confirm: bool = False) -> d
         raise InvalidInputError("Using a saved version replaces the current English; "
                                 "send confirm=true.")
     if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError("A background job is still running for this drama -- wait for it "
+        raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before switching versions.")
     rows = version.get("lines") or []
     current = db.load_line_objects(drama_id)

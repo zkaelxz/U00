@@ -19,7 +19,7 @@ from services.service_errors import NotFoundError
 
 _FIELDS = {"audio": ("audio_filename", AUDIO_EXTENSIONS),
            "video": ("source_video_filename", VIDEO_EXTENSIONS)}
-_NO_FILE = "This drama has no {kind} file to play."
+_NO_FILE = "This title has no {kind} file to play."
 # Fixed map, not mimetypes: its answer for .mkv/.m4a/.flac depends on the
 # host's own MIME tables (Windows differs), so it is not deterministic.
 _CONTENT_TYPES = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
@@ -33,7 +33,7 @@ def resolve_media(drama_id: int, kind: str):
         raise NotFoundError("Unknown media kind.")
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     field, allowed = _FIELDS[kind]
     name = drama.get(field)
     missing = NotFoundError(_NO_FILE.format(kind=kind))
