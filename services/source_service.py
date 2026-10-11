@@ -34,7 +34,7 @@ def get_source_config(drama_id: int) -> dict:
     NotFoundError for an unknown drama id."""
     drama = get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     content_mode = drama.get("content_mode") or "audio_drama"
     has_video_source = bool(drama.get("source_video_filename"))
@@ -71,7 +71,7 @@ def update_source_config(drama_id: int, *, source_language: str = None,
     get_source_config(drama_id)."""
     drama = get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     fields = {}
     if source_language is not None:

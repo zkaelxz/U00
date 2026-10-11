@@ -68,6 +68,25 @@ test('opens at page 1, pages forward and updates ?page', async ({ page }) => {
   }
 })
 
+test('a page that fails to load hides the previous page and offers Retry', async ({ page }) => {
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  let fail = true
+  await page.route(/\/api\/reader\/dramas\/2\/page\?.*page=2/, (route) =>
+    fail ? route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } }) : route.fallback())
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(label(page)).toHaveText('Page 2 of 3')
+  await expect(page.getByRole('alert')).toBeVisible()
+  // Page 1's text must not sit under the "Page 2" label.
+  await expect(page.locator('iframe.reader-frame')).toHaveCount(0)
+
+  fail = false
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(frameRows(page)).toHaveCount(40)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0)
+})
+
 test('text size and lines per page persist across a reload', async ({ page }) => {
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
@@ -362,13 +381,22 @@ test.describe('phone', () => {
     await expect(sheet).toBeVisible()
     await expect(sheet.getByLabel('Width')).toHaveCount(0)
     // The Field (i) help button is the shared pattern with a padded hit area.
-    const small = await sheet.locator('select, input:not([type=checkbox]), button:not(.field-help-btn), label:has(> input[type=checkbox])').evaluateAll((els) =>
+    const small = await sheet.locator('select, input:not([type=checkbox]), button:not(.field-help-btn, .toggle), label:has(> input[type=checkbox])').evaluateAll((els) =>
       els
         .filter((e) => (e as HTMLElement).offsetParent !== null)
         .map((e) => ({ h: window.hitHeight(e), t: (e.textContent ?? '').trim() || e.getAttribute('aria-label') }))
         .filter(({ h }) => h < 44),
     )
     expect(small).toEqual([])
+    // A Toggle's 24px box reaches 44px through its ::after, so probe what answers above and below its centre.
+    const reach = await sheet.getByRole('switch', { name: 'Spoiler-free' }).evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      const x = r.left + r.width / 2
+      const cy = r.top + r.height / 2
+      const mine = (y: number) => el.contains(document.elementFromPoint(x, y))
+      return mine(cy - 21.5) && mine(cy + 21.5)
+    })
+    expect(reach, 'Spoiler-free toggle hit area is under 44px').toBe(true)
     await expect(sheet.getByTestId('reader-metrics')).toContainText('90 lines')
     await sheet.getByLabel('Go to page').fill('2')
     await sheet.getByRole('button', { name: 'Go', exact: true }).tap()
@@ -377,6 +405,18 @@ test.describe('phone', () => {
     await bar.getByRole('button', { name: 'Next page' }).tap()
     await expect(page).toHaveURL(/page=3$/)
     await expect(label(page)).toHaveText('Page 3 of 3')
+  })
+
+  test('a failed page keeps a 44px Retry and hides the previous page', async ({ page }) => {
+    await page.goto('/#/read/2?page=1')
+    await expect(frameRows(page)).toHaveCount(40)
+    await page.route(/\/api\/reader\/dramas\/2\/page\?.*page=2/, (route) =>
+      route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } }))
+    await page.locator('.reader-bottom').getByRole('button', { name: 'Next page' }).tap()
+    await expect(page.getByRole('alert')).toBeVisible()
+    await expect(page.locator('iframe.reader-frame')).toHaveCount(0)
+    const retry = await page.getByRole('button', { name: 'Retry' }).boundingBox()
+    expect(retry!.height).toBeGreaterThanOrEqual(44)
   })
 
   test('Edit in Translate is reachable on a phone and lands on the Glossary', async ({ page }) => {

@@ -36,11 +36,11 @@ _IMAGE_MISSING = "Page image not found."
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
-def _find_page(drama_id: int, page_id: int, message: str = "No such page in this drama."):
+def _find_page(drama_id: int, page_id: int, message: str = "No such page in this title."):
     """(ordinal, page row, page count). The page must belong to this drama."""
     pages = db.list_pages(drama_id)
     for i, page in enumerate(pages):
@@ -194,7 +194,7 @@ def save_progress(drama_id: int, page: int) -> dict:
     count = len(db.list_pages(drama_id))
     if not isinstance(page, int) or page < 1 or page > count:
         raise InvalidInputError("page is past the last page." if count else
-                                "This drama has no pages.")
+                                "This title has no pages.")
     db.save_progress(drama_id, last_page=page,
                      percent_complete=round(page / count * 100, 2))
     return _progress_view(drama_id)
