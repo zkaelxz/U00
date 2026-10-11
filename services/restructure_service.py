@@ -260,7 +260,7 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             words = (words + more if words and more and more[0]["start"] >= words[-1]["start"]
                      else None)
         for ln in rest:
-            head.zh = head.zh.rstrip() + ln.zh.strip()
+            head.zh = core_module._join_source(head.zh, ln.zh)
             head.en = (head.en.rstrip() + " " + ln.en.strip()).strip()
             if len(head.zh) > MAX_LINE_TEXT_CHARS or len(head.en) > MAX_LINE_TEXT_CHARS:
                 raise InvalidInputError(

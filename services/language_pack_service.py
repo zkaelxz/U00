@@ -11,12 +11,16 @@ on. The app, the CLI and every job reach the prompt through
 """
 
 import contextlib
+import logging
+import sqlite3
 
 import applog
 import db
 import language_packs
 from services import ownership_service
 from services.service_errors import InvalidInputError, NotFoundError
+
+logger = logging.getLogger(__name__)
 
 _TITLE_KEY = "language_packs.title.{}"
 _DEFAULT_KEY = "language_packs.default.{}"
@@ -82,10 +86,17 @@ def _stored_choice(drama_id: int, language: str):
 
 def forget_title(drama_id: int) -> None:
     """Drops the title's own choice so a deleted title leaves no row behind.
-    db has no app-setting delete; a missing key is not an error."""
-    with contextlib.closing(db.get_conn()) as conn:
-        conn.execute("DELETE FROM app_settings WHERE key = ?", (_TITLE_KEY.format(drama_id),))
-        conn.commit()
+    db has no app-setting delete; a missing key is not an error. Best effort:
+    the title row is already gone when this runs, so a locked database must
+    not turn a finished delete into an error or stop a bulk delete."""
+    try:
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("DELETE FROM app_settings WHERE key = ?",
+                         (_TITLE_KEY.format(drama_id),))
+            conn.commit()
+    except sqlite3.Error as e:
+        logger.warning("Could not drop title %s's language-pack choice: %s",
+                       drama_id, type(e).__name__)
 
 
 def get_language_default(language: str) -> dict:

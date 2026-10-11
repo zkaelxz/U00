@@ -246,11 +246,11 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
             done += len("".join(p.split()))
             end = seg["end"] if i == len(pieces) - 1 else seg["start"] + dur * done / total
             # estimated cuts: the words no longer line up with the text
-            # Opt-in: the Review re-split keeps the parent line's own flag on its
-            # pieces, which a flag set here would replace.
+            # Opt-in, and never over a flag the segment already carries: the Review
+            # re-split keeps the parent line's own flag on its pieces.
             out.append({**bare, "start": start, "end": end, "text": p.strip(),
                         **({"flag": "timing_uncertain", "flag_note": PROPORTIONAL_SPLIT_NOTE}
-                           if flag_estimated else {})})
+                           if flag_estimated and not bare.get("flag") else {})})
     return out
 
 

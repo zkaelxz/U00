@@ -69,7 +69,7 @@ def require_drama(drama_id) -> dict:
     return drama
 
 
-def _stored_media_path(drama_id, drama) -> Optional[str]:
+def stored_media_path(drama_id, drama) -> Optional[str]:
     """Video first, else audio; a bare filename inside the drama folder that
     is a regular file whose real path stays inside it."""
     base = os.path.realpath(os.path.join(db.DRAMAS_DIR, str(drama_id)))
@@ -87,7 +87,7 @@ def analyze_media(drama_id: int) -> dict:
     """NotFoundError unknown drama; InvalidInputError no stored media;
     DependencyUnavailableError if ffprobe is missing or cannot read it."""
     drama = require_drama(drama_id)
-    path = _stored_media_path(drama_id, drama)
+    path = stored_media_path(drama_id, drama)
     if path is None:
         raise InvalidInputError("This title has no media file yet.")
     try:

@@ -350,7 +350,7 @@ def _probe_title_fps(drama_id: int, drama: dict) -> float:
     """The frame rate of the title's own video, else DEFAULT_FPS. It is not
     stored on the title and ffprobe may be missing or slow, so any failure is
     the old 24 fps behaviour rather than an export error."""
-    path = metadata_service._stored_media_path(drama_id, drama)
+    path = metadata_service.stored_media_path(drama_id, drama)
     if path:
         try:
             fps = media_inspect.analysis_from_probe(

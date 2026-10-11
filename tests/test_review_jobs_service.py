@@ -419,9 +419,15 @@ def test_fix_flagged_sends_no_timing_flags_and_reports_them(monkeypatch):
     assert "3 timing flags skipped (fix them in the timing tools)" in message
 
 
-def test_fix_flagged_with_only_timing_flags_makes_no_paid_call(monkeypatch):
+def test_fix_flagged_with_only_timing_flags_is_refused_without_a_job(monkeypatch):
     did = _seed((("甲", "a", "timing_drift"),))
     prompts = _fake_fix_llm(monkeypatch)
-    job = _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
-    assert prompts == [] and job["result"]["timing_skipped_count"] == 1
-    assert job["result"]["fixed_count"] == 0
+    with pytest.raises(UnsupportedOperationError, match="timing tools"):
+        svc.start_fix_flagged(did, engine_name="claude")
+    assert prompts == [] and background_jobs.get_status(f"fixflag_{did}") is None
+
+
+def test_timing_flags_skipped_message_is_pluralised():
+    one = jobs_service.derive_outcome("done", None, jobs_service.project_result(
+        {"fixed_count": 1, "total_flagged": 1, "timing_skipped_count": 1}))[1]
+    assert "1 timing flag skipped" in one and "1 timing flags" not in one

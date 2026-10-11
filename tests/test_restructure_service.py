@@ -318,6 +318,19 @@ class TestApi:
                                                   "bogus": 1}).status_code == 422
 
 
+def test_manual_merge_keeps_the_korean_space_but_not_the_chinese_one():
+    did = db.create_drama(title_zh="D", source_language="ko")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="안녕."),
+                        Line(idx=1, start=1.0, end=2.0, zh="하세요"),
+                        Line(idx=2, start=2.0, end=3.0, zh="你"),
+                        Line(idx=3, start=3.0, end=4.0, zh="好")])
+    ids = [r["id"] for r in db.load_lines(did)]
+    svc.merge_lines(did, ids[:2], ids)
+    ids = [r["id"] for r in db.load_lines(did)]
+    svc.merge_lines(did, ids[1:], ids)
+    assert [r["zh"] for r in db.load_lines(did)] == ["안녕. 하세요", "你好"]
+
+
 def test_merge_refuses_a_line_past_the_text_cap():
     half = "x" * (svc.MAX_LINE_TEXT_CHARS // 2 + 1)
     did = db.create_drama(title_zh="D", source_language="zh")

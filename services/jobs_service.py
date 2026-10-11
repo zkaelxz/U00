@@ -352,7 +352,8 @@ def derive_outcome(status, error, result):
         parts.append(f"Fixed {result.get('fixed_count') or 0} of "
                      f"{result.get('total_flagged') or 0} flagged line(s).")
     if result.get("timing_skipped_count"):
-        parts.append(f"{result['timing_skipped_count']} timing flags skipped "
+        n = result['timing_skipped_count']
+        parts.append(f"{n} timing {'flag' if n == 1 else 'flags'} skipped "
                      "(fix them in the timing tools).")
     if result.get("kept_your_edit"):
         parts.append(f"{len(result['kept_your_edit'])} line(s) edited while it ran kept your edit.")

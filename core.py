@@ -512,7 +512,8 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
         j = i + 1
         while j < n and norm != "" and _norm(segments[j]["text"]) == norm:
             j += 1
-        if (j - i) >= min_repeat_count:
+        # A count under 2 would collapse every ordinary line; it means "off".
+        if min_repeat_count >= 2 and (j - i) >= min_repeat_count:
             out.append(segments[i])
         else:
             out.extend(segments[i:j])
@@ -887,6 +888,10 @@ def merge_adjacent_short_lines(lines, min_duration: float = 1.2, max_gap: float 
         prev_duration = prev.end - prev.start
         gap = ln.start - prev.end
         same_speaker = ((prev.speaker or None) == (ln.speaker or None)
+                        # A hand-set speaker and a sound cue are decisions the merge
+                        # would erase (sfx is exported apart from speech).
+                        and bool(prev.speaker_manual) == bool(ln.speaker_manual)
+                        and not (prev.sfx or ln.sfx)
                         and not ln.zh.lstrip().startswith(_TURN_MARKS))
         zh = _join_source(prev.zh, ln.zh)
         combined_en_len = len(prev.en) + len(ln.en) + 1  # +1 for the joining space
