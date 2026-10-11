@@ -603,13 +603,12 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                                   "line_languages": translate_engines.tagged_line_languages(
                                       [ln], source_language)})[0]
                     if hasattr(engine, "last_usage"):
-                        cost = translate_engines.estimate_cost_for_engine(
-                            engine, engine.last_usage.get("input_tokens", 0),
-                            engine.last_usage.get("output_tokens", 0))
+                        inp = engine.last_usage.get("input_tokens", 0)
+                        out = engine.last_usage.get("output_tokens", 0)
+                        cost = translate_engines.estimate_cost_for_engine(engine, inp, out)
                         spent += cost
                         db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
-                                     "fix_flagged_line", engine.last_usage.get("input_tokens", 0),
-                                     engine.last_usage.get("output_tokens", 0), cost)
+                                     "fix_flagged_line", inp, out, cost)
                     if translated.strip():
                         ln.en = translated
                         ln.flag, ln.flag_note = None, ""
@@ -868,6 +867,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
     _check_uploaded_db."""
     import shutil
     import sqlite3
+    from jobs import gpu_slots
     from sources import store as src_store
     staged = os.path.join(staging_dir, "library.db")
     upload = os.path.join(staging_dir, ".uploaded_library.db")
@@ -898,7 +898,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
                 conn.execute("UPDATE job_records SET status = 'cancelled', finished_at = ?, "
                              "cancel_requested = 0 WHERE status IN ('queued', 'running')",
                              (time.time(),))
-                conn.execute("DELETE FROM gpu_lock")
+                gpu_slots.clear(conn)
                 _carry_app_settings(conn, os.path.join(library_dir, "library.db"))
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:

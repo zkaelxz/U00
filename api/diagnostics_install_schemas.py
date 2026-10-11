@@ -71,6 +71,8 @@ class DiagnosticsUpgradeCheckState(BaseModel):
     target: Optional[str] = None
     output_tail: List[str]
     result: Optional[DiagnosticsUpgradeCheckResult] = None
+    unavailable_reason: Optional[str] = Field(
+        None, description="Set when this copy has no test suite to run; hide Test first.")
     job_id: str
     job: Optional[DiagnosticsJobState] = None
 

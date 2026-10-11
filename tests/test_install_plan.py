@@ -120,6 +120,14 @@ def test_no_preview_means_restart_on_windows_and_now_elsewhere(monkeypatch):
     assert plan_mod.build_plan(["paddleocr"], windows=False)["mode"] == "now"
 
 
+def test_running_now_without_a_preview_is_a_risk_to_accept(monkeypatch):
+    """Off Windows an unpreviewed install would run now with no clash or
+    downgrade check, so the owner has to accept that; on Windows it waits."""
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys: (None, "this pip cannot preview an install."))
+    assert plan_mod.build_plan(["paddleocr"], windows=False)["needs_confirm"] == [plan_mod.UNCHECKED_RISK]
+    assert plan_mod.build_plan(["paddleocr"], windows=True)["needs_confirm"] == []
+
+
 def test_pip_saying_the_packages_conflict_blocks_the_plan(monkeypatch):
     monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys: (None, "conflict"))
     p = plan_mod.build_plan(["paddleocr"], windows=True)
@@ -147,6 +155,28 @@ def fake_runner(doc=None, rc=0, text=""):
         return SimpleNamespace(returncode=rc, stdout=text, stderr="", timed_out=False)
     run.seen = seen
     return run
+
+
+def test_an_unparsable_version_is_neither_an_upgrade_nor_a_downgrade():
+    # pip's report lists only what it will install, so a differing version
+    # it can't order is still a replacement.
+    for new, have in (("weird!!", "1.0"), ("1.0", "weird!!")):
+        assert plan_mod._classify([("pkg", new)], {"pkg": have}) == [
+            {"name": "pkg", "from": have, "to": new, "kind": "change"}]
+    assert plan_mod._classify([("pkg", "weird!!")], {"pkg": "weird!!"}) == []
+    assert plan_mod._classify([("pkg", "weird!!")], {})[0]["kind"] == "install"
+    p = build(report(("cv2legacy", "4.0")), {"cv2legacy": "4.0-legacy!!"},
+              in_use=lambda name: name == "cv2legacy", required={"cv2legacy"})
+    assert p["loaded"] == ["cv2legacy"] and p["mode"] == "restart"
+    assert p["before"] == {"cv2legacy": "4.0-legacy!!"} and p["needs_confirm"] == []
+    assert p["summary"] == ["Change cv2legacy 4.0-legacy!! -> 4.0."]
+
+
+def test_a_pip_that_could_not_be_reaped_gets_its_own_message():
+    def unreaped(argv, timeout):
+        return SimpleNamespace(returncode=None, stdout="", stderr="", timed_out=False)
+    why = plan_mod.run_dry_run(["paddleocr"], runner=unreaped)[1]
+    assert "did not stop in time" in why and "online" not in why
 
 
 def test_dry_run_runs_the_registry_argv_with_dry_run_and_report():
@@ -244,3 +274,18 @@ def test_real_loaded_module_is_found_on_this_machine():
         pytest.skip("pydantic_core not installed")
     assert "pydantic_core" in sys.modules
     assert plan_mod.dist_in_use("pydantic-core") is True
+
+
+def test_downgrade_risks_previews_the_literal_argv():
+    run = fake_runner(report(("transformers", "4.57.6"), ("nagisa", "0.2.11")))
+    argv = ["python", "-m", "pip", "install", "transformers==4.57.6", "nagisa==0.2.11"]
+    risks = plan_mod.downgrade_risks(argv, runner=run, installed={"transformers": "4.58.0"},
+                                     required={"transformers"}, mins={})
+    assert run.seen["argv"][:len(argv)] == argv and "--dry-run" in run.seen["argv"]
+    assert risks == ["transformers 4.58.0 -> 4.57.6 is a downgrade of a package Baihe itself needs."]
+    assert plan_mod.downgrade_risks(argv, runner=run, installed={}, required={"transformers"}, mins={}) == []
+
+
+def test_downgrade_risks_without_a_preview_is_the_unchecked_risk():
+    assert plan_mod.downgrade_risks(["pip"], runner=fake_runner(rc=1, text="no network"),
+                                    installed={}, required=set(), mins={}) == [plan_mod.UNCHECKED_RISK]

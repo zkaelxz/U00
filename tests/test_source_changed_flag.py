@@ -409,7 +409,7 @@ class TestTranslateClears:
         db.save_lines(did, lines, fields=("en",))
         source_change.clear_for_new_english(lines[0])
         lines_service.patch_line(did, ids[0], en="Mine")
-        bulk_translate.save_cleared_source_flags(did, lines)
+        source_change.save_cleared_flags(did, lines)
         assert lines[0].flag == FLAG
         # A later flag save from the run's copies leaves the user's line alone.
         db.save_lines(did, lines, fields=("flag", "flag_note"))

@@ -291,6 +291,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "measured_diarize_speed": measured_diarize_speed(settings_service.get_use_gpu()),
         "measured_diarize_runs": measured_diarize_runs(settings_service.get_use_gpu()),
         "whisper_installed": diagnostics.check_dependency("faster_whisper"),
+        "gpu_runtime": whisper_models.whisper_gpu_runtime(),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],

@@ -131,7 +131,7 @@ or `series` go when the parent goes.
 | `bulk_jobs`, `bulk_job_lines` | Provider batch-API translations in flight | `bulk_translate.py` | `create_bulk_job`, `update_bulk_job`, `set_bulk_job_line_result_texts` |
 | `voice_bank` | Reusable voice clips; the file lives in `library/voice_bank/` | `voice_clone_service` | `save_voice_bank_entry` copies the clip first, then inserts |
 | `job_records` | Mirror of `background_jobs` job status for other processes | `background_jobs.py` | `save_job_record` (upsert); see section 5 |
-| `gpu_lock` | Cross-process GPU slots with heartbeat and stale cutoff | `background_jobs.py`, `cli.py` | `try_acquire_gpu_lock`, `heartbeat_gpu_lock`, `release_gpu_lock` |
+| `gpu_lock` | Cross-process GPU slots with owner pid/instance, heartbeat and stale cutoff | `jobs/gpu_slots.py` only | `acquire`, `heartbeat`, `release`, `reap` |
 | `job_checkpoints`, `result_cache`, `job_stage_timings`, `line_provenance` | Resume points, cached model output, timings, per-line origin (engine, model, hashes). No foreign key to `dramas` | `job_checkpoint_service`, `job_timing_service`, `review_lines_service` | `delete_drama` removes `line_provenance` and checkpoints explicitly |
 | `app_settings` | JSON key/value store for runtime toggles; also backup settings and identity | `settings_service`, `auto_backup_service`, others | `get_app_setting`, `set_app_setting` |
 | `assistant_backlog` | Maintenance assistant notes | `maintenance_assistant_service` | service-level |

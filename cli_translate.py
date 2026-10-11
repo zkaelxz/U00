@@ -17,6 +17,7 @@ import translate_engines
 import translation_guide as tguide
 from cli import _gemini_free_tier, _gpu_lock, _ollama_url, _run_batch
 from core import lines_from_rows
+from jobs import gpu_slots
 from lib.errors import ServiceError
 from services import (engine_routing_service, glossary_retranslate_service, line_provenance_service,
                       settings_service, translate_run_service, translate_service,
@@ -283,7 +284,7 @@ def cmd_translate(args):
                 # lock for this whole batch (see below) -- refreshed here,
                 # on every batch's own progress tick, so a long run doesn't
                 # look abandoned to another process before it's done.
-                db.heartbeat_gpu_lock(_gpu_holder)
+                gpu_slots.heartbeat([_gpu_holder])
             print(f"  #{did}: {frac*100:.0f}%", end="\r")
 
         style_note = (args.style_note if args.style_note is not None
