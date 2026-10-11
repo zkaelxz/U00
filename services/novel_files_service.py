@@ -138,10 +138,14 @@ def _extension(client_filename, allowed) -> str:
     return ext
 
 
-def _fallbacks(language: str, script: str) -> tuple:
+def _fallbacks(language: str, script: str, data: bytes) -> tuple:
     if language == "zh":
         return ("big5", "gb18030") if script == "traditional" else ("gb18030", "big5")
-    return {"ja": ("cp932",), "ko": ("cp949",), "en": ("cp1252",)}.get(language, ())
+    if language == "en":
+        return ("cp1252",)
+    # A Japanese or Korean title can still hold a GBK file, so the other CJK
+    # codecs stay available behind its own.
+    return subtitle_parse.legacy_codec_order(data, language)
 
 
 def decode_text_guessing(data: bytes, language: str = "", script: str = "") -> tuple:
@@ -154,7 +158,7 @@ def decode_text_guessing(data: bytes, language: str = "", script: str = "") -> t
         return data.decode("utf-8"), None
     except UnicodeDecodeError:
         pass
-    fallbacks = _fallbacks(language, script)
+    fallbacks = _fallbacks(language, script, data)
     if "cp932" not in fallbacks[:1] and subtitle_parse.reads_as_shift_jis(data):
         fallbacks = ("cp932",) + fallbacks
     for encoding in fallbacks:

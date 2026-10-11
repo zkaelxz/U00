@@ -426,3 +426,10 @@ def test_guessed_gbk_novel_still_warns(client):
     r = _up(client, _raw(did), "你好,世界。\n".encode("gb18030"))
     assert _file(did, "raw_novel_context.txt") == "你好,世界。"
     assert "gb18030" in r.json()["warning"]
+
+
+def test_gbk_novel_in_a_korean_title_is_still_decoded_with_a_warning(client):
+    did = _drama(source_language="ko")
+    r = _up(client, _raw(did), "沈清疑拔剑。".encode("gb18030"))
+    assert _file(did, "raw_novel_context.txt") == "沈清疑拔剑。"
+    assert "gb18030" in r.json()["warning"]
