@@ -26,6 +26,12 @@ function fakeCanvas(width = 0, height = 0) {
   };
 }
 
+function placed(el, top) {
+  const { width, height } = el.tagName === "CANVAS" ? el : { width: el.naturalWidth, height: el.naturalHeight };
+  el.getBoundingClientRect = () => ({ top, left: 0, width, height });
+  return el;
+}
+
 function fakeImg(src, w = 800, h = 1200) {
   return {
     tagName: "IMG", naturalWidth: w, naturalHeight: h, width: w, height: h,
@@ -36,7 +42,10 @@ function fakeImg(src, w = 800, h = 1200) {
 }
 
 function container(children) {
-  const parent = { getAttribute: () => null, parentElement: null, querySelectorAll: () => children };
+  const parent = {
+    getAttribute: () => null, parentElement: null,
+    querySelectorAll: (sel) => children.filter((c) => (sel === "canvas") === (c.tagName === "CANVAS")),
+  };
   for (const c of children) c.parentElement = parent;
   return parent;
 }
@@ -96,6 +105,10 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
 const okImage = (bytes = JPEG, type = "image/jpeg") => async () => ({
   ok: true, data: { data: Buffer.from(bytes).toString("base64"), content_type: type, url: "https://s1.bzcdn.net/p/1.jpg" },
 });
+const IMG_URL_2 = "https://s1.bzcdn.net/p/2.jpg";
+const byUrl = async ({ url }) => ({
+  ok: true, data: { data: Buffer.from(url === IMG_URL ? JPEG : PNG).toString("base64"), content_type: "image/jpeg", url },
+});
 const needsPermission = async () => ({
   ok: false, code: "NEEDS_PERMISSION", origin: "https://s1.bzcdn.net", error: "needs the site",
 });
@@ -108,6 +121,7 @@ async function content(scenario) {
   const img = () => fakeImg(IMG_URL);
   const summary = (h, result) => ({
     ok: result.ok, code: result.code, origins: result.origins, error: result.error,
+    partialOrigins: result.data && result.data.origins, unverified: result.data && result.data.unverified,
     fetched: h.fetched,
     sent: h.sent.flatMap((m) => m.images.map((i) => ({ content_type: i.content_type, url: i.url, bytes: Buffer.from(i.data, "base64").length }))),
   });
@@ -127,7 +141,7 @@ async function content(scenario) {
       return run(visible, { images: [img()], fetchImage: async () => ({ ok: false, error: "the address returned something that isn't a PNG, JPEG or WebP image" }) });
     case "canvas_tainted_url_from_sibling_img": {
       const canvas = fakeCanvas(800, 1200);
-      container([canvas, { tagName: "IMG", currentSrc: "", src: IMG_URL, getAttribute: () => null }]);
+      container([canvas, fakeImg(IMG_URL)]);
       return run(visible, { canvases: [canvas], fetchImage: okImage(PNG, "image/png") });
     }
     case "canvas_tainted_url_from_data_attribute": {
@@ -144,6 +158,33 @@ async function content(scenario) {
       const canvas = fakeCanvas(800, 1200);
       canvas.getAttribute = (a) => (a === "data-src" ? IMG_URL : null);
       return run(visible, { canvases: [canvas], fetchImage: okImage(), bitmap: { width: 800, height: 400 } });
+    }
+    case "two_canvases_map_to_their_own_images": {
+      const [c1, c2] = [placed(fakeCanvas(800, 1200), 0), placed(fakeCanvas(800, 1200), 1200)];
+      container([c1, placed(fakeImg(IMG_URL), 0), c2, placed(fakeImg(IMG_URL_2), 1200)]);
+      return run({ ...visible, all: true }, { canvases: [c1, c2], fetchImage: byUrl });
+    }
+    case "ambiguous_images_map_to_no_canvas": {
+      const [c1, c2] = [placed(fakeCanvas(800, 1200), 0), placed(fakeCanvas(800, 1200), 1200)];
+      container([c1, placed(fakeImg(IMG_URL), 0), placed(fakeImg(IMG_URL_2), 0), c2]);
+      return run({ ...visible, all: true }, { canvases: [c1, c2], fetchImage: byUrl });
+    }
+    case "an_image_elsewhere_is_not_the_canvas_image": {
+      const canvas = placed(fakeCanvas(800, 1200), 0);
+      container([canvas, placed(fakeImg(IMG_URL), 5000)]);
+      return run(visible, { canvases: [canvas], fetchImage: okImage() });
+    }
+    case "partial_read_still_asks_for_the_site": {
+      const [c1, c2] = [placed(fakeCanvas(800, 1200), 0), placed(fakeCanvas(800, 1200), 1200)];
+      c1.getAttribute = (a) => (a === "data-src" ? IMG_URL : null);
+      c2.getAttribute = (a) => (a === "data-src" ? IMG_URL_2 : null);
+      const fetchImage = async (m) => (m.url === IMG_URL ? byUrl(m) : needsPermission());
+      return run({ ...visible, all: true }, { canvases: [c1, c2], fetchImage });
+    }
+    case "capture_fetches_a_tainted_canvas_once": {
+      const canvas = fakeCanvas(800, 1200);
+      canvas.getAttribute = (a) => (a === "data-src" ? IMG_URL : null);
+      return run(capture, { canvases: [canvas], fetchImage: byUrl });
     }
     case "capture_tainted_img_fetches_in_worker":
       return run(capture, { images: [img()], fetchImage: okImage() });
