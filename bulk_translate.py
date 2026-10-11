@@ -31,6 +31,7 @@ import background_jobs
 from bulk_providers import BulkAuthError, make_provider
 import db
 import emotion
+import job_force_stop
 import source_change
 import translate_engines
 import translation_guide as tguide
@@ -66,7 +67,11 @@ def _polled_by_outer_job(job: dict) -> bool:
     """run_bulk_translate_job polls under its own id, not poll_job_id."""
     kind = job.get("kind") or "translate"
     kind = {"reflect": "translate", "translation_notes": "notes"}.get(kind, kind)
-    return background_jobs.is_running(f"bulk_{kind}_{job['drama_id']}")
+    outer_id = f"bulk_{kind}_{job['drama_id']}"
+    with background_jobs._lock:
+        # A force-stopped worker may still bill.
+        return (background_jobs.is_running(outer_id)
+                or job_force_stop.abandoned_alive_locked(outer_id))
 
 
 def _utcnow():
@@ -787,19 +792,17 @@ def _stage_texts(job) -> dict:
 
 
 def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
-    """Submits the Reflect stage after `job` and returns job's new status.
-    The stage is submitted at most once per pipeline. A failed submit holds
-    the job at "needs_resubmit" for the poller to retry; once the month's
-    cap is used up, or after STAGE_SUBMIT_ATTEMPTS failures, the paid
-    faithful drafts are written instead, so the pipeline never strands."""
+    """Submits the next Reflect stage (at most once per pipeline) and returns
+    job's new status. A failed submit holds "needs_resubmit" for a retry; past
+    the month's cap or STAGE_SUBMIT_ATTEMPTS the paid drafts are written."""
     nxt = "reflect" if job["stage"] == "faithful" else "expressive"
     rows = db.list_bulk_job_lines(job["id"])
     survivors = [r["line_id"] for r in rows
                  if (r["result_text"] if nxt == "reflect" else r["result_text"] is not None)]
     if sibling_stage_job(job["pipeline_id"], nxt, skip_failed=True) is not None:
         return _leave_applying(job["id"], "applied", result_summary=summary, last_error=None)
-    if nxt == "expressive":
-        # Failed reflections never reach the expressive stage; keep their paid drafts.
+    if nxt == "expressive" and "drafts_applied" not in summary:
+        # Failed reflections skip the expressive stage; keep their drafts.
         failed = {r["line_id"] for r in rows if r["result_text"] is None}
         summary["drafts_applied"] = summary.get("drafts_applied", 0) + (
             _apply_reflect_drafts(job, failed) if failed else 0)
@@ -838,6 +841,15 @@ def _leave_applying(job_id: int, status: str, **fields) -> str:
     return status
 
 
+def _fail_keeping_drafts(job: dict, message: str, summary: dict = None) -> str:
+    """A Reflect batch with nothing usable still keeps the paid drafts."""
+    if job.get("kind") == "reflect" and job.get("stage") in ("reflect", "expressive"):
+        summary = {**(summary or {}), "drafts_applied": _apply_reflect_drafts(job)}
+        message += " First-pass drafts were used."
+    db.update_bulk_job(job["id"], status="failed", last_error=message, result_summary=summary)
+    return "failed"
+
+
 def _apply_reflect_drafts(job: dict, only_ids=None) -> int:
     faithful = job if job["stage"] == "faithful" else sibling_stage_job(job["pipeline_id"], "faithful")
     rows = {r["line_id"]: r for r in db.list_bulk_job_lines(faithful["id"])
@@ -849,16 +861,9 @@ def _apply_reflect_drafts(job: dict, only_ids=None) -> int:
 
 
 def _apply_reflect_expressive(job: dict, results) -> dict:
-    """The only Reflect stage that writes anything to a line -- the same
-    drop-or-flag-on-source-changed and "kept your edit" handling as
-    apply_bulk_results, since this is what a Reflect bulk job's own
-    en_at_submit means: the line's English as it stood when the ORIGINAL
-    faithfulness stage was submitted (carried through stage 2 unchanged,
-    not re-snapshotted at every stage), same as an edit made any time
-    during a long-running pipeline being respected, not just one made
-    after the very last stage happened to be submitted. Also saves the
-    reflection critique as a translation note, same as the live path's
-    own notes_cb (translate_engines.translate_lines_with_engine)."""
+    """The only Reflect stage that writes to a line. en_at_submit is from the
+    ORIGINAL faithful submission, so an edit made anywhere in the pipeline
+    is kept. Also saves the critique as a note."""
     job_lines = db.list_bulk_job_lines(job["id"])
     row_by_id = {r["line_id"]: r for r in job_lines}
     ids_by_key = {}
@@ -871,7 +876,7 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0}
     final_by_id = {}
-
+    succeeded = set()
     for key, text, usage, error in results:
         _log_generic_usage(job, usage, "reflect_expressive_bulk")
         if key not in ids_by_key:
@@ -880,14 +885,17 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
         request_ids = ids_by_key[key]
         if error or text is None:
             counts["failed_requests"] += 1
-            # Paid draft stands in; its unused critique isn't kept as a note.
-            for lid in request_ids:
-                final_by_id[lid] = draft_by_id.get(lid) or ""
-                critique_by_id.pop(lid, None)
             continue
+        succeeded.add(key)
         final_map = _parse_strict(text, [str(lid) for lid in request_ids])
         for lid in request_ids:
             final_by_id[lid] = final_map.get(str(lid)) or draft_by_id.get(lid) or ""
+    for key, request_ids in ids_by_key.items():
+        if key not in succeeded:
+            # Failed or unanswered: the paid draft stands in; its critique is dropped.
+            for lid in request_ids:
+                final_by_id[lid] = draft_by_id.get(lid) or ""
+                critique_by_id.pop(lid, None)
     return _write_reflect_english(job, row_by_id, final_by_id, critique_by_id, counts,
                                   f"{job['engine']} bulk reflect")
 
@@ -1227,11 +1235,8 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
             if job["status"] != "submitted":
                 db.update_bulk_job(bulk_job_id, status="submitted", last_error=None)
             return "submitted"
-        if state.startswith("failed"):
-            db.update_bulk_job(bulk_job_id, status="failed",
-                               last_error=f"The provider reported the batch {state[7:] or 'failed'}.")
-            return "failed"
-        results = list(provider.results(job["provider_batch_id"]))
+        failure = state.startswith("failed") and f"The provider reported the batch {state[7:] or 'failed'}."
+        results = [] if failure else list(provider.results(job["provider_batch_id"]))
     except BulkAuthError as e:
         db.update_bulk_job(bulk_job_id, status="auth_error", last_error=str(e))
         raise
@@ -1242,11 +1247,12 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
     if not db.set_bulk_job_status_if(bulk_job_id, ("submitted", "auth_error"), "applying"):
         return db.get_bulk_job(bulk_job_id)["status"]
     try:
+        if failure:
+            return _fail_keeping_drafts(job, failure)
         summary = apply_results_for_job(bulk_job_id, results)
         if not set(_lines_per_request(bulk_job_id)) & {r[0] for r in results}:
-            db.update_bulk_job(bulk_job_id, status="failed", result_summary=summary,
-                               last_error="The provider returned no results for this batch.")
-            return "failed"
+            return _fail_keeping_drafts(job, "The provider returned no results for this batch.",
+                                        summary)
         if job.get("kind") == "reflect" and job.get("stage") in ("faithful", "reflect"):
             return _advance_pipeline(job, engine, monthly_cap_usd, summary)
         db.update_bulk_job(bulk_job_id, status="applied", result_summary=summary, last_error=None)
@@ -1338,7 +1344,8 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
                 if not wait(max(1.0, min(interval, (target - now).total_seconds()))):
                     return
                 continue
-            db.update_bulk_job(bulk_job_id, status="running")
+            if not db.set_bulk_job_status_if(bulk_job_id, ("scheduled",), "running"):
+                return
             cap, refusal = translate_engines.resolve_cost_cap(
                 (job.get("translate_args") or {}).get("cost_cap_usd"), monthly_cap_usd,
                 db.get_month_spend() if monthly_cap_usd else 0.0)
@@ -1407,7 +1414,8 @@ def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None)
             # An off-peak run the app died in the middle of. Safe to run
             # again: lines it already translated no longer match their
             # English at scheduling time, so they're skipped.
-            db.update_bulk_job(job["id"], status="scheduled")
+            if not db.set_bulk_job_status_if(job["id"], ("running",), "scheduled"):
+                continue
         engine = engine_factory(job["engine"], job["model"])
         if engine is None:
             out[job["id"]] = "needs_key"
