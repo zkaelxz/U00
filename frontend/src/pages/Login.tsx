@@ -1,11 +1,13 @@
 /*
  * Login: the only screen when sign-in is on and nobody is signed in.
- * "Sign in with Google" is a plain link (a top-level navigation); the
- * server redirects to Google and back, then to `return_to`. A failed
+ * "Sign in with Google" is a plain link that opens in a new tab (like the
+ * sign-in overlay); the server redirects to Google and back, then to
+ * `return_to`. This tab rechecks /me when it regains focus or on "I've signed in". A failed
  * sign-in comes back as /?login_error=<code>, shown here in plain words.
  */
 import { useEffect, useState } from 'react'
 
+import { recheckSession } from '../hooks/useSession'
 import { loginErrorMessage, loginHref, readLoginError } from '../api/auth'
 import './login.css'
 
@@ -35,6 +37,13 @@ export default function LoginPage({ configured }: { configured: boolean }) {
     )
   }, [errorCode])
 
+  // Sign-in finishes in another tab, so this one must notice when the person comes back.
+  useEffect(() => {
+    const onFocus = () => void recheckSession()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+
   return (
     <main className="login-page">
       <section className="panel login-card" aria-labelledby="login-title">
@@ -47,9 +56,12 @@ export default function LoginPage({ configured }: { configured: boolean }) {
         {configured ? (
           <>
             <p className="muted">Sign in with the Google account the PC owner added to this household.</p>
-            <a className="login-button" href={loginHref(currentReturnTo())}>
-              Sign in with Google
+            <a className="login-button" href={loginHref(currentReturnTo())} target="_blank" rel="noopener noreferrer">
+              Sign in with Google (new tab)
             </a>
+            <button type="button" onClick={() => void recheckSession()}>
+              I've signed in
+            </button>
           </>
         ) : (
           <div className="login-unset" data-testid="login-not-configured">
