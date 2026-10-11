@@ -4,7 +4,7 @@ import path from 'node:path'
 import { expect, type Page } from '@playwright/test'
 
 // The real seeded API (drama 3 of the throwaway e2e library): one line flagged
-// reading_speed (11.8 characters/second: over Normal, under Relaxed), one
+// reading_speed (19.6 characters/second: over Normal's 17, under Relaxed's 20), one
 // flagged for overlap, one clean.
 
 const repoRoot = path.resolve(process.cwd(), '..')
@@ -19,7 +19,7 @@ export function seedReadingSpeed() {
 from core import Line
 db.update_drama(3, audio_filename=None, reading_speed_mode='normal')
 db.save_lines(3, [
-    Line(idx=0, start=0.0, end=5.0, zh='一', en='word ' * 11 + 'end', flag='reading_speed', flag_note='11.8 characters/second'),
+    Line(idx=0, start=0.0, end=5.0, zh='一', en='word ' * 19 + 'end', flag='reading_speed', flag_note='19.6 characters/second'),
     Line(idx=1, start=5.0, end=9.0, zh='二', en='Second line', flag='timing_overlap', flag_note='overlaps'),
     Line(idx=2, start=9.0, end=12.0, zh='三', en='Third line'),
 ])
@@ -48,7 +48,7 @@ export async function runReadingSpeedScenario(page: Page) {
   await page.reload()
   await expect(fold.getByLabel('Reading speed check')).toHaveValue('relaxed')
 
-  // A mode change alone keeps the old flag; Re-check clears it (11.8/s is fine when Relaxed).
+  // A mode change alone keeps the old flag; Re-check clears it (19.6/s is fine when Relaxed).
   await expect(page.getByTestId('line-counts')).toContainText('2 flagged')
   await fold.getByRole('button', { name: 'Re-check with the current setting' }).click()
   await fold.getByRole('button', { name: 'Confirm' }).click()
