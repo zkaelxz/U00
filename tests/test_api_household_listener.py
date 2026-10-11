@@ -872,6 +872,31 @@ class TestRunServers:
         assert (single[0].app, single[0].host, single[0].port) == ("api.server:app",
                                                                   "127.0.0.1", 8600)
 
+    def test_single_port_access_log_off_when_sign_in_is_on(self, isolated_db, monkeypatch, capsys):
+        # Request lines carry the sign-in code in the query string.
+        single, _ran, _c, _s = self._serve(monkeypatch, {"BAIHE_API_AUTH": "on"})
+        assert single[0].access_log is False
+
+    def test_single_port_access_log_kept_when_sign_in_is_off(self, isolated_db, monkeypatch):
+        single, _ran, _c, _s = self._serve(monkeypatch, {"BAIHE_API_AUTH": "off"})
+        assert single[0].access_log is True
+
+    @pytest.mark.parametrize("auth,expected", [("on", False), ("off", True)])
+    def test_dev_server_access_log_follows_sign_in(self, isolated_db, monkeypatch, capsys,
+                                                    auth, expected):
+        import uvicorn
+        from api import __main__ as main_mod
+        from services import settings_service
+        monkeypatch.setattr(settings_service, "read_env_file", lambda *a, **k: {})
+        for k in ("BAIHE_API_HOUSEHOLD_PORT", "BAIHE_API_PORT", "BAIHE_API_HOST", *SIGN_IN_ENV):
+            monkeypatch.delenv(k, raising=False)
+        monkeypatch.setenv("BAIHE_API_ENV", "development")
+        monkeypatch.setenv("BAIHE_API_AUTH", auth)
+        calls = []
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: calls.append(k))
+        main_mod._serve()
+        assert calls[0]["access_log"] is expected
+
     def test_with_household_port_two_servers_one_stopper(self, monkeypatch):
         single, ran, cleaned, svc = self._serve(monkeypatch,
                                                 {"BAIHE_API_HOUSEHOLD_PORT": "8610",
