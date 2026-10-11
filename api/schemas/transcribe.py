@@ -263,6 +263,8 @@ class LiveSessionStart(BaseModel):
     use_gpu: StrictBool = False
     reply_without_thinking: StrictBool = Field(
         True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
+    glossary_drama_id: Optional[int] = Field(
+        None, description="A title whose glossary and language packs the translation may use (read-only).")
 
 
 class LiveOllamaCheck(BaseModel):

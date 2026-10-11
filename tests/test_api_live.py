@@ -238,3 +238,18 @@ def test_refused_stream_url_ends_the_job_without_leaking(client, fake_live, monk
     g = client.get(f"/api/live/sessions/{sid}")
     assert "not a public" in g.json()["message"]
     _no_leak(g, ("etc/passwd",))
+
+
+def test_a_title_the_caller_cannot_see_is_refused_like_other_title_routes(client, fake_live):
+    r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake", "glossary_drama_id": 424242})
+    assert r.status_code == 404 and "Title not found." in r.text
+    assert "kw" not in fake_live
+
+
+def test_a_visible_title_reaches_the_job_as_a_hint_function_not_an_id(client, fake_live):
+    did = db.create_drama(title_en="T", source_language="zh")
+    r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake", "glossary_drama_id": did})
+    assert r.status_code == 200, r.text
+    assert _wait(lambda: "kw" in fake_live)
+    assert callable(fake_live["kw"]["term_hints"])
+    _no_leak(r)

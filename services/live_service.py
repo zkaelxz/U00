@@ -33,16 +33,18 @@ import uuid
 from typing import Optional
 
 import background_jobs
+import db
 import live_cue_feed
 import live_pipeline
+import language_packs
 import live_translate
 import storage
 import translate_engines
 import whisper_models
 from core import SOURCE_LANGUAGES
 from lib import url_guard
-from services import (egress_proxy, job_stage_service, jobs_service, ownership_service,
-                      run_settings_service, settings_service, translate_service)
+from services import (egress_proxy, job_stage_service, jobs_service, language_pack_service,
+                      ownership_service, run_settings_service, settings_service, translate_service)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -58,6 +60,8 @@ OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
+# A glossary note is advice for a translator, not text to repeat per chunk.
+HINT_NOTE_CHARS = 120
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
 # Kept per session, newest last: the skipped-chunk and catch-up events the status
@@ -276,13 +280,46 @@ def _reap():
             _remove_dir(sid)
 
 
+def _title_term_hints(principal, drama_id, source_language):
+    """A hint function for a chosen title, read-only: a lookup of the
+    title's glossary and enabled pack entries that occur in the texts it is
+    given. Raises NotFoundError for a title the caller cannot see, like every
+    other title-scoped route."""
+    ownership_service.require_visible(principal, "drama", drama_id)
+    drama = db.get_drama(int(drama_id))
+    if drama is None:
+        raise NotFoundError("Title not found.")
+    series_id = drama.get("series_id")
+    glossary = [t for t in (db.list_glossary_terms(series_id) if series_id else [])
+                if t.get("term_original") and t.get("term_translation")]
+    # A pack is written for its own source language; a stream in another one
+    # would match nothing meaningful.
+    packs_apply = (drama.get("source_language") or "zh") == source_language
+
+    def hints(texts):
+        text = "\n".join(t for t in texts if isinstance(t, str))
+        found = [(t["term_original"], t["term_translation"], (t.get("notes") or "")[:HINT_NOTE_CHARS])
+                 for t in translate_engines.matching_glossary_terms(text, glossary)]
+        if packs_apply:
+            for e in language_pack_service.entries_for_text(drama, text, glossary):
+                found.append((e["source"], e["en"], "; ".join(
+                    p for p in (e["context"], e["note"]) if p)[:HINT_NOTE_CHARS]))
+        # Same cap the packs have; a glossary term is listed first, so it is
+        # the one kept when the cap cuts.
+        return [tuple(re.sub(r"\s+", " ", v) for v in row) for row in found[:language_packs.MAX_PROMPT_ENTRIES]]
+    return hints
+
+
 def start_session(url, source_language="zh", whisper_size="small", segment_seconds=20,
                   overlap_seconds=live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
                   max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
                   use_saved_cookies: bool = False,
-                  reply_without_thinking: bool = True) -> dict:
+                  reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
+                  principal=None) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
+    glossary_drama_id: a title whose glossary and language packs the stream's
+    translation may use (read-only); NotFoundError when the caller cannot see it.
     use_saved_cookies: pass yt-dlp the saved Settings cookies (browser or
     cookies.txt). The router sets it only for a request made at the PC, so
     another device never reads streams as the owner's signed-in account.
@@ -305,6 +342,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     max_minutes = _num("max_minutes", max_minutes, *MAX_MINUTES_RANGE)
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be a string.")
+    term_hints = (_title_term_hints(principal, glossary_drama_id, source_language)
+                  if glossary_drama_id is not None else None)
     _reap()
     # Refuse a second session before building the engine, so a start that
     # would be refused costs no key lookup or model load. Re-checked below
@@ -324,12 +363,12 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     with storage.holding(out_dir):
         return _start_registered(session_id, out_dir, url, source_language, whisper_size,
                                  segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
-                                 use_gpu, use_saved_cookies, reply_without_thinking)
+                                 use_gpu, use_saved_cookies, reply_without_thinking, term_hints)
 
 
 def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
                       overlap_seconds, max_minutes, eng, engine_name, use_gpu,
-                      use_saved_cookies, reply_without_thinking):
+                      use_saved_cookies, reply_without_thinking, term_hints=None):
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
@@ -360,7 +399,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
             session_id, _make_target(session_id),
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
-            reply_without_thinking=bool(reply_without_thinking),
+            reply_without_thinking=bool(reply_without_thinking), term_hints=term_hints,
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),

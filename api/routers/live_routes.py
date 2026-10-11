@@ -40,7 +40,8 @@ def post_session(body: LiveSessionStart, request: Request):
         segment_seconds=body.segment_seconds, overlap_seconds=body.overlap_seconds,
         engine=body.engine, model=body.model, max_minutes=body.max_minutes,
         use_gpu=body.use_gpu, use_saved_cookies=is_local_request(request),
-        reply_without_thinking=body.reply_without_thinking)
+        reply_without_thinking=body.reply_without_thinking,
+        glossary_drama_id=body.glossary_drama_id, principal=request.state.principal)
 
 
 @router.get("/sessions", dependencies=[require_permission("library.read")],

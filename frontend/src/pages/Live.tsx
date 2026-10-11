@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { ApiError, api } from '../api/client'
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
   advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, hasPending, isActive, lagLine,
@@ -74,6 +74,8 @@ export default function LivePage() {
   const form: LiveForm = { ...DEFAULT_FORM, ...prefs, url }
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
 
+  // Titles the server lets this user see; null until read. A failed read leaves the picker empty.
+  const [titles, setTitles] = useState<{ id: number; name: string }[] | null>(null)
   const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
   const [enginesFailed, setEnginesFailed] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
@@ -95,6 +97,10 @@ export default function LivePage() {
       setEngines([])
       setEnginesFailed(true)
     })
+    api.listDramas().then(
+      (r) => setTitles(r.items.map((d) => ({ id: d.id, name: d.title_en || d.title_zh || `#${d.id}` }))),
+      () => setTitles([]),
+    )
     listLive().then(
       (list) => {
         const id = pickSession(list)
@@ -103,6 +109,9 @@ export default function LivePage() {
       () => {},
     )
   }, [])
+
+  // A remembered title that was deleted or hidden is not sent.
+  const glossaryTitle = titles?.some((t) => t.id === form.glossary_drama_id) ? form.glossary_drama_id : null
 
   const usable = engines ? usableEngines(engines) : []
   const engine = pickEngine(usable, form.engine)
@@ -218,7 +227,7 @@ export default function LivePage() {
     setBusy(true)
     setError(null)
     try {
-      const { session_id } = await startLive(buildStartBody({ ...form, engine, model }))
+      const { session_id } = await startLive(buildStartBody({ ...form, engine, model, glossary_drama_id: glossaryTitle }))
       setStopping(false)
       setSession({ id: session_id, status: null, cues: [], next: 0 })
     } catch (err) {
@@ -305,6 +314,18 @@ export default function LivePage() {
               ? 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.'
               : 'Engine default uses the model the engine runs on its own.'} />
         </div>
+        <Field label="Use glossary and packs from title"
+          help="Optional. The names and terms of this title that occur in the stream are sent with each translation request. Nothing is written to the title.">
+          <select value={glossaryTitle ?? ''} disabled={active} data-testid="live-glossary-title"
+            onChange={(e) => setOpt('glossary_drama_id', e.target.value ? Number(e.target.value) : null)}>
+            <option value="">None</option>
+            {(titles ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </Field>
         {ollamaNote && (
           <p className="error" role="alert" data-testid="live-ollama-note">
             {ollamaNote} Pick another engine above, or fix Ollama and{' '}

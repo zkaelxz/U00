@@ -21,11 +21,11 @@ def _as_data(text: str) -> str:
 
 
 def build_live_context(source_language: str, recent, line_ids,
-                       reply_without_thinking: bool) -> dict:
+                       reply_without_thinking: bool, term_hints=None) -> dict:
     """The translate_batch context for one cue's id or a chunk's ids. A non-baihe
     genre keeps the prompt from calling every stream baihe; recent is
     [(source, translation)]."""
-    return {
+    context = {
         "drama_meta": {"source_language": source_language, "content_mode": "streamer_vod",
                        "genre": "livestream"},
         "recent_context": list(recent),
@@ -33,10 +33,17 @@ def build_live_context(source_language: str, recent, line_ids,
         "line_ids": list(line_ids) if isinstance(line_ids, (list, tuple)) else [line_ids],
         "reply_without_thinking": reply_without_thinking,
     }
+    if term_hints:
+        context["term_hints"] = list(term_hints)
+    return context
 
 
 class CueTranslator:
-    def __init__(self, engine, source_language: str, reply_without_thinking: bool = True):
+    def __init__(self, engine, source_language: str, reply_without_thinking: bool = True,
+                 term_hints=None):
+        # term_hints(texts) -> [(source, english, hint)] for those texts; None
+        # sends the request exactly as a Live session without a title does.
+        self.term_hints = term_hints
         self.engine = engine
         self.source_language = source_language
         self.reply_without_thinking = reply_without_thinking
@@ -49,7 +56,7 @@ class CueTranslator:
         from translate_engines import TranslationCancelled, redact_secrets
         self._count += 1
         context = build_live_context(self.source_language, self._recent, self._count,
-                                     self.reply_without_thinking)
+                                     self.reply_without_thinking, self._hints([text]))
         try:
             translated = self.engine.translate_batch([text], context)[0]
         except TranslationCancelled:
@@ -68,7 +75,7 @@ class CueTranslator:
         ids = list(range(self._count + 1, self._count + 1 + len(texts)))
         self._count += len(texts)
         context = build_live_context(self.source_language, self._recent, ids,
-                                     self.reply_without_thinking)
+                                     self.reply_without_thinking, self._hints(texts))
         try:
             replies = self.engine.translate_batch(list(texts), context)
         except TranslationCancelled:
@@ -85,6 +92,15 @@ class CueTranslator:
                 found[pos] = translated
                 self._remember(text, translated)
         return found
+
+    def _hints(self, texts) -> list:
+        """A lookup that fails must not cost the cue its translation."""
+        if self.term_hints is None:
+            return []
+        try:
+            return self.term_hints(list(texts))
+        except Exception:
+            return []
 
     def _remember(self, text: str, translated: str) -> None:
         """Only a finished translation joins the context: a failure note must
