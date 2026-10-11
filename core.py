@@ -648,8 +648,10 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
         if filter_hallucination_repeats:
-            result = filter_hallucinated_segments(result, filter_hallucination_repeats,
-                                                  stock_isolation_sec)
+            # A default run calls the filter exactly as it always has.
+            extra = ({} if stock_isolation_sec == STOCK_PHRASE_ISOLATION_SEC
+                     else {"stock_isolation_sec": stock_isolation_sec})
+            result = filter_hallucinated_segments(result, filter_hallucination_repeats, **extra)
         return result
 
     def _run(m):
