@@ -134,3 +134,15 @@ test('a 130-character title clamps on its card and keeps the whole title in a ti
   const cardBox = (await page.locator('.drama-grid .drama-card').first().boundingBox())!
   expect(box.x + box.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
 })
+
+test('line search without permission to read lines: a plain note, no error banner', async ({ page }) => {
+  await page.route('**/api/library/search?*', (route) =>
+    route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }),
+  )
+  await page.goto('/')
+  await page.getByRole('radio', { name: 'Lines' }).check()
+  await page.getByLabel('Search all lines').fill('anything')
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
+  await expect(page.getByText('Seeing line text needs permission to read lines. Ask the owner of the main PC.')).toBeVisible()
+  await expect(page.locator('.line-hits').getByRole('alert')).toHaveCount(0)
+})

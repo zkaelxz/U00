@@ -270,6 +270,7 @@ root modules below.
 |---|---|---|
 | `whisper` (default) | `core.transcribe_for_timing` (`mixed_language.transcribe_mixed_whisper` when Mixed languages is on), called directly by `transcribe_pipeline` | local faster-whisper with VAD segmentation; `whisper_models.load_whisper_model` falls back from GPU to CPU. `asr_backend.WhisperBackend` is a thin wrapper for registry callers (compare, benchmark, real-model check); its own defaults (`medium`, 2000 ms silence) are not the title defaults (`large-v3-turbo`, 300 ms from `transcribe_service._DEFAULT_TUNING`) |
 | `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; runs on transformers 5.15+ through `qwen3_native.py` (the `-hf` checkpoints; no `qwen-asr` package); batching (`qwen_asr_batch_size`) is honoured whenever it can run (`effective_qwen_batch_size`). `qwen3_asr_vad` and `qwen3_asr_long` are the speech-detection variants; none is picked unless the title saves it |
+| `anime_whisper` | `asr_backend.AnimeWhisperBackend` | Japanese only, opt-in, personal non-commercial use: speech spans, 30 s windows decoded with timestamps off, forced alignment, words placed in fine speech spans. No Whisper pass, no prompt. See "anime-whisper in the app" in `docs/asr-experiments.md` |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 
 `BACKENDS` / `get_backend` in `asr_backend.py` are the registry: every

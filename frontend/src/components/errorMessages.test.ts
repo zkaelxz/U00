@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../api/client'
-import { describeError, summarizeEngineFailure } from './errorMessages'
+import { describeError, isForbidden, summarizeEngineFailure } from './errorMessages'
 
 
 describe('summarizeEngineFailure', () => {
@@ -80,5 +80,14 @@ describe('describeError for a refused export', () => {
   it('keeps the generic heading when the server text looks like it holds a path', () => {
     const err = new ApiError(422, { code: 'validation_error', message: 'Bad file /home/x/a.wav' })
     expect(describeError(err, { reasonAsTitle: true }).title).toMatch(/not valid/)
+  })
+})
+
+describe('isForbidden', () => {
+  it('is true only for a 403 refusal', () => {
+    expect(isForbidden(new ApiError(403, { code: 'forbidden', message: 'Not allowed.' }))).toBe(true)
+    expect(isForbidden(new ApiError(404, { code: 'not_found', message: '' }))).toBe(false)
+    expect(isForbidden(new ApiError(500, { code: 'internal_error', message: '' }))).toBe(false)
+    expect(isForbidden(null)).toBe(false)
   })
 })

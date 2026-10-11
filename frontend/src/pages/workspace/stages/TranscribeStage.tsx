@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 
-import { asrBackendOptions } from '../../../api/asrOptions'
+import { asrBackendOptionsFor } from '../../../api/asrOptions'
 import { analyzeMedia } from '../../../api/metadata'
 import { getSettings } from '../../../api/settings'
 import {
@@ -84,6 +84,7 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_asr: 'Qwen3 ASR',
   qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
   qwen3_asr_long: 'Qwen3 ASR on long windows (no Whisper)',
+  anime_whisper: 'Anime-whisper (experimental, non-commercial use only)',
   auto: 'Automatic',
   normal: 'Normal (default)',
   sensitive: 'More sensitive',
@@ -756,7 +757,7 @@ export default function TranscribeStage({
                 ? 'Qwen3 forced alignment lines up the transcript you supply against the audio for more exact timing.'
                 : 'Forced alignment lines up a transcript you provide; for raw audio, pick Whisper or Qwen3-ASR.',
               haveTranscript ? [] : ['qwen3_forced_align'])}
-            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(), [asrBackendHelp(asrBackendOptions()), config?.asr_backend_notice].filter(Boolean).join('\n'))}
+            {select('ASR backend', 'asr_backend_choice', asrBackendOptionsFor(language), [asrBackendHelp(asrBackendOptionsFor(language)), config?.asr_backend_notice].filter(Boolean).join('\n'))}
             <VoiceDetectorField />
             {developerMode && num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
             {developerMode && num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { getHistorySnapshot } from '../../../../api/review'
 import { listAllLines } from '../../../../api/restructure'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { isForbidden, LINES_READ_FORBIDDEN } from '../../../../components/errorMessages'
 import { previewSnapshot, previewSummary, type SnapshotPreview as Preview } from './snapshotDiff'
 
 interface Props {
@@ -25,6 +26,7 @@ export function SnapshotPreview({ dramaId, historyId }: Props) {
     return () => { cancelled = true }
   }, [dramaId, historyId])
 
+  if (isForbidden(error)) return <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>
   if (error) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
   if (!preview) return <p className="muted" role="status">Loading preview…</p>
   return (

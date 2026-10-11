@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 import db
 import media_inspect
+import video_export
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -270,6 +271,9 @@ class TestExtract:
         assert job["status"] == "done", job
         assert job["result"] == {"candidate_count": 2}
         assert len(tools["cuts"]) == 2
+        for cmd in tools["cuts"]:   # the title's audio is read only as local media
+            i = cmd.index("-i")
+            assert cmd[i - 4:i] == video_export.local_input(), cmd
         r = client.get(f"{BASE}/{did}/reference-clips/candidates")
         assert r.status_code == 200
         _no_leak(r.text, did)

@@ -133,3 +133,28 @@ test('no offer when the stronger engine is the one the title uses', async ({ pag
   await expect(row(page, 0).getByTestId('line-flag')).toBeVisible()
   await expect(page.getByTestId('line-stronger')).toHaveCount(0)
 })
+
+test('a 403 try: no lines.read gets the plain note, otherwise the paid-engine refusal', async ({ page }) => {
+  const forbidden = { status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }
+  await page.route('**/api/stronger-engine/dramas/3/lines/*/try', (route: Route) => route.fulfill(forbidden))
+  const me = (permissions: string[]) => ({
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
+    user: { id: 7, email: 'kae@example.com', display_name: 'Kae', is_admin: false, is_local_owner: false },
+    permissions,
+  })
+  const base = ['library.read', 'lines.edit', 'review.use', 'jobs.start', 'jobs.cancel']
+  await page.route(/\/api\/auth\/me$/, (route) => route.fulfill({ json: me(base) }))
+  await openReview(page)
+  const offer = row(page, 0).getByTestId('line-stronger')
+  await offer.getByRole('button', { name: /^Try with DeepSeek \(/ }).click()
+  await expect(offer.getByText('Seeing line text needs permission to read lines. Ask the owner of the main PC.')).toBeVisible()
+  await expect(offer.getByRole('alert')).toHaveCount(0)
+
+  await page.unroute(/\/api\/auth\/me$/)
+  await page.route(/\/api\/auth\/me$/, (route) => route.fulfill({ json: me([...base, 'lines.read']) }))
+  await page.reload()
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(2)
+  const again = row(page, 0).getByTestId('line-stronger')
+  await again.getByRole('button', { name: /^Try with DeepSeek \(/ }).click()
+  await expect(again.getByTestId('line-stronger-error')).toContainText("isn't allowed to use paid engines")
+})
