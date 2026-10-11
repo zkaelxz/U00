@@ -39,6 +39,22 @@ describe('toSavedValue', () => {
   })
 })
 
+describe('reply guard choice', () => {
+  const guard = row({ key: 'translate_reply_guard', type: 'choice', default: 'auto', section: 'Translation style',
+    choices: ['auto', 'on', 'off'].map((value) => ({ value, label: value })) })
+
+  it('saves each of Auto, On and Off as typed and shows the saved one', () => {
+    for (const v of ['auto', 'on', 'off']) {
+      expect(toSavedValue(guard, v)).toEqual({ ok: true, value: v })
+      expect(toDraftValue(guard, v)).toBe(v)
+    }
+  })
+
+  it('reads a blank draft as the default, Auto', () => {
+    expect(toSavedValue(guard, '')).toEqual({ ok: true, value: 'auto' })
+  })
+})
+
 describe('toDraftValue', () => {
   it('shows an unset or zero number as blank', () => {
     expect(toDraftValue(row({ type: 'int' }), 0)).toBe('')
