@@ -11,12 +11,15 @@ from lib import capped_body, http
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import (
     PROVIDER_RESPONSE_MAX_BYTES,
+    ContentModerationBlocked,
     TranslationCancelled,
+    _is_rate_limit_error,
     read_json_capped,
     redact_secrets,
     request_translations_with_retry,
 )
 from .thinking import ollama_chat_with_think, thinking_choice
+from .translation_guard import allowed_source_runs
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -55,11 +58,26 @@ def estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAMA
     return max(floor, estimate_ollama_prompt_tokens(system_text, numbered))
 
 
-# A flat {"<id>": "<text>"} object, matching exactly what
-# parse_id_keyed_json expects back -- passed as Ollama's `format` so
-# structured output does the work of staying on-shape instead of hoping
-# the model follows the prompt's instructions unprompted.
-_OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type": "string"}}
+def id_keyed_schema(ids) -> dict:
+    """Ollama's `format` for one request: an object with exactly these ids as
+    string fields, so structured output keeps a small model from dropping,
+    renaming or inventing an id instead of hoping it follows the prompt."""
+    keys = [str(i) for i in ids]
+    return {"type": "object", "properties": {k: {"type": "string"} for k in keys},
+            "required": keys, "additionalProperties": False}
+
+
+# (base_url, model) pairs whose server refused a JSON schema in `format`
+# (an Ollama too old for structured output); they get plain JSON mode.
+_schema_refused = set()
+
+
+def _refuses_schema(exc) -> bool:
+    import requests
+    if not isinstance(exc, requests.HTTPError) or getattr(exc.response, "status_code", None) != 400:
+        return False
+    body = (getattr(exc, "body_text", None) or "").lower()
+    return "format" in body or "schema" in body
 
 
 # Local Ollama models offered in the picker. gemma4:12b is the default: it fits
@@ -195,6 +213,12 @@ def strip_ollama_thinking(content: str) -> str:
         content = content[finals[-1].end():]
     content = _CHANNEL_BLOCK_RE.sub("", content)
     return _SPECIAL_TOKEN_RE.sub("", content).strip()
+
+
+class OllamaRunStopped(RuntimeError):
+    """Raised instead of the error that made too many batches in a row fail;
+    stops_run tells the translate run to stop rather than try every batch."""
+    stops_run = True
 
 
 class OllamaReplyError(RuntimeError):
@@ -495,6 +519,9 @@ class OllamaEngine:
     bulk drafts you'll hand-polish, or for offline-only environments."""
     name = "ollama"
     supports_reference = True
+    # A run stops after this many batches in a row fail: an out-of-memory or
+    # "does not fit" error repeats on every batch, and each costs a timeout.
+    consecutive_failure_limit = 3
 
     def __init__(self, api_key: str = None, model: str = OLLAMA_DEFAULT_MODEL,
                  base_url: str = "http://localhost:11434"):
@@ -504,6 +531,10 @@ class OllamaEngine:
         self._headroom_checked = False
         self._num_ctx = None
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        # {line id: reason} for lines of the last batch left untranslated
+        # because every reply for them was unusable.
+        self.last_rejected = {}
+        self._failures_in_a_row = 0
 
     def num_ctx_for(self, needed_tokens: int, override: int = None) -> int:
         """The context window for a request needing about needed_tokens: the
@@ -519,6 +550,24 @@ class OllamaEngine:
         return self._num_ctx
 
     def translate_batch(self, zh_lines, context: dict):
+        try:
+            out = self._translate_batch(zh_lines, context)
+        except (TranslationCancelled, ContentModerationBlocked):
+            raise
+        except Exception as exc:
+            if _is_rate_limit_error(exc):
+                # call_with_backoff retries these and words its own final error.
+                raise
+            self._failures_in_a_row += 1
+            if self._failures_in_a_row < self.consecutive_failure_limit:
+                raise
+            stop = OllamaRunStopped(f"Stopped: {self._failures_in_a_row} batches in a row failed "
+                                    f"({redact_secrets(str(exc))})")
+            raise stop from exc
+        self._failures_in_a_row = 0
+        return out
+
+    def _translate_batch(self, zh_lines, context: dict):
         if not self._headroom_checked:
             # Once per engine: later batches reuse the model Ollama has loaded by then.
             import memory_headroom
@@ -528,7 +577,7 @@ class OllamaEngine:
         num_ctx_override = context.get("ollama_num_ctx_override")
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
 
-        def call_model(numbered):
+        def call_model(numbered, ids):
             user_text = build_batch_user_message(context, numbered)
             estimated = estimate_ollama_prompt_tokens(system_text, user_text)
             # The reply is about as long as the lines it translates.
@@ -551,24 +600,45 @@ class OllamaEngine:
                     {"role": "user", "content": user_text},
                 ],
                 "stream": False,
-                "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
+                "format": ("json" if (self.base_url, self.model) in _schema_refused
+                           else id_keyed_schema(ids)),
                 "options": {"num_ctx": num_ctx, "num_predict": OLLAMA_MAX_NUM_PREDICT},
             }
-            choice = thinking_choice(context)
-            if choice is None:
-                resp = _ollama_chat(self.base_url, payload)
-            else:
-                resp = ollama_chat_with_think(_ollama_chat, self.base_url, payload, choice)
+            try:
+                resp = send(payload)
+            except Exception as exc:
+                if payload["format"] == "json" or not _refuses_schema(exc):
+                    raise
+                _schema_refused.add((self.base_url, self.model))
+                resp = send({**payload, "format": "json"})
             usage = ollama_usage(resp)
             for key, value in usage.items():
                 self.last_usage[key] += value
             check_ollama_reply(resp, num_ctx, estimated)
+            # A reply cut off by num_predict (done_reason "length") is still
+            # returned: its complete pairs are kept and the rest asked again.
             return strip_ollama_thinking(resp["message"]["content"])
 
-        return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"), engine_name="ollama",
-                                                line_languages=context.get("line_languages"),
-                                                sentence_groups=context.get("sentence_groups"))
+        def send(payload):
+            choice = thinking_choice(context)
+            if choice is None:
+                return _ollama_chat(self.base_url, payload)
+            return ollama_chat_with_think(_ollama_chat, self.base_url, payload, choice)
+
+        rejected = {}
+        line_ids = context.get("line_ids") or []
+        try:
+            return request_translations_with_retry(
+                zh_lines, context.get("speaker_labels"), call_model,
+                line_ids=line_ids, engine_name="ollama",
+                line_languages=context.get("line_languages"),
+                sentence_groups=context.get("sentence_groups"), check_replies=True,
+                allowed_runs=allowed_source_runs(context.get("glossary_terms"),
+                                                 context.get("style_guidelines") or ""),
+                rejected=rejected)
+        finally:
+            self.last_rejected = {line_ids[p]: reason for p, reason in rejected.items()
+                                  if p < len(line_ids) and isinstance(line_ids[p], int)}
 
 
 # {base_url: (checked_at, reachable)} -- Ollama is exempted from the

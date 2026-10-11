@@ -87,6 +87,19 @@ def unusable_reply(source: str, reply: str, allowed_runs=()):
     return None
 
 
+def flag_unusable_replies(lines, rejected) -> None:
+    """Flags lines left untranslated because every reply for them was
+    unusable. rejected: {line id: reason} from an engine that checks each
+    value (OllamaEngine.last_rejected); anything else flags nothing."""
+    if not isinstance(rejected, dict):
+        return
+    for ln in lines:
+        reason = rejected.get(getattr(ln, "id", None))
+        if reason and not ln.flag:
+            ln.flag = "uncertain_translation"
+            ln.flag_note = f"check: the model's reply for this line was unusable ({reason})"
+
+
 def length_issue(source: str, reply: str, soft: bool = False):
     """'long' or 'short' when the reply's length is implausible for the source."""
     expected = _expected_words(source)

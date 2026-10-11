@@ -238,3 +238,196 @@ class TestTimeouts:
         scope = llm_tasks._BoundedScope("jo", lambda: False, None, False)
         assert llm_tasks._deadline_for(scope, _engine()) > (
             local.OLLAMA_CHAT_TIMEOUT + local.OLLAMA_COLD_LOAD_SECONDS)
+
+
+# --- Part B: translation with a weak model ----------------------------------
+
+@pytest.fixture
+def batch_chat(monkeypatch):
+    """The fake OllamaEngine.translate_batch talks to."""
+    def install(*replies):
+        fake = _Chat(*replies)
+        monkeypatch.setattr(local, "_ollama_chat", fake)
+        return fake
+    return install
+
+
+def _user_text(body):
+    return body["messages"][-1]["content"]
+
+
+_IDS = {"line_ids": [11, 12, 13]}
+_SOURCES = ["你好", "谢谢你", "再见了"]
+
+
+class TestCutOffReply:
+    def test_complete_pairs_of_a_cut_off_reply_are_kept_and_only_the_rest_re_asked(self, batch_chat):
+        fake = batch_chat(_reply('{"11": "Hello.", "12": "Thank you.", "13": "Good', done_reason="length"),
+                          _reply('{"13": "Goodbye."}'))
+        out = _engine().translate_batch(_SOURCES, dict(_IDS))
+        assert out == ["Hello.", "Thank you.", "Goodbye."]
+        retry = _user_text(fake.bodies[1])
+        assert "13." in retry and "11." not in retry and "12." not in retry
+
+    def test_other_engines_still_lose_a_cut_off_reply(self):
+        from engine_backends.shared import parse_id_keyed_json
+        assert parse_id_keyed_json('{"11": "Hello.", "12": "Tha', [11, 12]) == {}
+
+
+class TestLeakedDraft:
+    def test_the_last_object_wins_over_a_reasoning_draft(self, batch_chat):
+        batch_chat(_reply('Draft: {"11": "Hi.", "12": "Thanks.", "13": "Bye."}\n'
+                          'Final: {"11": "Hello.", "12": "Thank you.", "13": "Goodbye."}'))
+        assert _engine().translate_batch(_SOURCES, dict(_IDS)) == ["Hello.", "Thank you.", "Goodbye."]
+
+    def test_a_channel_reasoning_block_is_never_the_translation(self, batch_chat):
+        batch_chat(_reply('<|channel>thought\n{"11": "wrong", "12": "wrong", "13": "wrong"}<channel|>'
+                          '{"11": "Hello.", "12": "Thank you.", "13": "Goodbye."}'))
+        assert _engine().translate_batch(_SOURCES, dict(_IDS)) == ["Hello.", "Thank you.", "Goodbye."]
+
+    def test_other_engines_keep_the_first_object(self):
+        from engine_backends.shared import parse_id_keyed_json
+        assert parse_id_keyed_json('{"1": "a"} {"1": "b"}', [1]) == {"1": "a"}
+
+
+class TestValuesAreChecked:
+    @pytest.mark.parametrize("bad", [
+        "I'm sorry, but I can't translate this.",
+        "12. Thank you.",
+        "[Xiaoling] Thank you.",
+        "谢谢你",
+        "Okay, the user wants me to translate this line. " * 6,
+    ])
+    def test_a_bad_value_is_re_asked_then_left_untranslated(self, batch_chat, bad):
+        fake = batch_chat(_reply('{"11": "Hello.", "12": %s, "13": "Goodbye."}' % _json(bad)))
+        engine = _engine()
+        out = engine.translate_batch(_SOURCES, dict(_IDS, speaker_labels=[None, "Xiaoling", None]))
+        assert out == ["Hello.", "", "Goodbye."]
+        assert len(fake.bodies) == 2 and "12." in _user_text(fake.bodies[1])
+        assert set(engine.last_rejected) == {12}
+
+    def test_a_bad_value_that_comes_back_good_is_written(self, batch_chat):
+        batch_chat(_reply('{"11": "Hello.", "12": "谢谢你", "13": "Goodbye."}'),
+                   _reply('{"12": "Thank you."}'))
+        engine = _engine()
+        assert engine.translate_batch(_SOURCES, dict(_IDS)) == ["Hello.", "Thank you.", "Goodbye."]
+        assert engine.last_rejected == {}
+
+    def test_a_glossary_term_kept_in_source_script_is_allowed(self, batch_chat):
+        batch_chat(_reply('{"11": "Hello, 白鹤.", "12": "Thank you.", "13": "Goodbye."}'))
+        ctx = dict(_IDS, glossary_terms=[{"term_original": "白鹤", "term_translation": "白鹤"}])
+        assert _engine().translate_batch(_SOURCES, ctx)[0] == "Hello, 白鹤."
+
+    def test_the_run_flags_a_line_whose_reply_was_unusable(self, monkeypatch):
+        from core import Line
+        from engine_backends import translate_pipeline
+        monkeypatch.setattr(local, "_ollama_chat", _Chat(
+            _reply('{"11": "Hello.", "12": "I cannot translate this."}')))
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en=""),
+                 Line(idx=1, start=1, end=2, zh="谢谢你", en="")]
+        lines[0].id, lines[1].id = 11, 12
+        out, errors = translate_pipeline.translate_lines_with_engine(
+            lines, _engine(), drama_meta={}, check_replies=False)
+        assert [ln.en for ln in out] == ["Hello.", ""]
+        assert out[1].flag == "uncertain_translation" and "refusal" in out[1].flag_note
+        assert errors
+
+
+class TestPerBatchSchema:
+    def test_the_schema_requires_exactly_this_batchs_ids(self, batch_chat):
+        fake = batch_chat(_reply('{"11": "Hello.", "12": "Thanks."}'), _reply('{"13": "Bye."}'))
+        _engine().translate_batch(_SOURCES, dict(_IDS))
+        first, retry = fake.bodies[0]["format"], fake.bodies[1]["format"]
+        assert first["required"] == ["11", "12", "13"] and first["additionalProperties"] is False
+        assert set(first["properties"]) == {"11", "12", "13"}
+        assert retry["required"] == ["13"]
+
+    def test_a_server_that_rejects_the_schema_gets_plain_json(self, batch_chat):
+        resp = requests.Response()
+        resp.status_code = 400
+        resp._content = b'{"error": "invalid JSON schema in format"}'
+        err = requests.HTTPError("400", response=resp)
+        err.body_text = resp._content.decode()
+        fake = batch_chat(err, _reply('{"11": "Hello.", "12": "Thanks.", "13": "Bye."}'))
+        engine = _engine()
+        assert engine.translate_batch(_SOURCES, dict(_IDS)) == ["Hello.", "Thanks.", "Bye."]
+        assert fake.bodies[1]["format"] == "json"
+        engine.translate_batch(_SOURCES, dict(_IDS))
+        assert fake.bodies[2]["format"] == "json"  # remembered
+
+
+class TestServerErrors:
+    def _post_500(self, monkeypatch, body):
+        from tests.http_fakes import StreamedBody, patch_post
+
+        class Err(StreamedBody):
+            status_code = 500
+
+            def raise_for_status(self):
+                raise requests.HTTPError(
+                    "500 Server Error: Internal Server Error for url: http://192.168.7.9:11434/api/chat",
+                    response=self)
+
+            def iter_content(self, size):
+                yield body
+
+        patch_post(monkeypatch, lambda *a, **k: Err())
+
+    def test_ollamas_own_message_is_kept_and_the_url_is_not(self, monkeypatch):
+        self._post_500(monkeypatch, b'{"error": "CUDA error: out of memory"}')
+        engine = local.OllamaEngine(base_url="http://192.168.7.9:11434")
+        with pytest.raises(requests.HTTPError) as info:
+            engine.translate_batch(["你好"], {})
+        text = str(info.value)
+        assert "out of memory" in text and "500" in text
+        assert "192.168" not in text and "http" not in text and "11434" not in text
+
+    def test_the_run_stops_after_repeated_engine_failures_and_keeps_its_work(self, monkeypatch):
+        from core import Line
+        from engine_backends import translate_pipeline
+        calls = []
+
+        def chat(base_url, payload):
+            calls.append(payload)
+            if len(calls) == 1:
+                return _reply('{"1": "Hello."}')
+            resp = requests.Response()
+            resp.status_code = 500
+            raise requests.HTTPError("Ollama answered with an error (HTTP 500): model does not fit",
+                                     response=resp)
+        monkeypatch.setattr(local, "_ollama_chat", chat)
+        monkeypatch.setattr(translate_pipeline, "call_with_backoff", lambda fn, **kw: fn())
+        lines = [Line(idx=i, start=i, end=i + 1, zh="你好", en="") for i in range(8)]
+        saved = []
+        out, errors = translate_pipeline.translate_lines_with_engine(
+            lines, _engine(), drama_meta={}, batch_size=1, check_replies=False,
+            save_cb=lambda ls: saved.append([ln.en for ln in ls]))
+        assert out[0].en == "Hello."
+        limit = local.OllamaEngine.consecutive_failure_limit
+        assert len(calls) == 1 + limit
+        assert saved[-1][0] == "Hello."
+        assert "in a row" in errors[-1]["error"] and "does not fit" in errors[-1]["error"]
+
+    def test_rate_limits_are_left_to_the_backoff_and_not_counted(self, batch_chat):
+        cap = local.OllamaCloudLimitError("weekly limit")
+        batch_chat(cap)
+        engine = local.OllamaEngine(model="gemma4:31b-cloud")
+        for _ in range(local.OllamaEngine.consecutive_failure_limit + 1):
+            with pytest.raises(local.OllamaCloudLimitError):
+                engine.translate_batch(["你好"], {})
+
+    def test_a_success_resets_the_count(self, batch_chat):
+        err = requests.HTTPError("Ollama answered with an error (HTTP 500): boom",
+                                 response=requests.Response())
+        batch_chat(err, err, _reply('{"1": "Hello."}'), err, err, _reply('{"1": "Hello."}'))
+        engine = _engine()
+        for _ in range(2):
+            for _ in range(2):
+                with pytest.raises(requests.HTTPError):
+                    engine.translate_batch(["你好"], {})
+            assert engine.translate_batch(["你好"], {}) == ["Hello."]
+
+
+def _json(text):
+    import json
+    return json.dumps(text, ensure_ascii=False)
