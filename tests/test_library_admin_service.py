@@ -14,9 +14,12 @@ from services import workspace_job_service as wjs
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
-def _new(title="T", status="aligned"):
+def _new(title="T", status="aligned", translated=False):
     did = db.create_drama(title_en=title, source_language="zh")
     db.update_drama(did, status=status)
+    if translated:
+        from core import Line
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
     return did
 
 
@@ -74,7 +77,7 @@ def test_storage_cleanup_wrong_confirm_changes_nothing(isolated_db):
 # ---- bulk writes ----------------------------------------------------------
 
 def test_bulk_set_status_per_id_results(isolated_db):
-    a, b = _new("A"), _new("B")
+    a, b = _new("A", translated=True), _new("B", translated=True)
     r = las.bulk_set_status([a, 999999, b], "translated")
     assert r["updated"] == 2
     assert r["results"] == [{"drama_id": a, "ok": True},
@@ -769,7 +772,7 @@ def test_encrypted_member_is_invalid_input(isolated_db):
 
 
 def test_export_explicit_ids_one_result_each(isolated_db):
-    a = _new("A", status="translated")
+    a = _new("A", status="translated", translated=True)
     b = _new("B", status="aligned")
     r = las.start_export_zip([a, b, 999])
     _wait(r["job_id"])
@@ -783,7 +786,7 @@ def test_artifact_write_failure_has_no_path(isolated_db, monkeypatch):
     def boom(kind, create):
         raise OSError(f"{db.LIBRARY_DIR}/backups: denied")
     monkeypatch.setattr(las, "_artifact_dir", boom)
-    t = _new("A", status="translated")
+    t = _new("A", status="translated", translated=True)
     for start in (las.start_backup, las.start_database_backup,
                   lambda: las.start_export_zip([t])):
         st = _wait(start()["job_id"])
@@ -1229,3 +1232,36 @@ def test_restore_of_a_backup_older_than_the_repeat_guard_resets_the_old_silence_
     assert _restore(_zip(members))["restored"] is True
     assert db.get_drama(old)["hallucination_silence_sec"] == 0
     assert db.get_drama(kept)["hallucination_silence_sec"] == 5.0
+
+
+def test_bulk_status_translated_refuses_a_title_without_translated_lines(isolated_db):
+    from core import Line
+    empty = _new("Empty", "aligned")
+    blank = _new("Blank", "aligned")
+    db.save_lines(blank, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+    done = _new("Done", "aligned")
+    db.save_lines(done, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
+    r = las.bulk_set_status([empty, blank, done], "translated")
+    assert [(x["drama_id"], x["ok"], x.get("error")) for x in r["results"]] == [
+        (empty, False, "no_translated_lines"), (blank, False, "no_translated_lines"),
+        (done, True, None)]
+    assert r["updated"] == 1 and r["results"][0]["message"]
+    assert db.get_drama(empty)["status"] == "aligned" and db.get_drama(done)["status"] == "translated"
+    assert las.bulk_set_status([empty], "aligned")["updated"] == 1
+
+
+def test_export_skips_translated_titles_with_no_translated_lines(isolated_db):
+    from core import Line
+    good = _new("Good", "translated")
+    db.save_lines(good, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
+    hollow = _new("Hollow", "translated")
+    r = las.start_export_zip()
+    assert r["drama_ids"] == [good]
+    assert r["results"] == [{"drama_id": hollow, "ok": False, "error": "no_translated_lines",
+                             "message": r["results"][0]["message"]}]
+    _wait(r["job_id"])
+    explicit = las.start_export_zip([good, hollow])
+    _wait(explicit["job_id"])
+    assert [(x["drama_id"], x["ok"]) for x in explicit["results"]] == [(good, True), (hollow, False)]
+    with pytest.raises(InvalidInputError):
+        las.start_export_zip([hollow])

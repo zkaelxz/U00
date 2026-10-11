@@ -219,3 +219,35 @@ def test_ocr_duplicate_job_409(client, monkeypatch):
     assert r.status_code == 409
     import db
     assert [n for n in os.listdir(db.drama_dir(did)) if n.startswith(".ocr_")] == []
+
+
+def _epub_with_dangling_spine():
+    return _epub({
+        "META-INF/container.xml":
+            '<container><rootfiles><rootfile full-path="c.opf"/></rootfiles></container>',
+        "c.opf": '<package><manifest><item id="a" href="a.xhtml"/><item id="m" href="gone.xhtml"/>'
+                 '<item id="u" href="../up.xhtml"/></manifest>'
+                 '<spine><itemref idref="a"/><itemref idref="m"/><itemref idref="u"/>'
+                 '<itemref idref="nope"/></spine></package>',
+        "a.xhtml": "<html><body><p>Only</p></body></html>"})
+
+
+def test_attach_epub_warns_about_chapters_it_could_not_find(client):
+    did = _drama()
+    r = client.post(f"/api/novel/dramas/{did}/attach-epub",
+                    files={"file": ("b.epub", _epub_with_dangling_spine())})
+    assert r.status_code == 200, r.text
+    assert "3 chapters" in r.json()["warning"]
+
+
+def test_attach_epub_without_dropped_chapters_has_no_warning(client):
+    did = _drama()
+    r = client.post(f"/api/novel/dramas/{did}/attach-epub", files={"file": ("b.epub", _epub())})
+    assert "warning" not in r.json()
+
+
+def test_attach_text_over_the_limit_names_the_limit(client):
+    did = _drama()
+    r = client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "a" * 2_000_001})
+    assert r.status_code == 422
+    assert "2,000,000" in r.json()["error"]["message"]

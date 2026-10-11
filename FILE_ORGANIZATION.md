@@ -232,6 +232,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `library_admin_service.py`
 - `library_restore_sql.py` (SQL helpers for the library restore)
 - `library_service.py`
+- `library_translated_guard.py` (what counts as translated for bulk status and export)
 - `line_ai_service.py`
 - `line_provenance_service.py`
 - `line_tools_service.py`

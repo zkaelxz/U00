@@ -2285,6 +2285,13 @@ def drama_visible_sql(alias: str, visible_to: int):
             [visible_to, visible_to])
 
 
+def _contains_pattern(term: str) -> str:
+    """LIKE pattern for "contains term" where % and _ in the term are literal;
+    pair with ESCAPE '\\' in the query."""
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def list_dramas(search: str = "", studio: str = "", author: str = "",
                  voice_actor: str = "", status: str = "", source_language: str = "",
                  media_type: str = "", visible_to: int = None):
@@ -2301,8 +2308,9 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
             query += " AND " + clause
             params.extend(extra)
         if search:
-            query += " AND (title_zh LIKE ? OR title_en LIKE ? OR summary LIKE ?)"
-            like = f"%{search}%"
+            query += (" AND (title_zh LIKE ? ESCAPE '\\' OR title_en LIKE ? ESCAPE '\\'"
+                      " OR summary LIKE ? ESCAPE '\\')")
+            like = _contains_pattern(search)
             params += [like, like, like]
         if studio:
             query += " AND studio = ?"
@@ -5509,6 +5517,12 @@ def list_dramas_recently_active(n: int = 10, visible_to: int = None):
     return [dict(r) for r in rows]
 
 
+def drama_has_translated_lines(drama_id: int) -> bool:
+    with contextlib.closing(get_conn()) as conn:
+        return conn.execute("SELECT 1 FROM lines WHERE drama_id = ? AND en IS NOT NULL AND en != '' "
+                            "LIMIT 1", (drama_id,)).fetchone() is not None
+
+
 def search_lines_globally(query: str, limit: int = 100, visible_to: int = None):
     """Searches zh/en text across every drama's lines, returns results
     with the parent drama's title attached, for the Library tab's
@@ -5519,11 +5533,11 @@ def search_lines_globally(query: str, limit: int = 100, visible_to: int = None):
         clause, vparams = drama_visible_sql("d", visible_to)
         visible = " AND " + clause
     with contextlib.closing(get_conn()) as conn:
-        like = f"%{query}%"
+        like = _contains_pattern(query)
         rows = conn.execute(f"""
             SELECT l.drama_id, l.idx, l.zh, l.en, d.title_en, d.title_zh
             FROM lines l JOIN dramas d ON d.id = l.drama_id
-            WHERE (l.zh LIKE ? OR l.en LIKE ?){visible}
+            WHERE (l.zh LIKE ? ESCAPE '\\' OR l.en LIKE ? ESCAPE '\\'){visible}
             LIMIT ?
         """, [like, like] + vparams + [limit]).fetchall()
     return [dict(r) for r in rows]
