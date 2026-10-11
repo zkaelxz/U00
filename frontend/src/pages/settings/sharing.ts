@@ -3,6 +3,10 @@ import { ApiError } from '../../api/client'
 import type { SessionState } from '../../hooks/useSession'
 import type { SetPrivateResult, SharingItem } from '../../types/sharing'
 
+export const CHECKING_ACCOUNT_NOTE = 'Checking your account…'
+export const ACCOUNT_UNAVAILABLE_NOTE =
+  "Couldn't check your account yet, so sharing settings are hidden. Baihe keeps retrying; use Retry to try now."
+
 export const SHARE_DEFAULT_LABEL = 'New items I create are shared with the household'
 
 /** The plain line under the share-by-default switch. */
@@ -17,10 +21,11 @@ export function shareDefaultHelp(on: boolean, admin: boolean): string {
 }
 
 /** Whether to show every item (admins, and the owner at the PC with sign-in off).
- * Unknown session (older API): try, and hide the list if the server says no. */
+ * null while /me has not answered; false when it failed, so an unknown account
+ * gets the least-privilege view rather than controls it may not be allowed to use. */
 export function canSeeAllItems(s: SessionState): boolean | null {
   if (s.status === 'loading') return null
-  if (s.status === 'unavailable') return true
+  if (s.status === 'unavailable') return false
   return s.me.permissions.includes('admin.library')
 }
 

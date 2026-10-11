@@ -54,6 +54,7 @@ class FakeSession:
         self.responses, self.calls = list(responses), []
 
     def request(self, method, url, **kw):
+        http._guard(url)  # the real session guards every hop
         self.calls.append((method, url, kw))
         return self.responses.pop(0)
 
@@ -256,6 +257,8 @@ def test_compressed_body_decoded_bytes_are_capped(net):
     ("deflate", zlib.compress(b"<html>hi</html>")[2:-4]),   # raw deflate, as some servers send
     ("identity", b"<html>hi</html>"),
 ])
+
+
 def test_gzip_and_deflate_are_decoded(net, encoding, body):
     net(FakeResp([body[:3], body[3:]], headers={"Content-Encoding": encoding}))
     r = http._requests_transport("GET", PAGE, {}, None, 5, limits=_limits())
@@ -354,6 +357,11 @@ def test_preview_endless_empty_deflate_blocks_cancel_ends_the_job(api, net):
     st = _preview(api)
     assert st["status"] == "cancelled"
     assert resp.closed and resp.raw.reads < 10
+
+
+def test_thread_session_is_the_guarded_front_door_session():
+    s = http._thread_session()
+    assert s.guard is http._guard and s.timeout and s.max_bytes >= http.MAX_IMAGE_BYTES
 
 
 @pytest.fixture

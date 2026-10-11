@@ -31,6 +31,36 @@ _kakasi = None
 _kiwi = None
 _opencc_t2s = None
 
+# jieba's cut time grows with the square of an unbroken run (40k chars took
+# 6 s, 500k never finished) and sudachi refuses input over ~49 KB. Cutting
+# at sentence ends keeps words whole; the hard cut only applies to text with
+# no punctuation at all, where a word split at the seam is the lesser evil.
+MAX_SEGMENT_CHARS = 2000
+_SENTENCE_END = "。！？!?；;\n.，,、 "
+
+
+def split_long_text(text: str, limit: int = MAX_SEGMENT_CHARS):
+    chunks = []
+    while len(text) > limit:
+        cut = max(text.rfind(c, limit // 2, limit) for c in _SENTENCE_END) + 1 or limit
+        chunks.append(text[:cut])
+        text = text[cut:]
+    if text:
+        chunks.append(text)
+    return chunks
+
+
+def _per_chunk(fn):
+    def run(text, *args, **kwargs):
+        if len(text) <= MAX_SEGMENT_CHARS:
+            return fn(text, *args, **kwargs)
+        out = []
+        for chunk in split_long_text(text):
+            out.extend(fn(chunk, *args, **kwargs))
+        return out
+    run.__name__, run.__doc__ = fn.__name__, fn.__doc__
+    return run
+
 
 def _cut_traditional(text: str):
     """Word-boundary lengths come from segmenting the Simplified conversion
@@ -73,6 +103,7 @@ def _load_sudachi():
         globals()["_sudachi_mode"] = tokenizer.Tokenizer.SplitMode.B
 
 
+@_per_chunk
 def segment_words(text: str, language: str, chinese_script: str = "simplified"):
     """Just the words, in order, with no reading annotation -- for callers
     that only need where words start and end (resegment.py), so they don't
@@ -89,6 +120,7 @@ def segment_words(text: str, language: str, chinese_script: str = "simplified"):
     return _cut_traditional(text) if chinese_script == "traditional" else list(_jieba.cut(text))
 
 
+@_per_chunk
 def segment_zh(text: str, chinese_script: str = "simplified"):
     _load_jieba()
     from pypinyin import pinyin, Style
@@ -103,6 +135,7 @@ def segment_zh(text: str, chinese_script: str = "simplified"):
     return out
 
 
+@_per_chunk
 def segment_ja(text: str):
     global _kakasi
     _load_sudachi()
@@ -124,6 +157,7 @@ def segment_ja(text: str):
     return out
 
 
+@_per_chunk
 def segment_ko(text: str):
     global _kiwi
     if _kiwi is None:

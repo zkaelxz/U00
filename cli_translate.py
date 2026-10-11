@@ -17,6 +17,7 @@ import translate_engines
 import translation_guide as tguide
 from cli import _gemini_free_tier, _gpu_lock, _ollama_url, _run_batch
 from core import lines_from_rows
+from jobs import gpu_slots
 from lib.errors import ServiceError
 from services import (engine_routing_service, glossary_retranslate_service, line_provenance_service,
                       settings_service, translate_run_service, translate_service,
@@ -83,7 +84,7 @@ def _resolve_glossary_terms(drama: dict, refs) -> list:
         hits = [t for t in terms
                 if (ref.isdigit() and t["id"] == int(ref)) or (t.get("term_original") or "") == ref]
         if not hits:
-            raise SystemExit(f"--term {ref!r} matches no term in this drama's glossary.")
+            raise SystemExit(f"--term {ref!r} matches no term in this title's glossary.")
         if len(hits) > 1:
             raise SystemExit(f"--term {ref!r} matches {len(hits)} glossary terms "
                              f"(ids {', '.join(str(t['id']) for t in hits)}); use the id.")
@@ -99,7 +100,7 @@ def cmd_translate(args):
                                          reflect=getattr(args, "reflect", False))
     glossary_affected = getattr(args, "glossary_affected", False)
     if glossary_affected and not args.id:
-        raise SystemExit("--glossary-affected needs --id (one drama at a time, as in the app).")
+        raise SystemExit("--glossary-affected needs --id (one title at a time, as in the app).")
     if getattr(args, "include_hand_edited", False) and not glossary_affected:
         raise SystemExit("--include-hand-edited only applies with --glossary-affected.")
     if getattr(args, "term", None) and not glossary_affected:
@@ -136,7 +137,7 @@ def cmd_translate(args):
     # local Ollama); a missing/unreachable one just skips the summary
     # rather than failing the translate command.
     summary_engine_choice = (getattr(args, "episode_summary_engine", None)
-                             or settings_service.get_preference("episode_summary_engine"))
+                             or settings_service.get("episode_summary_engine"))
     summary_key = getattr(args, "episode_summary_api_key", None) or (
         None if summary_engine_choice == "ollama"
         else translate_service.resolve_api_key(summary_engine_choice))
@@ -185,7 +186,7 @@ def cmd_translate(args):
         try:
             validate_run_options(
                 engine_name, args.model if _own_flags(engine_name) else None,
-                locale=args.locale or settings_service.get_preference("default_locale"),
+                locale=args.locale or settings_service.get("default_locale"),
                 style_preset=style_preset,
                 context_window=_flag_or(args, "context_window", tdefaults),
                 context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
@@ -195,7 +196,7 @@ def cmd_translate(args):
         except ServiceError as e:
             raise SystemExit(f"translate: {e.message}")
         if background_jobs.is_running(f"translate_{d['id']}"):
-            print(f"#{d['id']} skipped: a translation is already running for this drama "
+            print(f"#{d['id']} skipped: a translation is already running for this title "
                   f"in the app.")
             return
         engine = _engine_for(engine_name)
@@ -283,16 +284,16 @@ def cmd_translate(args):
                 # lock for this whole batch (see below) -- refreshed here,
                 # on every batch's own progress tick, so a long run doesn't
                 # look abandoned to another process before it's done.
-                db.heartbeat_gpu_lock(_gpu_holder)
+                gpu_slots.heartbeat([_gpu_holder])
             print(f"  #{did}: {frac*100:.0f}%", end="\r")
 
         style_note = (args.style_note if args.style_note is not None
-                      else settings_service.get_preference("default_style_note"))
-        scene_aware = settings_service.get_preference("scene_aware_batches")
+                      else settings_service.get("default_style_note"))
+        scene_aware = settings_service.get("scene_aware_batches")
         # Same settings the Workspace job records with each line.
         provenance = line_provenance_service.translate_run_tracker(
             d["id"], lines, engine, engine_name, glossary_terms,
-            locale=args.locale or settings_service.get_preference("default_locale"),
+            locale=args.locale or settings_service.get("default_locale"),
             style_preset=style_preset, reflect=bool(getattr(args, "reflect", False)),
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
@@ -318,11 +319,11 @@ def cmd_translate(args):
             lines, engine, drama_meta=d,
             style_note=style_note,
             novel_reference=novel_reference, force_retranslate=force, target_ids=target_ids,
-            locale=args.locale or settings_service.get_preference("default_locale"),
+            locale=args.locale or settings_service.get("default_locale"),
             glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
             ollama_num_ctx_override=(args.ollama_num_ctx if args.ollama_num_ctx is not None
-                                     else settings_service.get_ollama_num_ctx_override() or None),
+                                     else settings_service.get("ollama_num_ctx_override") or None),
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
@@ -390,7 +391,7 @@ def add_translate_parser(sub):
     p_translate.add_argument("--episode-summary-engine", default=None,
                              choices=list(translate_engines.ENGINES),
                              help="Engine for the once-per-episode running-summary call "
-                                  "made after a drama finishes translating, fed forward as "
+                                  "made after a title finishes translating, fed forward as "
                                   "continuity context into the next episode of the same series. "
                                   "Defaults to the Settings episode-summary engine (local Ollama "
                                   "until changed; a fixed once-per-episode cost); if "
@@ -404,7 +405,7 @@ def add_translate_parser(sub):
                               help="Matches the Workspace tab's own style-guidance preset -- "
                                    "affects phrasing/pacing guidance, not language or content. "
                                    "Defaults to the same per-content-mode preset Workspace picks "
-                                   "(\"novel\" for a novel-narration drama, \"audio_drama\" "
+                                   "(\"novel\" for a novel-narration title, \"audio_drama\" "
                                    "otherwise) unless set explicitly.")
     p_translate.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                              help="Default: the Settings English variant (en-US until changed).")
@@ -445,7 +446,7 @@ def add_translate_parser(sub):
                                   "about 3x as much. The critique is saved as a translation note "
                                   "per line.")
     p_translate.add_argument("--cost-cap", type=float, default=None,
-                           help="Stop a drama's translation once its estimated spend reaches this "
+                           help="Stop a title's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")
     p_translate.add_argument("--monthly-cap", type=float, default=None,
                            help="Refuse to start / stop once this calendar month's logged spend "

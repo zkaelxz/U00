@@ -51,6 +51,7 @@ def test_config_flag_default_off_and_parse():
 def test_disabled_by_default_403(env_file):
     r = _set(_client(enabled=False))
     assert r.status_code == 403
+    assert r.json()["error"]["code"] == "forbidden"
     assert not env_file.exists()
     assert _client(enabled=False).post("/api/settings/keys/claude/clear",
                                        json={"confirm": True}).status_code == 403

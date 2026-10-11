@@ -7,6 +7,7 @@ extraction ladder itself (sources/adaptive.py) runs for real."""
 import time
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -141,7 +142,7 @@ def test_engine_list_names_only(client):
 
 
 def test_default_engine_not_usable_is_none(client, monkeypatch):
-    monkeypatch.setattr(settings_service, "get_default_engine", lambda: "google")
+    patch_setting(monkeypatch, "default_engine", "google")
     assert client.get("/api/sources/url/ai-engines").json()["default"] is None
     did = db.create_drama(title_en="N", media_type="novel")
     r = client.post("/api/sources/url/import",

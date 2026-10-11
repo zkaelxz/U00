@@ -59,6 +59,8 @@ def unknown_engine_message(engine_name) -> str:
     """The refusal text for an engine name that is not in ENGINES."""
     if engine_name in REMOVED_ENGINES:
         return f"The {engine_name} engine was removed. Pick another engine."
+    if engine_name == "echo":
+        return "The Echo (testing) engine needs Developer Mode. Turn it on in Settings or pick another engine."
     return "Unknown engine."
 
 
@@ -100,7 +102,7 @@ def engines_with_capability(tag: str) -> list:
 # Gemini isn't here -- it uses the same engine/API for free and paid
 # keys, so whether a given run is "free" depends on the saved
 # "My Gemini key is free-tier" setting (services/settings_service.py
-# get_gemini_free_tier), not on which engine was picked. See
+# get("gemini_free_tier")), not on which engine was picked. See
 # engine_picker_label / estimate_cost_for_engine.
 FREE_ENGINES = {"ollama"}
 

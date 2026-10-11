@@ -52,7 +52,6 @@ export function MakeSubtitles() {
   const [title, setTitle] = useState('')
   const [variant, setVariant] = useState('')
   const [blockers, setBlockers] = useState<PreflightRow[]>([])
-  const [preflightOk, setPreflightOk] = useState<boolean | null>(null)
   const [jobId, setJobId, runKey, adopt] = useJobRun()
   const [srt, setSrt] = useState<string | null>(null)
   // True only for a run found in storage: a fresh run has no earlier job to look for.
@@ -241,10 +240,9 @@ export function MakeSubtitles() {
           </div>
           {engine && (
             <PreflightCard needs={['whisper', 'ffmpeg', 'key']} engine={engine}
-              onReady={(ok, rows) => { setPreflightOk(ok); setBlockers(rows) }}
+              onReady={(_ok, rows) => setBlockers(rows)}
               onUseEngine={(name) => setPickedEngine(name)} />
           )}
-          {preflightOk && <p className="muted">Ready</p>}
           <Section title="Options" summary={optionsSummary(file ? titleFor(file.name, title) : null, variant)}>
             <div className="make-subtitles-fields">
               <Field label="Title">

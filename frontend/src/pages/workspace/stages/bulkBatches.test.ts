@@ -23,6 +23,7 @@ describe('bulk batches helpers', () => {
   it('labels statuses, kinds and resume states in plain words', () => {
     expect(statusLabel('submitted')).toBe('Waiting for the provider')
     expect(statusLabel('auth_error')).toMatch(/Settings/)
+    expect(statusLabel('needs_resubmit')).toBe('Retrying the next stage')
     expect(statusLabel('weird')).toBe('weird')
     expect([statusTone('applied'), statusTone('auth_error'), statusTone('cancelled')]).toEqual(['ok', 'bad', ''])
     expect(kindLabel({ kind: 'translate', stage: null })).toBe('Translation')

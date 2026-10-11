@@ -127,6 +127,22 @@ turbo too. Details by language (numbers in the snapshot):
 Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB
 (`transcribe_service._MODEL_DOWNLOAD_SIZES`).
 
+### Benchmarking a model that is not in the list
+
+A candidate such as a Japanese fine-tune can be tried in the Benchmark Lab without
+changing the model of any title:
+
+1. On the PC, set Settings > Offline Whisper model folder to the downloaded
+   faster-whisper (CTranslate2) model folder.
+2. In the Lab, pick the Transcription stage and add an arm with the model
+   `local-folder`. It is listed in the Whisper sizes and shows as "offline model
+   folder" in results; the path is never sent in the request or stored.
+3. Clear the setting afterwards, or every title keeps using that folder.
+
+If the setting is empty or the folder is missing, the arm is refused with a message
+pointing at the setting. Only runs started on the PC can use it. The memory-headroom
+check is skipped for a folder, as it is for any local path.
+
 ## Guidance from the benchmarks
 
 Each row rests on the snapshot below (read speech, 60 clips per cell, CPU; the noisy-audio rows use 20 per language), so

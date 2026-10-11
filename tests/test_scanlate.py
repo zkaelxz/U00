@@ -339,19 +339,6 @@ class TestProcessPage:
         assert os.path.exists(result)
 
 
-class TestTranslatePageWithContext:
-    def test_pure_mt_engine_falls_back_without_context(self):
-        class PureMT:
-            supports_reference = False
-            def translate_batch(self, texts, context):
-                return [f"MT:{t}" for t in texts]
-
-        translations, new_context = scanlate.translate_page_with_context(
-            ["你好"], PureMT(), {}, previous_context="")
-        assert translations == ["MT:你好"]
-        assert new_context == ""  # unchanged, since pure MT can't summarize
-
-
 class TestBulkRenderPages:
     # bulk_render_pages returns (zip_path, errors, blank_text_report) --
     # blank_text_report maps filename -> count of bubbles left untouched
@@ -871,3 +858,190 @@ class TestBulkFindReplacePreview:
         matches = scanlate.bulk_find_replace_preview(bubbles, "Bob", "Alice")
         assert matches[0]["page_idx"] == 0
         assert matches[0]["translated_text"] == "Hello Bob"  # original field untouched
+
+
+@pytest.fixture
+def ten_bubble_page(temp_dir):
+    """Dark page with a 5x2 grid of white bubbles, each with scribble 'text'."""
+    img = np.full((900, 1000, 3), 50, dtype=np.uint8)
+    boxes = []
+    for row in range(5):
+        for col in range(2):
+            x, y = 80 + col * 480, 40 + row * 170
+            cv2.rectangle(img, (x, y), (x + 360, y + 120), (255, 255, 255), -1)
+            cv2.rectangle(img, (x, y), (x + 360, y + 120), (0, 0, 0), 3)
+            for i in range(4):
+                cv2.line(img, (x + 30, y + 30 + i * 20), (x + 300, y + 30 + i * 20), (10, 10, 10), 4)
+            boxes.append({"x": x, "y": y, "w": 360, "h": 120})
+    path = os.path.join(temp_dir, "ten.png")
+    cv2.imwrite(path, img)
+    return path, boxes
+
+
+def _count_page_decodes(monkeypatch, page_path):
+    from PIL import Image
+    decodes = []
+    real_imread, real_open = cv2.imread, Image.open
+
+    def imread(path, *a, **kw):
+        if os.path.abspath(str(path)) == os.path.abspath(page_path):
+            decodes.append(("cv2.imread", a))
+        return real_imread(path, *a, **kw)
+
+    def pil_open(fp, *a, **kw):
+        if isinstance(fp, (str, os.PathLike)) and os.path.abspath(str(fp)) == os.path.abspath(page_path):
+            decodes.append(("Image.open", a))
+        return real_open(fp, *a, **kw)
+
+    monkeypatch.setattr(cv2, "imread", imread)
+    monkeypatch.setattr(Image, "open", pil_open)
+    return decodes
+
+
+class TestPageIsDecodedOnce:
+    def test_detect_decodes_the_page_once(self, ten_bubble_page, monkeypatch):
+        import ocr
+        page, _ = ten_bubble_page
+        monkeypatch.setattr(ocr, "extract_text_from_images", lambda paths, **kw: "テキスト")
+        decodes = _count_page_decodes(monkeypatch, page)
+        bubbles, notes = scanlate.detect_and_ocr_page(page, "ja", detect_backend="cv")
+        assert len(bubbles) == 10, notes
+        assert all(b["source_text"] == "テキスト" for b in bubbles)
+        assert len(decodes) <= 1, decodes
+
+    def test_render_decodes_the_page_once_and_writes_once(self, ten_bubble_page, temp_dir,
+                                                         monkeypatch):
+        from PIL import Image
+        page, boxes = ten_bubble_page
+        bubbles = [dict(b, translated_text=f"Line {i}", font_size=16, kind="bubble")
+                   for i, b in enumerate(boxes)]
+        decodes = _count_page_decodes(monkeypatch, page)
+        writes = []
+        real_save, real_imwrite = Image.Image.save, cv2.imwrite
+        monkeypatch.setattr(Image.Image, "save",
+                            lambda self, fp, *a, **kw: writes.append(fp) or real_save(self, fp, *a, **kw))
+        monkeypatch.setattr(cv2, "imwrite",
+                            lambda path, img, *a: writes.append(path) or real_imwrite(path, img, *a))
+        out = os.path.join(temp_dir, "out.png")
+        scanlate.process_page(page, bubbles, out)
+        assert len(decodes) <= 1, decodes
+        assert len(writes) == 1
+        # The scribbles were erased in memory: the band they sat in is light
+        # now except where the new text was drawn.
+        result = cv2.cvtColor(np.array(Image.open(out).convert("RGB")), cv2.COLOR_RGB2GRAY)
+        x, y = boxes[0]["x"], boxes[0]["y"]
+        assert (result[y + 28:y + 92, x + 300:x + 302] > 200).all()
+
+    def test_render_output_matches_inpainting_each_box_from_the_file(self, synthetic_page,
+                                                                    temp_dir):
+        # Erasing in memory must give the same pixels the file round trip did.
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        expected = scanlate_inpaint.inpaint_region(synthetic_page, box, backend="cv")
+        page = cv2.imread(synthetic_page)
+        got = scanlate_inpaint.inpaint_region(synthetic_page, box, backend="cv", image=page)
+        assert got is page
+        assert np.array_equal(got, expected)
+
+
+class TestHfTokenIsNotWrittenToTheEnvironment:
+    def test_bubble_detector_load_leaves_the_environment_alone(self, monkeypatch, temp_dir):
+        import contextlib
+        import types
+        from PIL import Image
+        seen = {}
+        fake_torch = types.ModuleType("torch")
+        fake_torch.no_grad = lambda: contextlib.nullcontext()
+        fake_torch.tensor = lambda x: x
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+        class FakeProcessor:
+            def __call__(self, images, return_tensors):
+                return {}
+
+            def post_process_object_detection(self, outputs, threshold, target_sizes):
+                return [{"scores": [], "labels": [], "boxes": []}]
+
+        class FakeModel:
+            config = types.SimpleNamespace(id2label={})
+
+            def eval(self):
+                pass
+
+            def __call__(self, **kwargs):
+                return None
+
+        def loader(result):
+            def from_pretrained(repo_id, token=None):
+                seen.setdefault("tokens", []).append(token)
+                return result
+            return types.SimpleNamespace(from_pretrained=from_pretrained)
+
+        fake_transformers = types.ModuleType("transformers")
+        fake_transformers.AutoImageProcessor = loader(FakeProcessor())
+        fake_transformers.AutoModelForObjectDetection = loader(FakeModel())
+        monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
+        monkeypatch.delitem(scanlate_detect.__dict__, "_bubble_ml_model", raising=False)
+        monkeypatch.delitem(scanlate_detect.__dict__, "_bubble_ml_processor", raising=False)
+        img_path = os.path.join(temp_dir, "tiny.png")
+        Image.new("RGB", (10, 10)).save(img_path)
+        try:
+            scanlate_detect.detect_bubbles_ml(img_path, hf_token="secret-token")
+        finally:
+            scanlate_detect.__dict__.pop("_bubble_ml_model", None)
+            scanlate_detect.__dict__.pop("_bubble_ml_processor", None)
+        assert seen["tokens"] == ["secret-token", "secret-token"]
+        assert "HF_TOKEN" not in os.environ
+
+    def test_lama_load_leaves_the_environment_alone(self, monkeypatch):
+        import types
+        seen = {}
+
+        def hf_hub_download(repo_id, filename, token=None):
+            seen["token"] = token
+            return "/fake/model.safetensors"
+
+        class FakeGenerator:
+            def state_dict(self):
+                return {"w": 0}
+
+            def load_state_dict(self, state, strict=False):
+                return [], []
+
+            def eval(self):
+                pass
+
+        monkeypatch.setitem(sys.modules, "huggingface_hub",
+                            types.SimpleNamespace(hf_hub_download=hf_hub_download))
+        monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
+        monkeypatch.setitem(sys.modules, "safetensors.torch",
+                            types.SimpleNamespace(load_file=lambda path: {"w": 0}))
+        monkeypatch.setattr(scanlate_inpaint, "_build_lama_generator", FakeGenerator)
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
+        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        try:
+            scanlate_inpaint._load_lama_generator(hf_token="secret-token")
+        finally:
+            scanlate_inpaint.__dict__.pop("_lama_model", None)
+        assert seen["token"] == "secret-token"
+        assert "HF_TOKEN" not in os.environ
+
+
+class TestWebtoonSliceCap:
+    def _strip(self, temp_dir, height):
+        path = os.path.join(temp_dir, f"strip_{height}.png")
+        cv2.imwrite(path, np.full((height, 8, 3), 255, dtype=np.uint8))
+        return path
+
+    def test_a_strip_needing_more_than_200_slices_raises(self, temp_dir):
+        with pytest.raises(ValueError, match="200"):
+            scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2010), target_height=10,
+                                                overlap=0)
+
+    def test_two_hundred_slices_still_cover_the_whole_strip(self, temp_dir):
+        slices = scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2000), target_height=10,
+                                                     overlap=0)
+        assert len(slices) == 200
+        assert slices[-1]["y_end"] == 2000

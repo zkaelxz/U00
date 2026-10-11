@@ -52,6 +52,7 @@ import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
 from services import (auth_service, drama_service, keep_original_service, ownership_service,
                       settings_service, translate_run_service, translate_service)
+from services import library_translated_guard
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -96,14 +97,14 @@ def require_confirm(confirm, confirm_text, word: str, action: str):
 
 def _check_ids(drama_ids) -> list:
     if not isinstance(drama_ids, (list, tuple)) or not drama_ids:
-        raise InvalidInputError("Pick at least one drama.")
+        raise InvalidInputError("Pick at least one title.")
     if len(drama_ids) > MAX_BULK_IDS:
-        raise InvalidInputError(f"At most {MAX_BULK_IDS} dramas per request.")
+        raise InvalidInputError(f"At most {MAX_BULK_IDS} titles per request.")
     out = []
     for did in drama_ids:
         if (isinstance(did, bool) or not isinstance(did, int)
                 or not 1 <= did <= drama_service.MAX_ID):
-            raise InvalidInputError("A drama id is a positive whole number.")
+            raise InvalidInputError("A title id is a positive whole number.")
         if did not in out:
             out.append(did)
     return out
@@ -167,7 +168,7 @@ def refuse_during_maintenance(label: str):
     """A backup/export must not read the library while a bulk delete or
     storage cleanup is changing it (_maintenance refuses the reverse)."""
     if background_jobs.maintenance_active():
-        raise ConflictError(f"Dramas are being deleted or storage cleaned; the {label} "
+        raise ConflictError(f"Titles are being deleted or storage cleaned; the {label} "
                             f"can start when that finishes.")
 
 
@@ -230,7 +231,7 @@ def bulk_set_status(drama_ids, status: str) -> dict:
     """Sets only `status` on each drama. Per-id results."""
     if status not in STATUSES:
         raise InvalidInputError("Unknown status.", details={"allowed": list(STATUSES)})
-    return _bulk_apply(drama_ids, lambda did: db.update_drama(did, status=status))
+    return library_translated_guard.set_status(_bulk_apply, drama_ids, status)
 
 
 def bulk_set_tags(drama_ids, tag: str, present: bool) -> dict:
@@ -249,8 +250,8 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     single-drama delete uses); checked before anything is touched. A drama
     with a running/queued job is skipped with error "job_running"."""
     ids = _check_ids(drama_ids)
-    require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting dramas")
-    with maintenance("deleting dramas"):
+    require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting titles")
+    with maintenance("deleting titles"):
         results = []
         for did in ids:
             if db.get_drama(did) is None:
@@ -289,7 +290,7 @@ def _bulk_translate_plan(ids, principal=None):
             skipped.append({"drama_id": did, "reason": "job_running"})
         else:
             queued.append(did)
-            engines[did] = drama.get("translation_engine") or settings_service.get_default_engine()
+            engines[did] = drama.get("translation_engine") or settings_service.get("default_engine")
     return queued, skipped, engines
 
 
@@ -305,15 +306,15 @@ def bulk_translate_engines(drama_ids, principal=None) -> dict:
 
 def _check_expected_engines(expected) -> dict:
     if not isinstance(expected, dict) or len(expected) > MAX_BULK_IDS:
-        raise InvalidInputError("expected_engines maps drama ids to engine names.")
+        raise InvalidInputError("expected_engines maps title ids to engine names.")
     out = {}
     for k, v in expected.items():
         try:
             did = int(k)
         except (TypeError, ValueError):
-            raise InvalidInputError("expected_engines maps drama ids to engine names.") from None
+            raise InvalidInputError("expected_engines maps title ids to engine names.") from None
         if not isinstance(v, str):
-            raise InvalidInputError("expected_engines maps drama ids to engine names.")
+            raise InvalidInputError("expected_engines maps title ids to engine names.")
         out[did] = v
     return out
 
@@ -335,7 +336,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
     ids = _check_ids(drama_ids)
     if default_locale is None:
-        default_locale = settings_service.get_preference("default_locale")
+        default_locale = settings_service.get("default_locale")
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")
@@ -349,7 +350,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                 skipped.append({"drama_id": did, "reason": "engine_changed"})
         expected_engines = {did: expected[did] for did in queued}
     if not queued:
-        raise InvalidInputError("None of the picked dramas are untranslated (status 'aligned').")
+        raise InvalidInputError("None of the picked titles are untranslated (status 'aligned').")
     api_keys = {}
     for engine in translate_engines.ENGINES:
         try:
@@ -362,7 +363,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,
         default_locale=default_locale,
         ollama_base_url=settings_service.resolve_key("ollama_url") or None,
-        gemini_free_tier=settings_service.get_gemini_free_tier(),
+        gemini_free_tier=settings_service.get("gemini_free_tier"),
         models={}, monthly_cap=cap, expected_engines=expected_engines,
         allow_paid_summary=allow_paid_summary,
         include_genre_notes=include_genre_notes,
@@ -438,23 +439,10 @@ def start_export_zip(drama_ids=None) -> dict:
     title's originals: keep_original_service) for each
     translated/dubbed/exported drama -- the picked ones, or all of them.
     Returns {job_id, drama_ids}; with explicit ids also `results`, one per
-    requested id ({drama_id, ok, error: not_found|not_translated})."""
-    results = None
-    if drama_ids is None:
-        ids = [d["id"] for d in db.list_dramas() if d.get("status") in _EXPORTABLE_STATUSES]
-    else:
-        ids, results = [], []
-        for did in _check_ids(drama_ids):
-            drama = db.get_drama(did)
-            if drama is None:
-                results.append({"drama_id": did, "ok": False, "error": "not_found"})
-            elif drama.get("status") not in _EXPORTABLE_STATUSES:
-                results.append({"drama_id": did, "ok": False, "error": "not_translated"})
-            else:
-                ids.append(did)
-                results.append({"drama_id": did, "ok": True})
+    requested id ({drama_id, ok, error: not_found|not_translated|no_translated_lines})."""
+    ids, results = library_translated_guard.pick_exportable(drama_ids, _check_ids, _EXPORTABLE_STATUSES)
     if not ids:
-        raise InvalidInputError("No translated dramas to export.",
+        raise InvalidInputError("No translated titles to export.",
                                 details={"results": results} if results is not None else None)
     refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
@@ -632,7 +620,7 @@ def start_database_backup() -> dict:
 #   keep: household-wide, nothing personal
 #   empty: every row dropped
 USER_BACKUP_TABLES = {
-    "dramas": ("owned_dramas", "the owner's dramas"),
+    "dramas": ("owned_dramas", "the owner's titles"),
     "series": ("owned_series", "the owner's series"),
     "lines": ("drama", ""), "characters": ("drama", ""), "pages": ("drama", ""),
     "translation_notes": ("drama", ""), "line_emotions": ("drama", ""),
@@ -668,7 +656,7 @@ USER_BACKUP_TABLES = {
     "metadata_research_cache": ("empty", "lookups from every user"),
     "app_settings": ("empty", "this PC's settings"),
     "assistant_backlog": ("empty", "this PC's maintenance notes"),
-    "benchmark_cases": ("empty", "this PC's test set, may quote any drama"),
+    "benchmark_cases": ("empty", "this PC's test set, may quote any title"),
     "benchmark_runs": ("empty", "belongs to benchmark_cases"),
     "benchmark_sessions": ("empty", "this PC's benchmark runs"),
     "benchmark_results": ("empty", "belongs to benchmark_sessions"),

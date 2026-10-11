@@ -39,7 +39,7 @@ def _vkey(version: str):
     try:
         return version_mod.Version(version)
     except Exception:
-        return version_mod.Version("0")
+        return None          # unknown order: neither an upgrade nor a downgrade
 
 
 def parse_report(doc) -> list:
@@ -85,10 +85,17 @@ def _top_levels(files) -> set:
 
 
 def dist_in_use(name: str, modules=None, lookup=None, norm=_norm) -> bool:
-    """True when this process has the package's compiled files loaded, or has
-    imported a top-level module of a distribution that ships compiled files
-    (its helper DLLs are then loaded too, though sys.modules doesn't list
-    them). Pure-Python files aren't held open, so they never count."""
+    """True when replacing this package in place could fail on a held file.
+
+    A distribution that ships compiled files counts as in use when one of them
+    is loaded, or when any of its top-level modules is imported. The second
+    test is conservative on purpose: Windows keeps a loaded extension's helper
+    DLLs open, and sys.modules doesn't list them, so an imported top level is
+    the only sign they may be loaded. The cost is that upgrading such a
+    package, numpy for one, while this process has it imported is queued as an
+    install at restart. The benefit is that pip is never run in place against
+    a locked file and left half-way. Pure-Python distributions hold nothing
+    open and never count."""
     import importlib.metadata as md
     modules = sys.modules if modules is None else modules
     try:
@@ -128,12 +135,18 @@ def _classify(report: list, installed: dict) -> list:
         have = installed.get(name)
         if have is None:
             kind = "install"
-        elif _vkey(version) > _vkey(have):
-            kind = "upgrade"
-        elif _vkey(version) < _vkey(have):
-            kind = "downgrade"
         else:
-            continue
+            new, old = _vkey(version), _vkey(have)
+            if new is None or old is None:
+                if version == have:
+                    continue
+                # pip's report lists only what it will install, so pip replaces
+                # this even though neither direction can be told.
+                kind = "change"
+            elif new == old:
+                continue
+            else:
+                kind = "upgrade" if new > old else "downgrade"
         changes.append({"name": name, "from": have, "to": version, "kind": kind})
     return changes
 
@@ -172,6 +185,8 @@ def _dry_run(argv: list, runner):
             return None, "pip could not be run to preview the change."
         if proc.timed_out:
             return None, "pip could not be run to preview the change."
+        if proc.returncode is None:
+            return None, "pip did not stop in time."
         if proc.returncode != 0:
             text = (proc.stdout or "") + (proc.stderr or "")
             if "conflict" in text.lower() or "ResolutionImpossible" in text:
