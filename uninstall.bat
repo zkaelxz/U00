@@ -145,9 +145,11 @@ exit /b 0
 :foldersize
 REM %1 = folder, %2 = variable to set. The path goes through the environment
 REM so quotes, spaces and non-ASCII characters never reach PowerShell's parser.
+REM <nul: PowerShell would otherwise read the answers still waiting on stdin,
+REM so the next prompt saw an empty answer (found by the Windows CI job).
 set "BAIHE_SZ_PATH=%~1"
 set "%~2=unknown"
-for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command "$s = Get-ChildItem -LiteralPath $env:BAIHE_SZ_PATH -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum; $b = [double]$s.Sum; if ($b -ge 1GB) { '{0:N1} GB' -f ($b / 1GB) } else { '{0:N0} MB' -f ($b / 1MB) }"`) do set "%~2=%%S"
+for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command "$s = Get-ChildItem -LiteralPath $env:BAIHE_SZ_PATH -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum; $b = [double]$s.Sum; if ($b -ge 1GB) { '{0:N1} GB' -f ($b / 1GB) } else { '{0:N0} MB' -f ($b / 1MB) }" ^<nul`) do set "%~2=%%S"
 exit /b 0
 
 :leftover
