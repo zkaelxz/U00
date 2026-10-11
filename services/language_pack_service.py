@@ -12,6 +12,7 @@ on. The app, the CLI and every job reach the prompt through
 
 import contextlib
 
+import applog
 import db
 import language_packs
 from services import ownership_service
@@ -132,7 +133,16 @@ def entries_for_text(drama: dict, text: str, user_terms=None) -> list:
     # be switched off.
     offered = {p["id"] for p in language_packs.packs_for_language(_language(drama))}
     packs = {k: v for k, v in (choice.get("packs") or {}).items() if k in offered}
-    return language_packs.matching_entries(packs, text, user_terms, language=_language(drama)) if packs else []
+    if not packs:
+        return []
+    found, dropped = language_packs.select_entries(packs, text, user_terms, language=_language(drama))
+    if dropped:
+        # Counts only: the text is the user's content and the entries can
+        # name people.
+        applog.get_logger().info(
+            f"language packs: title {drama['id']} had {dropped} matching entries beyond the "
+            f"{language_packs.MAX_PROMPT_ENTRIES}-entry cap; the most frequent were kept")
+    return found
 
 
 def block_for(drama: dict, lines, user_terms=None) -> str:

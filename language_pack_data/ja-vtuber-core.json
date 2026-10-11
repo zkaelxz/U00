@@ -1,0 +1,1052 @@
+{
+ "id": "ja-vtuber-core",
+ "version": 1,
+ "language": "ja",
+ "title": "Japanese VTuber stream terms",
+ "description": "Starter pack, review it. Words VTubers and their viewers use on stream and in chat.",
+ "styles": {
+  "default": "romanised",
+  "options": {
+   "romanised": "Keep fan terms romanised (oshi, teetee, hako)",
+   "natural": "Translate fan terms into plain English"
+  }
+ },
+ "entries": [
+  {
+   "source": "草",
+   "en": "lol",
+   "category": "interjection",
+   "note": "Literal grass only for plants",
+   "not_in": [
+    "草原",
+    "草稿",
+    "雑草",
+    "草刈り",
+    "草むしり",
+    "草食",
+    "草履",
+    "草木",
+    "草花",
+    "草野球"
+   ]
+  },
+  {
+   "source": "w",
+   "en": "lol",
+   "category": "interjection",
+   "note": "Mostly in chat readings. ASCII boundary and width are not normalised, so each form is its own entry"
+  },
+  {
+   "source": "www",
+   "en": "lol",
+   "category": "interjection",
+   "note": "Mostly in chat readings. ASCII boundary and width are not normalised, so each form is its own entry"
+  },
+  {
+   "source": "ｗｗｗ",
+   "en": "lol",
+   "category": "interjection",
+   "note": "Mostly in chat readings. ASCII boundary and width are not normalised, so each form is its own entry"
+  },
+  {
+   "source": "乙",
+   "en": {
+    "romanised": "otsu",
+    "natural": "good work"
+   },
+   "category": "phrase",
+   "note": "ja-common's お疲れ様 stays as is",
+   "not_in": [
+    "乙女",
+    "乙女ゲー",
+    "乙種",
+    "甲乙"
+   ]
+  },
+  {
+   "source": "おつ",
+   "en": {
+    "romanised": "otsu",
+    "natural": "good work"
+   },
+   "category": "phrase",
+   "note": "ja-common's お疲れ様 stays as is",
+   "not_in": [
+    "おつり",
+    "おつまみ",
+    "おつかい",
+    "おつむ"
+   ]
+  },
+  {
+   "source": "てぇてぇ",
+   "en": {
+    "romanised": "teetee",
+    "natural": "precious"
+   },
+   "category": "streamer",
+   "note": "Wholesome interaction between talents"
+  },
+  {
+   "source": "尊い",
+   "en": "precious",
+   "category": "streamer"
+  },
+  {
+   "source": "推し活",
+   "en": {
+    "romanised": "oshikatsu",
+    "natural": "fan activities"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "箱推し",
+   "en": {
+    "romanised": "hako-oshi",
+    "natural": "fan of the whole agency"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "最推し",
+   "en": {
+    "romanised": "top oshi",
+    "natural": "number-one favorite"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "単推し",
+   "en": {
+    "romanised": "single-oshi",
+    "natural": "fan of just one talent"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "DD",
+   "en": {
+    "romanised": "DD",
+    "natural": "fan of everyone"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "推しマーク",
+   "en": {
+    "romanised": "oshi mark",
+    "natural": "fan emoji"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "ファンマーク",
+   "en": {
+    "romanised": "oshi mark",
+    "natural": "fan emoji"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "ガチ恋",
+   "en": {
+    "romanised": "gachikoi",
+    "natural": "fan in love with the streamer"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "ガチ恋勢",
+   "en": {
+    "romanised": "gachikoi",
+    "natural": "fan in love with the streamer"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "ガチ恋距離",
+   "en": {
+    "romanised": "gachikoi distance",
+    "natural": "close-up"
+   },
+   "category": "streamer",
+   "note": "Very close camera or mic distance"
+  },
+  {
+   "source": "リアコ",
+   "en": {
+    "romanised": "riako",
+    "natural": "in love with the real person"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "限界オタク",
+   "en": "fan at their limit",
+   "category": "streamer"
+  },
+  {
+   "source": "海外ニキ",
+   "en": {
+    "romanised": "kaigai niki",
+    "natural": "overseas bros"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "海外兄貴",
+   "en": {
+    "romanised": "kaigai niki",
+    "natural": "overseas bros"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "清楚",
+   "en": {
+    "romanised": "seiso",
+    "natural": "pure and proper"
+   },
+   "category": "streamer",
+   "note": "Often ironic"
+  },
+  {
+   "source": "ポンコツ",
+   "en": {
+    "romanised": "pon",
+    "natural": "airhead"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "PON",
+   "en": {
+    "romanised": "pon",
+    "natural": "airhead"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "助かる",
+   "en": "much appreciated",
+   "category": "phrase",
+   "note": "Ordinary \"that helps\" otherwise",
+   "context": "fanservice praise"
+  },
+  {
+   "source": "さすが",
+   "en": {
+    "romanised": "sasuga",
+    "natural": "as expected"
+   },
+   "category": "phrase",
+   "not_in": [
+    "さすがに"
+   ]
+  },
+  {
+   "source": "エモい",
+   "en": "emotional",
+   "category": "streamer"
+  },
+  {
+   "source": "台パン",
+   "en": {
+    "romanised": "daipan",
+    "natural": "desk slam"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "プロレス",
+   "en": {
+    "romanised": "pro-wrestling (staged banter)",
+    "natural": "playful feud"
+   },
+   "category": "streamer",
+   "note": "Literal wrestling if the topic is wrestling"
+  },
+  {
+   "source": "伝書鳩",
+   "en": "carrier pigeon",
+   "category": "streamer",
+   "note": "Relaying another stream's chat. Bad etiquette"
+  },
+  {
+   "source": "エゴサ",
+   "en": "ego-searching",
+   "category": "streamer"
+  },
+  {
+   "source": "アンチ",
+   "en": "antis",
+   "category": "streamer",
+   "not_in": [
+    "アンチエイジング"
+   ]
+  },
+  {
+   "source": "やらかし",
+   "en": "blunder",
+   "category": "streamer"
+  },
+  {
+   "source": "晒し",
+   "en": "exposing (callout)",
+   "category": "streamer"
+  },
+  {
+   "source": "内輪ネタ",
+   "en": "in-joke",
+   "category": "streamer"
+  },
+  {
+   "source": "わちゃわちゃ",
+   "en": "chaotic fun",
+   "category": "streamer"
+  },
+  {
+   "source": "陽キャ",
+   "en": "extrovert",
+   "category": "streamer"
+  },
+  {
+   "source": "陰キャ",
+   "en": "introvert",
+   "category": "streamer"
+  },
+  {
+   "source": "コミュ障",
+   "en": "socially awkward",
+   "category": "streamer"
+  },
+  {
+   "source": "フラグ回収",
+   "en": "called it (flag paid off)",
+   "category": "streamer"
+  },
+  {
+   "source": "フラグ",
+   "en": "flag",
+   "category": "streamer"
+  },
+  {
+   "source": "萌え",
+   "en": "moe",
+   "category": "streamer"
+  },
+  {
+   "source": "半年ROMれ",
+   "en": "lurk more",
+   "category": "phrase"
+  },
+  {
+   "source": "バブみ",
+   "en": {
+    "romanised": "babumi",
+    "natural": "motherly comfort"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "エアプ",
+   "en": "never actually played",
+   "category": "streamer"
+  },
+  {
+   "source": "舐めプ",
+   "en": "playing condescendingly",
+   "category": "streamer"
+  },
+  {
+   "source": "姫プ",
+   "en": "babying a player",
+   "category": "streamer"
+  },
+  {
+   "source": "げぼかわ",
+   "en": "sickeningly cute",
+   "category": "streamer"
+  },
+  {
+   "source": "ガンギマリ",
+   "en": "wild-eyed",
+   "category": "streamer"
+  },
+  {
+   "source": "闇落ち",
+   "en": "dark turn",
+   "category": "streamer"
+  },
+  {
+   "source": "病み営業",
+   "en": "performative gloom",
+   "category": "streamer"
+  },
+  {
+   "source": "魔王ムーブ",
+   "en": "demon-king move",
+   "category": "streamer"
+  },
+  {
+   "source": "反応芸",
+   "en": "reaction bit",
+   "category": "streamer"
+  },
+  {
+   "source": "リアクション芸",
+   "en": "reaction bit",
+   "category": "streamer"
+  },
+  {
+   "source": "泣き芸",
+   "en": "crying bit",
+   "category": "streamer"
+  },
+  {
+   "source": "ワイプ芸",
+   "en": "picture-in-picture reaction bit",
+   "category": "streamer"
+  },
+  {
+   "source": "ログボ",
+   "en": "login bonus",
+   "category": "streamer"
+  },
+  {
+   "source": "新人潰し",
+   "en": "bullying newcomers",
+   "category": "streamer"
+  },
+  {
+   "source": "営業妨害",
+   "en": "ruining someone's image",
+   "category": "streamer",
+   "note": "Joking use"
+  },
+  {
+   "source": "ブーメラン",
+   "en": "boomerang (backfired criticism)",
+   "category": "streamer"
+  },
+  {
+   "source": "全ロス",
+   "en": "lost everything",
+   "category": "streamer",
+   "note": "Game item loss"
+  },
+  {
+   "source": "マイクラ",
+   "en": "Minecraft",
+   "category": "streamer"
+  },
+  {
+   "source": "弾幕",
+   "en": "comment barrage",
+   "category": "streamer"
+  },
+  {
+   "source": "配信枠",
+   "en": "stream",
+   "category": "streamer",
+   "note": "Never \"frame\""
+  },
+  {
+   "source": "枠",
+   "en": "stream",
+   "category": "streamer",
+   "note": "Never \"frame\"",
+   "not_in": [
+    "枠組み",
+    "枠内",
+    "枠外",
+    "別枠",
+    "窓枠",
+    "黒枠",
+    "大枠",
+    "枠線"
+   ]
+  },
+  {
+   "source": "歌枠",
+   "en": "singing stream",
+   "category": "streamer"
+  },
+  {
+   "source": "ランダム歌枠",
+   "en": "random-song karaoke stream",
+   "category": "streamer"
+  },
+  {
+   "source": "雑談",
+   "en": {
+    "romanised": "zatsudan",
+    "natural": "chatting stream"
+   },
+   "category": "streamer",
+   "note": "Ordinary chit-chat otherwise",
+   "context": "a stream format"
+  },
+  {
+   "source": "コラボ",
+   "en": "collab",
+   "category": "streamer"
+  },
+  {
+   "source": "凸待ち",
+   "en": {
+    "romanised": "totsumachi",
+    "natural": "call-in stream"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "逆凸",
+   "en": {
+    "romanised": "reverse totsu",
+    "natural": "calling people up"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "耐久配信",
+   "en": "endurance stream",
+   "category": "streamer"
+  },
+  {
+   "source": "耐久",
+   "en": "endurance stream",
+   "category": "streamer",
+   "not_in": [
+    "耐久性",
+    "耐久力",
+    "耐久値",
+    "耐久度"
+   ]
+  },
+  {
+   "source": "案件配信",
+   "en": "sponsored stream",
+   "category": "streamer",
+   "note": "案件 alone can mean \"a matter\"",
+   "context": "a stream or sponsorship"
+  },
+  {
+   "source": "案件",
+   "en": "sponsored stream",
+   "category": "streamer",
+   "note": "案件 alone can mean \"a matter\"",
+   "context": "a stream or sponsorship"
+  },
+  {
+   "source": "二回行動",
+   "en": "second stream of the day",
+   "category": "streamer"
+  },
+  {
+   "source": "RTA",
+   "en": {
+    "romanised": "RTA",
+    "natural": "speedrun"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "マルチ配信",
+   "en": "multistream",
+   "category": "streamer"
+  },
+  {
+   "source": "ワンオペ配信",
+   "en": "solo-run stream (no staff)",
+   "category": "streamer"
+  },
+  {
+   "source": "無音枠",
+   "en": "silent stream",
+   "category": "streamer"
+  },
+  {
+   "source": "焼肉配信",
+   "en": "yakiniku stream (real-life meal footage)",
+   "category": "streamer"
+  },
+  {
+   "source": "パリコレ",
+   "en": "outfit showcase",
+   "category": "streamer"
+  },
+  {
+   "source": "アーカイブ",
+   "en": "archive (VOD)",
+   "category": "streamer"
+  },
+  {
+   "source": "配信事故",
+   "en": "stream mishap",
+   "category": "streamer"
+  },
+  {
+   "source": "放送事故",
+   "en": "stream mishap",
+   "category": "streamer"
+  },
+  {
+   "source": "畳配信",
+   "en": "tatami stream (no game on screen)",
+   "category": "streamer"
+  },
+  {
+   "source": "ミュート芸",
+   "en": "mic-mute bit",
+   "category": "streamer"
+  },
+  {
+   "source": "初配信",
+   "en": "debut stream",
+   "category": "streamer"
+  },
+  {
+   "source": "初配信詐欺",
+   "en": "fake debut stream",
+   "category": "streamer"
+  },
+  {
+   "source": "メン限",
+   "en": "members-only",
+   "category": "streamer"
+  },
+  {
+   "source": "メンバー限定",
+   "en": "members-only",
+   "category": "streamer"
+  },
+  {
+   "source": "ゲーム実況",
+   "en": "gaming stream",
+   "category": "streamer"
+  },
+  {
+   "source": "同時視聴",
+   "en": "watchalong",
+   "category": "streamer"
+  },
+  {
+   "source": "3Dお披露目",
+   "en": "3D debut",
+   "category": "streamer"
+  },
+  {
+   "source": "歌ってみた",
+   "en": {
+    "romanised": "utattemita",
+    "natural": "song cover"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "リアルライブ",
+   "en": "in-person concert",
+   "category": "streamer"
+  },
+  {
+   "source": "大事なお知らせ",
+   "en": "important announcement",
+   "category": "phrase",
+   "note": "Often precedes graduation or hiatus news"
+  },
+  {
+   "source": "重大発表",
+   "en": "major announcement",
+   "category": "phrase"
+  },
+  {
+   "source": "配信活動終了",
+   "en": "ended streaming activities",
+   "category": "streamer",
+   "note": "Softer than 卒業"
+  },
+  {
+   "source": "生配信",
+   "en": "livestream",
+   "category": "streamer"
+  },
+  {
+   "source": "スパチャ",
+   "en": "superchat",
+   "category": "streamer"
+  },
+  {
+   "source": "スーパーチャット",
+   "en": "superchat",
+   "category": "streamer"
+  },
+  {
+   "source": "赤スパ",
+   "en": {
+    "romanised": "akasupa",
+    "natural": "red superchat"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "ナイスパ",
+   "en": "nice superchat",
+   "category": "phrase"
+  },
+  {
+   "source": "投げ銭",
+   "en": "tips",
+   "category": "streamer"
+  },
+  {
+   "source": "課金",
+   "en": "spending money",
+   "category": "streamer"
+  },
+  {
+   "source": "養分",
+   "en": "big spender (self-mocking)",
+   "category": "streamer"
+  },
+  {
+   "source": "メンバーシップ",
+   "en": "membership",
+   "category": "streamer"
+  },
+  {
+   "source": "同接",
+   "en": "concurrent viewers",
+   "category": "streamer"
+  },
+  {
+   "source": "登録者数",
+   "en": "subscriber count",
+   "category": "streamer"
+  },
+  {
+   "source": "収益化",
+   "en": "monetization",
+   "category": "streamer"
+  },
+  {
+   "source": "サムネ",
+   "en": "thumbnail",
+   "category": "streamer"
+  },
+  {
+   "source": "マシュマロ",
+   "en": "Marshmallow (anonymous questions)",
+   "category": "streamer"
+  },
+  {
+   "source": "配信タグ",
+   "en": "stream hashtag",
+   "category": "streamer"
+  },
+  {
+   "source": "ファンアート",
+   "en": "fan art",
+   "category": "streamer"
+  },
+  {
+   "source": "FA",
+   "en": "fan art",
+   "category": "streamer"
+  },
+  {
+   "source": "ファンネーム",
+   "en": "fan name",
+   "category": "streamer"
+  },
+  {
+   "source": "事務所",
+   "en": "agency",
+   "category": "role"
+  },
+  {
+   "source": "箱",
+   "en": {
+    "romanised": "hako",
+    "natural": "agency"
+   },
+   "category": "role",
+   "not_in": [
+    "ゴミ箱",
+    "箱根",
+    "箱庭",
+    "段ボール箱",
+    "筆箱",
+    "宝箱",
+    "重箱",
+    "木箱",
+    "箱入り"
+   ]
+  },
+  {
+   "source": "企業勢",
+   "en": "corpo",
+   "category": "role"
+  },
+  {
+   "source": "事務所勢",
+   "en": "corpo",
+   "category": "role"
+  },
+  {
+   "source": "企業系VTuber",
+   "en": "corpo",
+   "category": "role"
+  },
+  {
+   "source": "個人勢",
+   "en": "indie",
+   "category": "role"
+  },
+  {
+   "source": "個人系VTuber",
+   "en": "indie",
+   "category": "role"
+  },
+  {
+   "source": "ステルス企業勢",
+   "en": "stealth corpo",
+   "category": "role"
+  },
+  {
+   "source": "ライバー",
+   "en": {
+    "romanised": "liver",
+    "natural": "streamer"
+   },
+   "category": "role",
+   "note": "NIJISANJI calls its talents Livers"
+  },
+  {
+   "source": "Vライバー",
+   "en": {
+    "romanised": "liver",
+    "natural": "streamer"
+   },
+   "category": "role",
+   "note": "NIJISANJI calls its talents Livers"
+  },
+  {
+   "source": "バーチャルライバー",
+   "en": {
+    "romanised": "liver",
+    "natural": "streamer"
+   },
+   "category": "role",
+   "note": "NIJISANJI calls its talents Livers"
+  },
+  {
+   "source": "バーチャルYouTuber",
+   "en": "VTuber",
+   "category": "role"
+  },
+  {
+   "source": "Vの者",
+   "en": "VTuber",
+   "category": "role"
+  },
+  {
+   "source": "中の人",
+   "en": {
+    "romanised": "nakanohito",
+    "natural": "the person inside"
+   },
+   "category": "role",
+   "note": "Never name or speculate about the real person"
+  },
+  {
+   "source": "魂",
+   "en": "soul (the performer)",
+   "category": "role",
+   "note": "Sensitive topic",
+   "not_in": [
+    "魂胆",
+    "霊魂",
+    "商魂"
+   ]
+  },
+  {
+   "source": "ガワ",
+   "en": "model (avatar)",
+   "category": "role"
+  },
+  {
+   "source": "前世",
+   "en": "past life",
+   "category": "role",
+   "note": "Prior identity. Sensitive"
+  },
+  {
+   "source": "転生",
+   "en": "reincarnation",
+   "category": "role",
+   "note": "Relaunch as a new character"
+  },
+  {
+   "source": "卒業",
+   "en": "graduation",
+   "category": "role",
+   "note": "School graduation otherwise",
+   "context": "leaving a VTuber agency or channel"
+  },
+  {
+   "source": "引退",
+   "en": "retirement",
+   "category": "role"
+  },
+  {
+   "source": "契約解除",
+   "en": "contract termination",
+   "category": "role",
+   "note": "Never \"graduation\""
+  },
+  {
+   "source": "期生",
+   "en": "gen",
+   "category": "role",
+   "note": "3期生 becomes \"3rd gen\""
+  },
+  {
+   "source": "マネちゃん",
+   "en": {
+    "romanised": "mane-chan",
+    "natural": "manager"
+   },
+   "category": "role"
+  },
+  {
+   "source": "ママ",
+   "en": {
+    "romanised": "mama",
+    "natural": "character designer"
+   },
+   "category": "role",
+   "note": "The real parent otherwise",
+   "context": "the VTuber's model creator"
+  },
+  {
+   "source": "パパ",
+   "en": {
+    "romanised": "papa",
+    "natural": "rigger"
+   },
+   "category": "role",
+   "note": "The real parent otherwise",
+   "context": "the VTuber's model creator"
+  },
+  {
+   "source": "絵師",
+   "en": "artist",
+   "category": "role"
+  },
+  {
+   "source": "動画師",
+   "en": "video editor",
+   "category": "role"
+  },
+  {
+   "source": "MIX師",
+   "en": "audio mixer",
+   "category": "role"
+  },
+  {
+   "source": "立ち絵",
+   "en": "character art",
+   "category": "streamer"
+  },
+  {
+   "source": "バ美肉",
+   "en": "babiniku",
+   "category": "streamer",
+   "note": "Follow the avatar's presented gender"
+  },
+  {
+   "source": "受肉",
+   "en": "getting a model (\"incarnation\")",
+   "category": "streamer"
+  },
+  {
+   "source": "顔バレ",
+   "en": "face reveal",
+   "category": "streamer"
+  },
+  {
+   "source": "身バレ",
+   "en": "identity exposed",
+   "category": "streamer"
+  },
+  {
+   "source": "エンジョイ勢",
+   "en": "casual",
+   "category": "streamer"
+  },
+  {
+   "source": "ガチ勢",
+   "en": "tryhard",
+   "category": "streamer"
+  },
+  {
+   "source": "VTuber準備中",
+   "en": "pre-debut VTuber",
+   "category": "role"
+  },
+  {
+   "source": "バーチャルシンガー",
+   "en": "virtual singer",
+   "category": "role"
+  },
+  {
+   "source": "Vシンガー",
+   "en": "virtual singer",
+   "category": "role"
+  },
+  {
+   "source": "兼業VTuber",
+   "en": "part-time VTuber",
+   "category": "role"
+  },
+  {
+   "source": "ご当地VTuber",
+   "en": "regional VTuber",
+   "category": "role"
+  },
+  {
+   "source": "部位チューバー",
+   "en": "body-part VTuber",
+   "category": "role",
+   "note": "Shows only hands or face over real footage"
+  },
+  {
+   "source": "超美麗3D",
+   "en": "photorealistic 3D",
+   "category": "streamer"
+  },
+  {
+   "source": "ニコ生主",
+   "en": "Niconico streamer",
+   "category": "role"
+  },
+  {
+   "source": "兼任",
+   "en": "also a member of",
+   "category": "role",
+   "note": "Two units at once"
+  },
+  {
+   "source": "ロールプレイ",
+   "en": "staying in character",
+   "category": "streamer"
+  },
+  {
+   "source": "モーションキャプチャ",
+   "en": "mocap",
+   "category": "streamer"
+  }
+ ]
+}

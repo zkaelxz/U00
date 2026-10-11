@@ -1,0 +1,825 @@
+{
+ "id": "zh-vtuber-core",
+ "version": 1,
+ "language": "zh",
+ "title": "Chinese VTuber stream terms",
+ "description": "Starter pack, review it. Bilibili and Taiwan/HK YouTube VTuber vocabulary, Simplified and Traditional.",
+ "styles": {
+  "default": "fan",
+  "options": {
+   "fan": "Keep shared VTuber-English fan terms (oshi, teetee, nakanohito)",
+   "natural": "Translate fan terms into plain English"
+  }
+ },
+ "entries": [
+  {
+   "source": "草",
+   "en": "lol",
+   "category": "interjection",
+   "note": "Senses beyond \"lol\" not checked",
+   "not_in": [
+    "草莓",
+    "草地",
+    "草原",
+    "草稿",
+    "草案",
+    "草率",
+    "花草",
+    "青草",
+    "草坪",
+    "草本",
+    "稻草",
+    "草根"
+   ]
+  },
+  {
+   "source": "DD",
+   "en": {
+    "fan": "DD",
+    "natural": "follows many VTubers"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "单推",
+   "en": {
+    "fan": "single-oshi",
+    "natural": "supports only one VTuber"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "單推",
+   "en": {
+    "fan": "single-oshi",
+    "natural": "supports only one VTuber"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "箱推",
+   "en": {
+    "fan": "hako-oshi",
+    "natural": "fan of the whole agency"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "贴贴",
+   "en": {
+    "fan": "teetee",
+    "natural": "so cute together"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "貼貼",
+   "en": {
+    "fan": "teetee",
+    "natural": "so cute together"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "白嫖",
+   "en": "freeloading",
+   "category": "streamer",
+   "note": "Vulgar literal sense. Self-mocking"
+  },
+  {
+   "source": "零充",
+   "en": "F2P",
+   "category": "streamer"
+  },
+  {
+   "source": "XSWL",
+   "en": "LMAO",
+   "category": "interjection",
+   "note": "Lowercase is a case variant"
+  },
+  {
+   "source": "xswl",
+   "en": "LMAO",
+   "category": "interjection",
+   "note": "Lowercase is a case variant"
+  },
+  {
+   "source": "YYDS",
+   "en": "GOAT",
+   "category": "interjection",
+   "note": "Lowercase is a case variant"
+  },
+  {
+   "source": "yyds",
+   "en": "GOAT",
+   "category": "interjection",
+   "note": "Lowercase is a case variant"
+  },
+  {
+   "source": "WML",
+   "en": "I can't even",
+   "category": "interjection"
+  },
+  {
+   "source": "NSDD",
+   "en": "you're right (often sarcastic)",
+   "category": "phrase"
+  },
+  {
+   "source": "栓Q",
+   "en": "thank you (ironic)",
+   "category": "phrase"
+  },
+  {
+   "source": "芭比Q了",
+   "en": "we're cooked",
+   "category": "phrase"
+  },
+  {
+   "source": "整活",
+   "en": "doing a bit",
+   "category": "streamer"
+  },
+  {
+   "source": "毒唯",
+   "en": "toxic solo stan",
+   "category": "streamer"
+  },
+  {
+   "source": "唯粉",
+   "en": "solo stan",
+   "category": "streamer"
+  },
+  {
+   "source": "团偏",
+   "en": "group fan with favorites",
+   "category": "streamer"
+  },
+  {
+   "source": "團偏",
+   "en": "group fan with favorites",
+   "category": "streamer"
+  },
+  {
+   "source": "塌房",
+   "en": "fall from grace",
+   "category": "streamer",
+   "note": "Scandal collapses an image"
+  },
+  {
+   "source": "开盒",
+   "en": "doxxing",
+   "category": "streamer"
+  },
+  {
+   "source": "開盒",
+   "en": "doxxing",
+   "category": "streamer"
+  },
+  {
+   "source": "差不多得了",
+   "en": "OK, that's enough",
+   "category": "phrase"
+  },
+  {
+   "source": "独轮车",
+   "en": "spam raid",
+   "category": "streamer",
+   "note": "Literal unicycle otherwise"
+  },
+  {
+   "source": "獨輪車",
+   "en": "spam raid",
+   "category": "streamer",
+   "note": "Literal unicycle otherwise"
+  },
+  {
+   "source": "MMR",
+   "en": "kiddie stan",
+   "category": "streamer",
+   "note": "Pejorative: keep the sneer"
+  },
+  {
+   "source": "萌萌人",
+   "en": "kiddie stan",
+   "category": "streamer",
+   "note": "Pejorative: keep the sneer"
+  },
+  {
+   "source": "v老嗨",
+   "en": "old-timer",
+   "category": "streamer"
+  },
+  {
+   "source": "KY",
+   "en": "can't read the room",
+   "category": "phrase"
+  },
+  {
+   "source": "zqsg",
+   "en": "genuinely",
+   "category": "phrase"
+  },
+  {
+   "source": "版本答案",
+   "en": "the meta",
+   "category": "streamer"
+  },
+  {
+   "source": "Gachi",
+   "en": "gachikoi",
+   "category": "streamer"
+  },
+  {
+   "source": "黑粉",
+   "en": "anti (hater)",
+   "category": "streamer"
+  },
+  {
+   "source": "RP",
+   "en": "staying in character",
+   "category": "streamer",
+   "note": "Uppercase only"
+  },
+  {
+   "source": "切片",
+   "en": "clip",
+   "category": "streamer",
+   "not_in": [
+    "切片机",
+    "切片器"
+   ]
+  },
+  {
+   "source": "切片man",
+   "en": "clipper",
+   "category": "streamer"
+  },
+  {
+   "source": "烤肉Man",
+   "en": "clip translator",
+   "category": "streamer"
+  },
+  {
+   "source": "生肉",
+   "en": "raw (untranslated)",
+   "category": "streamer",
+   "note": "Literal raw meat otherwise",
+   "context": "untranslated VTuber footage"
+  },
+  {
+   "source": "熟肉",
+   "en": "subbed version",
+   "category": "streamer"
+  },
+  {
+   "source": "配信",
+   "en": "stream",
+   "category": "streamer"
+  },
+  {
+   "source": "初配信",
+   "en": "debut stream",
+   "category": "streamer"
+  },
+  {
+   "source": "杂谈",
+   "en": {
+    "fan": "zatsudan",
+    "natural": "chat stream"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "雜談",
+   "en": {
+    "fan": "zatsudan",
+    "natural": "chat stream"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "酒杂",
+   "en": "drinking chat stream",
+   "category": "streamer"
+  },
+  {
+   "source": "酒雜",
+   "en": "drinking chat stream",
+   "category": "streamer"
+  },
+  {
+   "source": "歌回",
+   "en": "singing stream",
+   "category": "streamer"
+  },
+  {
+   "source": "歌枠",
+   "en": "singing stream",
+   "category": "streamer"
+  },
+  {
+   "source": "耐久",
+   "en": "endurance stream",
+   "category": "streamer",
+   "not_in": [
+    "耐久性",
+    "耐久力",
+    "耐久度"
+   ]
+  },
+  {
+   "source": "同时视听",
+   "en": "watchalong",
+   "category": "streamer"
+  },
+  {
+   "source": "同時視聽",
+   "en": "watchalong",
+   "category": "streamer"
+  },
+  {
+   "source": "新装",
+   "en": "new outfit (reveal)",
+   "category": "streamer"
+  },
+  {
+   "source": "新裝",
+   "en": "new outfit (reveal)",
+   "category": "streamer"
+  },
+  {
+   "source": "重大告知",
+   "en": "big announcement",
+   "category": "phrase"
+  },
+  {
+   "source": "突待",
+   "en": {
+    "fan": "totsumachi",
+    "natural": "call-in stream"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "凸待",
+   "en": {
+    "fan": "totsumachi",
+    "natural": "call-in stream"
+   },
+   "category": "streamer"
+  },
+  {
+   "source": "联动",
+   "en": "collab",
+   "category": "streamer",
+   "note": "Ordinary \"linkage\" in tech talk",
+   "context": "VTuber collab"
+  },
+  {
+   "source": "聯動",
+   "en": "collab",
+   "category": "streamer",
+   "note": "Ordinary \"linkage\" in tech talk",
+   "context": "VTuber collab"
+  },
+  {
+   "source": "收益化",
+   "en": "monetization",
+   "category": "streamer"
+  },
+  {
+   "source": "待机",
+   "en": "waiting for the stream",
+   "category": "streamer",
+   "note": "Device standby otherwise",
+   "context": "a stream waiting room"
+  },
+  {
+   "source": "待機",
+   "en": "waiting for the stream",
+   "category": "streamer",
+   "note": "Device standby otherwise",
+   "context": "a stream waiting room"
+  },
+  {
+   "source": "初见",
+   "en": "first time here",
+   "category": "phrase"
+  },
+  {
+   "source": "初見",
+   "en": "first time here",
+   "category": "phrase"
+  },
+  {
+   "source": "大航海",
+   "en": "guard membership",
+   "category": "streamer",
+   "note": "Bilibili paid tiers"
+  },
+  {
+   "source": "舰长",
+   "en": "Captain",
+   "category": "streamer",
+   "note": "Tier 1. English label is a literal choice, not attested"
+  },
+  {
+   "source": "艦長",
+   "en": "Captain",
+   "category": "streamer",
+   "note": "Tier 1. English label is a literal choice, not attested"
+  },
+  {
+   "source": "提督",
+   "en": "Admiral",
+   "category": "streamer",
+   "note": "Tier 2"
+  },
+  {
+   "source": "总督",
+   "en": "Governor",
+   "category": "streamer",
+   "note": "Tier 3"
+  },
+  {
+   "source": "總督",
+   "en": "Governor",
+   "category": "streamer",
+   "note": "Tier 3"
+  },
+  {
+   "source": "上舰",
+   "en": "bought a guard tier",
+   "category": "streamer"
+  },
+  {
+   "source": "上艦",
+   "en": "bought a guard tier",
+   "category": "streamer"
+  },
+  {
+   "source": "千舰",
+   "en": "1,000 captains",
+   "category": "streamer"
+  },
+  {
+   "source": "千艦",
+   "en": "1,000 captains",
+   "category": "streamer"
+  },
+  {
+   "source": "万舰",
+   "en": "10,000 captains",
+   "category": "streamer"
+  },
+  {
+   "source": "萬艦",
+   "en": "10,000 captains",
+   "category": "streamer"
+  },
+  {
+   "source": "粉丝勋章",
+   "en": "fan medal",
+   "category": "streamer"
+  },
+  {
+   "source": "粉絲勳章",
+   "en": "fan medal",
+   "category": "streamer"
+  },
+  {
+   "source": "粉丝牌",
+   "en": "fan medal",
+   "category": "streamer"
+  },
+  {
+   "source": "粉絲牌",
+   "en": "fan medal",
+   "category": "streamer"
+  },
+  {
+   "source": "电池",
+   "en": "batteries (Bilibili currency)",
+   "category": "streamer"
+  },
+  {
+   "source": "電池",
+   "en": "batteries (Bilibili currency)",
+   "category": "streamer"
+  },
+  {
+   "source": "醒目留言",
+   "en": "superchat",
+   "category": "streamer"
+  },
+  {
+   "source": "SC",
+   "en": "superchat",
+   "category": "streamer"
+  },
+  {
+   "source": "斗内",
+   "en": "donation",
+   "category": "streamer",
+   "note": "Taiwan"
+  },
+  {
+   "source": "斗內",
+   "en": "donation",
+   "category": "streamer",
+   "note": "Taiwan"
+  },
+  {
+   "source": "抖內",
+   "en": "donation",
+   "category": "streamer",
+   "note": "Taiwan"
+  },
+  {
+   "source": "抖内",
+   "en": "donation",
+   "category": "streamer",
+   "note": "Taiwan"
+  },
+  {
+   "source": "红地毯",
+   "en": "red carpet (flood of red superchats)",
+   "category": "streamer"
+  },
+  {
+   "source": "紅地毯",
+   "en": "red carpet (flood of red superchats)",
+   "category": "streamer"
+  },
+  {
+   "source": "石油王",
+   "en": "oil baron",
+   "category": "streamer",
+   "note": "Big spender"
+  },
+  {
+   "source": "虚拟主播",
+   "en": "VTuber",
+   "category": "role"
+  },
+  {
+   "source": "虛擬主播",
+   "en": "VTuber",
+   "category": "role"
+  },
+  {
+   "source": "虚拟UP主",
+   "en": "VTuber",
+   "category": "role"
+  },
+  {
+   "source": "虛擬UP主",
+   "en": "VTuber",
+   "category": "role"
+  },
+  {
+   "source": "VUP",
+   "en": "VTuber",
+   "category": "role"
+  },
+  {
+   "source": "VTB",
+   "en": "VTuber",
+   "category": "role"
+  },
+  {
+   "source": "中之人",
+   "en": {
+    "fan": "nakanohito",
+    "natural": "the person behind the avatar"
+   },
+   "category": "role",
+   "note": "Never name the real person"
+  },
+  {
+   "source": "魂",
+   "en": "soul (the performer)",
+   "category": "role",
+   "not_in": [
+    "灵魂",
+    "靈魂",
+    "魂魄",
+    "鬼魂"
+   ]
+  },
+  {
+   "source": "皮套",
+   "en": "avatar (model)",
+   "category": "role"
+  },
+  {
+   "source": "套皮",
+   "en": "avatar with no persona",
+   "category": "role"
+  },
+  {
+   "source": "个人势",
+   "en": "indie",
+   "category": "role"
+  },
+  {
+   "source": "個人勢",
+   "en": "indie",
+   "category": "role"
+  },
+  {
+   "source": "企业势",
+   "en": "corpo",
+   "category": "role"
+  },
+  {
+   "source": "企業勢",
+   "en": "corpo",
+   "category": "role"
+  },
+  {
+   "source": "社团势",
+   "en": "circle-affiliated",
+   "category": "role"
+  },
+  {
+   "source": "社團勢",
+   "en": "circle-affiliated",
+   "category": "role"
+  },
+  {
+   "source": "团体势",
+   "en": "circle-affiliated",
+   "category": "role"
+  },
+  {
+   "source": "團體勢",
+   "en": "circle-affiliated",
+   "category": "role"
+  },
+  {
+   "source": "毕业",
+   "en": "graduation",
+   "category": "role",
+   "note": "School graduation otherwise",
+   "context": "leaving a VTuber agency or channel"
+  },
+  {
+   "source": "畢業",
+   "en": "graduation",
+   "category": "role",
+   "note": "School graduation otherwise",
+   "context": "leaving a VTuber agency or channel"
+  },
+  {
+   "source": "前世",
+   "en": "past life",
+   "category": "role",
+   "note": "Sensitive"
+  },
+  {
+   "source": "转生",
+   "en": "reincarnation",
+   "category": "role"
+  },
+  {
+   "source": "轉生",
+   "en": "reincarnation",
+   "category": "role"
+  },
+  {
+   "source": "冲塔",
+   "en": "digging up their real identity",
+   "category": "role",
+   "note": "Frowned on"
+  },
+  {
+   "source": "衝塔",
+   "en": "digging up their real identity",
+   "category": "role",
+   "note": "Frowned on"
+  },
+  {
+   "source": "炎上",
+   "en": "flaming (controversy)",
+   "category": "streamer"
+  },
+  {
+   "source": "独角兽",
+   "en": "unicorn (possessive fan)",
+   "category": "streamer"
+  },
+  {
+   "source": "獨角獸",
+   "en": "unicorn (possessive fan)",
+   "category": "streamer"
+  },
+  {
+   "source": "解约",
+   "en": "contract terminated",
+   "category": "role",
+   "note": "Never \"graduated\""
+  },
+  {
+   "source": "解約",
+   "en": "contract terminated",
+   "category": "role",
+   "note": "Never \"graduated\""
+  },
+  {
+   "source": "期生",
+   "en": "gen",
+   "category": "role"
+  },
+  {
+   "source": "合约到期",
+   "en": "contract ended",
+   "category": "role"
+  },
+  {
+   "source": "合約到期",
+   "en": "contract ended",
+   "category": "role"
+  },
+  {
+   "source": "移籍",
+   "en": "transfer",
+   "category": "role"
+  },
+  {
+   "source": "直播休眠",
+   "en": "streaming hiatus",
+   "category": "role"
+  },
+  {
+   "source": "工商",
+   "en": "sponsored content",
+   "category": "streamer",
+   "not_in": [
+    "工商局",
+    "工商银行",
+    "工商銀行",
+    "工商业"
+   ]
+  },
+  {
+   "source": "歌势",
+   "en": "singing VTuber",
+   "category": "role"
+  },
+  {
+   "source": "歌勢",
+   "en": "singing VTuber",
+   "category": "role"
+  },
+  {
+   "source": "游戏势",
+   "en": "gaming VTuber",
+   "category": "role"
+  },
+  {
+   "source": "遊戲勢",
+   "en": "gaming VTuber",
+   "category": "role"
+  },
+  {
+   "source": "杂谈势",
+   "en": "chatting VTuber",
+   "category": "role"
+  },
+  {
+   "source": "雜談勢",
+   "en": "chatting VTuber",
+   "category": "role"
+  },
+  {
+   "source": "本音",
+   "en": "natural voice",
+   "category": "streamer"
+  },
+  {
+   "source": "超美丽3D",
+   "en": "\"ultra-beautiful 3D\" (real-life camera)",
+   "category": "streamer",
+   "note": "Joke"
+  },
+  {
+   "source": "超美麗3D",
+   "en": "\"ultra-beautiful 3D\" (real-life camera)",
+   "category": "streamer",
+   "note": "Joke"
+  },
+  {
+   "source": "八美肉",
+   "en": "babiniku",
+   "category": "streamer"
+  },
+  {
+   "source": "塔照",
+   "en": "IRL photo (of the performer)",
+   "category": "streamer",
+   "note": "Sensitive"
+  }
+ ]
+}
