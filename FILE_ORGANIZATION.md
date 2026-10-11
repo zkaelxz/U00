@@ -18,7 +18,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
 | `extension/` | browser-side JavaScript (Chrome extension), not Python; `site_access.js` decides which origins the extension may ask the person to grant (no private or LAN hosts) | `extension/manifest.json`, bridge in `page_server.py` |
-| `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW); `installer/service.py` runs the Windows service and `installer/setup_lock.py` holds the named mutexes that keep Setup and the service commands apart | `installer/build_installer.py` |
+| `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW); `installer/service.py` runs the Windows service (`Services`; its siblings are `service_layout.py` folder safety, `service_config.py` config, XML and Caddyfile text, `service_control.py` sc/icacls/netsh commands, `service_checks.py` health checks and `service_cli.py` the command line) and `installer/setup_lock.py` holds the named mutexes that keep Setup and the service commands apart | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
 | `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`) | `python tools/repo_map.py --help`, `python tools/route_table.py --write` |
@@ -100,6 +100,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
+- `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`
 - `translation_guide.py`
 - `translation_memory.py`
@@ -279,6 +280,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `service_errors.py` (re-exports `lib/errors.py` for the existing call sites)
 - `settings_service.py`
 - `shutdown_service.py`
+- `source_change_service.py` (Review's lines whose source changed after translation: the list, "Keep English" and "Retranslate these")
 - `source_domains_service.py`
 - `source_service.py`
 - `sources_extension_service.py`

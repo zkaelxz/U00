@@ -195,6 +195,16 @@ export type GlossaryAffectedRunBody = Omit<TranslateRunStartBody, 'force_retrans
   term_ids?: number[]
 }
 
+// Review's "Retranslate these": the Translate run options plus the lines to redo.
+export type SourceChangedRunBody = Omit<TranslateRunStartBody, 'force_retranslate' | 'bulk'> & {
+  line_ids: number[]
+}
+
+export interface SourceChangedRunStarted extends TranslateRunStarted {
+  // The lines the run will translate: those still flagged when it started.
+  line_ids: number[]
+}
+
 export interface GlossaryAffectedRunStarted extends TranslateRunStarted {
   line_ids: number[]
   skipped_hand_edited_count: number
