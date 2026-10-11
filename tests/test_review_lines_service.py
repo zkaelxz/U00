@@ -250,6 +250,40 @@ def test_h3_redos_pattern_rejected_ordinary_ok(isolated_db):
     assert len(svc.preview_find_replace(did, r"(?:ab)+|a{3}", "z", use_regex=True)) == 1
 
 
+_SLOW_PATTERNS = ("((a+))+$", "(a|aa)+$", "(?:(?:a*)*)b", r"(\w+)\1+", "(?:a?){25}a{25}",
+                  "a*a*a*!", "(?:foo|bar)+!")
+
+
+@pytest.mark.parametrize("bad", _SLOW_PATTERNS)
+def test_slow_pattern_refused_with_plain_message(isolated_db, bad):
+    did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en="a" * 30 + "!")])
+    with pytest.raises(InvalidInputError) as exc:
+        svc.preview_find_replace(did, bad, "z", use_regex=True)
+    assert bad not in str(exc.value) and "too long to run" in str(exc.value)
+    # the same text as a literal find is harmless
+    assert svc.preview_find_replace(did, bad, "z", use_regex=False) == []
+
+
+@pytest.mark.parametrize("ok, expected", [
+    ("Hello", 1), ("[Hh]ello", 1), (r"\d+", 1), (r"^Hello \d+$", 1), ("(Hello|Bye)", 1),
+    (r"Hello(?= 4)", 1), (r"(?<!x)Hello", 1), (r"(\w+) (\d{1,3})", 1), (r"\s+\d+$", 1),
+    (r"(?:ab)+|a{3}", 0), ("H.llo", 1),
+])
+def test_ordinary_regexes_still_work(isolated_db, ok, expected):
+    did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en="Hello 42")])
+    assert len(svc.preview_find_replace(did, ok, "z", use_regex=True)) == expected
+
+
+def test_slow_patterns_return_fast(isolated_db):
+    import time
+    did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en="a" * 30 + "!")])
+    for bad in _SLOW_PATTERNS:
+        started = time.monotonic()
+        with pytest.raises(InvalidInputError):
+            svc.preview_find_replace(did, bad, "z", use_regex=True)
+        assert time.monotonic() - started < 1.0, bad
+
+
 def test_h3_regex_matches_only_first_chars(isolated_db):
     text = "x" * svc.MAX_REGEX_MATCH_CHARS + "needle"
     did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en=text)])

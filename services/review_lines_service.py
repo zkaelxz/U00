@@ -15,6 +15,13 @@ display only and never accepted as an identifier.
 import os
 import re
 
+try:  # Python 3.11+ moved the regex parser under `re`; `sre_parse` is the deprecated alias
+    from re import _constants as _sre
+    from re import _parser as _sre_parse
+except ImportError:  # pragma: no cover - Python < 3.11
+    import sre_constants as _sre
+    import sre_parse as _sre_parse
+
 import core as core_module
 import db
 import debug_view
@@ -28,9 +35,17 @@ MAX_PAGE_SIZE = 200
 MAX_TEXT_CHARS = 500
 MAX_SEARCH_LIMIT = 200
 MAX_REGEX_MATCH_CHARS = 2000   # ReDoS mitigation: only this much of each line is matched
-# a group that contains an unbounded quantifier and is itself repeated
-# unboundedly, e.g. (a+)+  (x*)*  (a|b+){2,}  -- the classic catastrophic shape
-_NESTED_QUANTIFIER = re.compile(r"\([^()]*[+*][^()]*\)\s*(?:[+*]|\{\d+,\d*\})")
+# Each open-ended repeat in sequence multiplies backtracking by the line
+# length (a*a*a*! on 300 chars took ~30 s), so their number bounds the cost.
+MAX_OPEN_REPEATS = 2
+# A repeat whose count can vary by more than this is treated as open-ended;
+# small ranges such as \d{1,3} add little backtracking.
+_OPEN_REPEAT_SPAN = 10
+_REPEAT_OPS = {_sre.MAX_REPEAT, _sre.MIN_REPEAT} | (
+    {_sre.POSSESSIVE_REPEAT} if hasattr(_sre, "POSSESSIVE_REPEAT") else set())
+_SLOW_PATTERN_MESSAGE = ("This pattern could take too long to run. Avoid repeating a group "
+                         "that itself repeats, has alternatives (|) or refers back to a group, "
+                         f"and use at most {MAX_OPEN_REPEATS} open-ended repeats (+, *, {{n,}}).")
 _ONLY_VALUES = ("all", "flagged", "untranslated")
 
 
@@ -116,8 +131,48 @@ def search_lines(drama_id: int, term: str, limit: int = 50) -> list:
     return [line_dict(ln) for ln in hits[:limit]]
 
 
-def _has_nested_quantifier(pattern: str) -> bool:
-    return bool(_NESTED_QUANTIFIER.search(pattern))
+def _is_slow_pattern(pattern: str) -> bool:
+    """True when a regex has a shape Python's backtracking `re` can take
+    exponential or high-polynomial time on, judged from the parsed pattern
+    rather than its text so that wrapping in extra groups can't hide it."""
+    try:
+        tree = _sre_parse.parse(pattern)
+    except re.error:
+        return False  # compiling reports the syntax error to the user
+    open_repeats = 0
+
+    def walk(items, in_repeat: bool) -> bool:
+        nonlocal open_repeats
+        for op, av in items:
+            if op in _REPEAT_OPS:
+                low, high, body = av
+                if in_repeat:
+                    return True
+                if high - low > _OPEN_REPEAT_SPAN:
+                    open_repeats += 1
+                if walk(body, high > 1):
+                    return True
+            elif op is _sre.BRANCH:
+                if in_repeat or any(walk(alt, in_repeat) for alt in av[1]):
+                    return True
+            elif op is _sre.GROUPREF_EXISTS:
+                if in_repeat or any(walk(alt, in_repeat) for alt in av[1:] if alt):
+                    return True
+            elif op is _sre.GROUPREF:
+                if in_repeat:
+                    return True
+            elif op is _sre.SUBPATTERN:
+                if walk(av[-1], in_repeat):
+                    return True
+            elif op in (_sre.ASSERT, _sre.ASSERT_NOT):
+                if walk(av[1], in_repeat):
+                    return True
+            elif op is getattr(_sre, "ATOMIC_GROUP", None):
+                if walk(av, in_repeat):
+                    return True
+        return False
+
+    return walk(tree, False) or open_repeats > MAX_OPEN_REPEATS
 
 
 def preview_find_replace(drama_id: int, find: str, replace: str,
@@ -128,19 +183,19 @@ def preview_find_replace(drama_id: int, find: str, replace: str,
 
     ReDoS note: with use_regex a caller supplies a pattern that runs on the
     server. Python's `re` has no timeout, so this is a MITIGATION, not a
-    guarantee: patterns are capped at MAX_TEXT_CHARS, patterns with a
-    repeated group that itself contains an unbounded quantifier (`(a+)+`)
-    are rejected, and only the first MAX_REGEX_MATCH_CHARS characters of
-    each line are matched. The API layer should still stay authenticated/
-    local-only."""
+    guarantee: patterns are capped at MAX_TEXT_CHARS, patterns whose repeat
+    contains another repeat, an alternation or a backreference (`(a+)+`,
+    `(a|aa)+`, `(\\w+)\\1+`) or that have more than MAX_OPEN_REPEATS
+    open-ended repeats are rejected, and only the first
+    MAX_REGEX_MATCH_CHARS characters of each line are matched. The API
+    layer should still stay authenticated/local-only."""
     if not find:
         raise InvalidInputError("Enter text to find.")
     replace = replace or ""
     _check_len("Find text", find)
     _check_len("Replacement", replace)
-    if use_regex and _has_nested_quantifier(find):
-        raise InvalidInputError("This pattern has nested repetition and could be too slow; "
-                                "simplify it.")
+    if use_regex and _is_slow_pattern(find):
+        raise InvalidInputError(_SLOW_PATTERN_MESSAGE)
     _, lines = _load_drama_and_lines(drama_id)
     cap = MAX_REGEX_MATCH_CHARS if use_regex else None
     items = [{"id": ln.id, "idx": ln.idx, "en": (ln.en or "")[:cap]} for ln in lines]

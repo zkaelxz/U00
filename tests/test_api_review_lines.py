@@ -5,6 +5,8 @@ library -- no server process, no network. Service logic itself is covered by
 tests/test_review_lines_service.py; these check the HTTP contract.
 """
 
+import time
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -153,6 +155,18 @@ class TestFindReplacePreview:
         assert r.status_code == 422
         _error(r)
 
+    @pytest.mark.parametrize("bad", ["((a+))+$", "(a|aa)+$", "(?:(?:a*)*)b", r"(\w+)\1+"])
+    def test_slow_regex_is_readable_422(self, client, bad):
+        did = db.create_drama(title_en="D")
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="a" * 30 + "!")])
+        started = time.monotonic()
+        r = self._post(client, did, find=bad, replace="z", use_regex=True)
+        assert time.monotonic() - started < 1.0
+        assert r.status_code == 422
+        err = _error(r)
+        assert err["code"] == "validation_error" and "too long to run" in err["message"]
+        assert bad not in err["message"]
+
     def test_length_caps_and_extra_forbidden(self, client):
         did = _seed_big()
         assert self._post(client, did, find="x" * 501).status_code == 422
@@ -265,3 +279,27 @@ class TestReadOnlyAndHygiene:
             text = client.get(url).text
             assert lib not in text, url
             assert "Traceback" not in text
+
+
+def test_slow_regex_refused_for_lines_read_member(isolated_db):
+    """The preview needs only lines.read, so the lowest-privilege member must
+    get the plain refusal rather than reaching the regex engine."""
+    from api import auth as api_auth
+    from services import auth_service
+    c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                   raise_server_exceptions=False)
+    u = auth_service.add_user("reader@example.com")
+    for p in auth_service.effective_permissions(u["id"]):
+        auth_service.revoke_permission(u["id"], p)
+    auth_service.grant_permission(u["id"], "lines.read")
+    s = auth_service.create_session(u["id"])
+    headers = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+               api_auth.CSRF_HEADER: s["csrf_token"]}
+    did = db.create_drama(title_en="D")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="a" * 30 + "!")])
+    url = f"{BASE}/{did}/find-replace/preview"
+    ok = c.post(url, headers=headers, json={"find": "a+!", "replace": "z", "use_regex": True})
+    assert ok.status_code == 200 and ok.json()[0]["new_text"] == "z"
+    r = c.post(url, headers=headers, json={"find": "(a|aa)+$", "replace": "z", "use_regex": True})
+    assert r.status_code == 422
+    assert "too long to run" in _error(r)["message"]
