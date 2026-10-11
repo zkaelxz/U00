@@ -32,7 +32,7 @@ an unexpected error (it can carry a path or a key), or the offending
 input value on a validation error. Unexpected errors are logged in full
 to the app's own log file (`applog`) instead, where they already go for
 the other surfaces. Known messages are still passed through
-`translate_engines.redact_secrets` in case a service slipped one in.
+`services.jobs_service.redact_text` (keys and paths) in case a service slipped one in.
 """
 
 from fastapi import FastAPI, Request
@@ -60,11 +60,18 @@ _STATUS_BY_ERROR = (
 _CODE_BY_HTTP_STATUS = {404: "not_found", 405: "unsupported_operation", 413: "too_large"}
 
 
+_MAX_REDACTED_CHARS = 2000
+
+
 def _redact(text: str) -> str:
-    # Imported lazily: translate_engines is a large module and nothing
-    # else in the API needs it at import time.
-    from translate_engines import redact_secrets
-    return redact_secrets(text)
+    # Imported lazily: jobs_service pulls in the diagnostics report module,
+    # which nothing else in the API needs at import time. Strips file paths
+    # as well as keys: a service message can embed a local path.
+    from services.jobs_service import redact_text
+    # The path pattern costs O(n^2) on a long run of slashes and this runs on
+    # the event loop shared by both listeners; a service message that echoes
+    # a caller's value must not be able to stall them.
+    return redact_text((text or "")[:_MAX_REDACTED_CHARS])
 
 
 def error_body(code: str, message: str, details=None) -> dict:

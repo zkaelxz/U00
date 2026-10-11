@@ -237,8 +237,10 @@ def _admin_view(user: dict, actor_id, now: float) -> dict:
                 is_self=actor_id is not None and user["id"] == actor_id)
 
 
+# No "a/b/c" in the text: the API error handler's path redaction would
+# shorten it to ".../c".
 ADMIN_AT_PC_ONLY = ("Admin accounts can only be changed at the PC. "
-                    "Use: python -m api revoke-admin/deactivate/grant-admin <email>")
+                    "Use: python -m api revoke-admin, deactivate or grant-admin, then <email>")
 
 
 def _require_pc_for_admin(row, at_pc: bool):

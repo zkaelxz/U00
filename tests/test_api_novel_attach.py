@@ -188,12 +188,14 @@ def test_ocr_chapter_falls_back_to_settings_tesseract_path(client, monkeypatch):
 
     def fake_ocr(paths, backend, source_language, chinese_script, tesseract_cmd=None, **kw):
         seen["cmd"] = tesseract_cmd
+        seen["backend"] = backend
         return "OCR text"
     monkeypatch.setattr(ocr, "extract_text_from_images", fake_ocr)
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"img"))])
     assert r.status_code == 200
     assert _wait(f"ocrchapter_{did}")["status"] == "done"
     assert seen["cmd"] == "C:/Program Files/Tesseract/tesseract.exe"
+    assert seen["backend"] == "tesseract"  # default backend unchanged (Streamlit parity)
 
 
 def test_ocr_chapter_errors(client, monkeypatch):

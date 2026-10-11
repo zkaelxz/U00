@@ -152,7 +152,7 @@ def _check_asr(speech_clip=None, expected_text=None) -> str:
     # No global ASR setting exists (the choice is per title), so this is
     # the backend a new Chinese title would get.
     backend = asr_options_service.stored_asr_backend({"source_language": _LANGUAGE})
-    use_gpu = settings_service.get_use_gpu()
+    use_gpu = settings_service.get("use_gpu")
     if backend == "whisper":
         import core
         size = transcribe_service.default_whisper_size()
