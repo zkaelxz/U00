@@ -10,6 +10,8 @@ on:
     branches: [baihe-subtitler]
   pull_request:
     branches: [baihe-subtitler]
+    # `labeled` so adding `full-ci` starts a run that honours it.
+    types: [opened, synchronize, reopened, labeled]
 
 # Read-only token: CI runs code from the PR head before anyone reviews it.
 permissions:
@@ -26,34 +28,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # A pull request that only changes free-form notes (reports, research notes,
-  # the session harvest) runs the quick guards and the repo-wide word scan and
-  # skips the long jobs: nothing in them reads those files. Anything else, and
-  # every push to the base branch, runs everything. A skipped job counts as
-  # passed for branch protection.
+  # Which jobs a change needs; the rules live in tools/ci_changes.py and are
+  # tabled in docs/testing-and-ci.md. Every push to the base branch, the
+  # `full-ci` label, a change to CI or dependency files, or any error in the
+  # classification runs everything. A skipped job counts as passed for branch
+  # protection.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     outputs:
       notes_only: ${{ steps.diff.outputs.notes_only }}
+      run_e2e: ${{ steps.diff.outputs.run_e2e }}
+      run_full_pytest: ${{ steps.diff.outputs.run_full_pytest }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Is this change notes only
+      - name: Which jobs does this change need
         id: diff
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          notes_only=false
+          all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true'
+          out=$all_true
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             # The checkout is the merge commit; its first parent is the base.
-            files=$(git diff --name-only HEAD^1 HEAD)
-            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '^(reports/|research_notes/|docs/session-harvest/)'; then
-              notes_only=true
-            fi
+            # --no-renames lists both ends of a rename, so moving a file out
+            # of frontend/ still counts as touching it.
+            out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS") || out=$all_true
           fi
-          echo "notes_only=$notes_only" >> "$GITHUB_OUTPUT"
+          # Fail open: an empty or partial answer runs everything.
+          printf '%s\n' "$out" | grep -qx 'notes_only=\(true\|false\)' && \
+            printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
+            printf '%s\n' "$out" | grep -qx 'run_full_pytest=\(true\|false\)' || out=$all_true
+          printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
 
   # Real observed duration (GitHub Actions run history, 2026-09-28, 3 runs):
   # install ~20-26s, `python run_tests.py` ~5m17s-5m34s, job total
@@ -134,8 +144,28 @@ jobs:
             pytest-lastfailed-${{ github.head_ref || github.ref_name }}-
             pytest-lastfailed-${{ github.base_ref || 'baihe-subtitler' }}-
 
+      # The `guards` job (a required check) runs these five files, so this
+      # job skips them instead of running them twice.
       - name: Run tests
-        run: python run_tests.py -q -n auto --ff --durations=25
+        if: needs.changes.outputs.run_full_pytest == 'true'
+        run: >
+          python run_tests.py -q -n auto --ff --durations=25
+          --ignore=tests/test_static_analysis.py --ignore=tests/test_api_permissions.py
+          --ignore=tests/test_split_guards.py --ignore=tests/test_file_organization.py
+          --ignore=tests/test_agent_docs.py
+
+      # A change under frontend/ and docs/ only: run the tests that read
+      # frontend files (so backend/frontend drift still fails) plus the
+      # repo-wide word scan. `guards` runs the rest of the quick guards.
+      - name: Run tests that read frontend files
+        if: needs.changes.outputs.run_full_pytest != 'true'
+        run: >
+          python run_tests.py -q -n auto --ff --durations=25
+          $(python tools/ci_changes.py --frontend-tests)
+          tests/test_dub.py::TestHostedCloningRemoved::test_no_references_remain
+          --ignore=tests/test_static_analysis.py --ignore=tests/test_api_permissions.py
+          --ignore=tests/test_split_guards.py --ignore=tests/test_file_organization.py
+          --ignore=tests/test_agent_docs.py
 
   # The React frontend: typecheck + production build, unit tests and lint.
   # The browser (Playwright) tests run in the separate four-shard `e2e` job
@@ -160,6 +190,10 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-core.txt
+            constraints.txt
 
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
         with:
@@ -188,7 +222,7 @@ jobs:
   # running together exactly as they did in the single-worker run.
   e2e:
     needs: changes
-    if: needs.changes.outputs.notes_only != 'true'
+    if: needs.changes.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -206,6 +240,10 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-core.txt
+            constraints.txt
 
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
         with:
@@ -223,9 +261,20 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Playwright browser
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      # No --with-deps: ubuntu-latest already carries Chromium's system libraries.
       - name: End-to-end (shard ${{ matrix.shard }} of 4)
         run: |
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
           npx playwright test --shard=${{ matrix.shard }}/4
 
       - name: Upload Playwright report and traces

@@ -16,6 +16,7 @@ from api.server import create_app
 from core import Line
 from services import translate_run_service as svc
 from services import translate_service
+from tests.saved_settings import patch_setting
 from services.service_errors import (ConflictError, InvalidInputError,
                                       UnsupportedOperationError)
 
@@ -228,9 +229,7 @@ def test_resume_starts_poller_for_pending_job(isolated_db, monkeypatch):
 
 
 def test_offpeak_schedule_stores_the_runs_batching(isolated_db, monkeypatch):
-    from services import settings_service
-    monkeypatch.setattr(settings_service, "get_preference",
-                        lambda key, *a, **k: True if key == "scene_aware_batches" else None)
+    patch_setting(monkeypatch, "scene_aware_batches", True)
     did = _seed([("一", ""), ("二", "")], engine="deepseek")
     submit = svc._bulk_submitter(did, db.get_drama(did), type("E", (), {"model": "m"})(), "deepseek",
                                  False, None, [], "", "", "en-US", "audio_drama", 6, 2, 7, False,
