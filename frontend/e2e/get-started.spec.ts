@@ -33,5 +33,6 @@ test('a library with a title never shows the first-run view', async ({ page }) =
   await page.goto('/')
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Get started' })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Make subtitles' })).toBeVisible()
+  // With titles the card is folded behind a one-line disclosure.
+  await expect(page.getByRole('button', { name: 'Make subtitles', expanded: false })).toBeVisible()
 })

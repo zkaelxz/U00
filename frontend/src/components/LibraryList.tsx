@@ -210,7 +210,10 @@ export function LibraryList({
                 <p className="muted">At most {MAX_SELECTION} at a time.</p>
               )}
               {items.length === 0 && !filtered && (
-                <Card title="No titles yet" meta="Add one to start transcribing, translating or reading.">
+                <Card
+                  title="No titles yet"
+                  meta={onCreate ? 'Add one to start transcribing, translating or reading.' : 'Add titles from Sources or Discover.'}
+                >
                   {onCreate && (
                     <div className="actions">
                       <button type="button" className={buttonClass('primary')} onClick={onCreate}>New title</button>

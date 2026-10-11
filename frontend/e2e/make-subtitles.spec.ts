@@ -137,3 +137,17 @@ test('a run saved at the upload step shows a note with a link to the title on re
   await expect(c.getByText('The last run stopped before the upload finished.')).toBeVisible()
   await expect(c.getByRole('link', { name: 'Open title' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}`)
 })
+
+test('with titles the card folds to one line that reopens it and is remembered', async ({ page }) => {
+  await mockMakeSubtitles(page, { folded: true })
+  await page.goto('/')
+  const toggle = page.getByRole('button', { name: 'Make subtitles', expanded: false })
+  await expect(toggle).toBeVisible()
+  await expect(card(page)).toBeHidden()
+  await toggle.focus()
+  await page.keyboard.press('Enter')
+  await expect(card(page)).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Make subtitles', expanded: true }).first()).toBeVisible()
+  await expect(card(page)).toBeVisible()
+})
