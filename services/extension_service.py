@@ -105,12 +105,12 @@ def _ocr_config() -> dict:
     The backend stays None for "auto" because the bridge only learns the
     page's language per request, and scanlate picks the same
     language-based default from `prefer_paddle_vl_manga` there."""
-    backend = settings_service.get_preference("ocr_backend")
+    backend = settings_service.get("ocr_backend")
     return {
         "hf_token": settings_service.resolve_key("hf_token") or None,
-        "tesseract_cmd": settings_service.get_tesseract_cmd(),
+        "tesseract_cmd": settings_service.get("tesseract_cmd") or None,
         "ocr_backend": None if backend in (None, "", "auto") else backend,
-        "prefer_paddle_vl_manga": bool(settings_service.get_preference("ocr_prefer_paddle_vl_manga")),
+        "prefer_paddle_vl_manga": bool(settings_service.get("ocr_prefer_paddle_vl_manga")),
     }
 
 
@@ -127,7 +127,7 @@ def resolved_translation_config() -> dict:
         "engine": engine,
         "model": model,
         "api_key": key or "",
-        "free_tier": engine == "gemini" and settings_service.get_gemini_free_tier(),
+        "free_tier": engine == "gemini" and settings_service.get("gemini_free_tier"),
         "base_url": (settings_service.resolve_key("ollama_url") or None) if engine == "ollama" else None,
         **ocr,
     }
