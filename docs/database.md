@@ -50,6 +50,14 @@ for backup and restore operations see `runbook.md`.
   glossary, notes/emotions, profiles and progress, versions and snapshots,
   wiki/style, presets, vocab and usage, GPU lock, app settings, research cache,
   job records, voice bank, bulk jobs, benchmark, auth storage.
+- **Package files.** `db.py` is now the package `db/`. Domains move out of
+  `db/__init__.py` one at a time into `db/<domain>.py`; `db/__init__.py`
+  re-exports their public names, so callers and `patch("db.<name>")` keep
+  working. A submodule reaches everything else as `db.<name>` (never a
+  relative import or a copy of a path global); `tests/test_split_guards.py`
+  enforces it. Moved so far: `db/benchmark.py` (accuracy benchmark cases and
+  runs, Benchmark Lab sessions and results). Its tables are still created by
+  `init_db` in `db/__init__.py` (`_init_benchmark_lab_schema` included).
 
 ## 2. Schema creation and migrations
 
