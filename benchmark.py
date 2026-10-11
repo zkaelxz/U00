@@ -71,7 +71,14 @@ def translation_similarity(actual: str, reference: str):
     return CHRF(char_order=6, word_order=0).sentence_score(a, [b]).score / 100.0, "chrf"
 
 
-def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bool = False):
+# Reserved Lab model name: "the folder saved in Settings > Offline Whisper
+# model folder". It is a name, never a path, so a client can't pick one.
+LOCAL_FOLDER_MODEL = "local-folder"
+LOCAL_FOLDER_LABEL = "offline model folder"
+
+
+def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bool = False,
+                           local_model_path: str = None):
     """
     case: {"input_path": audio file, "source_language": "zh"/"ja"/"ko",
     "reference_text": optional known-correct transcript}.
@@ -84,7 +91,9 @@ def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bo
     separately, on a real drama's own lines, not a benchmark case).
 
     Returns {"output_text", "score" (None if no reference_text),
-    "duration_seconds", "error" (None on success)}. An exception is
+    "duration_seconds", "error" (None on success)}. local_model_path, when
+    given, is a trusted folder the caller resolved from settings (it wins
+    over whisper_size, as in a real transcription). An exception is
     caught and recorded, not raised -- one broken/missing case file must
     never stop the rest of the suite from running.
     """
@@ -94,7 +103,8 @@ def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bo
     try:
         segments = core.transcribe_for_timing(
             case["input_path"], model_size=whisper_size,
-            language=case.get("source_language", "zh"), use_gpu=use_gpu)
+            language=case.get("source_language", "zh"), use_gpu=use_gpu,
+            local_model_path=local_model_path)
         output_text = "".join(s["text"] for s in segments)
         error = None
     except Exception as exc:

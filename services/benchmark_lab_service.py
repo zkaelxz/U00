@@ -46,6 +46,7 @@ the auto-derived Translation Profile and a COMET scorer.
 import whisper_models
 import functools
 import json
+import os
 import uuid
 
 import background_jobs
@@ -55,7 +56,7 @@ import translate_engines
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks
 from services import settings_service, translate_service
-from services.benchmark_case_service import (redact, run_file_case as _run_file_case,
+from services.benchmark_case_service import (redact, run_file_case as _run_case_file,
                                                    run_translation as _run_translation)
 from services.service_errors import (
     ConflictError,
@@ -406,7 +407,7 @@ def get_options() -> dict:
     return {
         "stages": list(STAGES), "tiers": list(TIERS), "source_languages": list(SOURCE_LANGUAGES),
         "translation_engines": translate_service.list_engines(),
-        "whisper_sizes": list(whisper_models.WHISPER_MODELS.keys()),
+        "whisper_sizes": list(whisper_models.WHISPER_MODELS.keys()) + [benchmark.LOCAL_FOLDER_MODEL],
         "ocr_backends": list(OCR_BACKENDS),
         "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
         "max_configs": MAX_CONFIGS,
@@ -416,6 +417,32 @@ def get_options() -> dict:
 def _cap_applies(engine: str) -> bool:
     return engine in _CAP_ENGINES and not (
         engine == "gemini" and settings_service.get("gemini_free_tier"))
+
+
+_NO_MODEL_FOLDER = ("The offline model folder isn't set or can't be found. "
+                    "Set Settings > Offline Whisper model folder first.")
+
+
+def _offline_model_folder():
+    """The saved Settings folder if it exists, else None. Read here, never
+    taken from the request, so a client can't name a path or repo id."""
+    folder = settings_service.get("whisper_model_path") or ""
+    return folder if folder and os.path.isdir(folder) else None
+
+
+def _run_file_case(stage, cfg, case, use_gpu):
+    if stage != "transcription" or cfg.get("model") != benchmark.LOCAL_FOLDER_MODEL:
+        return _run_case_file(stage, cfg, case, use_gpu)
+    folder = _offline_model_folder()
+    if not folder:
+        return {"output_text": "", "error": _NO_MODEL_FOLDER, "duration_seconds": 0.0}
+    if not case.get("input_filename"):
+        return {"output_text": "", "error": "This case has no input file.", "duration_seconds": 0.0}
+    prepared = dict(case, input_path=os.path.join(db.BENCHMARK_DIR, case["input_filename"]))
+    r = benchmark.run_transcription_case(prepared, whisper_size=benchmark.LOCAL_FOLDER_MODEL,
+                                         use_gpu=use_gpu, local_model_path=folder)
+    r["error"] = redact(r.get("error"))
+    return r
 
 
 def check_config(stage: str, cfg) -> dict:
@@ -442,7 +469,10 @@ def check_config(stage: str, cfg) -> dict:
     if stage == "transcription":
         import core
         size = model or engine
-        if size not in whisper_models.WHISPER_MODELS:
+        if size == benchmark.LOCAL_FOLDER_MODEL:
+            if not _offline_model_folder():
+                raise InvalidInputError(_NO_MODEL_FOLDER)
+        elif size not in whisper_models.WHISPER_MODELS:
             raise InvalidInputError("Unknown Whisper size.")
         return {"engine": "whisper", "model": size}
     if engine not in OCR_BACKENDS:
@@ -551,7 +581,8 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     session_ids = []
     for cfg in checked:
         session_ids.append(db.create_benchmark_session({
-            "label": label, "stage": stage, "engine": cfg["engine"], "model": cfg["model"]
+            "label": label, "stage": stage, "engine": cfg["engine"], "model": (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL
+                      else cfg["model"])
             or (default_model(cfg["engine"]) if stage == "translation" else None),
             "prompt_version": prompt_version, "context_settings": json.dumps(context),
             "case_filter": case_filter, "arena_group": arena_group, "status": "queued",

@@ -410,6 +410,54 @@ class TestFileStages:
         assert (res["metric"], res["score"]) == ("cer", 1.0)
 
 
+class TestOfflineModelFolderArm:
+    @pytest.fixture
+    def folder(self, tmp_path, monkeypatch):
+        d = tmp_path / "secret-ja-finetune"
+        d.mkdir()
+        patch_setting(monkeypatch, "whisper_model_path", str(d))
+        return d
+
+    def _case(self):
+        db.create_benchmark_case("clip", "transcription", "audio_drama", input_filename="c.wav",
+                                 reference_text="こんにちは")
+
+    def test_reserved_name_passes_the_saved_folder_through(self, isolated_db, monkeypatch, folder):
+        self._case()
+        seen = {}
+
+        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None):
+            seen["path"] = local_model_path
+            return {"output_text": "こんにちは", "duration_seconds": 0.1, "error": None, "score": None}
+        monkeypatch.setattr(benchmark, "run_transcription_case", fake)
+        (sid,) = _run(stage="transcription",
+                      configs=[{"engine": "whisper", "model": benchmark.LOCAL_FOLDER_MODEL}])["session_ids"]
+        assert seen["path"] == str(folder)
+        detail = svc.get_run(sid)
+        assert detail["run"]["model"] == "offline model folder"
+        assert "secret-ja-finetune" not in repr(detail)
+
+    @pytest.mark.parametrize("setting", ["", "/no/such/folder"])
+    def test_unset_or_missing_folder_is_a_plain_error(self, isolated_db, monkeypatch, setting):
+        patch_setting(monkeypatch, "whisper_model_path", setting)
+        with pytest.raises(InvalidInputError, match="Offline Whisper model folder"):
+            svc.check_config("transcription", {"engine": "whisper", "model": benchmark.LOCAL_FOLDER_MODEL})
+
+    def test_folder_removed_after_start_fails_the_case_not_the_run(self, monkeypatch):
+        patch_setting(monkeypatch, "whisper_model_path", "/gone")
+        monkeypatch.setattr(benchmark, "run_transcription_case",
+                            lambda *a, **k: pytest.fail("must not load a model"))
+        r = svc._run_file_case("transcription", {"model": benchmark.LOCAL_FOLDER_MODEL},
+                               {"input_filename": "c.wav"}, False)
+        assert "Offline Whisper model folder" in r["error"]
+        assert "/gone" not in r["error"]
+
+    @pytest.mark.parametrize("model", ["/models/ja", "C:\\models\\ja", "../ja", "kotoba-tech/kotoba-whisper-v2.0"])
+    def test_path_or_repo_id_is_still_rejected(self, isolated_db, folder, model):
+        with pytest.raises(InvalidInputError, match="Unknown Whisper size"):
+            svc.check_config("transcription", {"engine": "whisper", "model": model})
+
+
 class TestReviewFixes:
     def test_source_language_reaches_engine(self, isolated_db, paid_engine, monkeypatch):
         seen = []
