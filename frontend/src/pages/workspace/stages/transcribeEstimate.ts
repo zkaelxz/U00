@@ -12,6 +12,7 @@ const WHISPER_CPU: Record<string, [number, number]> = {
   'large-v3': [1.5, 4],
   'large-v3-turbo': [0.6, 2],
   'ja-1.5b': [1.5, 4], // large-v3's size, so its range
+  'kotoba-v2': [0.6, 2], // large-v3's encoder with a 2-layer decoder: turbo's range
 }
 const WHISPER_GPU: Record<string, [number, number]> = {
   tiny: [0.02, 0.1],
@@ -21,6 +22,7 @@ const WHISPER_GPU: Record<string, [number, number]> = {
   'large-v3': [0.15, 0.6],
   'large-v3-turbo': [0.08, 0.3],
   'ja-1.5b': [0.15, 0.6],
+  'kotoba-v2': [0.08, 0.3],
 }
 const DIARIZE: [number, number] = [1, 2]
 

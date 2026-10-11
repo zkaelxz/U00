@@ -74,8 +74,50 @@ def missing_package_outcome(message: str = MISSING_TRANSCRIPTION_MESSAGE) -> dic
 
 
 _MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v3-turbo": "~1.6 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
-                         "large": "~3 GB", "ja-1.5b": "~3.1 GB", "medium": "~1.5 GB", "small": "~500 MB",
+                         "large": "~3 GB", "ja-1.5b": "~3.1 GB", "kotoba-v2": "~1.5 GB", "medium": "~1.5 GB", "small": "~500 MB",
                          "base": "~150 MB", "tiny": "~75 MB"}
+
+
+COARSE_TIMING_NOTE = ("This model gives line timing only, so the line may start or end a little "
+                      "off -- check it lines up.")
+
+
+def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep, qwen_device,
+                                    on_fallback, notices, mixed, stage_max) -> list:
+    """Word timing for a Whisper model that cannot give it: the Qwen3 forced aligner
+    refines the segment times. Where it cannot run (not installed, a mixed-language run
+    whose spans have different languages, a download or alignment error) the segment
+    times are kept and every line is flagged timing_uncertain, so the transcription
+    itself is never lost to the optional step."""
+    import forced_align
+    import qwen3_native
+    problem = ("Mixed-language runs are not refined by the forced aligner." if mixed
+               else qwen3_native.aligner_language_problem(language)
+               or qwen3_native.transformers_problem("Qwen3 forced alignment"))
+    if not problem:
+        ticker = rep.stage("Refining line timing with the Qwen3 forced aligner").start()
+        try:
+            def _on_device(label):
+                qwen_device["Qwen3 forced alignment"] = label
+
+            def _progress(frac):
+                ticker.stop()
+                rep.progress(stage_max * (REALIGN_START + (1 - REALIGN_START) * frac),
+                             f"Refining line timing... {frac * 100:.0f}%")
+
+            return forced_align.refine_whisper_segments(
+                audio_path, segments, language, use_gpu=use_gpu, cancel_check=rep.raise_if_cancelled,
+                progress_cb=_progress, on_device=_on_device,
+                on_gpu_fallback=lambda exc: on_fallback("Qwen3 forced alignment", exc))
+        except background_jobs.JobCancelled:
+            whisper_models.release_gpu_models()
+            raise
+        except (ImportError, whisper_models.ModelDownloadError, ValueError) as exc:
+            problem = redact_secrets(str(exc))
+        finally:
+            ticker.stop()
+    notices.append(f"Line timing was not refined ({problem})")
+    return [{**seg, "flag": "timing_uncertain", "flag_note": COARSE_TIMING_NOTE} for seg in segments]
 
 
 def _separation_device_label(kind: str) -> str:
@@ -268,6 +310,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     forced_align_error = None
     coverage_msg = None
     detector_notices = []
+    coarse_whisper_timing = False
     device_msg = ""
     device_suffix = ""
     # The other backends, and a supplied transcript, bring their own lines.
@@ -499,6 +542,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         fast_mode=whisper_fast_mode,
                         hallucination_silence_sec=hallucination_silence_sec,
                         repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset)
+                coarse_whisper_timing = not whisper_models.supports_word_timestamps(whisper_size)
                 # Not recorded for the speed estimate: a per-span detection run is slower.
                 if "t" in whisper_clock and not mixed_whisper_run:
                     whisper_clock["work"] = time.monotonic() - whisper_clock["t"]
@@ -511,6 +555,11 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
 
         if not segments:
             return {"failed_reason": "empty"}
+
+        if coarse_whisper_timing and not rep.cancelled():
+            segments = _refine_without_word_timestamps(
+                segments, audio_path, source_language, use_gpu, rep, qwen_device,
+                _qwen_on_fallback, detector_notices, mixed_whisper_run, stage_max)
 
         if (realign_long_segments and not vad_run and not mixed_whisper_run
                 and not rep.cancelled()):
