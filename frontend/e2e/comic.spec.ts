@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockComic, pageIdOf, SHOTS_DIR } from './comicMocks'
+import { nextFrames } from './sourceHelpers'
 
 // Comic viewer (#/comic/<id>) at the desktop viewport. Every /api call is
 // mocked in comicMocks.ts; a catch-all aborts anything else, and each test
@@ -77,8 +78,8 @@ test('leaving the comic mid-scroll stays on the library', async ({ page }) => {
     w.__io[w.__io.length - 1]([{ isIntersecting: true, target } as unknown as IntersectionObserverEntry], null as never)
   })
   await expect(page).toHaveURL('/#/library')
-  // Proving a non-event: a late redirect back to the comic would arrive after the fake intersection, so give it a window.
-  await page.waitForTimeout(300)
+  // A late redirect back would be a state change after the fake intersection; two frames let it commit.
+  await nextFrames(page)
   await expect(page).toHaveURL('/#/library')
 })
 

@@ -264,12 +264,49 @@ def apply_lock_file() -> Path:
     return pending_install_file().with_name("apply.lock")
 
 
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5                 # access denied: it exists
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) \
+                and code.value == 259                           # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True                                             # EPERM: owned by someone else, still running
+    except OSError:
+        return False
+    return True
+
+
 def _apply_running() -> bool:
     # A start whose apply already took pending.json away is still running pip.
     try:
-        return time.time() - apply_lock_file().stat().st_mtime < APPLY_PENDING_SECONDS + 120
+        if time.time() - apply_lock_file().stat().st_mtime >= APPLY_PENDING_SECONDS + 120:
+            return False
     except OSError:
         return False
+    # Closing pip's console or a crash leaves a fresh lock behind for the next
+    # hour; its pid says nobody holds it. A lock without a readable pid keeps
+    # the age rule alone.
+    try:
+        pid = json.loads(apply_lock_file().read_text(encoding="utf-8")).get("pid")
+    except (OSError, ValueError, AttributeError):
+        return True
+    if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+        return _pid_alive(pid)
+    return True
 
 
 def apply_pending_install(python_exe: str, env: dict, headless: bool) -> None:
@@ -279,8 +316,12 @@ def apply_pending_install(python_exe: str, env: dict, headless: bool) -> None:
     own overall timeout, after which the server starts anyway. While another
     start's apply is running it waits for that one, so the server never loads
     numpy or cv2 under a pip that is replacing them."""
-    if not pending_install_file().is_file() and not _apply_running():
+    queued = pending_install_file().is_file()
+    if not queued and not _apply_running():
         return
+    if headless and not queued:
+        # No window shows the wait, and the server doesn't start until it ends.
+        print("Waiting for an install from an earlier start to finish before starting the server.")
     kwargs = {"cwd": str(APP_DIR), "env": env}
     if os.name == "nt":
         kwargs["creationflags"] = (subprocess.CREATE_NO_WINDOW if headless

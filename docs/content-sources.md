@@ -24,7 +24,7 @@ work".
 | Image CDN | `i.hamreus.com` → `cf.hamreus.com`. Requests need `Referer: <mirror>/`. |
 | Auth | None. Adult-flagged works are behind the site's own `isAdult=1` cookie. It is off by default. Turn on **🔞 Include adult-flagged works** for this source (Sources → Sources, health & diagnostics) to send it; it goes to the main site only, never the image CDN. With it off, those works fail with a message naming the toggle. |
 | Extraction | **Search:** `/s/<query>_p<page>.html`, `div.book-result > ul > li`. **Series:** `/comic/<id>/`, which has the title, `#intro-all`, author/genre spans, and status. **Chapters:** `[id^=chapter-list-]` sections under their `<h4>` headings (单话 / 单行本 / 番外篇). **Pages:** each chapter page carries a p.a.c.k.e.r-packed `SMH.imgData({...})` call whose word list is LZString-Base64 compressed. It is unpacked the same way the page's own script unpacks it, giving `files`, `path` and `sl.{e,m}`. Image URLs are used exactly as issued, e/m expiry token included. |
-| Pacing | Main site: at least **10 s** between requests. This honors its robots.txt `Crawl-delay: 10` for generic clients, and is stricter than Keiyoushi's 10-per-10-s default. Image CDN: the normal 1–3 s default, well under Keiyoushi's 4/s. |
+| Pacing | Main site: at least **10 s** between requests. This honors its robots.txt `Crawl-delay: 10` for generic clients, and is stricter than Keiyoushi's 10-per-10-s default. Image CDN: the normal 3–8 s default, well under Keiyoushi's 4/s. |
 | Terms, recorded separately | robots.txt (from the roadmap's direct check, not re-fetched while building this): `User-agent: *` gets `Crawl-delay: 10` plus two admin paths disallowed. Named crawlers are disallowed separately, including the AI crawlers GPTBot, ClaudeBot, Claude-SearchBot, meta-externalagent, Bytespider and CCBot. This adapter sends a plain desktop-browser identity, like Keiyoushi's extension, so it falls under the `*` rule. The ToS has not been reviewed. |
 | Reference | keiyoushi/extensions-source `src/zh/manhuagui` (Apache-2.0). Only the technique was used; no code was ported. |
 | Known limits | If the site changes its markup, the adapter reports "layout has changed" rather than guessing. |
@@ -240,7 +240,7 @@ work".
 | **The paywall is a silent null field, not an error** | Confirmed against a real paid drama (魔道祖师 第三季, `drama_id=22602`, `need_pay:1`/`price:399`) and its first paid episode with no session: `getsound` returns HTTP 200 / `success:true`, but `soundurl`/`soundurl_128` are both `null`, with `need_pay`/`price`/`pay_type`/`limit_type` fields the free response doesn't carry at all. `get_audio_url()` checks these explicitly and raises `ContentHidden`/`FailureReason.PURCHASE_REQUIRED` with a specific message, never a raw failure or a broken URL. |
 | Auth | `login()` (inherited, generic) opens `sources/auth_browser.py`'s persistent profile for a real sign-in. `get_audio_url()` retries a locked episode by reading the same `getsound` URL through that profile (`page_fetch.fetch_with_profile`), on the assumption its rendered `page.content()` still carries the raw JSON body. **Unverified** -- no real purchased/VIP MissEvan account was available this pass, matching `bilibili_manga.py`'s own hedge on its authenticated tier. |
 | Anti-bot | A real, confirmed wall, but Referer-gated rather than blanket: one `getsound` request sent with no `Referer` header came back HTTP 200 with an Aliyun WAF slide-verification page instead of JSON; this adapter always sends a `Referer`, and `sources/detect.py`'s existing bot-challenge detection (matches "滑动验证") already raises `ChallengeDetected` if it recurs -- no special-casing added. |
-| Terms, recorded separately | The real ToS (猫耳FM用户使用协议, `link.missevan.com/rule/duty`, genuinely server-rendered, read in full) **explicitly restricts automated access**: §4.2.11 bans using any automated program/script/bot/spider/crawler to obtain the platform's services, content, or data, for any reason, without prior written permission -- the same class of clause that marks Naver/Novelpia/JJWXC `EXPLICITLY_RESTRICTED` in `site_terms.py`. Recorded in `capabilities()` (`terms.tos_prohibited = True`); per Step 90, `ladder.check_terms()`'s enforcement is currently a deliberate app-wide no-op, so this is recorded for the record rather than enforced -- the same "state facts, the person decides" convention every adapter follows. |
+| Terms, recorded separately | The real ToS (猫耳FM用户使用协议, `link.missevan.com/rule/duty`, genuinely server-rendered, read in full) **explicitly restricts automated access**: §4.2.11 bans using any automated program/script/bot/spider/crawler to obtain the platform's services, content, or data, for any reason, without prior written permission -- the same class of clause that marks Naver and Novelpia `EXPLICITLY_RESTRICTED` in `site_terms.py`. Recorded in `capabilities()` (`terms.tos_prohibited = True`); per Step 90, `ladder.check_terms()`'s enforcement is currently a deliberate app-wide no-op, so this is recorded for the record rather than enforced -- the same "state facts, the person decides" convention every adapter follows. |
 | Known limits | `music`-catalog entries (soundtrack-only) are excluded from `get_chapters()`. HLS manifests are returned as-is, not downloaded/muxed to a file. The authenticated-fallback extraction shape (raw JSON inside a rendered `<pre>`) is a reasonable guess, not confirmed against a real session. |
 | Tests | `tests/test_sources_missevan.py`. All fetches are mocked fixtures trimmed from real captured responses; no live network call. |
 
@@ -293,7 +293,7 @@ work".
 | Not supported | 18+ works: the site keeps them on `novel18.syosetu.com` behind an over-18 switch. This adapter never sends an age cookie. The adapter has no login. |
 | Pacing | `host_min_interval` 2 s per host (robots.txt asks `Crawl-delay: 1`). |
 | Terms | robots.txt (both hosts, 2026-09-30): `User-agent: *`, `Crawl-delay: 1`, no Disallow lines. **The terms of service (https://syosetu.com/site/rule/, revision 令和8年6月9日) forbid automated access:** 第14条 23 bans "なろうデベロッパーで提供しているAPIを利用する以外の方法で、本サービスに自動化された手段を用いてアクセスしたり、データを収集したりすること". The official API (`api.syosetu.com/novelapi`) returns metadata, not episode text. Recorded as `EXPLICITLY_RESTRICTED` in `capabilities()` and in `sources/site_terms.py`; enforcement is off app-wide (Step 90), so the adapter works, but the finding is shown. |
-| Owner decision | 2026-09-30: ship the adapter although the terms forbid automated access; the owner accepts that. Use stays personal-scale and polite: one request at a time through the shared client (random 1-3 s gaps, occasional longer pauses, at least 2 s per host against the site's `Crawl-delay: 1`, retries only on 429/5xx honouring `Retry-After`), an honest User-Agent, no cookies, no login, no challenge solving, no 18+ age cookie, and a 200-page cap on chapter lists. |
+| Owner decision | 2026-09-30: ship the adapter although the terms forbid automated access; the owner accepts that. Use stays personal-scale and polite: one request at a time through the shared client (random 3-8 s gaps, occasional longer pauses, at least 2 s per host against the site's `Crawl-delay: 1`, retries only on 429/5xx honouring `Retry-After`), an honest User-Agent, no cookies, no login, no challenge solving, no 18+ age cookie, and a 200-page cap on chapter lists. |
 | Reference | Read directly from the live site; the selectors in lightnovel-crawler were only a starting hint, all re-checked. No code ported. |
 | Tests | `tests/test_sources_syosetu.py` (small invented fixtures shaped like the live pages; no network). |
 
@@ -313,6 +313,20 @@ work".
 | Not done | No `site_terms.py` entry (that table records restrictions found in terms; there are none to record). No login, cookies, age handling or proxies. Search by author is not offered. |
 | Reference | Read directly from the live site. No code ported. |
 | Tests | `tests/test_sources_piaotian.py` (small invented GBK fixtures shaped like the live pages; no network). |
+
+## ranobes.net — `sources/adapters/ranobes.py`
+
+| | |
+|---|---|
+| URL patterns | `ranobes.net/novels/<id>-<slug>.html` (series), `ranobes.net/<slug>-<id>/<chapter>.html` (chapter) |
+| Content type / language | novel, en (English translations) |
+| Status | Read against the live site while the adapter was built. The content status is not recorded in `docs/known-working-sources.md` (shown as unverified there). |
+| Access tier | `STATIC_HTTP` only. Series and chapter pages are server-rendered; the chapter list page is a Vue app, but the same data is already in the static HTML as a `window.__DATA__` JSON blob. |
+| Extraction | **Search:** POST `/index.php?do=search` (DataLife Engine's own search). **Series:** `h1.title`, description and cover from the series page. **Chapters:** `/chapters/<id>/` plus `/chapters/<id>/page/<n>/` for the remaining pages. **Chapter text:** `div#arrticle` (the site's own spelling). |
+| Domain | `ranobes.net` only. `ranobes.top` hit a live Cloudflare challenge when checked. |
+| Terms | robots.txt disallows `/engine/`, some listing and tag pagination paths and `ia_archiver`. `/rules.html` is a community-conduct policy and says nothing about automated access, so `automation_permission` stays `UNKNOWN`. |
+| Pacing | `docs/known-working-sources.md` records "Fast off" (2026-10-09): robots.txt disallows `/chapters/*/page/*`, which the adapter fetches for chapter-list pages 2 and later. |
+| Tests | `tests/test_sources_ranobes.py` |
 
 ## MangaK — `sources/adapters/mangak.py`
 
@@ -421,8 +435,8 @@ protection) are shown in that attempt's **🩺 Source diagnostics**.
 | `authentication_required` | `REQUIRED` / `NOT_REQUIRED` / `UNKNOWN` | Replaces the old `auth_required: bool` (older stored records migrate automatically). `REQUIRED` once any attempt saw a login wall. |
 | `purchase_required` | `REQUIRED` / `NOT_REQUIRED` / `UNKNOWN` | `REQUIRED` once any attempt saw a purchase/unlock prompt. |
 | `technical_protection` | `NONE` / `DETECTED` / `UNKNOWN` | DRM, site-side decryption or signed tokens seen. A protected resource is reported as "Protected resource could not be processed without bypassing a technical control (...)", never as a bare "blocked". |
-| `automation_permission` | `PERMITTED` / `EXPLICITLY_RESTRICTED` / `UNKNOWN` | What the site's own terms say about automated access. Only a directly-read clause sets `EXPLICITLY_RESTRICTED`; unread terms stay `UNKNOWN`, never `PERMITTED` by default. `EXPLICITLY_RESTRICTED` (or the older `terms.tos_prohibited`) refuses every import, signed in or not. |
-| `ai_ml_use` | `ALLOWED_OR_NOT_IDENTIFIED` / `EXPLICITLY_RESTRICTED` / `UNKNOWN` | A clause restricting AI/ML use of the content. `EXPLICITLY_RESTRICTED` refuses imports too. |
+| `automation_permission` | `PERMITTED` / `EXPLICITLY_RESTRICTED` / `UNKNOWN` | What the site's own terms say about automated access. Only a directly-read clause sets `EXPLICITLY_RESTRICTED`; unread terms stay `UNKNOWN`, never `PERMITTED` by default. `EXPLICITLY_RESTRICTED` (or the older `terms.tos_prohibited`) is recorded and shown, not enforced: `ladder.check_terms` has been a no-op since 2026-09-27, so nothing is refused on this basis. |
+| `ai_ml_use` | `ALLOWED_OR_NOT_IDENTIFIED` / `EXPLICITLY_RESTRICTED` / `UNKNOWN` | A clause restricting AI/ML use of the content. `EXPLICITLY_RESTRICTED` is likewise recorded and shown, not enforced. |
 | `content_access_status` | `TEXT` / `IMAGES` / `VIDEO` / `AUDIO` / `SUBTITLES` / `MIXED` / ... | Resource types actually found on a page that was reached. |
 
 ### Per-site terms for sites with no adapter — `sources/site_terms.py`
@@ -431,15 +445,19 @@ protection) are shown in that attempt's **🩺 Source diagnostics**.
 |---|---|---|
 | Naver (`*.naver.com`: Series, Webtoon) | `EXPLICITLY_RESTRICTED` | Umbrella terms ban "automated means (e.g. macro programs, robots/bots, spiders, scrapers)" for collecting content. Webtoon is covered by inference from the umbrella terms. |
 | Novelpia (`novelpia.com`) | `EXPLICITLY_RESTRICTED` | Terms ban "computer programs, automated means, scripts, bots"; `robots.txt` disallows all clients except named search engines. |
-| JJWXC (`jjwxc.net`) | `EXPLICITLY_RESTRICTED` | §4.3 bans any crawling/scraping (爬取/抓取); §4.9 invokes criminal liability. Never attempted. |
+| JJWXC (`jjwxc.net`) | `UNKNOWN` | Re-read in full 2026-09-28: no crawling or scraping clause anywhere on the page (§4.3 is an anti-hacking clause, §4.9 a general enforcement clause). The earlier restriction does not hold up; this is "not cleared", not "permitted". |
+| Wuxiaworld (`wuxiaworld.com`) | `EXPLICITLY_RESTRICTED` (AI/ML use too) | Terms ban robots, scrapers and crawlers and any other automated reading or downloading, and separately ban using content to train AI/ML models. Chapter text is technically readable over plain HTTP, but no adapter is built. |
+| Webnovel (`webnovel.com`) | `UNKNOWN` | An active Cloudflare challenge (HTTP 403) blocks the homepage and the terms pages, so the clause text was never read. Not cleared. The app hands a challenge to the person and never solves it. |
 | KakaoPage (`page.kakao.com`) | `UNKNOWN` | Terms page is client-rendered; clause text couldn't be read. Not cleared. |
 
 ## Video URLs
 
 Bilibili links go through the dedicated adapter above. YouTube, Vimeo,
-Twitch VODs and clips, Niconico, TikTok, Dailymotion and MissEvan links
+Twitch VODs and clips, Niconico, TikTok and Dailymotion links
 still go to the existing `video_download.download` (yt-dlp) -- the same
 path as Workspace's "Video URL" option, with the same cookie settings.
+MissEvan links go to the MissEvan adapter above: the front door looks for a
+registered adapter first and only then falls back to the yt-dlp pattern.
 
 ## Demo source (offline)
 
@@ -507,8 +525,7 @@ Open items only. Each source's own table above records what was already checked 
   accurate authentication, entitlement/purchase, resource-type and
   technical-protection lines, and that the source's record under
   **🩺 Sources, health & diagnostics** shows the six capability fields.
-  Also confirm a Naver/Novelpia URL is refused at the capability check
-  even with a sign-in. Not verifiable in the build environment: no real
+  Not verifiable in the build environment: no real
   account was available, and real headless-browser rendering doesn't
   work through that environment's network proxy, so only the mocked tests
   in `tests/test_sources_auth_browser.py` have been run. Also unverified:

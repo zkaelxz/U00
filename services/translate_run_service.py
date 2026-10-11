@@ -34,13 +34,14 @@ from types import SimpleNamespace
 from typing import Optional
 
 import background_jobs
+import bulk_providers
 import bulk_translate
 import core
 import db
 import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
-from services import (bulk_job_view, engine_routing_service, library_service,
+from services import (bulk_job_view, engine_routing_service, library_service, ownership_service,
                       run_settings_service, settings_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
@@ -109,7 +110,7 @@ def get_translate_config(drama_id: int) -> dict:
         os.path.join(db.DRAMAS_DIR, str(drama_id), filename))
     lines = db.load_lines(drama_id)
     monthly_cap = month_cap_usd()
-    free_tier = settings_service.get_gemini_free_tier()
+    free_tier = settings_service.get("gemini_free_tier")
     engine_name = (drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     return {
@@ -127,8 +128,8 @@ def get_translate_config(drama_id: int) -> dict:
             for k in translate_engines.WORKFLOW_TIERS
             for t in [translate_engines.effective_tier(k)]],
         "defaults": get_translate_config_defaults(is_novel),
-        "default_locale": settings_service.get_preference("default_locale"),
-        "default_style_note": settings_service.get_preference("default_style_note"),
+        "default_locale": settings_service.get("default_locale"),
+        "default_style_note": settings_service.get("default_style_note"),
         "project_instructions": drama.get("project_instructions"),
         "series_instructions": drama.get("series_instructions"),
         "has_novel_reference": has_novel,
@@ -275,7 +276,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
     can't be built or a cloud pick has no key. Never fails the translation.
     allow_paid=False (an API caller without engines.paid) also skips a pick
     outside translate_engines.FREE_ENGINES: it would spend the owner's key."""
-    choice = settings_service.get_preference("episode_summary_engine")
+    choice = settings_service.get("episode_summary_engine")
     if not allow_paid and choice not in translate_engines.FREE_ENGINES:
         return None, None
     try:
@@ -287,7 +288,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
         if not api_key:
             return None, None
         return translate_engines.get_engine(
-            choice, api_key, free_tier=choice == "gemini" and settings_service.get_gemini_free_tier()
+            choice, api_key, free_tier=choice == "gemini" and settings_service.get("gemini_free_tier")
         ), choice
     except Exception as exc:
         from applog import get_logger
@@ -433,6 +434,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                 and (target_ids is None or ln.id in target_ids)]
     if not eligible:
         raise UnsupportedOperationError("There are no lines to translate.")
+    if force_retranslate and any((ln.en or "").strip() for ln in eligible):
+        ownership_service.require_acting_lines_edit()
 
     chain = [{"engine": engine_name, "model": model}] + [
         {"engine": f["engine"], "model": f.get("model")} for f in (fallback_chain or [])]
@@ -529,7 +532,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         job_id, drama_id, lines, engine, drama, style_note or "",
         novel_reference, force_retranslate, locale, glossary_terms,
         style_guidelines, engine_name, style_preset, context_window,
-        settings_service.get_ollama_num_ctx_override() or None, reflect=reflect,
+        settings_service.get("ollama_num_ctx_override") or None, reflect=reflect,
         cost_cap_usd=cost_cap,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
@@ -590,7 +593,9 @@ def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referen
                 {"style_note": style_note, "locale": locale, "glossary_terms": glossary_terms,
                  "style_guidelines": style_guidelines, "style_preset": style_preset,
                  "context_window": context_window, "cost_cap_usd": job_cost_cap_usd or None,
-                 "novel_reference": novel_reference, "thinking": thinking},
+                 "novel_reference": novel_reference, "thinking": thinking, "batch_size": batch_size,
+                 "context_window_ahead": context_window_ahead,
+                 "scene_aware_batches": settings_service.get("scene_aware_batches")},
                 force_retranslate=force_retranslate)
         character_names = translation_guide.build_speaker_labels(
             db.list_characters_with_series_names(drama_id),
@@ -619,7 +624,7 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
     if background_jobs.is_cancel_requested(job_id):
         return
     first_id = current = submit()
-    provider = bulk_translate.make_provider(engine_name, engine)
+    provider = bulk_providers.make_provider(engine_name, engine)
     while True:
         bulk_translate.run_bulk_poller(job_id, current, provider=provider, engine=engine,
                                        interval=bulk_translate.POLL_INTERVAL_SECONDS,
@@ -632,7 +637,8 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
             break
         nxt_stage = (_NEXT_REFLECT_STAGE.get(job.get("stage"))
                      if job.get("kind") == "reflect" and job.get("status") == "applied" else None)
-        nxt = bulk_translate.sibling_stage_job(job["pipeline_id"], nxt_stage) if nxt_stage else None
+        nxt = (bulk_translate.sibling_stage_job(job["pipeline_id"], nxt_stage, skip_failed=True)
+               if nxt_stage else None)
         if not nxt:
             break
         current = nxt["id"]
@@ -659,7 +665,7 @@ def resume_bulk_translations(drama_id: int) -> dict:
 
 
 def _spend_cap_used_up(engine_name: str) -> bool:
-    if not engine_cap_applies(engine_name, settings_service.get_gemini_free_tier()):
+    if not engine_cap_applies(engine_name, settings_service.get("gemini_free_tier")):
         return False
     monthly = month_cap_usd()
     _cap, refusal = translate_engines.resolve_cost_cap(
@@ -676,10 +682,11 @@ def resume_interrupted_at_startup() -> dict:
     raises; returns {"enabled", "resumed", "skipped"} counts."""
     out = {"enabled": False, "resumed": 0, "skipped": 0}
     try:
-        if not settings_service.get_bulk_auto_resume():
+        if not settings_service.get("bulk_auto_resume"):
             return out
         out["enabled"] = True
-        pending = db.list_bulk_jobs(statuses=("submitted", "scheduled", "running"))
+        pending = db.list_bulk_jobs(statuses=("submitted", "scheduled", "running", "needs_resubmit",
+                                              "applying"))
         if not pending:
             return out
         if background_jobs.exclusive_active() or background_jobs.maintenance_active():
@@ -743,7 +750,7 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
         raise ConflictError(f"Bulk job {bulk_job_id} is {job['status']} and cannot be cancelled.")
     key = translate_service.resolve_api_key(job["engine"])
     engine = translate_engines.get_engine(job["engine"], key, job.get("model") or None) if key else None
-    provider = bulk_translate.make_provider(job["engine"], engine) if engine else None
+    provider = bulk_providers.make_provider(job["engine"], engine) if engine else None
     note = bulk_translate.cancel_bulk_job(bulk_job_id, provider)
     return {"drama_id": drama_id, "bulk_job": bulk_job_view.bulk_entry(db.get_bulk_job(bulk_job_id)),
             "message": note}

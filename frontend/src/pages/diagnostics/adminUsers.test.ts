@@ -4,7 +4,7 @@ import type { AuthMe } from '../../api/auth'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
-  auditTime, canChangeUsers, canViewUsers, deactivateBlock, revokeAdminBlock, revokeBlock, rowBlocks,
+  auditTime, canChangeUsers, canViewUsers, deactivateBlock, holds, revokeAdminBlock, revokeBlock, rowBlocks,
   sessionsText, showRevokeAdmin, userName,
 } from './adminUsers'
 
@@ -19,17 +19,24 @@ const me = (permissions: string[], auth_enabled = true): AuthMe => ({
 })
 
 describe('canViewUsers / canChangeUsers', () => {
-  it('view needs admin.users.read; waits while loading; trusts the server when /me is unavailable', () => {
+  it('view needs admin.users.read; hidden while loading and while /me is unavailable', () => {
     expect(canViewUsers({ status: 'loading' })).toBe(false)
-    expect(canViewUsers({ status: 'unavailable' })).toBe(true)
+    expect(canViewUsers({ status: 'unavailable' })).toBe(false)
     expect(canViewUsers({ status: 'ready', me: me(['library.read', 'admin.diagnostics']) })).toBe(false)
     expect(canViewUsers({ status: 'ready', me: me(['admin.users']) })).toBe(false)
     expect(canViewUsers({ status: 'ready', me: me(['admin.users.read']) })).toBe(true)
   })
 
+  it('while /me is unavailable: non-admin permissions pass, every admin.* is false', () => {
+    const u = { status: 'unavailable' } as const
+    expect(holds(u, 'lines.edit')).toBe(true)
+    expect(holds(u, 'admin.diagnostics')).toBe(false)
+    expect(holds(u, 'admin.library')).toBe(false)
+  })
+
   it('changes need admin.users, which an admin on the household address lacks', () => {
     expect(canChangeUsers({ status: 'loading' })).toBe(false)
-    expect(canChangeUsers({ status: 'unavailable' })).toBe(true)
+    expect(canChangeUsers({ status: 'unavailable' })).toBe(false)
     expect(canChangeUsers({ status: 'ready', me: me(['admin.users.read']) })).toBe(false)
     expect(canChangeUsers({ status: 'ready', me: me(['admin.users.read', 'admin.users']) })).toBe(true)
   })

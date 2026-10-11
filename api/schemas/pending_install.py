@@ -32,7 +32,7 @@ class PendingInstallChange(BaseModel):
     name: str
     from_version: Optional[str] = None
     to_version: str
-    kind: str = Field(description="install, upgrade or downgrade")
+    kind: str = Field(description="install, upgrade, downgrade or change (a version pip can't order)")
 
 
 class PendingInstallPlan(BaseModel):

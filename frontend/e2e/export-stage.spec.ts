@@ -281,3 +281,36 @@ test.describe('media export blocks fold under their headings', () => {
     await expect(page.getByTestId('artifact-softsub').getByRole('link')).toHaveText('Download softsub_video_1.mkv')
   })
 })
+
+test('a double-clicked Export asks the server once, and a response for the old format is dropped', async ({ page }) => {
+  await withExportLines(page)
+  const urls: string[] = []
+  await page.route('**/api/export/dramas/1/subtitle?*', async (route) => {
+    urls.push(route.request().url())
+    await new Promise((r) => setTimeout(r, 400))
+    await route.fulfill({ json: { text: '1\n00:00:01,000 --> 00:00:02,000\nhi\n', filename: 'x.srt' } })
+  })
+  await page.goto('/#/drama/1/export')
+  await expect(page.getByTestId('readiness')).toContainText('3 lines')
+  const button = page.getByRole('button', { name: 'Export', exact: true })
+  await button.dblclick()
+  await expect(page.getByTestId('export-text')).toBeVisible()
+  expect(urls).toHaveLength(1)
+
+})
+
+test('switching format while an export is in flight drops the old response', async ({ page }) => {
+  await withExportLines(page)
+  await page.route('**/api/export/dramas/1/subtitle?*', async (route) => {
+    await new Promise((r) => setTimeout(r, 400))
+    await route.fulfill({ json: { text: '1\n00:00:01,000 --> 00:00:02,000\nhi\n', filename: 'x.srt' } })
+  })
+  await page.goto('/#/drama/1/export')
+  await expect(page.getByTestId('readiness')).toContainText('3 lines')
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Exporting...' })).toBeDisabled()
+  await page.getByLabel('Format', { exact: true }).selectOption('ass')
+  await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeEnabled()
+  await page.waitForTimeout(700)
+  await expect(page.getByTestId('export-text')).toHaveCount(0)
+})

@@ -72,6 +72,8 @@ export interface Exchange {
   question: string
   response: AskResponse | null
   error: string | null
+  // The user stopped waiting; the model may still be working on the server.
+  cancelled?: boolean
   // Set when a tier could not answer: which one, and which tier the user may ask next.
   failure?: TierFailure | null
 }

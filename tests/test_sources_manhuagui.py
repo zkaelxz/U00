@@ -5,13 +5,14 @@ request ever reaches the real site.
 """
 
 import os
+import time
 
 import pytest
 
 from sources import pipeline
 from sources.adapters import manhuagui as mhg
 from sources.http import Response
-from sources.lzstring import compress_to_base64, decompress_from_base64
+from sources.lzstring import LZStringTooLarge, compress_to_base64, decompress_from_base64
 from sources.models import ChallengeDetected, ContentHidden, SourceUnavailable
 
 from . import manhuagui_fixtures as fx
@@ -53,6 +54,61 @@ class TestLZString:
     def test_rejects_non_base64(self):
         with pytest.raises(ValueError):
             decompress_from_base64("not*base64")
+
+    def test_output_is_capped(self):
+        # A few KB of input that expands quadratically must stop at the cap.
+        b64 = compress_to_base64("a" * (2 * 1_000_000))
+        assert len(b64) < 20_000
+        with pytest.raises(ValueError):
+            decompress_from_base64(b64)
+        with pytest.raises(LZStringTooLarge):
+            decompress_from_base64(b64)
+        with pytest.raises(ValueError):
+            decompress_from_base64(compress_to_base64("abc" * 100), max_chars=299)
+        assert decompress_from_base64(compress_to_base64("abc" * 100), max_chars=300) == "abc" * 100
+
+
+class TestHostileChapterScript:
+    @pytest.mark.parametrize("page", [
+        'window["' + 'a"](' * 250_000,
+        'window["e"](function(p,a,c,k,e,d){' + "{" * 1_000_000,
+        'window["e"](function(p,a,c,k,e,d){}(' + "'A" * 500_000,
+        'window["e"](function(p,a,c,k,e,d){}(\'' + "A" * 1_000_000,
+        "window[\"e\"](function(p,a,c,k,e,d){}('x'" + "['x']('" * 140_000 + "))",
+    ], ids=["many-openers", "unclosed-body", "quotes", "long-b64", "split-calls"])
+    def test_hostile_megabyte_is_linear(self, page):
+        t = time.perf_counter()
+        with pytest.raises(mhg.LayoutChanged):
+            mhg.decode_image_data(page)
+        assert time.perf_counter() - t < 2.0
+
+    def test_a_decoy_window_index_before_the_real_script_is_skipped(self):
+        page = fx.chapter_page(fx.image_data(["1.jpg"], "/p/"))
+        page = page.replace("<body>", '<body><script>window["foo"] = 1;</script>', 1)
+        assert mhg.decode_image_data(page)["files"] == ["1.jpg"]
+
+    def test_oversized_compressed_payload_is_a_size_error_not_a_layout_error(self):
+        b64 = compress_to_base64("a" * 2_000_000)
+        page = ("<script>window[\"e\"](function(p,a,c,k,e,d){return p;}('0',62,1,"
+                f"'{b64}'['split']('|'),0,{{}}))</script>")
+        with pytest.raises(mhg.TooLarge, match="larger than this app accepts"):
+            mhg.decode_image_data(page)
+
+    def test_a_long_token_in_a_full_packed_call_is_linear(self):
+        token = "Z" * 200_000
+        page = ("<script>window[\"e\"](function(p,a,c,k,e,d){return p;}"
+                f"('{{\"files\":[\"{token}\"]}}',62,1,'x'.split('|'),0,{{}}))</script>")
+        t = time.perf_counter()
+        data = mhg.decode_image_data(page)
+        assert time.perf_counter() - t < 2.0
+        assert data["files"] == [token]
+
+    def test_deeply_nested_image_data_is_a_layout_error(self):
+        nested = "[" * 100_000 + "]" * 100_000
+        page = ("<script>window[\"e\"](function(p,a,c,k,e,d){return p;}"
+                f"('{{\"files\":{nested}}}',62,1,'x'.split('|'),0,{{}}))</script>")
+        with pytest.raises(mhg.LayoutChanged):
+            mhg.decode_image_data(page)
 
 
 class TestSearch:
@@ -113,6 +169,13 @@ class TestSeriesAndChapters:
         a, t = _adapter({f"{W}/comic/17332/": html(fx.SERIES_PAGE_ADULT)}, allow_adult=True)
         a.get_chapters("17332")
         assert t.calls[0]["headers"]["Cookie"] == "isAdult=1"
+
+    def test_an_oversized_hidden_chapter_list_is_a_size_error(self, isolated_db):
+        big = compress_to_base64("a" * 2_000_000)
+        page = fx.SERIES_PAGE_ADULT.replace(compress_to_base64(fx._CHAPTER_LIST_HTML), big)
+        a, _ = _adapter({f"{W}/comic/17332/": html(page)}, allow_adult=True)
+        with pytest.raises(mhg.TooLarge, match="chapter list is larger than this app accepts"):
+            a.get_chapters("17332")
 
     def test_chapters_sort_naturally_within_their_sections(self, isolated_db):
         from sources import chapter_order

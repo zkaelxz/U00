@@ -169,7 +169,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     background_jobs.update_progress(job_id, 0.2, "Tagging speakers with the LLM...")
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get_gemini_free_tier(),
+        free_tier=settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") if engine_name == "ollama" else None))
     known = [c["character_name"] for c in db.list_characters(drama_id) if c["character_name"]]
     done, _checkpoint = tagging_checkpoint(

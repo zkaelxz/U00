@@ -178,6 +178,15 @@ def _flag_conflicts(result: dict) -> dict:
     return result
 
 
+NO_TEST_SUITE = ("This copy of Baihe has no test suite (the installer leaves it out), so an "
+                 "update can't be tested here first.")
+
+
+def test_suite_available(project_root: str = None) -> bool:
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    return os.path.isdir(os.path.join(project_root, "tests"))
+
+
 def check_upgrade_candidate(pip_name: str, version: str = None, project_root: str = None,
                             test_args: list = None, python_executable: str = None,
                             parent_dirs: list = None, pip_extra_args: list = None,
@@ -201,6 +210,11 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
     project_root = project_root or os.path.dirname(os.path.abspath(__file__))
     python_executable = python_executable or sys.executable
     parent_dirs = _env_package_dirs() if parent_dirs is None else list(parent_dirs)
+    if not test_args and not test_suite_available(project_root):
+        yield {"done": True, "ok": False, "verdict": "incomplete", "reason": NO_TEST_SUITE,
+               "version": version, "new_failures": [], "preexisting_failures": [],
+               "conflicts": []}
+        return
     test_args = list(test_args or [os.path.join(project_root, "tests")])
     spec = f"{pip_name}=={version}" if version else pip_name
     pip_args = ["--upgrade", spec] + diagnostics.upgrade_pip_args(pip_name, project_root)[2:] + list(pip_extra_args or [])
