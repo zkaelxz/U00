@@ -845,7 +845,7 @@ class TestSecondReview:
         assert renames == []
 
     def test_installer_entries_are_in_the_allow_list(self):
-        from installer import service as installer_service
+        from installer import service_layout as installer_service
         assert installer_service.DATA_FOLDER_ENTRIES <= dus._baihe_top_level_names()
         assert "saved_comics" in dus._baihe_top_level_names()
 
@@ -945,7 +945,7 @@ class TestTrashProtection:
         assert dus.TRASH_DIRNAME in dus._baihe_top_level_names()
 
     def test_installer_allows_the_trash_folder(self):
-        from installer import service as installer_service
+        from installer import service_layout as installer_service
         assert dus.TRASH_DIRNAME in installer_service.DATA_FOLDER_ENTRIES
 
     def test_trash_root_and_everything_in_it_is_protected_and_cannot_be_cleared_or_moved(
