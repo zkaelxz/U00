@@ -504,6 +504,7 @@ def test_ai_recover_refuses_while_a_job_runs(client, fakes, engines):
         assert _recover(client, did).status_code == 409
     finally:
         gate.set()
+        assert background_jobs.wait_for_job_threads(5, [f"sourceimport_{did}"])
 
 
 def test_ai_recover_with_no_text_keeps_needs_ai(client, fakes, engines):

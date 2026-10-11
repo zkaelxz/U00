@@ -6,11 +6,12 @@ the database. Names are modules and functions, not line numbers; search for
 them. For the layering above this (routers, services) see the root `CLAUDE.md`;
 for backup and restore operations see `runbook.md`.
 
-## 1. How `db.py` is organised
+## 1. How the `db` package is organised
 
-- **Plain `sqlite3`, no ORM.** One module (`db.py`) holds every statement for
-  `library.db`. Services and root domain modules call its functions; they do not
-  open their own connections to this file.
+- **Plain `sqlite3`, no ORM.** The `db` package (`db/__init__.py` and the
+  `db/<domain>.py` files it re-exports) holds every statement for
+  `library.db`. Services and root domain modules call its functions; they do
+  not open their own connections to this file.
 - **Paths** (module globals): `LIBRARY_DIR` = `<portable.data_dir()>/library`,
   with `DRAMAS_DIR`, `DB_PATH` (`library.db`), `BENCHMARK_DIR`, `VOICE_BANK_DIR`
   derived from it. `configure_library_dir` repoints all of them (the test
@@ -44,20 +45,24 @@ for backup and restore operations see `runbook.md`.
 - **`reset_library()`** closes this process's connections, removes
   `library.db` and its `-wal`/`-shm`/`-journal`, `dramas/` and `cedict.txt`, and
   re-runs `init_db()`. Callers must have asked for confirmation already.
-- **Domain sections** of `db.py` in file order: schema and migrations, drama
-  folder and media-import journal helpers, dramas, lines, characters (and speaker
-  merge), series characters, pages and bubbles, known titles, series and
-  glossary, notes/emotions, profiles and progress, versions and snapshots,
-  wiki/style, presets, vocab and usage, GPU lock, app settings, research cache,
-  job records, voice bank, bulk jobs, benchmark, auth storage.
+- **Domain sections** of the `db` package, in the order they sat in `db.py`:
+  schema and migrations, drama folder and media-import journal helpers,
+  dramas, lines, characters (and speaker merge), series characters, pages and
+  bubbles, known titles, series and glossary, notes/emotions, profiles and
+  progress, versions and snapshots, wiki/style, presets, vocab and usage, GPU
+  lock, app settings, research cache, job records, voice bank, bulk jobs,
+  benchmark, auth storage.
 - **Package files.** `db.py` is now the package `db/`. Domains move out of
   `db/__init__.py` one at a time into `db/<domain>.py`; `db/__init__.py`
   re-exports their public names, so callers and `patch("db.<name>")` keep
   working. A submodule reaches everything else as `db.<name>` (never a
   relative import or a copy of a path global); `tests/test_split_guards.py`
   enforces it. Moved so far: `db/benchmark.py` (accuracy benchmark cases and
-  runs, Benchmark Lab sessions and results). Its tables are still created by
-  `init_db` in `db/__init__.py` (`_init_benchmark_lab_schema` included).
+  runs, Benchmark Lab sessions and results) and `db/auth.py` (auth storage:
+  users, permissions, sessions, audit log, and the ownership and sharing
+  fields of dramas and series). Their tables are still created by `init_db` in
+  `db/__init__.py` (`_init_benchmark_lab_schema` and `_create_auth_tables`
+  included).
 
 ## 2. Schema creation and migrations
 
@@ -206,9 +211,9 @@ nothing there can interfere with `db.save_lines()` or a library backup.
   `_BENCHMARK_SESSION_UPDATABLE`).
 - *Ownership is a service concern.* `services/ownership_service.py` checks drama
   and series visibility from the request principal. A denied read is a 404, not a
-  403. `db.py` only stores `owner_user_id` / `is_private` and enforces the one
-  structural rule: giving a drama a series clears its own `is_private` (only
-  whole series, or series-less dramas, can be private).
+  403. The `db` package only stores `owner_user_id` / `is_private` and enforces
+  the one structural rule (in `db/auth.py`): giving a drama a series clears its
+  own `is_private` (only whole series, or series-less dramas, can be private).
 - *Compound writes are one transaction.* `rename_speaker_atomic`,
   `merge_speakers_atomic` and `undo_merge_speakers_atomic` update several tables
   together or not at all.

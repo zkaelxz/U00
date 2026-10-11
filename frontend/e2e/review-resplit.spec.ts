@@ -1,12 +1,15 @@
 import { expect, test } from '@playwright/test'
 
-import { SUMMARY, clearLines, mockResplit, openResplit, seedLines } from './resplitMocks'
+import { SUMMARY, clearLines, mockResplit, mockSplitters, openResplit, seedLines, setSourceLanguage } from './resplitMocks'
 
 // Re-split long lines in the Review stage. Lines are real (seeded); the
 // re-split, reassign and job routes are mocked.
 
 test.beforeEach(() => seedLines())
-test.afterAll(() => clearLines())
+test.afterAll(() => {
+  setSourceLanguage('ko')
+  clearLines()
+})
 
 test('splits with estimated timing and shows the summary', async ({ page }) => {
   const calls = await mockResplit(page, () => ({ json: SUMMARY }))
@@ -23,7 +26,8 @@ test('Split long lines runs one click: 12 s cap, audio alignment', async ({ page
   const group = await openResplit(page)
   await group.getByRole('button', { name: 'Split long lines', exact: true }).click()
   await expect(group.getByTestId('resplit-summary')).toHaveText('Split 31 lines into 118; speakers re-assigned.')
-  expect(calls.resplits[0]).toMatchObject({ align_to_audio: true, sensitivity: 'normal', max_seconds: 12, confirm: false })
+  expect(calls.resplits[0]).toMatchObject({ align_to_audio: true, max_seconds: 12, confirm: false })
+  expect(calls.resplits[0]).not.toHaveProperty('sensitivity')
 })
 
 test('translated long lines ask for confirmation, then split with confirm', async ({ page }) => {
@@ -100,16 +104,29 @@ test('sends the sensitivity and duration cap with the split', async ({ page }) =
 
 test('previews the split without writing, and the empty note names the sensitivity', async ({ page }) => {
   const calls = await mockResplit(page, (b) =>
-    b.sensitivity === 'more'
+    b.sensitivity === 'sentence'
       ? { json: { dry_run: true, split_lines: 31, pieces: 118, lines_before: 260, line_count: 347 } }
-      : { json: { split_lines: 0, note: 'No line is over the limits at Normal sensitivity. Try "More" or "Sentence by sentence".' } },
+      : { json: { split_lines: 0, note: 'No line is over the limits at More sensitivity. Try "Sentence by sentence".' } },
   )
   const group = await openResplit(page)
   await group.getByRole('button', { name: 'Preview split' }).click()
-  await expect(group.getByTestId('resplit-summary')).toContainText('at Normal sensitivity. Try "More"')
-  await group.getByRole('combobox', { name: 'Split sensitivity' }).selectOption('more')
+  await expect(group.getByTestId('resplit-summary')).toContainText('at More sensitivity. Try "Sentence by sentence"')
+  await group.getByRole('combobox', { name: 'Split sensitivity' }).selectOption('sentence')
   await group.getByRole('button', { name: 'Preview split' }).click()
   await expect(group.getByTestId('resplit-summary')).toHaveText('Preview: 31 lines would be split into 118.')
-  expect(calls.resplits.map((b) => [b.sensitivity, b.dry_run])).toEqual([['normal', true], ['more', true]])
+  expect(calls.resplits.map((b) => [b.sensitivity, b.dry_run])).toEqual([['more', true], ['sentence', true]])
   expect(calls.reassigns).toBe(0)
+})
+
+test('"More" is disabled with the reason and an Install action while the word splitter is missing', async ({ page }) => {
+  const calls = await mockResplit(page, () => ({ json: SUMMARY }))
+  await mockSplitters(page, false)
+  setSourceLanguage('zh')
+  const group = await openResplit(page)
+  await expect(group.getByTestId('resplit-more-blocked')).toContainText("isn't installed")
+  await expect(group.getByRole('option', { name: 'More' })).toBeDisabled()
+  await expect(group.getByRole('button', { name: 'Install jieba' })).toBeVisible()
+  await group.getByRole('button', { name: 'Preview split' }).click()
+  await expect(group.getByTestId('resplit-summary')).toBeVisible()
+  expect(calls.resplits.map((b) => b.sensitivity)).toEqual(['sentence'])
 })

@@ -21,8 +21,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW); `installer/service.py` runs the Windows service (`Services`; its siblings are `service_layout.py` folder safety, `service_config.py` config, XML and Caddyfile text, `service_control.py` sc/icacls/netsh commands, `service_checks.py` health checks and `service_cli.py` the command line) and `installer/setup_lock.py` holds the named mutexes that keep Setup and the service commands apart | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
-| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`); `self_test.py` runs the owner's hardware checks in one go and writes a redacted report (`docs/runbook.md` 2c); `translate_context_bench.py` re-translates one window of a title under several batch-size/context configs with Claude (dry run unless `--yes`, spend-capped, saves nothing to the title) and writes a comparison report; `ja_whisper_models.py` fetches or converts and checks Japanese Whisper fine-tune folders for the Benchmark Lab (`docs/asr-experiments.md`) | `python tools/repo_map.py --help`, `python tools/route_table.py --write`, `python tools/ja_whisper_models.py --help`, `python -m tools.self_test`, `python -m tools.translate_context_bench TITLE_ID` |
-| `tests/` | pytest suite; tests enforce most rules in `CLAUDE.md` | `python -m pytest -q` |
+| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`); `windows_script_checks.py` runs setup.bat, start.bat and uninstall.bat on the Windows CI runner (`docs/testing-and-ci.md`); `self_test.py` runs the owner's hardware checks in one go and writes a redacted report (`docs/runbook.md` 2c); `translate_context_bench.py` re-translates one window of a title under several batch-size/context configs with Claude (dry run unless `--yes`, spend-capped, saves nothing to the title) and writes a comparison report; `ja_whisper_models.py` fetches or converts and checks Japanese Whisper fine-tune folders for the Benchmark Lab (`docs/asr-experiments.md`) | `python tools/repo_map.py --help`, `python tools/route_table.py --write`, `python tools/ja_whisper_models.py --help`, `python -m tools.self_test`, `python -m tools.translate_context_bench TITLE_ID` |
 | `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md`, `docs/user-guide.md` |
 | `library/` | your data (gitignored, created automatically) | n/a |
 
@@ -45,6 +44,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db/` (package: `__init__.py` holds what has not moved out yet and re-exports the rest, so callers keep `db.<name>`)
+  - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
   - `db/benchmark.py` (accuracy benchmark cases and runs, Benchmark Lab sessions and results)
 - `diagnostics.py`
 - `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
@@ -229,6 +229,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
 - `extension_service.py`
 - `fixflag_transcribe.py`
+- `fixflag_translate.py` (the re-translation half of "fix flagged lines": reason-aware, id-keyed batches)
 - `bulk_job_view.py` (public view of a bulk_jobs row)
 - `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
