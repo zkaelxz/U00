@@ -35,7 +35,7 @@ Known limits and open decisions:
 - Remote access, steps 133-140: left is the owner's LAN test with a real certificate and the router port last (140); WP5 network steps (port 443, DDNS, the firewall rule `enable-remote` prints, Google client values and `BAIHE_PUBLIC_URL` in `.env`).
 - Step 141: spec only (`docs/specs/step-141-pc-shell-and-connect.md`) for the standalone PC shell and the "This PC" / "Connect to my PC" toggle.
 - Next wave: 171 CBZ + full ComicInfo; 162 text-mask fallback (Otsu with light/dark polarity, ML detector deferred); 158 manual timing shift (auto-sync waits on re-timing).
-- Follow-ups: `docs/local-agent-backlog.md`. A second-machine GPU worker is plan only (`docs/specs/gpu-worker-plan.md`).
+- Follow-ups: `lib.http.get/post` open a new `requests.Session` per hop (no keep-alive); reuse the shared session from PR #1070 (`shrink-http-wave4-sessions`) once it merges. See also `docs/local-agent-backlog.md`. A second-machine GPU worker is plan only (`docs/specs/gpu-worker-plan.md`).
 
 ## Backlog decisions (owner, audited 2026-10-06)
 - Later or low value: 145 source hashes (after 144), 146, 149, 152 (150 is merged; decide whether it still waits on 147), 154 Trash (extend `baihe_trash` in `services/disk_usage_service.py`, no second trash), 156 (start with an offline scorer), 157, 160, 163 (after 162), 167, 169, 170 (burn-in exists with no codec or quality option; clip and preview paths hard-code `libx264`), 174, 175, 177, 178, 182.

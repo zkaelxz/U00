@@ -1,10 +1,10 @@
 /* Workspace shell (§3.3): drama header and the stage stepper. */
 
-/* Title and stage tabs are one sticky strip; --bar-h (set from its height in
-   WorkspaceShell) lets Review's sticky pieces sit below it. */
+/* Title and stage tabs are one sticky strip under the app header; --bar-h (header + strip, set in
+   WorkspaceShell) lets Review's sticky pieces sit below both. */
 .ws-strip {
   position: sticky;
-  top: env(safe-area-inset-top, 0px);
+  top: calc(env(safe-area-inset-top, 0px) + var(--app-header-h, 0px));
   z-index: calc(var(--z-sticky, 3) + 1);
   margin-inline: calc(-1 * var(--space-4));
   padding: 0 var(--space-4);

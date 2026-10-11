@@ -9,6 +9,7 @@ import background_jobs as bg
 import db
 import diagnostics_torch
 import job_force_stop
+from jobs import gpu_slots
 from services import jobs_service
 from services.service_errors import ConflictError, NotFoundError
 
@@ -55,7 +56,7 @@ def _cancelling_for(job_id, seconds):
 
 
 def _slot_held(job_id):
-    return db.gpu_lock_holder_count() > 0
+    return gpu_slots.holder_count() > 0
 
 
 class TestForceStop:
@@ -108,10 +109,10 @@ class TestForceStop:
         job_force_stop.force_stop("hung_g")
         conn = db.get_conn()   # the row has aged past GPU_LOCK_STALE_SECONDS
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
-                     (db.GPU_LOCK_STALE_SECONDS + 60,))
+                     (gpu_slots.GPU_LOCK_STALE_SECONDS + 60,))
         conn.commit()
         conn.close()
-        assert db.gpu_lock_holder_count() == 0, "stale rows are ignored without the heartbeat"
+        assert gpu_slots.holder_count() == 0, "stale rows are ignored without the heartbeat"
         bg._heartbeat_once()
         assert _slot_held("hung_g"), "the heartbeat keeps the abandoned worker's row live"
 
@@ -154,7 +155,7 @@ class TestForceStop:
         assert bg.get_status("hung_3")["result"] == {"fresh": True}
 
     def test_a_dead_worker_frees_the_gpu_slot_at_once(self, quiet_gpu):
-        assert bg.try_take_gpu_slot("ui:dead_1", "x")
+        assert gpu_slots.acquire("ui:dead_1", "x")
         dead = threading.Thread(target=lambda: None)
         dead.start()
         dead.join()
