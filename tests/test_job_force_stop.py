@@ -232,9 +232,9 @@ class TestGpuProbeOutsideTheLock:
 
         def hung():
             calls.append(1)
-            time.sleep(0.3)
+            time.sleep(0.5)
             return None   # nvidia-smi timeout
-        monkeypatch.setattr(gpu_probe, "MAX_AGE_SECONDS", 0.1)
+        monkeypatch.setattr(gpu_probe, "MAX_AGE_SECONDS", 0.25)
         monkeypatch.setattr(diagnostics_torch, "external_gpu_load", hung)
         gpu_probe.prefetch()
         assert gpu_probe.external_gpu_is_busy() is False

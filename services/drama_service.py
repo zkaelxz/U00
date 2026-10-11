@@ -300,7 +300,7 @@ def set_source_url_once(drama_id, url) -> bool:
 # Live owners heartbeat every background_jobs.HEARTBEAT_INTERVAL.
 STALE_JOB_RECORD_SECONDS = background_jobs.STALE_JOB_SECONDS
 _DELETE_CONFIRM_TEXT = "DELETE"
-LEFTOVER_FILES_MESSAGE = ("The drama was deleted from the library, but some of its files "
+LEFTOVER_FILES_MESSAGE = ("The title was deleted from the library, but some of its files "
                            "could not be removed (a file may be in use). Close anything "
                            "using them and remove the leftover folder manually.")
 
@@ -340,7 +340,7 @@ def hard_delete_drama(drama_id) -> bool:
             os.rename(folder, tomb)
         except OSError as e:
             # Nothing changed yet (row and folder intact); no paths in the message.
-            raise ServiceError("The drama's files are in use, so it was not deleted. "
+            raise ServiceError("The title's files are in use, so it was not deleted. "
                                "Close anything using them and try again.") from e
         # A rename keeps the folder's old mtime; stamp it now so the startup
         # sweep (cleanup_stale_tombstones) never mistakes an in-flight delete
@@ -355,14 +355,14 @@ def hard_delete_drama(drama_id) -> bool:
                 os.rename(tomb, folder)
             except OSError:
                 log.exception("Could not restore drama folder %s after a failed delete", folder)
-        raise ServiceError("The drama could not be deleted.") from e
+        raise ServiceError("The title could not be deleted.") from e
     if db.get_drama(drama_id) is not None:
         if tomb is not None:
             try:
                 os.rename(tomb, folder)
             except OSError:
                 log.exception("Could not restore drama folder %s after a failed delete", folder)
-        raise ServiceError("The drama could not be deleted.")
+        raise ServiceError("The title could not be deleted.")
     if tomb is None:
         return False
     try:
@@ -425,10 +425,10 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     leftover files could not be removed."""
     library_service.get_library_drama(drama_id)  # id check + existence
     if confirm is not True or confirm_text != _DELETE_CONFIRM_TEXT:
-        raise InvalidInputError("Deleting a drama needs confirm=true and confirm_text set to "
+        raise InvalidInputError("Deleting a title needs confirm=true and confirm_text set to "
                                 "the word DELETE, in capitals.")
     if job_running_for_drama(drama_id):
-        raise ConflictError("A background job is still running for this drama -- wait for it "
+        raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before deleting.")
     leftover = hard_delete_drama(drama_id)
     result = {"deleted": True, "drama_id": drama_id}

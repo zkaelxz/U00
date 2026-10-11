@@ -52,8 +52,8 @@ _MAX_NOTE_CHARS = 500
 
 _PNG = b"\x89PNG\r\n\x1a\n"
 _JPEG = b"\xff\xd8\xff"
-_BUSY_JOB = "A Scanlate job is running for this drama. Wait for it or cancel it first."
-_BUSY_UPLOAD = "Pages are being added to this drama. Try again when that finishes."
+_BUSY_JOB = "A Scanlate job is running for this title. Wait for it or cancel it first."
+_BUSY_UPLOAD = "Pages are being added to this title. Try again when that finishes."
 
 
 # --- Shared by the job services ------------------------------------------
@@ -151,14 +151,14 @@ def parse_notes(raw) -> list:
 def require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
 def require_page(drama_id: int, page_id: int) -> dict:
     page = db.get_page(page_id, drama_id=drama_id)
     if page is None:
-        raise NotFoundError("No such page in this drama.")
+        raise NotFoundError("No such page in this title.")
     return page
 
 

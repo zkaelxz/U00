@@ -54,6 +54,27 @@ test('manhua: resumes at the saved page in vertical scroll and saves progress', 
   expect(s.unmocked).toEqual([])
 })
 
+test('a long vertical chapter keeps only the pages around the reader loaded', async ({ page }) => {
+  const s = await mockComic(page, { mediaType: 'manhua', pageCount: 150, lastPage: 75 })
+  await page.goto('/#/comic/7')
+  await expect(label(page)).toHaveText('Page 75 of 150')
+  const figs = page.getByTestId('comic-page')
+  // Every page keeps its sized box, so the strip's length and scroll position hold.
+  await expect(figs).toHaveCount(150)
+  await expect(page.locator('[data-testid=comic-page] img')).toHaveCount(11)
+  await expect(figs.nth(74).locator('img')).toHaveCount(1)
+  await expect(figs.nth(0).locator('img')).toHaveCount(0)
+  await expect(figs.nth(149).locator('img')).toHaveCount(0)
+
+  // Scrolling on releases the pages left behind and loads the ones reached.
+  await page.keyboard.press('End')
+  await expect(label(page)).toHaveText('Page 150 of 150')
+  await expect(figs.nth(149).locator('img')).toHaveCount(1)
+  await expect(figs.nth(74).locator('img')).toHaveCount(0)
+  expect(await page.locator('[data-testid=comic-page] img').count()).toBeLessThanOrEqual(12)
+  expect(s.unmocked).toEqual([])
+})
+
 // A scroll callback that lands after the user left (the router re-renders a
 // moment after hashchange) must not rewrite the hash back to the comic.
 test('leaving the comic mid-scroll stays on the library', async ({ page }) => {

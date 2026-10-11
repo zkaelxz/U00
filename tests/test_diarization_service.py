@@ -138,7 +138,7 @@ class TestStartDiarizationRun:
         assert call["target"] is diarize.diarize_subprocess_worker
         assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3, {"use_gpu": False, "min_speakers": None, "max_speakers": None})
         assert call["gpu_touching"] is True
-        assert call["description"] == f"Diarization (drama #{did})"
+        assert call["description"] == f"Diarization (title #{did})"
 
     def test_expected_speakers_none_is_passed_through_as_none(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")

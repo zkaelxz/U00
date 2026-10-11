@@ -239,7 +239,7 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     NotFoundError for an unknown drama id."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     terms = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
     glossary_names = core_module.build_initial_prompt(terms).rstrip("。")
     prompt = "、".join(x for x in (glossary_names, (extra_names or "").strip()) if x)
@@ -271,7 +271,7 @@ def get_transcribe_config(drama_id: int) -> dict:
     Raises NotFoundError for an unknown drama id."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     source = source_service.get_source_config(drama_id)
     whisper_size = stored_whisper_size(drama)
@@ -345,7 +345,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     the updated get_transcribe_config(drama_id)."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     updates = {}
     if "whisper_size" in fields and fields["whisper_size"] is not None:
@@ -420,7 +420,7 @@ def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) ->
     if transcript_mode == "whisper":
         if alignment_method == "qwen3_forced_align":
             raise InvalidInputError(
-                "Qwen3 forced alignment needs a transcript to align, but this drama is in "
+                "Qwen3 forced alignment needs a transcript to align, but this title is in "
                 "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
                 "to 'whisper_diff'.")
         if asr_backend_choice == "qwen3_asr":
@@ -502,7 +502,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     this drama."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
         ownership_service.require_acting_lines_edit()
@@ -535,11 +535,11 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     if transcript_mode == "hardsub_ocr":
         video_path = _drama_video_path(drama_id, drama)
         if video_path is None:
-            raise UnsupportedOperationError(f"No video source available for drama {drama_id}.")
+            raise UnsupportedOperationError(f"No video source available for title {drama_id}.")
     else:
         audio_path = _drama_audio_path(drama_id, drama)
         if audio_path is None:
-            raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+            raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
         if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
             raise UnsupportedOperationError(
                 "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
@@ -556,7 +556,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             "use_groq is on but no Groq API key is configured. Set one in Settings first.")
 
     job_id = f"transcribe_{drama_id}"
-    description = f"Transcription (drama #{drama_id})"
+    description = f"Transcription (title #{drama_id})"
     whisper_size = stored_whisper_size(drama)
     beam_size = drama.get("beam_size") or _DEFAULT_TUNING["beam_size"]
     min_silence_ms = drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"]
@@ -637,7 +637,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         if not started:
             transcribe_pipeline._remove_scratch_dir(scratch_dir)
     if not started:
-        raise ConflictError(f"A transcription is already running for drama {drama_id}.")
+        raise ConflictError(f"A transcription is already running for title {drama_id}.")
     return {"job_id": job_id}
 
 
@@ -654,7 +654,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     start_transcribe_run's checks."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
@@ -827,7 +827,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                 f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
                 args=(diarize_audio_path, hf_token, expected_speakers or None,
                       diarization_service.worker_options(min_speakers, max_speakers)),
-                gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+                gpu_touching=True, description=f"Diarization (title #{drama_id})",
                 kill_whole_tree=True, start_method="spawn",
                 on_done=diarization_service.make_apply_on_done(
                     drama_id, expected_speakers, min_speakers=min_speakers,
@@ -925,22 +925,22 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     or queued for this drama."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     line = _find_line(drama_id, line_id)
     if line is None:
-        raise NotFoundError(f"No line with id {line_id} in drama {drama_id}.")
+        raise NotFoundError(f"No line with id {line_id} in title {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path is None:
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     if not float(line.end) > float(line.start):
         raise UnsupportedOperationError("This line has no timing window to re-transcribe.")
     prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
     for prefix in _RETRANSCRIBE_BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")
         if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this drama's lines. "
+            raise ConflictError("Another job is changing this title's lines. "
                                 "Try again when it finishes.")
     job_id = retranscribe_line_job_id(drama_id)
     # The worker's slice and temp files go here; removed by on_finish however
@@ -962,7 +962,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
                   transcribe_pipeline._model_loading_message(stored_whisper_size(drama), whisper_models.is_whisper_model_cached(
                       stored_whisper_size(drama))),
                   _retranscribe_timeout_s(window), scratch_dir),
-            gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})",
+            gpu_touching=True, description=f"Re-transcribing a line (title #{drama_id})",
             kill_whole_tree=True, initial_result={"line_id": line_id},
             # Spawn, not Linux's default fork: a forked child of a process
             # that has already initialised CUDA cannot use the GPU.
@@ -976,7 +976,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
         raise
     if not started:
         transcribe_pipeline._remove_scratch_dir(scratch_dir)
-        raise ConflictError("A line is already being re-transcribed for this drama.")
+        raise ConflictError("A line is already being re-transcribed for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_id": line_id}
 
 
@@ -986,9 +986,9 @@ def _finished_proposal(drama_id: int, line_id: int) -> dict:
     is none (not run, still running, failed, another line's, or the API
     restarted since)."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if _find_line(drama_id, line_id) is None:
-        raise NotFoundError(f"No line with id {line_id} in drama {drama_id}.")
+        raise NotFoundError(f"No line with id {line_id} in title {drama_id}.")
     job = background_jobs.get_status(retranscribe_line_job_id(drama_id)) or {}
     result = job.get("result") if job.get("status") == "done" else None
     if (not isinstance(result, dict) or result.get("line_id") != line_id
@@ -1028,9 +1028,9 @@ def apply_retranscribe_line(drama_id: int, line_id: int, job_id, expected_zh,
             or not isinstance(expected_proposed, str)):
         raise InvalidInputError("job_id, expected_zh and expected_proposed must be text.")
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if job_id != retranscribe_line_job_id(drama_id):
-        raise InvalidInputError("job_id is not this drama's re-transcription.")
+        raise InvalidInputError("job_id is not this title's re-transcription.")
     result = _finished_proposal(drama_id, line_id)
     base = result.get("base_zh") or ""
     proposed = result["proposed_zh"]
