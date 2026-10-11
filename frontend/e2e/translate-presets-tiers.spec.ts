@@ -161,7 +161,7 @@ test('translate by sentence explains itself and is saved for the title when chan
   })
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   const toggle = run.getByRole('switch', { name: 'Translate by sentence' })
   await expect(toggle).not.toBeChecked()
   await expect(run.locator('.field-help-text', { hasText: 'Translate whole sentences, then split the English across the short subtitle lines.' })).toBeAttached()

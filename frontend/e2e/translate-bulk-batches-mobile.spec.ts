@@ -46,7 +46,7 @@ test('bulk batches panel on a phone', async ({ page }) => {
 test('translate by sentence toggle fits a phone and works by tap', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   const toggle = run.getByRole('switch', { name: 'Translate by sentence' })
   await expect(toggle).toBeVisible()
   await toggle.tap()
