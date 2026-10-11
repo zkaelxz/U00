@@ -60,12 +60,18 @@ _STATUS_BY_ERROR = (
 _CODE_BY_HTTP_STATUS = {404: "not_found", 405: "unsupported_operation", 413: "too_large"}
 
 
+_MAX_REDACTED_CHARS = 2000
+
+
 def _redact(text: str) -> str:
     # Imported lazily: jobs_service pulls in the diagnostics report module,
     # which nothing else in the API needs at import time. Strips file paths
     # as well as keys: a service message can embed a local path.
     from services.jobs_service import redact_text
-    return redact_text(text)
+    # The path pattern costs O(n^2) on a long run of slashes and this runs on
+    # the event loop shared by both listeners; a service message that echoes
+    # a caller's value must not be able to stall them.
+    return redact_text((text or "")[:_MAX_REDACTED_CHARS])
 
 
 def error_body(code: str, message: str, details=None) -> dict:

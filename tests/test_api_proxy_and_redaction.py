@@ -30,3 +30,14 @@ def test_service_error_message_hides_local_paths(isolated_db, monkeypatch):
                         headers={"X-Baihe-Local": "1"})
     resp = client.get("/api/library/dramas")
     assert resp.status_code == 500 and "alice" not in resp.text
+
+
+def test_error_text_is_capped_before_path_redaction():
+    # A caller-controlled value echoed into a service message must not reach
+    # the quadratic path pattern at full length (it runs on the shared event loop).
+    import time
+    from api import error_handlers
+    start = time.monotonic()
+    out = error_handlers._redact("/" * 200_000)
+    assert time.monotonic() - start < 2
+    assert len(out) <= error_handlers._MAX_REDACTED_CHARS
