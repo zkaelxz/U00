@@ -871,6 +871,9 @@ def test_the_timeout_give_up_works_with_a_real_result_channel(tmp_path, monkeypa
     from services import retranscribe_worker as rw
 
     ended = threading.Event()
+    # The worker points tempfile at its scratch folder, as it does in its own process;
+    # here that would outlive the test and break the next test's temp directories.
+    monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     monkeypatch.setattr(rw.os, "_exit", lambda code: ended.set())
     monkeypatch.setattr(rw.background_jobs, "start_own_process_group", lambda: None)
     release = threading.Event()
