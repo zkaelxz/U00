@@ -4,7 +4,7 @@ import { isActive, isFinished } from '../diagnosticsFormat'
 import type { JobKind, JobPage, JobRecord } from '../../types/jobs'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 
-export type StatusFilter = 'active' | 'failed' | 'finished' | 'all'
+export type StatusFilter = 'active' | 'failed' | 'finished' | 'cancelled' | 'all'
 export type KindFilter = 'all' | 'transcribe' | 'translate' | 'review' | 'dub' | 'export' | 'sources' | 'other'
 export type RangeFilter = 'all' | 'today' | 'week'
 export type SortKey = 'default' | 'started' | 'duration'
@@ -25,6 +25,7 @@ export const STATUS_CHIPS: { id: StatusFilter; label: string }[] = [
   { id: 'active', label: 'Active' },
   { id: 'failed', label: 'Failed' },
   { id: 'finished', label: 'Finished' },
+  { id: 'cancelled', label: 'Cancelled' },
   { id: 'all', label: 'All' },
 ]
 
@@ -49,12 +50,17 @@ const DAY_S = 86_400
 
 export const isFailed = (j: Pick<JobRecord, 'status' | 'outcome'>) => j.status === 'error' || j.outcome === 'failed'
 
-// Finished here means ended without failing, so the Failed and Finished chips never overlap.
+// A run stopped by Cancel can end 'done' with a cancelled outcome when the job noticed the cancel itself.
+const isCancelled = (j: Pick<JobRecord, 'status' | 'outcome'>) =>
+  !isFailed(j) && (j.status === 'cancelled' || j.outcome === 'cancelled')
+
+// Each ended job lands in exactly one of Failed, Cancelled and Finished, so the chips add up to All.
 const matchesStatus = (j: JobRecord, status: StatusFilter) =>
   status === 'all' ||
   (status === 'active' && isActive(j.status)) ||
   (status === 'failed' && isFailed(j)) ||
-  (status === 'finished' && isFinished(j.status) && !isFailed(j))
+  (status === 'cancelled' && isCancelled(j)) ||
+  (status === 'finished' && isFinished(j.status) && !isFailed(j) && !isCancelled(j))
 
 // `align` (resegment, resplit) is not worth a chip of its own.
 export function kindGroup(kind: JobKind | undefined): Exclude<KindFilter, 'all'> {
@@ -74,11 +80,11 @@ export function effectiveStatus(filters: JobFilters, jobs: JobRecord[]): StatusF
   return jobs.some((j) => isActive(j.status)) ? 'active' : 'all'
 }
 
-export interface StatusCounts { active: number; failed: number; finished: number; all: number }
+export interface StatusCounts { active: number; failed: number; finished: number; cancelled: number; all: number }
 
 export function statusCounts(jobs: JobRecord[]): StatusCounts {
   const n = (s: StatusFilter) => jobs.filter((j) => matchesStatus(j, s)).length
-  return { active: n('active'), failed: n('failed'), finished: n('finished'), all: jobs.length }
+  return { active: n('active'), failed: n('failed'), finished: n('finished'), cancelled: n('cancelled'), all: jobs.length }
 }
 
 // A queued job has no start time yet; its last update is the best date for it.

@@ -1,4 +1,6 @@
 """lib/http.py: guard on every hop, caps, deadline, fixed-text errors. No network."""
+import threading
+
 import pytest
 
 from lib import http
@@ -81,6 +83,34 @@ def test_the_total_deadline_covers_a_dripping_body(monkeypatch):
     with pytest.raises(http.ResponseTooSlow):
         http.get("http://a.example/", timeout=5, max_bytes=100, deadline=15,
                  guard=None, clock=slow)
+
+
+class _NeverEndingDrip(Resp):
+    """One byte, then a read that blocks until close() wakes it: a server that
+    keeps the connection open without ever finishing the body."""
+
+    def __init__(self, status=200):
+        super().__init__(status)
+        self.woken = threading.Event()
+
+    def iter_content(self, size):
+        yield b"x"
+        if not self.woken.wait(10):
+            raise AssertionError("the deadline never interrupted the blocked read")
+        raise OSError("closed")
+
+    def close(self):
+        super().close()
+        self.woken.set()
+
+
+@pytest.mark.parametrize("status, kw", [(200, {"truncate": True}), (500, {"max_error_bytes": 50})])
+def test_the_deadline_interrupts_a_cut_read_blocked_mid_body(monkeypatch, status, kw):
+    resp = _NeverEndingDrip(status)
+    _serve(monkeypatch, resp)
+    with pytest.raises(http.ResponseTooSlow):
+        http.get("http://a.example/", timeout=5, max_bytes=100, deadline=0.05, guard=None, **kw)
+    assert resp.closed
 
 
 def test_a_transport_error_is_fixed_text(monkeypatch):

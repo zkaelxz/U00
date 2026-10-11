@@ -58,17 +58,19 @@ def _interrupt(resp, fired: threading.Event) -> None:
 def read_capped(resp, cap_bytes: int, deadline_seconds: float,
                 make_error: Callable[[], Exception],
                 chunk_size: int = DEFAULT_CHUNK, clock=None,
-                make_deadline_error: Callable[[], Exception] = None) -> bytes:
+                make_deadline_error: Callable[[], Exception] = None,
+                truncate: bool = False) -> bytes:
     """The whole body, or `make_error()` raised when it is over `cap_bytes`
     (declared or actual); `make_deadline_error()` (default: `make_error`) when
     it takes longer than `deadline_seconds` in all, so a slow link can be told
-    apart from an oversized body."""
+    apart from an oversized body. With `truncate`, a longer body is cut to its
+    first `cap_bytes` instead of refused."""
     deadline_error = make_deadline_error or make_error
     fired = threading.Event()
     timer = None
     try:
         declared = declared_length(resp)
-        if declared is not None and declared > cap_bytes:
+        if declared is not None and declared > cap_bytes and not truncate:
             raise make_error()
         clock = clock or time.monotonic
         started = clock()
@@ -82,9 +84,14 @@ def read_capped(resp, cap_bytes: int, deadline_seconds: float,
             chunks = (resp.iter_content(chunk_size) if hasattr(resp, "iter_content")
                       else resp.iter_bytes(chunk_size))
             for chunk in chunks:
-                body.extend(chunk)
-                if len(body) > cap_bytes:
-                    raise make_error()
+                if truncate:
+                    body.extend(chunk[:cap_bytes - len(body)])
+                    if len(body) >= cap_bytes:
+                        break
+                else:
+                    body.extend(chunk)
+                    if len(body) > cap_bytes:
+                        raise make_error()
                 if clock() - started > deadline_seconds:
                     raise deadline_error()
         except Exception:

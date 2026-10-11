@@ -220,3 +220,9 @@ def test_the_deadline_stops_a_real_dripping_httpx_body(dripping_server):
         with pytest.raises(TooSlow):
             capped_body.read_capped(resp, 10**6, 1.0, Boom, make_deadline_error=TooSlow)
         assert time.monotonic() - started < 2.5
+
+
+def test_truncate_cuts_a_long_body_instead_of_refusing_it():
+    r = Resp([b"x" * 60, b"y" * 60, b"z"], headers={"Content-Length": "121"})
+    assert capped_body.read_capped(r, 100, 10.0, Boom, truncate=True) == b"x" * 60 + b"y" * 40
+    assert r.reads == 2 and r.closed
