@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
-import { openExportBlocks } from './exportBlocks'
+import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -52,14 +52,19 @@ async function expectSwitchTarget(loc: Locator) {
 const PRESETS = { items: [{ id: 7, name: 'A rather long preset name for a phone', translation_engine: 'claude', engine_model: null, style_preset: null, locale: null }] }
 
 test('export video sections and Mark as exported on a phone', async ({ page }) => {
+  await mockExportReady(page)
+  await page.route('**/api/workflow/dramas/1/progress', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), has_dub_track: true } })
+  })
   await page.goto('/#/drama/1/export')
   await expectTall(page.getByRole('button', { name: 'Mark as exported' }))
-  await page.getByText('Video and audio', { exact: true }).click()
-  await openExportBlocks(page)
-  const softsub = page.getByRole('group', { name: 'Video with a subtitle track' })
-  const dubbed = page.getByRole('group', { name: 'Video with the dub audio' })
+  const softsub = exportBlock(page, 'Video with a subtitle track')
+  const dubbed = exportBlock(page, 'Video with the dub audio')
+  await openExportBlock(page, 'Video with a subtitle track')
   await expectTall(softsub.getByRole('button'))
   await expectTall(softsub.getByLabel('Subtitles'))
+  await openExportBlock(page, 'Video with the dub audio')
   await expectTall(dubbed.getByRole('button'))
   await expectSwitchTarget(dubbed.getByRole('switch'))
   await expectNoHorizontalOverflow(page)
