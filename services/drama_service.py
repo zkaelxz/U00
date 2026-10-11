@@ -52,7 +52,8 @@ _TEXT_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_a
 _INT_FIELDS = ("chapter_count", "episode_number")
 # Stored 0/1: the Translate stage's two toggles (translate_run_service.save_style_toggles)
 # and the Media stage's "Keep original files" pin (keep_original_service).
-_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes", "keep_original")
+_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes", "keep_original",
+                "translate_by_sentence")
 
 # Hardening H1: sqlite ints are 64-bit and a Python int above that raises
 # OverflowError (a 500), so every id/count the client sends is capped well
