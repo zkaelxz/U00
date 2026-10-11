@@ -50,8 +50,10 @@ import storage
 import subtitle_formats
 import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import (auth_service, drama_service, keep_original_service, ownership_service,
-                      settings_service, translate_run_service, translate_service)
+from engine_backends import echo
+from services import (auth_service, drama_service, keep_original_service,
+                      maintenance_assistant_service, ownership_service, settings_service,
+                      translate_run_service, translate_service)
 from services import library_translated_guard
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -1060,6 +1062,8 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
             log.exception("Library restore failed")
             raise ServiceError("The restore could not be completed; the current library was "
                                "left in place.") from e
+        # The restored database decides Developer Mode, which the echo engine follows.
+        echo.set_enabled(maintenance_assistant_service.developer_mode_enabled())
         auth_service.write_audit(actor_id, "library.restore",
                                  f"library restored from backup; sessions revoked: {revoked}")
     finally:

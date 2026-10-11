@@ -5,9 +5,10 @@ library -- no server process, no network. Service logic itself is covered by
 tests/test_review_lines_service.py; these check the HTTP contract.
 """
 
-import time
 
 import pytest
+
+import scanlate
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -156,15 +157,14 @@ class TestFindReplacePreview:
         _error(r)
 
     @pytest.mark.parametrize("bad", ["((a+))+$", "(a|aa)+$", "(?:(?:a*)*)b", r"(\w+)\1+"])
-    def test_slow_regex_is_readable_422(self, client, bad):
+    def test_slow_regex_is_readable_422(self, client, bad, monkeypatch):
         did = db.create_drama(title_en="D")
         db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="a" * 30 + "!")])
-        # The first request to a new app pays FastAPI's one-off route setup
-        # (close to the bound on a busy runner); the bound is for the refusal.
-        assert self._post(client, did, find="zzz", replace="z").status_code == 200
-        started = time.monotonic()
+        # Rejected from the parsed pattern; running it even once would be the slow path.
+        ran = []
+        monkeypatch.setattr(scanlate, "bulk_find_replace_preview", lambda *a, **k: ran.append(1))
         r = self._post(client, did, find=bad, replace="z", use_regex=True)
-        assert time.monotonic() - started < 1.0
+        assert not ran
         assert r.status_code == 422
         err = _error(r)
         assert err["code"] == "validation_error" and "too long to run" in err["message"]

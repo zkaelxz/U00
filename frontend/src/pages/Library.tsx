@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { createDrama, getContinueReading, getPresets, getRecent, getSeries, getStats } from '../api/library'
@@ -44,6 +44,8 @@ import { SERIES_HELP } from '../helpText'
 
 
 
+const CONTINUE_SEEN_PREF = 'library.continue.hadItems'
+
 // "Continue": reading and workspace activity, one Resume tap each. Rendered
 // only when there is something to resume.
 function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
@@ -58,7 +60,13 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
   // The shelf is the tallest thing above the list; holding its place until the
   // two requests settle keeps the list from jumping down when they land.
   const loading = !continuing.error && !recent.error && (continuing.data === null || recent.data === null)
-  if (loading) return <div className="continue-skeleton skeleton-block" aria-hidden="true" />
+  // Only reserve the space for a viewer who had something to continue last
+  // time; otherwise an empty shelf would leave a 140 px gap that then collapses.
+  const [hadItems, setHadItems] = usePersistedState(CONTINUE_SEEN_PREF, false)
+  useEffect(() => {
+    if (!loading) setHadItems(items.length > 0)
+  }, [loading, items.length, setHadItems])
+  if (loading) return hadItems ? <div className="continue-skeleton skeleton-block" aria-hidden="true" /> : null
   if (!items.length) return errors
   const limit = phone ? 1 : 4
   const shown = all ? items : items.slice(0, limit)
@@ -114,8 +122,11 @@ const MAKE_SUBTITLES_PREF = 'library.makeSubtitles.open'
 // The Make subtitles card is the first-run action; once there are titles,
 // "New title" is the page's one primary, so the card folds to one line. It
 // stays mounted while folded so a run in progress isn't lost.
-function MakeSubtitlesPanel({ hasTitles }: { hasTitles: boolean }) {
+function MakeSubtitlesPanel({ hasTitles }: { hasTitles: boolean | null }) {
   const [pref, setPref] = usePersistedState(MAKE_SUBTITLES_PREF, '')
+  // Until the title count is known neither state is right: folded would flash
+  // before an empty library's card expands.
+  if (hasTitles === null) return null
   const open = !hasTitles || pref === 'open'
   return (
     <div className="make-subtitles-panel">
@@ -370,7 +381,7 @@ export default function LibraryPage() {
 
       {showGetStarted(stats.data?.total_dramas, startedDismissed)
         ? <GetStarted onDismiss={() => setStartedDismissed(true)} />
-        : <MakeSubtitlesPanel hasTitles={stats.data?.total_dramas !== 0} />}
+        : <MakeSubtitlesPanel hasTitles={stats.data ? stats.data.total_dramas !== 0 : stats.error ? true : null} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
         <p className="muted" data-testid="member-empty-note">
