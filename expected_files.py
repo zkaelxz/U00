@@ -25,7 +25,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "cli_translate.py",
     "comic_chapters.py",
     "core.py",
-    "db.py",
+    "db/__init__.py",
     "debug_view.py",
     "device_tokens.py",
     "diagnostics.py",

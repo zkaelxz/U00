@@ -1521,14 +1521,14 @@ class TestImportTimeSafety:
 
     @classmethod
     def _copy_db_and_deps(cls, temp_dir):
-        # Copy db.py plus every local module it imports
+        # Copy the db package plus every local module it imports
         # (transitively, lazy ones too), computed from the source so a split that adds an
         # import to core or db doesn't need this test edited. Copying only
         # those into an otherwise empty directory is the only way to observe a
         # genuinely fresh import rather than the module every other test in
         # this process shares; a dependency that isn't local (stdlib or
         # third-party) is left to the interpreter. Nothing is excluded on
-        # purpose: a heavy module reached from db.py would be copied here and
+        # purpose: a heavy module reached from db would be copied here and
         # then trip the "no library/ side effect" assertions in the tests.
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -2119,7 +2119,7 @@ def _alter_columns_in_db_py():
     import re
     # db may be split into a db/ package; read every module so the scan
     # can't pass on an empty file list.
-    root = os.path.dirname(db.__file__)
+    root = os.path.dirname(os.path.dirname(db.__file__))
     if os.path.isdir(os.path.join(root, "db")):
         paths = [os.path.join(d, f) for d, _, fs in os.walk(os.path.join(root, "db"))
                  for f in fs if f.endswith(".py")]

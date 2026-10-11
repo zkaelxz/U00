@@ -96,8 +96,11 @@ def _first_argument(text, open_paren):
 
 
 def _module_files():
-    return {os.path.splitext(os.path.basename(p))[0]: p for p in _tracked("*.py")
-            if not p.startswith("tests/")}
+    # A package's __init__.py is imported under the package name (db/__init__.py is `db`).
+    def name(p):
+        stem = os.path.splitext(os.path.basename(p))[0]
+        return os.path.basename(os.path.dirname(p)) if stem == "__init__" else stem
+    return {name(p): p for p in _tracked("*.py") if not p.startswith("tests/")}
 
 
 def _resolve_constant(rel, name, modules, seen=()):
@@ -137,7 +140,7 @@ def _app_setting_calls():
     modules = _module_files()
     calls = []
     for rel in _tracked("*.py"):
-        if rel.startswith("tests/") or rel == "db.py":
+        if rel.startswith("tests/") or rel == "db/__init__.py":
             continue
         text = _read(rel)
         for m in re.finditer(r"\b(?:get|set)_app_setting\(", text):
@@ -381,7 +384,7 @@ def test_declared_keys_are_read_through_one_reader():
     store_keys = _store_keys()
     stray, seen_other = [], set()
     for rel in _tracked("*.py"):
-        if rel.startswith(("tests/", "lib/")) or rel in ("db.py", "services/settings_service.py"):
+        if rel.startswith(("tests/", "lib/")) or rel in ("db/__init__.py", "services/settings_service.py"):
             continue
         text = _read(rel)
         assert "get_preference(" not in text, rel

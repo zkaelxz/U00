@@ -298,12 +298,18 @@ def _compress(plain_path: str) -> None:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp, packed_path)
+            # The plain file is the only other copy: the rename must be
+            # durable before it goes.
+            db.fsync_dir(folder)
         finally:
             with contextlib.suppress(OSError):
                 os.remove(tmp)
         if not _same_content(packed_path, plain):
-            with contextlib.suppress(OSError):
-                os.remove(packed_path)
+            # Another process may already have verified this .gz and removed
+            # the plain file; then the .gz is the only copy left.
+            if os.path.exists(plain_path):
+                with contextlib.suppress(OSError):
+                    os.remove(packed_path)
             log.warning("A compressed raw transcript didn't read back the same; kept it plain")
             return
     try:

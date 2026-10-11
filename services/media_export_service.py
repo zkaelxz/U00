@@ -102,11 +102,12 @@ def _move_labelled(drama_id, kind, src, final, language):
     # Label first: a download landing between the move and a later label write
     # would name the new file with the old file's language.
     name = os.path.basename(final)
+    previous = artifact_service.read_download_label(drama_id, kind, name)
     artifact_service.set_download_language(drama_id, kind, name, language, source=src)
     try:
         storage.move_into_place(src, final)
     except BaseException:
-        artifact_service.clear_download_language(drama_id, kind, name)
+        artifact_service.restore_download_label(drama_id, kind, name, previous)
         raise
 
 
