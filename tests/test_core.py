@@ -551,14 +551,20 @@ class TestFilterHallucinatedSegments:
         seg = self._seg(0, 30, text)
         assert filter_hallucinated_segments([seg]) == [seg]
 
-    def test_a_real_loop_is_cut_and_logged(self, caplog):
-        import logging
+    def test_a_real_loop_is_cut_and_logged(self, monkeypatch):
+        import applog
+        messages = []
+
+        class _Log:
+            def info(self, message):
+                messages.append(message)
+        # A fake logger: the real one's propagation depends on which tests ran before.
+        monkeypatch.setattr(applog, "get_logger", lambda *a, **k: _Log())
         seg = self._seg(12.0, 40.0, "谢谢你" * 30)
-        with caplog.at_level(logging.INFO, logger="baihe"):
-            result = filter_hallucinated_segments([seg])
-        assert result == [self._seg(12.0, 40.0, "谢谢你")]
-        assert any("loop collapse" in r.getMessage() and "12.0-40.0s" in r.getMessage()
-                   and "87 characters" in r.getMessage() for r in caplog.records)
+
+        assert filter_hallucinated_segments([seg]) == [self._seg(12.0, 40.0, "谢谢你")]
+        assert len(messages) == 1
+        assert "12.0-40.0s" in messages[0] and "87 characters" in messages[0]
 
     def test_a_short_repeat_inside_a_segment_is_real_speech(self):
         seg = self._seg(0, 3, "好的好的好的")
