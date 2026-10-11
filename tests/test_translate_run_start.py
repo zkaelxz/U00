@@ -202,7 +202,9 @@ def test_batch_size_over_the_cap_is_refused_with_a_clear_message(isolated_db):
     did = _seed([("你好", "")])
     with pytest.raises(InvalidInputError, match="can't be more than 60"):
         svc.start_translate_run(did, engine_name="fake", batch_size=200)
-    assert svc.start_translate_run(did, engine_name="fake", batch_size=60)["job_id"]
+    job_id = svc.start_translate_run(did, engine_name="fake", batch_size=60)["job_id"]
+    # The job thread must not outlive isolated_db's library folder.
+    assert background_jobs.wait_for_job_threads(5, [job_id])
 
 
 def test_empty_engine_reply_finishes_with_errors(isolated_db, monkeypatch):

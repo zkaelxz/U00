@@ -146,6 +146,20 @@ class TestMergeAdjacentShortLines:
                  Line(idx=1, start=0.6, end=1.0, zh="하세요", en="there", speaker="A")]
         assert merge_adjacent_short_lines(lines)[0].zh == "안녕 하세요"
 
+    def test_an_sfx_line_never_merges_into_speech_or_the_reverse(self):
+        for first_sfx, second_sfx in ((True, False), (False, True)):
+            lines = [Line(idx=0, start=0.0, end=0.5, zh="[笑]", en="[laughs]", speaker="A",
+                          sfx=first_sfx),
+                     Line(idx=1, start=0.6, end=1.0, zh="你好", en="Hi", speaker="A",
+                          sfx=second_sfx)]
+            assert len(merge_adjacent_short_lines(lines)) == 2
+
+    def test_lines_with_different_manual_speaker_marks_stay_apart(self):
+        lines = [Line(idx=0, start=0.0, end=0.5, zh="你", en="You", speaker="A",
+                      speaker_manual=True),
+                 Line(idx=1, start=0.6, end=1.0, zh="好", en="ok", speaker="A")]
+        assert len(merge_adjacent_short_lines(lines)) == 2
+
     def test_korean_space_survives_sentence_punctuation_on_the_first_line(self):
         lines = [Line(idx=0, start=0.0, end=0.5, zh="안녕.", en="Hi", speaker="A"),
                  Line(idx=1, start=0.6, end=1.0, zh="하세요", en="there", speaker="A")]
@@ -525,6 +539,11 @@ class TestFilterHallucinatedSegments:
                     self._seg(2, 3, "world")]
         result = filter_hallucinated_segments(segments, min_repeat_count=4)
         assert result == segments
+
+    def test_a_repeat_count_under_two_turns_the_run_collapse_off(self):
+        segments = [self._seg(i, i + 1, "好的") for i in range(3)]
+        for count in (0, 1):
+            assert filter_hallucinated_segments(segments, min_repeat_count=count) == segments
 
     def test_repeats_that_differ_only_in_punctuation_collapse(self):
         segments = [self._seg(i, i + 1, text) for i, text in
@@ -1474,6 +1493,14 @@ class TestSplitLongSegments:
         assert len(out) > 1
         assert {p["flag"] for p in out} == {"timing_uncertain"}
         assert {p["flag_note"] for p in out} == {segment_splitting.PROPORTIONAL_SPLIT_NOTE}
+
+    def test_proportional_cuts_keep_a_flag_the_segment_already_has(self):
+        seg = {**self._seg(",".join(["一二三四五六七八九十"] * 8) + "。", 0.0, 30.0),
+               "flag": "uncertain_translation", "flag_note": "check names"}
+        out = segment_splitting.split_long_segments([seg], max_seconds=8, flag_estimated=True)
+        assert len(out) > 1
+        assert {(p["flag"], p["flag_note"]) for p in out} == {("uncertain_translation",
+                                                               "check names")}
 
     def test_proportional_cuts_are_unflagged_unless_asked(self):
         seg = self._seg(",".join(["一二三四五六七八九十"] * 8) + "。", 0.0, 30.0)

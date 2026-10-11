@@ -37,7 +37,7 @@ import bulk_translate
 import core
 import db
 import translate_engines
-from services import (ownership_service, settings_service, transcribe_service,
+from services import (fixflag_translate, ownership_service, settings_service, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
@@ -229,6 +229,10 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
     def precheck(lines):
         if not any(ln.flag for ln in lines):
             raise UnsupportedOperationError("No lines are flagged.")
+        if not fixflag_translate.split_timing_flags([ln for ln in lines if ln.flag])[0]:
+            raise UnsupportedOperationError(
+                "Only timing flags are set, and rewording can't fix those. "
+                "Use the timing tools instead.")
 
     def make_args(drama, lines, eng, name):
         cap = None
