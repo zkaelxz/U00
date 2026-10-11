@@ -73,7 +73,7 @@ def missing_package_outcome(message: str = MISSING_TRANSCRIPTION_MESSAGE) -> dic
 
 
 _MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v3-turbo": "~1.6 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
-                         "large": "~3 GB", "medium": "~1.5 GB", "small": "~500 MB",
+                         "large": "~3 GB", "ja-1.5b": "~3.1 GB", "medium": "~1.5 GB", "small": "~500 MB",
                          "base": "~150 MB", "tiny": "~75 MB"}
 
 

@@ -56,7 +56,7 @@ import translate_engines
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks
 from services import settings_service, translate_service
-from services.benchmark_case_service import (redact, run_file_case as _run_case_file,
+from services.benchmark_case_service import (redact, require_whisper_fits_cases, run_file_case as _run_case_file,
                                                    run_translation as _run_translation)
 from services.service_errors import (
     ConflictError,
@@ -495,6 +495,7 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
     cases = _select_cases(stage, tier, set_name, case_ids)
     if not cases:
         raise UnsupportedOperationError("No benchmark cases match that selection.")
+    require_whisper_fits_cases(stage, checked, cases)
     return checked, cases
 
 

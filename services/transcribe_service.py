@@ -356,6 +356,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
         # A fixed set: faster-whisper downloads whatever repo name it is given.
         if fields["whisper_size"] not in _allowed_whisper_sizes():
             raise InvalidInputError(f"Unknown whisper_size {fields['whisper_size']!r}.")
+        check_whisper_size_for_language(fields["whisper_size"], drama.get("source_language") or "zh")
         updates["whisper_size"] = fields["whisper_size"]
     if "alignment_method" in fields and fields["alignment_method"] is not None:
         if fields["alignment_method"] not in ("whisper_diff", "qwen3_forced_align"):
@@ -549,6 +550,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     job_id = f"transcribe_{drama_id}"
     description = f"Transcription (title #{drama_id})"
     whisper_size = stored_whisper_size(drama)
+    # The title's saved language passed above; this run may name another one.
+    check_whisper_size_for_language(whisper_size, source_language)
     beam_size = drama.get("beam_size") or _DEFAULT_TUNING["beam_size"]
     min_silence_ms = drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"]
     vad_threshold = presets.stored_vad_threshold(drama)
@@ -686,12 +689,19 @@ def default_whisper_size() -> str:
     return _DEFAULT_TUNING["whisper_size"]
 
 
+def check_whisper_size_for_language(size: str, source_language: str) -> None:
+    """Refuses a Japanese-only model for any other source language."""
+    if not whisper_models.whisper_model_fits_language(size, source_language):
+        raise InvalidInputError("That Whisper model is only available for Japanese titles.")
+
+
 def stored_whisper_size(drama: dict) -> str:
     """The drama's saved whisper_size, or the default when it is empty or
     not one of _allowed_whisper_sizes() (e.g. a value planted in the DB by
     hand): an arbitrary string must never reach WhisperModel, where it
     would be read as a Hugging Face repo id or a local path. Logs a warning
-    (without the value) when it falls back."""
+    (without the value) when it falls back. A Japanese-only model saved on a
+    title whose language was later changed falls back the same way."""
     size = drama.get("whisper_size")
     if not size:
         return default_whisper_size()
@@ -700,6 +710,12 @@ def stored_whisper_size(drama: dict) -> str:
         applog.get_logger().warning(
             f"drama {drama.get('id')}: stored whisper_size is not a known model size; "
             f"using the default {default_whisper_size()}")
+        return default_whisper_size()
+    if not whisper_models.whisper_model_fits_language(size, drama.get("source_language") or "zh"):
+        import applog
+        applog.get_logger().warning(
+            f"drama {drama.get('id')}: stored whisper_size is Japanese-only but the title is not "
+            f"Japanese; using the default {default_whisper_size()}")
         return default_whisper_size()
     return size
 

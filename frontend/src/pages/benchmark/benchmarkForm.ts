@@ -14,6 +14,7 @@ import { humanize, humanizeValue, type BadgeTone } from '../../components/labels
 import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
 import type { JobRecord } from '../../types/jobs'
 import { BENCH_DEFAULT_OPEN, type BenchSectionId } from './benchmarkHelp'
+import { JA_ONLY_WHISPER_SIZES } from '../workspace/sourceForm'
 
 export const STAGE_LABELS: Record<string, string> = {
   translation: 'Translation',
@@ -223,7 +224,7 @@ export function estimateKey(sel: RunSelection): string {
 export function defaultConfig(stage: BenchmarkStage, options: BenchmarkOptions, taken: BenchmarkConfig[] = []): BenchmarkConfig | null {
   const used = new Set(taken.map((c) => `${c.engine}|${c.model ?? ''}`))
   let candidates: BenchmarkConfig[]
-  if (stage === 'transcription') candidates = options.whisper_sizes.map((s) => ({ engine: 'whisper', model: s }))
+  if (stage === 'transcription') candidates = options.whisper_sizes.filter((s) => !JA_ONLY_WHISPER_SIZES.includes(s)).map((s) => ({ engine: 'whisper', model: s }))
   else if (stage === 'ocr') candidates = options.ocr_backends.map((b) => ({ engine: b }))
   else {
     const usable = options.translation_engines.filter((e) => e.key_configured)

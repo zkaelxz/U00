@@ -87,7 +87,8 @@ def get_options(drama_id: int) -> dict:
     language = drama.get("source_language") or "zh"
     has_audio = (drama.get("content_mode") or "audio_drama") in ("audio_drama", "streamer_vod") \
         and transcribe_service._drama_audio_path(drama_id, drama) is not None
-    sizes = sorted(transcribe_service._allowed_whisper_sizes())
+    sizes = sorted(size for size in transcribe_service._allowed_whisper_sizes()
+                   if whisper_models.whisper_model_fits_language(size, language))
     backends = []
     for choice in BACKEND_CHOICES:
         problem = _backend_problem(choice, language)
@@ -161,6 +162,7 @@ def _validate_candidate(drama: dict, whisper_size, backend_choice):
     size = whisper_size or transcribe_service.stored_whisper_size(drama)
     if size not in transcribe_service._allowed_whisper_sizes():
         raise InvalidInputError(f"Unknown Whisper model size {size!r}.")
+    transcribe_service.check_whisper_size_for_language(size, drama.get("source_language") or "zh")
     backend = backend_choice or asr_options_service.stored_asr_backend(drama)
     if backend not in BACKEND_CHOICES:
         raise InvalidInputError(f"Unknown ASR backend {backend!r}.")

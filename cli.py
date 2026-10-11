@@ -87,7 +87,7 @@ from services import (dub_service, export_service, glossary_service, jobs_servic
                       narration_service, review_extras_service, settings_service, transcribe_pipeline,
                       transcribe_service)
 from services.narration_service import TAG_ENGINES
-from lib.errors import DependencyUnavailableError, ServiceError
+from lib.errors import DependencyUnavailableError, InvalidInputError, ServiceError
 
 
 def _gemini_free_tier(engine_name: str) -> bool:
@@ -466,6 +466,11 @@ def cmd_align(args):
         whisper_size = args.whisper_size or transcribe_service.stored_whisper_size(d)
         alignment_method = d.get("alignment_method") or "whisper_diff"
         language = d.get("source_language") or "zh"
+        try:
+            transcribe_service.check_whisper_size_for_language(whisper_size, language)
+        except InvalidInputError as exc:
+            print(f"#{d['id']} skipped: {exc.message}")
+            return
         if alignment_method == "qwen3_forced_align":
             # Checked before any transcription, as the API does.
             try:
