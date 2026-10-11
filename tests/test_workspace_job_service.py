@@ -47,7 +47,8 @@ def _capture_bulk_start(isolated_db, monkeypatch, engine, content_mode):
         if name == "ollama" and key is None:
             seen["summary_base_url"] = k.get("base_url")
             return summary
-        return object()
+        # The real class without its constructor (no SDK import, no network).
+        return wjs.translate_engines.ENGINES[name].__new__(wjs.translate_engines.ENGINES[name])
     monkeypatch.setattr(wjs.translate_engines, "get_engine", fake_get_engine)
 
     def fake_start(job_id, fn, *args, **kwargs):
@@ -66,7 +67,7 @@ def test_bulk_uses_novel_defaults_custom_notes_and_summary_engine(isolated_db, m
     args, kwargs = seen["args"], seen["kwargs"]
     style_guidelines, context_window = args[10], args[13]
     assert context_window == 10
-    assert kwargs["context_window_ahead"] == 6 and kwargs["batch_size"] == 30
+    assert kwargs["context_window_ahead"] == 6 and kwargs["batch_size"] == 60
     assert "LEARNED-STYLE" in style_guidelines and "EMOTION-GUIDE" in style_guidelines
     assert kwargs["summary_engine"] is summary and kwargs["summary_engine_choice"] == "ollama"
     assert seen["summary_base_url"] == "http://gpu-box:11434"
@@ -119,7 +120,8 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
 def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, engine, "audio_drama")
     assert seen["kwargs"]["cost_cap_usd"] == pytest.approx(5.0)
-    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == 30
+    # Sonnet-class Claude batches 60 lines a request; DeepSeek keeps 30.
+    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == {"claude": 60, "deepseek": 30}[engine]
 
 
 def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):

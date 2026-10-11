@@ -1184,7 +1184,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         glossary_terms, style_guidelines, _ = build_run_style_context(
             did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
             default_female_pronouns=default_female_pronouns)
-        defaults = translate_run_service.get_translate_config_defaults(is_novel)
+        defs = translate_run_service.get_translate_config_defaults(is_novel, engine)
         novel_reference = None
         if drama.get("novel_reference_filename"):
             novel_path = os.path.join(db.drama_dir(did), drama["novel_reference_filename"])
@@ -1199,10 +1199,10 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             per_job_id, run_translate_job,
             per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
             default_locale, glossary_terms, style_guidelines, engine_choice, style_preset,
-            defaults["context_window"], settings_service.get("ollama_num_ctx_override") or None,
+            defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
             cost_cap_usd=cost_cap,
-            context_window_ahead=defaults["context_window_ahead"],
-            batch_size=defaults["batch_size"],
+            context_window_ahead=defs["context_window_ahead"],
+            batch_size=defs["batch_size"],
             summary_engine=summary_engine, summary_engine_choice=summary_choice,
             summary_monthly_cap_usd=monthly_cap,
             # Only a local Ollama model loads onto this PC's GPU; an Ollama
@@ -1215,7 +1215,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                 drama, include_genre_notes, default_female_pronouns, glossary_terms,
                 style_guidelines, style_note, engine=engine_choice,
                 model=getattr(engine, "model", None), locale=default_locale,
-                style_preset=style_preset, force_retranslate=False, **defaults))
+                style_preset=style_preset, force_retranslate=False, **defs))
         if not started:
             results["skipped_running"].append(did)
             continue

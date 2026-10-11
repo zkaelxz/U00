@@ -48,11 +48,12 @@ def test_unknown_drama(isolated_db):
 
 def test_config_defaults_audio_vs_novel(isolated_db):
     a = svc.get_translate_config(_drama())
-    assert a["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 30}
+    # The default engine is Claude Sonnet, so its batch default is the large one.
+    assert a["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 60}
     assert a["default_style_preset"] == "audio_drama"
     assert a["translation_engine"] == "claude"
     n = svc.get_translate_config(_drama(content_mode="novel_narration"))
-    assert n["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 30}
+    assert n["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 60}
     assert n["default_style_preset"] == "novel"
     assert {"key": "novel", "label": "Novel / prose"} in [{"key": p["key"], "label": p["label"]} for p in n["style_presets"]]
     assert "en-US" in n["locales"]
@@ -326,3 +327,73 @@ def test_save_style_toggles_stores_translate_by_sentence_and_none_keeps_it(isola
     svc.save_style_toggles(did, translate_by_sentence=True)
     svc.save_style_toggles(did, include_genre_notes=False)
     assert isolated_db.get_drama(did)["translate_by_sentence"] == 1
+
+
+@pytest.mark.parametrize("engine, model, expected", [
+    ("claude", "claude-sonnet-5-5", 60),
+    ("claude", "claude-opus-5-5", 60),
+    ("claude", "claude-fable-5-1", 60),
+    ("claude", None, 60),                         # the engine's default model is Sonnet
+    ("claude", "claude-haiku-4-5-20251001", 30),  # small model
+    ("gemini", "gemini-pro-latest", 60),
+    ("gemini", "gemini-flash-latest", 30),
+    ("gemini", "gemini-flash-lite-latest", 30),
+    ("gemini", None, 30),                         # default model is Flash-Lite
+    ("openai", "gpt-5", 30),                      # not tested at 60 yet
+    ("deepseek", None, 30),
+    ("ollama", "qwen3:8b", 30),                   # local
+    ("no-such-engine", "claude-sonnet-5-5", 30),  # unknown engine: safe default
+    ("claude", "something-new", 30),              # unknown model: safe default
+])
+def test_default_batch_size_by_engine_and_model(isolated_db, engine, model, expected):
+    assert translate_engines.default_batch_size(engine, model) == expected
+
+
+def test_default_batch_size_accepts_an_engine_instance(isolated_db):
+    strong = translate_engines.ENGINES["claude"]("k", model="claude-opus-5-5")
+    small = translate_engines.ENGINES["claude"]("k", model="claude-haiku-4-5-20251001")
+    assert translate_engines.default_batch_size(strong) == 60
+    assert translate_engines.default_batch_size(small) == 30
+    assert translate_engines.default_batch_size(object()) == 30
+
+
+def test_config_offers_a_batch_default_per_engine_and_model(isolated_db):
+    table = svc.get_translate_config(_drama())["batch_size_defaults"]
+    assert table["claude"]["claude-sonnet-5-5"] == 60 and table["claude"][""] == 60
+    assert table["claude"]["claude-haiku-4-5-20251001"] == 30
+    assert table["gemini"]["gemini-pro-latest"] == 60
+    assert table["gemini"]["gemini-flash-lite-latest"] == 30
+
+
+def test_config_default_follows_the_titles_engine(isolated_db):
+    did = _drama(translation_engine="deepseek")
+    assert svc.get_translate_config(did)["defaults"]["batch_size"] == 30
+
+
+def _batch_size_validated(monkeypatch, did, **kw):
+    seen = {}
+    real = svc.validate_run_options
+
+    def spy(*a, **k):
+        seen["batch_size"] = k["batch_size"]
+        return real(*a, **k)
+    monkeypatch.setattr(svc, "validate_run_options", spy)
+    try:
+        svc.start_translate_run(did, **kw)
+    except Exception:  # no API key in tests: only the resolved value matters
+        pass
+    return seen["batch_size"]
+
+
+def test_run_without_a_batch_size_uses_the_engines_default(isolated_db, monkeypatch):
+    did = _drama()
+    assert _batch_size_validated(monkeypatch, did, engine_name="claude",
+                                 model="claude-sonnet-5-5") == 60
+    assert _batch_size_validated(monkeypatch, did, engine_name="claude",
+                                 model="claude-haiku-4-5-20251001") == 30
+
+
+def test_a_chosen_batch_size_is_never_overridden(isolated_db, monkeypatch):
+    did = _drama()
+    assert _batch_size_validated(monkeypatch, did, engine_name="claude",
+                                 model="claude-sonnet-5-5", batch_size=25) == 25
