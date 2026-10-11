@@ -41,7 +41,7 @@ STALE_JOB_SECONDS = background_jobs.STALE_JOB_SECONDS
 # absolute paths collapsed to ".../name") and URLs are replaced.
 RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
-    "fixed_count", "total_flagged", "existing_line_count", "line_count",
+    "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
     "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
     "coverage_warning", "ollama_notice",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
@@ -351,6 +351,9 @@ def derive_outcome(status, error, result):
     if "fixed_count" in result:
         parts.append(f"Fixed {result.get('fixed_count') or 0} of "
                      f"{result.get('total_flagged') or 0} flagged line(s).")
+    if result.get("timing_skipped_count"):
+        parts.append(f"{result['timing_skipped_count']} timing flags skipped "
+                     "(fix them in the timing tools).")
     if result.get("kept_your_edit"):
         parts.append(f"{len(result['kept_your_edit'])} line(s) edited while it ran kept your edit.")
     if isinstance(cap, (int, float)) and not isinstance(cap, bool):

@@ -19,7 +19,8 @@ def _run(lines, engine, **kw):
         lines, engine=engine, engine_choice="claude", drama_id=1, base_context={},
         character_names={}, source_language="zh", heard_by_idx={}, translate=True,
         cost_cap_usd=kw.pop("cost_cap_usd", None), check_cancel=lambda: None,
-        on_progress=lambda done, total: None, errors=errors)
+        on_progress=lambda done, total: None, errors=errors,
+        all_lines=kw.pop("all_lines", None))
     return out, errors
 
 
@@ -110,3 +111,98 @@ def test_translation_only_engine_translates_the_source_in_one_batch():
     assert MT.calls == [(["一", "二"], [0, 1])]
     assert lines[0].en == "EN:一" and lines[0].flag is None
     assert lines[1].flag == "uncertain_translation" and out["unchanged"] == 1
+
+
+class _Mt:
+    """Translation-only engine: a list in, a list out."""
+    model = "mt"
+    supports_reference = False
+
+    def __init__(self, reply):
+        self.reply = reply
+
+    def translate_batch(self, texts, context):
+        return self.reply(texts)
+
+
+def test_short_reply_from_a_translation_only_engine_fails_the_whole_batch():
+    lines = [_line(0, "一", "x"), _line(1, "二", "y"), _line(2, "三", "z")]
+    out, errors = _run(lines, _Mt(lambda texts: ["one", "two"]))
+    assert [ln.en for ln in lines] == ["x", "y", "z"]
+    assert all(ln.flag for ln in lines) and out["fixed"] == 0
+    assert len(errors) == 3 and "returned 2 lines for 3" in errors[0]
+
+
+def test_matching_reply_from_a_translation_only_engine_is_applied():
+    lines = [_line(0, "一", "x"), _line(1, "二", "y")]
+    out, errors = _run(lines, _Mt(lambda texts: ["one", "two"]))
+    assert [ln.en for ln in lines] == ["one", "two"] and not errors and out["fixed"] == 2
+
+
+def test_timing_flags_are_split_off_and_reading_speed_stays():
+    flags = ["timing_drift", "timing_overlap", "timing_uncertain", "reading_speed",
+             "uncertain_translation"]
+    lines = [_line(n, f"句{n}", "x", flag=f) for n, f in enumerate(flags)]
+    fixable, skipped = fixflag_translate.split_timing_flags(lines)
+    assert [ln.flag for ln in fixable] == ["reading_speed", "uncertain_translation"]
+    assert skipped == 3
+
+
+def _script(n):
+    return [Line(idx=i, start=i, end=i + 1, zh=f"源{i}", en=f"eng{i}") for i in range(n)]
+
+
+def _flag(script, *idxs):
+    for i in idxs:
+        script[i].flag, script[i].flag_note = "ambiguous_reference", ""
+    return [script[i] for i in idxs]
+
+
+def _run_with_context(batch, script, llm_replies):
+    llm_replies["replies"] = {ln.zh: "fixed" for ln in batch}
+    return _run(batch, _LLM(), all_lines=script)
+
+
+def test_prompt_shows_three_lines_either_side_as_context_only(llm_replies):
+    script = _script(20)
+    batch = _flag(script, 10)
+    _run_with_context(batch, script, llm_replies)
+    prompt = llm_replies["prompts"][0]
+    marked = re.findall(r"\(context only, do not return\) Source: (源\d+)", prompt)
+    assert marked == ["源7", "源8", "源9", "源11", "源12", "源13"]
+    assert re.findall(r"^\[\d+\] Source: (.*)$", prompt, re.M) == ["源10"]
+    assert [ln.en for ln in script if ln.idx != 10] == [f"eng{i}" for i in range(20) if i != 10]
+    assert script[10].en == "fixed"
+
+
+def test_overlapping_windows_merge_and_show_each_line_once(llm_replies):
+    script = _script(30)
+    batch = _flag(script, 10, 12, 25)
+    _run_with_context(batch, script, llm_replies)
+    prompt = llm_replies["prompts"][0]
+    shown = re.findall(r"Source: (源\d+)", prompt)
+    assert shown == [f"源{i}" for i in [*range(7, 16), *range(22, 29)]]
+    assert len(shown) == len(set(shown)) and "...\n" in prompt
+
+
+def test_context_never_changes_or_gets_saved_even_if_the_model_returns_it(monkeypatch, llm_replies):
+    script = _script(10)
+    batch = _flag(script, 5)
+
+    def reply(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+        return json.dumps({"1": "fixed", "2": "context hijack", "3": "context hijack"})
+    monkeypatch.setattr(fixflag_translate.translate_engines, "call_llm_json", reply)
+    _run(batch, _LLM(), all_lines=script)
+    assert script[5].en == "fixed"
+    assert [ln.en for ln in script if ln.idx != 5] == [f"eng{i}" for i in range(10) if i != 5]
+
+
+def test_prompt_growth_is_bounded_by_the_window(llm_replies):
+    # Worst case: 15 flagged lines too far apart to share a window.
+    script = _script(200)
+    batch = _flag(script, *range(3, 200, 13)[:fixflag_translate.BATCH_SIZE])
+    _run_with_context(batch, script, llm_replies)
+    prompt = llm_replies["prompts"][0]
+    context = prompt.count("(context only, do not return)")
+    assert context == 2 * fixflag_translate.CONTEXT_RADIUS * len(batch)
+    assert len(llm_replies["prompts"]) == 1

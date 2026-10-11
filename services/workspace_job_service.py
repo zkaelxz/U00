@@ -540,7 +540,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     Each re-translation gets the same context a translate run uses
     (glossary, style guidelines, locale, the line's character name).
     """
-    flagged = [ln for ln in lines if ln.flag]
+    flagged, timing_skipped = fixflag_translate.split_timing_flags(
+        [ln for ln in lines if ln.flag])
     drama = db.get_drama(drama_id) or {}
     style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
     glossary_terms, style_guidelines, character_names = build_run_style_context(
@@ -574,7 +575,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
             flagged, engine=engine, engine_choice=engine_choice, drama_id=drama_id,
             base_context=base_context, character_names=character_names,
             source_language=source_language, heard_by_idx=heard_by_idx,
-            translate=not cancelled, cost_cap_usd=cost_cap_usd, errors=errors,
+            translate=not cancelled, cost_cap_usd=cost_cap_usd, errors=errors, all_lines=lines,
             check_cancel=lambda: None if cancelled else _raise_if_cancelled(job_id),
             on_progress=lambda done, total: background_jobs.update_progress(
                 job_id, done / max(total, 1), f"Fixing flagged lines... {done}/{total}"))
@@ -587,6 +588,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     background_jobs.set_result(job_id, {
         "fixed_count": outcome["fixed"], "total_flagged": total_flagged, "errors": errors[:20],
         "cap_reached": outcome["cap_reached"],
+        **({"timing_skipped_count": timing_skipped} if timing_skipped else {}),
         **({"unchanged_count": outcome["unchanged"]} if outcome["unchanged"] else {}), **kept})
 
 
