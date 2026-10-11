@@ -19,6 +19,7 @@ byte-identical to before this module existed.
 
 import copy
 import html
+import math
 import re
 
 import review_thresholds
@@ -104,6 +105,47 @@ def clamp_overlaps(lines):
     return out, clamped
 
 
+# ------------------------------------------------------ duration and gap
+
+# Netflix Timed Text Style Guide, subtitle timing: at least 20 frames
+# (5/6 s at 24 fps) on screen, at most 7 s, and 2 frames between cues so a
+# player redraws the next cue instead of holding the old one through it.
+MIN_DURATION_FRAMES = 20
+MAX_DURATION_S = 7.0
+MIN_GAP_FRAMES = 2
+DEFAULT_FPS = 24.0
+_TIMING_EPSILON = 0.0005  # below SRT's millisecond resolution
+
+
+def apply_timing_rules(lines, fps=None):
+    """Returns (copies, adjusted_count): copies of `lines` (already
+    overlap-clamped) with only end times changed, for SRT output. A cue is
+    capped at 7 s, lengthened toward 20 frames, and ended 2 frames before
+    the next cue starts. Conservative on purpose: a cue is never lengthened
+    past the next cue's start minus the gap (that start belongs to the next
+    speaker), and never shortened below the shorter of its own length and
+    20 frames just to make room for the gap. The originals are untouched
+    and stored times are never written."""
+    fps = fps if isinstance(fps, (int, float)) and math.isfinite(fps) and fps > 0 else DEFAULT_FPS
+    min_dur, gap = MIN_DURATION_FRAMES / fps, MIN_GAP_FRAMES / fps
+    out = [copy.copy(ln) for ln in lines]
+    adjusted = 0
+    for i, ln in enumerate(out):
+        original_end = ln.end
+        end = min(ln.end, ln.start + MAX_DURATION_S)
+        room = out[i + 1].start - gap if i + 1 < len(out) else math.inf
+        if end - ln.start < min_dur:
+            end = max(end, min(ln.start + min_dur, room))
+        if end > room:
+            # Trimming for the gap may not leave the cue shorter than it
+            # would have been allowed to be anyway.
+            end = max(room, ln.start + min(original_end - ln.start, min_dur))
+        if abs(end - original_end) > _TIMING_EPSILON:
+            ln.end = end
+            adjusted += 1
+    return out, adjusted
+
+
 def overlap_note(ln, next_start: float) -> str:
     return (f"Overlapped the next line by {ln.end - next_start:.2f}s; exports trim its end to "
             f"{next_start:.2f}s. Adjust the timing to fix it for good.")
@@ -131,37 +173,40 @@ def lines_for_clip(lines, start: float, end: float):
 
 # ---------------------------------------------------------- reading speed
 
-# Characters-per-second ceilings by script -- a starting table from
-# ZastTranslate's fitted_cps_config.py (see the roadmap's sources), not a
-# precision model.
-CPS_LIMITS = {"cjk": 6.5, "abugida_rtl": 7.0, "latin": 8.5}
-DEFAULT_CPS_LIMIT = 7.5
+# Characters-per-second limits, from the Netflix Timed Text Style Guides
+# (one page per language on partnerhelp.netflixstudios.com): English 17 for
+# comfortable reading, Chinese 9, Japanese 4 and Korean 12. They are limits
+# for the viewer's reading, not for how fast people talk, so fast speech
+# legitimately trips them (see the modes below).
+CPS_BY_LANGUAGE = {"en": 17.0, "zh": 9.0, "ja": 4.0, "ko": 12.0}
+# Text whose language isn't known is judged by its script. Latin and CJK use
+# the English and Chinese values. Hebrew/Arabic/Indic/Thai have no Netflix
+# value; they keep the ratio to Latin they had before (7.0 against 8.5).
+SCRIPT_CPS = {"cjk": CPS_BY_LANGUAGE["zh"], "abugida_rtl": 14.0, "latin": CPS_BY_LANGUAGE["en"]}
+DEFAULT_CPS_LIMIT = 15.0
 READING_SPEED_FLAG = "reading_speed"
 
 # Per-title choice for people who work on fast talkers, where lengthening a
 # cue past the audio is not an option and the default limits flag most lines.
-# "relaxed" is the normal table raised by roughly 40%. These numbers are a
-# judgement call, not measured on real subtitles.
+# "relaxed" is Netflix's English ceiling of 20 against its comfortable 17,
+# applied as the same ratio to every language.
 READING_SPEED_MODES = ("normal", "relaxed", "off")
 DEFAULT_READING_SPEED_MODE = "normal"
-RELAXED_CPS_LIMITS = {"cjk": 9.0, "abugida_rtl": 10.0, "latin": 12.0}
-RELAXED_DEFAULT_CPS_LIMIT = 10.5
-# Streamer speech runs near 17 characters/second in English, above even the
-# relaxed table, and cues can't be lengthened past the audio. Flags only the
-# extremes: the relaxed limits raised by another 50%.
+RELAXED_FACTOR = 20 / 17
+# Streamer speech runs near 17 characters/second in English, and cues can't
+# be lengthened past the audio. Flags only the extremes: the relaxed limits
+# raised by another 20%.
 STREAMER_MODE = "streamer"
-STREAMER_CPS_LIMITS = {k: v * 1.5 for k, v in RELAXED_CPS_LIMITS.items()}
-STREAMER_DEFAULT_CPS_LIMIT = RELAXED_DEFAULT_CPS_LIMIT * 1.5
+STREAMER_FACTOR = 1.2
 
-# A cue shorter than this, or with less text than this, is never flagged: a
-# few words are read almost at a glance whatever the ratio says, and such a
-# cue often cannot be lengthened (it sits between two other lines).
-# Characters are not comparable across scripts (a CJK character carries
-# more than a Latin one), so the character floor follows the proportions of
-# the limit table: 15 Latin characters is about three words.
+# A cue shorter than this, or with less text than MIN_DENSE_CHARS, is never
+# flagged: a few characters are read at a glance whatever the ratio says, and
+# such a cue often cannot be lengthened (it sits between two other lines).
+# At the English, Chinese and Korean limits 1.5 s already holds more than
+# 11 characters before it can be dense; the character floor is what spares
+# short Japanese cues (4/s would flag 7 characters in 1.5 s).
 MIN_DENSE_DURATION_S = 1.5
-MIN_DENSE_CHARS = {"cjk": 11, "abugida_rtl": 12, "latin": 15}
-DEFAULT_MIN_DENSE_CHARS = 13
+MIN_DENSE_CHARS = 11
 
 _SCRIPT_PATTERNS = {
     "cjk": _CJK,
@@ -174,6 +219,14 @@ def script_of(text: str) -> str:
     counts = {name: len(p.findall(text or "")) for name, p in _SCRIPT_PATTERNS.items()}
     best = max(counts, key=counts.get)
     return best if counts[best] else ""
+
+
+def cps_limit(key: str, mode: str = DEFAULT_READING_SPEED_MODE) -> float:
+    """The limit for a language code or script name at `mode`. An unknown
+    key gets DEFAULT_CPS_LIMIT."""
+    base = CPS_BY_LANGUAGE.get(key) or SCRIPT_CPS.get(key) or DEFAULT_CPS_LIMIT
+    factor = {"relaxed": RELAXED_FACTOR, STREAMER_MODE: RELAXED_FACTOR * STREAMER_FACTOR}.get(mode, 1.0)
+    return round(base * factor, 2)
 
 
 def reading_speed(text: str, duration: float) -> float:
@@ -197,16 +250,14 @@ def flagging_mode_of(drama) -> str:
     return mode
 
 
-def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE) -> list:
+def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE,
+                language: str = None) -> list:
     """[(line, chars_per_second, limit)] for every line whose `field` text
-    is too dense to read in the time it's on screen. Cues under the
-    MIN_DENSE_* floor are skipped; mode "off" finds nothing."""
+    is too dense to read in the time it's on screen. `language` (en, zh, ja
+    or ko) picks that language's limit; without it the text's script does.
+    Cues under the MIN_DENSE_* floor are skipped; mode "off" finds nothing."""
     if mode == "off":
         return []
-    limits, fallback = {
-        "relaxed": (RELAXED_CPS_LIMITS, RELAXED_DEFAULT_CPS_LIMIT),
-        STREAMER_MODE: (STREAMER_CPS_LIMITS, STREAMER_DEFAULT_CPS_LIMIT),
-    }.get(mode, (CPS_LIMITS, DEFAULT_CPS_LIMIT))
     out = []
     for ln in lines:
         text = getattr(ln, field, "") or ""
@@ -215,10 +266,9 @@ def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE
             continue
         duration = ln.end - ln.start
         script = script_of(text)
-        if duration < MIN_DENSE_DURATION_S or len(stripped) < MIN_DENSE_CHARS.get(
-                script, DEFAULT_MIN_DENSE_CHARS):
+        if duration < MIN_DENSE_DURATION_S or len(stripped) < MIN_DENSE_CHARS:
             continue
-        limit = limits.get(script, fallback)
+        limit = cps_limit(language if language in CPS_BY_LANGUAGE else script, mode)
         cps = reading_speed(text, duration)
         if cps > limit:
             out.append((ln, cps, limit))

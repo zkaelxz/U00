@@ -334,10 +334,17 @@ def get_export_readiness(drama_id: int) -> dict:
     }
 
 
-def generate_subtitle_text(drama_id: int, fmt: str, field: str,
-                           include_notes: bool = False,
-                           wrap_chars_en: Optional[int] = None,
-                           wrap_chars_source: Optional[int] = None) -> str:
+def generate_subtitle_text(drama_id: int, fmt: str, field: str, **options) -> str:
+    """The text of generate_subtitle_export, for callers that don't need
+    the adjusted-cue count."""
+    return generate_subtitle_export(drama_id, fmt, field, **options)["text"]
+
+
+def generate_subtitle_export(drama_id: int, fmt: str, field: str,
+                             include_notes: bool = False,
+                             wrap_chars_en: Optional[int] = None,
+                             wrap_chars_source: Optional[int] = None,
+                             fps: Optional[float] = None) -> dict:
     """Generates SRT, VTT or LRC subtitle text for one drama -- pure and
     read-only: never writes to the database, never flags a line, never
     writes a file to disk. The caller decides what to do with the
@@ -356,6 +363,12 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
     wrap_chars_en/wrap_chars_source optionally cap characters per line
     (subtitle_formats.wrap_lines); None on either side leaves that
     language unwrapped.
+
+    SRT only (plain and bilingual) also goes through
+    subtitle_formats.apply_timing_rules (minimum and maximum duration, a
+    2-frame gap) at `fps`, 24 when unknown: the title's frame rate is not
+    stored, only probed from the media file. VTT, LRC and ASS keep the
+    overlap-clamped times as they are. Returns {"text", "timing_adjusted_count"}.
 
     Raises NotFoundError for an unknown drama id, InvalidInputError for
     an unknown fmt/field.
@@ -377,14 +390,19 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
 
     if fmt == "vtt":
-        return subtitle_formats.lines_to_vtt(export_lines, field, notes_by_idx, wrap_chars)
+        return {"text": subtitle_formats.lines_to_vtt(export_lines, field, notes_by_idx, wrap_chars),
+                "timing_adjusted_count": 0}
     if fmt == "lrc":
-        return subtitle_formats.lines_to_lrc(export_lines, field, notes_by_idx, wrap_chars)
+        return {"text": subtitle_formats.lines_to_lrc(export_lines, field, notes_by_idx, wrap_chars),
+                "timing_adjusted_count": 0}
 
-    wrapped = subtitle_formats.wrap_lines(export_lines, wrap_chars)
+    timed, adjusted = subtitle_formats.apply_timing_rules(export_lines, fps)
+    wrapped = subtitle_formats.wrap_lines(timed, wrap_chars)
     if field == "bilingual":
-        return core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
-    return core_module.lines_to_srt(wrapped, field, notes_by_idx=notes_by_idx)
+        text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
+    else:
+        text = core_module.lines_to_srt(wrapped, field, notes_by_idx=notes_by_idx)
+    return {"text": text, "timing_adjusted_count": adjusted}
 
 
 def flag_overlapping_lines(drama_id: int) -> dict:

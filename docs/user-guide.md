@@ -292,6 +292,12 @@ If this PC also runs something else that needs the GPU or RAM (a media server do
 
 `pip install torch` gives a CPU-only build on Windows, and installing torch, torchvision and torchaudio separately can leave mismatched versions. Diagnostics > Packages > GPU PyTorch shows your GPU, driver and installed torch family, and "Set up GPU PyTorch…" (PC only) installs the matched CUDA build the app is tested with, then checks that CUDA works. Afterwards every Install/Update pins the installed torch family, so a package wanting a different torch is refused instead of replacing your CUDA build.
 
+### How SRT export adjusts timing, and the reading-speed check
+
+SRT and bilingual SRT exports follow Netflix's timing rules, without touching the times saved in Baihe: a cue shorter than 20 frames (about 0.83 s at 24 fps) is lengthened, but never into the next cue's start; a cue longer than 7 s is cut to 7 s; and each cue ends 2 frames before the next one starts. The frame rate is assumed to be 24 because Baihe does not store it. The download's `X-Cues-Adjusted` header says how many cues changed. ASS, VTT and LRC keep the times as they are saved, so overlapping cues still show overlap there.
+
+The reading-speed check uses the Netflix Timed Text Style Guide limits in characters per second: English 17 (Relaxed allows 20), Chinese 9, Korean 12 and Japanese 4. Streamer titles allow 20% more than Relaxed. Reading-speed flags you dismiss are not remembered: pressing "Flag these for review" or finishing a translation flags the line again if it is still too dense.
+
 ### If your exported subtitles are blank
 
 A `.srt` with correct timestamps but no text means the lines aren't translated yet (an aligned but untranslated drama exports every entry empty). Check that the lines are translated (the Library header shows "X of Y lines" for the whole library; Review shows each line) and press Translate first (Ollama is free). The export buttons warn before this: zero translated lines disables the English/bilingual downloads, and a partial translation shows how many lines will export blank.

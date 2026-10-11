@@ -76,13 +76,13 @@ class TestCoverageThresholds:
 
 
 class TestReadingSpeedMode:
-    LINE = Line(idx=0, start=0, end=3, zh="x", en="a" * 54)  # 18 cps
+    LINE = Line(idx=0, start=0, end=3, zh="x", en="a" * 63)  # 21 cps
 
     def test_streamer_normal_runs_at_the_streamer_limits(self):
         assert subtitle_formats.flagging_mode_of(STREAMER) == subtitle_formats.STREAMER_MODE
         assert len(subtitle_formats.dense_lines([self.LINE], mode="relaxed")) == 1
         assert subtitle_formats.dense_lines([self.LINE], mode=subtitle_formats.STREAMER_MODE) == []
-        assert len(subtitle_formats.dense_lines([Line(idx=0, start=0, end=3, zh="x", en="a" * 60)],
+        assert len(subtitle_formats.dense_lines([Line(idx=0, start=0, end=3, zh="x", en="a" * 78)],
                                                 mode=subtitle_formats.STREAMER_MODE)) == 1
 
     def test_explicit_choices_and_other_titles_unchanged(self):
@@ -102,8 +102,9 @@ class TestSyntheticStreamerTranscript:
         lines = streamer_lines()
         drama_default = _seed(isolated_db, lines)
         drama_streamer = _seed(isolated_db, streamer_lines(), content_mode="streamer_vod")
-        assert _flagged_share(isolated_db, drama_default) > 0.85
-        assert _flagged_share(isolated_db, drama_streamer) < 0.25
+        default_share = _flagged_share(isolated_db, drama_default)
+        assert default_share > 0.2
+        assert _flagged_share(isolated_db, drama_streamer) < 0.25 < default_share
 
     def test_real_outliers_still_flagged_in_both_profiles(self, isolated_db):
         def build():

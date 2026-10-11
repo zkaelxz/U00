@@ -47,12 +47,13 @@ def get_subtitle_text(
         include_notes: bool = Query(False),
         wrap_chars_en: int = Query(None, ge=1, le=200),
         wrap_chars_source: int = Query(None, ge=1, le=200)):
-    text = export_service.generate_subtitle_text(
+    result = export_service.generate_subtitle_export(
         drama_id, fmt, field, include_notes=include_notes,
         wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source)
     return Response(
-        content=text, media_type=_MEDIA_TYPES[fmt],
-        headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, field, fmt)})
+        content=result["text"], media_type=_MEDIA_TYPES[fmt],
+        headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, field, fmt),
+                 "X-Cues-Adjusted": str(result["timing_adjusted_count"])})
 
 
 @router.post("/dramas/{drama_id}/flag-overlaps", dependencies=[require_permission("lines.edit")], response_model=FlagActionResult,
