@@ -23,7 +23,7 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 - Optional pre-push checks: `pip install pre-commit && pre-commit install`, then `pre-commit run` (changed files) before pushing. Hooks: ruff errors-only (`ruff.toml`), trailing whitespace and end-of-file fixing for `*.py`, and a warning for files over 1 MB. CI does not run these; they are advisory. Avoid `--all-files` for now: about 20 existing `.py` files lack a final newline and it would rewrite them.
 
 ## 2b. Check which source sites still answer
-- `python scripts/source_probe.py` does one polite GET of each site's root (sequential, 2 s apart, no cookies) and prints reachable / challenge-page / http-error / dns-failure / timeout. `--json` for machine output; `--include-set-aside` also lists set-aside sites that answered again. It never edits a file and does nothing when `CI` is set.
+- `python scripts/source_probe.py` does one polite GET of each site's root (sequential, 2 s apart, no cookies) and prints reachable / challenge-page / http-error / dns-failure / timeout. `--json` for machine output; `--include-set-aside` also lists set-aside sites that answered again. It never edits a file and does nothing when `CI` is set. In a cloud sandbox, whose only way out is a proxy, add `--use-env-proxy` (honours `HTTPS_PROXY` and `REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE`, TLS verification stays on); it checks reachability only, a 200 can be a challenge page, so real adapter checks still need the owner's PC.
 - After re-vetting a site by hand, update its row in `docs/source-status.json` and run `python scripts/source_status.py` (`--check` verifies).
 
 ## 3. Restore a backup

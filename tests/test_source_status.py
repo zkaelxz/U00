@@ -157,6 +157,61 @@ def test_hosts_and_set_aside_reporting():
     assert "up.example" in sp.format_table(results)
 
 
+def _capture_fetch(monkeypatch):
+    seen = {}
+
+    class Resp:
+        status_code, headers, encoding = 200, {}, "utf-8"
+        def iter_content(self, n): yield b"ok"
+        def close(self): pass
+
+    class Sess:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def request(self, method, url, **kw):
+            seen.update(kw)
+            return Resp()
+
+    from lib import http as lib_http
+    monkeypatch.setattr(lib_http, "session", lambda **kw: Sess())
+    return seen
+
+
+def test_http_fetch_env_proxy_off_passes_no_proxy_or_ca(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/ca.crt")
+    seen = _capture_fetch(monkeypatch)
+    sp.http_fetch("https://x.example/")
+    assert "proxies" not in seen and "verify" not in seen
+
+
+def test_http_fetch_env_proxy_on_passes_proxy_and_ca(monkeypatch):
+    for var in ("NO_PROXY", "no_proxy", "https_proxy", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    monkeypatch.setenv("SSL_CERT_FILE", "/ssl.crt")
+    seen = _capture_fetch(monkeypatch)
+    sp.http_fetch("https://x.example/", use_env_proxy=True)
+    assert seen["proxies"]["https"] == "http://proxy.example:3128"
+    assert seen["verify"] == "/ssl.crt" and seen["timeout"] == (5, 10)
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/req.crt")
+    sp.http_fetch("https://x.example/", use_env_proxy=True)
+    assert seen["verify"] == "/req.crt"
+
+
+def test_main_flag_selects_env_proxy_fetch(monkeypatch):
+    for var in ("CI", "NO_PROXY", "no_proxy", "https_proxy"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    seen = _capture_fetch(monkeypatch)
+    monkeypatch.setattr(sp, "collect_hosts",
+                        lambda *a: [{"host": "a.example", "origin": "generic", "set_aside": False}])
+    sp.main([], sleep=lambda s: None)
+    assert "proxies" not in seen
+    sp.main(["--use-env-proxy"], sleep=lambda s: None)
+    assert seen["proxies"]["https"] == "http://proxy.example:3128"
+
+
 def test_probe_refuses_in_ci(monkeypatch, capsys):
     monkeypatch.setenv("CI", "true")
     fetch = _fetcher({})

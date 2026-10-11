@@ -4,6 +4,7 @@ scripts/source_probe.py -- which source hosts still answer? A manual dev tool.
     python scripts/source_probe.py                     # adapter + status-file hosts
     python scripts/source_probe.py --json
     python scripts/source_probe.py --include-set-aside # also re-probe declined/refused hosts
+    python scripts/source_probe.py --use-env-proxy     # cloud sandbox: go through HTTPS_PROXY
 
 For each host: ONE GET of the site root, sequentially with a 2 s gap, an honest
 User-Agent, timeout=(5, 10), at most 3 redirects, no cookies, no proxy. Each
@@ -14,11 +15,17 @@ it lists the set-aside hosts that answered again and leaves the decision (and
 docs/source-status.json) to a person. Refuses to run when CI is set (--allow-ci
 overrides); tests use a fake transport.
 
+--use-env-proxy (off by default) honours HTTPS_PROXY/HTTP_PROXY/NO_PROXY and the
+CA bundle in REQUESTS_CA_BUNDLE or SSL_CERT_FILE, for sandboxes whose only way
+out is a proxy with its own CA. TLS verification stays on. It checks
+reachability only: a 200 can still be a challenge page.
+
 Hosts come from docs/source-status.json and the adapters' url_patterns; no
 network is used to build the list.
 """
 
 import argparse
+import functools
 import json
 import os
 import sys
@@ -68,14 +75,27 @@ def collect_hosts(include_set_aside: bool = False, data: dict = None) -> list:
     return hosts if include_set_aside else [h for h in hosts if not h["set_aside"]]
 
 
-def http_fetch(url: str):
-    """One GET, no redirects followed, no cookies kept, no proxy. Returns
-    (status, headers, body_text)."""
+def _env_proxy_kwargs(url: str) -> dict:
+    """Proxy and CA bundle from the environment. Passed per request rather than
+    via trust_env so a ~/.netrc cannot add credentials to the probe. requests
+    reads REQUESTS_CA_BUNDLE itself only under trust_env, and never SSL_CERT_FILE."""
+    from requests.utils import get_environ_proxies
+    kw = {"proxies": get_environ_proxies(url)}
+    bundle = os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("SSL_CERT_FILE")
+    if bundle:
+        kw["verify"] = bundle
+    return kw
+
+
+def http_fetch(url: str, use_env_proxy: bool = False):
+    """One GET, no redirects followed, no cookies kept, no proxy unless
+    use_env_proxy. Returns (status, headers, body_text)."""
     from lib import http as lib_http
+    extra = _env_proxy_kwargs(url) if use_env_proxy else {}
     with lib_http.session(timeout=TIMEOUT, guard=None, max_bytes=MAX_BODY_BYTES,
                           trust_env=False) as session:
         resp = session.request("GET", url, headers={"User-Agent": USER_AGENT},
-                               timeout=TIMEOUT, allow_redirects=False, stream=True)
+                               timeout=TIMEOUT, allow_redirects=False, stream=True, **extra)
         try:
             body = next(resp.iter_content(MAX_BODY_BYTES), b"") or b""
             text = body.decode(resp.encoding or "utf-8", errors="replace")
@@ -170,12 +190,17 @@ def main(argv=None, fetch=http_fetch, sleep=time.sleep) -> int:
     ap.add_argument("--json", action="store_true", help="print JSON instead of a table")
     ap.add_argument("--include-set-aside", action="store_true",
                     help="also re-probe hosts marked set aside and list those that answered")
+    ap.add_argument("--use-env-proxy", action="store_true",
+                    help="honour HTTPS_PROXY/HTTP_PROXY and REQUESTS_CA_BUNDLE/SSL_CERT_FILE "
+                         "(for cloud sandboxes; off by default)")
     ap.add_argument("--allow-ci", action="store_true", help="run even though CI is set")
     args = ap.parse_args(argv)
     if os.environ.get("CI") and not args.allow_ci:
         print("source_probe is a manual tool and does nothing when CI is set "
               "(use --allow-ci to override).", file=sys.stderr)
         return 2
+    if args.use_env_proxy and fetch is http_fetch:
+        fetch = functools.partial(http_fetch, use_env_proxy=True)
     entries = collect_hosts(args.include_set_aside)
     results = probe_all(entries, fetch, sleep=sleep)
     again = answered_again(results) if args.include_set_aside else []
