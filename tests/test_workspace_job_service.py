@@ -225,14 +225,14 @@ def test_fix_flagged_reads_each_lines_language(isolated_db, monkeypatch):
 
         def translate_batch(self, zh, context):
             calls.append((list(zh), context.get("line_languages")))
-            return ["T"]
+            return ["T"] * len(zh)
 
     import core
     lines = core.lines_from_rows(isolated_db.load_lines(did))
     background_jobs.clear_job("fix_lang")
     wjs.run_fix_flagged_lines_job("fix_lang", did, lines, None, "small", False, "ja",
                                   Engine(), "fake")
-    assert calls == [(["안녕"], ["ko"]), (["やあ"], None)]
+    assert calls == [(["안녕", "やあ"], ["ko", None])]
     rows = {r["zh"]: r for r in isolated_db.load_lines(did)}
     assert rows["hello"]["en"] == "hello" and rows["hello"]["flag"] is None
     background_jobs.clear_job("fix_lang")

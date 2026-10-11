@@ -14,7 +14,7 @@ import resegment
 import source_change
 from api.server import create_app
 from core import Line
-from services import (compare_transcription_service as compare, lines_service,
+from services import (compare_transcription_service as compare, fixflag_translate, lines_service,
                       restructure_service, retranscribe_many_service as many,
                       source_change_service, subtitle_import_service, transcribe_service,
                       translate_run_service, workspace_job_service)
@@ -295,6 +295,8 @@ class TestFixFlagged:
         return background_jobs.get_status(job_id)["result"]
 
     def test_new_source_without_new_english_is_flagged(self, isolated_db, monkeypatch):
+        # One line per request, so the failing line can't take its neighbour down with it.
+        monkeypatch.setattr(fixflag_translate, "BATCH_SIZE", 1)
         did, ids = _seed([("旧", "Old", "uncertain_translation"),
                           ("对", "Right", "uncertain_translation")])
         self._run(did, _HearEngine(fail={"新"}), monkeypatch, {"旧": "新", "对": "对"})

@@ -27,10 +27,16 @@ export function resplitSummary(r: ResplitResult): string {
 }
 
 export const RESPLIT_SENSITIVITIES: { value: ResplitSensitivity; label: string }[] = [
-  { value: 'normal', label: 'Normal' },
   { value: 'more', label: 'More' },
   { value: 'sentence', label: 'Sentence by sentence' },
 ]
+
+/** Packages "More" needs to cut Chinese or Japanese lines at word boundaries; Korean and the rest need none. */
+const WORD_SPLITTER_PACKAGES: Record<string, string[]> = { zh: ['jieba'], ja: ['sudachipy', 'sudachidict_core'] }
+
+export function wordSplitterPackages(language: string | null | undefined): string[] {
+  return WORD_SPLITTER_PACKAGES[language ?? ''] ?? []
+}
 
 /** Seconds offered for "Also split by duration"; null keeps the preset's own limit. */
 export const RESPLIT_DURATION_CAPS = [5, 10, 15, 20]

@@ -566,7 +566,8 @@ class ResegmentStart(_RestructureBase):
 class ResplitStart(_RestructureBase):
     align_to_audio: StrictBool = False
     confirm: StrictBool = False
-    sensitivity: Literal["normal", "more", "sentence"] = "normal"
+    # None: only the fresh-transcription limits (plus max_seconds, if set).
+    sensitivity: Optional[Literal["more", "sentence"]] = None
     # Replaces the preset's duration limit; None keeps the preset's own.
     max_seconds: Optional[float] = Field(None, ge=2, le=120)
     # Count what would be split without writing anything.

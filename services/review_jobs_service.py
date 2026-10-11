@@ -136,8 +136,9 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
+    # Every paid run, live or bulk, is refused once the month's cap is used up.
+    translate_run_service.refuse_when_cap_spent(engine_name, gemini_free_tier)
     if bulk:
-        translate_run_service.refuse_when_cap_spent(engine_name, gemini_free_tier)
         engine = translate_engines.get_engine(engine_name, api_key, model)
         return _start_bulk(kind, drama_id, engine, engine_name, len(lines),
                            bulk_kwargs(drama) if bulk_kwargs else {})

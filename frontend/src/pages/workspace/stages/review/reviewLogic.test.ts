@@ -5,7 +5,7 @@ import type { ReviewLine } from '../../../../types/review'
 import { TRANSLATION_ONLY } from '../../translateForm'
 import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel } from './reviewDraft'
 import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, pageForPosition, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
-import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary } from './reviewResegment'
+import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary, wordSplitterPackages } from './reviewResegment'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id, start: id, end: id + 1, zh: `句${id}`, en: `Line ${id}`, speaker: null,
@@ -266,8 +266,14 @@ describe('re-split summary', () => {
     expect(resplitPreviewSummary({ split_lines: 1, pieces: 3, cleared_translations: 1 })).toBe(
       'Preview: 1 line would be split into 3. 1 translation would be cleared.',
     )
-    expect(resplitPreviewSummary({ split_lines: 0, note: 'No line is over the limits at Normal sensitivity. Try "More".' })).toMatch(/Normal sensitivity/)
+    expect(resplitPreviewSummary({ split_lines: 0, note: 'No line is over the limits at More sensitivity. Try "Sentence by sentence".' })).toMatch(/More sensitivity/)
     expect(resplitPreviewSummary({ split_lines: 0 })).toBe('Preview: no line would be split.')
+  })
+  it('names the word splitters "More" needs for Chinese and Japanese only', () => {
+    expect(wordSplitterPackages('zh')).toEqual(['jieba'])
+    expect(wordSplitterPackages('ja')).toEqual(['sudachipy', 'sudachidict_core'])
+    expect(wordSplitterPackages('ko')).toEqual([])
+    expect(wordSplitterPackages(undefined)).toEqual([])
   })
   it('spots the confirm refusal only', () => {
     const e = (s: number, m: string) => new ApiError(s, { code: 'x', message: m })

@@ -17,6 +17,11 @@ function python(code: string) {
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
 }
 
+/** Sets drama 3's source language in the throwaway library (it is seeded as Korean). */
+export function setSourceLanguage(language: string) {
+  python(`db.update_drama(3, source_language=${JSON.stringify(language)})`)
+}
+
 export function seedLines() {
   python(`
 from core import Line
