@@ -82,7 +82,7 @@ import real_model_check_cli
 import background_jobs
 import cli_subtitle
 import cli_timing
-from jobs import job_store
+from jobs import gpu_slots, job_store
 from services import (dub_service, export_service, glossary_service, jobs_service, lines_service,
                       narration_service, review_extras_service, settings_service, transcribe_pipeline,
                       transcribe_service)
@@ -125,30 +125,29 @@ def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
 @contextlib.contextmanager
 def _gpu_lock(description: str, poll_interval: float = 5.0):
     """Cross-process GPU guard, shared with the live UI's
-    background_jobs.py through the gpu_lock table in the shared library.db
-    (see db.try_acquire_gpu_lock's own docstring). The CLI never starts
+    background_jobs.py through jobs/gpu_slots.py. The CLI never starts
     background jobs, so the in-process guard never covers a CLI
-    run; it takes a slot through background_jobs.try_take_gpu_slot, so the
+    run; it takes a slot through gpu_slots.acquire, so the
     "GPU jobs at once" setting and its free-VRAM check apply to a CLI run
     the same as to the app's jobs. Waits and
     retries rather than failing outright, matching this module's own
     "built for unattended overnight runs" framing -- yields the holder id
     a caller running a multi-drama batch under this lock can use to send
-    its own periodic heartbeat_gpu_lock() calls, so a long batch doesn't
+    its own periodic gpu_slots.heartbeat() calls, so a long batch doesn't
     look abandoned partway through. poll_interval is a test-only knob;
     real callers use the 5-second default."""
     holder = f"cli:{os.getpid()}"
     waited = False
-    while not background_jobs.try_take_gpu_slot(holder, description):
+    while not gpu_slots.acquire(holder, description):
         if not waited:
-            _busy_with = db.gpu_lock_status()[1] or "another job"
+            _busy_with = gpu_slots.status()[1] or "another job"
             print(f"Waiting for the GPU -- busy with: {_busy_with}")
             waited = True
         time.sleep(poll_interval)
     try:
         yield holder
     finally:
-        db.release_gpu_lock(holder)
+        gpu_slots.release(holder)
 
 
 def _run_batch(dramas, step_fn, label: str):
@@ -368,7 +367,7 @@ def cmd_diarize(args):
             print(f"#{d['id']} skipped: no lines yet (transcribe first).")
             return
         print(f"#{d['id']} detecting speakers...")
-        db.heartbeat_gpu_lock(_gpu_holder)
+        gpu_slots.heartbeat([_gpu_holder])
         try:
             run_info = {}
             last_beat = [time.monotonic()]
@@ -379,7 +378,7 @@ def cmd_diarize(args):
                     print(f"#{d['id']} {message}.")
                 if time.monotonic() - last_beat[0] > 30:
                     last_beat[0] = time.monotonic()
-                    db.heartbeat_gpu_lock(_gpu_holder)
+                    gpu_slots.heartbeat([_gpu_holder])
 
             started = time.monotonic()
             turns, model, embeddings = diarize.diarize(
@@ -485,7 +484,7 @@ def cmd_align(args):
         use_gpu = settings_service.get_use_gpu()
         language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
-        db.heartbeat_gpu_lock(_gpu_holder)
+        gpu_slots.heartbeat([_gpu_holder])
         if cfg["separate_vocals_first"]:
             audio_path = audio_preprocess.separate_vocals(
                 audio_path, os.path.join(os.path.dirname(audio_path), "vocals.wav"),
@@ -654,7 +653,7 @@ def cmd_dub(args):
 
         def _progress(frac, did=d["id"]):
             if _gpu_holder_box[0]:
-                db.heartbeat_gpu_lock(_gpu_holder_box[0])
+                gpu_slots.heartbeat([_gpu_holder_box[0]])
             print(f"  #{did}: {frac*100:.0f}%", end="\r")
 
         _dub_gpu_ctx = (_gpu_lock(f"CLI dub #{d['id']}")
