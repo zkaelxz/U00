@@ -10,6 +10,7 @@ export interface TranslateRunConfig {
   // The owner's saved choice for this title; null/omitted = never chosen.
   default_female_pronouns?: boolean | null
   include_genre_notes?: boolean | null
+  translate_by_sentence?: boolean | null
   // Engines whose request can switch thinking (DeepSeek, Ollama), and the
   // title's remembered "think harder" choice.
   thinking_switch_engines?: string[]
