@@ -29,7 +29,7 @@ from services import characters_service
 router = APIRouter(prefix="/api/characters", tags=["characters"])
 
 
-@router.get("/dramas/{drama_id}", dependencies=[require_permission("library.read")], response_model=List[CharactersEntry],
+@router.get("/dramas/{drama_id}", dependencies=[require_permission("library.read", "lines.read")], response_model=List[CharactersEntry],
             summary="Speakers of one drama with their character/voice settings",
             responses={404: {"model": ErrorResponse}})
 def get_characters(drama_id: int = Path(ge=1)):

@@ -356,9 +356,10 @@ class TestLagFigures:
         _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
         stream.add(2)
         assert start("live_stats", Gate())
+        # ">=": the two chunks already waiting can both finish between two polls.
         for done in (1, 2, 3):
             assert _wait(lambda: len([c for c in _result("live_stats")
-                                      if c["translation"] == "done"]) == done)
+                                      if c["translation"] == "done"]) >= done)
             stream.add(1)
         assert _wait(lambda: start.stats and start.stats[-1]["chunks_measured"] == 3)
         last = start.stats[-1]

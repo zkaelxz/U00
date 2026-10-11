@@ -14,10 +14,10 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Small context window? Follow `docs/small-model-checklist.md`; `python tools/repo_map.py` prints the symbol map on demand. Local models (OpenCode) read `AGENTS.md`, not this file: when you change a rule AGENTS.md repeats, change it there too.
 
 ## Tests
-- While iterating: `python -m pytest -q tests/test_<area>.py`. Before pushing: the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`. CI runs the full suite on every PR (about 17 minutes); don't run it locally as well.
+- While iterating: `python -m pytest -q tests/test_<area>.py`. Before pushing: the area's tests plus the guard set (the five CI guards and the hidden ones: `docs/testing-and-ci.md`, section "Guard set and lean output"; `python tools/check_change.py` prints the command for your diff). CI runs the full suite on every PR (about 17 minutes); don't run it locally as well.
 - Frontend: `cd frontend && npx tsc -b && npx vitest run`; Playwright in `frontend/e2e/` (use the preinstalled Chromium; never `playwright install`).
 - Tests are mocked: no network, GPU, real models or real keys. Use the `isolated_db` fixture for anything touching the database, and `pytest.importorskip` for optional libraries.
-- Wait for background job threads before asserting. Poll a background process with `kill -0 <pid>`, never `pgrep -f` on a pattern that also matches your own command line.
+- Wait for background job threads before asserting. Poll a background process with `kill -0 <pid>` (PowerShell: `Get-Process -Id <pid>`), never `pgrep -f` on a pattern that also matches your own command line.
 - CI is the merge gate while the repo is public. Only if it becomes private or Actions minutes run out does the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands become the gate. A test is never skipped, loosened or deleted to get CI green. Removing or rewriting one is fine when its behaviour is gone, when another test (named in the PR) pins the same behaviour, when it pinned an implementation detail (a patch target, a call shape) and a behaviour test replaces it, or when it could not fail. The only test of a behaviour that still exists stays. The PR summary lists each removed test and which of these applies.
 
 ## Rules learned from real bugs

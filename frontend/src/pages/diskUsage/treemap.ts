@@ -1,4 +1,4 @@
-// Squarified treemap layout (Bruls, Huizing, van Wijk) for the Disk usage view.
+// Squarified treemap layout (Bruls, Huizing, van Wijk) for the Data folder view.
 // Pure: rectangles in the same units as the width and height given.
 
 export type TreemapInput = { id: string; value: number }

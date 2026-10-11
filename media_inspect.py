@@ -15,6 +15,8 @@ import json
 import os
 import subprocess
 
+import video_export
+
 
 class ProbeError(Exception):
     """ffprobe failed, isn't installed, or the file isn't one it can read."""
@@ -58,7 +60,7 @@ _ASMR_KEYWORDS = ("asmr", "binaural", "roleplay", " rp ", "-rp-")
 
 
 def run_ffprobe(path: str, timeout: int = 30) -> dict:
-    cmd = ["ffprobe", "-v", "error", "-print_format", "json",
+    cmd = ["ffprobe", "-v", "error", *video_export.local_input(), "-print_format", "json",
            "-show_format", "-show_streams", path]
     try:
         # ffprobe writes UTF-8 JSON; text=True would decode with the locale code page (cp932,

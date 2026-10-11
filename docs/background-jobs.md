@@ -250,8 +250,9 @@ CLI prints the same sentence.
   about that long. If no live owner exists (pid gone or no heartbeat for
   `STALE_JOB_SECONDS`), `cancel_job` closes the row itself as `cancelled`.
 
-Related: `cancel_queued` clears a still-queued job (re-checking under the lock that it
-was not just promoted); `clear_job` removes a finished record, and for a live process job
+Related: `cancel_queued` ends a still-queued job as `cancelled` and keeps its record, so
+the Jobs page lists the cancelled run (re-checking under the lock that it was not just
+promoted); `clear_job` removes a finished record, and for a live process job
 also stops the process; `cancel_line_jobs(drama_id)` cancels the line-writing jobs
 (`LINE_WRITING_JOB_PREFIXES`) before something replaces all of a title's lines. The CLI
 does the same plus the `job_records` flag for jobs run by the API.
@@ -473,7 +474,7 @@ in `cmd_translate`) and writes no `job_records` rows. Differences that matter:
 - A final status does not mean the thread is done (see Threads that outlive the status).
 - In tests, wait for job threads before asserting (`background_jobs.wait_for_job_threads`,
   or poll the status). Tests are mocked: no network, GPU or real models.
-- Poll a background process with `kill -0 <pid>`. Never use `pgrep -f <pattern>` when
+- Poll a background process with `kill -0 <pid>` (PowerShell: `Get-Process -Id <pid> -ErrorAction SilentlyContinue`). Never use `pgrep -f <pattern>` when
   the pattern also appears in your own command line: it matches itself and never ends
   (`docs/testing-and-ci.md`).
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { asrBackendOptions, batchingNote, deviceNote, downloadProblem, getAsrOptions, getDiarizationConfig, parseBatchSize, startVoiceDetectorDownload, updateAsrOptions, voiceDetectorNote } from './asrOptions'
+import { asrBackendOptions, asrBackendOptionsFor, batchingNote, deviceNote, downloadProblem, getAsrOptions, getDiarizationConfig, parseBatchSize, startVoiceDetectorDownload, updateAsrOptions, voiceDetectorNote } from './asrOptions'
 
 function fakeFetch(status: number, body: unknown, calls: { url: string; init?: RequestInit }[] = []) {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -70,7 +70,13 @@ describe('asr options API', () => {
 
 describe('asrBackendOptions', () => {
   it('lists the selectable backends', () => {
-    expect(asrBackendOptions()).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long'])
+    expect(asrBackendOptions()).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long', 'anime_whisper'])
+  })
+
+  it('offers anime-whisper for Japanese titles only', () => {
+    expect(asrBackendOptionsFor('ja')).toContain('anime_whisper')
+    expect(asrBackendOptionsFor('zh')).not.toContain('anime_whisper')
+    expect(asrBackendOptionsFor('ko')).not.toContain('anime_whisper')
   })
 })
 
