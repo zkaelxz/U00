@@ -17,7 +17,7 @@ test('shows Make subtitles with the Discover and Sources links, and dismisses fo
 
   // The saved default (Claude) has no key: the card says so.
   await expect(view.getByLabel('Translator')).toHaveValue('claude')
-  await expect(view.getByText('No key saved')).toBeVisible()
+  await expect(view.getByTestId('preflight-key')).toBeVisible()
 
   await view.getByRole('button', { name: 'Dismiss' }).click()
   await expect(view).toHaveCount(0)

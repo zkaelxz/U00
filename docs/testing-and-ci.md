@@ -7,8 +7,8 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
 2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
-3. **Before pushing:** the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`; for the frontend also `npx tsc --noEmit` and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the full suite (`python run_tests.py -q -n auto`, about 17 minutes) and the full frontend and e2e jobs on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
-   `npm run e2e` runs two Playwright projects: `desktop` (every spec except `e2e/mobile.spec.ts`) and `phone` (390x844, touch, only `e2e/mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
+3. **Before pushing:** the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`; for the frontend also `npx tsc --noEmit` and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the jobs the change needs (see "Which jobs a change runs"; the full suite is `python run_tests.py -q -n auto`) on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
+   `npm run e2e` runs three Playwright projects: `desktop` (every spec except files matching `mobile.spec.ts` and the tests tagged `@catalogue`), `catalogue` (only the `@catalogue` tests in `e2e/discover.spec.ts`, against a second build with the Discover Catalogue tab switched on: that flag is compiled into the bundle, so the default build cannot show the tab; `E2E_CATALOGUE_PORT` moves its server off 4175) and `phone` (390x844, touch, every `e2e/*mobile.spec.ts` match, such as `mobile.spec.ts`, `settings.mobile.spec.ts` and `review-results-mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
 5. A failure is not "environmental" or "flaky" until the mechanism is confirmed (a real background thread left running by an earlier test was the cause of the "database is locked" errors fixed in PR #259).
 6. Tests must not leave real job threads or subprocesses running: wait for them or mock them.
@@ -20,10 +20,35 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 
 ## CI layout
 
-`.github/workflows/tests.yml` runs four jobs on every PR: `guards` (the quick guard files, about a minute, so a broken rule is
-red first), `test` (the full mocked suite with xdist; tests that failed on the branch's previous run go first through `--ff`
+`.github/workflows/tests.yml` runs these jobs on every PR: `changes` (decides which of the others are needed), `guards`
+(the five quick guard files, about a minute, so a broken rule is red first), `test` (the mocked suite with xdist, minus
+the five guard files that `guards` already runs; tests that failed on the branch's previous run go first through `--ff`
 and a restored `.pytest_cache`, so a repeat failure shows in the first minute), `frontend` (build, vitest, lint) and
-`e2e` (Playwright in four shards). `windows-bootstrap.yml` and `windows-installer.yml` cover the installer.
+`e2e` (Playwright in four shards). `windows-bootstrap.yml` (its own workflow, path-filtered to `start.bat`, the
+requirements and constraints files, `check_setup.py`, `api/**`, `frontend/**` and itself) and `windows-installer.yml` cover
+the installer. The five guard files are ignored only in the workflow's `test` command lines; `python run_tests.py` and the
+local commands above still run everything.
+
+### Which jobs a change runs
+
+`tools/ci_changes.py` (tested by `tests/test_ci_changes.py`) classifies the changed files of a PR. A job that is skipped
+counts as passed for branch protection, as the notes-only skip always has. `guards` and `frontend` run on every PR except
+notes-only ones (which run only `guards`).
+
+| Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test`) |
+|---|---|---|---|
+| Push to `baihe-subtitler`, or any event that is not a pull request | false | true | true |
+| PR labelled `full-ci` | false | true | true |
+| PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
+| Every changed file is under `reports/`, `research_notes/` or `docs/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test` is skipped by `notes_only` |
+| No changed file under `frontend/` or `api/` (services, db, adapters, installer, scripts, tools, tests, docs...) | as above | false | true |
+| Every changed file is under `frontend/` or `docs/` | false | true if any is under `frontend/` | false: `test` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) plus `TestHostedCloningRemoved` |
+| Anything else | false | true | true |
+| The file list is empty or the classifier errors | false | true | true |
+
+Rows combine by "any rule that says true wins". A rename counts as touching both paths. To force everything on a PR, add the
+label `full-ci` (the workflow also listens for `labeled`, so adding it starts a new full run). Anything that makes you doubt a
+skipped job: add the label, or push a trivial change under `.github/`.
 
 ## Focused checks per area
 
@@ -35,7 +60,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Area | pytest (`python -m pytest -q ...`) | vitest (`npx vitest run ...`) | Playwright (`npx playwright test ...`) |
 |---|---|---|---|
 | Library / titles | `tests/test_library_service.py tests/test_drama_service.py tests/test_api_dramas.py tests/test_title_library.py` | `src/api/library.test.ts src/pages/libraryForm.test.ts src/pages/libraryParity` | `e2e/library.spec.ts` |
-| Transcription (ASR) | `tests/test_transcribe_service.py tests/test_asr_backend.py tests/test_diarize.py` | `src/api/asrOptions.test.ts` | `e2e/transcribe-card.spec.ts` |
+| Transcription (ASR) | `tests/test_transcribe_service.py tests/test_asr_backend.py tests/test_diarize.py tests/test_segment.py tests/test_compare_transcription.py` | `src/api/asrOptions.test.ts` | `e2e/transcribe-card.spec.ts` |
 | Translation + engines | `tests/test_translate_engines.py tests/test_translate_run_service.py tests/test_bulk_translate.py tests/test_engine_routing.py` | `src/api/translate.test.ts src/pages/translateFile.test.ts src/pages/workspace/translateForm.test.ts` | `e2e/translate.spec.ts` |
 | Review / lines | `tests/test_lines_service.py tests/test_review_lines_service.py tests/test_api_lines.py` | `src/api/review.test.ts src/pages/workspace/stages/review` | `e2e/review-stage.spec.ts` |
 | Characters / glossary | `tests/test_characters_service.py tests/test_glossary_service.py tests/test_api_glossary.py` | `src/api/characters.test.ts src/pages/workspace/stages/glossaryExtract.test.ts` | `e2e/characters-rename.spec.ts` |
@@ -44,13 +69,14 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Scanlate / OCR | `tests/test_scanlate.py tests/test_ocr.py tests/test_hardsub_ocr.py tests/test_api_comic_viewer.py` | `src/api/scanlate.test.ts src/pages/comic` | `e2e/scanlate.spec.ts` |
 | Sources / adapters | `tests/test_sources_core.py tests/test_api_sources_search.py tests/test_source_service.py` (an adapter: `tests/test_sources_<site>.py`) | `src/api/sources.test.ts src/pages/sources` | `e2e/sources.spec.ts` |
 | Benchmark lab | `tests/test_benchmark_lab.py tests/test_benchmark.py tests/test_model_reeval.py tests/test_api_benchmark.py` | `src/api/benchmark.test.ts src/pages/benchmark` | `e2e/lab-benchmark.spec.ts` |
-| Diagnostics / installs | `tests/test_diagnostics_service.py tests/test_api_diagnostics_installs.py tests/test_install_presets.py` | `src/api/diagnostics.test.ts src/pages/diagnostics` | `e2e/diagnostics.spec.ts` |
-| Jobs | `tests/test_background_jobs.py tests/test_jobs_service.py tests/test_api_job_cancel.py` | `src/api/jobs.test.ts src/pages/jobs` | `e2e/jobs.spec.ts` |
-| Settings / backups | `tests/test_settings_service.py tests/test_auto_backup_service.py tests/test_api_backups.py tests/test_user_backup.py` | `src/api/settings.test.ts src/pages/settings` | `e2e/settings.spec.ts e2e/backups.spec.ts` |
+| Diagnostics / installs | `tests/test_diagnostics_service.py tests/test_api_diagnostics_installs.py tests/test_install_presets.py tests/test_install_plan.py tests/test_pending_install.py tests/test_api_pending_install.py tests/test_upgrade_check.py` | `src/api/diagnostics.test.ts src/pages/diagnostics` | `e2e/diagnostics.spec.ts` |
+| Jobs | `tests/test_background_jobs.py tests/test_jobs_service.py tests/test_api_job_cancel.py tests/test_gpu_process_job.py tests/test_job_process_result.py tests/test_cancellable_lock.py tests/test_ytdlp_child.py` | `src/api/jobs.test.ts src/pages/jobs` | `e2e/jobs.spec.ts` |
+| Settings / backups | `tests/test_settings_service.py tests/test_settings_schema.py tests/test_auto_backup_service.py tests/test_api_backups.py tests/test_user_backup.py` | `src/api/settings.test.ts src/pages/settings` | `e2e/settings.spec.ts e2e/backups.spec.ts` |
 | Auth / permissions | `tests/test_api_permissions.py tests/test_auth_service.py tests/test_auth_login.py tests/test_api_admin_users.py` | `src/api/auth.test.ts src/hooks/useSession.test.ts` | `e2e/signin.spec.ts` |
 | Installer / updates | `tests/test_installer_service.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
 | Database / migrations | `tests/test_db.py tests/test_save_lines_write_race.py` | n/a | n/a |
-| Repo guards | `tests/test_static_analysis.py tests/test_repo_map.py` | n/a | n/a |
+| Shared helpers (`lib/`) | `tests/test_lib_http.py tests/test_lib_proc.py tests/test_cancellable_lock.py tests/test_settings_schema.py` | n/a | n/a |
+| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five are the CI `guards` job) | n/a | n/a |
 
 ## Tests
 
@@ -65,7 +91,9 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
   model.
 - Use the `isolated_db` fixture (`tests/conftest.py`) for anything that
   touches the database or `db.LIBRARY_DIR`, so each test gets a fresh
-  library. Underneath that, `tests/conftest.py` points the whole run at a
+  library (a copy of a schema-only template built once per xdist worker; a test
+  that needs a database from before the current schema builds its own folder, as
+  `TestInitDbSchema` in `tests/test_db.py` does). Underneath that, `tests/conftest.py` points the whole run at a
   temp library before any test module loads, and fails a test that opens
   an absolute path in the real `library/` folder
   (`tests/test_library_isolation_guard.py`). The guard is a backstop, not a
@@ -81,7 +109,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
   `pyannote/speaker-diarization-community-1` is a gated model — an
   `HF_TOKEN` alone isn't enough; the account it belongs to also has to
   have accepted that specific model's license on huggingface.co first
-  (`diagnostics.check_pyannote_gated_access` is what checks this in-app;
+  (`diagnostics_report.check_pyannote_gated_access` is what checks this in-app;
   the CLI's own `--hf-token`/`HF_TOKEN`/`BAIHE_HF_TOKEN` (`cli.py diarize`)
   and the app's saved Hugging Face token setting both need the same accepted token). If
   a step touches diarization and needs a real (not mocked) run to verify

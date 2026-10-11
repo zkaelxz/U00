@@ -19,7 +19,7 @@ preference. The others are stored in db.app_settings under
 
 Also here: the per-engine status for Settings
 (not configured / untested / working / failed) and the "Test" action, which
-makes one short real call through diagnostics.check_engine_reachable with
+makes one short real call through diagnostics_report.check_engine_reachable with
 the key resolved on the PC. Keys are never accepted or returned; a failure
 message goes through translate_engines.redact_secrets.
 """
@@ -28,8 +28,9 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 
 import db
-import diagnostics
+import diagnostics_report
 import translate_engines
+from lib import settings_schema
 from services import settings_service, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
@@ -118,21 +119,23 @@ def _stored(capability: str):
     """The user's saved engine for `capability`, or None when unset or no
     longer valid (an engine that was removed or lost the capability)."""
     d = _definition(capability)
-    if d.get("pref") == "default_engine":
-        raw = settings_service.get_default_engine()  # the one public getter for it
-    elif d.get("pref"):
-        raw = settings_service.get_preference(d["pref"])
+    if d.get("pref"):
+        raw = settings_service.get(d["pref"])
     else:
         raw = db.get_app_setting(_STORE_PREFIX + capability, None)
     return raw if isinstance(raw, str) and raw in engine_choices(capability) else None
 
 
+def _pref_default(name: str):
+    return settings_schema.default_of(settings_schema.BY_KEY[name])
+
+
 def default_engine_for(capability: str) -> str:
     d = _definition(capability)
     if d.get("pref"):
-        return settings_service.preference_default(d["pref"])
+        return _pref_default(d["pref"])
     default = d.get("default", _DEFAULT_ENGINE)
-    return settings_service.get_default_engine() if default == _DEFAULT_ENGINE else default
+    return settings_service.get("default_engine") if default == _DEFAULT_ENGINE else default
 
 
 def is_configured(capability: str) -> bool:
@@ -153,7 +156,7 @@ def set_capability_engine(capability: str, engine) -> dict:
     if engine is not None and engine not in engine_choices(capability):
         raise InvalidInputError("That engine can't do this task.")
     if d.get("pref"):
-        value = engine if engine is not None else settings_service.preference_default(d["pref"])
+        value = engine if engine is not None else _pref_default(d["pref"])
         settings_service.set_settings({d["pref"]: value})
     else:
         db.set_app_setting(_STORE_PREFIX + capability, engine)
@@ -250,7 +253,7 @@ def test_engine(engine: str, model: str = None) -> dict:
 
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        future = pool.submit(diagnostics.check_engine_reachable, engine, api_key, model,
+        future = pool.submit(diagnostics_report.check_engine_reachable, engine, api_key, model,
                              base_url=base_url)
     except Exception:
         _release()
@@ -267,7 +270,7 @@ def test_engine(engine: str, model: str = None) -> dict:
     if not result.get("ok"):
         # Keys, then paths and URLs-with-paths (a local server's address)
         # come out: this text is shown later by an admin.settings read.
-        error = diagnostics.redact_for_support(str(result.get("error") or "The test failed."))
+        error = diagnostics_report.redact_for_support(str(result.get("error") or "The test failed."))
         error = error[:_MAX_TEST_ERROR]
     # A key or endpoint saved while the test ran makes this result stale:
     # it tested the old one, so it isn't recorded.

@@ -23,7 +23,7 @@ Conventions shared by all of them:
   - plain dicts/lists/str/bytes out, never a filesystem path or key
     (media_file_path is the one server-internal exception, documented);
   - keys are resolved server-side, never accepted or returned, and an
-    engine failure is passed through diagnostics.redact_for_support (keys
+    engine failure is passed through diagnostics_report.redact_for_support (keys
     and absolute paths removed), a local OSError becomes a fixed message;
   - AI results are matched back by id or name, never by list position;
   - writes are scoped to their own table/fields (vocab_lookups,
@@ -36,10 +36,11 @@ limit (the whole drama); a route or React caller that wants spoiler-free
 must pass that boundary explicitly.
 
 Permission contract for routes (user decision, 2026-09-29):
-  - reads (page, overview, notes, vocab list, wiki list,
+  - reads (overview, notes, vocab list, wiki list,
     media availability): `library.read`;
-  - caption tracks, media streaming and every export
-    (CSV, .apkg, wiki Markdown): `lines.read`;
+  - the page (it carries line text; owner decision 2026-10-10), caption
+    tracks, media streaming and every export (CSV, .apkg, wiki Markdown):
+    `lines.read`;
   - reader-data writes (progress, notes, rich-export queue, clear wiki):
     `lines.edit`;
   - LLM tools (who-is, explain, recap, relationships, wiki update, Q&A,
@@ -246,7 +247,7 @@ def llm_engine(engine_name=None, model=None):
         raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get_gemini_free_tier(),
+        free_tier=settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
@@ -256,16 +257,19 @@ def llm_engine(engine_name=None, model=None):
 
 
 def _run_engine(fn):
+    import dictionary
     try:
         return fn()
     except ServiceError:
         raise
-    except OSError:  # local work (e.g. the CEDICT download/cache): no path out
+    except dictionary.CedictDownloadError as e:  # already user-ready, not an engine failure
+        raise ServiceError(str(e)) from None
+    except OSError:  # local work (e.g. the CEDICT cache): no path out
         raise ServiceError("A local dictionary or file step failed; see the app log.") from None
     except Exception as e:  # engine/network failure: never leak a key or path
-        import diagnostics
+        import diagnostics_report
         raise ServiceError("The engine call failed: "
-                           + diagnostics.redact_for_support(str(e))[:300]) from None
+                           + diagnostics_report.redact_for_support(str(e))[:300]) from None
 
 
 def _text_arg(value, field: str, max_len: int) -> str:

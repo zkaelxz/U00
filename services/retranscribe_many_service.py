@@ -23,6 +23,7 @@ import functools
 import background_jobs
 import bulk_translate
 import core as core_module
+import whisper_models
 import db
 import sensitivity_preset as presets
 import storage
@@ -90,12 +91,12 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
             args=(audio_path, windows, size,
                   drama.get("beam_size") or tuning["beam_size"],
                   drama.get("min_silence_ms") or tuning["min_silence_ms"],
-                  presets.stored_vad_threshold(drama), settings_service.get_use_gpu(), prompt,
+                  presets.stored_vad_threshold(drama), settings_service.get("use_gpu"), prompt,
                   transcribe_service.stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),
                   transcribe_pipeline._model_loading_message(
-                      size, core_module.is_whisper_model_cached(size)),
+                      size, whisper_models.is_whisper_model_cached(size)),
                   retranscribe_timeout_s(sum(w[2] - w[1] for w in windows)), scratch_dir),
             gpu_touching=True,
             description=f"Re-transcribing {len(windows)} lines (drama #{drama_id})",

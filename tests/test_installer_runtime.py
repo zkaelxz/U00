@@ -2,8 +2,10 @@
 (the Start-menu shortcut) and installer/postinstall.py (the install step).
 No real server, browser, pip or Windows process calls: those are faked."""
 import hashlib
+import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -104,6 +106,26 @@ class TestLaunch:
         ran.clear()
         launcher.apply_pending_install("python", {}, True)
         assert ran == []
+
+    def test_a_lock_whose_pid_is_dead_is_not_waited_for(self, data_dir, monkeypatch):
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"pid": 4242, "time": int(time.time())}))
+        monkeypatch.setattr(launcher, "_pid_alive", lambda pid: False)
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran == []
+
+    def test_a_lock_held_by_a_live_pid_is_waited_for(self, data_dir, monkeypatch, capsys):
+        lock = data_dir / "pending_install" / "apply.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"pid": os.getpid(), "time": int(time.time())}))
+        ran = []
+        monkeypatch.setattr(launcher.subprocess, "run", lambda argv, **kw: ran.append(argv))
+        launcher.apply_pending_install("python", {}, True)
+        assert ran and ran[0][-1] == "pending_install"
+        assert "Waiting for an install" in capsys.readouterr().out
 
     def test_port_taken_by_something_else(self, data_dir, monkeypatch):
         monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)

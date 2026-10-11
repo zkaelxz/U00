@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getRawNovel } from '../../../api/novelFiles'
 import {
@@ -13,6 +13,7 @@ import { attachNotice, epubRange } from '../preambleForm'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { LncrawlPanel } from './LncrawlPanel'
+import { NovelFilePanel } from './NovelFilePanel'
 import { epubSizeProblem } from './novelFile'
 import { bumpNovelFiles, useNovelFilesVersion } from './novelFileEvents'
 import './preamble.css'
@@ -26,18 +27,26 @@ interface Props {
   kind?: 'audio' | 'novel' | 'comic'
   // Open by default when this is the first workflow for the drama's media type.
   primary?: boolean
+  // Nothing is attached and novel text is not this title's main workflow: one collapsed
+  // row, with the raw-novel upload inside it instead of in Transcribe.
+  optional?: boolean
 }
 
 // OCR backend ids ("manga_ocr") as readable names; the option value stays raw.
 const OCR_LABELS: Record<string, string> = { manga_ocr: 'Manga OCR', paddle: 'PaddleOCR', tesseract: 'Tesseract' }
 const ocrLabel = (b: string) => OCR_LABELS[b] ?? humanizeValue(b)
 
-export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = 'audio', primary = false }: Props) {
+export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = 'audio', primary = false, optional = false }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [status, setStatus] = useState<NovelStatus | null>(null)
   const [mode, setMode] = useState<NovelMode>('replace')
   const [text, setText] = useState('')
   const [epub, setEpub] = useState<File | null>(null)
+  const epubInput = useRef<HTMLInputElement>(null)
+  // The server appends in Append mode, so a second click while the first
+  // attach is in flight would store the novel twice.
+  const [attaching, setAttaching] = useState(false)
+  const inFlight = useRef(false)
   const [fromChapter, setFromChapter] = useState('')
   const [toChapter, setToChapter] = useState('')
   const [error, setError] = useState<unknown>(null)
@@ -87,6 +96,20 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   const fail = (e: unknown) => {
     setNotice(null)
     setError(e)
+  }
+  const attach = (send: () => Promise<NovelAttachResult>, done?: () => void) => {
+    if (inFlight.current) return
+    inFlight.current = true
+    setAttaching(true)
+    send()
+      .then((r) => {
+        done?.()
+        attached(r)
+      }, fail)
+      .finally(() => {
+        inFlight.current = false
+        setAttaching(false)
+      })
   }
 
   const range = epubRange(fromChapter, toChapter)
@@ -142,15 +165,19 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   )
 
   return (
-    <section className="panel" aria-label="Novel text">
-      <Section storageKey="source.novel" defaultOpen={primary} title="Novel text" summary={summary}>
-        <h4 className="source-subhead">Raw source novel (original language, used as reference)</h4>
-        <p className="muted" data-testid="raw-status">
-          {hasRaw
-            ? 'Saved. It only primes the Whisper prompt and glossary extraction; it is not translated.'
-            : 'None saved. Add one under Transcribe if you want the Whisper prompt to use its names.'}
-        </p>
-        <h4 className="source-subhead">Text used for translation</h4>
+    <section className="panel" aria-label={optional ? 'Attach novel text (optional)' : 'Novel text'}>
+      <Section storageKey="source.novel" defaultOpen={primary} title={optional ? 'Attach novel text (optional)' : 'Novel text'} summary={optional && !status?.has_novel_text ? undefined : summary}>
+        {!optional && (
+          <>
+            <h4 className="source-subhead">Raw source novel (original language, used as reference)</h4>
+            <p className="muted" data-testid="raw-status">
+              {hasRaw
+                ? 'Saved. It only primes the Whisper prompt and glossary extraction; it is not translated.'
+                : 'None saved. Add one under Transcribe if you want the Whisper prompt to use its names.'}
+            </p>
+            <h4 className="source-subhead">Text used for translation</h4>
+          </>
+        )}
         {comic && ocrSection}
         <p className="muted" data-testid="novel-status">
           {status?.has_novel_text
@@ -173,18 +200,13 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
         </Field>
         <button
           type="button"
-          disabled={!text.trim()}
-          onClick={() =>
-            attachNovelText(dramaId, text, mode).then((r) => {
-              setText('')
-              attached(r)
-            }, fail)
-          }
+          disabled={!text.trim() || attaching}
+          onClick={() => attach(() => attachNovelText(dramaId, text, mode), () => setText(''))}
         >
           Attach text
         </button>
         <Field label="EPUB file" help="Or attach an .epub file instead of pasting." error={epubProblem}>
-          <input type="file" accept=".epub" onChange={(e) => setEpub(e.target.files?.[0] ?? null)} />
+          <input ref={epubInput} type="file" accept=".epub" onChange={(e) => setEpub(e.target.files?.[0] ?? null)} />
         </Field>
         <div className="epub-range">
           <Field label="From chapter" help="Blank: the first.">
@@ -197,17 +219,20 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
         {'problem' in range && <p className="error" role="alert">{range.problem}</p>}
         <button
           type="button"
-          disabled={!epub || !!epubProblem || 'problem' in range}
+          disabled={!epub || !!epubProblem || 'problem' in range || attaching}
           onClick={() =>
             epub && !epubProblem && !('problem' in range) &&
-            attachNovelEpub(dramaId, epub, mode, undefined, range).then(attached, fail)
+            attach(() => attachNovelEpub(dramaId, epub, mode, undefined, range), () => {
+              setEpub(null)
+              if (epubInput.current) epubInput.current.value = ''
+            })
           }
         >
           Attach EPUB
         </button>
         {hasRaw && (
           <div>
-            <button type="button" onClick={() => attachNovelFromSources(dramaId, mode).then(attached, fail)}>
+            <button type="button" disabled={attaching} onClick={() => attach(() => attachNovelFromSources(dramaId, mode))}>
               Copy saved raw chapters into the translation text
             </button>
             <p className="muted">Copies the original-language chapters saved for this title (from Sources, or the raw source novel above) into the text used for translation, using the Mode above.</p>
@@ -222,6 +247,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
           }}
         />
         {!comic && ocrSection}
+        {optional && <NovelFilePanel kind="raw" busy={busy} />}
         {notice && <p role="status">{notice}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
       </Section>

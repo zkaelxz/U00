@@ -111,13 +111,13 @@ and `.aider.model.settings.yml` (aider otherwise sizes `num_ctx` per request):
   extra_params:
     num_ctx: 65536
 ```
-Set `OLLAMA_API_BASE=http://127.0.0.1:11434` if Ollama isn't on the default address. The three `read` files cost
-about 5.5k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
+Set `OLLAMA_API_BASE=http://127.0.0.1:11434` if Ollama isn't on the default address. The three `read` files (about 33 KB) cost
+about 8k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
 
 Branch and PR flow: one task per branch off the latest `baihe-subtitler`
 (`git fetch origin && git checkout -b <task-name> origin/baihe-subtitler`; roadmap steps use `step-<id>-<short-name>`).
 Run the area test, then the quick guards, and the frontend commands if you touched `frontend/`. Push and open a
-draft PR into `baihe-subtitler`; the owner merges when CI is green. Finish with a short summary: what
+draft PR into `baihe-subtitler`; the lead session merges when CI is green. Finish with a short summary: what
 changed, commands run with pass counts, what you're unsure about.
 
 Stop and ask the owner before touching:
@@ -174,7 +174,7 @@ Example (a real small fix: `docs/STATUS.md` says the CPU Whisper fallback is sti
 Goal: docs/STATUS.md, "Where the app is" > "Transcription and models", says the CPU fallback is still `medium` and that
 the label says turbo is weaker on Japanese and Korean. The code now uses large-v3-turbo on CPU too, and the label is
 the per-language note in whisperModelWarning. Make that sentence true.
-Files: docs/STATUS.md only. Read services/transcribe_service.py:736-742 and frontend/src/pages/workspace/sourceForm.ts:159-171 first.
+Files: docs/STATUS.md only. Read `default_whisper_size` in services/transcribe_service.py and `whisperModelWarning` in frontend/src/pages/workspace/sourceForm.ts first.
 Test: python -m pytest -q tests/test_file_organization.py tests/test_agent_docs.py
 Rules: docs say what is true now; keep the edit to that one sentence; no PR or Step ids in code comments.
 Do not touch any other file. Stop and tell me if the code says something different from what I described.

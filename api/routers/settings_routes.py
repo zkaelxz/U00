@@ -19,13 +19,14 @@ the separate admin listener: on the household listener it always refuses.
 
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from api.auth import (LOOPBACK_HOSTS, PROXY_HEADERS, host_name, is_local_request,
                       is_loopback_peer, local_only, require_permission)
 from api.schemas import (EndpointUrlResult, EndpointUrlSetRequest, EngineKeyClearRequest,
                          EngineKeyResult, EngineKeySetRequest, MonthCounterResetResult,
                          SettingsOverview, SettingsSchema,
                          SettingsUpdateRequest)
+from lib.errors import ForbiddenError
 from services import settings_schema_service, settings_service
 from services.service_errors import InvalidInputError
 
@@ -75,7 +76,7 @@ def require_local_admin(request: Request):
     flag, loopback TCP peer, loopback Host header, no proxy/identity
     headers, Origin (if present) is loopback."""
     def deny():
-        raise HTTPException(status_code=403, detail="Not allowed from this connection.")
+        raise ForbiddenError("Not allowed from this connection.")
 
     settings = getattr(request.app.state, "settings", None)
     if not getattr(settings, "allow_key_writes", False):

@@ -10,8 +10,40 @@ import os
 import numpy as np
 
 
+def decode_page(image_path: str):
+    """One page as an OpenCV BGR array, for a whole detect or render pass to
+    share. Read through Pillow: cv2.imread can't open non-ASCII paths on
+    Windows, and Pillow's pixel grid (no EXIF rotation) is the one the page's
+    stored size and every crop already use. ValueError if unreadable."""
+    from PIL import Image
+    try:
+        with Image.open(image_path) as opened:
+            rgb = np.asarray(opened.convert("RGB"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Could not read image: {image_path}") from exc
+    return np.ascontiguousarray(rgb[:, :, ::-1])
+
+
+def page_bgr(image_path: str, image=None):
+    """The page as an OpenCV BGR array: `image` when the caller already
+    decoded it, so one page pass decodes the file once, else a fresh read
+    (None if unreadable)."""
+    if image is not None:
+        return image
+    import cv2
+    return cv2.imread(image_path)
+
+
+def page_gray(image_path: str, image=None):
+    """page_bgr() in grayscale; `image` may already be gray or BGR."""
+    import cv2
+    if image is None:
+        return cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    return image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+
 def detect_bubbles_cv(image_path: str, min_area_frac: float = 0.0015,
-                       max_area_frac: float = 0.35, debug: bool = False):
+                       max_area_frac: float = 0.35, debug: bool = False, image=None):
     """
     Heuristic speech-bubble detector for a typical comic page.
 
@@ -28,12 +60,13 @@ def detect_bubbles_cv(image_path: str, min_area_frac: float = 0.0015,
 
     Returns boxes sorted in manga reading order (top-to-bottom, then
     right-to-left). Works on light-background pages, which is the normal
-    case; pass debug=True to get the rejection reasons back.
+    case; pass debug=True to get the rejection reasons back. `image`: the
+    page already decoded as BGR (see page_bgr()).
     """
     import cv2
     import numpy as np
 
-    img = cv2.imread(image_path)
+    img = page_bgr(image_path, image)
     if img is None:
         raise ValueError(f"Could not read image: {image_path}")
     h, w = img.shape[:2]
@@ -121,7 +154,8 @@ def inset_box_for_ocr(box: dict, frac: float = 0.10, min_inset: int = 4, max_ins
 _BUBBLE_ML_REPO = "ogkalu/comic-text-and-bubble-detector"
 
 
-def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str = None):
+def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str = None,
+                      image=None):
     """
     Real trained bubble/text detector, as an upgrade over
     detect_bubbles_cv()'s free heuristic. Uses
@@ -136,8 +170,7 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
 
     Loads through `transformers`'s own RT-DETR-v2 support: the model is
     RT-DETR-v2, not a YOLO architecture, so `ultralytics.YOLO` can never
-    load it. This also means huggingface_hub's own
-    HF_TOKEN-from-environment handling covers auth for free.
+    load it.
 
     NOTE: written against the documented transformers/huggingface_hub
     APIs, not verified end-to-end against the real model. Sanity-check
@@ -154,11 +187,7 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
 
     # Same gap that hit Whisper's downloads: without a token, every request
     # is anonymous and rate-limited (the "unauthenticated requests" warning).
-    # from_pretrained() reads HF_TOKEN from the environment itself if no
-    # explicit token is passed, so setting it here covers both paths.
     _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
-    if _tok:
-        _os.environ.setdefault("HF_TOKEN", _tok)
 
     global _bubble_ml_model, _bubble_ml_processor
     if "_bubble_ml_model" not in globals():
@@ -171,7 +200,8 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
     model = globals()["_bubble_ml_model"]
     processor = globals()["_bubble_ml_processor"]
 
-    image = _PILImage.open(image_path).convert("RGB")
+    image = (_PILImage.fromarray(np.ascontiguousarray(image[:, :, ::-1])) if image is not None
+             else _PILImage.open(image_path).convert("RGB"))
     inputs = processor(images=image, return_tensors="pt")
     with torch.no_grad():
         outputs = model(**inputs)
@@ -298,7 +328,7 @@ class BubbleModelUnavailable(RuntimeError):
         self.fell_back_to_cv = fell_back_to_cv
 
 
-def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
+def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs):
     """Dispatcher: backend='cv' (free heuristic), 'ml' (trained model,
     better accuracy, heavier install), or 'auto' (default)
     -- use the ML model if its weights are already cached locally,
@@ -314,14 +344,16 @@ def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
     The ML model's own boxes are deduped before being
     returned -- its 3-class output otherwise reports the same balloon
     twice, once as "bubble" and once as "text_bubble"/"text_free".
+
+    `image`: the page already decoded as BGR (see page_bgr()).
     """
     if backend == "auto":
         backend = "ml" if bubble_ml_weights_cached() else "cv"
     if backend != "ml":
-        return detect_bubbles_cv(image_path)
+        return detect_bubbles_cv(image_path, image=image)
 
     try:
-        return dedupe_overlapping_boxes(detect_bubbles_ml(image_path, **kwargs))
+        return dedupe_overlapping_boxes(detect_bubbles_ml(image_path, image=image, **kwargs))
     except ImportError as exc:
         raise BubbleModelUnavailable(
             "The ML detector needs extra packages:\n"
@@ -329,7 +361,7 @@ def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
             "Falling back to the free heuristic for this page."
         ) from exc
     except Exception as exc:
-        from core import is_network_error
+        from whisper_models import is_network_error
         if is_network_error(exc):
             raise BubbleModelUnavailable(
                 "Couldn't download the bubble-detection model -- this is a network "
@@ -349,7 +381,7 @@ def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
 # Panel detection & webtoon long-strip handling
 # ---------------------------------------------------------------------------
 
-def detect_panels(image_path: str, min_panel_frac: float = 0.02):
+def detect_panels(image_path: str, min_panel_frac: float = 0.02, image=None):
     """
     Finds comic panels by looking for the gutters (whitespace channels)
     between them. Returns boxes in reading order.
@@ -357,11 +389,12 @@ def detect_panels(image_path: str, min_panel_frac: float = 0.02):
     Useful for two things: translating only the panels you're actually
     looking at, and giving the translator panel-level context instead of
     a flat list of bubbles with no sense of which are in the same beat.
+    `image`: the page already decoded as BGR (see page_bgr()).
     """
     import cv2
     import numpy as np
 
-    img = cv2.imread(image_path)
+    img = page_bgr(image_path, image)
     if img is None:
         raise ValueError(f"Could not read image: {image_path}")
     h, w = img.shape[:2]
@@ -386,6 +419,9 @@ def detect_panels(image_path: str, min_panel_frac: float = 0.02):
     # Manga reading order: top-to-bottom, then right-to-left within a row.
     panels.sort(key=lambda p: (p["y"] // max(int(h * 0.08), 1), -p["x"]))
     return panels
+
+
+_MAX_WEBTOON_SLICES = 200
 
 
 def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int = 100):
@@ -438,8 +474,10 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
         slices.append({"y_start": y, "y_end": cut, "index": idx})
         y = max(cut - overlap, cut) if overlap == 0 else max(cut - overlap, y + 1)
         idx += 1
-        if idx > 200:  # guard against pathological images
-            break
+        if idx >= _MAX_WEBTOON_SLICES:
+            # Stopping here would silently drop the rest of the strip.
+            raise ValueError(f"This strip needs more than {_MAX_WEBTOON_SLICES} slices; "
+                             "split it into shorter images before importing it.")
     return slices
 
 
@@ -456,7 +494,7 @@ TEXT_REGION_KINDS = {
 }
 
 
-def classify_text_regions(image_path: str, boxes):
+def classify_text_regions(image_path: str, boxes, image=None):
     """
     Sorts detected text regions into bubbles, narration boxes, signs, and
     sound effects using cheap local geometry -- no model download.
@@ -468,11 +506,11 @@ def classify_text_regions(image_path: str, boxes):
     IS the art.
 
     Heuristic and imperfect -- exposed for review rather than applied
-    silently.
+    silently. `image`: the page already decoded as BGR (see page_bgr()).
     """
     import cv2
 
-    img = cv2.imread(image_path)
+    img = page_bgr(image_path, image)
     if img is None:
         return [dict(b, kind="bubble", kind_confidence=0.0) for b in boxes]
     h, w = img.shape[:2]
@@ -525,7 +563,7 @@ def classify_text_regions(image_path: str, boxes):
     return out
 
 
-def bubble_shape_mask(image_path: str, box: dict, margin: int = 4):
+def bubble_shape_mask(image_path: str, box: dict, margin: int = 4, image=None):
     """The bubble's real (often oval/irregular) interior inside `box`, as
     a boolean (h, w) array for render_text_in_box(mask=...) -- found the
     same way detect_bubbles_cv() finds bubbles (light threshold, close the
@@ -533,10 +571,11 @@ def bubble_shape_mask(image_path: str, box: dict, margin: int = 4):
     box's centre, fill its holes), then eroded by `margin` px so text keeps
     off the outline. None when there's no usable light region there (the
     box sits on artwork, or the region covers under 30% of the box) --
-    callers then keep the plain rectangle layout."""
+    callers then keep the plain rectangle layout. `image`: the page already
+    decoded, gray or BGR (see page_gray())."""
     import cv2
 
-    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    gray = page_gray(image_path, image)
     if gray is None or box["w"] <= 2 * margin or box["h"] <= 2 * margin:
         return None
     ph, pw = gray.shape[:2]

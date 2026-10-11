@@ -1,5 +1,6 @@
 """The `smoke` CLI command (real_model_check_cli.py). Every check is faked: no
 GPU, models or network."""
+import whisper_models
 import sys
 import time
 
@@ -7,6 +8,7 @@ import pytest
 
 import background_jobs
 import real_model_check_cli as smoke
+from jobs import gpu_slots
 from services import library_admin_service
 from services import real_model_check_service as svc
 
@@ -36,7 +38,7 @@ def _fakes(*overrides):
 @pytest.fixture
 def env(isolated_db, monkeypatch):
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
-    monkeypatch.setattr("core.release_gpu_models", lambda: None)
+    monkeypatch.setattr("whisper_models.release_gpu_models", lambda: None)
     background_jobs.clear_job(svc.JOB_ID)
     svc._STATE.update(checks=[], finished=False)
     yield
@@ -89,13 +91,13 @@ def test_the_gpu_slot_is_released_after_a_run(env, monkeypatch, capsys):
     import db
     monkeypatch.setattr(svc, "_CHECKS", _fakes())
     _run(capsys)
-    assert db.gpu_lock_status() == (None, None)
+    assert gpu_slots.status() == (None, None)
 
 
 def test_a_busy_gpu_is_reported_and_nothing_runs(env, monkeypatch, capsys):
     ran = []
     monkeypatch.setattr(svc, "_CHECKS", _fakes(("asr", lambda **_: ran.append(1))))
-    monkeypatch.setattr(background_jobs, "try_take_gpu_slot", lambda *a, **k: False)
+    monkeypatch.setattr(gpu_slots, "acquire", lambda *a, **k: False)
     code, out = _run(capsys)
     assert code == smoke.GPU_BUSY and "busy" in out and not ran
 
@@ -135,7 +137,7 @@ def test_cli_and_app_report_the_same_checks_for_the_same_fakes(env, monkeypatch,
     end = time.time() + 10
     # The job holds the GPU slot until it exits, a moment after "finished".
     import db
-    while time.time() < end and (not svc.get_state()["finished"] or db.gpu_lock_status()[0]):
+    while time.time() < end and (not svc.get_state()["finished"] or gpu_slots.status()[0]):
         time.sleep(0.02)
     app_checks = svc.get_state()["checks"]
     code, out = _run(capsys)
