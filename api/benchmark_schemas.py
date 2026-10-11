@@ -218,6 +218,7 @@ class BenchmarkOptions(BaseModel):
     source_languages: List[str]
     translation_engines: List[BenchmarkEngineOption]
     whisper_sizes: List[str]
+    whisper_exclusions: Dict[str, Dict[str, str]]
     ocr_backends: List[str]
     pass_threshold: float
     chrf_pass_threshold: float

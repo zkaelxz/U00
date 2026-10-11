@@ -16,7 +16,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useStageDraft } from '../../../../hooks/useStageDraft'
 import { useLineSelectionContext } from './LineSelectionContext'
-import { transcribeExtraNames } from '../../sourceForm'
+import { transcribeExtraNames, whisperExclusionReason } from '../../sourceForm'
 import { promptFields } from '../transcribePrompt'
 import { TERMINAL_STATUSES } from '../../../../types/jobs'
 import type { CompareEstimate, CompareOptions, CompareProposal, CompareResult } from '../../../../types/workspace'
@@ -118,7 +118,7 @@ export function CompareTranscription({
       (o) => {
         if (cancelled) return
         setOptions(o)
-        setSize(draft.size && o.whisper_sizes.includes(draft.size) ? draft.size : o.saved_whisper_size)
+        setSize(draft.size && o.whisper_sizes.includes(draft.size) && !whisperExclusionReason(o.whisper_exclusions, draft.size, o.source_language) ? draft.size : o.saved_whisper_size)
         setBackend(draft.backend && o.backends.some((b) => b.id === draft.backend) ? draft.backend : o.saved_asr_backend)
       },
       (e) => !cancelled && setError(e),
@@ -308,11 +308,22 @@ export function CompareTranscription({
         )}
         <div className="compare-pair">
           <Field label="Whisper model">
+            <>
             <select value={size} onChange={(e) => setSize(e.target.value)} disabled={busy}>
-              {options.whisper_sizes.map((s) => (
-                <option key={s} value={s}>{s}{s === options.saved_whisper_size ? ' (saved)' : ''}</option>
-              ))}
+              {options.whisper_sizes.map((s) => {
+                const reason = whisperExclusionReason(options.whisper_exclusions, s, options.source_language)
+                return (
+                  <option key={s} value={s} disabled={!!reason} title={reason ?? undefined}>
+                    {s}{s === options.saved_whisper_size ? ' (saved)' : ''}{reason ? ' (not recommended for this language)' : ''}
+                  </option>
+                )
+              })}
             </select>
+            {options.whisper_sizes.map((s) => {
+              const reason = whisperExclusionReason(options.whisper_exclusions, s, options.source_language)
+              return reason ? <p key={s} className="muted" role="note">{s}: {reason}</p> : null
+            })}
+            </>
           </Field>
           <Field label="ASR backend">
             <select value={backend} onChange={(e) => setBackend(e.target.value)} disabled={busy}>

@@ -39,7 +39,7 @@ import {
   TRANSCRIBE_DRAFT_STAGE,
   validateConfig,
   DEFAULT_WHISPER_SIZE,
-  isJaOnlyWhisperSize,
+  whisperExclusionReason,
   whisperSizeChoices,
   type RunField,
   type RunFieldProblem,
@@ -69,7 +69,7 @@ const WHISPER_LABELS: Record<string, string> = {
 function whisperModelHelp(size: string, notDownloaded: boolean): string | undefined {
   const parts = [
     notDownloaded ? 'This model will be downloaded on first use.' : '',
-    isJaOnlyWhisperSize(size) ? 'Its licence is not declared; use it for personal work.' : '',
+    size === 'ja-1.5b' ? 'Its licence is not declared; use it for personal work.' : '',
   ].filter(Boolean)
   return parts.length ? parts.join(' ') : undefined
 }
@@ -348,16 +348,21 @@ export default function TranscribeStage({
   }
   const fieldError = (f: RunField) => (fieldProblem?.field === f ? fieldProblem.message : null)
 
-  // The language picker above can leave a Japanese-only model behind; the server would refuse the run.
+  // The language picker above can leave a model behind that is not recommended for the new language;
+  // the server would refuse the run, so switch to the default and say so.
+  const [switchedNotice, setSwitchedNotice] = useState<string | null>(null)
   useEffect(() => {
-    if (cf && language !== 'ja' && isJaOnlyWhisperSize(cf.whisper_size)) {
+    const reason = cf && whisperExclusionReason(config?.whisper_exclusions, cf.whisper_size, language)
+    if (cf && reason) {
+      setSwitchedNotice(`${reason} Switched to ${DEFAULT_WHISPER_SIZE}.`)
       setCf((s) => (s ? { ...s, whisper_size: DEFAULT_WHISPER_SIZE } : s))
     }
-  }, [cf, language])
+  }, [cf, config, language])
 
   const setC = <K extends keyof ConfigForm>(k: K, v: ConfigForm[K]) => {
     setSaved(false)
     setFieldProblem(null)
+    if (k === 'whisper_size') setSwitchedNotice(null)
     setCf((s) => (s ? { ...s, [k]: v } : s))
   }
 
@@ -546,6 +551,7 @@ export default function TranscribeStage({
     }
   }
 
+  const whisperChoices = cf ? whisperSizeChoices(language, cf.whisper_size, config?.whisper_exclusions) : []
   const turboWarning = cf ? whisperModelWarning(cf.whisper_size, language) : ''
   // Only runs that go through Whisper (plain ASR, or aligning a pasted
   // transcript with whisper_diff); a file picked but not uploaded yet has no
@@ -589,8 +595,10 @@ export default function TranscribeStage({
         {cf && (
           <Field label="Whisper model" help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached)}>
             <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
-              {whisperSizeChoices(language, cf.whisper_size).map((o) => (
-                <option key={o} value={o}>{WHISPER_LABELS[o] ?? o}</option>
+              {whisperChoices.map((o) => (
+                <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>
+                  {WHISPER_LABELS[o.size] ?? o.size}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
+                </option>
               ))}
             </select>
           </Field>
@@ -606,6 +614,12 @@ export default function TranscribeStage({
         )}
       </div>
       {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
+      {(switchedNotice ?? config?.whisper_size_notice) && (
+        <p className="muted" role="note" data-testid="whisper-size-notice">{switchedNotice ?? config?.whisper_size_notice}</p>
+      )}
+      {whisperChoices.filter((o) => o.reason).map((o) => (
+        <p key={o.size} className="muted" role="note">{o.size}: {o.reason}</p>
+      ))}
       {haveTranscript && (
         <Field label="Transcript text">
           <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
