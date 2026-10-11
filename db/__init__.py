@@ -1111,6 +1111,47 @@ def _migrate_job_records_columns(conn):
             _safe_alter(conn, f"ALTER TABLE gpu_lock ADD COLUMN {col} {kind}")
 
 
+def _migrate_gpu_lock_slots():
+    """gpu_lock used to allow a single row (CHECK (id = 1)); it now has one
+    row per holder. A CHECK can't be changed with ALTER TABLE, so the table
+    is rebuilt once, in one transaction, keeping any held row."""
+    conn = get_conn()
+    conn.isolation_level = None  # explicit BEGIN/COMMIT below
+    def single_row():
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gpu_lock'").fetchone()
+        return bool(row) and "CHECK(id=1)" in "".join((row[0] or "").split())
+
+    try:
+        if not single_row():
+            return
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
+        conn.execute("BEGIN IMMEDIATE")
+        if not single_row():  # another process migrated it while this one waited
+            conn.execute("ROLLBACK")
+            return
+        conn.execute("DROP TABLE IF EXISTS gpu_lock_new")
+        conn.execute("""
+            CREATE TABLE gpu_lock_new (
+                id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 4),
+                holder TEXT NOT NULL,
+                description TEXT,
+                acquired_at REAL NOT NULL,
+                heartbeat_at REAL NOT NULL,
+                owner_pid INTEGER, owner_instance TEXT, job_id TEXT
+            )""")
+        conn.execute("INSERT INTO gpu_lock_new (id, holder, description, acquired_at, heartbeat_at) "
+                     "SELECT id, holder, description, acquired_at, heartbeat_at FROM gpu_lock")
+        conn.execute("DROP TABLE gpu_lock")
+        conn.execute("ALTER TABLE gpu_lock_new RENAME TO gpu_lock")
+        conn.execute("COMMIT")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
 def _create_auth_tables(conn):
     # API users, permissions, server-side sessions, audit log.
     # Additive only; nothing above is touched. Session ids / CSRF tokens
@@ -4860,479 +4901,40 @@ def set_vocab_export_rich(drama_id: int, word: str, flag: bool = True):
         conn.commit()
 
 
-# ---------------------------------------------------------------------------
-# Usage/cost logging
-# ---------------------------------------------------------------------------
-
-def log_usage(drama_id: int, engine: str, model: str, operation: str,
-              input_tokens: int = 0, output_tokens: int = 0, estimated_cost_usd: float = 0.0,
-              cache_read_tokens: int = 0):
-    """input_tokens is the whole prompt; cache_read_tokens is the part of
-    it a provider served from its prompt cache."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("""
-            INSERT INTO usage_log (drama_id, engine, model, operation, input_tokens,
-                                    output_tokens, estimated_cost_usd, created_at, cache_read_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (drama_id, engine, model, operation, input_tokens, output_tokens,
-              estimated_cost_usd, datetime.datetime.utcnow().isoformat(), cache_read_tokens or 0))
-        conn.commit()
-    try:
-        # Count the spend toward the running job's stage
-        # (a no-op outside a background job's own thread).
-        from services import job_timing_service
-        job_timing_service.add_cost(estimated_cost_usd)
-    except Exception:
-        pass
-
-
-MONTHLY_SPEND_RESET_KEY = "monthly_spend_reset_at"
-
-
-def get_month_spend_reset_at(now: datetime.datetime = None):
-    """The saved reset time (UTC ISO) while it applies to this month, else None.
-    A reset from an earlier month is ignored so the new month starts at its
-    own first day without anyone having to undo it. A marker that is not a
-    datetime or lies after `now` (clock was ahead when Reset was pressed, or a
-    restored library.db) is ignored too: honouring it would count ~nothing and
-    silently switch the monthly cap off."""
-    now = now or datetime.datetime.utcnow()
-    saved = get_app_setting(MONTHLY_SPEND_RESET_KEY)
-    if not isinstance(saved, str):
-        return None
-    try:
-        when = datetime.datetime.fromisoformat(saved)
-    except ValueError:
-        return None
-    if when.tzinfo is not None:
-        when = when.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    return when.isoformat() if month_start <= when <= now else None
-
-
-def get_month_spend(now: datetime.datetime = None, since_reset: bool = True) -> float:
-    """Estimated spend logged so far in the current calendar month (UTC),
-    across the whole library. By default only rows at or after an active
-    reset count: this is what the monthly cap is checked against.
-    `since_reset=False` is the full month, for stats and display."""
-    now = now or datetime.datetime.utcnow()
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-    if since_reset:
-        start = get_month_spend_reset_at(now) or start
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute(
-            "SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log WHERE created_at >= ?",
-            (start,)).fetchone()
-    return float(row["spent"])
-
-
-def usage_recost_candidates(models) -> list:
-    """Usage rows of exactly `models` with a real stored cost. Rows already
-    re-costed are included: a later price correction may lower them again,
-    and the apply step skips any whose figure already matches."""
-    marks = ",".join("?" * len(models))
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT id, model, operation, input_tokens, output_tokens, cache_read_tokens, "
-            "estimated_cost_usd, created_at FROM usage_log "
-            f"WHERE estimated_cost_usd > 0 AND model IN ({marks})",
-            tuple(models)).fetchall()
-    return [dict(r) for r in rows]
-
-
-def apply_usage_recost(updates) -> int:
-    """`updates` is [(row_id, expected_old_cost, new_cost), ...]. A row's
-    first original is kept in estimated_cost_usd_before_recost (never
-    overwritten by a later re-cost, so Undo returns the logged figure), and
-    a row that changed since it was read is skipped. All in one transaction;
-    returns how many rows were written."""
-    written = 0
-    conn = get_conn()
-    try:
-        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
-        conn.execute("BEGIN IMMEDIATE")
-        for row_id, old, new in updates:
-            written += conn.execute(
-                "UPDATE usage_log SET estimated_cost_usd_before_recost = "
-                "COALESCE(estimated_cost_usd_before_recost, estimated_cost_usd), "
-                "estimated_cost_usd = ? WHERE id = ? AND estimated_cost_usd = ?",
-                (new, row_id, old)).rowcount
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-    return written
-
-
-def undo_usage_recost() -> int:
-    """Puts every re-costed row's saved cost back; returns how many rows."""
-    with contextlib.closing(get_conn()) as conn:
-        n = conn.execute(
-            "UPDATE usage_log SET estimated_cost_usd = estimated_cost_usd_before_recost, "
-            "estimated_cost_usd_before_recost = NULL "
-            "WHERE estimated_cost_usd_before_recost IS NOT NULL").rowcount
-        conn.commit()
-    return n
-
-
-def _migrate_gpu_lock_slots():
-    """gpu_lock used to allow a single row (CHECK (id = 1)); it now has one
-    row per holder. A CHECK can't be changed with ALTER TABLE, so the table
-    is rebuilt once, in one transaction, keeping any held row."""
-    conn = get_conn()
-    conn.isolation_level = None  # explicit BEGIN/COMMIT below
-    def single_row():
-        row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gpu_lock'").fetchone()
-        return bool(row) and "CHECK(id=1)" in "".join((row[0] or "").split())
-
-    try:
-        if not single_row():
-            return
-        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
-        conn.execute("BEGIN IMMEDIATE")
-        if not single_row():  # another process migrated it while this one waited
-            conn.execute("ROLLBACK")
-            return
-        conn.execute("DROP TABLE IF EXISTS gpu_lock_new")
-        conn.execute("""
-            CREATE TABLE gpu_lock_new (
-                id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 4),
-                holder TEXT NOT NULL,
-                description TEXT,
-                acquired_at REAL NOT NULL,
-                heartbeat_at REAL NOT NULL,
-                owner_pid INTEGER, owner_instance TEXT, job_id TEXT
-            )""")
-        conn.execute("INSERT INTO gpu_lock_new (id, holder, description, acquired_at, heartbeat_at) "
-                     "SELECT id, holder, description, acquired_at, heartbeat_at FROM gpu_lock")
-        conn.execute("DROP TABLE gpu_lock")
-        conn.execute("ALTER TABLE gpu_lock_new RENAME TO gpu_lock")
-        conn.execute("COMMIT")
-    except Exception:
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
-
-
-def get_app_setting(key: str, default=None):
-    """A general-purpose, cross-process app setting -- distinct from sources/store.py's own settings table,
-    which is scoped to the source-adapter system only."""
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
-    if row is None:
-        return default
-    return json.loads(row["value"])
-
-
-def set_app_setting(key: str, value):
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("""
-            INSERT INTO app_settings (key, value) VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        """, (key, json.dumps(value)))
-        conn.commit()
-
-
-def get_research_cache(cache_key: str):
-    """A cached grounded-research result (the decoded dict), or None."""
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT result_json FROM metadata_research_cache WHERE cache_key = ?",
-                           (cache_key,)).fetchone()
-    return json.loads(row["result_json"]) if row else None
-
-
-def put_research_cache(cache_key: str, result: dict):
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("""
-            INSERT INTO metadata_research_cache (cache_key, result_json, created_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(cache_key) DO UPDATE SET result_json = excluded.result_json,
-                                                 created_at = excluded.created_at
-        """, (cache_key, json.dumps(result), datetime.datetime.utcnow().isoformat()))
-        conn.commit()
-
-
-RESEARCH_RESULT_TTL_DAYS = 7
-
-
-def put_research_result(research_id: str, drama_id: int, result: dict):
-    """The snapshot a research_id applies; rows older than
-    RESEARCH_RESULT_TTL_DAYS are pruned on each insert."""
-    now = datetime.datetime.utcnow()
-    cutoff = (now - datetime.timedelta(days=RESEARCH_RESULT_TTL_DAYS)).isoformat()
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM metadata_research_results WHERE created_at < ?", (cutoff,))
-        conn.execute("INSERT INTO metadata_research_results (research_id, drama_id, result_json, "
-                     "created_at) VALUES (?, ?, ?, ?)",
-                     (research_id, drama_id, json.dumps(result), now.isoformat()))
-        conn.commit()
-
-
-def get_research_result(research_id: str, drama_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT result_json FROM metadata_research_results "
-                           "WHERE research_id = ? AND drama_id = ?",
-                           (research_id, drama_id)).fetchone()
-    return json.loads(row["result_json"]) if row else None
-
-
-def add_field_provenance(drama_id: int, field: str, value: str, status: str, *,
-                         sources=None, retrieved_at: str = None, confidence: float = None,
-                         last_verified: str = None):
-    """One researched field value with its own evidence. `sources`
-    is a list of {"title", "url"}; the first is also stored as source /
-    source_url."""
-    sources = list(sources or [])
-    first = sources[0] if sources else {}
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("""
-            INSERT INTO metadata_field_provenance (drama_id, field, value, source, source_url,
-                sources_json, retrieved_at, confidence, last_verified, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (drama_id, field, value, first.get("title"), first.get("url"), json.dumps(sources),
-              retrieved_at, confidence, last_verified, status))
-        conn.commit()
-
-
-def list_field_provenance(drama_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("""
-            SELECT id, field, value, source, source_url, sources_json, retrieved_at, confidence,
-                   last_verified, status
-            FROM metadata_field_provenance WHERE drama_id = ? ORDER BY id
-        """, (drama_id,)).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        d["sources"] = json.loads(d.pop("sources_json") or "[]")
-        out.append(d)
-    return out
-
-
-def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,
-                    error: str = None, description: str = None, gpu_touching: bool = False,
-                    started_at: float = None, finished_at: float = None,
-                    result_json: str = None, owner_user_id: int = None, owner_pid: int = None,
-                    conn=None):
-    """Mirrors one background_jobs.py job's status-transition fields into
-    the cross-process job_records table -- records
-    only, no resume: this is the *last written* state, not necessarily
-    the *current* state, if the process that wrote it has since died
-    without writing a terminal status. A caller reading this table for
-    cross-process visibility should treat a long-unchanged `updated_at`
-    on a "running"/"queued" row as suspect, not trust `status` blindly.
-    With `conn`, runs in the caller's transaction and the caller commits."""
-    own = conn is None
-    conn = get_conn() if own else conn
-    try:
-        conn.execute("""
-            INSERT INTO job_records (job_id, status, progress, message, error, description,
-                gpu_touching, started_at, finished_at, updated_at, result_json, owner_user_id,
-                owner_pid)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(job_id) DO UPDATE SET
-                status = excluded.status, progress = excluded.progress,
-                message = excluded.message, error = excluded.error,
-                description = excluded.description, gpu_touching = excluded.gpu_touching,
-                started_at = excluded.started_at, finished_at = excluded.finished_at,
-                updated_at = excluded.updated_at, result_json = excluded.result_json,
-                owner_pid = excluded.owner_pid,
-                owner_user_id = CASE
-                    WHEN excluded.status IN ('queued', 'running')
-                         AND job_records.status NOT IN ('queued', 'running')
-                    THEN excluded.owner_user_id
-                    -- A new run (auth B2): a stale "running" row left by a
-                    -- crashed process must not keep its old owner.
-                    WHEN excluded.status IN ('queued', 'running')
-                         AND excluded.started_at IS NOT job_records.started_at
-                    THEN excluded.owner_user_id
-                    ELSE COALESCE(job_records.owner_user_id, excluded.owner_user_id) END,
-                -- A new run must not inherit a cancel aimed at the run it
-                -- replaced, or it would end cancelled at once and be
-                -- Force-stoppable straight away. Promotion from the queue
-                -- restamps started_at, but it is the same run: a cancel sent
-                -- to the queued row (by the CLI or another server) must hold.
-                cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
-                    AND (excluded.started_at IS job_records.started_at
-                         OR (job_records.status = 'queued'
-                             AND excluded.owner_pid IS job_records.owner_pid))
-                    THEN job_records.cancel_requested ELSE 0 END,
-                cancel_requested_at = CASE WHEN excluded.status IN ('queued', 'running')
-                    AND (excluded.started_at IS job_records.started_at
-                         OR (job_records.status = 'queued'
-                             AND excluded.owner_pid IS job_records.owner_pid))
-                    THEN job_records.cancel_requested_at ELSE NULL END
-        """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
-              started_at, finished_at, time.time(), result_json, owner_user_id, owner_pid))
-        if own:
-            conn.commit()
-    finally:
-        if own:
-            conn.close()
-
-
-def touch_job_records(job_ids) -> None:
-    """The owning process's heartbeat (background_jobs) -- bumps
-    updated_at on its still queued/running rows so a job that is alive
-    but not changing status never looks abandoned. updated_at is only ever
-    written by the owner (a cancel request leaves it alone)."""
-    job_ids = list(job_ids)
-    if not job_ids:
-        return
-    now = time.time()
-    with contextlib.closing(get_conn()) as conn:
-        conn.executemany(
-            "UPDATE job_records SET updated_at = ? "
-            "WHERE job_id = ? AND status IN ('queued', 'running')",
-            [(now, j) for j in job_ids])
-        conn.commit()
-
-
-def list_job_records() -> list:
-    """Every job_records row, newest-started first -- the cross-process
-    job list a `GET /api/jobs` endpoint would read.
-    Rows accumulate forever unless cleared (delete_job_record/
-    clear_all_job_records) -- no automatic pruning."""
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT * FROM job_records ORDER BY started_at DESC NULLS LAST").fetchall()
-        return [dict(r) for r in rows]
-
-
-def list_job_record_fingerprints() -> dict:
-    """{job_id: (status, progress, message, error, finished_at,
-    cancel_requested, result length)} for every job_records row: the cheap
-    change check behind the SSE stream's sweep (services/
-    event_stream_service.py). updated_at is left out on purpose: the
-    heartbeat bumps it without any visible change."""
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT job_id, status, progress, message, error, finished_at, cancel_requested, "
-            "LENGTH(result_json) FROM job_records").fetchall()
-    return {r[0]: tuple(r[1:]) for r in rows}
-
-
-def get_job_record(job_id: str):
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT * FROM job_records WHERE job_id = ?", (job_id,)).fetchone()
-        return dict(row) if row else None
-
-
-def delete_job_record(job_id: str):
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM job_records WHERE job_id = ?", (job_id,))
-        conn.commit()
-
-
-def clear_all_job_records():
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM job_records")
-        conn.commit()
-
-
-def get_usage_summary(drama_id: int = None, visible_to: int = None):
-    """Returns {"input_tokens", "output_tokens", "estimated_cost_usd", "call_count"} --
-    totals for one drama, or the whole library if drama_id is None.
-    `visible_to` (auth B2, library totals only): only calls logged against
-    a drama that user may see (calls with no drama are left out)."""
-    with contextlib.closing(get_conn()) as conn:
-        if not drama_id and visible_to is not None:
-            clause, params = drama_visible_sql("d", visible_to)
-            row = conn.execute(f"""
-                SELECT COALESCE(SUM(input_tokens),0) as input_tokens,
-                       COALESCE(SUM(output_tokens),0) as output_tokens,
-                       COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens,
-                       COALESCE(SUM(estimated_cost_usd),0) as estimated_cost_usd,
-                       COUNT(*) as call_count
-                FROM usage_log u JOIN dramas d ON d.id = u.drama_id WHERE {clause}
-            """, params).fetchone()
-        elif drama_id:
-            row = conn.execute("""
-                SELECT COALESCE(SUM(input_tokens),0) as input_tokens,
-                       COALESCE(SUM(output_tokens),0) as output_tokens,
-                       COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens,
-                       COALESCE(SUM(estimated_cost_usd),0) as estimated_cost_usd,
-                       COUNT(*) as call_count
-                FROM usage_log WHERE drama_id = ?
-            """, (drama_id,)).fetchone()
-        else:
-            row = conn.execute("""
-                SELECT COALESCE(SUM(input_tokens),0) as input_tokens,
-                       COALESCE(SUM(output_tokens),0) as output_tokens,
-                       COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens,
-                       COALESCE(SUM(estimated_cost_usd),0) as estimated_cost_usd,
-                       COUNT(*) as call_count
-                FROM usage_log
-            """).fetchone()
-    return dict(row)
-
-
-def get_usage_by_drama(visible_to: int = None):
-    """Per-drama cost breakdown, joined with drama titles, for the dashboard.
-    Includes translation_engine so the dashboard can show "$0.00 (free)"
-    for a free engine instead of a bare, ambiguous-looking $0.00.
-    `visible_to` (auth B2): only dramas that user may see."""
-    where, params = "", []
-    if visible_to is not None:
-        clause, params = drama_visible_sql("d", visible_to)
-        where = "WHERE " + clause
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(f"""
-            SELECT d.id, d.title_en, d.title_zh, d.translation_engine,
-                   COALESCE(SUM(u.input_tokens),0) as input_tokens,
-                   COALESCE(SUM(u.output_tokens),0) as output_tokens,
-                   COALESCE(SUM(u.cache_read_tokens),0) as cache_read_tokens,
-                   COALESCE(SUM(u.estimated_cost_usd),0) as estimated_cost_usd,
-                   COUNT(u.id) as call_count
-            FROM dramas d LEFT JOIN usage_log u ON u.drama_id = d.id
-            {where}
-            GROUP BY d.id ORDER BY estimated_cost_usd DESC
-        """, params).fetchall()
-    return [dict(r) for r in rows]
-
-
-# ---------------------------------------------------------------------------
-# Standalone translate tool history
-# ---------------------------------------------------------------------------
-
-def save_translate_history(source_language: str, target_language: str, engine: str,
-                           source_text: str, translated_text: str, user_id: int = None) -> int:
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute("""
-            INSERT INTO translate_history (source_language, target_language, engine,
-                                            source_text, translated_text, created_at, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (source_language, target_language, engine, source_text, translated_text,
-              datetime.datetime.utcnow().isoformat(), user_id))
-        conn.commit()
-        new_id = cur.lastrowid
-    return new_id
-
-
-def list_translate_history(limit: int = 50, visible_to: int = None) -> List[dict]:
-    """Most recent first. `visible_to` (auth B2): only that user's own rows
-    (rows with no user -- the PC, the extension -- are for admins and the
-    local owner, who pass None)."""
-    with contextlib.closing(get_conn()) as conn:
-        if visible_to is None:
-            rows = conn.execute(
-                "SELECT * FROM translate_history ORDER BY created_at DESC LIMIT ?", (limit,)
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM translate_history WHERE user_id = ? "
-                "ORDER BY created_at DESC LIMIT ?", (visible_to, limit)).fetchall()
-    return [dict(r) for r in rows]
-
-
-def clear_translate_history():
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM translate_history")
-        conn.commit()
+from db.usage import (  # noqa: F401
+    log_usage,
+    MONTHLY_SPEND_RESET_KEY,
+    get_month_spend_reset_at,
+    get_month_spend,
+    usage_recost_candidates,
+    apply_usage_recost,
+    undo_usage_recost,
+    get_usage_summary,
+    get_usage_by_drama,
+    save_translate_history,
+    list_translate_history,
+    clear_translate_history,
+)
+from db.app_settings import (  # noqa: F401
+    get_app_setting,
+    set_app_setting,
+    get_research_cache,
+    put_research_cache,
+    RESEARCH_RESULT_TTL_DAYS,
+    put_research_result,
+    get_research_result,
+    add_field_provenance,
+    list_field_provenance,
+)
+from db.job_records import (  # noqa: F401
+    save_job_record,
+    touch_job_records,
+    list_job_records,
+    list_job_record_fingerprints,
+    get_job_record,
+    delete_job_record,
+    clear_all_job_records,
+)
 
 
 # ---------------------------------------------------------------------------

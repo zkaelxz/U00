@@ -44,8 +44,11 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db/` (package: `__init__.py` holds what has not moved out yet and re-exports the rest, so callers keep `db.<name>`)
+  - `db/app_settings.py` (cross-process app settings, the metadata research cache and results, field provenance)
   - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
   - `db/benchmark.py` (accuracy benchmark cases and runs, Benchmark Lab sessions and results)
+  - `db/job_records.py` (the job_records mirror of background job status)
+  - `db/usage.py` (usage and cost log, monthly spend and its reset, re-costing, the standalone translate tool's history)
 - `diagnostics.py`
 - `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)

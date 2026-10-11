@@ -132,6 +132,11 @@ def _resolve_expression(rel, expr, modules, seen=()):
     return None
 
 
+# The db package files that define the accessors or read a key from inside
+# the db layer; they are skipped, as db/__init__.py was before they moved out.
+_DB_LAYER = ("db/__init__.py", "db/app_settings.py", "db/usage.py")
+
+
 def _store_keys():
     return {s.store_key for s in schema.SETTINGS if s.store == "db"}
 
@@ -140,7 +145,7 @@ def _app_setting_calls():
     modules = _module_files()
     calls = []
     for rel in _tracked("*.py"):
-        if rel.startswith("tests/") or rel == "db/__init__.py":
+        if rel.startswith("tests/") or rel in _DB_LAYER:
             continue
         text = _read(rel)
         for m in re.finditer(r"\b(?:get|set)_app_setting\(", text):
@@ -384,7 +389,7 @@ def test_declared_keys_are_read_through_one_reader():
     store_keys = _store_keys()
     stray, seen_other = [], set()
     for rel in _tracked("*.py"):
-        if rel.startswith(("tests/", "lib/")) or rel in ("db/__init__.py", "services/settings_service.py"):
+        if rel.startswith(("tests/", "lib/")) or rel in (*_DB_LAYER, "services/settings_service.py"):
             continue
         text = _read(rel)
         assert "get_preference(" not in text, rel
