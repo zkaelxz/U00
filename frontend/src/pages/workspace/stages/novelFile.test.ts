@@ -8,6 +8,7 @@ import {
   novelFileStatusLine,
   novelFileSummary,
   novelSections,
+  stableNovelSections,
   pasteProblem,
   pastedCount,
 } from './novelFile'
@@ -97,5 +98,29 @@ describe('novelSections', () => {
     expect(novelSections('comic', 'manga', null, none)).toBe('full')
     expect(novelSections('audio', 'novel_narration', null, none)).toBe('full')
     expect(novelSections('audio', 'audio_drama', 'novel_narration', none)).toBe('full')
+  })
+})
+
+describe('stableNovelSections', () => {
+  it('keeps the optional row after a raw novel is saved from it', () => {
+    expect(stableNovelSections('audio', 'full', true, false)).toBe('optional')
+  })
+
+  it('keeps the full panels after the novel is removed from Transcribe', () => {
+    expect(stableNovelSections('audio', 'optional', false, true)).toBe('full')
+  })
+
+  it('does not hold a streamer VOD that lost its novel', () => {
+    expect(stableNovelSections('audio', 'hidden', false, true)).toBe('hidden')
+  })
+
+  it('follows the fresh answer when the layout has not been shown yet', () => {
+    expect(stableNovelSections('audio', 'full', false, false)).toBe('full')
+    expect(stableNovelSections('audio', 'optional', false, false)).toBe('optional')
+  })
+
+  it('never turns a novel or comic into the optional row', () => {
+    expect(stableNovelSections('novel', 'full', true, false)).toBe('full')
+    expect(stableNovelSections('comic', 'full', true, false)).toBe('full')
   })
 })
