@@ -12,6 +12,7 @@ import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
+from lib.errors import ForbiddenError
 from services import auth_service, ownership_service
 
 REMOTE = "https://baihe.example.com"
@@ -194,7 +195,7 @@ class TestList:
     def test_household_users_are_refused(self, world):
         r = _client(_app()).get("/api/sharing/items", headers=world["a"])
         assert r.status_code == 403
-        with pytest.raises(Exception):
+        with pytest.raises(ForbiddenError):
             ownership_service.list_sharing({"user_id": world["a_id"], "is_admin": False,
                                             "is_local_owner": False})
 
