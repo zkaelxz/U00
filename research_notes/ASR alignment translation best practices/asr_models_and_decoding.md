@@ -63,7 +63,7 @@ As of October 2026, Qwen3-ASR-1.7B (Apache 2.0, released 2026-01-29) is the stro
 
 **Commercial APIs**
 - On Mandarin, GPT-4o-transcribe and Gemini-2.5-Pro are much worse than Qwen3-ASR and often worse than Whisper-v3. Examples: WenetSpeech-meeting 32.27 (GPT-4o) vs 19.11 (Whisper-v3); KeSpeech 26.87 / 24.71 vs 28.79; ExtremeNoise 36.11 / 29.06 vs 63.17. ByteDance Doubao is close to Qwen3 on Mandarin (AISHELL-2 2.85, SpeechIO 2.93) — [Qwen3-ASR report](https://arxiv.org/html/2601.21337). Note that these numbers are from a competitor's report.
-- VideoLingo offers ElevenLabs and MAI-Transcribe-2 (via Azure Speech or OpenRouter) as cloud alternatives to its local Qwen3-ASR default — [Huanshere/VideoLingo](https://github.com/Huanshere/VideoLingo)
+- VideoLingo offers two hosted cloud ASR services (MAI-Transcribe-2 via Azure Speech or OpenRouter, and a hosted voice vendor) as cloud alternatives to its local Qwen3-ASR default — [Huanshere/VideoLingo](https://github.com/Huanshere/VideoLingo)
 
 ### Inferences
 - **Mandarin, Cantonese, dialects, singing, noisy drama:** Qwen3-ASR-1.7B is the clear choice, and the gap is large (CER often halved vs Whisper-large-v3 on conversational and noisy sets). The 0.6B model is the speed and VRAM fallback and still beats Whisper-v3 on every Chinese set listed.
@@ -151,7 +151,7 @@ Subtitle pipelines usually override them in the same way: VAD on, condition_on_p
 Chinese-community subtitle pipelines have moved from WhisperX/faster-whisper large-v3 to Qwen3-ASR plus ForcedAligner in 2026 (VideoLingo's default). Whisper-based tools (WhisperX, faster-whisper-XXL in Subtitle Edit, pyvideotrans, VideoCaptioner) remain common and pair faster-whisper with VAD and condition_on_previous_text off. Domain tools (WhisperJAV) layer specialised VAD, scene detection and post-filters on top of several backends.
 
 ### Cited Findings
-- **VideoLingo:** the default is local Qwen3-ASR + Qwen3-ForcedAligner (word timestamps). Cloud options are ElevenLabs and MAI-Transcribe-2. WhisperX is no longer in the installer and needs a manual install. Vocal separation "may help" with BGM. Japanese and Chinese are supported inputs; Korean is not listed — [Huanshere/VideoLingo](https://github.com/Huanshere/VideoLingo)
+- **VideoLingo:** the default is local Qwen3-ASR + Qwen3-ForcedAligner (word timestamps). Cloud options are two hosted ASR services (MAI-Transcribe-2 and a hosted voice vendor). WhisperX is no longer in the installer and needs a manual install. Vocal separation "may help" with BGM. Japanese and Chinese are supported inputs; Korean is not listed — [Huanshere/VideoLingo](https://github.com/Huanshere/VideoLingo)
 - **VideoCaptioner:** offers the faster-whisper, whisper-cpp, whisper-api, bijian (必剪) and jianying (剪映, free online) engines. It uses word-level timestamps + VAD and LLM "semantic" sentence segmentation and subtitle optimisation. Default model and settings are not stated on the README — [WEIFENG2333/VideoCaptioner](https://github.com/WEIFENG2333/VideoCaptioner)
 - **WhisperX:** batched faster-whisper + pyannote VAD + wav2vec2 forced alignment. condition_on_prev_text=False. The CLI default model is small. It claims ~70x realtime with large-v2 and < 8 GB VRAM at beam 5. Characters missing from the alignment model's dictionary get no timing, which matters for CJK — [m-bain/whisperX](https://github.com/m-bain/whisperX)
 - **stable-ts:** see the defaults above. Archived 2026-05-30 — [jianfch/stable-ts](https://github.com/jianfch/stable-ts)
