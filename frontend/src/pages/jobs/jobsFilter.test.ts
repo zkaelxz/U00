@@ -27,7 +27,7 @@ const sample = [
 
 describe('status filter', () => {
   it('counts each chip, keeping Failed and Finished apart', () => {
-    expect(statusCounts(sample)).toEqual({ active: 2, failed: 2, finished: 2, all: 6 })
+    expect(statusCounts(sample)).toEqual({ active: 2, failed: 2, finished: 2, cancelled: 0, all: 6 })
   })
   it('defaults to Active while anything is active, else All', () => {
     expect(effectiveStatus(NO_FILTERS, sample)).toBe('active')
@@ -37,6 +37,29 @@ describe('status filter', () => {
   it('a done job whose outcome failed counts as failed', () => {
     expect(ids(filterJobs(sample, f({ status: 'failed' }), titles, NOW))).toEqual(['err1', 'soft'])
     expect(ids(filterJobs(sample, f({ status: 'finished' }), titles, NOW))).toEqual(['done1', 'old1'])
+  })
+})
+
+describe('cancelled jobs', () => {
+  const withCancelled = [
+    ...sample,
+    job({ job_id: 'can1', status: 'cancelled', outcome: 'cancelled' }),
+    job({ job_id: 'can2', status: 'done', outcome: 'cancelled' }),
+  ]
+  it('show under All and under Cancelled, and nowhere else', () => {
+    expect(ids(filterJobs(withCancelled, f({ status: 'all' }), titles, NOW))).toEqual(expect.arrayContaining(['can1', 'can2']))
+    expect(ids(filterJobs(withCancelled, f({ status: 'cancelled' }), titles, NOW))).toEqual(['can1', 'can2'])
+    for (const s of ['active', 'failed', 'finished'] as const) {
+      expect(ids(filterJobs(withCancelled, f({ status: s }), titles, NOW))).not.toContain('can1')
+    }
+  })
+  it('the chips add up to All', () => {
+    const c = statusCounts(withCancelled)
+    expect(c).toEqual({ active: 2, failed: 2, finished: 2, cancelled: 2, all: 8 })
+    expect(c.active + c.failed + c.finished + c.cancelled).toBe(c.all)
+  })
+  it('a stored Cancelled filter survives a reload', () => {
+    expect(normalizeFilters({ status: 'cancelled' }).status).toBe('cancelled')
   })
 })
 

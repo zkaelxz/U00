@@ -92,6 +92,25 @@ test('status chips show counts and filters combine, then are remembered', async 
   await expect(rows(page)).toHaveCount(1)
 })
 
+test('a cancelled job shows under All and under Cancelled, and the chips add up', async ({ page }) => {
+  const t = Math.floor(Date.now() / 1000)
+  await mockJobsApi(page, [
+    ...pageJobs(),
+    { progress: null, message: 'Cancelled.', error: null, gpu_touching: false, updated_at: t - 30, owned_by_me: true, job_id: 'translate_5', status: 'cancelled', description: 'Translate Moon', started_at: t - 90, finished_at: t - 30, drama_id: 5, kind: 'translate', outcome: 'cancelled' },
+  ], true)
+  await page.goto('/#/jobs')
+  await expect(chip(page, /^Cancelled/)).toContainText('1')
+  await expect(chip(page, /^Finished/)).toContainText('2')
+  await expect(chip(page, /^All/)).toContainText('6')
+  await chip(page, /^All/).click()
+  await expect(page.getByTestId('job-row-translate_5')).toContainText('Cancelled')
+  await chip(page, /^Cancelled/).click()
+  await expect(rows(page)).toHaveCount(1)
+  await expect(rows(page).first()).toContainText('Translate Moon')
+  await chip(page, /^Finished/).click()
+  await expect(page.getByTestId('job-row-translate_5')).toHaveCount(0)
+})
+
 test('sorting by Started reverses the order within the finished jobs', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/jobs')

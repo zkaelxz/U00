@@ -759,7 +759,7 @@ class TestCancelQueued:
     with nothing left for Stop/request_cancel to reach. cancel_queued()
     re-checks status under the lock before deciding what to do."""
 
-    def test_a_still_queued_job_is_cleared_like_before(self):
+    def test_a_still_queued_job_ends_cancelled_and_never_runs(self):
         release = threading.Event()
         bg.start_job("cq_a", lambda: release.wait(timeout=2.0), gpu_touching=True)
 
@@ -768,13 +768,14 @@ class TestCancelQueued:
         assert bg.get_status("cq_b")["status"] == "queued"
 
         assert bg.cancel_queued("cq_b") is True
-        assert bg.get_status("cq_b") is None
+        assert bg.get_status("cq_b")["status"] == "cancelled"
 
         release.set()
         _wait("cq_a")
         time.sleep(0.1)  # give a wrongly-surviving queue entry a chance to fire
         assert calls == []
         bg.clear_job("cq_a")
+        bg.clear_job("cq_b")
 
     def test_a_job_promoted_to_running_in_the_gap_is_not_cleared(self):
         # Simulates the exact race: the record already flipped to

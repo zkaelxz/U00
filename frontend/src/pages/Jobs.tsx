@@ -77,7 +77,7 @@ export default function JobsPage() {
   const matching = sortJobs(filterJobs(all, filters, titles, now), sort.key, sort.dir, now)
   const shown = matching.slice(0, Math.max(limit, matching.filter((j) => isActive(j.status)).length))
   const cancellable = (j: JobRecord) => isActive(j.status) && offersCancel(j, remoteAdmin)
-  const finishedCount = counts.finished + counts.failed
+  const finishedCount = counts.finished + counts.failed + counts.cancelled
 
   async function run(action: () => Promise<unknown>) {
     try {

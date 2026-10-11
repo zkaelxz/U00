@@ -15,8 +15,9 @@ drama, and no other URL download runs in this process.
 
 Job `urlmedia_<drama_id>` downloads into a fresh `.urldl_*` temp folder in
 the drama folder (removed in `finally`) with capped yt-dlp options (see
-`services.ytdlp_child.ydl_options`): one item, no live streams, at most 6 h long, at most the
-upload cap in bytes and 2 h of wall clock, native downloader only, no
+`services.ytdlp_child.ydl_options`): one item, no live streams, at most 6 h long and
+2 h of wall clock, no byte cap (a free-disk-space floor stops it instead, see
+_SpaceWatch), native downloader only, no
 cookie option in those caps (the saved Settings yt-dlp cookies, a browser
 or a cookies.txt path, are passed separately: the route is PC-only), and
 never yt-dlp's `generic` extractor (security review LOW-1: it
@@ -115,8 +116,9 @@ def _any_url_download_running() -> bool:
 
 class _SpaceWatch:
     """Free-disk-space floor for one download, polled from the child's
-    progress events. There is no size cap: a long video is allowed, but never
-    to the point of filling the drive."""
+    progress events. A yt-dlp download has no byte cap (only a direct link
+    has the upload cap): a long video is allowed, but never to the point of
+    filling the drive."""
 
     def __init__(self, tmp_dir: str, clock=time.monotonic):
         self.tmp_dir, self.clock = tmp_dir, clock

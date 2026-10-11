@@ -164,18 +164,10 @@ def _headers_for_hop(headers: Optional[dict], strip: bool) -> Optional[dict]:
 def _read_truncated(resp, cap_bytes, deadline_seconds, clock) -> bytes:
     """The first `cap_bytes` of the body: a page longer than the cap is cut,
     not refused (text extraction only needs the start of it)."""
-    started = clock()
-    body = bytearray()
-    try:
-        for chunk in resp.iter_content(min(capped_body.DEFAULT_CHUNK, cap_bytes)):
-            body.extend(chunk[:cap_bytes - len(body)])
-            if len(body) >= cap_bytes:
-                break
-            if clock() - started > deadline_seconds:
-                raise ResponseTooSlow()
-    finally:
-        resp.close()
-    return bytes(body)
+    return capped_body.read_capped(resp, cap_bytes, deadline_seconds, ResponseTooLarge,
+                                   chunk_size=min(capped_body.DEFAULT_CHUNK, cap_bytes),
+                                   clock=clock, make_deadline_error=ResponseTooSlow,
+                                   truncate=True)
 
 
 def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]], max_bytes: int,

@@ -2,6 +2,8 @@
 .jobs-page { max-width: 1100px; margin-inline: auto; }
 .jobs-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .jobs-chips { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+/* Five chips wrap on a phone: a dense button's hit area reaches 6px past its box, so rows need 12px between them. */
+@media (pointer: coarse), (max-width: 640px) { .jobs-chips { row-gap: var(--space-3); } }
 .jobs-chip-count { font-variant-numeric: tabular-nums; opacity: 0.8; }
 .jobs-search { flex: 1 1 12rem; min-width: 0; }
 .jobs-search input { width: 100%; }

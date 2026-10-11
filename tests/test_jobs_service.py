@@ -53,6 +53,26 @@ def _run_job_with_result(job_id, result):
         time.sleep(0.01)
 
 
+def test_a_job_cancelled_while_queued_still_lists_as_cancelled(isolated_db):
+    """A bulk run, a URL download and a Live session stop a child still
+    waiting for the GPU with cancel_queued; the cancelled run must stay
+    listed (latest run per id), not vanish from the Jobs page."""
+    import threading
+    import background_jobs
+    release = threading.Event()
+    background_jobs.start_job("transcribe_1", lambda: release.wait(5), gpu_touching=True)
+    try:
+        background_jobs.start_job("transcribe_2", lambda: None, gpu_touching=True)
+        assert background_jobs.get_status("transcribe_2")["status"] == "queued"
+        assert background_jobs.cancel_queued("transcribe_2") is True
+        listed = {j["job_id"]: j for j in jobs_service.list_jobs()}
+        assert listed["transcribe_2"]["status"] == "cancelled"
+        assert listed["transcribe_2"]["outcome"] == "cancelled"
+    finally:
+        release.set()
+        background_jobs.wait_for_job_threads(5)
+
+
 class TestJobResults:
     def test_failed_transcribe_result_is_failed_and_redacted(self, isolated_db):
         _run_job_with_result("transcribe_1", {

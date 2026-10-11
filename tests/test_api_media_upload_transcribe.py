@@ -192,7 +192,7 @@ def test_cancel_while_transcribe_child_queued_is_cancelled(client, monkeypatch, 
     _wait_for(lambda: background_jobs.get_status(tid) is not None)
     background_jobs.request_cancel(job_id)
     assert _wait_status(job_id)["status"] == "cancelled"
-    assert background_jobs.get_status(tid) is None
+    assert background_jobs.get_status(tid)["status"] == "cancelled"
 
 
 def test_cancel_while_transcribe_child_running_is_cancelled(client, monkeypatch, fast_ffmpeg):
