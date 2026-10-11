@@ -384,6 +384,9 @@ LOOP_MIN_REPEATS_PHRASE = 4
 # Longest phrase treated as the unit of a loop; anything longer repeated that
 # often is a quoted passage, not a decoder stuck on one phrase.
 LOOP_MAX_PHRASE_CHARS = 12
+# A short chant ("no no no no", "Go! Go! Go! Go!", "はい。はい。はい。はい。") is
+# four copies of a 1-3 letter word: real speech. A stuck decoder runs on.
+LOOP_MIN_PHRASE_RUN_CHARS = 12
 _LOOP_RES = (
     re.compile(r"(.)\1{%d,}" % (LOOP_MIN_REPEATS_SINGLE_CHAR - 1), re.S),
     re.compile(r"(.{2,%d}?)\1{%d,}" % (LOOP_MAX_PHRASE_CHARS, LOOP_MIN_REPEATS_PHRASE - 1), re.S),
@@ -394,19 +397,35 @@ def _stock_key(text):
     return "".join(ch for ch in (text or "").casefold() if ch.isalnum())
 
 
+def _first_loop(key):
+    """The earliest loop in `key` (letters only) as a match, or None."""
+    best = None
+    for rx in _LOOP_RES:
+        pos = 0
+        while (m := rx.search(key, pos)):
+            single = rx is _LOOP_RES[0]
+            # A run of one letter is the single-character rule's to judge, not
+            # a two-letter "phrase" that happens to fit it.
+            if single or (len(set(m.group(1))) > 1 and m.end() - m.start() >= LOOP_MIN_PHRASE_RUN_CHARS):
+                if best is None or m.start() < best.start():
+                    best = m
+                break
+            pos = m.start() + 1
+    return best
+
+
 def collapse_phrase_loop(text):
     """`text` with each run of a phrase repeated past the LOOP_* counts cut
     down to its first copy; punctuation between copies is ignored when
-    matching and dropped with the run. Other text is untouched."""
+    matching and dropped with the run. Only letters count, so a number such as
+    100,000,000 is never a loop. Other text is untouched."""
     while True:
         # Case-folded per character so the key keeps one entry per kept character.
         kept = [(i, ch.lower() if len(ch.lower()) == 1 else ch)
-                for i, ch in enumerate(text) if ch.isalnum()]
-        key = "".join(ch for _, ch in kept)
-        hits = [m for rx in _LOOP_RES if (m := rx.search(key))]
-        if not hits:
+                for i, ch in enumerate(text) if ch.isalpha()]
+        m = _first_loop("".join(ch for _, ch in kept))
+        if m is None:
             return text
-        m = min(hits, key=lambda hit: hit.start())
         unit_end = kept[m.start() + len(m.group(1)) - 1][0] + 1
         run_end = kept[m.end() - 1][0] + 1
         text = text[:unit_end] + text[run_end:]
@@ -431,6 +450,11 @@ def _without_phrase_loop(seg):
     text = collapse_phrase_loop(seg["text"])
     if text == seg["text"]:
         return seg
+    # Nothing else says text was removed, so leave a trace (never the text itself).
+    import applog
+    applog.get_logger().info(
+        f"loop collapse: segment {seg.get('start', 0):.1f}-{seg.get('end', 0):.1f}s lost "
+        f"{len(seg['text']) - len(text)} characters")
     # The word timings spelled the longer text, so they no longer fit.
     return {k: v for k, v in seg.items() if k != "words"} | {"text": text}
 
@@ -806,6 +830,9 @@ def extract_audio_slice(audio_path: str, start: float, end: float, out_path: str
 _TURN_MARKS = ("-", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\uff0d")
 
 
+_SENTENCE_PUNCT = ".,!?;:\u3002\uff0e\uff0c\uff01\uff1f\u2026~"
+
+
 def _is_hangul(ch):
     return "\uac00" <= ch <= "\ud7a3" or "\u3131" <= ch <= "\u318e"
 
@@ -815,7 +842,10 @@ def _join_source(first: str, second: str) -> str:
     so a join between two Hangul characters keeps one; Chinese and Japanese
     are written without."""
     first, second = first.rstrip(), second.strip()
-    if first and second and _is_hangul(first[-1]) and _is_hangul(second[0]):
+    # Sentence punctuation after the last word ("안녕.") doesn't make the join
+    # any less a join between two Korean words.
+    last_word_char = first.rstrip(_SENTENCE_PUNCT)[-1:]
+    if last_word_char and second and _is_hangul(last_word_char) and _is_hangul(second[0]):
         return first + " " + second
     return first + second
 

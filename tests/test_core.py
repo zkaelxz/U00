@@ -146,8 +146,13 @@ class TestMergeAdjacentShortLines:
                  Line(idx=1, start=0.6, end=1.0, zh="하세요", en="there", speaker="A")]
         assert merge_adjacent_short_lines(lines)[0].zh == "안녕 하세요"
 
+    def test_korean_space_survives_sentence_punctuation_on_the_first_line(self):
+        lines = [Line(idx=0, start=0.0, end=0.5, zh="안녕.", en="Hi", speaker="A"),
+                 Line(idx=1, start=0.6, end=1.0, zh="하세요", en="there", speaker="A")]
+        assert merge_adjacent_short_lines(lines)[0].zh == "안녕. 하세요"
+
     def test_chinese_and_japanese_lines_join_without_a_space(self):
-        for a, b in (("你好", "世界"), ("こんにちは", "元気")):
+        for a, b in (("你好", "世界"), ("こんにちは", "元気"), ("你好。", "世界"), ("はい。", "元気")):
             lines = [Line(idx=0, start=0.0, end=0.5, zh=a, en="x", speaker="A"),
                      Line(idx=1, start=0.6, end=1.0, zh=b, en="y", speaker="A")]
             assert merge_adjacent_short_lines(lines)[0].zh == a + b
@@ -538,6 +543,22 @@ class TestFilterHallucinatedSegments:
     def test_a_loop_after_real_speech_keeps_the_speech(self):
         seg = self._seg(0, 30, "我们走吧，好不好，好不好，好不好，好不好")
         assert filter_hallucinated_segments([seg]) == [self._seg(0, 30, "我们走吧，好不好")]
+
+    @pytest.mark.parametrize("text", [
+        "100,000,000", "$1,000,000,000", "no no no no", "Go! Go! Go! Go!",
+        "はい。はい。はい。はい。", "好的好的好的", "哈" * 8, "哈" * 9, "ㅋ" * 9, "啊" * 9])
+    def test_real_speech_and_numbers_are_never_cut(self, text):
+        seg = self._seg(0, 30, text)
+        assert filter_hallucinated_segments([seg]) == [seg]
+
+    def test_a_real_loop_is_cut_and_logged(self, caplog):
+        import logging
+        seg = self._seg(12.0, 40.0, "谢谢你" * 30)
+        with caplog.at_level(logging.INFO, logger="baihe"):
+            result = filter_hallucinated_segments([seg])
+        assert result == [self._seg(12.0, 40.0, "谢谢你")]
+        assert any("loop collapse" in r.getMessage() and "12.0-40.0s" in r.getMessage()
+                   and "87 characters" in r.getMessage() for r in caplog.records)
 
     def test_a_short_repeat_inside_a_segment_is_real_speech(self):
         seg = self._seg(0, 3, "好的好的好的")

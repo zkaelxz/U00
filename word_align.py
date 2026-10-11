@@ -236,6 +236,10 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
         else:
             aligned = align_words(slice_path, words, device=device)
     except Exception as exc:
+        # The caller moves to the CPU and retries; keeping the segment unsplit
+        # here would lose the split for every later segment too.
+        if device != "cpu" and _is_cuda_error(exc):
+            raise
         import applog
         applog.get_logger().error(
             f"word-level realignment failed on segment {segment['start']:.1f}-"
@@ -301,6 +305,16 @@ def _release_gpu():
         pass
 
 
+def _is_cuda_error(exc: Exception) -> bool:
+    try:
+        import torch
+        if isinstance(exc, torch.cuda.OutOfMemoryError):
+            return True
+    except Exception:
+        pass
+    return isinstance(exc, RuntimeError) and "CUDA" in str(exc)
+
+
 def _load_aligner_with_fallback(device: str):
     """(aligner, device actually used). A GPU that cannot hold the model
     (out of memory, broken CUDA) falls back to the CPU rather than losing the
@@ -341,9 +355,31 @@ def _realign_each(segments, audio_path, language, chinese_script, min_duration_t
                     load_failed = True
                     out.append(seg)
                     continue
-            out.extend(realign_long_segment(
-                audio_path, seg, language, chinese_script=chinese_script,
-                min_pause_seconds=min_pause_seconds, device=device, aligner=loaded))
+            try:
+                pieces = realign_long_segment(
+                    audio_path, seg, language, chinese_script=chinese_script,
+                    min_pause_seconds=min_pause_seconds, device=device, aligner=loaded)
+            except Exception as exc:
+                if device == "cpu" or not _is_cuda_error(exc):
+                    raise
+                import applog
+                applog.get_logger().warning(
+                    f"word-level realignment: the GPU failed mid-run, finishing on the CPU: {exc}")
+                _release_gpu()
+                loaded = None
+                try:
+                    loaded, device = _load_aligner_with_fallback("cpu")
+                except Exception as load_exc:
+                    applog.get_logger().error(
+                        f"word-level realignment model failed to load, keeping every "
+                        f"segment unsplit: {load_exc}")
+                    load_failed = True
+                    out.append(seg)
+                    continue
+                pieces = realign_long_segment(
+                    audio_path, seg, language, chinese_script=chinese_script,
+                    min_pause_seconds=min_pause_seconds, device=device, aligner=loaded)
+            out.extend(pieces)
             done += 1
             if progress_cb is not None:
                 progress_cb(done, total)
