@@ -140,7 +140,8 @@ def exceeds_limits(seg, rules: SplitRules) -> bool:
 def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
                         max_cjk_chars: int = SPLIT_MAX_CJK_CHARS, *,
                         rules: Optional[SplitRules] = None,
-                        min_pause: float = MIN_WORD_GAP_SECONDS) -> list:
+                        min_pause: float = MIN_WORD_GAP_SECONDS,
+                        flag_estimated: bool = False) -> list:
     """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
     punctuation, then at commas, then at spaces next to CJK text, packing
     neighbouring pieces up to the limits.
@@ -245,8 +246,11 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
             done += len("".join(p.split()))
             end = seg["end"] if i == len(pieces) - 1 else seg["start"] + dur * done / total
             # estimated cuts: the words no longer line up with the text
+            # Opt-in: the Review re-split keeps the parent line's own flag on its
+            # pieces, which a flag set here would replace.
             out.append({**bare, "start": start, "end": end, "text": p.strip(),
-                        "flag": "timing_uncertain", "flag_note": PROPORTIONAL_SPLIT_NOTE})
+                        **({"flag": "timing_uncertain", "flag_note": PROPORTIONAL_SPLIT_NOTE}
+                           if flag_estimated else {})})
     return out
 
 
