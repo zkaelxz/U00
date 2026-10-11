@@ -178,30 +178,32 @@ class TestDiscoverNames:
 
 
 class TestWorkIsBounded:
+    """Korean, so these run without pykakasi/pypinyin (CI installs only the core requirements)."""
+
     def test_fifty_long_aliases_finish_fast(self, isolated_db):
         import time
-        aliases = [("ヤロ" * 100)[: 150 + i] for i in range(50)]
-        did = _title(["ヤローが来た" * 4] * 400, language="ja", terms=[("ヤロ", aliases)])
+        aliases = [("야로" * 100)[: 150 + i] for i in range(50)]
+        did = _title(["야로우 왔다 " * 4] * 400, language="ko", terms=[("야로", aliases)])
         t = time.perf_counter()
-        out = gv.find_variants(did, "ヤロ")
+        out = gv.find_variants(did, "야로")
         assert time.perf_counter() - t < 5
-        assert out["available"] and {c["text"] for c in out["candidates"]} >= {"ヤロー"}
+        assert out["available"] and {c["text"] for c in out["candidates"]} >= {"야로우"}
 
     def test_a_term_too_long_to_be_a_name_is_refused(self, isolated_db):
-        did = _title(["ヤロー"], language="ja")
+        did = _title(["야로우"], language="ko")
         with pytest.raises(InvalidInputError):
-            gv.find_variants(did, "ヤロ" * 40)
+            gv.find_variants(did, "야로" * 40)
 
     def test_similarity_work_budget_stops_the_scan_and_says_so(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(gv, "MAX_SIMILARITY_CHECKS", 5)
-        did = _title(["ヤローが来た", "ヤロックはどこだ", "ヤロウさん", "ヤルーも"] * 10, language="ja")
-        out = gv.find_variants(did, "ヤロ")
+        monkeypatch.setattr(gv, "MAX_SIMILARITY_CHECKS", 3)
+        did = _title(["야 야로 야루 야르 야라 야리 야로우 야무"] * 10, language="ko")
+        out = gv.find_variants(did, "야로")
         assert out["truncated"] is True
 
     def test_three_hundred_long_speaker_labels_finish_fast(self, isolated_db):
         import time
-        labels = {i: ("アキラ" * 40) + str(i) for i in range(300)}
-        did = _title(["あ"] * 300, language="ja", speakers=labels)
+        labels = {i: ("아키라" * 40) + str(i) for i in range(300)}
+        did = _title(["아"] * 300, language="ko", speakers=labels)
         t = time.perf_counter()
         out = gv.discover_names(did)
         assert time.perf_counter() - t < 5
@@ -209,6 +211,6 @@ class TestWorkIsBounded:
 
     def test_comparison_budget_stops_clustering_and_says_so(self, isolated_db, monkeypatch):
         monkeypatch.setattr(gv, "MAX_NAME_COMPARISONS", 3)
-        texts = [n for n in ("アキラ", "ヒロシ", "ケンジ", "タロウ", "ミカ", "サクラ", "ユウキ") for _ in range(2)]
-        out = gv.discover_names(_title(texts, language="ja"))
-        assert out["truncated"] is True
+        names = ["아키라", "히로시", "켄지", "타로", "미카", "사쿠라", "유키"]
+        did = _title(["아"] * 14, language="ko", speakers={i: names[i // 2] for i in range(14)})
+        assert gv.discover_names(did)["truncated"] is True
