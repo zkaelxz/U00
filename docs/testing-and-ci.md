@@ -20,14 +20,39 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 
 ## CI layout
 
-`.github/workflows/tests.yml` runs these jobs on every PR: `changes` (decides which of the others are needed), `guards`
-(the five quick guard files, about a minute, so a broken rule is red first), `test` (the mocked suite with xdist, minus
-the five guard files that `guards` already runs; tests that failed on the branch's previous run go first through `--ff`
-and a restored `.pytest_cache`, so a repeat failure shows in the first minute), `frontend` (build, vitest, lint) and
-`e2e` (Playwright in four shards). `windows-bootstrap.yml` (its own workflow, path-filtered to `start.bat`, the
-requirements and constraints files, `check_setup.py`, `api/**`, `frontend/**` and itself) and `windows-installer.yml` cover
-the installer. The five guard files are ignored only in the workflow's `test` command lines; `python run_tests.py` and the
-local commands above still run everything.
+`.github/workflows/tests.yml` runs these jobs on every PR, and on `merge_group` (the merge queue's temporary branch, which
+`changes` treats like a push to the base: everything runs): `changes` (decides which of the others are needed), `guards`
+(the five quick guard files, about a minute, so a broken rule is red first), `test-shard` (the mocked suite with xdist, minus
+the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
+through `--ff` and a restored `.pytest_cache`), `test` (the one required check: it passes when every shard passed or the
+matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
+`frontend` (build, vitest, lint) and `e2e` (Playwright in four shards). `windows-bootstrap.yml` (its own workflow,
+path-filtered to `start.bat`, the requirements and constraints files, `check_setup.py`, `api/**`, `frontend/**` and itself) and
+`windows-installer.yml` cover the installer. The five guard files are ignored only in the workflow's `test-shard` command lines;
+`python run_tests.py` and the local commands above still run everything.
+
+Each shard prints its slowest 25 tests and its wall time in the job summary (information only, never a gate). A frontend/docs-only
+change runs a single shard of the few frontend-reading tests instead of four.
+
+### Test durations (shard balance)
+
+`pytest-split` (pinned in the workflow, CI-only) assigns whole tests to shards from `.test_durations`, so shards finish together.
+A test missing from the file is costed at the average, so a new test never breaks a run; it only makes the split a little less even.
+Refresh the file when the shard wall times in the job summaries drift apart by more than a couple of minutes, or after a large
+batch of new tests:
+
+    pip install "pytest-split==0.10.0" pytest-xdist
+    python -m pytest -q -n auto -p no:cacheprovider -o addopts="" --store-durations --clean-durations \
+      --ignore=tests/test_static_analysis.py --ignore=tests/test_api_permissions.py \
+      --ignore=tests/test_split_guards.py --ignore=tests/test_file_organization.py --ignore=tests/test_agent_docs.py
+
+Commit the regenerated `.test_durations` in its own small PR. Do not edit it by hand.
+
+### Caches
+
+`actions/setup-python` caches pip (keyed on `requirements-core.txt` and `constraints.txt`), `actions/setup-node` caches npm (keyed on
+`frontend/package-lock.json`), and the `e2e` job caches the Playwright browser (keyed on the Playwright version, which the lockfile
+fixes). A cache miss only costs the download. The ffmpeg apt install is not cached: apt state is root-owned and the packages are small.
 
 ### Which jobs a change runs
 
@@ -35,14 +60,14 @@ local commands above still run everything.
 counts as passed for branch protection, as the notes-only skip always has. `guards` and `frontend` run on every PR except
 notes-only ones (which run only `guards`).
 
-| Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test`) |
+| Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
 |---|---|---|---|
-| Push to `baihe-subtitler`, or any event that is not a pull request | false | true | true |
+| Push to `baihe-subtitler`, or any event that is not a pull request (a `merge_group` included) | false | true | true |
 | PR labelled `full-ci` | false | true | true |
 | PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
-| Every changed file is under `reports/`, `research_notes/` or `docs/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test` is skipped by `notes_only` |
+| Every changed file is under `reports/`, `research_notes/` or `docs/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
 | No changed file under `frontend/` or `api/` (services, db, adapters, installer, scripts, tools, tests, docs...) | as above | false | true |
-| Every changed file is under `frontend/` or `docs/` | false | true if any is under `frontend/` | false: `test` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) plus `TestHostedCloningRemoved` |
+| Every changed file is under `frontend/` or `docs/` | false | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) plus `TestHostedCloningRemoved` |
 | Anything else | false | true | true |
 | The file list is empty or the classifier errors | false | true | true |
 
