@@ -36,7 +36,7 @@ import uuid
 import background_jobs
 import db
 from core import SOURCE_LANGUAGES
-from services import library_service, ownership_service, settings_service
+from services import library_service, ownership_service, settings_service, source_link_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -50,8 +50,9 @@ _TEXT_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_a
                 "summary", "genre", "custom_tags", "source_url", "episode_summary",
                 "project_instructions")
 _INT_FIELDS = ("chapter_count", "episode_number")
-# The Translate stage's two toggles, stored 0/1 (translate_run_service.save_style_toggles).
-_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes")
+# Stored 0/1: the Translate stage's two toggles (translate_run_service.save_style_toggles)
+# and the Media stage's "Keep original files" pin (keep_original_service).
+_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes", "keep_original")
 
 # Hardening H1: sqlite ints are 64-bit and a Python int above that raises
 # OverflowError (a 500), so every id/count the client sends is capped well
@@ -79,6 +80,8 @@ def _check_text(name, value):
         raise InvalidInputError(f"{name} is too long (max {cap} characters).")
     if name == "source_url" and value and not value.startswith(("http://", "https://")):
         raise InvalidInputError("source_url must be empty or start with http:// or https://.")
+    if name in _STRIPPED and "\x00" in value:
+        raise InvalidInputError(f"{name} must not contain a NUL character.")
     return value.strip() if name in _STRIPPED else value
 
 
@@ -159,7 +162,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     else:
         # Settings > Defaults for new dramas (the column's own default is
         # claude, so an unstamped drama would never see the setting).
-        fields["translation_engine"] = settings_service.get_default_engine()
+        fields["translation_engine"] = settings_service.get("default_engine")
     try:
         new_id = db.create_drama(**fields)
     except db.DramaFolderConflict as exc:
@@ -264,6 +267,9 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
         ownership_service.unassign_drama_series(principal, drama_id)
     elif series_id is not None:
         ownership_service.assign_drama_series(principal, drama_id, series_id)
+    if "source_url" in fields:
+        fields["source_url"], fields["source_url_full"] = \
+            source_link_service.split_source_url(fields["source_url"])
     if fields:
         db.update_drama(drama_id, **fields)
     return library_service.get_library_drama(drama_id)
@@ -272,20 +278,23 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
 def set_source_url_once(drama_id, url) -> bool:
     """Records where an import came from, only while the title has no link,
     so what the owner typed is never overwritten. Stores the display-safe
-    form (no query, userinfo or token-like path); a link that leaves
-    nothing usable is ignored. Never raises: a link is a convenience and
-    must not fail the import that called it."""
-    safe = library_service.display_source_url(url)
+    form (no query, userinfo or token-like path), plus the raw link in
+    source_url_full when cleaning changed it (source_link_service); a link
+    that leaves nothing usable is ignored. Never raises: a link is a
+    convenience and must not fail the import that called it."""
+    safe, full = source_link_service.split_source_url(url)
     if not safe or len(safe) > MAX_URL_LEN:
         return False
+    if len(full) > MAX_URL_LEN:
+        full = ""
     try:
         # One conditional statement: a link the owner saves between a read
         # and a write would otherwise be overwritten by the import.
         with contextlib.closing(db.get_conn()) as conn:
             cur = conn.execute(
-                "UPDATE dramas SET source_url = ?, updated_at = ? "
+                "UPDATE dramas SET source_url = ?, source_url_full = ?, updated_at = ? "
                 "WHERE id = ? AND TRIM(COALESCE(source_url, '')) = ''",
-                (safe, datetime.datetime.utcnow().isoformat(), drama_id))
+                (safe, full, datetime.datetime.utcnow().isoformat(), drama_id))
             conn.commit()
             return cur.rowcount > 0
     except Exception:
@@ -298,7 +307,7 @@ def set_source_url_once(drama_id, url) -> bool:
 # Live owners heartbeat every background_jobs.HEARTBEAT_INTERVAL.
 STALE_JOB_RECORD_SECONDS = background_jobs.STALE_JOB_SECONDS
 _DELETE_CONFIRM_TEXT = "DELETE"
-LEFTOVER_FILES_MESSAGE = ("The drama was deleted from the library, but some of its files "
+LEFTOVER_FILES_MESSAGE = ("The title was deleted from the library, but some of its files "
                            "could not be removed (a file may be in use). Close anything "
                            "using them and remove the leftover folder manually.")
 
@@ -338,7 +347,7 @@ def hard_delete_drama(drama_id) -> bool:
             os.rename(folder, tomb)
         except OSError as e:
             # Nothing changed yet (row and folder intact); no paths in the message.
-            raise ServiceError("The drama's files are in use, so it was not deleted. "
+            raise ServiceError("The title's files are in use, so it was not deleted. "
                                "Close anything using them and try again.") from e
         # A rename keeps the folder's old mtime; stamp it now so the startup
         # sweep (cleanup_stale_tombstones) never mistakes an in-flight delete
@@ -353,14 +362,14 @@ def hard_delete_drama(drama_id) -> bool:
                 os.rename(tomb, folder)
             except OSError:
                 log.exception("Could not restore drama folder %s after a failed delete", folder)
-        raise ServiceError("The drama could not be deleted.") from e
+        raise ServiceError("The title could not be deleted.") from e
     if db.get_drama(drama_id) is not None:
         if tomb is not None:
             try:
                 os.rename(tomb, folder)
             except OSError:
                 log.exception("Could not restore drama folder %s after a failed delete", folder)
-        raise ServiceError("The drama could not be deleted.")
+        raise ServiceError("The title could not be deleted.")
     if tomb is None:
         return False
     try:
@@ -423,10 +432,10 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     leftover files could not be removed."""
     library_service.get_library_drama(drama_id)  # id check + existence
     if confirm is not True or confirm_text != _DELETE_CONFIRM_TEXT:
-        raise InvalidInputError("Deleting a drama needs confirm=true and confirm_text set to "
+        raise InvalidInputError("Deleting a title needs confirm=true and confirm_text set to "
                                 "the word DELETE, in capitals.")
     if job_running_for_drama(drama_id):
-        raise ConflictError("A background job is still running for this drama -- wait for it "
+        raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before deleting.")
     leftover = hard_delete_drama(drama_id)
     result = {"deleted": True, "drama_id": drama_id}

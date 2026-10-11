@@ -31,9 +31,11 @@ audio is extracted with ffmpeg inside the temp folder first, then the
 video becomes `source<ext>` and the audio `audio.wav`. Files go in place
 through media_upload_service.install_media, as an upload does: never over
 an existing file (`-2`... while the old one is there), one field-scoped DB
-write as the commit point (audio_filename, [source_video_filename],
-source_url and, only when both titles are empty (re-read just before
-writing), title_zh), then the replaced files move to kept_media/.
+write as the commit point (audio_filename, [source_video_filename] and,
+only when both titles are empty (re-read just before writing), title_zh),
+then the replaced files move to kept_media/. The link is recorded after
+that like any import's (drama_service.set_source_url_once: cleaned form,
+raw form kept apart, never over a link the title already has).
 Audio-only clears an older source_video_filename and moves that video there too.
 
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
@@ -50,6 +52,7 @@ import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
+import applog
 import background_jobs
 import db
 import storage
@@ -64,7 +67,7 @@ JOB_PREFIX = "urlmedia_"
 MAX_DURATION_SECONDS = ytdlp_child.MAX_DURATION_SECONDS
 MAX_WALL_SECONDS = 2 * 60 * 60
 SOCKET_TIMEOUT = ytdlp_child.SOCKET_TIMEOUT
-_BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+_BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 _ONE_AT_A_TIME = "Another URL download is running. Wait for it to finish or cancel it."
 _NO_YTDLP = "Downloading from a URL needs yt-dlp, which isn't installed on this PC."
 _FAILED = ("Couldn't download from that link. It may be private, region-locked or not "
@@ -283,6 +286,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
     watch = _SpaceWatch(tmp)
     result, end = {}, {}
     out_of_space = False
+    path_ignored_logged = False
     events = ytdlp_child.run_download(
         tmp, spec, MAX_WALL_SECONDS, lambda: background_jobs.is_cancel_requested(job_id))
     try:
@@ -297,6 +301,10 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
                 if watch.nearly_full():
                     out_of_space = True
                     break
+            elif "path" in event and "path" in result:
+                if not path_ignored_logged:
+                    path_ignored_logged = True
+                    applog.get_logger().warning("The download child reported a second file; keeping the first.")
             else:
                 result.update(event)
     finally:
@@ -348,7 +356,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
             _extract_audio(job_id, path, wav, tmp)
             new_files = {"source_video_filename": (path, "source", ext),
                          "audio_filename": (wav, "audio", ".wav")}
-        fields = {"source_url": url}
+        fields = {}
         drama = db.get_drama(drama_id) or {}  # re-read just before writing
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
@@ -356,6 +364,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
             media_upload_service.install_media(drama_id, new_files, **fields)
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
+        drama_service.set_source_url_once(drama_id, url)
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
                                             "title_filled": "title_zh" in fields})
         background_jobs.update_progress(job_id, 1.0, "Downloaded.")
@@ -374,17 +383,17 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
     url = check_public_url(url)
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in media_upload_service.UPLOAD_CONTENT_MODES:
         raise InvalidInputError(media_upload_service.NO_UPLOAD_MODE)
     if media_upload_service.has_media(drama, drama_id) and not confirm_replace_audio:
-        raise InvalidInputError("This drama already has audio. Confirm replacing it first.",
+        raise InvalidInputError("This title already has audio. Confirm replacing it first.",
                                 details={"reason": "confirm_replace_audio"})
     if direct_media_ext(url) is None and not _yt_dlp_installed():
         raise DependencyUnavailableError(_NO_YTDLP)
     with media_upload_service.claims_lock:
         if drama_id in media_upload_service.claimed:
-            raise ConflictError("Another upload is in progress for this drama.")
+            raise ConflictError("Another upload is in progress for this title.")
         media_upload_service.claimed.add(drama_id)
     try:
         with _start_lock:
@@ -396,7 +405,7 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
             background_jobs.clear_job(job_id)
             if not background_jobs.start_job(job_id, _download_job, job_id, drama_id, url,
                                              audio_only,
-                                             description=f"URL download (drama #{drama_id})"):
+                                             description=f"URL download (title #{drama_id})"):
                 raise ConflictError(_BUSY)
         return {"job_id": job_id}
     finally:

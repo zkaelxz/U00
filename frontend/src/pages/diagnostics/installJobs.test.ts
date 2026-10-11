@@ -59,7 +59,8 @@ describe('Deno install block', () => {
 })
 
 const check = (o: Partial<DiagnosticsUpgradeCheckState> = {}): DiagnosticsUpgradeCheckState => ({
-  package: 'edge_tts', target: '2.0.0', output_tail: [], result: null, job_id: 'upgrade_check', job: null, ...o,
+  package: 'edge_tts', target: '2.0.0', output_tail: [], result: null, unavailable_reason: null,
+  job_id: 'upgrade_check', job: null, ...o,
 })
 const result = { ok: true, verdict: 'safe', reason: 'every test passed', version: '2.0.0',
   new_failures: [], preexisting_failures: [], conflicts: [] }

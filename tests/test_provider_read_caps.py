@@ -346,3 +346,54 @@ class TestEngineTransport:
             call()
         assert all(not u.startswith("http://elsewhere") for u, _ in calls)
         assert len(calls) == 2  # each attempt is one request, never a second hop
+
+
+class TestGroqErrorWording:
+    def test_a_connection_failure_does_not_say_the_page_could_not_be_fetched(self, monkeypatch, tmp_path):
+        from lib import http
+
+        def boom(*a, **k):
+            raise http.FetchError()
+        monkeypatch.setattr(http, "pinned_get", boom)
+        audio = tmp_path / "a.wav"
+        audio.write_bytes(b"RIFF")
+        with pytest.raises(core.GroqTranscriptionError) as exc:
+            core.transcribe_with_groq(str(audio), "zh", SECRET)
+        assert str(exc.value) == "Couldn't reach Groq's API."
+
+    def test_a_200_that_is_not_json_is_not_called_too_large_or_too_slow(self, monkeypatch, tmp_path):
+        from lib import http
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **k: StreamResp(b"<html>nope</html>"))
+        audio = tmp_path / "a.wav"
+        audio.write_bytes(b"RIFF")
+        with pytest.raises(core.GroqTranscriptionError) as exc:
+            core.transcribe_with_groq(str(audio), "zh", SECRET)
+        assert str(exc.value) == "Groq's reply wasn't valid JSON."
+
+
+class TestLocalChatSessionCap:
+    def test_an_oversized_ollama_reply_is_the_provider_refusal_not_the_session_cap(self, monkeypatch):
+        import io
+        from urllib3.response import HTTPResponse
+
+        class Adapter:
+            def send(self, request, **kw):
+                resp = requests.Response()
+                resp.status_code, resp.url, resp.request = 200, request.url, request
+                body = b"x" * (shared.PROVIDER_RESPONSE_MAX_BYTES + 1)
+                resp.raw = HTTPResponse(body=io.BytesIO(body), preload_content=False, status=200)
+                return resp
+
+            def close(self):
+                pass
+
+        real = http.session
+
+        def session(**kw):
+            s = real(**kw)
+            s.mount("http://", Adapter())
+            return s
+
+        monkeypatch.setattr(local.http, "session", session)
+        with pytest.raises(shared.ProviderResponseTooLarge):
+            local._ollama_chat_abortable("http://127.0.0.1:11434", {"model": "m"}, lambda: False)

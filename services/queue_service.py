@@ -465,10 +465,10 @@ def _start_translate(principal, drama: dict) -> str:
                              "that added it can't use.")
     _check_translate_spend(drama["id"])
     locales = settings_service.LOCALE_CHOICES
-    locale = settings_service.get_preference("default_locale")
+    locale = settings_service.get("default_locale")
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama["id"], None, False,
-        style_note=settings_service.get_preference("default_style_note") or "",
+        style_note=settings_service.get("default_style_note") or "",
         locale=locale if locale in locales else "en-US",
         allow_paid_summary=holds_paid)["job_id"]
 

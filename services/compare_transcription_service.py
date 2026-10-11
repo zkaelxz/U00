@@ -18,6 +18,7 @@ import core as core_module
 import whisper_models
 import db
 import sensitivity_preset as presets
+import source_change
 import translate_engines
 from services import (asr_options_service, compare_hear_worker, gpu_process_job, jobs_service,
                       retranscribe_worker, settings_service, transcribe_pipeline, transcribe_service,
@@ -53,7 +54,7 @@ def compare_job_id(drama_id: int) -> str:
 def _drama_or_404(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -107,7 +108,7 @@ def get_options(drama_id: int) -> dict:
         "saved_alignment_method": drama.get("alignment_method") or "whisper_diff",
         "whisper_sizes": sizes,
         "backends": backends,
-        "translation_engine": drama.get("translation_engine") or settings_service.get_default_engine(),
+        "translation_engine": drama.get("translation_engine") or settings_service.get("default_engine"),
     }
 
 
@@ -175,7 +176,7 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if (gemini_free_tier and engine_name == "gemini"
@@ -214,7 +215,7 @@ def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
     if not translate:
         return out
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    engine_name = engine or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = engine or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     free_tier = engine_name == "gemini" and gemini_free_tier
@@ -267,7 +268,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
     for prefix in transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")
         if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this drama's lines. "
+            raise ConflictError("Another job is changing this title's lines. "
                                 "Try again when it finishes.")
     job_id = compare_job_id(drama_id)
     if background_jobs.is_running(job_id):
@@ -278,8 +279,8 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
                                                job_cost_cap_usd)
         translation = {"engine": engine, "engine_choice": name, "cost_cap_usd": cap,
                        "retranslate_current": bool(retranslate_current),
-                       "locale": settings_service.get_preference("default_locale"),
-                       "style_note": settings_service.get_preference("default_style_note") or ""}
+                       "locale": settings_service.get("default_locale"),
+                       "style_note": settings_service.get("default_style_note") or ""}
     tuning = transcribe_service._DEFAULT_TUNING
     started = background_jobs.start_job(
         job_id, run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
@@ -292,9 +293,9 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "hallucination_silence_sec": transcribe_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
-         "use_gpu": settings_service.get_use_gpu()},
+         "use_gpu": settings_service.get("use_gpu")},
         translation, gpu_touching=True,
-        description=f"Comparing transcription of {len(picked)} line(s) (drama #{drama_id})")
+        description=f"Comparing transcription of {len(picked)} line(s) (title #{drama_id})")
     if not started:
         raise ConflictError("A transcription comparison is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(picked)}
@@ -543,7 +544,8 @@ def apply_compare(drama_id: int, job_id, items) -> dict:
     end from when the run read it (one compare-and-set per line inside one
     transaction), so a line edited since is skipped and reported, never
     overwritten. Writes `zh`, plus `en` only for use_english items whose
-    proposal has an English. A history snapshot ('before compare-transcription
+    proposal has an English (which clears a `source_changed` flag); without
+    it a translated line keeps its English and is flagged `source_changed`. A history snapshot ('before compare-transcription
     apply') is taken first when at least one item still matches, unless this
     run's earlier apply already took the latest snapshot. Returns {applied:
     [line_id], skipped: [line_id]}.
@@ -573,11 +575,20 @@ def apply_compare(drama_id: int, job_id, items) -> dict:
             if not p.get("candidate_en") or item.get("expected_candidate_en") != p["candidate_en"]:
                 raise ConflictError("These aren't the proposals you were shown. Compare again.")
             values["en"] = p["candidate_en"]
-            expected["en"] = p["base_en"]
+        else:
+            values.update(source_change.flag_values(p["base_zh"], p["candidate_zh"], p["base_en"]))
+        # Always checked: the kept English and the flag were decided from it.
+        expected["en"] = p["base_en"]
         writes.append((p["line_id"], values, expected))
     with _apply_lock:
         lines = db.load_line_objects(drama_id)
         current = {ln.id: ln for ln in lines}
+        for lid, values, expected in writes:
+            ln = current.get(lid)
+            if "en" in values and ln is not None and _still_matches(ln, expected) \
+                    and ln.flag == source_change.SOURCE_CHANGED_FLAG:
+                values.update(flag=None, flag_note="")
+                expected["flag"] = ln.flag
         if not any(_still_matches(current.get(lid), expected) for lid, _v, expected in writes):
             return {"applied": [], "skipped": [lid for lid, _v, _e in writes]}
         _snapshot_once_per_run(drama_id, job.get("finished_at"), lines)

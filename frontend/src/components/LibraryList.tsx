@@ -209,13 +209,12 @@ export function LibraryList({
               {selecting && items.length > MAX_SELECTION && (
                 <p className="muted">At most {MAX_SELECTION} at a time.</p>
               )}
-              {items.length === 0 && !filtered && (
+              {/* A member's empty library is explained once, by the page's own note. */}
+              {items.length === 0 && !filtered && onCreate && (
                 <Card title="No titles yet" meta="Add one to start transcribing, translating or reading.">
-                  {onCreate && (
-                    <div className="actions">
-                      <button type="button" className={buttonClass('primary')} onClick={onCreate}>New title</button>
-                    </div>
-                  )}
+                  <div className="actions">
+                    <button type="button" className={buttonClass('primary')} onClick={onCreate}>New title</button>
+                  </div>
                 </Card>
               )}
               {items.length === 0 && filtered && (

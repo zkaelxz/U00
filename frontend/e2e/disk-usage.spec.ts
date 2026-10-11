@@ -51,6 +51,17 @@ test('drill down with the breadcrumb, protected items are disabled with their re
   await expect(sec.locator('.du-crumbs [aria-current="page"]')).toHaveText('library')
 })
 
+test('each title shows its size by kind: originals, raw transcripts, line history and rebuildable files', async ({ page }) => {
+  await mockDiskUsage(page)
+  const sec = await openSection(page)
+  await sec.getByRole('button', { name: 'Open library' }).click()
+  await sec.getByRole('button', { name: 'Open dramas' }).click()
+  await expect(row(page, '12').locator('.du-kinds')).toHaveText(
+    'Originals 20.0 GB · raw transcripts 3.1 MB · line history 420.0 KB (in the database) · rebuildable files 800.0 MB')
+  await expect(row(page, '7').locator('.du-kinds')).toHaveCount(0)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-title-kinds-desktop.png`, fullPage: true })
+})
+
 test('move to Trash is two steps, names the size, says nothing is freed, and the item shows up in Trash', async ({ page }) => {
   const mock = await mockDiskUsage(page)
   const sec = await openSection(page)
@@ -122,6 +133,34 @@ test('Delete permanently needs the typed word DELETE exactly and shows the size'
   expect(mock.posts[0].body).toMatchObject({ confirm_text: 'DELETE', expected_size_bytes: 2_400_000_000 })
   await expect(trash).not.toContainText('library/tmp')
   await expect(trash.getByTestId('trash-line')).toHaveText('Trash uses 1.0 KB; nothing is freed until you delete from it.')
+})
+
+test('deleting from Trash names the "Keep original files" pin of the title it came from', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { trash: [
+    { path: 'library/dramas/7/source.mp4', size: 900_000_000, files: 1, kept: true },
+    { path: 'library/tmp', size: 1_000, files: 1 },
+  ] })
+  const sec = await openSection(page)
+  const trash = sec.getByRole('region', { name: 'Trash' })
+  await expect(row(page, 'library/dramas/7/source.mp4')).toContainText('From a title with "Keep original files" on.')
+  await expect(row(page, 'library/tmp')).not.toContainText('Keep original files')
+  await trash.getByRole('button', { name: 'Delete library/dramas/7/source.mp4 permanently' }).click()
+  await expect(trash.getByTestId('trash-kept-title')).toContainText('"Keep original files" on')
+  await trash.getByLabel(/Type DELETE to confirm/).fill('DELETE')
+  await trash.getByRole('button', { name: 'Delete library/dramas/7/source.mp4 permanently' }).last().click()
+  await expect(sec.getByRole('status').filter({ hasText: 'Deleted library/dramas/7/source.mp4 permanently.' })).toBeVisible()
+  expect(mock.posts[0].body).toMatchObject({ confirm_text: 'DELETE', expected_size_bytes: 900_000_000 })
+})
+
+test('Empty Trash says how many items came from titles with "Keep original files" on', async ({ page }) => {
+  await mockDiskUsage(page, { trash: [
+    { path: 'library/dramas/7/source.mp4', size: 900, files: 1, kept: true },
+    { path: 'library/tmp', size: 1_000, files: 1 },
+  ] })
+  const sec = await openSection(page)
+  const trash = sec.getByRole('region', { name: 'Trash' })
+  await trash.getByRole('button', { name: 'Empty Trash…' }).click()
+  await expect(trash.getByTestId('trash-kept-titles')).toHaveText(/^1 item came from titles with "Keep original files" on/)
 })
 
 test('Empty Trash needs the typed word and frees everything in it', async ({ page }) => {

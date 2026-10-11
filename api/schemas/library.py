@@ -5,7 +5,7 @@ storage, media and export.
 from enum import Enum
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, model_validator
 
 from services.library_admin_service import MAX_BULK_IDS as _MAX_BULK_IDS, STATUSES as _LIBRARY_STATUSES
 import db as _db
@@ -102,6 +102,7 @@ __all__ = [
     "RomanizeCreditsRequest",
     "RomanizeCreditsResult",
     "CoverArtResult",
+    "DramaSourceLink",
     "BurnPreviewStart",
     "BurnPreviewStarted",
     "BurnPreviewClip",
@@ -155,6 +156,9 @@ class DramaDetail(DramaSummary):
     has_audio: bool = Field(description="A source audio/video file is attached.")
     has_novel_reference: bool
     has_cover_art: bool
+    keep_original: bool = Field(
+        default=False, description="\"Keep original files\": storage cleanup never removes "
+                                   "this title's originals and an export always includes them.")
 
 
 class DramaListResponse(BaseModel):
@@ -264,6 +268,14 @@ class DramaCreateRequest(BaseModel):
     new_series_name: Optional[str] = Field(default=None, max_length=300)
     preset_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
 
+    @model_validator(mode="after")
+    def _needs_a_title(self):
+        # Here, not in drama_service: the CLI and importers create untitled
+        # rows through the service on purpose.
+        if not (self.title_en.strip() or self.title_zh.strip()):
+            raise ValueError("A title is required.")
+        return self
+
 
 class DramaMetadataUpdate(BaseModel):
     """Partial metadata update: only fields present in the body are applied.
@@ -289,6 +301,7 @@ class DramaMetadataUpdate(BaseModel):
     episode_number: Optional[int] = Field(default=None, ge=0, le=2147483647)
     default_female_pronouns: Optional[StrictBool] = None
     include_genre_notes: Optional[StrictBool] = None
+    keep_original: Optional[StrictBool] = None
     media_type: Optional[str] = None
     publication_status: Optional[str] = None
     series_id: Optional[int] = Field(default=None, ge=0, le=2147483647)
@@ -687,7 +700,7 @@ class LibraryStorageCleanRequest(BaseModel):
 
 class LibraryBulkItem(BaseModel):
     """One requested drama's outcome. error: not_found, job_running,
-    delete_failed or not_translated."""
+    delete_failed, not_translated or no_translated_lines."""
     drama_id: int
     ok: bool
     error: Optional[str] = None
@@ -831,6 +844,12 @@ class RomanizeCreditsResult(BaseModel):
     drama_id: int
     romanized: Dict[str, str]
     updated: bool
+
+
+class DramaSourceLink(BaseModel):
+    """PC-only: the link exactly as it was imported or typed (it may carry a
+    query or token), else the cleaned one shown everywhere else."""
+    url: str
 
 
 class CoverArtResult(BaseModel):

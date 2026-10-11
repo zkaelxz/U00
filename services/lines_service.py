@@ -26,6 +26,7 @@ import math
 import bulk_translate
 import core as core_module
 import db
+import source_change
 import timing_drift
 import translation_guide
 from services import timing_check_service, translate_service
@@ -47,19 +48,19 @@ def load(drama_id: int, line_id: int):
     never existed, or another drama's -- all the same 404)."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = db.load_line_objects(drama_id)
     for ln in lines:
         if ln.id == line_id:
             return drama, lines, ln
-    raise NotFoundError(f"No line with id {line_id} in this drama.")
+    raise NotFoundError(f"No line with id {line_id} in this title.")
 
 
 def _reload_dict(drama_id: int, line_id: int) -> dict:
     for ln in db.load_line_objects(drama_id):
         if ln.id == line_id:
             return line_dict(ln)
-    raise NotFoundError(f"No line with id {line_id} in this drama.")
+    raise NotFoundError(f"No line with id {line_id} in this title.")
 
 
 def _number(name: str, value) -> float:
@@ -94,8 +95,10 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
     """Applies only the fields passed (None = leave alone; speaker "" clears
     it; lang "" sets the title's language) and writes exactly those columns.
     Editing `en` on a flagged line clears its flag/flag_note (editing
-    addresses it); changing the speaker sets `speaker_manual`. `expected` maps field -> the
-    old value the client saw; any mismatch is a 409 with nothing written.
+    addresses it); changing `zh` but not `en` on a translated line keeps
+    the English and flags the line `source_changed`; changing the speaker
+    sets `speaker_manual`. `expected` maps field -> the old value the
+    client saw; any mismatch is a 409 with nothing written.
     A changed `en` also records an edit sample and translation memory, as
     Save edits does. Returns the line as stored afterwards."""
     passed = {k: v for k, v in (("start", start), ("end", end), ("zh", zh), ("en", en),
@@ -136,7 +139,7 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
     if ("start" in passed or "end" in passed) and new_end <= new_start:
         raise InvalidInputError("end must be after start.")
 
-    before_en = ln.en or ""
+    before_en, before_zh = ln.en or "", ln.zh or ""
     fields = []
     for k in ("start", "end", "zh", "en", "sfx", "lang"):
         if k in passed:
@@ -152,6 +155,9 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
     en_changed = "en" in passed and passed["en"].strip() != before_en.strip()
     if en_changed and ln.flag:
         ln.flag, ln.flag_note = None, ""
+        fields += ["flag", "flag_note"]
+    elif not en_changed and source_change.orphans_english(before_zh, ln.zh, ln.en):
+        ln.flag, ln.flag_note = source_change.SOURCE_CHANGED_FLAG, ""
         fields += ["flag", "flag_note"]
 
     if expected:
@@ -198,7 +204,7 @@ def set_lines_lang(drama_id: int, lang, *, line_ids=None, speaker=None) -> dict:
         if not speaker:
             raise InvalidInputError("speaker must not be empty.")
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = db.load_line_objects(drama_id)
     if line_ids is not None:
         by_id = {ln.id: ln for ln in lines}
@@ -240,8 +246,9 @@ def apply_find_replace(drama_id: int, matches) -> dict:
     """Applies a previewed find-and-replace. Each match is
     {id, old_text, new_text}; a line whose current translation no longer
     equals old_text (edited since Preview) -- or that no longer exists --
-    is skipped as stale instead of being overwritten. Writes only `en`,
-    then corrects translation memory. Returns
+    is skipped as stale instead of being overwritten. Writes `en` (and
+    clears a `source_changed` flag the new English answers), then corrects
+    translation memory. Returns
     {applied, stale, applied_ids, stale_ids}."""
     if not isinstance(matches, (list, tuple)):
         raise InvalidInputError("matches must be a list.")
@@ -259,7 +266,7 @@ def apply_find_replace(drama_id: int, matches) -> dict:
 
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     by_id = {ln.id: ln for ln in db.load_line_objects(drama_id)}
     changed, applied_ids, stale_ids, pairs = [], [], [], []
     for lid, (old_text, new_text) in wanted.items():
@@ -268,11 +275,12 @@ def apply_find_replace(drama_id: int, matches) -> dict:
             stale_ids.append(lid)
             continue
         ln.en = new_text
+        source_change.clear_for_new_english(ln)
         changed.append(ln)
         applied_ids.append(lid)
         pairs.append((old_text, new_text))
     if changed:
-        db.save_lines(drama_id, changed, fields=("en",))
+        db.save_lines(drama_id, changed, fields=("en", "flag", "flag_note"))
         translate_service.sync_translation_status(drama_id)
         if drama.get("series_id"):
             for old_text, new_text in pairs:
@@ -283,8 +291,9 @@ def apply_find_replace(drama_id: int, matches) -> dict:
 
 def accept_tm_suggestion(drama_id: int, line_id: int, entry_id: int, expected_en: str) -> dict:
     """Sets the line's translation to a translation-memory entry's text
-    (writes only `en`) and counts the use. The entry must belong to this
-    drama's series -- another series' entry is the same 404 as a missing one.
+    (writes `en`, clearing a `source_changed` flag) and counts the use. The
+    entry must belong to this drama's series -- another series' entry is the
+    same 404 as a missing one.
     `expected_en` is the English the caller saw: the write is one
     compare-and-set, so a line edited since is a 409 with nothing written."""
     if not isinstance(expected_en, str):
@@ -294,9 +303,12 @@ def accept_tm_suggestion(drama_id: int, line_id: int, entry_id: int, expected_en
     entry = next((e for e in (db.list_translation_memory(series_id) if series_id else [])
                   if e["id"] == entry_id), None)
     if entry is None:
-        raise NotFoundError(f"No translation-memory entry with id {entry_id} for this drama.")
-    if not db.update_line_fields_if(drama_id, line_id, {"en": entry["translation"]},
-                                    {"en": expected_en}):
+        raise NotFoundError(f"No translation-memory entry with id {entry_id} for this title.")
+    values, expected = {"en": entry["translation"]}, {"en": expected_en}
+    if ln.flag == source_change.SOURCE_CHANGED_FLAG:
+        values.update(flag=None, flag_note="")
+        expected["flag"] = ln.flag
+    if not db.update_line_fields_if(drama_id, line_id, values, expected):
         raise ConflictError("This line changed since you loaded it.",
                             details={"fields": ["en"]})
     db.bump_translation_memory_use(entry["id"])
@@ -326,8 +338,8 @@ def delete_note(drama_id: int, note_id: int) -> dict:
     """Deletes one translation note. `db.delete_translation_note` takes only
     an id, so ownership is checked here: another drama's note is a 404."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if not any(n["id"] == note_id for n in db.list_translation_notes(drama_id)):
-        raise NotFoundError(f"No note with id {note_id} in this drama.")
+        raise NotFoundError(f"No note with id {note_id} in this title.")
     db.delete_translation_note(note_id)
     return {"deleted": True, "note_id": note_id}

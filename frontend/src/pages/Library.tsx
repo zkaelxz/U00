@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { createDrama, getContinueReading, getPresets, getRecent, getSeries, getStats } from '../api/library'
@@ -44,6 +44,8 @@ import { SERIES_HELP } from '../helpText'
 
 
 
+const CONTINUE_SEEN_PREF = 'library.continue.hadItems'
+
 // "Continue": reading and workspace activity, one Resume tap each. Rendered
 // only when there is something to resume.
 function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
@@ -55,6 +57,16 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
   const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
   const errors = <><ErrorBanner error={continuing.error} /><ErrorBanner error={recent.error} /></>
+  // The shelf is the tallest thing above the list; holding its place until the
+  // two requests settle keeps the list from jumping down when they land.
+  const loading = !continuing.error && !recent.error && (continuing.data === null || recent.data === null)
+  // Only reserve the space for a viewer who had something to continue last
+  // time; otherwise an empty shelf would leave a 140 px gap that then collapses.
+  const [hadItems, setHadItems] = usePersistedState(CONTINUE_SEEN_PREF, false)
+  useEffect(() => {
+    if (!loading) setHadItems(items.length > 0)
+  }, [loading, items.length, setHadItems])
+  if (loading) return hadItems ? <div className="continue-skeleton skeleton-block" aria-hidden="true" /> : null
   if (!items.length) return errors
   const limit = phone ? 1 : 4
   const shown = all ? items : items.slice(0, limit)
@@ -104,6 +116,37 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
 
 
 const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: '' }
+
+const MAKE_SUBTITLES_PREF = 'library.makeSubtitles.open'
+
+// The Make subtitles card is the first-run action; once there are titles,
+// "New title" is the page's one primary, so the card folds to one line. It
+// stays mounted while folded so a run in progress isn't lost.
+function MakeSubtitlesPanel({ hasTitles }: { hasTitles: boolean | null }) {
+  const [pref, setPref] = usePersistedState(MAKE_SUBTITLES_PREF, '')
+  // Until the title count is known neither state is right: folded would flash
+  // before an empty library's card expands.
+  if (hasTitles === null) return null
+  const open = !hasTitles || pref === 'open'
+  return (
+    <div className="make-subtitles-panel">
+      {hasTitles && (
+        <button
+          type="button"
+          className={`${buttonClass('ghost')} disclosure-toggle`}
+          aria-expanded={open}
+          aria-controls="make-subtitles-body"
+          onClick={() => setPref(open ? 'closed' : 'open')}
+        >
+          <span aria-hidden="true">{open ? '▾' : '▸'}</span> Make subtitles
+        </button>
+      )}
+      <div id="make-subtitles-body" hidden={!open}>
+        <MakeSubtitles />
+      </div>
+    </div>
+  )
+}
 
 // What has been typed into "New drama". The page keeps it, so closing the
 // Sheet (Esc, backdrop, ×) and reopening it doesn't lose the input; only a
@@ -244,7 +287,8 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
-  // POST /api/dramas needs admin.library, which household members lack.
+  // POST /api/dramas needs admin.library, which household members lack. It only hides the
+  // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
   const canCreate = useHolds('admin.library')
   const [startedDismissed, setStartedDismissed] = usePersistedState(GET_STARTED_PREF, false)
   const phone = useMediaQuery('(max-width: 640px)')
@@ -311,7 +355,9 @@ export default function LibraryPage() {
         <div className="page-head-text">
           <h2 className="page-title">Library</h2>
           <ErrorBanner error={stats.error} />
-          {stats.data && <p className="page-meta" data-testid="stats">{libraryHeadline(stats.data)}</p>}
+          {stats.data
+            ? <p className="page-meta" data-testid="stats">{libraryHeadline(stats.data)}</p>
+            : !stats.error && <p className="page-meta stats-placeholder" aria-hidden="true" />}
           {stats.data && usageSpent(stats.data.usage) && (
             <details className="stats-usage">
               <summary>{usageSpent(stats.data.usage)}</summary>
@@ -335,7 +381,7 @@ export default function LibraryPage() {
 
       {showGetStarted(stats.data?.total_dramas, startedDismissed)
         ? <GetStarted onDismiss={() => setStartedDismissed(true)} />
-        : <MakeSubtitles />}
+        : <MakeSubtitlesPanel hasTitles={stats.data ? stats.data.total_dramas !== 0 : stats.error ? true : null} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
         <p className="muted" data-testid="member-empty-note">
@@ -360,7 +406,7 @@ export default function LibraryPage() {
       />
       {phone && bar}
 
-      <Sheet open={creating && canCreate} title="New title" onClose={() => setCreating(false)}>
+      <Sheet open={creating} title="New title" onClose={() => setCreating(false)}>
         <CreateForm
           series={series}
           presets={presets}

@@ -337,6 +337,24 @@ class TestHardTermSubstitution:
             "Her childhood friend, Lyn Wan, came.", terms)
         assert result == "Her childhood friend, Lin Wan, came."
 
+    def test_a_variant_inside_the_canonical_form_ignores_case(self):
+        terms = [{"term_translation": "Shen Qingyi", "notes": "Qingyi", "enforce_exact": True}]
+        assert tg.apply_hard_term_substitutions("QINGYI? shen qingyi!", terms) == \
+            "Shen Qingyi? Shen Qingyi!"
+
+    def test_a_case_fold_mismatch_does_not_raise(self):
+        # Turkish dotted I matches "i" under IGNORECASE but casefolds to two chars.
+        terms = [{"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
+        assert tg.apply_hard_term_substitutions("LİN waved.", terms) == "Lin Wan waved."
+
+    @pytest.mark.parametrize("canonical, variant, text, expected", [
+        ("Su Shan", "Su Shan Shan", "Su Shan Shan laughed.", "Su Shan laughed."),
+        ("A-Yao", "Ah Yao", "Ah Yao laughed.", "A-Yao laughed."),
+    ])
+    def test_real_spaced_variants_are_enforced(self, canonical, variant, text, expected):
+        terms = [{"term_translation": canonical, "notes": variant, "enforce_exact": True}]
+        assert tg.apply_hard_term_substitutions(text, terms) == expected
+
     @pytest.mark.parametrize("text", [
         "Shen Qing Yi met Chen Qingyi in Berlin.", "Lin, Lin Wan and Qingyi.",
         "QINGYI? shen qingyi!", "", "清仪 Lin",

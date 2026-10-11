@@ -65,7 +65,7 @@ def require_drama(drama_id) -> dict:
             and 0 < drama_id <= drama_service.MAX_ID:
         drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError("No drama with that id.")
+        raise NotFoundError("No title with that id.")
     return drama
 
 
@@ -89,7 +89,7 @@ def analyze_media(drama_id: int) -> dict:
     drama = require_drama(drama_id)
     path = _stored_media_path(drama_id, drama)
     if path is None:
-        raise InvalidInputError("This drama has no media file yet.")
+        raise InvalidInputError("This title has no media file yet.")
     try:
         probe = media_inspect.run_ffprobe(path)
     except media_inspect.ProbeError as e:
@@ -214,7 +214,7 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
         return {"drama_id": drama_id, "suggestion": {}, "found": False}
     try:
         engine = translate_engines.get_engine(
-            engine_name, api_key, free_tier=settings_service.get_gemini_free_tier(),
+            engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
         found = metadata_lookup.extract_metadata_llm(text, engine)
@@ -261,7 +261,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
         raise MissingKeyError(engine_name)
     try:
         engine = translate_engines.get_engine(
-            engine_name, api_key, free_tier=settings_service.get_gemini_free_tier(),
+            engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
 

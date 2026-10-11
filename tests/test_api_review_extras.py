@@ -859,3 +859,68 @@ class TestBurnPreview:
 def test_burn_preview_job_blocks_drama_delete():
     import background_jobs
     assert "burnpreview_" in background_jobs.DRAMA_JOB_PREFIXES
+
+
+class TestStyleLearningRespectsPrivacy:
+    """Edits recorded on a title the user may not see neither feed their
+    learned style nor show up in their edit count."""
+
+    @staticmethod
+    def _people():
+        from services import ownership_service
+        a = db.auth_create_user("a@example.com")
+        b = db.auth_create_user("b@example.com")
+        mk = lambda uid: {"user_id": uid, "is_admin": False, "is_local_owner": False,
+                          "admin_override": False}
+        return mk(a), mk(b), a, b
+
+    def test_edit_count_and_learning_use_only_visible_titles(self, isolated_db, fake_engine,
+                                                              monkeypatch):
+        from services import review_extras_service as svc
+        pa, pb, a, b = self._people()
+        mine = db.create_drama(title_en="Mine", owner_user_id=b, translation_engine="claude")
+        private = db.create_drama(title_en="Hers", owner_user_id=a, is_private=1)
+        for i in range(adaptive_style.MIN_SAMPLES_TO_LEARN):
+            db.record_edit_sample(mine, f"中{i}", f"AI {i}", f"Mine {i}")
+            db.record_edit_sample(private, f"私{i}", f"AI {i}", f"Secret {i}")
+        assert svc.get_style(mine, principal=pb)["edit_count"] == adaptive_style.MIN_SAMPLES_TO_LEARN
+        assert svc.get_style(mine, principal=None)["edit_count"] == 2 * adaptive_style.MIN_SAMPLES_TO_LEARN
+        seen = []
+
+        def analyze(samples, *a, **k):
+            seen.extend(samples)
+            return {"summary": "S", "preferences": ["p"], "confidence": 0.5}
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns", analyze)
+        svc.learn_style(mine, principal=pb)
+        assert seen and {s["drama_id"] for s in seen} == {mine}
+
+    def test_learning_refused_when_only_hidden_edits_exist(self, isolated_db, fake_engine):
+        from services import review_extras_service as svc
+        from services.service_errors import UnsupportedOperationError
+        pa, pb, a, b = self._people()
+        mine = db.create_drama(title_en="Mine", owner_user_id=b, translation_engine="claude")
+        private = db.create_drama(title_en="Hers", owner_user_id=a, is_private=1)
+        for i in range(adaptive_style.MIN_SAMPLES_TO_LEARN):
+            db.record_edit_sample(private, f"私{i}", f"AI {i}", f"Secret {i}")
+        with pytest.raises(UnsupportedOperationError):
+            svc.learn_style(mine, principal=pb)
+
+    def test_other_users_newer_private_edits_do_not_crowd_out_mine(self, isolated_db, fake_engine,
+                                                                    monkeypatch):
+        from services import review_extras_service as svc
+        pa, pb, a, b = self._people()
+        mine = db.create_drama(title_en="Mine", owner_user_id=b, translation_engine="claude")
+        private = db.create_drama(title_en="Hers", owner_user_id=a, is_private=1)
+        for i in range(10):
+            db.record_edit_sample(mine, f"中{i}", f"AI {i}", f"Mine {i}")
+        for i in range(150):
+            db.record_edit_sample(private, f"私{i}", f"AI {i}", f"Secret {i}")
+        assert svc.get_style(mine, principal=pb)["edit_count"] == 10
+        seen = []
+
+        def analyze(samples, *a, **k):
+            seen.extend(samples)
+            return {"summary": "S", "preferences": ["p"], "confidence": 0.5}
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns", analyze)
+        svc.learn_style(mine, principal=pb)
+        assert len(seen) == 10 and {s["drama_id"] for s in seen} == {mine}

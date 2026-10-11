@@ -128,7 +128,7 @@ def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subti
 def _load_drama_and_lines(drama_id: int):
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = core_module.lines_from_rows(db.load_lines(drama_id))
     return drama, lines
 
@@ -302,7 +302,7 @@ def get_export_readiness(drama_id: int) -> dict:
     lines yet returns all-zero/false counts rather than an error."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -367,7 +367,7 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
 
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -430,7 +430,7 @@ def get_reading_speed_mode(drama_id: int) -> dict:
     """{"mode": ...} for the title. Raises NotFoundError for an unknown drama id."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return {"mode": subtitle_formats.reading_speed_mode_of(drama)}
 
 
@@ -443,7 +443,7 @@ def set_reading_speed_mode(drama_id: int, mode: str) -> dict:
         raise InvalidInputError(
             "mode must be one of " + ", ".join(subtitle_formats.READING_SPEED_MODES) + ".")
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     db.update_drama(drama_id, reading_speed_mode=mode)
     return {"mode": mode}
 
@@ -545,6 +545,6 @@ def mark_exported(drama_id: int) -> dict:
     """The Export stage's "Mark as exported": sets only the drama's status
     to "exported" (no other field is touched). Raises NotFoundError."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     db.update_drama(drama_id, status="exported")
     return {"drama_id": drama_id, "status": "exported"}

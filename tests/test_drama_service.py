@@ -110,6 +110,7 @@ def test_partial_update_touches_only_passed(isolated_db):
 def test_none_means_not_passed_and_empty_call_is_noop(isolated_db):
     did = db.create_drama(title_en="A", source_language="zh")
     before = db.get_drama(did)
+    before.pop("source_url_full")    # never handed out by the service
     assert ds.update_drama_metadata(did, title_en=None) == before
     assert ds.update_drama_metadata(did) == before
 
@@ -486,3 +487,10 @@ def test_leaving_a_private_series_keeps_the_drama_private(isolated_db):
 def test_split_by_sentences_defaults_on_for_chinese_and_japanese(isolated_db, lang, expected):
     d = ds.create_drama(source_language=lang)
     assert bool(db.get_drama(d["id"])["split_by_sentences"]) is expected
+
+
+def test_metadata_title_with_nul_is_rejected(isolated_db):
+    d = ds.create_drama(source_language="zh", title_en="T")
+    with pytest.raises(InvalidInputError):
+        ds.update_drama_metadata(d["id"], title_en="a\x00b")
+    assert db.get_drama(d["id"])["title_en"] == "T"

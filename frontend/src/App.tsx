@@ -35,6 +35,7 @@ import { CommandPalette } from './nav/CommandPalette'
 import { useHiddenNav } from './nav/hiddenNav'
 import { NavDrawer } from './nav/NavDrawer'
 import { SideNav } from './nav/SideNav'
+import { useHeaderHeight } from './nav/useHeaderHeight'
 import { useRailCollapsed } from './nav/useRailCollapsed'
 import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
@@ -163,6 +164,7 @@ export default function App() {
   const [hidden] = useHiddenNav(session)
   const wide = useMediaQuery('(min-width: 1024px)')
   const [railCollapsed, toggleRail] = useRailCollapsed()
+  const headerRef = useHeaderHeight()
 
   if (view === 'connecting') {
     return (
@@ -234,9 +236,9 @@ export default function App() {
         {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={toggleRail} />}
         <div className="app-main" data-width={WIDE_ROUTES.has(route.name) ? 'wide' : undefined}>
           {wide ? (
-            <header className="app-header">{headerEnd}</header>
+            <header className="app-header" ref={headerRef}>{headerEnd}</header>
           ) : (
-            <header className="app-header">
+            <header className="app-header" ref={headerRef}>
               <NavDrawer route={route} context={navContext} />
               <h1>
                 <a href={routeHref({ name: 'library' })}>

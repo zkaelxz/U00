@@ -487,3 +487,17 @@ def test_one_member_cannot_fill_the_shared_queue(jobs):
     with pytest.raises(ConflictError):
         q.add_item(member, did, "export", False)
     q.add_item(None, did, "export", True)     # the owner still can
+
+
+def test_translate_passes_the_settings_default_locale_and_style_note(jobs, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(translate_run_service, "start_translate_run",
+                        lambda drama_id, **kw: seen.update(kw) or jobs._start(f"translate_{drama_id}"))
+    real = settings_service.get
+    monkeypatch.setattr(settings_service, "get", lambda k: {"default_locale": "en-GB",
+                        "default_style_note": "Keep honorifics."}.get(k) or real(k))
+    did = _drama()
+    q.add_item(None, did, "translate", True)
+    q.start(None)
+    q.tick()
+    assert seen["locale"] == "en-GB" and seen["style_note"] == "Keep honorifics."
