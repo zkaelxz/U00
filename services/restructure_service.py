@@ -437,6 +437,7 @@ def _make_on_done(drama_id, source_ids, engine_name, engine):
 
 
 def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str]):
+    from services import translate_run_service   # lazy: heavy import
     engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
@@ -451,6 +452,8 @@ def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str])
         free_tier=settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
+    translate_run_service.refuse_when_cap_spent(engine_name,
+                                                settings_service.get("gemini_free_tier"))
     return engine_name, engine
 
 
@@ -566,12 +569,9 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
     (get_llm_resegment_preview). Writes nothing to the lines; the LLM's
     usage is logged like any other paid call, and a spent monthly cap
     refuses it. Applying still goes through start_resegmentation."""
-    from services import translate_run_service   # lazy: it imports many services
     drama = _require_drama(drama_id)
     language, script, segments, min_pause = _reseg_inputs(drama_id, drama)
     engine_name, eng = _build_engine(drama, engine, model)
-    translate_run_service.refuse_when_cap_spent(engine_name,
-                                                settings_service.get("gemini_free_tier"))
     lines = db.load_line_objects(drama_id, with_words=True)
     job_id = f"{RESEGMENT_PREVIEW_JOB_PREFIX}{drama_id}"
     if background_jobs.is_running(job_id):
@@ -976,11 +976,6 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     expected_line_ids = _id_list("expected_line_ids", expected_line_ids)
     if sensitivity is not None and sensitivity not in RESPLIT_SENSITIVITIES:
         raise InvalidInputError(f"sensitivity must be one of {', '.join(RESPLIT_SENSITIVITIES)}.")
-    missing = sensitivity == "more" and segment.missing_word_segmenter(
-        drama.get("source_language") or "zh")
-    if missing:
-        raise DependencyUnavailableError(
-            f'"More" needs the {missing} word splitter. Install it in Diagnostics.')
     if max_seconds is not None and not 2 <= max_seconds <= 120:
         raise InvalidInputError("max_seconds must be between 2 and 120.")
     cfg = _Resplit(drama.get("source_language") or "zh", sensitivity, max_seconds,
@@ -988,6 +983,10 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     if not dry_run:
         _refuse_if_job_running(drama_id)
     lines = db.load_line_objects(drama_id, with_words=True)
+    if sensitivity == "more" and (missing := segment.missing_line_word_segmenter(
+            _resplit_candidates(lines), cfg.language)):
+        raise DependencyUnavailableError(
+            f'"More" needs the {missing} word splitter. Install it in Diagnostics.')
     _check_expected(lines, expected_line_ids)
     plan = _resplit_plan(lines, cfg)
     if dry_run:
