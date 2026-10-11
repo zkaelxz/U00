@@ -264,7 +264,7 @@ Items 1 and 2 touch `api/schemas/system.py`, `services/jobs_service.py` and `fro
 
 ## 4. PR breakdown
 
-Each PR is small, merges on its own and leaves the app working. One task per branch off the latest `baihe-subtitler` (`step-<id>-<short-name>` if the owner assigns step ids). Screenshots go on the PR as attachments. Structural PRs (the shell and the Jobs page) need before and after screenshots at 390×844 and 1280×800, light and dark. Each exit condition ends with the six #150 questions that apply; a PR is not done until each is a yes. Run `cd frontend && npx tsc --noEmit && npx vitest run` and the named Playwright specs for desktop and the `phone` project; for the two with backend work, also `python -m pytest -q tests/test_api_permissions.py tests/test_jobs_service.py tests/test_api_job_cancel.py`.
+Each PR is small, merges on its own and leaves the app working. One task per branch off the latest `baihe-subtitler` (`step-<id>-<short-name>` if the owner assigns step ids). Screenshots go on the PR as attachments. Structural PRs (the shell and the Jobs page) need before and after screenshots at 390×844 and 1280×800, light and dark. Each exit condition ends with the six #150 questions that apply; a PR is not done until each is a yes. Run `cd frontend && npx tsc -b && npx vitest run` and the named Playwright specs for desktop and the `phone` project; for the two with backend work, also `python -m pytest -q tests/test_api_permissions.py tests/test_jobs_service.py tests/test_api_job_cancel.py`.
 
 | # | PR | Scope | Exit conditions | Tests | Owner checks (phone / PC) |
 |---|---|---|---|---|---|

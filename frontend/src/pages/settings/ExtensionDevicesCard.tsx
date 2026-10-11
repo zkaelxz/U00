@@ -28,7 +28,7 @@ import type { AdminDeviceToken, DeviceToken, DeviceTokenList } from '../../types
 import { copyFallbackText } from '../diagnostics/diagnosticsAdmin'
 import '../diagnostics/diagnostics.css'
 import {
-  DEFAULT_EXPIRY_DAYS, EXPIRY_CHOICES, MAX_DEVICE_LABEL_CHARS, NO_SEND_PERMISSION, SHOWN_ONCE_WARNING,
+  DEFAULT_EXPIRY_DAYS, DEVICES_NOTE, EXPIRY_CHOICES, MAX_DEVICE_LABEL_CHARS, NO_SEND_PERMISSION, SHOWN_ONCE_WARNING,
   activeCount, adminTokensBlock, extensionDevicesView, labelProblem, tokenDetails,
 } from './extensionDevicesModel'
 
@@ -43,7 +43,7 @@ export function ExtensionDevicesCard() {
     <Card title={TITLE} aria-label={TITLE} className="extension-devices-card">
       <div className="settings-group" data-testid="extension-devices">
         <p className="settings-note">
-          Each computer's browser extension gets its own token. Revoke one to cut that computer off at once.
+          {DEVICES_NOTE}
         </p>
         {view.own && <OwnDevices canCreate={view.canCreate} block={adminTokensBlock(session, pc)} />}
         {view.all && <AllDevices />}

@@ -16,7 +16,7 @@ component: `SourceStage`, `TranslateStage`, `ReviewStage` (with `review/`),
 - Phone layouts matter: many flows have a `.mobile.spec.ts` in `frontend/e2e/`.
 
 ## Tests
-- `cd frontend && npx tsc --noEmit && npx vitest run`
+- `cd frontend && npx tsc -b && npx vitest run`
 - `frontend/e2e/<stage>-*.spec.ts`, e.g. `dub-stage.spec.ts`, `export-stage.spec.ts`
 
 ## Do not touch

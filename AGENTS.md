@@ -27,7 +27,7 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - Jobs save only their own fields: `db.save_lines(id, lines, fields=("en",))`.
 - A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db` and is listed in
   `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
-- CLI and app behave the same: change one, check the other.
+- When you change shared logic, the CLI must not break. New features are app-only unless asked. The CLI is maintenance-only.
 - Keep the removed-name sets, because old saved settings still name removed engines:
   `REMOVED_ENGINES` (`engine_backends/engine_registry.py`), `REMOVED_VOICE_ENGINES` (`dub.py`),
   `REMOVED_ASR_BACKENDS` (`services/asr_options_service.py`), `REMOVED_SOURCES` (`sources/registry.py`).

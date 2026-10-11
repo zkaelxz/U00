@@ -20,6 +20,10 @@ export const DEFAULT_EXPIRY_DAYS = 90
 
 export const ADMIN_TOKENS_PC_ONLY =
   "An admin account's extension devices can only be added on the main PC. You can revoke one from anywhere."
+// The extension bridge listens on the main PC only and does not check these
+// tokens yet, so revoking one must not be described as cutting a computer off.
+export const DEVICES_NOTE =
+  "These device tokens are a record for now. The browser extension bridge only runs on the main PC and does not check them yet, so revoking one does not stop a computer from using the extension."
 export const NO_SEND_PERMISSION =
   'Adding a device needs permission to use the browser extension (extension.send). Ask whoever runs Baihe on the main PC.'
 
