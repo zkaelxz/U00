@@ -16,7 +16,7 @@ table) is in `archive/asr-experiments-history.md`.
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
 | Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
 | Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
-| ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`. |
+| ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (app only, not in the CLI; see "anime-whisper in the app"). |
 | Qwen3-ASR batch size | Settings > System > Advanced transcription (PC only; shown only while Developer Mode is on) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
 | Mixed languages | same card | off | |
@@ -45,7 +45,7 @@ or a model that `whisper_models.WHISPER_LANGUAGE_RULES` excludes for the title's
 
 | Part | Values | Applies to |
 |---|---|---|
-| `BACKEND` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long` | |
+| `BACKEND` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, `anime_whisper` (Japanese titles only) | |
 | `:MODEL` | any key of `whisper_models.WHISPER_MODELS` (default: the title's saved model) | `whisper`, `qwen3_asr` (its Whisper pass) |
 | `vad=` | `normal`, `sensitive` (`sensitivity_preset.py`; default: the title's preset) | `whisper`, `qwen3_asr` |
 | `beam=` | 1-20 (default: the title's value) | `whisper`, `qwen3_asr` |

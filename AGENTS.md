@@ -61,7 +61,7 @@ Done means:
 2. Callers import from the new module. Old names stay importable only through the front doors
    `db`, `translate_engines`, `api.schemas`, or where the brief says.
 3. A test patch on a moved name points at the module that now uses it; no assertion removed or loosened; same pass count.
-4. Inside the `db` package (once it exists) call other db functions as `db.<name>`.
+4. Inside the `db` package call other db functions as `db.<name>`.
 5. The new module is named in `FILE_ORGANIZATION.md`; a new top-level `.py` is also added to the
    expected-files list (`expected_files.EXPECTED_TOP_LEVEL_FILES`: one sorted line per name; check the current location first).
 6. Split PRs do not edit `OVERSIZED_MODULE_BYTES`, except the `db/__init__.py` split series, whose PRs are strictly

@@ -1,13 +1,10 @@
 # Documentation index
 
 A short map of what lives in `docs/` and where the rest of the project's
-planning material actually is. For a detailed, per-file description and
-maintenance-role tag (source of truth, maintained status tracking,
-reference, design proposal, audit record, superseded handoff), see
-`FILE_ORGANIZATION.md`'s own `docs/` listing at the repo root — that file
-is the authoritative, kept-current map; this page is just a shorter
-front door plus the roadmap pointer, since the roadmap itself isn't a
-file in this directory.
+planning material actually is. For the module map, see `FILE_ORGANIZATION.md` at the repo root: one line per package, then every
+non-test Python module with its group (a short purpose where one helps). `tests/test_file_organization.py`
+keeps it in step with the code; this page is just a shorter front door plus the roadmap pointer, since the
+roadmap itself isn't a file in this directory.
 
 ## Start here
 
