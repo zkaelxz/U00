@@ -15,6 +15,7 @@ table) is in `archive/asr-experiments-history.md`.
 |---|---|---|---|
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
 | Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
+| Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
 | ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`. |
 | Qwen3-ASR batch size | Settings > Transcription experiments (PC only) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
@@ -169,6 +170,7 @@ document shows it worse; Live's own size list is separate and not gated. Today:
 |---|---|---|
 | `medium` | Japanese | "medium about 1.9 points worse" than turbo, and slower (RTF 0.84 vs 0.56), in the model table above. Korean and Chinese showed no clear gap, so it stays there. |
 | `ja-1.5b` | Chinese, Korean | A Japanese fine-tune, only for Japanese titles. |
+| `kotoba-v2` | Chinese, Korean | Trained on Japanese speech only (ReazonSpeech), so only for Japanese titles. |
 
 Adding a model (anime-whisper, say) is a `WHISPER_MODELS` label plus, if it is language-bound, one
 `LanguageRule`. `ja-1.5b` is never the default.
@@ -190,7 +192,24 @@ CPU sample test (40 clips per set, int8, beam 5; character error rate, lower is 
 | joujiboi | 0.200 / 0.232 | 0.333 / 0.357 |
 
 Word timestamps work out of the box and no repetition loops appeared. anime-whisper (its word
-timestamps break) and kotoba (only ties turbo) are not in the app; the 760M sibling is not added.
+timestamps break) is not in the app; the 760M sibling is not added. kotoba is, see below.
+
+#### kotoba-whisper v2.0 in the app
+
+`kotoba-v2` is large-v3's encoder with a 2-layer decoder, trained on ReazonSpeech; its card claims about
+6x large-v3's speed. Gated by the same `WHISPER_LANGUAGE_RULES` table as `ja-1.5b`, never the default,
+not in Live (its size list waits for a benchmark).
+
+| | |
+|---|---|
+| Repository | `kotoba-tech/kotoba-whisper-v2.0-faster`, pinned in `whisper_models.PINNED_CT2_REPOS` |
+| Revision | `f44edd35eaeb2274e85ac7b31fb2c6f59ff1c4bc` (the revision `tools/ja_whisper_models.py` already pins) |
+| Size | `model.bin` 1.51 GB (`memory_headroom` estimate 2.6 GB VRAM, 2.0 GB RAM, not measured) |
+| Licence | the CTranslate2 repo's card says MIT; the original `kotoba-tech/kotoba-whisper-v2.0` says Apache-2.0 |
+| File-set rule | the same as `ja-1.5b` (`lib/ct2_repo.py`) |
+| Timing | segment timestamps only: `whisper_models.WORD_TIMESTAMP_UNSUPPORTED` makes `core.transcribe_for_timing` and the mixed-language runner pass `word_timestamps=False`. The stock `config.json` carries large-v3's `alignment_heads` (decoder layers 7-19) on a 2-layer decoder, which is what crashes word timestamps. The pipeline then refines the segment times with the Qwen3 forced aligner (`forced_align.refine_whisper_segments`); if it is not installed, errors, or the run is mixed-language, the segment times are kept, no line is flagged, and the job reports "Line timing was not refined (reason)" as a partial result. |
+
+No benchmark of `kotoba-v2` in this app exists yet; the speed and accuracy claims above are the model card's.
 
 #### Trying a Japanese fine-tune
 

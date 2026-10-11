@@ -373,6 +373,21 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
     return lines
 
 
+def refine_whisper_segments(audio_path: str, segments, language: str, **kwargs):
+    """Refines Whisper's segment times with the forced aligner for a model that gives
+    no word timestamps. Consecutive segments are grouped up to MAX_CHUNK_SECONDS, the
+    size the aligner keeps in sync; the rest is refine_segment_timing."""
+    groups, current = [], []
+    for seg in segments:
+        if current and seg["end"] - current[0]["start"] > MAX_CHUNK_SECONDS:
+            groups.append(current)
+            current = []
+        current.append(seg)
+    if current:
+        groups.append(current)
+    return refine_segment_timing(audio_path, groups, language, **kwargs)
+
+
 def refine_segment_timing(audio_path: str, groups, language: str, use_gpu: bool = False,
                           cancel_check=None, progress_cb=None, on_device=None,
                           on_gpu_fallback=None):

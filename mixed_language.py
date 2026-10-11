@@ -14,7 +14,7 @@ from core import (
     LANGUAGE_NAMES, LINE_LANGUAGES, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS,
     filter_hallucinated_segments,
 )
-from whisper_models import is_gpu_error, load_whisper_model
+from whisper_models import is_gpu_error, load_whisper_model, supports_word_timestamps
 from segment_splitting import tighten_to_words
 
 LANGUAGE_UNCERTAIN_FLAG = "language_uncertain"
@@ -121,11 +121,11 @@ def pick_allowed_language(probabilities, fallback):
 
 
 def _span_runners(model, audio, sr, source_language, beam_size, initial_prompt,
-                  repeat_guard=False, sensitivity_preset="normal"):
+                  repeat_guard=False, sensitivity_preset="normal", word_timestamps=True):
     def transcribe(span, language):
         wave = audio[int(span.start_s * sr):int(span.end_s * sr)]
         kwargs = {"language": language, "vad_filter": False, "beam_size": beam_size,
-                  "word_timestamps": True,
+                  "word_timestamps": word_timestamps,
                   **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS,
                                   WHISPER_REPEAT_GUARD_KWARGS, repeat_guard)}
         if initial_prompt.strip():
@@ -173,7 +173,8 @@ def transcribe_mixed_whisper(audio_path, source_language, whisper_size, use_gpu=
         model = load_whisper_model(whisper_size, use_gpu=use_gpu_now,
                                    local_model_path=local_model_path)
         run_span, retry_span = _span_runners(model, audio, sr, source_language, beam_size,
-                                             initial_prompt, repeat_guard, sensitivity_preset)
+                                             initial_prompt, repeat_guard, sensitivity_preset,
+                                             supports_word_timestamps(whisper_size))
         return transcribe_spans(spans, source_language, run_span, retry_span,
                                 cancel_check=cancel_check, progress_cb=progress_cb)
 

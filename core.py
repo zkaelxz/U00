@@ -616,7 +616,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "language": language, "vad_filter": True, "beam_size": beam_size,
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
-        "word_timestamps": True,
+        "word_timestamps": whisper_models.supports_word_timestamps(model_size),
         **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard),
     }
     if initial_prompt.strip():

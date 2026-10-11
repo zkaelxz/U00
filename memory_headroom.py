@@ -40,6 +40,8 @@ _WHISPER_MB = {
     "distil-large-v3": (3200, 2500),
     # An estimate from the 3.1 GB model.bin plus decoding overhead, not a measurement.
     "ja-1.5b": (4200, 3300),
+    # An estimate from the 1.5 GB model.bin (large-v3 encoder, 2-layer decoder), not a measurement.
+    "kotoba-v2": (2600, 2000),
 }
 _QWEN_ASR_MB = {"0.6B": (2500, 2500), "1.7B": (5200, 5200)}
 _ESTIMATES_MB = {

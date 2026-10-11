@@ -21,6 +21,8 @@ WHISPER_MODELS = {
     "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
     "ja-1.5b": ("Japanese (whisper-ja 1.5B) -- anime and games, opt-in, about 3 GB, needs a GPU; "
                 "its licence is not declared"),
+    "kotoba-v2": ("Japanese (kotoba-whisper v2.0) -- opt-in, about 1.5 GB, about 6x faster than "
+                  "large-v3 on Japanese; line timing only"),
 }
 DEFAULT_WHISPER_SIZE = "large-v3-turbo"
 
@@ -29,7 +31,18 @@ DEFAULT_WHISPER_SIZE = "large-v3-turbo"
 # id or revision, and a branch name could be moved after the files were reviewed.
 PINNED_CT2_REPOS = {
     "ja-1.5b": ("TransWithAI/whisper-ja-1.5B-ct2", "1527314b14da5bdf0d14e7328649d4fa26840188"),
+    "kotoba-v2": ("kotoba-tech/kotoba-whisper-v2.0-faster", "f44edd35eaeb2274e85ac7b31fb2c6f59ff1c4bc"),
 }
+
+# Models that must not be asked for word timestamps. kotoba's CTranslate2 config copies
+# large-v3's alignment_heads (decoder layers 7-19) onto a 2-layer decoder, so
+# word_timestamps=True can fail inside ctranslate2. Their lines keep Whisper's segment
+# times, which the Qwen3 forced aligner refines where it is installed.
+WORD_TIMESTAMP_UNSUPPORTED = frozenset({"kotoba-v2"})
+
+
+def supports_word_timestamps(model_size: str) -> bool:
+    return model_size not in WORD_TIMESTAMP_UNSUPPORTED
 
 
 @dataclass(frozen=True)
@@ -57,6 +70,9 @@ WHISPER_LANGUAGE_RULES = {
     "ja-1.5b": LanguageRule(
         only_for=("ja",),
         reason="The whisper-ja 1.5B model is a Japanese fine-tune and is only for Japanese titles."),
+    "kotoba-v2": LanguageRule(
+        only_for=("ja",),
+        reason="The kotoba-whisper v2.0 model was trained on Japanese only and is only for Japanese titles."),
 }
 
 
