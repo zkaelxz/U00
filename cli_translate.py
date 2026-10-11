@@ -264,7 +264,10 @@ def cmd_translate(args):
             if refusal:
                 raise RuntimeError(refusal)
             caps.append(cap)
-        translate_run_service.save_style_toggles(d["id"], include_genre_notes, default_female_pronouns, getattr(args, "thinking", None))
+        by_sentence = getattr(args, "translate_by_sentence", None)
+        translate_run_service.save_style_toggles(d["id"], include_genre_notes, default_female_pronouns, getattr(args, "thinking", None), by_sentence)
+        if by_sentence is not None:
+            d["translate_by_sentence"] = int(by_sentence)
         if fallback_names:
             engine = translate_engines.FallbackEngine(
                 [engine] + [_engine_for(n) for n in fallback_names], chain_names, caps,
@@ -421,6 +424,11 @@ def add_translate_parser(sub):
                                 "for the title (on until chosen otherwise).")
     p_translate.add_argument("--genre-notes", action="store_false", dest="no_genre_notes",
                            default=None, help="Include the genre guidance and save that.")
+    p_translate.add_argument("--translate-by-sentence", action="store_true", default=None,
+                help="Translate whole sentences, then split the English across the short lines; saved for the title (off until chosen).")
+    p_translate.add_argument("--no-translate-by-sentence", action="store_false",
+                dest="translate_by_sentence", default=None,
+                help="Turn translate-by-sentence off and save that.")
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
     p_translate.add_argument("--glossary-affected", action="store_true",

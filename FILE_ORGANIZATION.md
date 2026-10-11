@@ -101,6 +101,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `live_pipeline.py` (what runs beside Live's capture loop: the translation worker and its bounded queue, the shared cue list and status line, Stop-then-finish, the lag figures)
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
+- `sentence_groups.py` (translate-by-sentence: grouping timed fragments and splitting the English back)
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
 - `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`

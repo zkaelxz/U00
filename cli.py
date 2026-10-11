@@ -1149,6 +1149,11 @@ def main():
                                 "for the title (on until chosen otherwise).")
     p_run.add_argument("--genre-notes", action="store_false", dest="no_genre_notes",
                            default=None, help="Include the genre guidance and save that.")
+    p_run.add_argument("--translate-by-sentence", action="store_true", default=None,
+                help="Translate whole sentences, then split the English across the short lines; saved for the title (off until chosen).")
+    p_run.add_argument("--no-translate-by-sentence", action="store_false",
+                dest="translate_by_sentence", default=None,
+                help="Turn translate-by-sentence off and save that.")
     p_run.add_argument("--transcript", default=None, metavar="FILE",
                        help="Chinese transcript to align (- for stdin); needs --id. "
                             "Default: <title folder>/transcript.txt.")

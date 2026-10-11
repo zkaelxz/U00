@@ -149,6 +149,8 @@ def get_translate_config(drama_id: int) -> dict:
         "ollama_reachable": ollama_reachable() if engine_name == "ollama" else None,
         "default_female_pronouns": _saved_bool(drama.get("default_female_pronouns")),
         "include_genre_notes": _saved_bool(drama.get("include_genre_notes")),
+        "translate_by_sentence": _saved_bool(drama.get("translate_by_sentence")),
+        "translate_by_sentence": _saved_bool(drama.get("translate_by_sentence")),
     }
 
 
@@ -551,7 +553,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
 
 
 def save_style_toggles(drama_id: int, include_genre_notes=None,
-                       default_female_pronouns=None, thinking=None) -> None:
+                       default_female_pronouns=None, thinking=None,
+                       translate_by_sentence=None) -> None:
     """Stores the toggles a run was started with as the title's choice, so
     every later run that is not handed them (retry, glossary re-translate,
     line AI, CLI) and the Translate stage use the same values. None leaves
@@ -559,7 +562,8 @@ def save_style_toggles(drama_id: int, include_genre_notes=None,
     saved = {k: int(bool(v)) for k, v in (
         ("include_genre_notes", include_genre_notes),
         ("default_female_pronouns", default_female_pronouns),
-        ("translate_thinking", thinking)) if v is not None}
+        ("translate_thinking", thinking),
+        ("translate_by_sentence", translate_by_sentence)) if v is not None}
     if saved:
         db.update_drama(drama_id, **saved)
 

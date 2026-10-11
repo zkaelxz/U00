@@ -2016,7 +2016,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
         "split_by_sentences", "vocabulary_hint", "translate_thinking", "source_url_full",
-        "keep_original"),
+        "keep_original", "translate_by_sentence"),
     "series": ("instructions", "owner_user_id", "is_private"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
