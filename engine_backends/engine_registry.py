@@ -200,6 +200,44 @@ def effective_default_model(engine_name: str):
     return model_override_for_default(engine_name) or builtin_default_model(engine_name)
 
 
+# Default lines per translate request. Requests run one after another, so a
+# larger batch cuts wall time and repeats the prompt overhead less often, but a
+# weaker model is likelier to drop or mis-number ids as the batch grows. The
+# ceiling (translate_run_service.MAX_BATCH_SIZE) stays 60: Claude's reply cap.
+DEFAULT_BATCH_SIZE = 30
+STRONG_ENGINE_BATCH_SIZE = 60
+
+# (engine, model-name fragments) pairs whose models hold up at the larger batch.
+# A fragment matches anywhere in the lowercased model name; an engine or model
+# not listed gets DEFAULT_BATCH_SIZE, so a new or unknown model starts safe.
+# Extend this table after testing a model at batch 60 (every id returned once).
+_STRONG_BATCH_MODELS = (
+    # Sonnet-class and above kept every id at batch 60 in the 180-line
+    # Japanese->English proxy test. Haiku is small, so it is left out.
+    ("claude", ("sonnet", "opus", "fable")),
+    # Pro tier only: Flash and Flash-Lite are the cheap tiers, "pro" never
+    # appears in their names.
+    ("gemini", ("pro",)),
+)
+
+
+def default_batch_size(engine, model: str = None) -> int:
+    """Lines per request to use when the user hasn't chosen a batch size.
+    `engine` is an engine name or an engine instance (the pipeline holds the
+    instance); `model` None means the instance's model, else the engine's
+    effective default model."""
+    if isinstance(engine, str):
+        engine_name = engine
+    else:
+        engine_name = next((n for n, cls in ENGINES.items() if type(engine) is cls), "")
+        model = model or getattr(engine, "model", None)
+    name = str(model or effective_default_model(engine_name) or "").lower()
+    for engine, fragments in _STRONG_BATCH_MODELS:
+        if engine == engine_name and any(f in name for f in fragments):
+            return STRONG_ENGINE_BATCH_SIZE
+    return DEFAULT_BATCH_SIZE
+
+
 def override_models(engine_name: str) -> list:
     """Models the user chose for `engine_name`'s default or for a workflow
     tier that runs on it; the offered lists include them so a run started
@@ -247,3 +285,19 @@ def get_engine(engine_name: str, api_key: str = None, model: str = None,
     if model:
         return cls(api_key, model, **kwargs)
     return cls(api_key, **kwargs)
+
+
+def default_translate_options(engine=None, model=None) -> dict:
+    """Context window sizes and batch size a translate run starts with; the
+    batch size follows the engine and model (none given = the generic 30)."""
+    return {"context_window": 10, "context_window_ahead": 6,
+            "batch_size": default_batch_size(engine, model)}
+
+
+def batch_size_defaults(engines: list) -> dict:
+    """{engine: {model: default batch size}} for list_engines() entries, with
+    "" for the engine's own default model; the Translate form reads it to show
+    the default for whatever engine and model are picked."""
+    return {e["name"]: {"": default_batch_size(e["name"]),
+                        **{m: default_batch_size(e["name"], m) for m in e.get("models") or []}}
+            for e in engines}

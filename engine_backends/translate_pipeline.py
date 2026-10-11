@@ -2,6 +2,7 @@
 
 import inspect
 import sentence_groups
+from .engine_registry import default_batch_size
 from .fallback import FallbackEngine
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded, call_llm_json,
                         llm_tasks_scope_active, request_deadline_for)
@@ -366,7 +367,7 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
                             "check the pronoun")
 
 
-def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = 20,
+def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = None,
                                  style_note: str = "", novel_reference=None, progress_cb=None,
                                  save_cb=None, force_retranslate: bool = False,
                                  locale: str = "en-US", glossary_terms=None, usage_cb=None,
@@ -525,9 +526,10 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
         if usage_cb:
             usage_cb(inp, out, cache_read, cache_write)
 
-    batches = (plan_batches(target_lines, batch_size) if scene_aware_batches
-               else [target_lines[i:i + batch_size]
-                     for i in range(0, len(target_lines), batch_size)])
+    size = batch_size or default_batch_size(engine)
+    batches = (plan_batches(target_lines, size) if scene_aware_batches
+               else [target_lines[i:i + size]
+                     for i in range(0, len(target_lines), size)])
     if translate_by_sentence is None:
         translate_by_sentence = bool((drama_meta or {}).get("translate_by_sentence"))
     sentence_mode = (translate_by_sentence and not reflect
@@ -743,7 +745,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     else:
         if not stop_run and not (cancel_check_cb and cancel_check_cb()):
             _recheck_male_pronouns(
-                engine, lines, translated, context, character_names, batch_size, save_cb,
+                engine, lines, translated, context, character_names, size, save_cb,
                 record_usage, lambda: cost_cap_usd is not None and spent >= cost_cap_usd,
                 cancel_check_cb)
     return lines, errors

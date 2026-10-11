@@ -38,6 +38,7 @@ import {
   validateRun,
   withPresetEngine,
   withSavedEngine,
+  defaultBatchSize,
 } from './translateForm'
 
 const config = {
@@ -45,7 +46,9 @@ const config = {
   style_presets: [{ key: 'natural', label: 'Natural' }, { key: 'wuxia', label: 'Wuxia' }],
   locales: ['en-GB', 'en-US'],
   defaults: { context_window: 5, context_window_ahead: 2, batch_size: 20 },
-} as TranslateRunConfig
+  translation_engine: 'claude',
+  batch_size_defaults: { claude: { '': 60, 'claude-haiku-4-5-20251001': 30 }, gemini: { '': 30 } },
+} as unknown as TranslateRunConfig
 
 // No translation-only engine is offered now; the guards still apply to one.
 beforeEach(() => {
@@ -55,10 +58,25 @@ afterEach(() => {
   TRANSLATION_ONLY.length = 0
 })
 
+describe('batch size default', () => {
+  it('follows the engine and model while the field is blank, and a typed value is sent as is', () => {
+    const f = initialForm(config)
+    expect(defaultBatchSize(config, f)).toBe(60)
+    expect(defaultBatchSize(config, { ...f, model: 'claude-haiku-4-5-20251001' })).toBe(30)
+    expect(defaultBatchSize(config, { ...f, engine: 'gemini' })).toBe(30)
+    expect(defaultBatchSize(config, { ...f, engine: 'unlisted' })).toBe(20)
+    expect(validateRun(f, 'claude')).toBeNull()
+    expect(buildRunBody(f)).not.toHaveProperty('batch_size')
+    expect(buildRunBody({ ...f, batch_size: '25' })).toMatchObject({ batch_size: 25 })
+    expect(validateRun({ ...f, batch_size: '61' }, 'claude')).toMatch(/Batch size/)
+  })
+})
+
 describe('translate form', () => {
   it('starts from the config defaults', () => {
     const f = initialForm(config)
-    expect(f).toMatchObject({ locale: 'en-US', batch_size: '20', context_window: '5', style_preset: 'natural' })
+    // A blank batch size means the default for the chosen engine.
+    expect(f).toMatchObject({ locale: 'en-US', batch_size: '', context_window: '5', style_preset: 'natural' })
     expect(validateRun(f, 'ollama')).toBeNull()
   })
 
@@ -126,7 +144,6 @@ describe('translate form', () => {
       force_retranslate: true,
       context_window: 5,
       context_window_ahead: 2,
-      batch_size: 20,
       job_cost_cap_usd: 1.5,
       fallback_chain: [{ engine: 'gemini' }],
       thinking: false,

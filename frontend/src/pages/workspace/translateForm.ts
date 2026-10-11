@@ -248,13 +248,20 @@ export function restoreRunOptions(
   if (locale && c.locales.includes(locale)) f.locale = locale
   const note = str(s.style_note)
   if (note !== undefined && note.length <= 4000) f.style_note = note
-  f.batch_size = clampInt(s.batch_size, 1, 60, base.batch_size)
+  f.batch_size = s.batch_size === '' ? '' : clampInt(s.batch_size, 1, 60, base.batch_size)
   f.context_window = clampInt(s.context_window, 0, 100, base.context_window)
   f.context_window_ahead = clampInt(s.context_window_ahead, 0, 100, base.context_window_ahead)
   const cap = str(s.cost_cap)
   if (cap !== undefined && (cap.trim() === '' || parseCap(cap) !== null)) f.cost_cap = cap
 
   return { form: f, reviewFirst: o.reviewFirst === true, tier: str(o.tier) ?? null }
+}
+
+// The batch size the server uses for this form's engine and model while the
+// batch size field is blank.
+export function defaultBatchSize(c: TranslateRunConfig, f: RunForm): number {
+  const byModel = c.batch_size_defaults?.[f.engine || c.translation_engine]
+  return byModel?.[f.model] ?? byModel?.[''] ?? c.defaults.batch_size
 }
 
 // A preset value only applies when this server still offers it. Without a
@@ -277,7 +284,8 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     style_preset: style,
     style_note: c.default_style_note ?? '',
     locale,
-    batch_size: String(c.defaults.batch_size),
+    // Blank = the default for the chosen engine, which the server applies.
+    batch_size: '',
     context_window: String(c.defaults.context_window),
     context_window_ahead: String(c.defaults.context_window_ahead),
     cost_cap: '',
@@ -319,7 +327,7 @@ export function validateRun(
   if (f.bulk && !bulkAvailable(eff, bulkSupported)) return 'Bulk needs Claude, Gemini or DeepSeek.'
   if (f.bulk && f.reflect && !bulkReflectAvailable(eff, bulkSupported)) return 'Bulk Reflect needs Claude or Gemini.'
   if ((f.bulk || f.reflect) && f.fallbacks.length) return 'Fallback engines only apply to a normal run.'
-  if (intIn(f.batch_size, 1, 60) === null) return 'Batch size must be a whole number from 1 to 60.'
+  if (f.batch_size.trim() !== '' && intIn(f.batch_size, 1, 60) === null) return 'Batch size must be a whole number from 1 to 60.'
   if (intIn(f.context_window, 0, 100) === null) return 'Context window must be a whole number from 0 to 100.'
   if (intIn(f.context_window_ahead, 0, 100) === null)
     return 'Context window ahead must be a whole number from 0 to 100.'
@@ -347,7 +355,7 @@ export function buildRunBody(f: RunForm): TranslateRunStartBody {
     force_retranslate: f.force && f.forceConfirmed,
     context_window: Number(f.context_window),
     context_window_ahead: Number(f.context_window_ahead),
-    batch_size: Number(f.batch_size),
+    ...(f.batch_size.trim() !== '' ? { batch_size: Number(f.batch_size) } : {}),
     ...(typeof cap === 'number' ? { job_cost_cap_usd: cap } : {}),
     ...(chain.length ? { fallback_chain: chain } : {}),
     ...(f.reflect ? { reflect: true } : {}),

@@ -158,8 +158,8 @@ def test_reflect_stage_that_fully_fails_still_writes_the_paid_drafts(isolated_db
 
 
 def test_reflect_stage_that_partly_fails_writes_drafts_only_for_the_failed_lines(isolated_db, monkeypatch):
-    # 21 lines: the reflect stage sends 20 per request, so two requests.
-    did = _seed([(f"行{n}", "") for n in range(21)])
+    # 61 lines: a Claude Sonnet stage sends 60 per request, so two requests.
+    did = _seed([(f"行{n}", "") for n in range(61)])
     FakeProvider.fail = {"reflect": "first"}  # the 1-line request
     job = _run_reflect(did, monkeypatch)
     assert job["status"] == "done", job
@@ -287,3 +287,16 @@ def test_offpeak_schedule_stores_the_runs_batching(isolated_db, monkeypatch):
                                  None, None, None)
     args = db.get_bulk_job(submit())["translate_args"]
     assert (args["batch_size"], args["context_window_ahead"], args["scene_aware_batches"]) == (7, 2, True)
+
+
+def test_bulk_submission_gets_the_engines_default_batch_size(isolated_db, monkeypatch):
+    did = _seed([("一", "")], engine="claude")
+    sent = {}
+    monkeypatch.setattr(svc.bulk_translate, "submit_bulk_translation",
+                        lambda *a, **kw: sent.update(kw) or 1)
+    engine = type("E", (), {"model": "m"})()
+    for model, expected in (("claude-sonnet-5-5", 60), ("claude-haiku-4-5-20251001", 30)):
+        batch = svc.translate_engines.default_batch_size("claude", model)
+        svc._bulk_submitter(did, db.get_drama(did), engine, "claude", False, None, [], "", "",
+                            "en-US", "audio_drama", 6, 2, batch, False, None, None, None)()
+        assert sent["batch_size"] == expected

@@ -197,6 +197,16 @@ class TestTranslateLinesWithEngine:
         assert errors == []
         assert all(ln.en for ln in result)
 
+    @pytest.mark.parametrize("model, calls", [("claude-sonnet-5-5", 2), ("claude-haiku-4-5-20251001", 3)])
+    def test_unset_batch_size_follows_the_engines_default(self, model, calls):
+        lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(70)]
+        engine = te.ClaudeEngine("sk-ant-fake", model=model)
+        sent = []
+        engine.translate_batch = lambda zh_lines, context: (sent.append(len(zh_lines)),
+                                                             [f"EN:{z}" for z in zh_lines])[1]
+        te.translate_lines_with_engine(lines, engine, {})
+        assert len(sent) == calls and max(sent) == (60 if calls == 2 else 30)
+
     def test_skips_already_translated_lines_by_default(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="already done"),
                  Line(idx=1, start=0, end=1, zh="b")]

@@ -124,7 +124,7 @@ def _copy_english_lines(drama_id: int, targets: list) -> list:
     return [ln for ln in targets if not translate_engines.is_english_line(ln)]
 
 
-def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_size: int = 20,
+def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_size: int,
                         force_retranslate: bool = False, context_window: int = 6,
                         context_window_ahead: int = 3, character_names: dict = None):
     """(requests, line_rows) for every batch at once. Each request's
@@ -472,7 +472,7 @@ def submit_reflect_stage(drama_id: int, stage: str, provider, batches: list, eng
 
 
 def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: str,
-                            translate_args: dict, provider=None, batch_size: int = 20,
+                            translate_args: dict, provider=None, batch_size=None,
                             force_retranslate: bool = False) -> int:
     """Submits stage "faithful", the pipeline's own first bulk job.
     Returns its bulk_job_id -- the Bulk jobs panel shows this one first;
@@ -484,6 +484,7 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
     targets = _copy_english_lines(drama_id, _target_lines(lines, force_retranslate))
     if not targets:
         raise ValueError("Nothing to translate -- every line already has a translation.")
+    batch_size = batch_size or translate_engines.default_batch_size(engine)
     pipeline_id = f"reflect_{drama_id}_{uuid.uuid4().hex[:12]}"
     names = _character_names(drama_id)
     batches = []
@@ -678,14 +679,15 @@ def _apply_reflect_faithful(job: dict, results) -> dict:
     return counts
 
 
-def _stage_chunks(job: dict, ids: list, engine, batch_size: int):
+def _stage_chunks(job: dict, ids: list, engine):
     """(chunk_ids, zh_by_id, instructions, batch_ctx, source_by_id) per next-
     stage request, for the ids that still exist, in line order."""
     current = db.load_line_objects(job["drama_id"])
     wanted, names = set(ids), _character_names(job["drama_id"])
     alive = [ln for ln in current if ln.id in wanted]
-    for start in range(0, len(alive), batch_size):
-        batch = alive[start:start + batch_size]
+    n = translate_engines.default_batch_size(engine)
+    for start in range(0, len(alive), n):
+        batch = alive[start:start + n]
         instructions, batch_ctx, source_by_id, _speakers = _reflect_prompt_parts(
             job["drama_id"], job.get("translate_args"), engine, batch, names)
         yield [ln.id for ln in batch], {ln.id: ln.zh for ln in batch}, instructions, batch_ctx, source_by_id
@@ -720,12 +722,12 @@ def _submit_next_stage(job: dict, stage: str, batches: list, ids: list, en_at_su
 
 
 def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_submit_by_id: dict,
-                                 engine, batch_size: int = 20):
+                                 engine):
     provider = make_provider(job["engine"], engine)
     batches = [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_reflection_prompt(
                    instructions, batch_ctx, chunk, source_by_id, {lid: draft_by_id[lid] for lid in chunk}))
                for chunk, zh_by_id, instructions, batch_ctx, source_by_id
-               in (_stage_chunks(job, ids, engine, batch_size) if provider else ())]
+               in (_stage_chunks(job, ids, engine) if provider else ())]
     return _submit_next_stage(job, "reflect", batches, ids, en_at_submit_by_id, provider, 2000)
 
 
@@ -773,14 +775,14 @@ def _apply_reflect_reflection(job: dict, results) -> dict:
 
 
 def _advance_to_expressive_stage(job: dict, ids: list, draft_by_id: dict, critique_by_id: dict,
-                                 en_at_submit_by_id: dict, engine, batch_size: int = 20):
+                                 en_at_submit_by_id: dict, engine):
     provider = make_provider(job["engine"], engine)
     batches = [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_expressive_prompt(
                    instructions, batch_ctx, chunk, source_by_id,
                    {lid: draft_by_id.get(lid, "") for lid in chunk},
                    {lid: critique_by_id.get(lid) for lid in chunk}))
                for chunk, zh_by_id, instructions, batch_ctx, source_by_id
-               in (_stage_chunks(job, ids, engine, batch_size) if provider else ())]
+               in (_stage_chunks(job, ids, engine) if provider else ())]
     return _submit_next_stage(job, "expressive", batches, ids, en_at_submit_by_id, provider, 4000)
 
 
@@ -1278,7 +1280,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
                 if ln.id in rows and (ln.en or "") == (rows[ln.id]["en_at_submit"] or "")}
     drama = db.get_drama(did) or {}
     terms = args.get("glossary_terms")
-    options = {"batch_size": args.get("batch_size", 20),
+    options = {"batch_size": args.get("batch_size"),
                "context_window_ahead": args.get("context_window_ahead", 3),
                "scene_aware_batches": bool(args.get("scene_aware_batches"))}
     from services import line_provenance_service

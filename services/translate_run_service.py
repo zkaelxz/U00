@@ -97,9 +97,8 @@ def _parse_errors(raw) -> Optional[list]:
         return None
 
 
-def get_translate_config_defaults(is_novel: bool) -> dict:
-    # Per-sentence lines carry little each; batch 30 keeps context cost flat.
-    return {"context_window": 10, "context_window_ahead": 6, "batch_size": 30}
+def get_translate_config_defaults(is_novel: bool, engine=None, model=None) -> dict:
+    return translate_engines.default_translate_options(engine, model)
 
 
 def get_translate_config(drama_id: int) -> dict:
@@ -116,7 +115,8 @@ def get_translate_config(drama_id: int) -> dict:
     return {
         "drama_id": drama_id,
         "translation_engine": engine_name,
-        "engines": translate_service.list_engines(),
+        "engines": (engines := translate_service.list_engines()),
+        "batch_size_defaults": translate_engines.batch_size_defaults(engines),
         "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
                           for k, v in translation_guide.STYLE_PRESETS.items()],
         "default_style_preset": "novel" if is_novel else "audio_drama",
@@ -127,7 +127,7 @@ def get_translate_config(drama_id: int) -> dict:
              "auto_qc": bool(t["auto_qc"])}
             for k in translate_engines.WORKFLOW_TIERS
             for t in [translate_engines.effective_tier(k)]],
-        "defaults": get_translate_config_defaults(is_novel),
+        "defaults": get_translate_config_defaults(is_novel, engine_name),
         "default_locale": settings_service.get("default_locale"),
         "default_style_note": settings_service.get("default_style_note"),
         "project_instructions": drama.get("project_instructions"),
@@ -393,7 +393,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     is_novel = drama.get("content_mode") == "novel_narration"
     style_preset = style_preset or ("novel" if is_novel else "audio_drama")
-    defaults = get_translate_config_defaults(is_novel)
+    defaults = get_translate_config_defaults(is_novel, engine_name, model)
     context_window = defaults["context_window"] if context_window is None else context_window
     context_window_ahead = (defaults["context_window_ahead"]
                             if context_window_ahead is None else context_window_ahead)

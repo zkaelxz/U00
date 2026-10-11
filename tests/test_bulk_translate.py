@@ -541,7 +541,7 @@ class TestGeminiProvider:
         _patch_http(monkeypatch, post=lambda *a, **k: _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         lines = isolated_db.load_line_objects(did)
-        bulk_id = bt.submit_bulk_translation(did, lines, self._engine(), "gemini", {"drama_meta": {}})
+        bulk_id = bt.submit_bulk_translation(did, lines, self._engine(), "gemini", {"drama_meta": {}}, batch_size=20)
         lid = lines[0].id
         done = {"done": True, "metadata": {"state": "JOB_STATE_SUCCEEDED"}, "response": {
             "inlinedResponses": [{"response": {"candidates": [{"content": {"parts": [
@@ -554,7 +554,7 @@ class TestGeminiProvider:
         _patch_http(monkeypatch, post=lambda *a, **k: _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),
-                                             "gemini", {"drama_meta": {}})
+                                             "gemini", {"drama_meta": {}}, batch_size=20)
         _patch_http(monkeypatch, get=lambda *a, **k: _Resp({}, status=401))
         with pytest.raises(bp.BulkAuthError):
             bt.check_once(bulk_id, bp.make_provider("gemini", self._engine()))
@@ -564,7 +564,7 @@ class TestGeminiProvider:
         _patch_http(monkeypatch, post=lambda *a, **k: _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),
-                                             "gemini", {"drama_meta": {}})
+                                             "gemini", {"drama_meta": {}}, batch_size=20)
         _patch_http(monkeypatch, get=lambda *a, **k: _Resp(
             {"done": True, "metadata": {"state": "BATCH_STATE_EXPIRED"}}))
         assert bt.check_once(bulk_id, bp.make_provider("gemini", self._engine())) == "failed"
@@ -576,7 +576,7 @@ class TestGeminiProvider:
                             calls.append(url) or _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),
-                                             "gemini", {"drama_meta": {}})
+                                             "gemini", {"drama_meta": {}}, batch_size=20)
         bt.cancel_bulk_job(bulk_id, bp.make_provider("gemini", self._engine()))
         assert calls[-1].endswith("/batches/abc:cancel")
         assert isolated_db.get_bulk_job(bulk_id)["status"] == "cancelled"
@@ -1584,7 +1584,7 @@ class TestReflectStageSubmitFailure:
             i: f"draft-{i}" for i in ids}
 
     def test_an_expressive_request_missing_from_the_results_keeps_its_drafts(self, isolated_db):
-        _engine, did, ids, job, _ = self._to_stage(isolated_db, "expressive", n=21)
+        _engine, did, ids, job, _ = self._to_stage(isolated_db, "expressive", n=61)
         by_key = {}
         for r in isolated_db.list_bulk_job_lines(job["id"]):
             by_key.setdefault(r["request_key"], []).append(r["line_id"])
@@ -1599,7 +1599,7 @@ class TestReflectStageSubmitFailure:
 
     def test_a_resubmit_re_entry_does_not_bring_back_a_cleared_draft(self, isolated_db, monkeypatch):
         # 21 lines go out as requests of 20 and 1; the 1-line reflection will fail.
-        engine, did, ids, reflect, provider = self._to_stage(isolated_db, "reflect", n=21)
+        engine, did, ids, reflect, provider = self._to_stage(isolated_db, "reflect", n=61)
         sizes = {}
         for r in isolated_db.list_bulk_job_lines(reflect["id"]):
             sizes.setdefault(r["request_key"], []).append(r["line_id"])
@@ -1620,7 +1620,7 @@ class TestReflectStageSubmitFailure:
 
     def _one_failed_reflection(self, isolated_db, monkeypatch=None, submit_failures=0):
         """21 lines = reflect requests of 20 and 1; the 1-line one is left unanswered."""
-        engine, did, ids, reflect, provider = self._to_stage(isolated_db, "reflect", n=21)
+        engine, did, ids, reflect, provider = self._to_stage(isolated_db, "reflect", n=61)
         sizes = {}
         for r in isolated_db.list_bulk_job_lines(reflect["id"]):
             sizes.setdefault(r["request_key"], []).append(r["line_id"])
