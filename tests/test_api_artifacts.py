@@ -339,3 +339,24 @@ def test_a_failed_move_removes_the_label_written_ahead(isolated_db, tmp_path):
         with pytest.raises(OSError):
             media_export_service._move_labelled(did, "video", str(src), final, "zh")
     assert ".download.json" not in os.listdir(os.path.dirname(final))
+
+
+def test_a_failed_move_over_an_existing_export_restores_its_language(isolated_db, tmp_path):
+    from services import media_export_service
+    did = _drama(isolated_db, title_en="Show")
+    _write(did, "video", "burned_video.mp4", b"english export")
+    final = artifact_service.output_path(did, "video", "burned_video.mp4")
+    artifact_service.set_download_language(did, "video", "burned_video.mp4", "en")
+    src = tmp_path / "out.mp4"
+    src.write_bytes(b"chinese export, different size")
+    real_replace = os.replace
+
+    def locked_replace(a, b):
+        if str(b) == final:
+            raise PermissionError("being downloaded")
+        return real_replace(a, b)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(storage.os, "replace", locked_replace)
+        with pytest.raises(OSError):
+            media_export_service._move_labelled(did, "video", str(src), final, "zh")
+    assert artifact_service.get_artifact(did, "video")["language"] == "en"

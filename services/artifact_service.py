@@ -74,30 +74,64 @@ def set_download_language(drama_id: int, kind: str, filename: str, language: str
     describes that exact file; `source` is the finished file before it is
     moved into place (a move keeps size and mtime), so the label can exist
     before the new file does. Best-effort: a failure leaves the plain name."""
-    tmp = None
     try:
         base = os.path.dirname(output_path(drama_id, kind, filename))
-        path = os.path.join(base, _LABEL_FILE)
-        # Opening a planted symlink for writing would follow it out of the folder.
-        if os.path.islink(path):
-            return
         st = os.stat(source or os.path.join(base, filename))
+        _write_label(base, {"file": filename, "language": language,
+                            "size": st.st_size, "mtime_ns": st.st_mtime_ns})
+    except (OSError, ServiceError):
+        pass
+
+
+def _write_label(base: str, label: dict) -> None:
+    path = os.path.join(base, _LABEL_FILE)
+    # Opening a planted symlink for writing would follow it out of the folder.
+    if os.path.islink(path):
+        return
+    tmp = None
+    try:
         # mkstemp creates its file exclusively, and the replace swaps the
         # label in whole so a reader never sees half of it.
         fd, tmp = tempfile.mkstemp(prefix=".download-", suffix=".tmp", dir=base)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"file": filename, "language": language,
-                       "size": st.st_size, "mtime_ns": st.st_mtime_ns}, f)
+            json.dump(label, f)
         os.replace(tmp, path)
         tmp = None
-    except (OSError, ServiceError):
-        pass
     finally:
         if tmp is not None:
             try:
                 os.remove(tmp)
             except OSError:
                 pass
+
+
+def read_download_label(drama_id: int, kind: str, filename: str):
+    """The stored label if it is for `filename`, else None; read before a
+    new label overwrites it so a failed move can put it back."""
+    try:
+        base = os.path.dirname(output_path(drama_id, kind, filename))
+        path = os.path.join(base, _LABEL_FILE)
+        if os.path.islink(path):
+            return None
+        label = _read_label(path)
+    except (OSError, ServiceError):
+        return None
+    return label if label.get("file") == filename else None
+
+
+def restore_download_label(drama_id: int, kind: str, filename: str, previous) -> None:
+    """After a failed move, brings back the label read before it was
+    overwritten. On Windows a rename over a file being downloaded fails
+    while the old file stays in place, and that old file still needs its
+    language; with no previous label, drops the one written ahead."""
+    if previous is None:
+        clear_download_language(drama_id, kind, filename)
+        return
+    try:
+        base = os.path.dirname(output_path(drama_id, kind, filename))
+        _write_label(base, previous)
+    except (OSError, ServiceError):
+        pass
 
 
 def clear_download_language(drama_id: int, kind: str, filename: str) -> None:

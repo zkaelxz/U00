@@ -15,7 +15,7 @@ from services import disk_usage_service as dus
 from services import disk_usage_trash_service as dts
 from services import drama_service, keep_original_service
 from services import library_admin_service as las
-from services.service_errors import InvalidInputError
+from services.service_errors import InvalidInputError, NotFoundError
 
 ORIGINALS = ["source.mp4", "audio.wav", "novel_reference.txt", "raw_novel_context.txt",
              "raw_transcript.json", "raw_transcript.20260101T000000Z.json", "pages/p_0001.png"]
@@ -151,6 +151,15 @@ def test_trash_flag_needs_a_title_folder(isolated_db):
         assert not keep_original_service.trashed_from_pinned_title([lib, "dramas", odd])
 
 
+def test_trashing_the_whole_dramas_folder_warns_only_when_a_title_is_pinned(isolated_db):
+    lib = os.path.basename(db.LIBRARY_DIR)
+    _title(False, "Loose")
+    assert not keep_original_service.trashed_from_pinned_title([lib, "dramas"])
+    _title(True, "Pinned")
+    assert keep_original_service.trashed_from_pinned_title([lib, "Dramas"])
+    assert not keep_original_service.trashed_from_pinned_title([lib, "other"])
+
+
 # ----- export ----------------------------------------------------------------
 
 def _export(*ids):
@@ -175,3 +184,43 @@ def test_export_carries_a_pinned_titles_originals_only(isolated_db):
     assert kept == set(ORIGINALS)
     assert not any(n.startswith(f"{loose} ") and "/originals/" in n for n in names)
     assert any(n.startswith(f"{loose} ") and n.endswith("english.srt") for n in names)
+
+
+def _run_export(*ids):
+    for did in ids:
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
+    job = las.start_export_zip(list(ids))["job_id"]
+    end = time.time() + 10
+    while (background_jobs.get_status(job) or {}).get("status") not in ("done", "error", "cancelled"):
+        assert time.time() < end, "export did not finish"
+        time.sleep(0.05)
+    return background_jobs.get_status(job)
+
+
+def test_export_fails_plainly_when_the_originals_do_not_fit(isolated_db, monkeypatch):
+    pinned, _ = _title(True, "Pinned")
+    asked = []
+    monkeypatch.setattr(las, "has_disk_room", lambda folder, need: asked.append(need) or False)
+    status = _run_export(pinned)
+    assert status["status"] == "error"
+    assert "free disk space" in status["error"]
+    assert len(asked) == 1 and asked[0] > 0
+    with pytest.raises(NotFoundError):
+        las.admin_artifact_path("export")
+    assert not [n for n in os.listdir(las._artifact_dir("export", create=True))
+                if n.startswith(".partial_")]
+
+
+def test_export_stops_between_originals_when_cancelled(isolated_db, monkeypatch):
+    pinned, _ = _title(True, "Pinned")
+    monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda job_id: True)
+    status = _run_export(pinned)
+    assert status["status"] == "cancelled"
+    with pytest.raises(NotFoundError):
+        las.admin_artifact_path("export")
+
+
+def test_export_of_an_unpinned_title_does_not_check_disk_room(isolated_db, monkeypatch):
+    loose, _ = _title(False, "Loose")
+    monkeypatch.setattr(las, "has_disk_room", lambda folder, need: False)
+    assert _run_export(loose)["status"] == "done"

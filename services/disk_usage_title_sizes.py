@@ -50,8 +50,13 @@ def _title_rows() -> dict:
 
 def _history_bytes() -> dict:
     with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute("SELECT drama_id, SUM(LENGTH(CAST(snapshot_json AS BLOB))) "
-                            "FROM line_history GROUP BY drama_id").fetchall()
+        # LENGTH of a bare BLOB column is read from the row header, so the
+        # packed snapshots (nearly all of them) aren't loaded; only the few
+        # newest plain-text ones are cast to count bytes rather than characters.
+        rows = conn.execute(
+            "SELECT drama_id, SUM(CASE WHEN typeof(snapshot_json) = 'blob' "
+            "THEN LENGTH(snapshot_json) ELSE LENGTH(CAST(snapshot_json AS BLOB)) END) "
+            "FROM line_history GROUP BY drama_id").fetchall()
     return {r[0]: r[1] or 0 for r in rows}
 
 

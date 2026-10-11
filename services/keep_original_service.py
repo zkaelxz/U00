@@ -13,11 +13,13 @@ The pin itself is written through drama_service.update_drama_metadata
 (whitelisted like the other metadata toggles, same permission).
 """
 
+import contextlib
 import os
 import re
 import stat
 import zipfile
 
+import background_jobs
 import db
 import raw_transcript
 import storage
@@ -86,23 +88,40 @@ def clean_title_storage(drama_id: int, categories) -> dict:
 def trashed_from_pinned_title(parts) -> bool:
     """A Trash entry whose original place (data-folder relative parts) is
     in a pinned title's folder, or is that folder."""
-    parts = list(parts or ())
-    if (len(parts) < 3 or parts[0].lower() != os.path.basename(db.LIBRARY_DIR).lower()
-            or parts[1].lower() != "dramas" or not re.fullmatch(r"[0-9]{1,9}", parts[2])):
+    parts = [p.lower() for p in (parts or ())]
+    if parts == [os.path.basename(db.LIBRARY_DIR).lower(), "dramas"]:
+        # Trashing every title folder at once takes any pinned title's originals with it.
+        return any(is_pinned(d) for d in db.list_dramas())
+    if (len(parts) < 3 or parts[0] != os.path.basename(db.LIBRARY_DIR).lower()
+            or parts[1] != "dramas" or not re.fullmatch(r"[0-9]{1,9}", parts[2])):
         return False    # a stray folder name must not break the Trash list
     return is_pinned(db.get_drama(int(parts[2])))
 
 
-def export_title_files(zf: zipfile.ZipFile, drama_id: int, drama: dict, folder: str) -> None:
+def export_title_files(zf: zipfile.ZipFile, drama_id: int, drama: dict, folder: str,
+                       has_room=None, should_cancel=None) -> None:
     """A title's files in the library export beyond its subtitles: the
     mixed dub track, and for a pinned title its originals under
     `originals/` (stored uncompressed: media is already compressed and
-    deflating a long video only costs time)."""
+    deflating a long video only costs time). `has_room(bytes)` is asked
+    before the originals are written and `should_cancel()` between them;
+    originals can be many GB, so a full disk or a cancel must stop the
+    copy rather than run it to the end."""
     dub_path = os.path.join(db.DRAMAS_DIR, str(drama_id), "dub_track.wav")
     if os.path.isfile(dub_path) and not os.path.islink(dub_path):
         zf.write(dub_path, f"{folder}/dub_track.wav")
     if not is_pinned(drama):
         return
-    for rel, full in original_files(drama_id, drama):
+    files = original_files(drama_id, drama)
+    if has_room is not None:
+        need = 0
+        for _, full in files:
+            with contextlib.suppress(OSError):
+                need += os.path.getsize(full)
+        if not has_room(need):
+            raise RuntimeError("Not enough free disk space to export the original files.")
+    for rel, full in files:
+        if should_cancel is not None and should_cancel():
+            raise background_jobs.JobCancelled()
         zf.write(full, f"{folder}/originals/{rel.replace(os.sep, '/')}",
                  compress_type=zipfile.ZIP_STORED)

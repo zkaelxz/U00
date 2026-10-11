@@ -725,18 +725,27 @@ class TestReviewFixes:
             assert name.isascii() and name == want
 
 
-def test_a_200kb_single_line_title_builds_a_page_quickly_with_the_same_text():
+def test_a_200kb_single_line_title_is_segmented_in_bounded_chunks_with_the_same_text(
+        monkeypatch):
     import re
-    import time
     import reader
     import segment
     pytest.importorskip("jieba")
     pytest.importorskip("pypinyin")
-    segment.segment_zh("你好")  # load the dictionaries outside the timed part
+    segment.segment_zh("你好")  # loads the dictionaries
+    cut_sizes = []
+    real_cut = segment._jieba.cut
+    monkeypatch.setattr(segment._jieba, "cut",
+                        lambda chunk, *a, **kw: (cut_sizes.append(len(chunk)),
+                                                 real_cut(chunk, *a, **kw))[1])
     text = "很" * 200_000
     line = Line(idx=0, start=0.0, end=1.0, zh=text, en="")
-    start = time.monotonic()
     out = reader.build_reader_html([line], "zh", {})
-    assert time.monotonic() - start < 5
+    # Segmenting cost grows with the size of the text handed to jieba at once,
+    # so the proof of "quick" is that no call sees more than one chunk and the
+    # whole text is covered by about len/chunk calls, not by one huge one.
+    assert max(cut_sizes) <= segment.MAX_SEGMENT_CHARS
+    assert sum(cut_sizes) == len(text)
+    assert len(cut_sizes) <= len(text) // (segment.MAX_SEGMENT_CHARS // 2)
     shown = "".join(re.findall(r'data-word="([^"]*)"', out))
     assert shown == text
