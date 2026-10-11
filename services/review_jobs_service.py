@@ -160,12 +160,21 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
             "model": getattr(engine, "model", model), "line_count": len(lines), "bulk": False}
 
 
+def _language_kwargs(drama) -> dict:
+    return {"source_language": drama.get("source_language")}
+
+
+def _job_language(drama) -> dict:
+    return {"lang": drama.get("source_language")}
+
+
 def start_consistency_check(drama_id: int, engine_name: str = None, model: str = None,
                             gemini_free_tier: bool = None, bulk: bool = False) -> dict:
     """Same-term-translated-differently check; saves the consistency issues."""
     return _start("consistency", drama_id, engine_name, model, gemini_free_tier,
                   workspace_job_service.run_consistency_job,
-                  lambda d, lines, eng, name: ((lines, eng, name), {}), bulk=bulk)
+                  lambda d, lines, eng, name: ((lines, eng, name), _job_language(d)), bulk=bulk,
+                  bulk_kwargs=_language_kwargs)
 
 
 def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = None,
@@ -199,8 +208,8 @@ def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
             raise UnsupportedOperationError("There are no translated lines to review yet.")
     return _start("flag", drama_id, engine_name, model, gemini_free_tier,
                   workspace_job_service.run_flag_job,
-                  lambda d, lines, eng, name: ((lines, eng, name), {}), precheck=precheck,
-                  bulk=bulk)
+                  lambda d, lines, eng, name: ((lines, eng, name), _job_language(d)),
+                  precheck=precheck, bulk=bulk, bulk_kwargs=_language_kwargs)
 
 
 def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,

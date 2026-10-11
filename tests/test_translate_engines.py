@@ -2301,6 +2301,32 @@ class TestFlagPassDefects:
         assert f"Below are {name} source lines" in te.build_consistency_prompt(
             lines, source_language=lang)
 
+    @pytest.mark.parametrize("value,expected", [(2.0, 2), ("2", 2), (" 2 ", 2), ("[2]", 2),
+                                                (2, 2), (2.5, None), (True, None), ("x", None),
+                                                ([2], None), (None, None)])
+    def test_parse_line_id(self, value, expected):
+        assert te.parse_line_id(value) == expected
+
+    def test_system_flagged_lines_are_not_sent_to_the_model(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag="timing_uncertain"),
+                 Line(idx=1, start=1, end=2, zh="b", en="B")]
+        engine = _RawReplyFlagEngine("[]")
+        te.flag_uncertain_lines(lines, engine)
+        assert "[0]" not in engine.prompts[0] and "[1]" in engine.prompts[0]
+
+    def test_only_system_flagged_lines_makes_no_model_call(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag="content_blocked")]
+        engine = _RawReplyFlagEngine("[]")
+        te.flag_uncertain_lines(lines, engine)
+        assert engine.prompts == []
+
+    def test_stats_count_unparsable_entries_and_batches(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        stats = {}
+        te.flag_uncertain_lines(lines, _RawReplyFlagEngine('[{"line_idx": "x"}, {"line_idx": 0}]'),
+                                stats=stats)
+        assert stats == {"unparsable_entries": 1, "failed_batches": 0, "total_batches": 1}
+
     def test_unknown_language_is_neutral_and_never_chinese(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
         for prompt in (te.build_flag_prompt(lines), te.build_consistency_prompt(lines, "xx")):

@@ -20,6 +20,8 @@ from .shared import (
     build_numbered_lines,
     call_with_backoff,
     extract_first_json_value,
+    language_name,
+    parse_flag_entries,
     parse_json_array,
     post_json,
     redact_secrets,
@@ -27,7 +29,6 @@ from .shared import (
     SDK_REQUEST_TIMEOUT,
     TranslationCancelled,
 )
-from .prompt_fields import parse_line_id, source_language_phrase
 from .thinking import deepseek_extra_body
 from services import job_timing_service
 
@@ -573,8 +574,8 @@ def build_consistency_prompt(batch: list, source_language=None) -> str:
     window of lines."""
     pairs = "\n".join(f"{i+1}. {ln.zh} -> {ln.en}" for i, ln in enumerate(batch))
     return (
-        f"Below are {source_language_phrase(source_language)} source lines paired with their "
-        "English translations, from the "
+        f"Below are {language_name(source_language, 'source-language')} source lines paired with "
+        "their English translations, from the "
         "same drama. Look for CONSISTENCY issues: the same source-language name, term, or recurring "
         "phrase translated differently in different lines (e.g. a character's name spelled "
         "two ways, or a recurring term like a nickname/title rendered inconsistently). "
@@ -755,8 +756,8 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx, source_language=None
     reasons_desc = "\n".join(f"  - {k}: {v}" for k, v in FLAG_REASONS.items())
     pairs = "\n".join(f"[{id_fn(ln)}] {ln.zh} -> {ln.en}" for ln in batch)
     return (
-        f"Below are {source_language_phrase(source_language)} source lines paired with their "
-        "English translations. Flag ONLY "
+        f"Below are {language_name(source_language, 'source-language')} source lines paired with "
+        "their English translations. Flag ONLY "
         "the lines that genuinely need a second look -- most lines need none at all, and "
         "over-flagging defeats the point (the person reviewing this can't tell a real issue "
         "from noise). Reasons worth flagging:\n\n"
@@ -767,8 +768,13 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx, source_language=None
     )
 
 
+def flaggable_lines(lines) -> list:
+    """Translated lines without a system flag, which the model must not replace."""
+    return [ln for ln in lines if (ln.en or "").strip() and ln.flag not in SYSTEM_FLAG_REASONS]
+
+
 def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None,
-                         cancel_check=None, source_language=None):
+                         cancel_check=None, source_language=None, stats=None):
     """
     Reviews already-translated lines and flags the ones worth a second
     look -- the review-queue idea: instead of scanning a whole multi-hour
@@ -782,10 +788,13 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
     untouched -- every line's .flag stays whatever it already was.
     cancel_check: called before each batch; it may raise to stop the
     run between batches (a batch already sent still finishes).
+    stats, if given, gets unparsable_entries / failed_batches / total_batches.
     """
+    if stats is not None:
+        stats.update(unparsable_entries=0, failed_batches=0, total_batches=0)
     if not getattr(engine, "supports_reference", False):
         return lines
-    translated = [ln for ln in lines if ln.en.strip()]
+    translated = flaggable_lines(lines)
     if not translated:
         return lines
 
@@ -808,28 +817,18 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
         if progress_cb:
             progress_cb((bi + 1) / n_batches)
 
-        flagged = parse_json_array(text, 0)
-        if not isinstance(flagged, list):
-            continue
-        by_idx = {ln.idx: ln for ln in batch}
-        for f in flagged:
-            if not isinstance(f, dict):
-                continue
-            idx = parse_line_id(f.get("line_idx"))
-            if idx is None:
-                unparsable += 1
-                continue
-            ln = by_idx.get(idx)
-            # System flags record what the app measured; the model must not replace them.
-            if ln is None or ln.flag in SYSTEM_FLAG_REASONS:
+        flagged, bad = parse_flag_entries(parse_json_array(text, 0))
+        unparsable += bad
+        for ln in batch:
+            f = flagged.get(ln.idx)
+            if f is None:
                 continue
             reason = f.get("reason") if f.get("reason") in FLAG_REASONS else "uncertain_translation"
             ln.flag = reason
             ln.flag_note = f.get("note", "")
-    if unparsable:
-        import applog
-        applog.get_logger().warning("flag check skipped %d entries with an unreadable line_idx",
-                                    unparsable)
+    if stats is not None:
+        stats.update(unparsable_entries=unparsable, failed_batches=failed_batches,
+                     total_batches=n_batches)
     if failed_batches:
         # Those batches were not checked, which is not the same as "no issues".
         import applog

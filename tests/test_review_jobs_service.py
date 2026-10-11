@@ -156,6 +156,20 @@ def test_flag_keeps_manual_flag_change_made_just_before_the_write(monkeypatch):
     assert job["result"]["flagged_count"] == 2
 
 
+@pytest.mark.parametrize("starter,job_prefix", [(svc.start_flag_review, "flag_"),
+                                                (svc.start_consistency_check, "consistency_")])
+def test_live_review_jobs_name_the_titles_source_language(monkeypatch, starter, job_prefix):
+    did = _seed()
+    db.update_drama(did, source_language="ja")
+    prompts = []
+    monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
+                        lambda engine, prompt, **kw: prompts.append(prompt) or "[]")
+    out = starter(did, engine_name="claude")
+    assert out["job_id"].startswith(job_prefix)
+    _wait(out["job_id"])
+    assert prompts and "Japanese source lines" in prompts[0]
+
+
 def test_consistency_saves_issues(monkeypatch):
     did = _seed()
     monkeypatch.setattr(translate_engines, "check_consistency_llm",
