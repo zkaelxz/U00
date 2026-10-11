@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { getAssText, getSubtitleText, type SubtitleFile } from '../../../api/export'
+import { getAssText, getSubtitleText, type SubtitleFile, type TimingTidyReport } from '../../../api/export'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
@@ -25,6 +25,13 @@ function wrapSummary(en: string, src: string): string {
   return `wrap ${e || 'off'}/${s || 'off'}`
 }
 
+function timingSummary(t: TimingTidyReport): string {
+  const long = t.leftLong.length
+    ? `; ${t.leftLong.length} over 7 s left as they are (cue ${t.leftLong.slice(0, 10).join(', ')}${t.leftLong.length > 10 ? ', ...' : ''}), worth a look`
+    : ''
+  return `Timing tidied: ${t.extended} lengthened, ${t.trimmed} shortened by up to 2 frames${long}.`
+}
+
 const MIME: Record<ExportFormat, string> = { srt: 'application/x-subrip', vtt: 'text/vtt', lrc: 'text/plain', ass: 'text/x-ssa' }
 
 interface Props {
@@ -46,6 +53,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
   const [error, setError] = useState<unknown>(null)
   const [result, setResult] = useState<{ text: string; filename: string; fmt: ExportFormat } | null>(null)
   const [pending, setPending] = useState(false)
+  const [timing, setTiming] = useState<TimingTidyReport | null>(null)
   const latest = useRef(0)
   const set = <K extends keyof AssForm>(k: K, v: AssForm[K]) => setForm({ ...form, [k]: v })
 
@@ -71,6 +79,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
     if (en.error || src.error) return null
     return getSubtitleText(dramaId, {
       fmt, field: form.field, includeNotes: form.includeNotes, wrapEn: en.value, wrapSource: src.value,
+      tidyTiming: form.tidyTiming && fmt === 'srt',
     })
   }
 
@@ -81,12 +90,13 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
     const mine = ++latest.current
     setPending(true)
     p.then(
-      ({ text, filename: serverName }) => {
+      ({ text, filename: serverName, timing: tidied }) => {
         if (mine !== latest.current) return
         setPending(false)
         const filename = exportFilename(form.baseName, dramaId, form.field, fmt, serverName)
         setError(null)
         setResult({ text, filename, fmt })
+        setTiming(form.tidyTiming && fmt === 'srt' ? tidied : null)
         if (!text.trim()) return
         downloadText(text, filename, MIME[fmt])
       },
@@ -94,6 +104,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         if (mine !== latest.current) return
         setPending(false)
         setResult(null)
+        setTiming(null)
         setError(e)
       },
     )
@@ -159,10 +170,17 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           <Field label="Include notes" help="Add translation notes inline in the exported text.">
             <Toggle checked={form.includeNotes} onChange={(v) => set('includeNotes', v)} />
           </Field>
+          <Field
+            label="Tidy cue timing for players"
+            help="SRT only. Lengthens very short cues into silence (by up to 1 s) and leaves 2 frames between cues that touch, so players don't flash or merge them. It never moves a start, never shortens a cue past 2 frames, and your saved times are not changed."
+          >
+            <Toggle checked={form.tidyTiming} onChange={(v) => set('tidyTiming', v)} />
+          </Field>
         </div>
       </Section>
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {result && timing && <p role="status" data-testid="export-timing">{timingSummary(timing)}</p>}
       {result && <ExportTextResult text={result.text} filename={result.filename} mime={MIME[result.fmt]} />}
     </>
   )

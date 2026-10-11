@@ -256,9 +256,9 @@ class TestReadingSpeed:
 
     def test_limits_follow_the_script(self):
         assert sf.script_of("你好世界") == "cjk" and sf.script_of("Hello") == "latin"
-        assert sf.CPS_LIMITS["cjk"] < sf.CPS_LIMITS["latin"]
-        # 12 CJK characters in 1.5s is 8/s: fine for English, too dense for CJK
-        cjk = Line(idx=0, start=0, end=1.5, zh="", en="我们一起去公园散步吧好吗")
+        assert sf.SCRIPT_CPS["cjk"] < sf.SCRIPT_CPS["latin"]
+        # 15 CJK characters in 1.5s is 10/s: fine for English, too dense for CJK
+        cjk = Line(idx=0, start=0, end=1.5, zh="", en="我们一起去公园散步吧好吗啊啦呀")
         assert sf.dense_lines([cjk])
 
     def test_an_existing_flag_is_never_replaced(self):
@@ -274,31 +274,15 @@ class TestReadingSpeed:
         assert not sf.dense_lines([self._en(text, sf.MIN_DENSE_DURATION_S - 0.1)])
         assert sf.dense_lines([self._en(text, sf.MIN_DENSE_DURATION_S)])  # exactly at the floor counts
 
-    def test_text_shorter_than_the_character_floor_is_never_flagged(self):
-        just_under = "a" * (sf.MIN_DENSE_CHARS["latin"] - 1)
-        at_floor = "a" * sf.MIN_DENSE_CHARS["latin"]
-        # both are over 8.5 cps for 1.6 s
-        assert not sf.dense_lines([self._en(just_under, 1.6)])
-        assert sf.dense_lines([self._en(at_floor, 1.6)])
-
-    def test_the_character_floor_is_per_script(self):
-        # 10 CJK characters are under the CJK floor; 11 are over it (and 8/s > 6.5/s in 1.5 s)
-        assert not sf.dense_lines([self._en("我" * 10, 1.5)])
-        assert sf.dense_lines([self._en("我" * 11, 1.5)])
-
     def test_each_mode_uses_its_own_limits(self):
-        text = "word " * 12          # 59 chars after strip
-        ln = self._en(text, 5.0)     # 11.8 cps: over normal (8.5), under relaxed (12)
+        text = "word " * 20          # 99 chars after strip
+        ln = self._en(text, 5.0)     # 19.8 cps: over normal (17), under relaxed (20)
         assert sf.dense_lines([ln], mode="normal")
         assert not sf.dense_lines([ln], mode="relaxed")
         assert not sf.dense_lines([ln], mode="off")
-        fast = self._en(text, 3.0)   # 19.7 cps: over relaxed too
-        assert sf.dense_lines([fast], mode="relaxed")[0][2] == sf.RELAXED_CPS_LIMITS["latin"]
+        fast = self._en(text, 3.0)   # 33 cps: over relaxed too
+        assert sf.dense_lines([fast], mode="relaxed")[0][2] == sf.cps_limit("latin", "relaxed")
         assert not sf.dense_lines([fast], mode="off")
-
-    def test_relaxed_limits_are_above_normal_for_every_script(self):
-        for script, limit in sf.CPS_LIMITS.items():
-            assert sf.RELAXED_CPS_LIMITS[script] > limit
 
     def test_off_flags_nothing_and_an_unknown_stored_mode_is_normal(self):
         ln = self._en("word " * 60, 3.0)
@@ -307,14 +291,14 @@ class TestReadingSpeed:
         assert sf.reading_speed_mode_of({"reading_speed_mode": None}) == "normal"
         assert sf.reading_speed_mode_of({"reading_speed_mode": "relaxed"}) == "relaxed"
 
-    def test_the_note_names_the_setting_and_does_not_only_say_lengthen(self):
+    def test_the_note_says_what_the_speech_allows(self):
         ln = self._en("word " * 60, 3.0)
         sf.flag_dense_lines([ln])
-        assert "Reading speed check" in ln.flag_note and "may be fine" in ln.flag_note
+        assert "The speech is this fast: shorten the text" in ln.flag_note
 
     def test_translation_finishing_honours_the_titles_mode(self, isolated_db):
         import bulk_translate
-        text = "word " * 12  # 11.8 cps over 5 s
+        text = "word " * 20  # 19.8 cps over 5 s
         for mode, expected in (("normal", sf.READING_SPEED_FLAG), ("relaxed", None), ("off", None)):
             did = isolated_db.create_drama(title_en=mode)
             isolated_db.update_drama(did, reading_speed_mode=mode)

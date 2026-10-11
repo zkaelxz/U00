@@ -44,6 +44,7 @@ export interface SubtitleOptions {
   includeNotes: boolean
   wrapEn?: number
   wrapSource?: number
+  tidyTiming?: boolean
 }
 
 export interface AssStyleOverrides {

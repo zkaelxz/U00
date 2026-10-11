@@ -334,10 +334,24 @@ def get_export_readiness(drama_id: int) -> dict:
     }
 
 
-def generate_subtitle_text(drama_id: int, fmt: str, field: str,
-                           include_notes: bool = False,
-                           wrap_chars_en: Optional[int] = None,
-                           wrap_chars_source: Optional[int] = None) -> str:
+def _export_result(text: str, report: Optional[dict] = None) -> dict:
+    report = report or {"extended": 0, "trimmed": 0, "left_long": []}
+    return {"text": text, "cues_extended": report["extended"], "cues_trimmed": report["trimmed"],
+            "cues_left_long": report["left_long"]}
+
+
+def generate_subtitle_text(drama_id: int, fmt: str, field: str, **options) -> str:
+    """The text of generate_subtitle_export, for callers that don't need
+    the adjusted-cue count."""
+    return generate_subtitle_export(drama_id, fmt, field, **options)["text"]
+
+
+def generate_subtitle_export(drama_id: int, fmt: str, field: str,
+                             include_notes: bool = False,
+                             wrap_chars_en: Optional[int] = None,
+                             wrap_chars_source: Optional[int] = None,
+                             tidy_timing: bool = False,
+                             fps: Optional[float] = None) -> dict:
     """Generates SRT, VTT or LRC subtitle text for one drama -- pure and
     read-only: never writes to the database, never flags a line, never
     writes a file to disk. The caller decides what to do with the
@@ -356,6 +370,12 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
     wrap_chars_en/wrap_chars_source optionally cap characters per line
     (subtitle_formats.wrap_lines); None on either side leaves that
     language unwrapped.
+
+    tidy_timing (SRT and bilingual SRT only, default off) runs
+    subtitle_formats.tidy_cue_timing at `fps`, 24 when unknown: the title's
+    frame rate is not stored, only probed from the media file. VTT, LRC and
+    ASS keep the overlap-clamped times as they are. Returns {"text",
+    "cues_extended", "cues_trimmed", "cues_left_long" (cue numbers)}.
 
     Raises NotFoundError for an unknown drama id, InvalidInputError for
     an unknown fmt/field.
@@ -377,14 +397,18 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
 
     if fmt == "vtt":
-        return subtitle_formats.lines_to_vtt(export_lines, field, notes_by_idx, wrap_chars)
+        return _export_result(subtitle_formats.lines_to_vtt(export_lines, field, notes_by_idx, wrap_chars))
     if fmt == "lrc":
-        return subtitle_formats.lines_to_lrc(export_lines, field, notes_by_idx, wrap_chars)
+        return _export_result(subtitle_formats.lines_to_lrc(export_lines, field, notes_by_idx, wrap_chars))
 
-    wrapped = subtitle_formats.wrap_lines(export_lines, wrap_chars)
+    timed, report = (subtitle_formats.tidy_cue_timing(export_lines, fps) if tidy_timing
+                     else (export_lines, None))
+    wrapped = subtitle_formats.wrap_lines(timed, wrap_chars)
     if field == "bilingual":
-        return core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
-    return core_module.lines_to_srt(wrapped, field, notes_by_idx=notes_by_idx)
+        text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
+    else:
+        text = core_module.lines_to_srt(wrapped, field, notes_by_idx=notes_by_idx)
+    return _export_result(text, report)
 
 
 def flag_overlapping_lines(drama_id: int) -> dict:

@@ -23,6 +23,27 @@ describe('subtitleQuery', () => {
   })
 })
 
+describe('tidy timing', () => {
+  it('is only sent when on', () => {
+    expect(subtitleQuery({ fmt: 'srt', field: 'en', includeNotes: false, tidyTiming: false })).toBe('fmt=srt&field=en')
+    expect(subtitleQuery({ fmt: 'srt', field: 'en', includeNotes: false, tidyTiming: true })).toBe(
+      'fmt=srt&field=en&tidy_timing=true',
+    )
+  })
+  it('reads the counts from the response headers', async () => {
+    const r = new Response('x', {
+      headers: { 'X-Cues-Extended': '2', 'X-Cues-Trimmed': '5', 'X-Cues-Left-Long': '3,9' },
+    })
+    const f = vi.fn().mockResolvedValue(r)
+    const file = await getSubtitleText(1, { fmt: 'srt', field: 'en', includeNotes: false, tidyTiming: true }, f)
+    expect(file.timing).toEqual({ extended: 2, trimmed: 5, leftLong: [3, 9] })
+  })
+  it('has no report when the server sent no counts', async () => {
+    const f = vi.fn().mockResolvedValue(resp('x'))
+    expect((await getSubtitleText(1, { fmt: 'srt', field: 'en', includeNotes: false }, f)).timing).toBeNull()
+  })
+})
+
 describe('text fetches', () => {
   it('returns the body as text', async () => {
     const f = vi.fn().mockResolvedValue(resp('1\n00:00:00,000 --> 00:00:01,000\nHi\n'))
