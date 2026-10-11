@@ -250,6 +250,7 @@ def init_db():
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
         _migrate_auth_session_columns(conn)
+        _grant_lines_read_for_reader_page(conn)
         import device_tokens   # owns its table; imports db, so not at the top
         device_tokens.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
@@ -565,7 +566,7 @@ def _create_bulk_job_tables(conn):
             engine TEXT NOT NULL,
             model TEXT,
             provider_batch_id TEXT,   -- Anthropic msgbatch_..., Gemini batches/...; NULL for DeepSeek
-            status TEXT NOT NULL,     -- submitted | scheduled | applied | cancelled | failed | auth_error
+            status TEXT NOT NULL,     -- submitted | scheduled | running | applying | needs_resubmit | applied | cancelled | failed | auth_error
             scheduled_for TEXT,       -- DeepSeek: UTC start of the off-peak window it waits for
             translate_args TEXT,      -- JSON: what a scheduled run needs to build its prompt
             last_error TEXT,
@@ -1366,6 +1367,21 @@ def _migrate_ownership_columns(conn):
     if str(user_cols.get("share_by_default")) == "1" and conn.execute(
             "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
         conn.execute("UPDATE users SET share_by_default = 0")
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+
+
+def _grant_lines_read_for_reader_page(conn):
+    # The Reader page moved from library.read to lines.read (owner decision
+    # 2026-10-10): grant it once to everyone who could read the page before,
+    # so nobody loses the Reader on upgrade. The marker keeps a later revoke.
+    # A database with no accounts (a fresh install, a restored user backup)
+    # has nothing to grant and gets no marker: new accounts hold lines.read.
+    marker = "migrations.reader_page_lines_read"
+    if conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None and conn.execute(
+            "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+        conn.execute("INSERT OR IGNORE INTO user_permissions (user_id, permission) "
+                     "SELECT user_id, 'lines.read' FROM user_permissions "
+                     "WHERE permission = 'library.read'")
         conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
 
 
@@ -5407,7 +5423,7 @@ def delete_voice_bank_entry(entry_id: int):
 # Bulk (batch-API / off-peak) translation jobs
 # ---------------------------------------------------------------------------
 
-BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error")
+BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error", "needs_resubmit")
 
 
 def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
@@ -5502,6 +5518,19 @@ def update_bulk_job(bulk_job_id: int, **fields):
         conn.execute(f"UPDATE bulk_jobs SET {', '.join(k + ' = ?' for k in fields)} WHERE id = ?",
                      list(fields.values()) + [bulk_job_id])
         conn.commit()
+
+
+def set_bulk_job_status_if(bulk_job_id: int, expected, new: str) -> bool:
+    """Changes the status only while it is one of `expected`, in one
+    statement, so two appliers of the same paid results can't both win."""
+    expected = list(expected)
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            f"UPDATE bulk_jobs SET status = ?, updated_at = ? WHERE id = ? "
+            f"AND status IN ({','.join('?' * len(expected))})",
+            [new, datetime.datetime.utcnow().isoformat(), bulk_job_id] + expected)
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def count_bulk_job_lines(bulk_job_id: int) -> int:

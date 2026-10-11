@@ -100,6 +100,7 @@ class TestGetTranscribeConfig:
             "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": result["whisper_installed"],
+            "gpu_runtime": result["gpu_runtime"],
             "beam_size": 5,
             "min_silence_ms": 300,
             "vad_threshold": 0.5,
