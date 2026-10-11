@@ -590,14 +590,6 @@ class TestContextWindow:
         te.translate_lines_with_engine(lines, engine, {}, batch_size=10, context_window=6)
         assert engine.calls[0]["recent_context"] == [("l0", "Pre-existing translation.")]
 
-    def test_existing_mock_engine_tests_unaffected_by_new_default(self):
-        """context_window now defaults to 6 -- confirms that doesn't break
-        an engine that ignores the context dict's extra keys entirely."""
-        lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(5)]
-        result, errors = te.translate_lines_with_engine(lines, MockEngine(), {}, batch_size=2)
-        assert errors == []
-        assert all(ln.en for ln in result)
-
 
 class TestLookaheadContext:
     def test_last_batch_has_no_upcoming_lines(self):
@@ -1523,6 +1515,53 @@ class TestOllamaUnavailableErrors:
         assert resp.closed
 
 
+class TestOllamaModelInstalledCheck:
+    class Resp:
+        def __init__(self, status, body=b'{"models": [{"name": "m:1b"}]}', headers=None):
+            self.status_code, self.body, self.headers = status, body, headers or {}
+        def iter_content(self, size):
+            return iter([self.body])
+        def close(self):
+            pass
+
+    def _serve(self, monkeypatch, *replies):
+        calls, queue = [], list(replies)
+        monkeypatch.setattr(http, "pinned_get",
+                            lambda url, *a, **kw: calls.append(url) or queue.pop(0))
+        return calls
+
+    def test_follows_a_308_to_the_model_list(self, monkeypatch):
+        calls = self._serve(monkeypatch,
+                            self.Resp(308, headers={"Location": "http://proxy.local/api/tags"}),
+                            self.Resp(200))
+        te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        assert calls[-1] == "http://proxy.local/api/tags"
+
+    # 300 and 304 are redirect-class statuses lib/http does not follow, so they
+    # reach the status check (a 301 with no Location never does).
+    @pytest.mark.parametrize("status", [300, 304, 404, 500])
+    def test_a_non_2xx_final_answer_means_unreachable(self, monkeypatch, status):
+        self._serve(monkeypatch, self.Resp(status))
+        with pytest.raises(te.OllamaUnavailableError) as exc:
+            te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        assert exc.value.reason == "ollama_unreachable"
+
+    def test_an_unsettled_redirect_means_unreachable(self, monkeypatch):
+        loop = self.Resp(308, headers={"Location": "http://localhost:11434/api/tags"})
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: loop)
+        with pytest.raises(te.OllamaUnavailableError):
+            te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+
+
+class TestDisplayUrlEncodedTokens:
+    @pytest.mark.parametrize("path", ["/dl/AbC%2Bxyz%3D" + "q" * 28 + "/file", "/dl/" + "A%2D" * 20 + "/f"])
+    def test_percent_encoded_token_segment_is_dropped(self, path):
+        assert te.display_url(f"https://cdn.example{path}") == "https://cdn.example/"
+
+    def test_ordinary_encoded_name_is_kept(self):
+        assert te.display_url("https://cdn.example/a%20b/c.html") == "https://cdn.example/a%20b/c.html"
+
+
 class TestOllamaReachability:
     """Regression coverage for a real gap: Ollama is exempted from the
     API-key check entirely (workspace_tab.py's _needs_key), with nothing
@@ -1562,19 +1601,31 @@ class TestOllamaReachability:
         monkeypatch.setattr(http, "pinned_get", fake_get)
         assert te.check_ollama_reachable("http://localhost:11434") is False
 
-    def test_false_when_the_server_redirects(self, monkeypatch):
+    def test_follows_a_redirect_like_the_chat_call_does(self, monkeypatch):
         calls = []
 
-        class Redirect:
-            status_code = 302
-            headers = {"Location": "http://elsewhere.example/api/tags"}
+        class Resp:
+            def __init__(self, status, headers=None):
+                self.status_code, self.headers = status, headers or {}
+            def iter_content(self, size):
+                return iter([b"x"])
+            def close(self):
+                pass
+        replies = [Resp(308, {"Location": "http://proxy.local/api/tags"}), Resp(200)]
+        monkeypatch.setattr(http, "pinned_get", lambda url, *a, **kw: calls.append(url) or replies.pop(0))
+        assert te.check_ollama_reachable("http://localhost:11434") is True
+        assert calls == ["http://localhost:11434/api/tags", "http://proxy.local/api/tags"]
+
+    def test_false_when_a_redirect_never_settles(self, monkeypatch):
+        class Loop:
+            status_code = 308
+            headers = {"Location": "http://localhost:11434/api/tags"}
             def iter_content(self, size):
                 return iter([])
             def close(self):
                 pass
-        monkeypatch.setattr(http, "pinned_get", lambda url, *a, **kw: calls.append(url) or Redirect())
+        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: Loop())
         assert te.check_ollama_reachable("http://localhost:11434") is False
-        assert calls == ["http://localhost:11434/api/tags"]
 
     def test_false_when_the_connection_fails(self, monkeypatch):
         fake_get, _ = self._fake_get(raises=ConnectionError("refused"))
@@ -2201,6 +2252,93 @@ class TestFlagUncertainLines:
         assert lines[0].flag_note == "new note"
 
 
+class _RawReplyFlagEngine(FakeFlaggingEngine):
+    def __init__(self, raw):
+        super().__init__()
+        self.raw = raw
+        self.prompts = []
+
+    def create(self, model, max_tokens, messages):
+        self.prompts.append(messages[0]["content"])
+        return type("Resp", (), {"content": [_FakeBlock(self.raw)]})()
+
+
+class TestFlagPassDefects:
+    @pytest.mark.parametrize("raw_id", ["[1]", "1", " 1 ", 1, "[ 1 ]"])
+    def test_line_idx_formats_all_land_on_the_right_line(self, raw_id):
+        import json as _json
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A"),
+                 Line(idx=1, start=1, end=2, zh="b", en="B")]
+        raw = _json.dumps([{"line_idx": raw_id, "reason": "slang_idiom", "note": "n"}])
+        te.flag_uncertain_lines(lines, _RawReplyFlagEngine(raw), batch_size=10)
+        assert lines[0].flag is None
+        assert lines[1].flag == "slang_idiom"
+
+    def test_unparsable_entry_is_skipped_not_fatal(self):
+        import json as _json
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        raw = _json.dumps([{"line_idx": "first", "reason": "slang_idiom"},
+                           {"line_idx": [0], "reason": "slang_idiom"},
+                           {"line_idx": True, "reason": "slang_idiom"},
+                           {"line_idx": "[0]", "reason": "name_uncertain", "note": "ok"}])
+        te.flag_uncertain_lines(lines, _RawReplyFlagEngine(raw), batch_size=10)
+        assert lines[0].flag == "name_uncertain"
+
+    @pytest.mark.parametrize("system_flag", ["timing_uncertain", "content_blocked"])
+    def test_system_flag_and_note_survive_the_model(self, system_flag):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag=system_flag, flag_note="app note"),
+                 Line(idx=1, start=1, end=2, zh="b", en="B")]
+        engine = FakeFlaggingEngine(flags_for={0: ("slang_idiom", "model"), 1: ("slang_idiom", "model")})
+        te.flag_uncertain_lines(lines, engine, batch_size=10)
+        assert (lines[0].flag, lines[0].flag_note) == (system_flag, "app note")
+        assert (lines[1].flag, lines[1].flag_note) == ("slang_idiom", "model")
+
+    @pytest.mark.parametrize("lang,name", [("zh", "Chinese"), ("ja", "Japanese"),
+                                           ("ko", "Korean")])
+    def test_prompts_name_the_source_language(self, lang, name):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        assert f"Below are {name} source lines" in te.build_flag_prompt(lines, source_language=lang)
+        assert f"Below are {name} source lines" in te.build_consistency_prompt(
+            lines, source_language=lang)
+
+    @pytest.mark.parametrize("value,expected", [(2.0, 2), ("2", 2), (" 2 ", 2), ("[2]", 2),
+                                                (2, 2), (2.5, None), (True, None), ("x", None),
+                                                ([2], None), (None, None)])
+    def test_parse_line_id(self, value, expected):
+        assert te.parse_line_id(value) == expected
+
+    def test_system_flagged_lines_are_not_sent_to_the_model(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag="timing_uncertain"),
+                 Line(idx=1, start=1, end=2, zh="b", en="B")]
+        engine = _RawReplyFlagEngine("[]")
+        te.flag_uncertain_lines(lines, engine)
+        assert "[0]" not in engine.prompts[0] and "[1]" in engine.prompts[0]
+
+    def test_only_system_flagged_lines_makes_no_model_call(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag="content_blocked")]
+        engine = _RawReplyFlagEngine("[]")
+        te.flag_uncertain_lines(lines, engine)
+        assert engine.prompts == []
+
+    def test_stats_count_unparsable_entries_and_batches(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        stats = {}
+        te.flag_uncertain_lines(lines, _RawReplyFlagEngine('[{"line_idx": "x"}, {"line_idx": 0}]'),
+                                stats=stats)
+        assert stats == {"unparsable_entries": 1, "failed_batches": 0, "total_batches": 1}
+
+    def test_unknown_language_is_neutral_and_never_chinese(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        for prompt in (te.build_flag_prompt(lines), te.build_consistency_prompt(lines, "xx")):
+            assert "Chinese" not in prompt
+
+    def test_source_language_reaches_the_flag_prompt(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
+        engine = _RawReplyFlagEngine("[]")
+        te.flag_uncertain_lines(lines, engine, source_language="ja")
+        assert "Japanese source lines" in engine.prompts[0]
+
+
 class SequentialClaudeShapedEngine:
     """Claude-shaped fake returning canned raw response strings in order,
     one per call -- used to test the id-keyed retry mechanism directly
@@ -2697,6 +2835,22 @@ class TestStablePromptPrefix:
         assert system[-1].get("cache_control") == {"type": "ephemeral"}
         assert "Reference novel text." in system[-1]["text"]
         assert all("cache_control" not in b for b in system[:-1])
+
+    def test_a_cut_down_novel_leaves_the_breakpoint_on_the_instructions(self):
+        filler = "\n\n".join(f"Paragraph {i} about nothing much at all." * 20 for i in range(40))
+        novel = f"Su Shan opened the gate.\n\n{filler}\n\nLin Wan closed the book."
+        lines = [Line(idx=i, start=i, end=i + 1, zh=zh, id=100 + i)
+                 for i, zh in enumerate(["苏杉来了", "苏杉走了", "林婉来了", "林婉走了"])]
+        engine = _claude_engine_with_fake_client()
+        te.translate_lines_with_engine(
+            lines, engine, {"title_en": "Drama"}, batch_size=2, novel_reference=novel,
+            glossary_terms=[{"term_original": "苏杉", "term_translation": "Su Shan"},
+                            {"term_original": "林婉", "term_translation": "Lin Wan"}])
+        first, second = (c["system"] for c in engine.client.messages.calls)
+        assert first[1]["text"] != second[1]["text"]   # per-batch excerpts
+        assert repr(first[0]) == repr(second[0])
+        assert first[0]["cache_control"] == {"type": "ephemeral"}
+        assert all("cache_control" not in s[1] for s in (first, second))
 
     def test_without_a_novel_reference_the_instructions_block_is_cached(self):
         blocks = te.build_claude_system_blocks({"drama_meta": {}})

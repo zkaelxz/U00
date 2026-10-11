@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+import bulk_providers
 import bulk_translate as bt
 import db
 import translate_engines as te
@@ -15,6 +16,7 @@ from api.server import create_app
 from core import Line
 from services import translate_run_service as svc
 from services import translate_service
+from tests.saved_settings import patch_setting
 from services.service_errors import (ConflictError, InvalidInputError,
                                       UnsupportedOperationError)
 
@@ -40,6 +42,8 @@ class FakeProvider:
     """Answers each request id-keyed, keys reversed so nothing lines up by
     position. ended=False keeps the batch pending (for the cancel test)."""
     submitted, cancelled, _jobs = [], [], {}  # shared: the job builds more than one
+    fail = {}  # stage -> "all" | "first": requests of that stage that come back as errors
+    on_results = {}  # stage -> callable run just before that stage's results arrive
 
     def __init__(self, drama_id, ended=True):
         self.drama_id, self.ended = drama_id, ended
@@ -66,7 +70,12 @@ class FakeProvider:
         by_key = {}
         for r in db.list_bulk_job_lines(job["id"]):
             by_key.setdefault(r["request_key"], []).append(r["line_id"])
-        for key, ids in reversed(list(by_key.items())):
+        if tag in self.on_results:
+            self.on_results[tag]()
+        for n, (key, ids) in enumerate(reversed(list(by_key.items()))):
+            if self.fail.get(tag) == "all" or (self.fail.get(tag) == "first" and n == 0):
+                yield key, None, {"input_tokens": 0}, "expired"
+                continue
             payload = {str(lid): f"{tag}-{lid}" for lid in reversed(ids)}
             yield key, json.dumps(payload), {"input_tokens": 0}, None
 
@@ -78,6 +87,7 @@ class FakeProvider:
 def _env(monkeypatch):
     background_jobs.clear_all_jobs()
     FakeProvider.submitted, FakeProvider.cancelled, FakeProvider._jobs = [], [], {}
+    FakeProvider.fail, FakeProvider.on_results = {}, {}
     monkeypatch.setattr(bt, "POLL_INTERVAL_SECONDS", 0.02)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "sk-fake")
     monkeypatch.setattr(svc, "pick_summary_engine", lambda *a, **k: (None, None))
@@ -88,8 +98,9 @@ def _env(monkeypatch):
 def _fake_engines(monkeypatch, ended=True):
     engine = te.ClaudeEngine("sk-ant-fake")
     monkeypatch.setattr(te, "get_engine", lambda *a, **k: engine)
-    monkeypatch.setattr(bt, "make_provider",
-                        lambda choice, e: FakeProvider(_current["did"], ended=ended))
+    for module in (bulk_providers, bt):
+        monkeypatch.setattr(module, "make_provider",
+                            lambda choice, e: FakeProvider(_current["did"], ended=ended))
     return engine
 
 
@@ -123,6 +134,49 @@ def test_bulk_reflect_follows_all_three_stages_inside_the_job(isolated_db, monke
     assert stages == ["expressive", "faithful", "reflect"]
     for r in db.load_lines(did):
         assert r["en"] == f"expressive-{r['id']}"
+
+
+def _run_reflect(did, monkeypatch, **kw):
+    _current["did"] = did
+    _fake_engines(monkeypatch)
+    return _wait(svc.start_translate_run(did, bulk=True, reflect=True, **kw)["job_id"])
+
+
+def test_reflect_stage_that_fully_fails_still_writes_the_paid_drafts(isolated_db, monkeypatch):
+    did = _seed([("一", ""), ("二", ""), ("三", "")])
+    ids = {r["zh"]: r["id"] for r in db.load_lines(did)}
+    FakeProvider.fail = {"reflect": "all"}
+    FakeProvider.on_results = {"reflect": lambda: db.save_lines(
+        did, [ln for ln in db.load_line_objects(did) if setattr(ln, "en", "Mine" if ln.zh == "二" else ln.en) or True],
+        fields=("en",))}
+    job = _run_reflect(did, monkeypatch)
+    assert job["status"] == "done", job
+    rows = {r["zh"]: r["en"] for r in db.load_lines(did)}
+    assert rows == {"一": f"faithful-{ids['一']}", "二": "Mine", "三": f"faithful-{ids['三']}"}
+    assert sorted(j["stage"] for j in db.list_bulk_jobs(did)) == ["faithful", "reflect"]
+    assert len(FakeProvider.submitted) == 2  # no stage was sent again
+
+
+def test_reflect_stage_that_partly_fails_writes_drafts_only_for_the_failed_lines(isolated_db, monkeypatch):
+    # 21 lines: the reflect stage sends 20 per request, so two requests.
+    did = _seed([(f"行{n}", "") for n in range(21)])
+    FakeProvider.fail = {"reflect": "first"}  # the 1-line request
+    job = _run_reflect(did, monkeypatch)
+    assert job["status"] == "done", job
+    kinds = [r["en"].split("-")[0] for r in db.load_lines(did)]
+    assert sorted(set(kinds)) == ["expressive", "faithful"]
+    assert kinds.count("faithful") == 1
+    assert len(FakeProvider.submitted) == 3  # one batch per stage; nothing sent twice
+
+
+def test_expressive_stage_that_fails_falls_back_to_the_paid_drafts(isolated_db, monkeypatch):
+    did = _seed([("一", ""), ("二", "")])
+    FakeProvider.fail = {"expressive": "all"}
+    job = _run_reflect(did, monkeypatch)
+    assert job["status"] == "done", job
+    for r in db.load_lines(did):
+        assert r["en"] == f"faithful-{r['id']}"
+    assert len(FakeProvider.submitted) == 3
 
 
 def test_cancel_cancels_the_pending_batch(isolated_db, monkeypatch):
@@ -223,3 +277,13 @@ def test_resume_starts_poller_for_pending_job(isolated_db, monkeypatch):
     out = svc.resume_bulk_translations(did)
     assert out == {"drama_id": did, "jobs": [{"bulk_job_id": bid, "state": "polling"}]}
     bt.cancel_bulk_job(bid)
+
+
+def test_offpeak_schedule_stores_the_runs_batching(isolated_db, monkeypatch):
+    patch_setting(monkeypatch, "scene_aware_batches", True)
+    did = _seed([("一", ""), ("二", "")], engine="deepseek")
+    submit = svc._bulk_submitter(did, db.get_drama(did), type("E", (), {"model": "m"})(), "deepseek",
+                                 False, None, [], "", "", "en-US", "audio_drama", 6, 2, 7, False,
+                                 None, None, None)
+    args = db.get_bulk_job(submit())["translate_args"]
+    assert (args["batch_size"], args["context_window_ahead"], args["scene_aware_batches"]) == (7, 2, True)

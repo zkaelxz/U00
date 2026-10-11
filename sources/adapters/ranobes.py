@@ -68,6 +68,9 @@ BASE_URL = "https://ranobes.net"
 SEARCH_HEADERS = {"Content-Type": "application/x-www-form-urlencoded"}
 _DATA_ASSIGN = re.compile(r"__DATA__\s*=\s*")
 _COVER_URL = re.compile(r"background-image:\s*url\(([^)]+)\)")
+# pages_count comes from the page itself; a hostile or broken value would
+# otherwise have us walk an unbounded list, one paced request per page.
+MAX_LIST_PAGES = 200
 
 
 class LayoutChanged(SourceError):
@@ -104,8 +107,8 @@ def _extract_data_blob(html: str) -> dict:
             if depth == 0:
                 try:
                     return json.loads(html[start:i + 1])
-                except ValueError as e:
-                    raise LayoutChanged(f"a readable chapters data blob ({e})") from None
+                except ValueError:
+                    raise LayoutChanged("a readable chapters data blob") from None
     raise LayoutChanged("the chapters page's embedded data")
 
 
@@ -193,7 +196,15 @@ class RanobesSource(SourceAdapter):
         first = self._get(f"/chapters/{book_id}/", f"Loading chapter list for {series_id}")
         data = _extract_data_blob(first)
         chapters = list(data.get("chapters") or [])
-        pages_count = int(data.get("pages_count") or 1)
+        try:
+            pages_count = int(data.get("pages_count") or 1)
+        except (ValueError, TypeError, OverflowError):
+            raise LayoutChanged("a readable chapter-list page count") from None
+        if pages_count > MAX_LIST_PAGES:
+            # The list is newest first: stopping at the cap would drop
+            # chapter 1 onwards without anyone noticing.
+            raise SourceError("This work's chapter list is longer than this app can fetch.",
+                              FailureReason.UNKNOWN)
         for n in range(2, pages_count + 1):
             html = self._get(f"/chapters/{book_id}/page/{n}/",
                              f"Loading chapter list for {series_id} (page {n}/{pages_count})")

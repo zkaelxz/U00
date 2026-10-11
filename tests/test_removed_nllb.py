@@ -8,12 +8,14 @@ import pytest
 
 import bulk_translate
 import cli
+import cli_translate
 import db
 import translate_engines
 from core import Line
 from services import (benchmark_lab_service, engine_routing_service,
                       translate_run_service as svc, translate_service)
 from services.service_errors import InvalidInputError
+from tests.saved_settings import patch_setting
 
 MESSAGE = "The nllb engine was removed. Pick another engine."
 
@@ -80,7 +82,7 @@ class TestBulkResume:
 
     def test_startup_resume_does_not_crash_on_it(self, isolated_db, monkeypatch):
         did, jid = self._job("submitted")
-        monkeypatch.setattr(svc.settings_service, "get_bulk_auto_resume", lambda: True)
+        patch_setting(monkeypatch, "bulk_auto_resume", True)
         monkeypatch.setattr(bulk_translate, "start_poller",
                             lambda *a, **k: pytest.fail("a removed engine must not poll"))
         out = svc.resume_interrupted_at_startup()
@@ -166,7 +168,7 @@ class TestCli:
                             lambda name, *a, **k: built.append(name) or object())
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.cmd_translate(args)
+            cli_translate.cmd_translate(args)
         assert "nllb" not in built, "a removed engine must not be built"
         return out.getvalue()
 
@@ -181,7 +183,7 @@ class TestCli:
 
     def test_a_fallback_naming_it_is_refused_up_front(self):
         with pytest.raises(SystemExit) as exc:
-            cli._parse_fallback_arg("deepseek,nllb", reflect=False)
+            cli_translate._parse_fallback_arg("deepseek,nllb", reflect=False)
         assert MESSAGE in str(exc.value)
 
     def test_the_engine_flag_refuses_it_with_the_api_message(self, isolated_db, monkeypatch):

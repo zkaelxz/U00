@@ -10,6 +10,8 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
+import storage
+
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import artifact_service
@@ -265,9 +267,10 @@ def _label_dir(did):
 
 def test_symlinked_download_label_is_ignored(did, tmp_path):
     name = f"softsub_video_{did}.mkv"
-    _write(did, "softsub_video", name)
+    st = os.stat(_write(did, "softsub_video", name))
     real = tmp_path / "label.json"
-    real.write_text(json.dumps({"file": name, "language": "en"}))
+    real.write_text(json.dumps({"file": name, "language": "en",
+                                "size": st.st_size, "mtime_ns": st.st_mtime_ns}))
     try:
         os.symlink(real, os.path.join(_label_dir(did), ".download.json"))
     except (OSError, NotImplementedError):
@@ -277,8 +280,62 @@ def test_symlinked_download_label_is_ignored(did, tmp_path):
 
 def test_oversized_download_label_is_ignored(did):
     name = f"softsub_video_{did}.mkv"
-    _write(did, "softsub_video", name)
+    st = os.stat(_write(did, "softsub_video", name))
     pad = "x" * 8192
     with open(os.path.join(_label_dir(did), ".download.json"), "w") as f:
-        json.dump({"file": name, "language": "en", "pad": pad}, f)
+        json.dump({"file": name, "language": "en", "size": st.st_size,
+                   "mtime_ns": st.st_mtime_ns, "pad": pad}, f)
     assert artifact_service.get_artifact(did, "softsub_video")["language"] == ""
+
+
+def test_label_of_a_replaced_file_is_not_applied_when_the_new_label_write_failed(isolated_db):
+    did = _drama(isolated_db, title_en="Show")
+    path = _write(did, "video", "burned_video.mp4", b"english export")
+    artifact_service.set_download_language(did, "video", "burned_video.mp4", "en")
+    assert artifact_service.get_artifact(did, "video")["language"] == "en"
+    # A zh re-export reuses the name; its label write failed, so the "en" one stays.
+    with open(path, "wb") as f:
+        f.write(b"chinese export, different size")
+    assert artifact_service.get_artifact(did, "video")["language"] == ""
+
+
+def test_label_is_written_before_the_move_and_a_download_in_between_gets_no_language(
+        isolated_db, tmp_path):
+    from services import media_export_service
+    did = _drama(isolated_db, title_en="Show")
+    _write(did, "video", "burned_video.mp4", b"english export")
+    final = artifact_service.output_path(did, "video", "burned_video.mp4")
+    artifact_service.set_download_language(did, "video", "burned_video.mp4", "en")
+    src = tmp_path / "out.mp4"
+    src.write_bytes(b"chinese export, different size")
+    seen = []
+    real_replace = os.replace
+
+    def spying_replace(a, b):
+        if str(b) == final:   # the label store replaces its own files too
+            seen.append(artifact_service.get_artifact(did, "video")["language"])  # the old file mid-swap
+        return real_replace(a, b)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(storage.os, "replace", spying_replace)
+        media_export_service._move_labelled(did, "video", str(src), final, "zh")
+    assert seen == [""]
+    assert artifact_service.get_artifact(did, "video")["language"] == "zh"
+
+
+def test_a_failed_move_removes_the_label_written_ahead(isolated_db, tmp_path):
+    from services import media_export_service
+    did = _drama(isolated_db, title_en="Show")
+    final = artifact_service.output_path(did, "video", "burned_video.mp4")
+    src = tmp_path / "out.mp4"
+    src.write_bytes(b"x")
+    real_replace = os.replace
+
+    def failing_replace(a, b):
+        if str(b) == final:
+            raise OSError("disk full")
+        return real_replace(a, b)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(storage.os, "replace", failing_replace)
+        with pytest.raises(OSError):
+            media_export_service._move_labelled(did, "video", str(src), final, "zh")
+    assert ".download.json" not in os.listdir(os.path.dirname(final))

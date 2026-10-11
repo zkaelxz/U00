@@ -69,7 +69,7 @@ Tests are mocked, so no GPU, models or keys are needed. Optional libraries missi
 Test commands (run from the repo root unless noted):
 - One area: `python -m pytest -q tests/test_<area>.py` (areas: `docs/testing-and-ci.md`).
 - Quick guards before pushing: `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`. CI runs the full suite.
-- Frontend, from `frontend/`: `npx tsc --noEmit && npx vitest run`.
+- Frontend, from `frontend/`: `npx tsc -b && npx vitest run`.
 - Playwright (`frontend/e2e/`) only for a UI flow, with the Chromium already on the machine
   (`docs/testing-and-ci.md`). Never run `playwright install`.
 
@@ -111,13 +111,13 @@ and `.aider.model.settings.yml` (aider otherwise sizes `num_ctx` per request):
   extra_params:
     num_ctx: 65536
 ```
-Set `OLLAMA_API_BASE=http://127.0.0.1:11434` if Ollama isn't on the default address. The three `read` files cost
-about 5.5k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
+Set `OLLAMA_API_BASE=http://127.0.0.1:11434` if Ollama isn't on the default address. The three `read` files (about 33 KB) cost
+about 8k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
 
 Branch and PR flow: one task per branch off the latest `baihe-subtitler`
 (`git fetch origin && git checkout -b <task-name> origin/baihe-subtitler`; roadmap steps use `step-<id>-<short-name>`).
 Run the area test, then the quick guards, and the frontend commands if you touched `frontend/`. Push and open a
-draft PR into `baihe-subtitler`; the owner merges when CI is green. Finish with a short summary: what
+draft PR into `baihe-subtitler`; the lead session merges when CI is green. Finish with a short summary: what
 changed, commands run with pass counts, what you're unsure about.
 
 Stop and ask the owner before touching:

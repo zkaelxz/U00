@@ -195,7 +195,7 @@ class TestOcrFrameRegionUpscales:
         cv2.imwrite(frame_path, frame)
 
         seen_shapes = []
-        def fake_tesseract(image_path, lang="chi_sim", tesseract_cmd=None):
+        def fake_tesseract(image_path, lang="chi_sim", tesseract_cmd=None, on_timeout=None):
             seen_shapes.append(cv2.imread(image_path).shape)
             return "text"
         monkeypatch.setattr(ocr_module, "extract_text_tesseract", fake_tesseract)
@@ -292,7 +292,7 @@ class TestExtractHardsubSubtitlesOrchestration:
         monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
 
         ocr_calls = []
-        def fake_ocr(path, region, lang, backend, tesseract_cmd=None):
+        def fake_ocr(path, region, lang, backend, tesseract_cmd=None, on_timeout=None):
             ocr_calls.append((path, region, lang, backend))
             return {"f0.png": "hi", "f1.png": "hi", "f2.png": "bye"}[path]
         monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", fake_ocr)
@@ -310,6 +310,23 @@ class TestExtractHardsubSubtitlesOrchestration:
         assert [c[1] for c in ocr_calls] == [(0.8, 1.0)] * 3
         assert progress_seen == [pytest.approx(1 / 3), pytest.approx(2 / 3), 1.0]
 
+    def test_counts_frames_tesseract_timed_out_on(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(hardsub_ocr, "extract_frames",
+                             lambda video_path, out_dir, interval_sec, job_id=None:
+                             [(0.0, "f0.png"), (1.0, "f1.png"), (2.0, "f2.png")])
+        monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
+
+        def fake_ocr(path, region, lang, backend, tesseract_cmd=None, on_timeout=None):
+            if path != "f1.png":
+                on_timeout()
+                return ""
+            return "hi"
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", fake_ocr)
+        info = {}
+        hardsub_ocr.extract_hardsub_subtitles("/fake/video.mp4", tmp_dir=str(tmp_path), info=info,
+                                              min_consecutive_samples=1)
+        assert info["dropped_frames"] == 2
+
     def test_falls_back_to_bottom_quarter_when_band_undetected(self, monkeypatch, tmp_path):
         monkeypatch.setattr(hardsub_ocr, "extract_frames",
                              lambda video_path, out_dir, interval_sec, job_id=None: [(0.0, "f0.png")])
@@ -317,7 +334,7 @@ class TestExtractHardsubSubtitlesOrchestration:
 
         seen_regions = []
         monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region",
-                             lambda path, region, lang, backend, tesseract_cmd=None:
+                             lambda path, region, lang, backend, tesseract_cmd=None, on_timeout=None:
                              seen_regions.append(region) or "x")
 
         hardsub_ocr.extract_hardsub_subtitles("/fake/video.mp4", tmp_dir=str(tmp_path))
@@ -344,7 +361,7 @@ class TestExtractHardsubSubtitlesOrchestration:
         monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
         texts = {"f0.png": "hello", "f1.png": "hello", "f2.png": "glitch", "f3.png": "hello"}
         monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region",
-                             lambda path, region, lang, backend, tesseract_cmd=None: texts[path])
+                             lambda path, region, lang, backend, tesseract_cmd=None, on_timeout=None: texts[path])
 
         result = hardsub_ocr.extract_hardsub_subtitles(
             "/fake/video.mp4", sample_interval=1.0, tmp_dir=str(tmp_path))
@@ -415,7 +432,7 @@ class TestHardsubBackendRouting:
         monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
         calls = []
 
-        def fake_region(path, region, lang, backend, tesseract_cmd=None):
+        def fake_region(path, region, lang, backend, tesseract_cmd=None, on_timeout=None):
             calls.append((lang, backend))
             return "text"
         monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", fake_region)
@@ -431,7 +448,7 @@ class TestHardsubBackendRouting:
     def test_paddle_uses_the_language_model(self, run, language, paddle_lang):
         calls, info = run(language=language, ocr_backend="paddle")
         assert calls == [(paddle_lang, "paddle")]
-        assert info == {"backend": "paddle", "note": None}
+        assert info == {"backend": "paddle", "note": None, "dropped_frames": 0}
 
     def test_traditional_chinese_stays_on_the_ch_model_for_paddle_and_chi_tra_for_tesseract(self, run):
         assert run(language="zh", ocr_backend="paddle", chinese_script="traditional")[0] == [("ch", "paddle")]
@@ -442,27 +459,28 @@ class TestHardsubBackendRouting:
     def test_tesseract_keeps_its_language_pack(self, run, language, tesseract_lang):
         calls, info = run(language=language, ocr_backend="tesseract")
         assert calls == [(tesseract_lang, "tesseract")]
-        assert info == {"backend": "tesseract", "note": None}
+        assert info == {"backend": "tesseract", "note": None, "dropped_frames": 0}
 
     @pytest.mark.parametrize("language", ["zh", "ko", "ja"])
     def test_auto_picks_paddle_when_installed(self, run, monkeypatch, language):
         monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: True)
         calls, info = run(language=language, ocr_backend="auto")
         assert calls[0][1] == "paddle"
-        assert info == {"backend": "paddle", "note": None}
+        assert info == {"backend": "paddle", "note": None, "dropped_frames": 0}
 
     def test_auto_falls_back_to_tesseract_with_a_note_when_paddle_is_missing(self, run, monkeypatch):
         monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: False)
         calls, info = run(language="ko", ocr_backend="auto")
         assert calls == [("kor", "tesseract")]
         assert info == {"backend": "tesseract",
-                        "note": "PaddleOCR isn't installed, so Tesseract was used."}
+                        "note": "PaddleOCR isn't installed, so Tesseract was used.",
+                        "dropped_frames": 0}
 
     def test_auto_for_a_language_paddle_is_not_mapped_for_uses_tesseract_without_a_note(
             self, run, monkeypatch):
         monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: True)
         _, info = run(language="en", ocr_backend="auto")
-        assert info == {"backend": "tesseract", "note": None}
+        assert info == {"backend": "tesseract", "note": None, "dropped_frames": 0}
 
     @pytest.mark.parametrize("requested", ["paddle", "tesseract"])
     def test_an_explicit_choice_is_never_overridden(self, monkeypatch, requested):
@@ -487,7 +505,7 @@ class TestHardsubBackendRouting:
         monkeypatch.setattr(ocr_module, "extract_text_paddle",
                             lambda p, lang="ch": seen.append(("paddle", lang)) or " a ")
         monkeypatch.setattr(ocr_module, "extract_text_tesseract",
-                            lambda p, lang="chi_sim", tesseract_cmd=None:
+                            lambda p, lang="chi_sim", tesseract_cmd=None, on_timeout=None:
                             seen.append(("tesseract", lang, tesseract_cmd)) or " b ")
         assert hardsub_ocr._ocr_frame_region(frame_path, (0.8, 1.0), "korean", "paddle") == "a"
         assert hardsub_ocr._ocr_frame_region(

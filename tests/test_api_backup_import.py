@@ -22,6 +22,7 @@ from api.server import create_app
 from services import auth_service
 from services import auto_backup_service as abs_
 from services import backup_import_service as bis
+from services import drama_restore_service as drs
 from services import library_admin_service as las
 
 OK = {"confirm": "true", "confirm_text": "RESTORE"}
@@ -376,7 +377,7 @@ def test_refused_during_maintenance_or_running_export(client, monkeypatch):
 def test_failure_rolls_back_everything(client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip(media={a: "audio.mp3"})
-    real = abs_.copy_drama
+    real = drs.copy_drama
     calls = []
 
     def flaky(*args, **kw):
@@ -384,7 +385,7 @@ def test_failure_rolls_back_everything(client, monkeypatch):
         if len(calls) == 2:
             raise sqlite3.OperationalError("boom /secret/path")
         return real(*args, **kw)
-    monkeypatch.setattr(abs_, "copy_drama", flaky)
+    monkeypatch.setattr(drs, "copy_drama", flaky)
     before = _dramas()
     r = _post_import(client, data, [a, b])
     assert r.status_code >= 400 and "secret" not in r.text
@@ -466,7 +467,7 @@ COPIED = {
                "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
                "project_instructions", "reading_speed_mode", "default_female_pronouns",
                "include_genre_notes", "whisper_repeat_guard", "split_by_sentences",
-               "vocabulary_hint", "translate_thinking"},
+               "vocabulary_hint", "translate_thinking", "source_url_full", "keep_original"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
               "speaker_manual", "sfx", "lang", "word_timings"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
@@ -784,6 +785,29 @@ def test_saved_versions_dub_filenames_are_sanitised(client):
         assert json.loads(hist["odd"]) == []
 
 
+def test_compressed_history_snapshots_are_read_remapped_and_sanitised(client):
+    from lib import gzip_text
+    a, b, g = _world()
+    _legit_media(a)
+    items = [{"id": 1, "en": "x", "dub_filename": "/etc/passwd"},
+             {"id": 2, "en": "y", "dub_filename": "dub_clips/line_0001.wav"}]
+    with _conn() as c:
+        _ins(c, "line_history", drama_id=a, label="h", created_at="x",
+             snapshot_json=gzip_text.pack(json.dumps(items)))
+        _ins(c, "line_history", drama_id=a, label="bomb", created_at="x",
+             snapshot_json=gzip_text.pack("[" + " " * (65 * 1024 ** 2) + "]"))
+        c.commit()
+    r = _post_import(client, _manual_zip(), [a])
+    assert r.status_code == 200, r.text
+    new = r.json()["imported"][0]["drama_id"]
+    kept = "dub_clips/line_0001.wav" if r.json()["imported"][0]["media_imported"] else None
+    with _conn() as c:
+        hist = dict(c.execute("SELECT label, snapshot_json FROM line_history WHERE drama_id = ?",
+                              (new,)).fetchall())
+    assert [i["dub_filename"] for i in json.loads(hist["h"])] == [None, kept]
+    assert json.loads(hist["bomb"]) == []
+
+
 def test_value_and_total_byte_caps(client, monkeypatch):
     a, b, g = _world()
     with _conn() as c:
@@ -827,7 +851,7 @@ def _fail_commit_after_move(monkeypatch):
     """The commit right after the staged folders are moved into place
     raises; returns the dramas/ entries seen just after the move."""
     seen, armed = [], []
-    real_move, real_commit = abs_.move_media_in, sqlite3.Connection.commit
+    real_move, real_commit = drs.move_media_in, sqlite3.Connection.commit
 
     def move(*args, **kw):
         real_move(*args, **kw)
@@ -839,14 +863,14 @@ def _fail_commit_after_move(monkeypatch):
             armed.clear()
             raise sqlite3.OperationalError("disk I/O error")
         return real_commit(self)
-    monkeypatch.setattr(abs_, "move_media_in", move)
+    monkeypatch.setattr(drs, "move_media_in", move)
     monkeypatch.setattr(db._TrackedConnection, "commit", commit, raising=False)
     return seen
 
 
 def _die_without_cleanup(monkeypatch):
     """The process 'dies' where the import would clean up its staging."""
-    monkeypatch.setattr(abs_, "end_media_staging", lambda staging: True)
+    monkeypatch.setattr(drs, "end_media_staging", lambda staging: True)
 
 
 def _restart(monkeypatch):

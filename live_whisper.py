@@ -9,6 +9,7 @@ skipped instead. The cached model is never dropped to get rid of a stuck call:
 the thread still holds it, so dropping frees no memory and only makes the next
 call load a second copy.
 """
+import whisper_models
 import os
 import sys
 import threading
@@ -91,10 +92,7 @@ def gpu_claim_held() -> bool:
         return bool(entry is not None and entry["claimed"] and entry["worker"].is_alive())
 
 
-CLAIM_PREFIX = "live-whisper:"
-# Per process, so a second launch's startup sweep can tell this process's
-# claim from a dead one's.
-CLAIM_HOLDER = f"{CLAIM_PREFIX}{os.getpid()}"
+CLAIM_HOLDER = f"live-whisper:{os.getpid()}"
 # Shown on a queued job when only the abandoned call holds the GPU.
 WAIT_MESSAGE = "Waiting for the GPU (a Live Whisper call is still finishing)"
 
@@ -119,46 +117,23 @@ def wait_for_outstanding(timeout: float) -> bool:
     return outstanding_label() is None
 
 
-def release_stale_claims() -> int:
-    """Deletes `live-whisper:<pid>` gpu_lock rows whose process is gone; run at
-    server startup. A claim whose process died would otherwise keep GPU jobs
-    queued until the row goes stale. A live pid's row is another running
-    instance's abandoned decode, still in its VRAM. This process's own pid
-    counts as gone: no Whisper thread exists yet, so the row is from an earlier
-    run that had the same pid."""
-    import contextlib
-    import db
-    released = 0
-    with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT holder FROM gpu_lock WHERE holder LIKE ?", (CLAIM_PREFIX + "%",)).fetchall()
-        for row in rows:
-            suffix = row["holder"][len(CLAIM_PREFIX):]
-            if suffix.isdigit() and int(suffix) != os.getpid() and (
-                    background_jobs.owner_process_alive(int(suffix))):
-                continue
-            released += conn.execute(
-                "DELETE FROM gpu_lock WHERE holder = ?", (row["holder"],)).rowcount
-        conn.commit()
-    return released
-
-
 def _claim_gpu(entry: dict) -> None:
     """Holds a gpu_lock slot while an abandoned GPU call may still decode, so a
     queued GPU job (or a CLI run) is not promoted into its VRAM after the Live
     job released its own slot. Never heartbeated: a call stuck forever stops
-    counting after db.GPU_LOCK_STALE_SECONDS, like any silent holder."""
+    counting after gpu_slots.GPU_LOCK_STALE_SECONDS, like any silent holder."""
     if not entry["gpu"]:
         return
     try:
-        import db
+        from jobs import gpu_slots
         with _outstanding_lock:
             if entry["ended"]:
                 return
             # Up to the table's cap, not the user's gpu_max_parallel: the Live
             # job still holds its own slot at this moment.
-            entry["claimed"] = db.try_acquire_gpu_lock(
-                CLAIM_HOLDER, "an abandoned Live Whisper decode", max_holders=db.GPU_LOCK_MAX_SLOTS)
+            entry["claimed"] = gpu_slots.take(
+                CLAIM_HOLDER, "an abandoned Live Whisper decode",
+                max_holders=gpu_slots.GPU_LOCK_MAX_SLOTS)
     except Exception as exc:
         _log("warning", f"Live: could not claim the GPU for the abandoned call: {_redacted(exc)}")
 
@@ -171,8 +146,8 @@ def _worker_ended(entry: dict) -> None:
         held, entry["claimed"] = entry["claimed"], False
         if held:
             try:
-                import db
-                db.release_gpu_lock(CLAIM_HOLDER)
+                from jobs import gpu_slots
+                gpu_slots.release(CLAIM_HOLDER)
             except Exception as exc:
                 _log("warning", f"Live: could not release the GPU claim: {_redacted(exc)}")
     if held:
@@ -332,7 +307,7 @@ def unload_scope_for(engine, use_gpu: bool, whisper_size: str) -> "ollama_unload
 def model_cached() -> bool:
     """Whether a Whisper model is already cached, so a chunk's time holds no load."""
     import core
-    return bool(core._whisper_model_cache)
+    return bool(whisper_models._whisper_model_cache)
 
 
 def chunk_age(path: str) -> float:
@@ -359,7 +334,7 @@ def warm_up(whisper_size: str, use_gpu: bool, progress_cb=None) -> None:
     produces no speech, so the encoder never runs and nothing is initialised."""
     import core
     import numpy
-    model = core.load_whisper_model(whisper_size, use_gpu=use_gpu)
+    model = whisper_models.load_whisper_model(whisper_size, use_gpu=use_gpu)
     noise = numpy.random.default_rng(0).standard_normal(16000 * WARM_UP_SECONDS)
     audio = (noise * WARM_UP_NOISE_LEVEL).astype("float32")
     segments, _info = model.transcribe(audio, language="en", vad_filter=False, beam_size=1,
@@ -371,7 +346,8 @@ def warm_up(whisper_size: str, use_gpu: bool, progress_cb=None) -> None:
 
 # Rough VRAM faster-whisper needs per size (float16), for deciding whether a
 # failed first load is worth freeing Ollama again.
-_VRAM_NEEDED_MB = {"tiny": 1000, "base": 1000, "small": 2000, "medium": 3500}
+_VRAM_NEEDED_MB = {"tiny": 1000, "base": 1000, "small": 2000, "medium": 3500,
+                   "large-v3-turbo": 3500}
 _VRAM_NEEDED_LARGE_MB = 5500
 # A chunk that takes more than this many times its own audio is called out in
 # the status, so the owner sees a stall without opening the log.
@@ -434,10 +410,12 @@ class ChunkTiming:
     def whisper_done(self, took: float) -> None:
         self.whisper, self._whisper_done = took, time.monotonic()
 
-    def report(self, idx: int, note) -> None:
-        translate = time.monotonic() - (self._whisper_done or time.monotonic())
-        log_chunk(idx, self.audio, self.queued, self.whisper, translate, self.cold, note,
-                  self.use_gpu)
+    def report(self, idx: int, note, cues=None, queue_wait: float = 0.0, queue_depth: int = 0) -> float:
+        """The chunk's total seconds; queue_wait is time spent waiting for the
+        translation worker, kept out of the translate figure."""
+        translate = time.monotonic() - (self._whisper_done or time.monotonic()) - queue_wait
+        return log_chunk(idx, self.audio, self.queued, self.whisper, max(0.0, translate), self.cold,
+                         note, self.use_gpu, cues=cues, queue_wait=queue_wait, queue_depth=queue_depth)
 
 
 def warm_start(runner: "WhisperRunner", whisper_size: str, use_gpu: bool) -> float:
@@ -450,12 +428,13 @@ def warm_start(runner: "WhisperRunner", whisper_size: str, use_gpu: bool) -> flo
 
 
 def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: float,
-              cold: bool, note, use_gpu: bool = False) -> None:
+              cold: bool, note, use_gpu: bool = False, cues=None, queue_wait: float = 0.0,
+              queue_depth: int = 0) -> float:
     """One app-log line per chunk with where the time went, plus nvidia-smi's
     free/total VRAM when it can be read (numbers only: nothing to redact beyond
     what redact_secrets would pass anyway). A chunk far slower than its audio
     also gets a one-line status note."""
-    total = queued + whisper + translate
+    total = queued + whisper + queue_wait + translate
     slow = audio > 0 and total > SLOW_CHUNK_FACTOR * audio
     gpu = ""
     # nvidia-smi is a subprocess on the job thread: only worth it for a GPU run
@@ -469,7 +448,9 @@ def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: 
         except Exception:
             pass
     line = (f"chunk {idx}: {audio:.1f} s of audio; waited {queued:.1f} s, Whisper {whisper:.1f} s"
-            f"{' (model was not loaded yet)' if cold else ''}, translate {translate:.1f} s{gpu}")
+            f"{' (model was not loaded yet)' if cold else ''}, translate {translate:.1f} s"
+            + (f"; {cues} cues, translate queue wait {queue_wait:.1f} s, depth {queue_depth}"
+               if cues is not None else "") + gpu)
     try:
         from translate_engines import redact_secrets
         _log("info", "Live " + redact_secrets(line))
@@ -477,4 +458,6 @@ def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: 
         pass
     if slow:
         note(f"Chunk {idx} took {total:.0f} s for {audio:.0f} s of audio: waited {queued:.1f} s, "
-             f"Whisper {whisper:.1f} s, translate {translate:.1f} s{gpu}.", "slow-chunk")
+             f"Whisper {whisper:.1f} s, translate {translate:.1f} s"
+             f"{f' after {queue_wait:.1f} s in the queue' if queue_wait else ''}{gpu}.", "slow-chunk")
+    return total

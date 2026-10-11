@@ -22,7 +22,7 @@ _DEFAULT_KEY = "language_packs.default.{}"
 def _drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError("Drama not found.")
+        raise NotFoundError("Title not found.")
     return drama
 
 

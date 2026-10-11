@@ -1,6 +1,7 @@
 // Pure helpers for the Disk usage section (DiskUsageSection.tsx).
 import type {
-  DiskUsageClearDone, DiskUsageItem, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashItem, TempCleanDone, UnusedVoiceClip,
+  DiskUsageClearDone, DiskUsageItem, DiskUsageMoveDone, DiskUsageScan, DiskUsageTitleSizes, DiskUsageTrashItem, TempCleanDone,
+  UnusedVoiceClip,
   UnusedVoiceClipTrashDone,
 } from '../../types/diskUsage'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
@@ -50,6 +51,18 @@ export function linkedText(item: LinkedFields & Pick<DiskUsageItem, 'is_link'>):
 /** "plus 7.2 GB in linked folders" after the folder's own total, or '' when there are none. */
 export const scanLinkedText = (scan: Pick<DiskUsageScan, 'linked_bytes' | 'linked_complete'>) =>
   scan.linked_bytes > 0 ? `plus ${scan.linked_complete ? '' : 'at least '}${formatBytes(scan.linked_bytes)} in linked folders` : ''
+
+/** A title's size by kind, in the order the user thinks about them; line history lives in the database. */
+export function titleSizesText(sizes: DiskUsageTitleSizes | null): string | null {
+  if (!sizes) return null
+  const atLeast = sizes.complete ? '' : 'at least '
+  return [
+    `Originals ${atLeast}${formatBytes(sizes.originals_bytes)}`,
+    `raw transcripts ${atLeast}${formatBytes(sizes.raw_transcript_bytes)}`,
+    `line history ${formatBytes(sizes.history_bytes)} (in the database)`,
+    `rebuildable files ${atLeast}${formatBytes(sizes.regenerable_bytes)}`,
+  ].join(' · ')
+}
 
 /** Bar width in percent: a visible sliver for anything non-empty, never past 100. */
 export function barPercent(item: Pick<DiskUsageItem, 'percent_of_parent' | 'size_bytes'>): number {
@@ -109,6 +122,15 @@ export function cellLabel(item: DiskUsageItem, w: number, h: number): string {
 }
 
 export const TRASH_WORD = 'DELETE'
+
+export const FROM_KEPT_TITLE = 'It came from a title with "Keep original files" on, so it may be one of that title\'s originals.'
+
+/** For Empty Trash: how many items came from titles with "Keep original files" on, or null for none. */
+export function keptTitlesLine(items: { from_kept_title?: boolean }[]): string | null {
+  const n = items.filter((i) => i.from_kept_title).length
+  if (!n) return null
+  return `${n === 1 ? '1 item' : `${n} items`} came from titles with "Keep original files" on, so they may be those titles' originals.`
+}
 
 /** The always-visible Trash size line. */
 export const trashLine = (size_bytes: number, partial = false) =>

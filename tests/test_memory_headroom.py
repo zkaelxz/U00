@@ -2,6 +2,7 @@
 the reserve before anything is allocated, skips (never blocks) when memory
 can't be read, and never applies to cloud or remote engines."""
 
+import whisper_models
 import pytest
 
 import memory_headroom as mh
@@ -97,11 +98,11 @@ def test_before_load_frees_ollama_first_and_skips_cached(monkeypatch, reserve):
 def test_whisper_loader_refuses_before_importing_the_model(monkeypatch, reserve):
     import core
     reserve(vram=31, vram_free=2 * GB)
-    monkeypatch.setattr(core, "_whisper_model_cache", {})
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
     import ollama_unload
     monkeypatch.setattr(ollama_unload, "prepare_gpu_for_transcription", lambda g: None)
     with pytest.raises(mh.HeadroomError):
-        core.load_whisper_model("large-v3", use_gpu=True)
+        whisper_models.load_whisper_model("large-v3", use_gpu=True)
 
 
 def test_vram_service_check_fits_honours_the_reserve(reserve):

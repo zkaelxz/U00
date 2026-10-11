@@ -6,8 +6,8 @@
  */
 import { ApiError } from '../../api/client'
 import type {
-  BenchmarkConfig, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkOptions, BenchmarkRun,
-  BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
+  BenchmarkConfig, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions,
+  BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
 } from '../../api/benchmark'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
@@ -166,6 +166,12 @@ export function mixedScorerNote(rows: { results: ({ metric: string | null; score
 
 // ---- the run form ----
 
+/** The engine picked to judge a translation run; model '' = the engine's default. */
+export interface JudgePick {
+  engine: string
+  model: string
+}
+
 export interface RunSelection {
   stage: BenchmarkStage
   configs: BenchmarkConfig[]
@@ -173,6 +179,18 @@ export interface RunSelection {
   setName: string
   label: string
   promptVersion: string
+  /** Translation runs only; null or absent = no judge. */
+  judge?: JudgePick | null
+  /** The "judge with a model I'm also testing" tick. */
+  allowSameJudge?: boolean
+}
+
+/** Tested configs the judge may be the same model as: the same engine with the same model, or either on its default
+ * (the page can't see an engine's default model; the server decides exactly and refuses without the tick). */
+export function judgeOverlap(sel: Pick<RunSelection, 'stage' | 'configs' | 'judge'>): BenchmarkConfig[] {
+  const j = sel.judge
+  if (sel.stage !== 'translation' || !j) return []
+  return sel.configs.filter((c) => c.engine === j.engine && (!c.model || !j.model || c.model === j.model))
 }
 
 /** The request body: blank filters and models are left out. */
@@ -187,13 +205,18 @@ export function runRequestBody(sel: RunSelection): BenchmarkRunRequest {
   if (label) body.label = label
   const pv = sel.promptVersion.trim()
   if (pv) body.prompt_version = pv
+  if (sel.stage === 'translation' && sel.judge) {
+    body.judge = { engine: sel.judge.engine }
+    if (sel.judge.model) body.judge.model = sel.judge.model
+    if (sel.allowSameJudge && judgeOverlap(sel).length) body.judge.allow_same_model = true
+  }
   return body
 }
 
 /** What an estimate depends on (not the label or prompt version): a changed key means estimate again. */
 export function estimateKey(sel: RunSelection): string {
-  const { stage, configs, tier, set_name } = runRequestBody(sel)
-  return JSON.stringify({ stage, configs, tier: tier ?? null, set_name: set_name ?? null })
+  const { stage, configs, tier, set_name, judge } = runRequestBody(sel)
+  return JSON.stringify({ stage, configs, tier: tier ?? null, set_name: set_name ?? null, judge: judge ?? null })
 }
 
 /** The first config for a stage (or a new one added to the list): the next engine not picked yet. */
@@ -239,11 +262,35 @@ export function selectionProblems(sel: RunSelection, maxConfigs: number): string
   return out
 }
 
-/** Translation engines picked that have no key yet (the server refuses to start them). */
+/** Translation engines picked (tested or judging) that have no key yet (the server refuses to start them). */
 export function enginesMissingKey(sel: RunSelection, engines: BenchmarkEngineOption[]): BenchmarkEngineOption[] {
   if (sel.stage !== 'translation') return []
   const picked = new Set(sel.configs.map((c) => c.engine))
+  if (sel.judge) picked.add(sel.judge.engine)
   return engines.filter((e) => picked.has(e.name) && !e.key_configured)
+}
+
+export const JUDGE_SAME_MODEL_REASON = 'Tick the box to judge with a model you are also testing, or pick another judge.'
+
+export const JUDGE_SAME_MODEL_WARNING =
+  'This judge may be the same engine and model as one being tested. A model tends to rate its own wording highly, so its judge scores for that engine are biased. Pick another judge, or tick the box to accept this.'
+
+/** 0.9 -> "90"; the judge's three scores are shown as whole numbers out of 100. */
+const pct = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? '—' : String(Math.round(v * 100)))
+
+/** "90% (accuracy 90 · tone 80 · natural 70)" for one result. */
+export function formatJudgeScore(j: BenchmarkJudgeScore | null | undefined): string {
+  if (!j) return ''
+  return `${formatScore(j.overall)} (accuracy ${pct(j.accuracy)} · tone ${pct(j.tone)} · natural ${pct(j.naturalness)})`
+}
+
+/** A run's judge line: average, how many cases it scored, and what the judge cost. */
+export function judgeRunLine(j: BenchmarkJudgeSummary | null | undefined): string {
+  if (!j) return ''
+  const avg = j.average?.overall
+  const parts = [avg != null ? `Judge ${formatScore(avg)}` : 'Judge —', `${j.scored} scored`, `judge cost ${formatCost(j.cost_usd)}`]
+  if (j.status && j.status !== 'done') parts.push(runStatusLabel(j.status).toLowerCase())
+  return parts.join(' · ')
 }
 
 interface StartState {
@@ -267,6 +314,7 @@ export function startState(args: {
   if (pcRemote) reasons.push('Starting a run is PC only.')
   if (running) reasons.push('A benchmark run is already going.')
   for (const e of missingKeys) reasons.push(`${humanize('engine', e.name)} has no key. Set one in Settings.`)
+  if (judgeOverlap(sel).length && !sel.allowSameJudge) reasons.push(JUDGE_SAME_MODEL_REASON)
   if (!estimate || estimateFor !== estimateKey(sel)) reasons.push('Estimate the cost of this selection first.')
   else {
     if (estimate.monthly_refusal) reasons.push(estimate.monthly_refusal)

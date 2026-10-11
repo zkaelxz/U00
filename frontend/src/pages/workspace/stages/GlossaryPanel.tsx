@@ -155,7 +155,9 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
   const seriesId = drama.series_id ?? null
   const [terms, setTerms] = useState<GlossaryTerm[] | null>(null)
   const [catalogues, setCatalogues] = useState<GlossaryCatalogues | null>(null)
-  const [instructions, setInstructions] = useState<{ project: string; series: string } | null>(null)
+  // seriesId is the series the text was read for: the series editor waits
+  // for the new series' text so it can't save the old one over it.
+  const [instructions, setInstructions] = useState<{ project: string; series: string; seriesId: number | null } | null>(null)
   const [editing, setEditing] = useState<TermForm | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [saveError, setSaveError] = useState<unknown>(null)
@@ -195,7 +197,7 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       ([c, i]) => {
         if (cancelled) return
         setCatalogues(c)
-        setInstructions({ project: i.project_instructions, series: i.series_instructions })
+        setInstructions({ project: i.project_instructions, series: i.series_instructions, seriesId })
       },
       (e: unknown) => !cancelled && setError(e),
     )
@@ -392,8 +394,10 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       />
       {instructions && (
         <>
-          <InstructionsEditor scope="project" initial={instructions.project} />
-          <InstructionsEditor scope="series" initial={instructions.series} />
+          <InstructionsEditor key="project" scope="project" initial={instructions.project} />
+          {instructions.seriesId === seriesId && (
+            <InstructionsEditor key={`series-${seriesId ?? 'none'}`} scope="series" initial={instructions.series} />
+          )}
         </>
       )}
       </div>

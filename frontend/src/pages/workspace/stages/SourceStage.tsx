@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { updateDramaMetadata } from '../../../api/library'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
 import { formatBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Field } from '../../../components/Field'
+import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
@@ -35,6 +38,8 @@ import { JobPanel } from './JobPanel'
 import { NovelChaptersPanel } from './NovelChaptersPanel'
 import { SubtitleImport } from './SubtitleImport'
 import { NovelPanel } from './NovelPanel'
+import { novelSections, stableNovelSections } from './novelFile'
+import { useNovelPresence } from './novelFileEvents'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
@@ -54,6 +59,7 @@ export default function SourceStage() {
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [replace, setReplace] = useState(false)
   // The server says the drama has audio/video even if the status we read did not.
   const [serverHasMedia, setServerHasMedia] = useState(false)
@@ -137,9 +143,11 @@ export default function SourceStage() {
   const confirmReplace = mustConfirm && replace
 
   const upload = () => {
-    if (!file || (mustConfirm && !replace)) return
+    if (!file || uploading || (mustConfirm && !replace)) return
+    setUploading(true)
     uploadMedia(dramaId, file, confirmReplace).then(
       (r) => {
+        setUploading(false)
         setError(null)
         setReplace(false)
         setServerHasMedia(false)
@@ -156,6 +164,7 @@ export default function SourceStage() {
         onJobDone()
       },
       (e: unknown) => {
+        setUploading(false)
         if (needsReplaceConfirm(e)) setServerHasMedia(true)
         setError(e)
       },
@@ -226,10 +235,10 @@ export default function SourceStage() {
           <button
             type="button"
             className={buttonClass('secondary')}
-            disabled={!file || busy || (mustConfirm && !replace)}
+            disabled={!file || busy || uploading || (mustConfirm && !replace)}
             onClick={upload}
           >
-            Upload
+            {uploading ? 'Uploading...' : 'Upload'}
           </button>
           {mustConfirm && (
             <label>
@@ -280,6 +289,17 @@ export default function SourceStage() {
 
   // The workflow for the drama's media type comes first and opens by default.
   const kind = mediaKind(drama.media_type)
+  const novelPresence = useNovelPresence(dramaId, reloads)
+  const presenceSections = novelSections(kind, drama.media_type, drama.content_mode, novelPresence)
+  // A panel must not move under the viewer's hands: saving a raw novel from the optional row
+  // leaves it there, and removing one from Transcribe leaves that panel (and its "Removed."
+  // notice) there, until the page is reloaded or another title is opened.
+  const [optionalFor, setOptionalFor] = useState<number | null>(null)
+  const [fullFor, setFullFor] = useState<number | null>(null)
+  const sections = stableNovelSections(kind, presenceSections, optionalFor === dramaId, fullFor === dramaId)
+  // Record what is shown, not what was read, so a held layout never counts as the other one.
+  if (novelPresence && sections === 'optional' && optionalFor !== dramaId) setOptionalFor(dramaId)
+  if (novelPresence && sections === 'full' && fullFor !== dramaId) setFullFor(dramaId)
   const transcribe = (
     <Section
       key="transcribe"
@@ -291,6 +311,7 @@ export default function SourceStage() {
     >
       <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace}
         replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
+        showRawNovel={sections === 'full'}
         retryRef={transcribeRetry}
         onJobStarted={(id, expected, sentFile) => {
           // Otherwise every later run would upload the same file again and keep another full copy.
@@ -307,10 +328,10 @@ export default function SourceStage() {
       />
     </Section>
   )
-  const novel = (
+  const novel = sections !== 'hidden' && (
     <div key="novel" className="source-group">
       {kind === 'novel' && <NovelChaptersPanel />}
-      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
+      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} optional={sections === 'optional'} />
     </div>
   )
   const subtitles = (
@@ -328,6 +349,7 @@ export default function SourceStage() {
   return (
     <div className="stage-source">
       {groups}
+      <KeepOriginal />
       <Section
         storageKey="source.group.details"
         openSignal={revealDetails}
@@ -350,6 +372,41 @@ export default function SourceStage() {
           retryFor: (j) => (j.job_id.startsWith('transcribe_') ? () => transcribeRetry.current?.() : null),
         }}
       />
+    </div>
+  )
+}
+
+const KEEP_ORIGINAL_HELP =
+  "Storage cleanup never removes this title's source media, uploaded files, raw novel text or raw transcripts, " +
+  'and an export includes them. They keep using disk space.'
+
+/** The per-title "Keep original files" pin, saved through the metadata update like Edit details. */
+function KeepOriginal() {
+  const { dramaId, drama, refetchDrama } = useStage()
+  const [pending, setPending] = useState<boolean | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const save = (next: boolean) => {
+    setPending(next)
+    updateDramaMetadata(dramaId, { keep_original: next }).then(
+      () => {
+        setError(null)
+        refetchDrama()
+      },
+      (e: unknown) => {
+        setPending(null)
+        setError(e)
+      },
+    )
+  }
+  const saved = !!drama.keep_original
+  // Show the choice while it saves; the next drama read is the truth again.
+  if (pending !== null && pending === saved) setPending(null)
+  return (
+    <div className="setting-list" data-testid="keep-original">
+      <Field label="Keep original files" help={KEEP_ORIGINAL_HELP}>
+        <Toggle checked={pending ?? saved} disabled={pending !== null} onChange={save} />
+      </Field>
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </div>
   )
 }

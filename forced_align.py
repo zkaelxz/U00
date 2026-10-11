@@ -49,8 +49,8 @@ import tempfile
 
 import qwen3_native
 import memory_headroom
+from whisper_models import ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname
 from core import (
-    ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
     Line, lines_from_char_times, align_transcript_to_timing,
     extract_audio_slice as _extract_audio_slice, LANGUAGE_NAMES,
 )
@@ -71,7 +71,7 @@ ALIGNER_LANGUAGE_NAMES = {**LANGUAGE_NAMES, "en": "English"}
 # must survive into the text it is given (CJK is sent as one run of characters).
 _WORD_UNIT_LANGUAGES = {"English"}
 
-# Loaded models stay cached across calls; core.release_gpu_models() clears
+# Loaded models stay cached across calls; whisper_models.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
 _aligner_model_cache = {}
 
@@ -79,7 +79,7 @@ _aligner_model_cache = {}
 def load_qwen3_aligner(use_gpu: bool = False, on_device=None, on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ForcedAligner model.
 
-    Unlike faster-whisper/ctranslate2 (see core.load_whisper_model's
+    Unlike faster-whisper/ctranslate2 (see whisper_models.load_whisper_model's
     docstring), a transformers/torch model touches the GPU immediately
     during from_pretrained(..., device_map=...) rather than deferring
     CUDA init to first inference -- so a broken CUDA install is caught

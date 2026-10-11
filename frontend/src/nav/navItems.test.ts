@@ -60,9 +60,9 @@ describe('nav registry per persona', () => {
     expect(labels(personas['remote admin'])).toEqual([...ALL, 'Admin'])
   })
 
-  it('auth unavailable: renders as before sign-in existed, Admin included', () => {
+  it('auth unavailable: every page but the admin ones until /me answers', () => {
     const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
-    expect(labels(ctx)).toEqual([...ALL, 'Admin', 'Diagnostics', 'Benchmark Lab'])
+    expect(labels(ctx)).toEqual(ALL)
   })
 
   it('session still loading: no Admin or Diagnostics', () => {
@@ -133,9 +133,12 @@ describe('left rail', () => {
     expect(labelsOf).not.toContain('Admin')
   })
 
-  it('a failed /me still renders every page, as before sign-in existed', () => {
+  it('a failed /me still renders every non-admin page', () => {
     const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
-    expect(railLabels(ctx)).toEqual(expect.arrayContaining(['Admin', 'Diagnostics', 'Benchmark Lab', 'Jobs']))
+    const labelsOf = railLabels(ctx)
+    expect(labelsOf).toContain('Jobs')
+    expect(labelsOf).not.toEqual(expect.arrayContaining(['Admin']))
+    expect(labelsOf).not.toContain('Diagnostics')
   })
 
   it('Assistant appears only on the PC in Developer Mode', () => {

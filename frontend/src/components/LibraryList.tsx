@@ -209,13 +209,12 @@ export function LibraryList({
               {selecting && items.length > MAX_SELECTION && (
                 <p className="muted">At most {MAX_SELECTION} at a time.</p>
               )}
-              {items.length === 0 && !filtered && (
+              {/* A member's empty library is explained once, by the page's own note. */}
+              {items.length === 0 && !filtered && onCreate && (
                 <Card title="No titles yet" meta="Add one to start transcribing, translating or reading.">
-                  {onCreate && (
-                    <div className="actions">
-                      <button type="button" className={buttonClass('primary')} onClick={onCreate}>New title</button>
-                    </div>
-                  )}
+                  <div className="actions">
+                    <button type="button" className={buttonClass('primary')} onClick={onCreate}>New title</button>
+                  </div>
                 </Card>
               )}
               {items.length === 0 && filtered && (
@@ -325,16 +324,30 @@ function LineHits({ hits, error }: { hits: LibrarySearchHit[] | null; error: unk
   )
 }
 
+// Built from the loaded card's own classes (title, original title, type, pills, footer buttons) with
+// the text hidden, so the grid keeps its height when the titles arrive instead of jumping.
 function SkeletonGrid() {
   return (
-    <ul className="drama-grid skeleton" aria-label="Loading titles">
-      {Array.from({ length: 6 }, (_, i) => (
-        <li key={i} className="drama-card" aria-hidden="true">
-          <div className="drama-tile" />
-          <div className="drama-card-main"><span className="skeleton-line" /><span className="skeleton-line short" /></div>
-        </li>
-      ))}
-    </ul>
+    <div role="status" aria-busy="true">
+      <span className="visually-hidden">Loading titles…</span>
+      <ul className="drama-grid skeleton" aria-label="Loading titles">
+        {Array.from({ length: 6 }, (_, i) => (
+          <li key={i} className="drama-card" aria-hidden="true">
+            <div className="drama-tile" />
+            <div className="drama-card-main">
+              <span className="drama-card-title skeleton-text">Title</span>
+              <p className="drama-card-orig skeleton-text short">Original</p>
+              <p className="drama-card-type skeleton-text short">Type</p>
+              <div className="pill-row"><Badge>Status</Badge><Badge>Language</Badge></div>
+              <div className="drama-card-foot">
+                <span className={buttonClass('ghost', 'sm')}>Read</span>
+                <span className={buttonClass('ghost', 'sm')}>Details</span>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

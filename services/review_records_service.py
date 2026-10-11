@@ -32,7 +32,7 @@ MAX_TM_LINES_SCANNED = 2000  # cap on lines fed to the TM scan (roughly lines x 
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -60,10 +60,10 @@ def get_line_history_snapshot(drama_id: int, history_id: int) -> dict:
     _require_drama(drama_id)
     meta = next((h for h in db.list_line_history(drama_id) if h["id"] == history_id), None)
     if meta is None:
-        raise NotFoundError(f"No history snapshot {history_id} for drama {drama_id}.")
+        raise NotFoundError(f"No history snapshot {history_id} for title {drama_id}.")
     raw = db.get_line_history_snapshot(history_id)
     if raw is None:
-        raise NotFoundError(f"No history snapshot {history_id} for drama {drama_id}.")
+        raise NotFoundError(f"No history snapshot {history_id} for title {drama_id}.")
     # flag/flag_note/sfx are left out: snapshots saved before they were
     # recorded don't have them, so this read shape doesn't promise them.
     lines = [{"id": r.get("id"), "idx": r.get("idx"), "start": r.get("start"),
@@ -103,7 +103,7 @@ def list_translation_versions(drama_id: int) -> list:
 def _owned_version(drama_id: int, version_id: int) -> dict:
     v = db.get_translation_version(version_id)
     if v is None or v.get("drama_id") != drama_id:
-        raise NotFoundError(f"No translation version {version_id} for drama {drama_id}.")
+        raise NotFoundError(f"No translation version {version_id} for title {drama_id}.")
     return v
 
 

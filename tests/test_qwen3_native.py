@@ -626,8 +626,8 @@ def test_the_worker_forwards_the_hint_to_the_pipeline(monkeypatch, tmp_path):
 
 def test_the_pipeline_passes_the_hint_to_both_qwen3_backends(monkeypatch, isolated_db):
     import background_jobs
-    import core as core_module
-    monkeypatch.setattr(core_module, "load_whisper_model", lambda *a, **k: object())
+    import whisper_models
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: object())
     from services import transcribe_pipeline
     sys.path.insert(0, os.path.dirname(__file__))
     from test_transcribe_service import _drama_with_audio, _seed_running_job
@@ -730,8 +730,8 @@ def test_diagnostics_registers_the_real_requirements():
 
 
 def test_the_model_row_names_the_download_size_and_that_old_weights_are_not_reused():
-    import diagnostics
-    row = next(r for r in diagnostics.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
+    import diagnostics_report
+    row = next(r for r in diagnostics_report.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
     assert row["package"] == "transformers"
     assert "4.1 GB" in row["help"] and "1.6 GB" in row["help"] and "1.8 GB" in row["help"]
     assert "aren't reused" in row["help"]

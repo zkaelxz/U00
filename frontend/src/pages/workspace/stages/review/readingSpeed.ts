@@ -7,7 +7,7 @@ export const MODE_OPTIONS: { value: ReadingSpeedMode; label: string }[] = [
 ]
 
 export const MODE_HELP =
-  'Normal flags English over about 8.5 characters/second; Relaxed about 12, for fast talkers; Off never flags. Lines flagged earlier keep their flag until you clear them below.'
+  'Normal flags English over about 8.5 characters/second; Relaxed about 12, for fast talkers; Off never flags. Streamer titles left on Normal flag only above about 18. Lines flagged earlier keep their flag until you clear them below.'
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 

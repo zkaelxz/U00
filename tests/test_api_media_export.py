@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+import storage
 import video_export
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -130,7 +131,7 @@ def test_audiobook_no_lines_422(client, isolated_db):
     did = isolated_db.create_drama(title_en="Empty")
     r = client.post(f"/api/export/dramas/{did}/audiobook")
     assert r.status_code == 422
-    assert _error(r)["message"] == "This drama has no lines to export."
+    assert _error(r)["message"] == "This title has no lines to export."
 
 
 def test_audiobook_no_narration_422(client, drama):
@@ -220,7 +221,7 @@ def test_burned_video_no_lines_422(client, isolated_db):
 def test_burned_video_no_source_video_422(client, drama):
     r = client.post(f"/api/export/dramas/{drama}/burned-video")
     assert r.status_code == 422
-    assert _error(r)["message"] == "No source video uploaded for this drama."
+    assert _error(r)["message"] == "No source video uploaded for this title."
 
 
 def test_burned_video_traversal_filename_rejected(client, drama, isolated_db):
@@ -333,7 +334,7 @@ def test_softsub_bad_body_422(client, drama, isolated_db, body, fake_ffmpeg):
 def test_softsub_guards(client, drama, isolated_db, monkeypatch):
     assert client.post("/api/export/dramas/999/softsub-video").status_code == 404
     r = client.post(f"/api/export/dramas/{drama}/softsub-video")
-    assert r.status_code == 422 and _error(r)["message"] == "No source video uploaded for this drama."
+    assert r.status_code == 422 and _error(r)["message"] == "No source video uploaded for this title."
     empty = isolated_db.create_drama(title_en="Empty")
     _add_video(isolated_db, empty)
     assert client.post(f"/api/export/dramas/{empty}/softsub-video").status_code == 422
@@ -447,9 +448,9 @@ def test_video_write_failure_stores_no_paths(client, drama, isolated_db, monkeyp
     _touch(isolated_db, drama, "narration_track.wav")
     ddir = isolated_db.drama_dir(drama)
 
-    def broken_move(src, dst):
+    def broken_replace(src, dst):
         raise PermissionError(13, "Permission denied", dst)
-    monkeypatch.setattr(media_export_service.shutil, "move", broken_move)
+    monkeypatch.setattr(storage.os, "replace", broken_replace)
     assert client.post(f"/api/export/dramas/{drama}/{path}").status_code == 200
     st = _wait(f"{job}{drama}")
     assert st["status"] == "error" and "Could not write the export file." in st["error"]
@@ -572,3 +573,18 @@ def test_dubbed_video_without_a_dub_says_so_plainly(client, isolated_db, drama):
     r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
     assert r.status_code == 422
     assert _error(r)["message"] == "There is no dub yet. Create it in Dub first."
+
+
+def test_export_is_moved_with_an_atomic_replace(client, drama, isolated_db, fake_ffmpeg,
+                                                monkeypatch):
+    _touch(isolated_db, drama, "narration_track.wav")
+    replaced = []
+    real_replace = storage.os.replace
+
+    def spy(src, dst):
+        replaced.append(dst)
+        return real_replace(src, dst)
+    monkeypatch.setattr(storage.os, "replace", spy)
+    assert client.post(f"/api/export/dramas/{drama}/audiobook").status_code == 200
+    assert _wait(f"audiobook_{drama}")["status"] == "done"
+    assert any(d.endswith(f"audiobook_{drama}.m4b") for d in replaced)

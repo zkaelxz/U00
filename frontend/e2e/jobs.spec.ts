@@ -280,6 +280,53 @@ test('one push stream updates the table and the header badge', async ({ page }) 
   }
 })
 
+test('a GET read before a job finished, landing after its "done" push, does not put it back to running', async ({ page }) => {
+  const clients: ServerResponse[] = []
+  const server = createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
+    res.write('retry: 3000\n\n')
+    res.write(`event: ready\ndata: ${JSON.stringify({ topics: ['jobs'] })}\n\n`)
+    clients.push(res)
+    req.on('close', () => clients.splice(clients.indexOf(res), 1))
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/events`
+  try {
+    await mockJobsApi(page, pageJobs(), true)
+    await page.route('**/api/events?*', (route) => route.continue({ url }))
+    let holding = false
+    let reads = 0
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    await page.route((u) => u.pathname === '/api/jobs', async (route) => {
+      if (!holding) return route.fallback()
+      reads += 1
+      // The server read this list while the job was still running.
+      await held
+      return route.fulfill({ json: { items: pageJobs() } })
+    })
+    await page.goto('/#/jobs')
+    await expect.poll(() => clients.length).toBe(1)
+    await expect(page.getByTestId('jobs-count')).toHaveText('2')
+
+    holding = true
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect.poll(() => reads).toBe(1)
+    const push = (name: string, data: unknown) => clients.forEach((c) => c.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`))
+    push('job', { ...pageJobs()[0], status: 'done', outcome: 'ok', progress: 1, finished_at: Math.floor(Date.now() / 1000) })
+    await expect(page.getByTestId('jobs-count')).toHaveText('1')
+
+    const landed = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/jobs')
+    release()
+    await landed
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 200)))
+    await expect(page.getByTestId('jobs-count')).toHaveText('1')
+  } finally {
+    clients.forEach((c) => c.end())
+    await new Promise<void>((r) => server.close(() => r()))
+  }
+})
+
 test('the stream down: the page says it updates every 10 seconds', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.route('**/api/events?*', (route) => route.fulfill({ status: 429, json: { error: { code: 'x', message: 'no' } } }))

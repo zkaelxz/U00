@@ -17,7 +17,7 @@ test('shows Make subtitles with the Discover and Sources links, and dismisses fo
 
   // The saved default (Claude) has no key: the card says so.
   await expect(view.getByLabel('Translator')).toHaveValue('claude')
-  await expect(view.getByText('No key saved')).toBeVisible()
+  await expect(view.getByTestId('preflight-key')).toBeVisible()
 
   await view.getByRole('button', { name: 'Dismiss' }).click()
   await expect(view).toHaveCount(0)
@@ -33,5 +33,6 @@ test('a library with a title never shows the first-run view', async ({ page }) =
   await page.goto('/')
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Get started' })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Make subtitles' })).toBeVisible()
+  // With titles the card is folded behind a one-line disclosure.
+  await expect(page.getByRole('button', { name: 'Make subtitles', expanded: false })).toBeVisible()
 })

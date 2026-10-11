@@ -10,6 +10,7 @@ import os
 import pytest
 
 import diagnostics
+import diagnostics_report
 from services import diagnostics_gaps_service as svc
 
 FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
@@ -39,7 +40,7 @@ IMPORT_ONLY_NAMES = {"cv2", "pil", "bs4", "sklearn", "yaml", "skimage", "dateuti
 def _offered():
     names = {k for k, (_i, _f, tier) in diagnostics.OPTIONAL_DEPENDENCIES.items()
              if tier in diagnostics.INSTALLABLE_TIERS}
-    return names | {e["package"] for e in diagnostics.MODEL_ENGINE_REGISTRY if e.get("package")}
+    return names | {e["package"] for e in diagnostics_report.MODEL_ENGINE_REGISTRY if e.get("package")}
 
 
 # ---- A: pip flags and the cache hint ----

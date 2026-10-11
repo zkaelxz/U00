@@ -51,6 +51,8 @@ export interface DiagnosticsUpgradeCheckState {
   target: string | null
   output_tail: string[]
   result: DiagnosticsUpgradeCheckResult | null
+  // Set when this copy has no test suite (an installed copy): hide Test first.
+  unavailable_reason: string | null
   job_id: string
   job: DiagnosticsJobState | null
 }

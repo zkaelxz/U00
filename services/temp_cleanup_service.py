@@ -9,8 +9,8 @@ as running, or a live holder of the cross-process GPU lock (all a CLI run
 leaves). Returns counts and megabytes only, never a path.
 """
 import background_jobs
-import db
 import storage
+from jobs import gpu_slots
 from services import library_admin_service
 from services.service_errors import ConflictError
 
@@ -22,7 +22,7 @@ def _busy() -> bool:
             or library_admin_service.any_job_running()):
         return True
     try:
-        return db.gpu_lock_status()[0] is not None
+        return gpu_slots.status()[0] is not None
     except Exception:
         return True    # an unreadable lock table: assume something is running
 

@@ -69,6 +69,16 @@ describe('diagnostics api', () => {
     expect(localHeader(i1)).toBe('1')
   })
 
+  it('install sends accept_risk only with the risks the owner accepted', async () => {
+    const { mock, f } = reply(200, { job_id: 'dependency_install', started: true })
+    const risk = 'numpy 2.5.3 -> 2.3.5 is a downgrade of a package Baihe itself needs.'
+    await installDependency('paddleocr', f, [])
+    await installDependency('paddleocr', f, [risk])
+    const [[, plain], [, accepted]] = mock.mock.calls
+    expect(JSON.parse(plain.body)).toEqual({ confirm: true })
+    expect(JSON.parse(accepted.body)).toEqual({ confirm: true, accept_risk: true, accepted_risks: [risk] })
+  })
+
   it('model file delete names the folder and file, PC only', async () => {
     const { mock, f } = reply(200, { deleted: true, name: 'htdemucs.th' })
     await deleteModelFile('torch', 'htdemucs.th', f)

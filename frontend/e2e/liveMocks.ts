@@ -41,6 +41,10 @@ interface LiveMocks {
     startStatus: number
     model: string | null
     notes: string[]
+    /** Lag figures added to the status (lag_seconds, processing_seconds, ...). */
+    figures: Record<string, number>
+    /** The first Stop is taken as "finish": the session keeps running until a second one. */
+    finishOnStop: boolean
   }
 }
 
@@ -49,7 +53,7 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({ stat
 export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
-    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null, notes: [] },
+    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null, notes: [], figures: {}, finishOnStop: false },
   }
   // Registered first, so it only answers what nothing below handles.
   await page.route('**/api/**', (route) => {
@@ -100,15 +104,19 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     m.polls.push(`after=${after}`)
     const { status, message, cues } = m.state
     return json(route, {
-      session_id: SID, status, message, model: m.state.model, progress: 0, notes: m.state.notes, cues: cues.slice(after), next_index: Math.max(after, cues.length),
+      session_id: SID, status, message, model: m.state.model, progress: 0, notes: m.state.notes, cues: cues.slice(after), next_index: Math.max(after, cues.length), ...m.state.figures,
     })
   })
   await page.route(`**/api/live/sessions/${SID}/stop`, (route) => {
     const r = route.request()
     m.posts.push({ url: r.url(), body: null, headers: r.headers() })
+    if (m.state.finishOnStop) {
+      m.state.finishOnStop = false
+      return json(route, { session_id: SID, stopping: true, finishing: true })
+    }
     m.state.status = 'cancelled'
     m.state.message = 'Cancelled.'
-    return json(route, { session_id: SID, stopping: true })
+    return json(route, { session_id: SID, stopping: true, finishing: false })
   })
   return m
 }

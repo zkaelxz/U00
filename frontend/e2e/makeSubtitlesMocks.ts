@@ -27,8 +27,10 @@ export interface MakeSubtitlesMock {
 
 export async function mockMakeSubtitles(
   page: Page,
-  o: { libraryTotal?: number; failJob?: string; holdFirst?: boolean } = {},
+  o: { libraryTotal?: number; folded?: boolean; failJob?: string; holdFirst?: boolean; holdUpload?: boolean; cancelledJob?: boolean } = {},
 ): Promise<MakeSubtitlesMock> {
+  // A library with titles folds the card; these specs drive the card itself.
+  if (!o.folded) await page.addInitScript(() => localStorage.setItem('baihe.pref.library.makeSubtitles.open', '"open"'))
   const m: MakeSubtitlesMock = { created: [], uploads: [], translateRuns: [], release: () => { held = false } }
   let held = o.holdFirst ?? false
   const started = new Set<string>()
@@ -60,6 +62,7 @@ export async function mockMakeSubtitles(
   })
   await page.route(`**/api/media/dramas/${DRAMA_ID}/upload-and-transcribe`, (r) => {
     m.uploads.push(r.request())
+    if (o.holdUpload) return new Promise<void>(() => undefined) // the page aborts it
     started.add('transcribe')
     return json(r, { upload: { name: 'a.mp3', size: 3, kind: 'audio', job_id: null }, job_id: `transcribe_${DRAMA_ID}` })
   })
@@ -78,6 +81,7 @@ export async function mockMakeSubtitles(
     const kind = id.split('_')[0]
     if (!started.has(kind)) return json(r, { error: { code: 'not_found', message: 'No job.' } }, 404)
     if (held && kind === 'transcribe') return json(r, job(id, 'running'))
+    if (o.cancelledJob && kind === 'transcribe') return json(r, { ...job(id, 'done'), status: 'cancelled', outcome: 'cancelled' })
     return json(r, job(id, o.failJob === kind ? 'error' : 'done'))
   })
   await page.route(/\/api\/jobs\/extract_audio_99$/, (r) => json(r, { error: { code: 'not_found', message: 'No job.' } }, 404))

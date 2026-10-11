@@ -30,6 +30,7 @@ from api.disk_usage_schemas import (
 from api.schemas import ErrorResponse, TempCleanResult
 from services import disk_usage_clips_service as clips_svc
 from services import disk_usage_service as svc
+from services import disk_usage_trash_service as trash_svc
 from services import temp_cleanup_service
 
 router = APIRouter(prefix="/api/data-usage", tags=["disk-usage"])
@@ -70,7 +71,7 @@ async def post_move(body: DiskUsageMoveRequest):
             summary="What is in Baihe's Trash folder: where each item came from, its size and "
                     "whether it can be restored now")
 async def get_trash():
-    return await run_in_threadpool(svc.trash_list)
+    return await run_in_threadpool(trash_svc.trash_list)
 
 
 @router.post("/trash/restore", dependencies=[local_only()],
@@ -78,7 +79,7 @@ async def get_trash():
              summary="Put a Trash item back where it came from (confirm=true; 409 with the "
                      "reason when the old place is gone, taken or protected, or a job runs)")
 async def post_trash_restore(body: DiskUsageTrashRestoreRequest):
-    return await run_in_threadpool(svc.trash_restore, body.id, confirm=body.confirm)
+    return await run_in_threadpool(trash_svc.trash_restore, body.id, confirm=body.confirm)
 
 
 @router.post("/trash/purge", dependencies=[local_only()],
@@ -87,7 +88,7 @@ async def post_trash_restore(body: DiskUsageTrashRestoreRequest):
                      "shown; 409 when it changed or a job runs)")
 async def post_trash_purge(body: DiskUsageTrashPurgeRequest):
     return await run_in_threadpool(
-        svc.trash_purge, body.id, confirm_text=body.confirm_text,
+        trash_svc.trash_purge, body.id, confirm_text=body.confirm_text,
         expected_size_bytes=body.expected_size_bytes)
 
 
@@ -97,7 +98,7 @@ async def post_trash_purge(body: DiskUsageTrashPurgeRequest):
                      "the item count and size shown; 409 when it changed or a job runs)")
 async def post_trash_empty(body: DiskUsageTrashEmptyRequest):
     return await run_in_threadpool(
-        svc.trash_empty, confirm_text=body.confirm_text,
+        trash_svc.trash_empty, confirm_text=body.confirm_text,
         expected_item_count=body.expected_item_count,
         expected_size_bytes=body.expected_size_bytes)
 

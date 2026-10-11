@@ -20,6 +20,8 @@ from .shared import (
     build_numbered_lines,
     call_with_backoff,
     extract_first_json_value,
+    language_name,
+    parse_flag_entries,
     parse_json_array,
     post_json,
     redact_secrets,
@@ -500,24 +502,29 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
     return labels
 
 
-def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 1.2):
+def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 1.2,
+                        too_long_margin: float = 1.15, short_ratio: float = 0.4):
     """Post-translation pacing pass (idea borrowed from KrillinAI/
     VideoLingo): flags English lines that are too short to read
     comfortably at their assigned duration, or too long to say
     naturally within it, using a simple words-per-minute estimate.
     Returns a list of {idx, issue, suggestion} for lines worth a second
     look before dubbing -- this doesn't auto-edit anything, just tells
-    you where the pacing is likely to feel rushed or dragged out."""
+    you where the pacing is likely to feel rushed or dragged out.
+    `severity` (how many times over the slot, or how empty it is) lets a
+    caller list the worst first."""
     flags = []
     for ln in en_lines:
         duration = max(ln.end - ln.start, 0.01)
         word_count = len(ln.en.split())
         needed_seconds = word_count / (target_wpm / 60)
-        if needed_seconds > duration * 1.15:
+        if needed_seconds > duration * too_long_margin:
             flags.append({"idx": ln.idx, "issue": "too_long_for_slot",
+                          "severity": needed_seconds / duration,
                           "detail": f"~{needed_seconds:.1f}s needed, only {duration:.1f}s available"})
-        elif duration > min_seconds and needed_seconds < duration * 0.4:
+        elif duration > min_seconds and needed_seconds < duration * short_ratio:
             flags.append({"idx": ln.idx, "issue": "very_short_relative_to_slot",
+                          "severity": duration / max(needed_seconds, 0.01),
                           "detail": f"~{needed_seconds:.1f}s needed, {duration:.1f}s available -- "
                                     "may sound like a long pause"})
     return flags
@@ -557,7 +564,7 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15, usage_cb=
     return lines_to_fix
 
 
-def build_consistency_prompt(batch: list) -> str:
+def build_consistency_prompt(batch: list, source_language=None) -> str:
     """The consistency-check prompt for one window of already-translated
     lines. Position-based (1., 2., ...), not id-keyed -- an issue names a
     TERM ("a character's name spelled two ways"), never a specific line,
@@ -567,8 +574,9 @@ def build_consistency_prompt(batch: list) -> str:
     window of lines."""
     pairs = "\n".join(f"{i+1}. {ln.zh} -> {ln.en}" for i, ln in enumerate(batch))
     return (
-        "Below are Chinese source lines paired with their English translations, from the "
-        "same drama. Look for CONSISTENCY issues: the same Chinese name, term, or recurring "
+        f"Below are {language_name(source_language, 'source-language')} source lines paired with "
+        "their English translations, from the "
+        "same drama. Look for CONSISTENCY issues: the same source-language name, term, or recurring "
         "phrase translated differently in different lines (e.g. a character's name spelled "
         "two ways, or a recurring term like a nickname/title rendered inconsistently). "
         "Ignore normal translation variation for ordinary sentences -- only flag terms that "
@@ -579,7 +587,8 @@ def build_consistency_prompt(batch: list) -> str:
     )
 
 
-def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, cancel_check=None):
+def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, cancel_check=None,
+                          source_language=None):
     """Reviews already-translated lines for consistency issues: the same
     Chinese term/name translated differently in different places. Works
     on the .zh/.en pairs already present -- doesn't call any external
@@ -612,7 +621,7 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
             cancel_check()
         batch = translated[start:start + batch_size]
         total_batches += 1
-        prompt = build_consistency_prompt(batch)
+        prompt = build_consistency_prompt(batch, source_language)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback=None,
                                   usage_cb=usage_cb)
@@ -711,6 +720,8 @@ SYSTEM_FLAG_REASONS = {
                           "heard there"),
     "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
                             "result wasn't applied; translate this line again"),
+    "source_changed": ("Source changed -- the source text was changed after this line was "
+                       "translated; retranslate it or keep the English"),
     "pronoun_check": ("Pronoun check -- the translation says he/him but no he/him character "
                       "is set for this speaker"),
     "content_blocked": ("Blocked by the translation engine's own content-moderation system -- "
@@ -734,7 +745,7 @@ def matching_glossary_terms(zh: str, glossary_terms) -> list:
     return [t for t in (glossary_terms or []) if any(f and f in zh for f in _term_forms(t))]
 
 
-def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
+def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx, source_language=None) -> str:
     """The review-queue prompt for one batch of already-translated lines,
     each numbered by id_fn(ln) (its position by default, matching what
     flag_uncertain_lines' own by_idx lookup expects back). bulk_translate.py's
@@ -745,7 +756,8 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     reasons_desc = "\n".join(f"  - {k}: {v}" for k, v in FLAG_REASONS.items())
     pairs = "\n".join(f"[{id_fn(ln)}] {ln.zh} -> {ln.en}" for ln in batch)
     return (
-        "Below are Chinese source lines paired with their English translations. Flag ONLY "
+        f"Below are {language_name(source_language, 'source-language')} source lines paired with "
+        "their English translations. Flag ONLY "
         "the lines that genuinely need a second look -- most lines need none at all, and "
         "over-flagging defeats the point (the person reviewing this can't tell a real issue "
         "from noise). Reasons worth flagging:\n\n"
@@ -756,8 +768,13 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     )
 
 
+def flaggable_lines(lines) -> list:
+    """Translated lines without a system flag, which the model must not replace."""
+    return [ln for ln in lines if (ln.en or "").strip() and ln.flag not in SYSTEM_FLAG_REASONS]
+
+
 def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None,
-                         cancel_check=None):
+                         cancel_check=None, source_language=None, stats=None):
     """
     Reviews already-translated lines and flags the ones worth a second
     look -- the review-queue idea: instead of scanning a whole multi-hour
@@ -771,21 +788,25 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
     untouched -- every line's .flag stays whatever it already was.
     cancel_check: called before each batch; it may raise to stop the
     run between batches (a batch already sent still finishes).
+    stats, if given, gets unparsable_entries / failed_batches / total_batches.
     """
+    if stats is not None:
+        stats.update(unparsable_entries=0, failed_batches=0, total_batches=0)
     if not getattr(engine, "supports_reference", False):
         return lines
-    translated = [ln for ln in lines if ln.en.strip()]
+    translated = flaggable_lines(lines)
     if not translated:
         return lines
 
     n_batches = (len(translated) + batch_size - 1) // batch_size
     failed_batches = 0
+    unparsable = 0
 
     for bi, start in enumerate(range(0, len(translated), batch_size)):
         if cancel_check:
             cancel_check()
         batch = translated[start:start + batch_size]
-        prompt = build_flag_prompt(batch)
+        prompt = build_flag_prompt(batch, source_language=source_language)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]",
                                   usage_cb=usage_cb)
@@ -796,19 +817,18 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
         if progress_cb:
             progress_cb((bi + 1) / n_batches)
 
-        flagged = parse_json_array(text, 0)
-        if not isinstance(flagged, list):
-            continue
-        by_idx = {ln.idx: ln for ln in batch}
-        for f in flagged:
-            if not isinstance(f, dict) or f.get("line_idx") is None:
-                continue
-            ln = by_idx.get(int(f["line_idx"]))
-            if ln is None:
+        flagged, bad = parse_flag_entries(parse_json_array(text, 0))
+        unparsable += bad
+        for ln in batch:
+            f = flagged.get(ln.idx)
+            if f is None:
                 continue
             reason = f.get("reason") if f.get("reason") in FLAG_REASONS else "uncertain_translation"
             ln.flag = reason
             ln.flag_note = f.get("note", "")
+    if stats is not None:
+        stats.update(unparsable_entries=unparsable, failed_batches=failed_batches,
+                     total_batches=n_batches)
     if failed_batches:
         # Those batches were not checked, which is not the same as "no issues".
         import applog

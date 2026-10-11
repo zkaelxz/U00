@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 MAX_ID = 2**31 - 1
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.py
 _MEDIA_FIELDS = ("audio_filename", "source_video_filename")
-_JOB_RUNNING = ("A job is running for this drama. Wait for it to finish or cancel it "
+_JOB_RUNNING = ("A job is running for this title. Wait for it to finish or cancel it "
                 "before deleting.")
 
 
@@ -57,7 +57,7 @@ def _require_drama(drama_id) -> dict:
     _check_id(drama_id, "drama")
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -109,8 +109,8 @@ def remove_media(drama_id, confirm=False) -> dict:
     translation are untouched. 404 when neither field is set."""
     drama = _require_drama(drama_id)
     if not any(drama.get(f) for f in _MEDIA_FIELDS):
-        raise NotFoundError("This drama has no audio or video to remove.")
-    _require_confirm(confirm, "the drama's audio/video")
+        raise NotFoundError("This title has no audio or video to remove.")
+    _require_confirm(confirm, "the title's audio/video")
     _require_idle(drama_id)
     folder = _drama_folder(drama_id)
     removed = {f: _remove_file(file_in_folder(folder, drama.get(f))) for f in _MEDIA_FIELDS}
@@ -127,7 +127,7 @@ def remove_raw_novel(drama_id, confirm=False) -> dict:
     _require_drama(drama_id)
     path = os.path.join(_drama_folder(drama_id), RAW_NOVEL_FILENAME)
     if not os.path.isfile(path):
-        raise NotFoundError("This drama has no raw novel text saved.")
+        raise NotFoundError("This title has no raw novel text saved.")
     _require_confirm(confirm, "the raw novel text")
     _require_idle(drama_id)
     # Dropped first so a manifest that can't be removed never outlives the file.
@@ -154,7 +154,7 @@ def delete_translation_version(drama_id, version_id, confirm=False) -> dict:
     _check_id(version_id, "version")
     v = db.get_translation_version(version_id)
     if v is None or v.get("drama_id") != drama_id:
-        raise NotFoundError(f"No translation version {version_id} for drama {drama_id}.")
+        raise NotFoundError(f"No translation version {version_id} for title {drama_id}.")
     _require_confirm(confirm, "a translation version")
     _require_idle(drama_id)
     db.delete_translation_version(version_id)

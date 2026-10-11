@@ -1,5 +1,6 @@
 """Per-span language detection for mixed-language titles. Models, audio, VAD and the
 language detector are all fakes."""
+import whisper_models
 from types import SimpleNamespace
 
 import numpy as np
@@ -8,6 +9,7 @@ import pytest
 import asr_backend as ab
 import mixed_language as ml
 from core import Line
+from lib.errors import InvalidInputError
 from services import asr_options_service
 from vad_segments import Span
 
@@ -245,7 +247,7 @@ def test_unknown_title_language_is_still_rejected(qwen):
 def test_option_defaults_off_and_validates(isolated_db):
     assert asr_options_service.get_asr_options()["mixed_languages"] is False
     assert asr_options_service.set_asr_options(mixed_languages=True)["mixed_languages"] is True
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidInputError, match="mixed_languages must be true or false"):
         asr_options_service.set_asr_options(mixed_languages="yes")
 
 
@@ -260,10 +262,10 @@ def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
                 {"start": 2.0, "end": 4.0, "text": ZH, "lang": "zh"}]
 
     monkeypatch.setattr(ml, "transcribe_mixed_whisper", fake_mixed)
-    monkeypatch.setattr(ts.core_module, "load_whisper_model", lambda *a, **k: None)
-    monkeypatch.setattr(ts.core_module, "is_whisper_model_cached", lambda s: True)
-    monkeypatch.setattr(ts.core_module, "get_whisper_device_info", lambda *a, **k: {})
-    monkeypatch.setattr(ts.core_module, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: None)
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda s: True)
+    monkeypatch.setattr(whisper_models, "get_whisper_device_info", lambda *a, **k: {})
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     monkeypatch.setattr(tp, "transcribe_for_timing",
                         lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": KO}])
 

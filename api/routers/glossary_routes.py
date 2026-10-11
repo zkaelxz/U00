@@ -35,7 +35,7 @@ from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkD
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
                          LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
                          NovelGlossaryStatus)
-from services import glossary_service
+from services import export_service, glossary_service
 from services.service_errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/glossary", tags=["glossary"])
@@ -95,7 +95,8 @@ def post_import_glossary(payload: GlossaryImportRequest, request: Request,
 def get_glossary_csv(drama_id: int = Path(ge=1)):
     return Response(content=glossary_service.glossary_csv(drama_id),
                     media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="glossary_{drama_id}.csv"'})
+                    headers={"Content-Disposition": export_service.drama_disposition(
+                        drama_id, "glossary", "en", "csv")})
 
 
 @router.get("/dramas/{drama_id}/instructions", dependencies=[require_permission("library.read")], response_model=GlossaryInstructions,

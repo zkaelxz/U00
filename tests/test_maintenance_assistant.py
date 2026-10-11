@@ -717,6 +717,19 @@ def test_a_failed_tier_offers_the_next_without_calling_it(dev_mode, real_build, 
     assert len(engines) == 1 and real_build == ["ollama"]  # Gemini was never built or called
 
 
+def test_an_ollama_that_is_not_running_reads_as_unreachable(dev_mode, real_build, keys, monkeypatch):
+    import qa
+    from lib import http
+
+    def down(system_prompt, messages, engine, max_tokens=0):
+        raise http.FetchError()
+
+    monkeypatch.setattr(qa, "dispatch_chat", down)
+    with pytest.raises(svc.ServiceError) as e:
+        svc.ask("x")
+    assert e.value.details["reason"] == "unreachable"
+
+
 def test_a_tier_with_no_key_is_reported_with_the_next_tier(dev_mode, keys, monkeypatch):
     from services import line_ai_service, translate_service
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)

@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import importlib.metadata
 
 import diagnostics
+import diagnostics_report
 import qwen3_native
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -163,10 +164,10 @@ def test_diagnostics_does_not_hold_transformers_back_for_qwen_asrs_pin(monkeypat
 
 def test_diagnostics_row_shows_a_too_old_transformers_as_not_ready(monkeypatch):
     monkeypatch.setattr(importlib.metadata, "version", lambda name: "4.57.6")
-    row = next(r for r in diagnostics.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
+    row = next(r for r in diagnostics_report.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
     assert "4.57.6" in row["version"] and "needs 5.15 or newer" in row["version"]
     monkeypatch.setattr(importlib.metadata, "version", lambda name: "5.19.0")
-    row = next(r for r in diagnostics.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
+    row = next(r for r in diagnostics_report.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
     assert row["version"] == "5.19.0"
 
 

@@ -45,5 +45,6 @@ def test_frontend_labels_cover_every_engine_and_key():
 
 
 def test_frontend_labels_have_no_unknown_extras():
-    known = set(translate_engines.ENGINES) | set(settings_service.ENV_NAMES)
+    # "echo" is registered only in Developer Mode, so it is not in ENGINES here.
+    known = set(translate_engines.ENGINES) | set(settings_service.ENV_NAMES) | {"echo"}
     assert _engine_labels() - known == set()

@@ -25,6 +25,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import live_pipeline
 import live_translate as lt
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
@@ -801,10 +802,11 @@ class TestOverlapDedupAgainstRealAudio:
 
         def transcribe(path, **kw):
             heard.append(os.path.basename(path))
+            if len(heard) >= len(chunks):
+                # Stop pressed once: the lines already transcribed are translated.
+                live_pipeline.request_finish(job_id)
             return _fake_transcribe_by_decoding_audio(path, **kw)
         monkeypatch.setattr(core, "transcribe_for_timing", transcribe)
-        monkeypatch.setattr(background_jobs, "is_cancel_requested",
-                            lambda jid: len(heard) >= len(chunks))
 
         class EchoEngine:
             def translate_batch(self, lines, context):

@@ -39,6 +39,7 @@ activate_portable_mode() points the model caches (model_cache/). A
 source checkout has no marker, so data_dir() stays this folder, exactly
 as before. BAIHE_DATA_DIR overrides both.
 """
+import json
 import os
 import sys
 
@@ -84,6 +85,24 @@ def is_installed() -> bool:
     by installer/launcher.py until Setup is run again, so it never keeps its
     library in the program folder either."""
     return os.path.isfile(_INSTALLED_MARKER_PATH)
+
+
+def installed_app_version():
+    """The version in `<install dir>/manifest.json` (written by
+    installer/build_installer.py), or None for a source checkout or a
+    manifest that isn't Baihe Studio's. Lives here because db.py, below the
+    services, needs it and must stay importable on its own."""
+    if not is_installed():
+        return None
+    try:
+        with open(os.path.join(os.path.dirname(APP_DIR), "manifest.json"), encoding="utf-8") as fh:
+            manifest = json.loads(fh.read(2_000_000))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(manifest, dict) or manifest.get("product") != "Baihe Studio":
+        return None
+    version = manifest.get("app_version")
+    return version if isinstance(version, str) else None
 
 
 def default_installed_data_dir() -> str:
