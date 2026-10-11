@@ -5,6 +5,17 @@ import { SCREENS, SID, cue, expectSwitchKeepsItsSize, mockLive, openLive, pendin
 // Live page (#/live): start a session from a pasted link, watch lines
 // arrive by polling, stop it. Every /api call is mocked (liveMocks.ts).
 
+test('a chosen title is sent with Start, and None sends nothing extra', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByLabel('Use glossary and packs from title', { exact: true }).selectOption({ label: 'Moonlit Letters' })
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ glossary_drama_id: 7 })
+  expect(m.unmocked).toEqual([])
+})
+
 test('start, see lines arrive, stop', async ({ page }) => {
   const m = await mockLive(page)
   const live = await openLive(page)
