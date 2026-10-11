@@ -37,7 +37,7 @@ print(json.dumps([r['id'] for r in db.load_lines(3)]))
   expect((await request.post(CAPABILITY, { data: { engine: 'deepseek' } })).ok()).toBe(true)
 })
 
-test.afterAll(async ({ request }) => {
+test.afterEach(async ({ request }) => {
   await request.post(CAPABILITY, { data: { engine: null } })
   python('db.save_lines(3, [])')
 })

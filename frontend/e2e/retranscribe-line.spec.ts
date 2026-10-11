@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
+import { clearDrama3Lines, clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 
 // "Re-transcribe this line" in the Review line editor's details (parity
 // audit B1, R23). Drama 3 has no audio in the seeded library, so the control
@@ -9,7 +9,11 @@ import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 // needs a finished job in the API process; pytest covers the real routes).
 
 test.beforeEach(() => seedReviewResults())
-test.afterAll(() => clearReviewResults())
+// The apply test rewrites a line's text; restore after every test, not just at the end of the file.
+test.afterEach(() => {
+  clearReviewResults()
+  clearDrama3Lines()
+})
 
 const SHOTS = process.env.REVIEW_SHOTS
 
