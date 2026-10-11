@@ -170,6 +170,16 @@ class TestStart:
             assert t["language"] == "zh"
             assert t["initial_prompt"] == "沈清疑。"
 
+    def test_timeout_counts_every_window_because_whisper_pads_each_clip(
+            self, isolated_db, fake_asr, monkeypatch):
+        did, ids = _drama(isolated_db)
+        seen = []
+        real = svc.retranscribe_timeout_s
+        monkeypatch.setattr(svc, "retranscribe_timeout_s",
+                            lambda seconds, count=1: seen.append(count) or real(seconds, count))
+        _run(did, [ids[2], ids[0]])
+        assert seen == [2]
+
     def test_settings_match_the_one_line_job(self, isolated_db, monkeypatch):
         did, ids = _drama(isolated_db)
         isolated_db.update_drama(did, whisper_fast_mode=1, min_silence_ms=420,
@@ -406,10 +416,8 @@ class TestApply:
         svc.apply_retranscribe_many(did, f"retranscribe_{did}", _items(did, {ids[1]}))
         history = isolated_db.list_line_history(did)
         assert len(history) == 1
-        snap = isolated_db.load_line_history_lines(did, history[0]["id"]) \
-            if hasattr(isolated_db, "load_line_history_lines") else None
-        if snap is not None:
-            assert [ln["zh"] if isinstance(ln, dict) else ln.zh for ln in snap][0] == "旧0"
+        snap = isolated_db.get_line_history_snapshot(history[0]["id"])
+        assert snap[0]["zh"] == "旧0"
 
     def test_an_edited_line_wins_and_keeps_its_english(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
@@ -534,7 +542,7 @@ class TestRealProcess:
         mp = pytest.MonkeyPatch()
         mp.setattr(svc, "retranscribe_many_worker", _hung_many_worker)
         if timeout is not None:
-            mp.setattr(svc, "retranscribe_timeout_s", lambda window: timeout)
+            mp.setattr(svc, "retranscribe_timeout_s", lambda window, count=1: timeout)
         if marker:
             mp.setenv("RETRANSCRIBE_TEST_MARKER", marker)
         try:

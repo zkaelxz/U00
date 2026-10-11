@@ -124,7 +124,7 @@ There is **no code generation.** `api/types.ts` and `types/<area>.ts` are hand-w
 1. Change the Pydantic model in `api/schemas/<domain>.py` and the TypeScript interface in the matching `types/<area>.ts` in the same change. Most types files open with a comment naming the schema module they mirror; keep that line true.
 2. Mocked specs hide drift, because they return whatever the spec writes. The e2e suite runs the real FastAPI app on a seeded library (section 9), so unmocked specs catch a renamed field.
 3. A few numbers that mirror server limits are pinned by `tests/test_frontend_limit_parity.py` (translate text cap, novel EPUB cap). If you add a client-side limit that mirrors a server cap, add a case there.
-4. Run `cd frontend && npx tsc --noEmit` after any type change.
+4. Run `cd frontend && npx tsc -b` after any type change.
 
 ## 8. Errors, loading and empty states
 
@@ -154,7 +154,7 @@ Three layers; all of them run in CI (`frontend` job in `.github/workflows/tests.
 
 | Layer | Command (from `frontend/`) | What it covers |
 |---|---|---|
-| Types and build | `npx tsc --noEmit` (CI: `npm run build`) | TypeScript, then the bundle. |
+| Types and build | `npx tsc -b` (CI: `npm run build`) | TypeScript, then the bundle. |
 | Unit | `npx vitest run` | `src/**/*.test.ts`, run in a **node** environment (no DOM). So components are tested mainly through their logic files (`*Logic.ts`, `*Form.ts`, `*Model.ts`, `*State.ts`), by reading CSS or source text, and (for the kit, `components/uiKit.test.ts`) by rendering to markup; interaction is Playwright's job. |
 | Lint | `npm run lint` (oxlint) | |
 | Browser | `npm run e2e` | Playwright specs in `e2e/`. |
@@ -193,5 +193,5 @@ Three layers; all of them run in CI (`frontend` job in `.github/workflows/tests.
 8. **Phone.** Check at 390 and 360px: no sideways scroll, 44px targets, editable tables as `card-table`, row actions in a `Sheet`. Account for the sticky strip with `--bar-h`.
 9. **Accessibility** (section 11): names, focus, `lang`, announcements.
 10. **Tests.** Put the logic in a pure `.ts` file with a vitest spec. Add a Playwright spec (`<screen>.spec.ts`) and a `<screen>.mobile.spec.ts`, mocking only what the seed cannot give you.
-11. **Run before pushing:** `cd frontend && npx tsc --noEmit && npx vitest run && npm run lint`, then the new specs with `PLAYWRIGHT_CHROMIUM_PATH` set.
+11. **Run before pushing:** `cd frontend && npx tsc -b && npx vitest run && npm run lint`, then the new specs with `PLAYWRIGHT_CHROMIUM_PATH` set.
 12. **Docs.** A new top-level module, `services/*.py` or `api/routers/*.py` file needs a line in `FILE_ORGANIZATION.md`; a new page or stage is worth a mention in `docs/STATUS.md` if it changes what is next.

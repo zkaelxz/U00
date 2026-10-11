@@ -163,6 +163,24 @@ class TestSubmit:
         [job] = isolated_db.list_bulk_jobs(did)
         assert job["status"] == "failed" and "upstream exploded" in job["last_error"]
 
+    def test_a_key_in_the_provider_error_is_not_stored_or_shown(self, isolated_db):
+        from services.bulk_job_view import bulk_entry
+        secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789SECRET"
+        engine = _claude_engine()
+
+        def boom(requests):
+            raise RuntimeError(f"401 invalid x-api-key {secret}")
+        engine.client.messages.batches.create = boom
+        did = _drama(isolated_db)
+        with pytest.raises(RuntimeError):
+            _submit(isolated_db, did, engine)
+        [job] = isolated_db.list_bulk_jobs(did)
+        assert job["status"] == "failed" and job["last_error"]
+        assert "SECRET" not in job["last_error"] and secret not in job["last_error"]
+        # The stored row is checked separately: the view redacts again, which
+        # would hide a missing redaction at write time.
+        assert "SECRET" not in json.dumps(bulk_entry(job))
+
 
 # ---------------------------------------------------------------------------
 # Applying results (the part that must never misassign)
@@ -672,11 +690,44 @@ class TestBulkFlag:
         assert status == "applied"
         summary = isolated_db.get_bulk_job(jid)["result_summary"]
         assert summary == {"applied": 1, "dropped_deleted": 0, "flagged_source_changed": 1,
-                           "kept_your_edit": 1, "failed_requests": 0, "unknown_requests": 0}
+                           "kept_your_edit": 1, "failed_requests": 0, "unknown_requests": 0,
+                           "unparsable_entries": 0}
         final = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
         assert final[ids[0]].flag == "slang_idiom" and final[ids[0]].flag_note == "manual"
         assert final[ids[1]].flag == "bulk_source_changed"
         assert final[ids[2]].flag == "uncertain_translation" and final[ids[2]].flag_note == "auto"
+
+    def test_bracketed_ids_apply_and_unreadable_ones_are_counted(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+        jid = bt.submit_bulk_flag(did, lines, engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        payload = [{"line_idx": f"[{ids[0]}]", "reason": "slang_idiom", "note": "n"},
+                   {"line_idx": "first", "reason": "slang_idiom"}]
+        summary = bt.apply_flag_results(jid, [(key, json.dumps(payload), {}, None)])
+        assert summary["applied"] == 1 and summary["unparsable_entries"] == 1
+        final = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
+        assert final[ids[0]].flag == "slang_idiom" and final[ids[1]].flag is None
+
+    def test_system_flags_are_not_sent_and_not_overwritten(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        lines[0].flag, lines[0].flag_note = "timing_uncertain", "approx"
+        isolated_db.save_lines(did, lines, fields=("flag", "flag_note"))
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+        jid = bt.submit_bulk_flag(did, lines, engine, "claude")
+        request = str(engine.client.messages.batches.created[0])
+        assert f"[{ids[0]}]" not in request and f"[{ids[1]}]" in request
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        payload = [{"line_idx": i, "reason": "slang_idiom", "note": "model"} for i in ids]
+        bt.apply_flag_results(jid, [(key, json.dumps(payload), {}, None)])
+        final = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
+        assert (final[ids[0]].flag, final[ids[0]].flag_note) == ("timing_uncertain", "approx")
+        assert final[ids[1]].flag == "slang_idiom"
 
     def test_a_line_deleted_meanwhile_is_dropped(self, isolated_db):
         engine = _claude_engine()
