@@ -3,7 +3,7 @@ export interface PendingInstallChange {
   name: string
   from_version: string | null
   to_version: string
-  kind: 'install' | 'upgrade' | 'downgrade'
+  kind: 'install' | 'upgrade' | 'downgrade' | 'change'
 }
 
 export interface PendingInstallPlan {
