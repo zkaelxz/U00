@@ -884,9 +884,23 @@ def test_the_timeout_give_up_works_with_a_real_result_channel(tmp_path, monkeypa
     real_put = channel.put
     channel.put = lambda item: (sent.append(item), real_put(item))
 
-    worker = threading.Thread(target=rw.retranscribe_worker, args=(
-        "a.wav", 0, 1, "zh", "tiny", 1, 100, 0.5, False, None, None, False, "auto", "", 0.05,
-        str(tmp_path / "scratch"), channel), daemon=True)
+    def run_worker():
+        try:
+            rw.retranscribe_worker(
+                "a.wav", 0, 1, "zh", "tiny", 1, 100, 0.5, False, None, None, False, "auto", "", 0.05,
+                str(tmp_path / "scratch"), channel)
+        except ValueError:
+            # The give-up closed the queue; the real process would already have exited.
+            pass
+
+    worker = threading.Thread(target=run_worker, daemon=True)
     worker.start()
-    assert ended.wait(5), "give_up never reached os._exit"
-    assert ("ok", {"failed_reason": "timeout"}) in sent
+    try:
+        assert ended.wait(5), "give_up never reached os._exit"
+        assert ("ok", {"failed_reason": "timeout"}) in sent
+    finally:
+        # The patched _exit lets the worker run on once the hang ends; it must
+        # finish here, not inside a later test with these patches undone.
+        release.set()
+        worker.join(10)
+        assert not worker.is_alive()
