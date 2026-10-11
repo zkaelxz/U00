@@ -65,11 +65,13 @@ import './source.css'
 const WHISPER_LABELS: Record<string, string> = {
   'large-v3-turbo': 'large-v3-turbo (default)',
   'ja-1.5b': 'Japanese (whisper-ja 1.5B): anime and games, opt-in, about 3 GB, needs a GPU',
+  'kotoba-v2': 'Japanese (kotoba-whisper v2.0): opt-in, about 1.5 GB, fast; line timing only',
 }
 function whisperModelHelp(size: string, notDownloaded: boolean): string | undefined {
   const parts = [
     notDownloaded ? 'This model will be downloaded on first use.' : '',
     size === 'ja-1.5b' ? 'Its licence is not declared; use it for personal work.' : '',
+    size === 'kotoba-v2' ? 'It gives line timing only. The Qwen3 forced aligner refines it when installed; otherwise the Whisper line times are kept and the job says so.' : '',
   ].filter(Boolean)
   return parts.length ? parts.join(' ') : undefined
 }
