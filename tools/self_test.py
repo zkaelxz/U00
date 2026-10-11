@@ -247,7 +247,7 @@ def default_report_path() -> str:
     return os.path.join(portable.data_dir(), REPORT_NAME)
 
 
-def _refuse_to_overwrite(out: str) -> bool:
+def _refuse_to_overwrite(out: str, title: str = REPORT_TITLE) -> bool:
     """True if `out` exists and is not a report this tool wrote. --out could
     otherwise name .env or library.db, and write_text follows symlinks."""
     if not os.path.lexists(out):
@@ -259,7 +259,7 @@ def _refuse_to_overwrite(out: str) -> bool:
             first_line = fh.read(128).split(b"\n", 1)[0].rstrip(b"\r")
     except OSError:
         return True
-    return first_line.decode("utf-8", "replace") != REPORT_TITLE
+    return first_line.decode("utf-8", "replace") != title
 
 
 def _console_safe() -> None:
