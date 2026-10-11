@@ -30,7 +30,7 @@ import whisper_models
 from core import Line
 from tests import fake_engine
 from tests.gpu_inline import run_in_child_inline
-from services import fixflag_transcribe, gpu_process_job
+from services import fixflag_transcribe, fixflag_translate, gpu_process_job
 
 
 def _clear(job_id):
@@ -78,11 +78,10 @@ class FakeFixEngine:
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
 
     def translate_batch(self, lines, context):
-        text = lines[0]
-        if text in self.fail_for:
+        if self.fail_for & set(lines):
             raise RuntimeError("translation API down")
         self.last_usage = {"input_tokens": 10, "output_tokens": 4}
-        return [self.translations.get(text, f"[translated] {text}")]
+        return [self.translations.get(text, f"[translated] {text}") for text in lines]
 
 
 class _CostedFixEngine:
@@ -99,8 +98,8 @@ class _CostedFixEngine:
 
     def translate_batch(self, lines, context):
         self.calls += 1
-        self.last_usage = {"input_tokens": 100_000, "output_tokens": 0}
-        return [f"[translated] {lines[0]}"]
+        self.last_usage = {"input_tokens": 100_000 * len(lines), "output_tokens": 0}
+        return [f"[translated] {zh}" for zh in lines]
 
 
 class _CapPricedEngine:
@@ -1053,8 +1052,9 @@ def test_fix_flagged_job_skips_retranscription_with_no_audio(isolated_db, monkey
     _clear(job_id)
 
 
-def test_fix_flagged_job_stops_on_cancel_and_keeps_fixed_lines(isolated_db):
-    """Cancel lands between lines: the lines already fixed are saved, the rest stay flagged."""
+def test_fix_flagged_job_stops_on_cancel_and_keeps_fixed_lines(isolated_db, monkeypatch):
+    """Cancel lands between batches: the lines already fixed are saved, the rest stay flagged."""
+    monkeypatch.setattr(fixflag_translate, "BATCH_SIZE", 1)
     job_id = "test_fixflag_cancel"
     _clear(job_id)
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
@@ -1124,7 +1124,7 @@ def test_fix_flagged_job_ignores_unflagged_lines(isolated_db):
     _clear(job_id)
 
 
-def test_fix_flagged_job_stops_at_the_cost_cap_and_keeps_finished_lines(isolated_db):
+def test_fix_flagged_job_stops_at_the_cost_cap_and_keeps_finished_lines(isolated_db, monkeypatch):
     """Step 25w Bug 3: "Fix flagged lines in bulk" called engine.translate_batch
     directly with no cost_cap_usd parameter, no resolve_cost_cap call, and no
     spend accumulation checked against any cap anywhere -- confirmed real: a
@@ -1132,6 +1132,7 @@ def test_fix_flagged_job_stops_at_the_cost_cap_and_keeps_finished_lines(isolated
     spend regardless of the configured monthly cap. cost_cap_usd now stops the
     loop cleanly, the same "every finished line kept" contract
     translate_lines_with_engine already has."""
+    monkeypatch.setattr(fixflag_translate, "BATCH_SIZE", 1)
     job_id = "test_fixflag_cap"
     _clear(job_id)
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
@@ -1158,7 +1159,8 @@ def test_fix_flagged_job_stops_at_the_cost_cap_and_keeps_finished_lines(isolated
     _clear(job_id)
 
 
-def test_fix_flagged_job_with_no_cap_processes_every_flagged_line(isolated_db):
+def test_fix_flagged_job_with_no_cap_processes_every_flagged_line(isolated_db, monkeypatch):
+    monkeypatch.setattr(fixflag_translate, "BATCH_SIZE", 1)
     """No cost_cap_usd (the default) must behave exactly as before this
     step -- no cap, no stopping partway through."""
     job_id = "test_fixflag_nocap"
@@ -1187,6 +1189,7 @@ def test_fix_flagged_job_keeps_earlier_fixes_when_a_later_line_crashes(isolated_
     model-download failure partway through) escaped the whole loop, and
     since db.save_lines only ran once at the very end, that lost every
     line already fixed before the crash, not just the one that failed."""
+    monkeypatch.setattr(fixflag_translate, "BATCH_SIZE", 1)
     job_id = "test_fixflag_partial_crash"
     _clear(job_id)
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",

@@ -18,7 +18,7 @@ import translation_guide
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import review_jobs_service as svc, translate_service
+from services import fixflag_translate, review_jobs_service as svc, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
@@ -204,8 +204,24 @@ def test_notes_saved(monkeypatch):
     assert len(db.list_translation_notes(did)) == 1
 
 
+def _fake_fix_llm(monkeypatch, reply=lambda zh, en: f"EN:{zh}"):
+    """Stands in for the paid call: answers each numbered entry of the prompt
+    by id and records the prompts."""
+    import re
+    prompts = []
+
+    def fake(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+        prompts.append(prompt)
+        found = re.findall(r"\[(\d+)\] Source: (.*)\n    Current English: (.*)\n", prompt)
+        import json
+        return json.dumps({n: reply(zh, en) for n, zh, en in found})
+    monkeypatch.setattr(fixflag_translate.translate_engines, "call_llm_json", fake)
+    return prompts
+
+
 def test_fix_flagged_retranslates_and_clears_flag(monkeypatch):
     did = _seed((("你好", "old", "uncertain"), ("再见", "keep", None)))
+    _fake_fix_llm(monkeypatch)
     calls = _spy_save_lines(monkeypatch)
     out = svc.start_fix_flagged(did, engine_name="claude")
     job = _wait(out["job_id"])
@@ -216,20 +232,45 @@ def test_fix_flagged_retranslates_and_clears_flag(monkeypatch):
     assert calls == [("zh", "en", "flag", "flag_note")]
 
 
-def test_fix_flagged_sends_default_locale_and_style_note(monkeypatch):
-    seen = []
+def test_fix_flagged_names_each_lines_reason_in_one_batched_call(monkeypatch):
+    did = _seed((("你好", "old a", "ambiguous_reference"), ("再见", "old b", "reading_speed")))
+    prompts = _fake_fix_llm(monkeypatch)
+    _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    assert len(prompts) == 1
+    prompt = prompts[0]
+    assert "[1] Source: 你好" in prompt and "[2] Source: 再见" in prompt
+    first, second = prompt.split("[2] Source")
+    assert "pronoun or reference" in first and "Too fast to read" in second
 
-    class Spy(FakeEngine):
-        def translate_batch(self, texts, ctx=None):
-            seen.append(ctx)
-            return super().translate_batch(texts, ctx)
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Spy())
-    prefs = {"default_locale": "en-GB", "default_style_note": "Keep honorifics."}
-    for name, value in prefs.items():
+
+def test_fix_flagged_leaves_a_line_alone_when_the_reply_matches_its_english(monkeypatch):
+    did = _seed((("你好", "already fine", "uncertain_translation"), ("再见", "old", "slang_idiom")))
+    _fake_fix_llm(monkeypatch, reply=lambda zh, en: en if zh == "你好" else "Bye.")
+    job = _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    assert job["result"]["fixed_count"] == 1 and job["result"]["unchanged_count"] == 1
+    rows = db.load_lines(did)
+    assert rows[0]["en"] == "already fine" and rows[0]["flag"] == "uncertain_translation"
+    assert rows[1]["en"] == "Bye." and rows[1]["flag"] is None
+
+
+def test_fix_flagged_sends_default_locale_and_style_note(monkeypatch):
+    for name, value in {"default_locale": "en-GB", "default_style_note": "Keep honorifics."}.items():
         patch_setting(monkeypatch, name, value)
     did = _seed((("你好", "old", "uncertain"),))
+    prompts = _fake_fix_llm(monkeypatch)
     _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
-    assert seen and seen[0]["locale"] == "en-GB" and seen[0]["style_note"] == "Keep honorifics."
+    assert prompts and "Keep honorifics." in prompts[0] and "British English" in prompts[0]
+
+
+@pytest.mark.parametrize("starter", ["start_flag_review", "start_consistency_check",
+                                      "start_emotion_tagging", "start_translation_notes",
+                                      "start_fix_flagged"])
+def test_live_review_jobs_refuse_once_the_monthly_cap_is_used_up(monkeypatch, starter):
+    did = _seed((("你好", "hi", "uncertain"),))
+    monkeypatch.setattr(translate_service.settings_service, "get_monthly_cap_usd", lambda *a: 1.0)
+    monkeypatch.setattr(db, "get_month_spend", lambda: 1.5)
+    with pytest.raises(UnsupportedOperationError, match="cap"):
+        getattr(svc, starter)(did, engine_name="claude")
 
 
 def test_fix_flagged_needs_flagged_lines():

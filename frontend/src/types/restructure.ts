@@ -90,12 +90,13 @@ export interface ResplitStart {
   expected_line_ids: number[]
   align_to_audio: boolean
   confirm: boolean
+  // Omitted: only the fresh-transcription limits (and max_seconds, if set).
   sensitivity?: ResplitSensitivity
   max_seconds?: number | null
   dry_run?: boolean
 }
 
-export type ResplitSensitivity = 'normal' | 'more' | 'sentence'
+export type ResplitSensitivity = 'more' | 'sentence'
 
 export interface ResplitResult {
   job_id?: string | null
