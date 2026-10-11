@@ -10,7 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import ci_changes  # noqa: E402
 
-ALL = {"notes_only": False, "run_e2e": True, "run_full_pytest": True}
+ALL = {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True}
+ALL_OUT = {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true", "run_windows_scripts": "true"}
 
 
 def pr(*files, labels=()):
@@ -38,11 +39,11 @@ def test_mixed_or_other_docs_are_not_notes_only(files):
     ["services/drama_service.py"],
     ["db.py", "tests/test_db.py"],
     ["sources/adapters/bilibili.py"],
-    ["installer/build_installer.py", "scripts/x.py", "tools/repo_map.py"],
+    ["scripts/x.py", "tools/repo_map.py"],
     ["docs/STATUS.md", "services/x.py"],
 ])
 def test_backend_only_change_skips_e2e_but_runs_all_pytest(files):
-    assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True}
+    assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False}
 
 
 @pytest.mark.parametrize("files", [
@@ -75,8 +76,10 @@ def test_any_file_outside_frontend_and_docs_runs_full_pytest(files):
 
 
 def test_frontend_only_change_still_runs_e2e_and_docs_only_does_not():
-    assert pr("frontend/src/a.ts") == {"notes_only": False, "run_e2e": True, "run_full_pytest": False}
-    assert pr("docs/a.md") == {"notes_only": False, "run_e2e": False, "run_full_pytest": False}
+    assert pr("frontend/src/a.ts") == {"notes_only": False, "run_e2e": True, "run_full_pytest": False,
+                                       "run_windows_scripts": False}
+    assert pr("docs/a.md") == {"notes_only": False, "run_e2e": False, "run_full_pytest": False,
+                               "run_windows_scripts": False}
 
 
 @pytest.mark.parametrize("path", [
@@ -115,7 +118,7 @@ def test_anything_but_a_pull_request_runs_everything(event):
 def test_merge_group_runs_everything_even_for_a_notes_only_diff():
     # The queue's merged result is what lands, so no path filter may skip a job there.
     _, got = _run(["--event", "merge_group", "--labels-json", "[]"], "reports/a.md\n")
-    assert got == {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true"}
+    assert got == ALL_OUT
 
 
 def test_unreadable_diff_runs_everything():
@@ -126,6 +129,40 @@ def test_unreadable_diff_runs_everything():
 def test_windows_separators_are_normalised():
     assert pr("frontend\\src\\a.ts")["run_full_pytest"] is False
     assert pr(".github\\workflows\\tests.yml") == ALL
+
+
+@pytest.mark.parametrize("path", [
+    "start.bat", "setup.bat", "uninstall.bat", "make_shortcut.bat", "deploy/run.bat", "start.ps1",
+    "uninstall_path_cleanup.ps1", "check_setup.py", "installer/baihe.iss", "installer/service/x.py",
+    "tools/windows_script_checks.py",
+])
+def test_windows_script_files_run_only_the_windows_script_checks(path):
+    assert pr(path)["run_windows_scripts"] is True
+    assert pr("services/x.py", path)["run_windows_scripts"] is True
+    assert pr(path)["run_e2e"] is False
+
+
+@pytest.mark.parametrize("path", [
+    "services/x.py", "docs/uninstall.md", "frontend/src/start.bat.ts", "installers/a.py", "tools/repo_map.py",
+    "tests/test_start_bat.py",
+])
+def test_other_files_skip_the_windows_script_checks(path):
+    assert pr(path)["run_windows_scripts"] is False
+
+
+def test_windows_script_checks_run_for_ci_and_non_pr_events_and_the_full_ci_label():
+    assert pr(".github/workflows/tests.yml")["run_windows_scripts"] is True
+    assert pr("docs/a.md", labels=["full-ci"])["run_windows_scripts"] is True
+    assert ci_changes.classify(["docs/a.md"], "push")["run_windows_scripts"] is True
+    assert ci_changes.classify(["docs/a.md"], "merge_group")["run_windows_scripts"] is True
+    assert pr()["run_windows_scripts"] is True
+
+
+def test_cli_prints_the_windows_script_output():
+    _, got = _run(["--event", "pull_request"], "uninstall.bat\n")
+    assert got["run_windows_scripts"] == "true"
+    _, got = _run(["--event", "pull_request"], "services/x.py\n")
+    assert got["run_windows_scripts"] == "false"
 
 
 def _run(argv, text=""):
@@ -141,18 +178,18 @@ def _run(argv, text=""):
 def test_cli_prints_outputs_for_github_output():
     code, got = _run(["--event", "pull_request"], "services/x.py\n")
     assert code == 0
-    assert got == {"notes_only": "false", "run_e2e": "false", "run_full_pytest": "true"}
+    assert got == {"notes_only": "false", "run_e2e": "false", "run_full_pytest": "true", "run_windows_scripts": "false"}
 
 
 def test_cli_reads_labels_json():
     _, got = _run(["--event", "pull_request", "--labels-json", '["full-ci"]'], "docs/a.md\n")
-    assert got == {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true"}
+    assert got == ALL_OUT
 
 
 @pytest.mark.parametrize("labels", ["not json", '{"a": 1}', "[1, 2]"])
 def test_cli_fails_open_on_a_bad_label_list(labels):
     _, got = _run(["--event", "pull_request", "--labels-json", labels], "docs/a.md\n")
-    assert got == {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true"}
+    assert got == ALL_OUT
 
 
 def test_cli_fails_open_when_classification_raises(monkeypatch):
@@ -161,7 +198,7 @@ def test_cli_fails_open_when_classification_raises(monkeypatch):
     monkeypatch.setattr(ci_changes, "classify", boom)
     code, got = _run(["--event", "pull_request"], "docs/a.md\n")
     assert code == 0
-    assert got == {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true"}
+    assert got == ALL_OUT
 
 
 def test_frontend_reading_tests_lists_files_that_mention_frontend(tmp_path):

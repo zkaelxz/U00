@@ -26,7 +26,8 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
 through `--ff` and a restored `.pytest_cache`), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
-`frontend` (build, vitest, lint) and `e2e` (Playwright in four shards). `windows-bootstrap.yml` (its own workflow,
+`frontend` (build, vitest, lint), `e2e` (Playwright in four shards) and `windows-scripts` (see "Windows script checks" below; `test`
+also fails if it failed, and passes when it was skipped). `windows-bootstrap.yml` (its own workflow,
 path-filtered to `start.bat`, the requirements and constraints files, `check_setup.py`, `api/**`, `frontend/**` and itself) and
 `windows-installer.yml` cover the installer. The five guard files are ignored only in the workflow's `test-shard` command lines;
 `python run_tests.py` and the local commands above still run everything.
@@ -60,6 +61,11 @@ fixes). A cache miss only costs the download. The ffmpeg apt install is not cach
 counts as passed for branch protection, as the notes-only skip always has. `guards` and `frontend` run on every PR except
 notes-only ones (which run only `guards`).
 
+The table has three columns; a fourth output, `run_windows_scripts` (the `windows-scripts` job), is true for every row that says
+"everything" (a non-PR event, the `full-ci` label, a change under `.github/` or to the dependency files, an empty file list, a
+classifier error), and otherwise only when a changed file is under `installer/`, is a `*.bat` or `*.ps1` file, is `check_setup.py`
+or is `tools/windows_script_checks.py`.
+
 | Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
 |---|---|---|---|
 | Push to `baihe-subtitler`, or any event that is not a pull request (a `merge_group` included) | false | true | true |
@@ -74,6 +80,31 @@ notes-only ones (which run only `guards`).
 Rows combine by "any rule that says true wins". A rename counts as touching both paths. To force everything on a PR, add the
 label `full-ci` (the workflow also listens for `labeled`, so adding it starts a new full run). Anything that makes you doubt a
 skipped job: add the label, or push a trivial change under `.github/`.
+
+## Windows script checks
+
+`tools/windows_script_checks.py` runs the real `setup.bat`, `start.bat` and `uninstall.bat` on a `windows-latest` runner, from a
+copy of the checkout in a folder with a space in its name, with each prompt answered through stdin. Three subcommands, one
+workflow step each:
+
+- `setup`: `setup.bat` with winget taken off PATH, so it can only report. Checks Git and Python are reported found, nothing is
+  installed, and it reaches its summary.
+- `install`: `start.bat --ci` in a fresh folder creates the venv, installs `requirements-core.txt` and runs `check_setup.py`.
+  Another listener holds the port, so the script stops at its "port already in use" exit, before it would launch the server (no
+  server is ever started; the run is killed with `taskkill /T` after a timeout). Then the app's own `init_db` creates the library
+  and a drama with a line is saved. Upgrade: the files are copied over the install, `start.bat --ci` runs again (it keeps the venv
+  and installs nothing) and again with `BAIHE_FORCE_DEPS=1` (it reinstalls over the venv); after each the drama and line are read back.
+- `uninstall`: in a throwaway user profile, so the runner's own shortcuts and caches are never touched. Answering `n` to the first
+  prompt removes nothing. Otherwise the venv, `model_cache\` and both shortcuts go, and the library prompt follows the typed-DELETE
+  rule: `DELETE` removes `library\`; `y`, `yes`, `delete` and Enter keep it. Each with and without `BAIHE_DATA_DIR` set (its library
+  is never touched, also when `DELETE` is typed and there is no library next to the script). The "Left on this PC" list must name the
+  Hugging Face, PyTorch, Ollama and pip caches and the Python on PATH, and delete none of them.
+
+Needs the network only for the pip install that `windows-bootstrap.yml` already does. Not covered, still for a person on a real PC:
+a real GPU or driver, winget actually installing Git, Python, ffmpeg or Node.js (the `y` path of `setup.bat`), the desktop window and
+shortcut icon from `make_shortcut.bat` / `start.bat` without `--ci`, `uninstall_path_cleanup.ps1` (the PATH editing is not run),
+and the Inno Setup installer and its uninstaller (`installer/baihe.iss`, which needs ISCC): `windows-installer.yml` builds and
+smoke-tests that on demand, so it is not repeated here. Add a case to the script when one of these scripts gets a new prompt or branch.
 
 ## Focused checks per area
 

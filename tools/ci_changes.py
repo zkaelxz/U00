@@ -22,12 +22,17 @@ EVERYTHING_FILES = frozenset({
     "frontend/playwright.config.ts", "frontend/vite.config.ts",
 })
 EVERYTHING_PATTERNS = ("requirements*.txt",)
+# The Windows script checks run uninstall.bat, setup.bat and start.bat, so they need these (and the
+# `.github/` and requirements files above, which already run everything).
+WINDOWS_SCRIPT_PREFIXES = ("installer/",)
+WINDOWS_SCRIPT_FILES = frozenset({"check_setup.py", "tools/windows_script_checks.py"})
+WINDOWS_SCRIPT_PATTERNS = ("*.bat", "*.ps1")
 # The `guards` job runs these, and the `test` job ignores them.
 GUARD_TESTS = (
     "tests/test_static_analysis.py", "tests/test_api_permissions.py", "tests/test_split_guards.py",
     "tests/test_file_organization.py", "tests/test_agent_docs.py",
 )
-OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest")
+OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts")
 
 
 def _starts(path, prefixes):
@@ -39,9 +44,14 @@ def _forces_everything(path):
             or any(fnmatch.fnmatchcase(path, p) for p in EVERYTHING_PATTERNS))
 
 
+def _touches_windows_scripts(path):
+    return (_starts(path, WINDOWS_SCRIPT_PREFIXES) or path in WINDOWS_SCRIPT_FILES
+            or any(fnmatch.fnmatchcase(path, p) for p in WINDOWS_SCRIPT_PATTERNS))
+
+
 def classify(files, event, labels=()):
     files = [f.strip().replace("\\", "/") for f in files if f.strip()]
-    everything = {"notes_only": False, "run_e2e": True, "run_full_pytest": True}
+    everything = _all_true()
     # No file list on a pull request means the diff could not be read, not that nothing changed.
     if event != "pull_request" or not files:
         return everything
@@ -51,6 +61,7 @@ def classify(files, event, labels=()):
         "notes_only": all(_starts(f, NOTES_PREFIXES) for f in files),
         "run_e2e": any(_starts(f, ("frontend/", "api/")) for f in files),
         "run_full_pytest": not all(_starts(f, ("frontend/", "docs/")) for f in files),
+        "run_windows_scripts": any(_touches_windows_scripts(f) for f in files),
     }
 
 
@@ -69,7 +80,7 @@ def frontend_reading_tests(root):
 
 
 def _all_true():
-    return {"notes_only": False, "run_e2e": True, "run_full_pytest": True}
+    return {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True}
 
 
 def main(argv=None, stdin=None):
