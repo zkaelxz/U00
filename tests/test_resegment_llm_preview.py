@@ -329,3 +329,15 @@ def test_resegment_worker_leaves_the_parents_process_group(monkeypatch):
     q = queue.Queue()
     resegment.resegment_subprocess_worker([], "zh", None, None, "simplified", 0.5, q)
     assert left == [True]
+
+
+def test_direct_llm_resegmentation_refuses_once_the_monthly_cap_is_used_up(monkeypatch):
+    did = _seed()
+    ids = [r["id"] for r in db.load_lines(did)]
+    started = []
+    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: started.append(a) or True)
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
+    monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.0)
+    with pytest.raises(UnsupportedOperationError, match="cap"):
+        svc.start_resegmentation(did, ids, confirm=True, use_llm=True, engine="claude")
+    assert started == []

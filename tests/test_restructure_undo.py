@@ -330,3 +330,23 @@ def test_merge_keeps_the_heads_own_tag_and_same_term_note():
     assert _emotions(did) == {ids[2]}
     assert sorted((n["line_id"], n["note"]) for n in db.list_translation_notes(did)) == [
         (ids[2], "absorbed, other term"), (ids[2], "head")]
+
+
+def test_merge_short_carries_word_timings_for_the_merged_text():
+    import segment_splitting as ss
+    did = db.create_drama(title_zh="D", source_language="ko")
+    rows = [("안녕", 0.0, 0.5), ("하세요", 0.6, 1.0), ("저는", 5.0, 6.0)]
+    db.save_lines(did, [
+        Line(idx=i, start=a, end=b, zh=zh, en="x", speaker="S",
+             word_timings=ss.encode_line_words(zh, [{"word": zh, "start": a, "end": b}]))
+        for i, (zh, a, b) in enumerate(rows)])
+    ids = [r["id"] for r in db.load_lines(did)]
+    preview = extras.preview_merge_short(did, min_duration=1.2, max_gap=0.5, max_chars=50)
+    extras.apply_merge_short(did, ids, preview["groups"], min_duration=1.2, max_gap=0.5,
+                             max_chars=50)
+
+    lines = db.load_line_objects(did, with_words=True)
+    assert [ln.id for ln in lines] == [ids[0], ids[2]]
+    assert lines[0].zh == "안녕 하세요"
+    assert [w["word"] for w in ss.line_words(lines[0])] == ["안녕", "하세요"]
+    assert ss.line_words(lines[1]) is not None

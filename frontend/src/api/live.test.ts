@@ -31,6 +31,12 @@ describe('buildStartBody', () => {
     })
   })
 
+  it('sends a chosen title and leaves the key out when none is chosen', () => {
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', glossary_drama_id: 7 }).glossary_drama_id).toBe(7)
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('glossary_drama_id')
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', glossary_drama_id: 0 })).not.toHaveProperty('glossary_drama_id')
+  })
+
   it('clamps numbers, caps overlap at half the chunk and drops unknown choices', () => {
     const b = buildStartBody({
       ...DEFAULT_FORM, url: 'https://a.test', segment_seconds: 2, overlap_seconds: 8, max_minutes: 9999,

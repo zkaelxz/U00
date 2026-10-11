@@ -2,6 +2,7 @@
 could be shown longer, and the opt-in "Tidy cue timing for players" pass for
 SRT exports (ASS, VTT and LRC are deliberately left alone)."""
 import copy
+import os
 
 import pytest
 
@@ -227,6 +228,61 @@ class TestExportOption:
         assert on.headers["X-Cues-Extended"] == "1" and on.headers["X-Cues-Trimmed"] == "1"
         assert on.headers["X-Cues-Left-Long"] == "3"
         assert on.text != off.text
+
+
+class TestProbedFrameRate:
+    """Tidy uses the title's real frame rate; every failure is the 24 fps default."""
+
+    @staticmethod
+    def _title(db, with_video=True):
+        did = _seed(db, ROWS)
+        if with_video:
+            db.update_drama(did, source_video_filename="v.mp4")
+            open(os.path.join(db.drama_dir(did), "v.mp4"), "wb").close()
+        return did
+
+    @staticmethod
+    def _probe(monkeypatch, rate=None, error=None):
+        def fake(path, timeout=30):
+            assert timeout <= 10
+            if error:
+                raise error
+            return {"format": {}, "streams": [{"codec_type": "video", "r_frame_rate": rate}]}
+        monkeypatch.setattr(export_service.media_inspect, "run_ffprobe", fake)
+
+    @pytest.mark.parametrize("rate,fps", [("24000/1001", 23.976), ("25/1", 25.0), ("30/1", 30.0)])
+    def test_uses_the_probed_rate(self, isolated_db, monkeypatch, rate, fps):
+        self._probe(monkeypatch, rate)
+        result = export_service.generate_subtitle_export(self._title(isolated_db), "srt", "en", tidy_timing=True)
+        assert result["fps"] == pytest.approx(fps, abs=0.001)
+        assert fmt_ts(20 / result["fps"]) in result["text"].split("\n\n")[0]
+
+    def test_no_media_is_24(self, isolated_db, monkeypatch):
+        self._probe(monkeypatch, error=AssertionError("must not probe"))
+        did = self._title(isolated_db, with_video=False)
+        assert export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)["fps"] == 24.0
+
+    def test_probe_failure_is_24(self, isolated_db, monkeypatch):
+        self._probe(monkeypatch, error=export_service.media_inspect.ProbeError("boom"))
+        result = export_service.generate_subtitle_export(self._title(isolated_db), "srt", "en", tidy_timing=True)
+        assert result["fps"] == 24.0 and fmt_ts(MIN_DUR) in result["text"]
+
+    def test_unusable_rate_is_24(self, isolated_db, monkeypatch):
+        self._probe(monkeypatch, "0/0")
+        assert export_service.generate_subtitle_export(
+            self._title(isolated_db), "srt", "en", tidy_timing=True)["fps"] == 24.0
+
+    def test_not_probed_unless_tidying(self, isolated_db, monkeypatch):
+        self._probe(monkeypatch, error=AssertionError("must not probe"))
+        result = export_service.generate_subtitle_export(self._title(isolated_db), "srt", "en")
+        assert result["fps"] is None
+
+    def test_header_is_a_bare_number(self, client, isolated_db, monkeypatch):
+        self._probe(monkeypatch, "25/1")
+        did = self._title(isolated_db)
+        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en&tidy_timing=true")
+        assert resp.headers["X-Cue-Fps"] == "25"
+        assert "X-Cue-Fps" not in client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en").headers
 
 
 def core_lines(db, did):

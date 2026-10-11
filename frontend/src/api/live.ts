@@ -60,6 +60,8 @@ export interface LiveForm {
   max_minutes: number
   use_gpu: boolean
   reply_without_thinking: boolean
+  // null = no title: the translation gets no glossary or packs, as before.
+  glossary_drama_id: number | null
 }
 
 export const DEFAULT_FORM: LiveForm = {
@@ -73,6 +75,7 @@ export const DEFAULT_FORM: LiveForm = {
   max_minutes: 60,
   use_gpu: false,
   reply_without_thinking: true,
+  glossary_drama_id: null,
 }
 
 // The options remembered per browser (everything but the link).
@@ -152,6 +155,8 @@ export function buildStartBody(form: LiveForm): LiveSessionStart {
     max_minutes: clamp(form.max_minutes, MAX_MINUTES_RANGE, DEFAULT_FORM.max_minutes),
     use_gpu: form.use_gpu === true,
     reply_without_thinking: form.reply_without_thinking !== false,
+    ...(Number.isInteger(form.glossary_drama_id) && (form.glossary_drama_id as number) > 0
+      ? { glossary_drama_id: form.glossary_drama_id as number } : {}),
   }
 }
 

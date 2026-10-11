@@ -77,6 +77,9 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   // (event-stream.spec.ts covers the pushed Live status).
   await page.route('**/api/events?*', (route) =>
     json(route, { error: { code: 'rate_limited', message: 'No stream in this test.' } }, 429))
+  // The picker for "Use glossary and packs from title".
+  await page.route((u) => u.pathname === '/api/library/dramas', (route) =>
+    json(route, { items: [{ id: 7, title_en: 'Moonlit Letters', title_zh: '月下书信' }], count: 1 }))
   await page.route('**/api/translate/engines', (route) => opts.enginesFail
     ? json(route, { error: { code: 'internal', message: 'Boom.' } }, 500)
     : json(route, { items: opts.ollama ? [OLLAMA, ...ENGINES] : ENGINES }))

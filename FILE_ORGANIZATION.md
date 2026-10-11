@@ -45,6 +45,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db/` (package: `__init__.py` holds what has not moved out yet and re-exports the rest, so callers keep `db.<name>`)
+  - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
   - `db/benchmark.py` (accuracy benchmark cases and runs, Benchmark Lab sessions and results)
 - `diagnostics.py`
 - `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
@@ -230,6 +231,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
 - `extension_service.py`
 - `fixflag_transcribe.py`
+- `fixflag_translate.py` (the re-translation half of "fix flagged lines": reason-aware, id-keyed batches)
 - `bulk_job_view.py` (public view of a bulk_jobs row)
 - `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
@@ -316,6 +318,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `stronger_engine_service.py`
 - `subtitle_import_service.py`
 - `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
+- `reading_speed_dismissal_service.py` (remembers dismissed reading-speed flags in a sidecar, keyed by line id and English text hash)
 - `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
 - `transcribe_pipeline.py` (the in-process transcription pipeline and its spawn-target worker: separation, model load, VAD, decode, Qwen pass, realign, split; writes no database rows)
 - `transcribe_service.py`

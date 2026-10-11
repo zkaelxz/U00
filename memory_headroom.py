@@ -43,7 +43,8 @@ _WHISPER_MB = {
 }
 _QWEN_ASR_MB = {"0.6B": (2500, 2500), "1.7B": (5200, 5200)}
 _ESTIMATES_MB = {
-    "aligner": {"qwen3": (2000, 2000)},
+    # mms: an estimate from the 1.1 GB MMS_FA download plus activations, not a measurement.
+    "aligner": {"qwen3": (2000, 2000), "mms": (1500, 1500)},
     "separation": {"separator": (3000, 3000)},
 }
 _LABELS = {"whisper": "Whisper", "qwen_asr": "Qwen3-ASR", "aligner": "the Qwen3 forced aligner",
@@ -208,6 +209,8 @@ def check(kind: str, name: str, use_gpu: bool) -> None:
     if kind == "whisper":
         name = whisper_key(name)
     label = f"{_LABELS.get(kind, kind)} {name}" if kind in ("whisper", "qwen_asr") else _LABELS[kind]
+    if (kind, name) == ("aligner", "mms"):
+        label = "the MMS word aligner"
     check_need(label, need[0] if use_gpu else need[1], "vram" if use_gpu else "ram")
 
 

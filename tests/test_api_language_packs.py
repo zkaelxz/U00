@@ -66,3 +66,10 @@ def test_language_default(client, isolated_db):
     mine = client.get(f"/api/language-packs/dramas/{did}").json()
     assert mine["uses_default"] and next(p for p in mine["packs"] if p["id"] == "ko-address")["enabled"]
     assert client.post("/api/language-packs/defaults/fr", json={"packs": {}}).status_code == 422
+
+
+def test_language_default_is_readable(client, isolated_db):
+    assert client.get("/api/language-packs/defaults/ko").json() == {"language": "ko", "packs": []}
+    client.post("/api/language-packs/defaults/ko", json={"packs": {"ko-address": None}})
+    assert client.get("/api/language-packs/defaults/ko").json() == {"language": "ko", "packs": ["ko-address"]}
+    assert client.get("/api/language-packs/defaults/fr").status_code == 422

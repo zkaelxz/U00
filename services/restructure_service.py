@@ -49,6 +49,7 @@ import diarize
 import long_line_split
 import raw_transcript
 import resegment
+import segment
 import subtitle_formats
 import translate_engines
 from engine_backends import llm_tasks
@@ -58,6 +59,7 @@ from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
 from services.service_errors import (
     ConflictError,
+    DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,
     NotFoundError,
@@ -435,6 +437,7 @@ def _make_on_done(drama_id, source_ids, engine_name, engine):
 
 
 def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str]):
+    from services import translate_run_service   # lazy: heavy import
     engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
@@ -449,6 +452,8 @@ def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str])
         free_tier=settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
+    translate_run_service.refuse_when_cap_spent(engine_name,
+                                                settings_service.get("gemini_free_tier"))
     return engine_name, engine
 
 
@@ -564,12 +569,9 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
     (get_llm_resegment_preview). Writes nothing to the lines; the LLM's
     usage is logged like any other paid call, and a spent monthly cap
     refuses it. Applying still goes through start_resegmentation."""
-    from services import translate_run_service   # lazy: it imports many services
     drama = _require_drama(drama_id)
     language, script, segments, min_pause = _reseg_inputs(drama_id, drama)
     engine_name, eng = _build_engine(drama, engine, model)
-    translate_run_service.refuse_when_cap_spent(engine_name,
-                                                settings_service.get("gemini_free_tier"))
     lines = db.load_line_objects(drama_id, with_words=True)
     job_id = f"{RESEGMENT_PREVIEW_JOB_PREFIX}{drama_id}"
     if background_jobs.is_running(job_id):
@@ -719,8 +721,9 @@ _RESPLIT_CONFIRM = ("Some long lines already have a translation. A split piece c
                     "it, so those lines would lose their English -- pass confirm=true.")
 
 
-RESPLIT_SENSITIVITIES = {"normal": "Normal", "more": "More", "sentence": "Sentence by sentence"}
-_RESPLIT_NEXT = {"normal": 'Try "More" or "Sentence by sentence".',
+RESPLIT_SENSITIVITIES = {"more": "More", "sentence": "Sentence by sentence"}
+# None is no preset: only the fresh-transcription limits (plus any duration cap).
+_RESPLIT_NEXT = {None: 'Try "More" or "Sentence by sentence".',
                  "more": 'Try "Sentence by sentence".',
                  "sentence": "Try a shorter duration cap."}
 
@@ -730,22 +733,22 @@ class _Resplit:
     """What to cut: the sensitivity preset, an optional duration cap and the
     title language lines fall back to."""
     language: str = "zh"
-    sensitivity: str = "normal"
+    sensitivity: Optional[str] = None
     max_seconds: Optional[float] = None
     min_pause: float = MIN_WORD_GAP_SECONDS
 
     @property
     def label(self) -> str:
-        return RESPLIT_SENSITIVITIES[self.sensitivity] + (
+        return RESPLIT_SENSITIVITIES.get(self.sensitivity, "Default limits") + (
             f", {self.max_seconds:g} s cap" if self.max_seconds else "")
 
     def rules(self, ln) -> Optional[SplitRules]:
         """None is today's fixed 8 s / 40 CJK characters. The cap replaces the
         8 s limit rather than adding to it: a cap above 8 would otherwise do nothing."""
-        if self.sensitivity == "normal" and not self.max_seconds:
+        if self.sensitivity is None and not self.max_seconds:
             return None
         seconds = self.max_seconds or SPLIT_MAX_SECONDS
-        if self.sensitivity == "normal":
+        if self.sensitivity is None:
             return SplitRules(seconds, SPLIT_MAX_CJK_CHARS, count_latin=False)
         if self.sensitivity == "more":
             return SplitRules(
@@ -950,35 +953,28 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
 
 
 def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool = False,
-                       confirm: bool = False, sensitivity: str = "normal",
+                       confirm: bool = False, sensitivity: Optional[str] = None,
                        max_seconds: Optional[float] = None, dry_run: bool = False) -> dict:
     """Cuts the drama's over-long lines at sentence/comma boundaries in place --
     no transcription, no speaker detection. The first piece keeps the line's id
-    and flag; the pieces take the parent's speaker, then saved diarization
-    turns (if any) relabel the split lines only, manual speakers kept.
-    Translations can't be shared across pieces: a long line that has one needs
-    confirm=true, and its pieces start empty.
+    and flag; pieces take the parent's speaker, then saved diarization turns (if
+    any) relabel the split lines only, manual speakers kept. Translations can't
+    be shared across pieces: a long line that has one needs confirm=true, and
+    its pieces start empty.
 
-    sensitivity: "normal" (the limits of a fresh transcription: 8 s / 40 CJK
+    sensitivity: None (the limits of a fresh transcription: 8 s / 40 CJK
     characters), "more" (the per-language subtitle line length, in each line's
     own language) or "sentence" (every sentence end). max_seconds replaces the
     preset's duration limit. Pieces under 0.8 s or 4 CJK characters / 2 words
     are folded into a neighbour in "more" and "sentence".
 
-    dry_run only counts: {dry_run, split_lines, pieces, lines_before, line_count,
-    cleared_translations, note}, no write, no confirm, allowed while a job runs.
-
-    Timing is proportional to text length (instant, returned as the summary
-    {split_lines, lines_before, line_count, timing, aligned_lines,
-    cleared_translations, speakers_reassigned, note}), or with
-    align_to_audio a `resplit_<id>` job that uses the Qwen3 forced aligner on
-    the stored audio and returns {"job_id", "drama_id"}; its result carries
-    the same summary, and falls back to proportional with a note when the
-    aligner or audio is missing. History snapshot "before re-split" first.
-    Refused (409) while any job runs on the drama."""
+    dry_run only counts (no write, no confirm, allowed while a job runs).
+    Timing is proportional to text length, or with align_to_audio a
+    `resplit_<id>` job uses the Qwen3 aligner (proportional, with a note, when
+    it or the audio is missing). Snapshot "before re-split" first."""
     drama = _require_drama(drama_id)
     expected_line_ids = _id_list("expected_line_ids", expected_line_ids)
-    if sensitivity not in RESPLIT_SENSITIVITIES:
+    if sensitivity is not None and sensitivity not in RESPLIT_SENSITIVITIES:
         raise InvalidInputError(f"sensitivity must be one of {', '.join(RESPLIT_SENSITIVITIES)}.")
     if max_seconds is not None and not 2 <= max_seconds <= 120:
         raise InvalidInputError("max_seconds must be between 2 and 120.")
@@ -987,6 +983,10 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     if not dry_run:
         _refuse_if_job_running(drama_id)
     lines = db.load_line_objects(drama_id, with_words=True)
+    if sensitivity == "more" and (missing := segment.missing_line_word_segmenter(
+            _resplit_candidates(lines), cfg.language)):
+        raise DependencyUnavailableError(
+            f'"More" needs the {missing} word splitter. Install it in Diagnostics.')
     _check_expected(lines, expected_line_ids)
     plan = _resplit_plan(lines, cfg)
     if dry_run:

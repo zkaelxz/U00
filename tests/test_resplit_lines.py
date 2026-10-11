@@ -1,5 +1,6 @@
 """Re-split over-long lines in place (services/restructure_service.resplit_long_lines and
 POST /api/restructure/dramas/{id}/resplit). Mocked: no GPU, no aligner model, no audio."""
+import importlib.util
 import whisper_models
 import os
 import subprocess
@@ -11,14 +12,24 @@ import pytest
 import background_jobs
 import db
 import diarize
+import segment
 import segment_splitting
 from core import Line
 from services import restructure_service as svc
-from services.service_errors import ConflictError, InvalidInputError
+from services.service_errors import ConflictError, DependencyUnavailableError, InvalidInputError
 
 SENT = "我今天早上很早就起床了然后去公园跑步。"  # 19 CJK chars
 LONG = SENT * 3  # 57 chars, 30 s: over both limits
 SHORT = "你好。"
+
+
+_REAL_MISSING_SEGMENTER = segment.missing_word_segmenter
+
+
+@pytest.fixture(autouse=True)
+def _segmenters_installed(monkeypatch):
+    # The presets are tested for how they cut, not for what this machine has installed.
+    monkeypatch.setattr(segment, "missing_word_segmenter", lambda language: None)
 
 
 @pytest.fixture(autouse=True)
@@ -393,7 +404,7 @@ def _count(text, end, source="zh", lang=None, **kw):
 
 def test_screenshot_like_line_splits_in_every_preset():
     # ~95 s, ~120 CJK characters, ten sentence ends
-    for sens in ("normal", "more", "sentence"):
+    for sens in (None, "more", "sentence"):
         r = _count(BIG_ZH, 95.0, sensitivity=sens)
         assert r["split_lines"] == 1 and r["pieces"] >= 6, (sens, r)
 
@@ -462,9 +473,9 @@ def test_duration_cap_replaces_the_default_limit():
     assert _count(SAMPLES["en"], 7.0, source="en", max_seconds=10)["split_lines"] == 0
 
 
-def test_normal_without_options_is_todays_behaviour():
+def test_no_preset_without_options_is_todays_behaviour():
     did, ids = _seed()
-    r = svc.resplit_long_lines(did, ids, sensitivity="normal", max_seconds=None)
+    r = svc.resplit_long_lines(did, ids, sensitivity=None, max_seconds=None)
     assert (r["split_lines"], r["line_count"]) == (1, 5)
 
 
@@ -484,7 +495,7 @@ def test_nothing_message_names_the_sensitivity_and_suggests_more():
     db.save_lines(did, [Line(idx=0, start=0, end=2, zh=SHORT)])
     ids = [r["id"] for r in db.load_lines(did)]
     note = svc.resplit_long_lines(did, ids)["note"]
-    assert "Normal" in note and "More" in note and "No line is over" in note
+    assert "Default limits" in note and "More" in note and "No line is over" in note
     assert "Sentence by sentence" in svc.resplit_long_lines(did, ids, sensitivity="more")["note"]
     assert "shorter duration" in svc.resplit_long_lines(did, ids, sensitivity="sentence")["note"]
 
@@ -642,3 +653,36 @@ def test_resegment_preview_says_why_nothing_changes():
     assert p["changed"] == [] and "Split long lines" in p["reason"]
     clean, _ = _one_line("你好。", 2.0)
     assert "Nothing to re-segment" in svc.preview_resegmentation(clean)["reason"]
+
+
+@pytest.mark.parametrize("lang,package", [("zh", "jieba"), ("ja", "sudachipy")])
+def test_more_is_refused_for_cjk_titles_without_a_word_splitter(monkeypatch, lang, package):
+    monkeypatch.setattr(segment, "missing_word_segmenter", _REAL_MISSING_SEGMENTER)
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *a: None if name == package else real_find_spec(name, *a))
+    did, ids = _one_line(SAMPLES[lang], 7.0, source=lang)
+    with pytest.raises(DependencyUnavailableError, match=package):
+        svc.resplit_long_lines(did, ids, sensitivity="more", dry_run=True)
+    # The other presets don't cut by length, so they stay available.
+    assert svc.resplit_long_lines(did, ids, sensitivity="sentence", dry_run=True)["dry_run"]
+
+
+def test_more_needs_no_word_splitter_for_korean_or_english(monkeypatch):
+    monkeypatch.setattr(segment, "missing_word_segmenter", _REAL_MISSING_SEGMENTER)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None)
+    for lang in ("ko", "en"):
+        assert _count(SAMPLES[lang], 7.0, source=lang, sensitivity="more")["dry_run"]
+
+
+def test_more_checks_the_word_splitter_of_each_lines_own_language(monkeypatch):
+    # A Korean title holding a line tagged Japanese: that line is cut by length too.
+    monkeypatch.setattr(segment, "missing_word_segmenter", _REAL_MISSING_SEGMENTER)
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *a: None if name == "sudachipy" else real_find_spec(name, *a))
+    did, ids = _one_line(SAMPLES["ja"], 7.0, lang="ja", source="ko")
+    with pytest.raises(DependencyUnavailableError, match="sudachipy"):
+        svc.resplit_long_lines(did, ids, sensitivity="more", dry_run=True)
+    untagged, untagged_ids = _one_line(SAMPLES["ko"], 7.0, source="ko")
+    assert svc.resplit_long_lines(untagged, untagged_ids, sensitivity="more", dry_run=True)["dry_run"]

@@ -22,7 +22,7 @@ import emotion
 import core as core_module
 import whisper_models
 from core import transcribe_for_timing
-from services import (auth_service, fixflag_transcribe, job_timing_service,
+from services import (auth_service, fixflag_transcribe, fixflag_translate, job_timing_service,
                       language_pack_service, library_restore_sql, line_provenance_service,
                       run_settings_service, settings_service)
 
@@ -524,7 +524,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     currently-flagged line, re-transcribes its own timing window from the
     original audio (skipped if there's no audio -- novel-narration has
     none to re-transcribe) and re-translates the result, clearing the
-    flag on whichever lines that actually changed something for. Uses
+    flag on whichever lines that actually changed something for (a reply
+    identical to the current English leaves the line flagged). Uses
     whatever Whisper model size and translation engine/model are
     currently selected in Workspace (3. Recognition accuracy / 5.
     Translation) -- the same ones "Transcribe" and "Translate all lines"
@@ -539,7 +540,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     Each re-translation gets the same context a translate run uses
     (glossary, style guidelines, locale, the line's character name).
     """
-    flagged = [ln for ln in lines if ln.flag]
+    flagged, timing_skipped = fixflag_translate.split_timing_flags(
+        [ln for ln in lines if ln.flag])
     drama = db.get_drama(drama_id) or {}
     style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
     glossary_terms, style_guidelines, character_names = build_run_style_context(
@@ -550,23 +552,10 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
         engine, drama, style_note=style_note or "", locale=locale,
         glossary_terms=glossary_terms, style_guidelines=style_guidelines)
     base_context["source_language"] = source_language
-    fixed_count = 0
-    spent = 0.0
-    cap_reached = None
-    # Both stages below used to be able to lose every
-    # already-fixed line, not just the one that failed. The re-transcribe
-    # call had no `except` at all, so a real exception (e.g. a
-    # model-download failure partway through) escaped the loop entirely --
-    # and since db.save_lines() only ran once at the very end, that
-    # aborted the whole job before anything got saved. The translate call
-    # had an `except Exception: pass` that silently swallowed the error
-    # (including an auth/quota failure that would repeat for every
-    # remaining line), leaving the user with "Fixed 0 of N" and no
-    # explanation. Now every per-line failure is caught, recorded, and
-    # the line stays flagged, but the loop keeps going and the fixes made
-    # so far are saved in a `finally` so a later failure can't erase them
-    # (the cost-cap break below is a clean, expected stop, not a
-    # failure, but the same `finally` covers it too).
+    outcome = {"fixed": 0, "unchanged": 0, "cap_reached": None}
+    # Per-line failures are recorded and the line stays flagged, and the
+    # fixes made so far are saved in the `finally`, so a later failure (or the
+    # cost-cap stop, which is expected) can't erase them.
     errors = []
     # Lines heard before a timeout are fixed and saved; after a Cancel their
     # text is saved but not translated (no paid calls), so they stay flagged.
@@ -582,55 +571,25 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     if cancelled or hearing_error:
         flagged = [ln for ln in flagged if ln.idx in heard_by_idx]
     try:
-        for i, ln in enumerate(flagged):
-            # A cancel seen while hearing is not re-read: lines heard are fixed first.
-            if not cancelled:
-                _raise_if_cancelled(job_id)
-            heard = heard_by_idx.get(ln.idx)
-            if heard is not None:
-                if heard.get("error"):
-                    errors.append(heard["error"])
-                elif heard["text"]:
-                    fixflag_transcribe.use_heard_text(ln, heard["text"])
-            if ln.zh.strip() and translate_engines.is_english_line(ln):
-                ln.en = ln.zh
-                ln.flag, ln.flag_note = None, ""
-                fixed_count += 1
-            elif ln.zh.strip() and not cancelled:
-                try:
-                    translated = engine.translate_batch(
-                        [ln.zh], {**base_context,
-                                  "speaker_labels": [character_names.get(ln.speaker)],
-                                  "line_languages": translate_engines.tagged_line_languages(
-                                      [ln], source_language)})[0]
-                    if hasattr(engine, "last_usage"):
-                        inp = engine.last_usage.get("input_tokens", 0)
-                        out = engine.last_usage.get("output_tokens", 0)
-                        cost = translate_engines.estimate_cost_for_engine(engine, inp, out)
-                        spent += cost
-                        db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
-                                     "fix_flagged_line", inp, out, cost)
-                    if translated.strip():
-                        ln.en = translated
-                        ln.flag, ln.flag_note = None, ""
-                        fixed_count += 1
-                except Exception as e:
-                    # leave the line flagged rather than lose the source fix silently
-                    errors.append(translate_engines.redact_secrets(
-                        f"line {ln.idx + 1} translation: {e}"))
-            background_jobs.update_progress(job_id, (i + 1) / max(len(flagged), 1),
-                                            f"Fixing flagged lines... {i + 1}/{len(flagged)}")
-            if cost_cap_usd is not None and spent >= cost_cap_usd and i + 1 < len(flagged):
-                cap_reached = spent
-                break
+        outcome = fixflag_translate.fix_lines(
+            flagged, engine=engine, engine_choice=engine_choice, drama_id=drama_id,
+            base_context=base_context, character_names=character_names,
+            source_language=source_language, heard_by_idx=heard_by_idx,
+            translate=not cancelled, cost_cap_usd=cost_cap_usd, errors=errors, all_lines=lines,
+            check_cancel=lambda: None if cancelled else _raise_if_cancelled(job_id),
+            on_progress=lambda done, total: background_jobs.update_progress(
+                job_id, done / max(total, 1), f"Fixing flagged lines... {done}/{total}"))
     finally:
         if audio_path and os.path.exists(audio_path):
             whisper_models.release_gpu_models()  # re-transcription stage done
         kept = fixflag_transcribe.save_fixed(drama_id, lines)
     if cancelled:
         raise background_jobs.JobCancelled(job_id)
-    background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": total_flagged,
-                                        "errors": errors[:20], "cap_reached": cap_reached, **kept})
+    background_jobs.set_result(job_id, {
+        "fixed_count": outcome["fixed"], "total_flagged": total_flagged, "errors": errors[:20],
+        "cap_reached": outcome["cap_reached"],
+        **({"timing_skipped_count": timing_skipped} if timing_skipped else {}),
+        **({"unchanged_count": outcome["unchanged"]} if outcome["unchanged"] else {}), **kept})
 
 
 # Restore-a-backup guardrails -- generous, not tight, since a

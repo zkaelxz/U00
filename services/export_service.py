@@ -24,8 +24,9 @@ from urllib.parse import quote
 import auto_qc
 import core as core_module
 import db
+import media_inspect
 import subtitle_formats
-from services import restructure_service
+from services import metadata_service, reading_speed_dismissal_service, restructure_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       NotFoundError, UnsupportedOperationError)
 
@@ -334,10 +335,32 @@ def get_export_readiness(drama_id: int) -> dict:
     }
 
 
-def _export_result(text: str, report: Optional[dict] = None) -> dict:
+def _export_result(text: str, report: Optional[dict] = None, fps: Optional[float] = None) -> dict:
     report = report or {"extended": 0, "trimmed": 0, "left_long": []}
     return {"text": text, "cues_extended": report["extended"], "cues_trimmed": report["trimmed"],
-            "cues_left_long": report["left_long"]}
+            "cues_left_long": report["left_long"], "fps": fps}
+
+
+_FPS_PROBE_TIMEOUT_S = 5
+# Above this a "frame rate" is a bad container timebase, not video.
+_MAX_PLAUSIBLE_FPS = 240
+
+
+def _probe_title_fps(drama_id: int, drama: dict) -> float:
+    """The frame rate of the title's own video, else DEFAULT_FPS. It is not
+    stored on the title and ffprobe may be missing or slow, so any failure is
+    the old 24 fps behaviour rather than an export error."""
+    path = metadata_service._stored_media_path(drama_id, drama)
+    if path:
+        try:
+            fps = media_inspect.analysis_from_probe(
+                media_inspect.run_ffprobe(path, timeout=_FPS_PROBE_TIMEOUT_S),
+                os.path.basename(path)).fps
+        except (media_inspect.ProbeError, ValueError, TypeError, OSError):
+            fps = None
+        if fps and 0 < fps <= _MAX_PLAUSIBLE_FPS:
+            return fps
+    return subtitle_formats.DEFAULT_FPS
 
 
 def generate_subtitle_text(drama_id: int, fmt: str, field: str, **options) -> str:
@@ -372,10 +395,12 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     language unwrapped.
 
     tidy_timing (SRT and bilingual SRT only, default off) runs
-    subtitle_formats.tidy_cue_timing at `fps`, 24 when unknown: the title's
-    frame rate is not stored, only probed from the media file. VTT, LRC and
+    subtitle_formats.tidy_cue_timing at `fps`; without one, the frame rate
+    ffprobe reads from the title's video (bounded timeout), else 24: it is
+    not stored on the title. The fps used comes back as "fps" (None when
+    nothing was tidied). VTT, LRC and
     ASS keep the overlap-clamped times as they are. Returns {"text",
-    "cues_extended", "cues_trimmed", "cues_left_long" (cue numbers)}.
+    "cues_extended", "cues_trimmed", "cues_left_long" (cue numbers), "fps"}.
 
     Raises NotFoundError for an unknown drama id, InvalidInputError for
     an unknown fmt/field.
@@ -401,6 +426,8 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     if fmt == "lrc":
         return _export_result(subtitle_formats.lines_to_lrc(export_lines, field, notes_by_idx, wrap_chars))
 
+    if tidy_timing and fps is None:
+        fps = _probe_title_fps(drama_id, drama)
     timed, report = (subtitle_formats.tidy_cue_timing(export_lines, fps) if tidy_timing
                      else (export_lines, None))
     wrapped = subtitle_formats.wrap_lines(timed, wrap_chars)
@@ -408,7 +435,7 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
         text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
     else:
         text = core_module.lines_to_srt(wrapped, field, notes_by_idx=notes_by_idx)
-    return _export_result(text, report)
+    return _export_result(text, report, fps if tidy_timing else None)
 
 
 def flag_overlapping_lines(drama_id: int) -> dict:
@@ -442,7 +469,8 @@ def flag_dense_lines(drama_id: int) -> dict:
     drama, lines = _load_drama_and_lines(drama_id)
 
     newly_flagged = subtitle_formats.flag_dense_lines(
-        lines, mode=subtitle_formats.flagging_mode_of(drama))
+        lines, mode=subtitle_formats.flagging_mode_of(drama),
+        dismissed=reading_speed_dismissal_service.load_dismissed(drama_id))
     if newly_flagged:
         # flag/flag_note only: a concurrent edit to a line's text, timing or
         # speaker must survive this write.
@@ -494,7 +522,8 @@ def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
                 ln.flag = None
                 ln.flag_note = ""
         reflagged = (subtitle_formats.flag_dense_lines(
-            lines, mode=subtitle_formats.flagging_mode_of(drama)) if recheck else 0)
+            lines, mode=subtitle_formats.flagging_mode_of(drama),
+            dismissed=reading_speed_dismissal_service.load_dismissed(drama_id)) if recheck else 0)
         if targets or reflagged:
             db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return {"cleared_count": len(targets), "flagged_count": reflagged, "history_id": history_id}

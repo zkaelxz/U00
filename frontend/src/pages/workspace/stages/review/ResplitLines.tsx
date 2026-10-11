@@ -1,29 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { getInstallPresets, installDependency } from '../../../../api/diagnostics'
 import { getDiarizationConfig } from '../../../../api/workspace'
 import { ApiError } from '../../../../api/client'
 import { listAllLines, reassignSpeakersFromSaved, resplitLines, restoreSnapshot } from '../../../../api/restructure'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { usePcOnly } from '../../../../hooks/usePcOnly'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
 import { useStageDraft } from '../../../../hooks/useStageDraft'
 import { jobSucceeded, type JobRecord } from '../../../../types/jobs'
 import type { ResplitResult, ResplitSensitivity } from '../../../../types/restructure'
+import { runInstallJob } from '../../../diagnostics/installJob'
 import { useStage } from '../../StageContext'
 import { resplitJobId } from '../../stageJobIds'
 import { JobPanel } from '../JobPanel'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import { speakerTimeFooter, speakerTimeLines, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
-import { JOB_RUNNING_MESSAGE, RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary } from './reviewResegment'
+import { JOB_RUNNING_MESSAGE, RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, wordSplitterPackages } from './reviewResegment'
 import { UndoNotice } from './UndoNotice'
 import { retireUndoOffer, useUndoOffer } from './undoOffer'
 
 // Lines over ~12 s or ~40 characters, cut at sentence ends, then commas, then
 // pauses, then evenly, and timed from the audio when the aligner is available.
-const QUICK_SPLIT = { align_to_audio: true, sensitivity: 'normal' as ResplitSensitivity, max_seconds: 12 }
+const QUICK_SPLIT = { align_to_audio: true, max_seconds: 12 }
 const QUICK_SPLIT_HELP = 'Splits every line over about 12 seconds or 40 characters at sentence ends, then commas, then the longest pauses (evenly by length, flagged approximate, if there is nothing else), and re-times the pieces from the audio.'
 
 interface Props {
@@ -36,14 +40,30 @@ interface Props {
 // only the split lines from the detection already saved: nothing is
 // transcribed or detected again. A snapshot is taken first (Records -> Line history).
 export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
-  const { onJobDone } = useStage()
+  const { onJobDone, drama } = useStage()
+  const pc = usePcOnly()
   // The options as last left here; a cap of 0 means the preset's own limit.
   const { draft, save: saveDraft } = useStageDraft(dramaId, RESPLIT_DRAFT_STAGE, RESPLIT_DRAFT_SHAPE)
   const [align, setAlign] = useState(draft.align ?? false)
   const [sensitivity, setSensitivity] = useState<ResplitSensitivity>(
-    RESPLIT_SENSITIVITIES.some((o) => o.value === draft.sensitivity) ? (draft.sensitivity as ResplitSensitivity) : 'normal',
+    RESPLIT_SENSITIVITIES.some((o) => o.value === draft.sensitivity) ? (draft.sensitivity as ResplitSensitivity) : 'more',
   )
   const [cap, setCap] = useState<number | null>(RESPLIT_DURATION_CAPS.includes(draft.capSec ?? 0) ? (draft.capSec as number) : null)
+  // "More" cuts by length, which splits Chinese and Japanese words in half
+  // unless the word splitter is installed; an unreadable check leaves it on
+  // (the server refuses it anyway).
+  const [missingSplitters, setMissingSplitters] = useState<string[]>([])
+  const [splitterTick, setSplitterTick] = useState(0)
+  const splitterPackages = wordSplitterPackages(drama.source_language)
+  useEffect(() => {
+    if (!splitterPackages.length) return
+    void getInstallPresets().then(
+      (p) => setMissingSplitters(splitterPackages.filter((name) => !p.packages[name]?.installed)),
+      () => {},
+    )
+  }, [splitterPackages.join(), splitterTick]) // eslint-disable-line react-hooks/exhaustive-deps
+  const moreBlocked = splitterPackages.length > 0 && missingSplitters.length > 0
+  const chosen: ResplitSensitivity = moreBlocked && sensitivity === 'more' ? 'sentence' : sensitivity
   useEffect(() => {
     saveDraft({ align, sensitivity, capSec: cap ?? 0 })
   }, [saveDraft, align, sensitivity, cap])
@@ -107,7 +127,7 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
       const lines = await listAllLines(dramaId)
       const r = await resplitLines(dramaId, {
         expected_line_ids: lines.map((l) => l.id), confirm, dry_run: dryRun,
-        ...(oneClick ? QUICK_SPLIT : { align_to_audio: align, sensitivity, max_seconds: cap }),
+        ...(oneClick ? QUICK_SPLIT : { align_to_audio: align, sensitivity: chosen, max_seconds: cap }),
       })
       if (dryRun) setSummary(resplitPreviewSummary(r))
       else if (r.job_id) {
@@ -158,6 +178,25 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
     }
   }
 
+  const installSplitters = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      for (const name of missingSplitters) {
+        const r = await runInstallJob(() => installDependency(name), undefined, name)
+        if (!r.ok) {
+          setSummary(r.hint || `Couldn't install ${name}.`)
+          break
+        }
+      }
+      setSplitterTick((t) => t + 1)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const reassign = async () => {
     setBusy(true)
     setError(null)
@@ -187,12 +226,24 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
         <div className="setting-list review-toggles">
           <Field
             label="Split sensitivity"
-            help="Normal: lines over 8 s or 40 CJK characters. More: lines over the usual subtitle length for their language (16 Chinese/Japanese, 20 Korean, 42 English characters). Sentence by sentence: every sentence end. Pieces under 0.8 s or 4 CJK characters / 2 words are never made."
+            help="More: lines over the usual subtitle length for their language (16 Chinese/Japanese, 20 Korean, 42 English characters), cut at word boundaries. Sentence by sentence: every sentence end. Lines over 8 s or 40 CJK characters are what a fresh transcription already splits; Split long lines handles those. Pieces under 0.8 s or 4 CJK characters / 2 words are never made."
           >
-            <select value={sensitivity} disabled={blocked} onChange={(e) => { setSensitivity(e.target.value as ResplitSensitivity); setSummary(null) }}>
-              {RESPLIT_SENSITIVITIES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <select value={chosen} disabled={blocked} aria-describedby={moreBlocked ? 'resplit-more-blocked' : undefined}
+              onChange={(e) => { setSensitivity(e.target.value as ResplitSensitivity); setSummary(null) }}>
+              {RESPLIT_SENSITIVITIES.map((o) => (
+                <option key={o.value} value={o.value} disabled={o.value === 'more' && moreBlocked}>{o.label}</option>
+              ))}
             </select>
           </Field>
+          {moreBlocked && (
+            <div id="resplit-more-blocked" className="muted" data-testid="resplit-more-blocked">
+              <p>"More" is off: it needs the {missingSplitters.join(' and ')} word splitter, which isn't installed.</p>
+              {pc === 'remote' ? <p>Ask the PC owner to install it in Diagnostics.</p> : (
+                <ConfirmButton name={missingSplitters.join(' and ')} verb="install" tone="primary" label="Install…"
+                  confirmLabel={`Confirm install ${missingSplitters.join(' and ')}`} busy={busy} disabled={blocked} onConfirm={installSplitters} />
+              )}
+            </div>
+          )}
           <Field
             label="Also split by duration"
             unit="s"
