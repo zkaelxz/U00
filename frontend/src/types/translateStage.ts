@@ -408,3 +408,53 @@ export interface GlossaryNameClusters {
   /** Downloaded VTuber names found in the lines; empty unless the title opted in. */
   known_vtuber_names: GlossaryNameCluster[]
 }
+
+export interface SpellingProposal {
+  text: string
+  count: number
+  is_alias: boolean
+  is_term: boolean
+  examples: GlossaryVariantExample[]
+}
+
+export interface SpellingSuggestResult {
+  term: string | null
+  english: string | null
+  proposals: SpellingProposal[]
+  /** True when the model's answer could not be read; nothing was proposed or changed. */
+  unusable: boolean
+  lines_scanned: number
+  truncated: boolean
+}
+
+export interface SpellingSuggestStatus {
+  job_id: string
+  status: string
+  progress: number | null
+  message: string
+  run_id: string | null
+  result: SpellingSuggestResult | null
+}
+
+export interface NameConsistencyRow {
+  line_idx: number
+  source: string
+  english: string
+}
+
+export interface NameConsistency {
+  term: string
+  english: string
+  available: boolean
+  reason: string
+  lines_with_name: number
+  untranslated: number
+  consistent: number
+  differing: NameConsistencyRow[]
+  other_words: string[]
+  lines_scanned: number
+  /** The scan stopped at its budget; the counts cover only `lines_scanned` lines. */
+  truncated: boolean
+  /** More differing lines exist than are listed. */
+  more_rows: boolean
+}

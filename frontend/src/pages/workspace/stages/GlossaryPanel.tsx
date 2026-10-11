@@ -18,6 +18,7 @@ import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
+import { SuggestSpellings } from './GlossarySpellings'
 import { PossibleNames, SimilarSpellings } from './GlossaryVariants'
 import { VtuberNames } from './VtuberNames'
 import { LanguagePacks } from './LanguagePacks'
@@ -178,6 +179,7 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
   const [suggestRequested, setSuggestRequested] = useState(false)
   const [importSignal, setImportSignal] = useState(0)
   const [similarFor, setSimilarFor] = useState<number | null>(null)
+  const [suggestFor, setSuggestFor] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -336,7 +338,8 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
                 <td role="cell" data-label="Banned" className="card-meta">{t.banned_translations.join(', ')}</td>
                 <td role="cell" data-label="Exact" className="card-meta">{t.enforce_exact ? 'Yes' : 'No'}</td>
                 <td role="cell" className="card-action"><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button>
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} title="Look in the source lines for other ways this name was written" onClick={() => setSimilarFor(similarFor === t.id ? null : t.id)}>Find similar</button></td>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} title="Look in the source lines for other ways this name was written" onClick={() => setSimilarFor(similarFor === t.id ? null : t.id)}>Find similar</button>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Suggest spellings of ${t.term_original}`} title="Ask the engine how this name may have been written, then check it against the lines" onClick={() => setSuggestFor(suggestFor === t.id ? null : t.id)}>Suggest spellings</button></td>
               </tr>
             ))}
           </tbody>
@@ -348,6 +351,14 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
           term={t}
           onAdded={() => setReloads((n) => n + 1)}
           onClose={() => setSimilarFor(null)}
+        />
+      ))}
+      {terms?.map((t) => t.id === suggestFor && (
+        <SuggestSpellings
+          key={`suggest-${t.id}-${termsVersion}`}
+          term={t}
+          onAdded={() => setReloads((n) => n + 1)}
+          onClose={() => setSuggestFor(null)}
         />
       ))}
       {terms && terms.length > 0 && (

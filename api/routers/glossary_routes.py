@@ -32,11 +32,14 @@ from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkD
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
                          GlossaryNameClusters, GlossaryVariants,
+                         NameConsistency, SpellingSuggestRequest, SpellingSuggestRunResult,
+                         SpellingSuggestStatus,
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
                          LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
                          NovelGlossaryStatus)
-from services import export_service, glossary_service, glossary_variants_service
+from services import (export_service, glossary_service, glossary_spelling_service,
+                      glossary_variants_service)
 from services.service_errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/glossary", tags=["glossary"])
@@ -118,6 +121,51 @@ def get_term_variants(drama_id: int = Path(ge=1),
             responses={404: {"model": ErrorResponse}})
 def get_name_clusters(drama_id: int = Path(ge=1)):
     return glossary_variants_service.discover_names(drama_id)
+
+
+# --- Suggest spellings (one model call) and the English consistency check ------
+# Same gate as from-lines: jobs.start plus engines.paid on the title's engine. The
+# status and the check return source lines, so they need lines.read like the scans above.
+
+@router.post("/dramas/{drama_id}/spelling-suggestions", dependencies=[require_permission("jobs.start")],
+             response_model=SpellingSuggestRunResult,
+             summary="Start one model call proposing how a known name may be spelled in the lines",
+             responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
+                        404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_start_spelling_suggestions(payload: SpellingSuggestRequest, request: Request,
+                                    drama_id: int = Path(ge=1)):
+    engine_name = glossary_spelling_service.spelling_engine(drama_id)
+    require_engines_allowed(request, engine_name)
+    return glossary_spelling_service.start_spelling_suggestions(
+        drama_id, payload.term_id, payload.english, engine_name=engine_name)
+
+
+@router.get("/dramas/{drama_id}/spelling-suggestions", dependencies=[require_permission("lines.read")],
+            response_model=SpellingSuggestStatus,
+            summary="Status and (when done) the verified spelling proposals",
+            responses={404: {"model": ErrorResponse}})
+def get_spelling_suggestions(drama_id: int = Path(ge=1)):
+    return glossary_spelling_service.get_spelling_status(drama_id)
+
+
+@router.post("/dramas/{drama_id}/spelling-suggestions/cancel", dependencies=[require_permission("jobs.cancel")],
+             response_model=JobCancelResult,
+             summary="Cancel this drama's spelling suggestions, only if it is still run run_id",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_cancel_spelling_suggestions(payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
+    return glossary_spelling_service.cancel_spelling_run(drama_id, payload.run_id)
+
+
+@router.get("/dramas/{drama_id}/name-consistency", dependencies=[require_permission("lines.read")],
+            response_model=NameConsistency,
+            summary="Lines where a term's name is not rendered as the given English (read-only, offline)",
+            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def get_name_consistency(drama_id: int = Path(ge=1), term_id: int = Query(..., ge=1),
+                         english: str = Query(None, max_length=80, description=(
+                             "The English to look for; defaults to the term's saved translation"))):
+    return glossary_spelling_service.check_name_consistency(drama_id, term_id, english)
 
 
 @router.get("/dramas/{drama_id}/instructions", dependencies=[require_permission("library.read")], response_model=GlossaryInstructions,
