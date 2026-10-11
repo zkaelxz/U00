@@ -14,6 +14,7 @@ import whisper_models
 import segment_splitting
 import db
 import resegment
+import segment
 from core import Line
 from services import restructure_service as svc
 from services import review_lines_service
@@ -334,7 +335,9 @@ class TestResplit:
         assert [(x["start"], x["end"]) for x in rows] == pytest.approx(_phrase_times())
         assert all(_valid_words(did))
 
-    def test_no_pause_long_enough_means_no_cut(self):
+    def test_no_pause_long_enough_means_no_cut(self, monkeypatch):
+        # About the cut points, not what this machine has installed.
+        monkeypatch.setattr(segment, "missing_word_segmenter", lambda language: None)
         did, ids = _seed()
         svc.resplit_long_lines(did, ids)
         ids = [r["id"] for r in db.load_lines(did)]
