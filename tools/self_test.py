@@ -24,6 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 
 PASS, FAIL, SKIPPED = "PASS", "FAIL", "SKIPPED"
 REPORT_NAME = "self-test-report.txt"
+REPORT_TITLE = "Baihe self-test report"
 # Smallest multilingual model: this is a "does the GPU path work" probe, not a quality test.
 DEFAULT_MODEL = "tiny"
 OLLAMA_DEFAULT_URL = "http://localhost:11434"
@@ -59,25 +60,49 @@ def _write_silence_wav(path: str, seconds: float = 1.0, rate: int = 16000) -> No
         wav.writeframes(b"\x00\x00" * int(seconds * rate))
 
 
+def _local_model_folder(model: str):
+    """The model's folder if it is fully downloaded, else None. Resolved offline
+    and exactly: is_whisper_model_cached matches on folder names and would let
+    'large-v3' pass on a 'large-v3-turbo' download, after which loading by name
+    would fetch the real one."""
+    from faster_whisper.utils import download_model
+    try:
+        return download_model(model, local_files_only=True)
+    except (ValueError, OSError):
+        # huggingface_hub's LocalEntryNotFoundError is both; an unknown size is a ValueError.
+        return None
+
+
 def check_gpu_whisper(model: str = DEFAULT_MODEL):
     import diagnostics
+    import ollama_unload
     import whisper_models
     if not diagnostics.check_dependency("faster_whisper"):
         return SKIPPED, "faster-whisper is not installed"
     cuda = whisper_models.gpu_status().get("ctranslate2_cuda_devices")
     if not cuda:
         return SKIPPED, "no CUDA GPU visible to faster-whisper"
-    if not whisper_models.is_whisper_model_cached(model):
-        return SKIPPED, f"the '{model}' model is not downloaded (no download is attempted; use --model)"
-    loaded = whisper_models.load_whisper_model(model, use_gpu=True)
-    info = whisper_models.get_whisper_device_info(model, use_gpu=True)
-    if info.get("device") != "cuda":
-        return FAIL, "model loaded on the CPU, not the GPU: " + _clean(info.get("gpu_error") or "no reason given")
-    with tempfile.TemporaryDirectory() as tmp:
-        clip = os.path.join(tmp, "clip.wav")
-        _write_silence_wav(clip)
-        segments, _ = loaded.transcribe(clip)
-        count = len(list(segments))
+    folder = _local_model_folder(model)
+    if folder is None:
+        return SKIPPED, f"the '{model}' model is not fully downloaded (no download is attempted; use --model)"
+    try:
+        # A scope without a local Ollama keeps the loader from unloading the
+        # owner's Ollama models and from reading app settings (which would
+        # create the library folder and database).
+        with ollama_unload.job_scope(ollama_unload.JobScope(local_ollama=False)):
+            loaded = whisper_models.load_whisper_model(model, use_gpu=True, local_model_path=folder)
+            info = whisper_models.get_whisper_device_info(model, use_gpu=True, local_model_path=folder)
+            if info.get("device") != "cuda":
+                return FAIL, ("model loaded on the CPU, not the GPU: "
+                              + _clean(info.get("gpu_error") or "no reason given"))
+            with tempfile.TemporaryDirectory() as tmp:
+                clip = os.path.join(tmp, "clip.wav")
+                _write_silence_wav(clip)
+                segments, _ = loaded.transcribe(clip)
+                count = len(list(segments))
+    finally:
+        # Otherwise the model keeps its VRAM and skews every figure read after it.
+        whisper_models.release_gpu_models()
     return PASS, f"loaded '{model}' on the GPU ({info.get('compute_type')}) and transcribed a 1 s clip ({count} segment(s))"
 
 
@@ -178,6 +203,8 @@ def check_keys():
 
 def _checks(model: str):
     return [
+        # First: the torch check opens a CUDA context that would shrink the free-VRAM reading.
+        ("VRAM / RAM headroom", check_memory),
         ("GPU faster-whisper load + transcription", lambda: check_gpu_whisper(model)),
         ("torch / CUDA", check_torch_cuda),
         ("ffmpeg", check_ffmpeg),
@@ -185,7 +212,6 @@ def _checks(model: str):
         ("TTS engines", check_tts),
         ("OCR engines", check_ocr),
         ("Ollama (this PC only)", check_ollama),
-        ("VRAM / RAM headroom", check_memory),
         ("API key presence", check_keys),
     ]
 
@@ -202,7 +228,7 @@ def run_checks(model: str = DEFAULT_MODEL) -> list:
 
 
 def format_report(results: list) -> str:
-    lines = ["Baihe self-test report",
+    lines = [REPORT_TITLE,
              f"Date: {datetime.date.today().isoformat()}",
              f"Python {platform.python_version()} on {platform.system()}", ""]
     lines += [f"{status:<7} {name}: {reason}" for name, status, reason in results]
@@ -221,20 +247,51 @@ def default_report_path() -> str:
     return os.path.join(portable.data_dir(), REPORT_NAME)
 
 
+def _refuse_to_overwrite(out: str) -> bool:
+    """True if `out` exists and is not a report this tool wrote. --out could
+    otherwise name .env or library.db, and write_text follows symlinks."""
+    if not os.path.lexists(out):
+        return False
+    if os.path.islink(out) or not os.path.isfile(out):
+        return True
+    try:
+        with open(out, "rb") as fh:
+            first_line = fh.read(128).split(b"\n", 1)[0].rstrip(b"\r")
+    except OSError:
+        return True
+    return first_line.decode("utf-8", "replace") != REPORT_TITLE
+
+
+def _console_safe() -> None:
+    # A cp1252 Windows console raises on characters the app's text can carry.
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tools.self_test", description=__doc__.splitlines()[0])
     parser.add_argument("--out", help=f"report file (default: {REPORT_NAME} in the data folder)")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Whisper model for the GPU check (must be downloaded)")
     args = parser.parse_args(argv)
+    _console_safe()
+    out = args.out or default_report_path()
+    if _refuse_to_overwrite(out):
+        print("Refusing to write the report: that file exists and is not a previous self-test report.")
+        return 2
+    import portable
+    # An installed copy keeps its models under <data>/model_cache; the checks must look there.
+    portable.activate_portable_mode()
     results = run_checks(args.model)
     report = format_report(results)
-    print(report)
-    out = args.out or default_report_path()
     try:
         Path(out).write_text(report + "\n", encoding="utf-8")
-        print(f"\nReport written to {Path(out).name}")
+        saved = f"Report written to {Path(out).name}"
     except OSError:
-        print("\nCould not write the report file; copy the text above instead.")
+        saved = "Could not write the report file; copy the text above instead."
+    print(report)
+    print("\n" + saved)
     return 1 if any(status == FAIL for _, status, _ in results) else 0
 
 
