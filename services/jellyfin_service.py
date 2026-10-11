@@ -109,7 +109,7 @@ def _check_library_dir(value) -> str:
     if len(value) > MAX_LIBRARY_DIR_LEN or any(ord(c) < 32 for c in value):
         raise InvalidInputError("That folder path is not valid.")
     if not os.path.isabs(value):
-        raise InvalidInputError("Use a full folder path (for example D:\\Media\\Dramas).")
+        raise InvalidInputError("Use a full folder path (for example D:\\Media\\Titles).")
     if not os.path.isdir(value):
         raise InvalidInputError("That folder does not exist on this PC.")
     return os.path.realpath(value)
@@ -341,7 +341,7 @@ def _source_media(drama_id: int, drama: dict, media: str) -> Optional[str]:
     name = drama.get("source_video_filename") or ""
     path = os.path.join(db.drama_dir(drama_id), name) if name else ""
     if not name or name != os.path.basename(name) or not os.path.isfile(path):
-        raise InvalidInputError("This drama has no source video.")
+        raise InvalidInputError("This title has no source video.")
     return path
 
 
@@ -394,7 +394,7 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
     "refresh": "done" | "failed" | "skipped"}."""
     drama = db.get_drama(drama_id) if isinstance(drama_id, int) and drama_id > 0 else None
     if drama is None:
-        raise NotFoundError("No drama with that id.")
+        raise NotFoundError("No title with that id.")
     if fmt not in FORMATS:
         raise InvalidInputError("Format must be srt or ass.", details={"allowed": list(FORMATS)})
     if field not in FIELDS:
@@ -415,7 +415,7 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
     if item_id and media != "none":
         raise InvalidInputError("Media is only copied when adding a new title folder.")
     if drama_service.job_running_for_drama(drama_id):  # e.g. a dubbed video still being written
-        raise ConflictError("A background job is still running for this drama. Wait for it to "
+        raise ConflictError("A background job is still running for this title. Wait for it to "
                             "finish, then send it to Jellyfin.", details={"reason": "job_running"})
 
     text = _subtitle_text(drama_id, fmt, field)
