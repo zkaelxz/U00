@@ -3,7 +3,7 @@ services/update_service.py -- check for, download and hand off to a newer
 Windows installer published on the project's public GitHub Releases.
 
 - Check: one unauthenticated GET of the repository's newest releases (the
-  first page). The newest one that is a `v<version>` release (not a draft;
+  first page). The highest version among those that are a `v<version>` release (not a draft;
   not a pre-release unless Developer Mode's "include pre-releases" is on)
   with its BaiheStudio-Setup-<version>.exe and `.sha256` is offered: the same repository also publishes other releases (`frontend-v*`)
   that must not hide the installer. The repository is a setting,
@@ -340,11 +340,13 @@ def check() -> dict:
             with _lock:
                 _state.update(checked_at=time.time(), check_error=message)
             raise DependencyUnavailableError(message) from None
-    # Newest first, as GitHub lists them. Whether it is newer than this copy is
-    # decided in status() and download(), not here.
-    release = next((r for r in (_parse_release(d, allow_pre)
-                                for d in (data if isinstance(data, list) else []))
-                    if r is not None), None)
+    # The highest version, not the first listed: GitHub lists by creation date,
+    # so a later-created older beta would otherwise hide a newer release.
+    # Whether it is newer than this copy is decided in status() and download().
+    usable = [r for r in (_parse_release(d, allow_pre)
+                          for d in (data if isinstance(data, list) else []))
+              if r is not None]
+    release = max(usable, key=lambda r: parse_version(r["version"]), default=None)
     if release is not None:
         lookup = "found"
     with _lock:
@@ -607,6 +609,9 @@ def install() -> dict:
         raise ConflictError("Wait for the download to finish.")
     if verified is None:
         raise ConflictError("Download and verify the update first.")
+    # The option may have been switched off since the download; same rule as download().
+    if not is_newer(verified["version"], current_version(), include_prereleases()):
+        raise ConflictError("There is no newer version to install. Check for updates first.")
     if background_jobs.active_job_ids():
         raise ConflictError("Finish or cancel the running jobs first: Setup stops the app.")
     changed = "The downloaded installer changed or is missing. Download it again."
