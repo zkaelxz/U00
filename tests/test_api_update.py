@@ -21,7 +21,7 @@ from services import auth_service
 from services import update_service as us
 
 from tests.test_update_service import (NAME, FakePopen, _serve_release,  # noqa: F401
-                                       http)
+                                       _wait_for_download, http)
 
 REMOTE = "https://baihe.example.com"
 ROUTES = [("GET", "/api/system/update", None),
@@ -72,7 +72,7 @@ def test_status_check_download_and_install_flow(client, http, monkeypatch):
 
     r = _clean(client.post("/api/system/update/download", json={}))
     assert r.status_code == 202
-    us._download_thread.join(10)
+    _wait_for_download()
     s = _clean(client.get("/api/system/update")).json()
     assert s["verified"] and s["download"] == "verified"
 
