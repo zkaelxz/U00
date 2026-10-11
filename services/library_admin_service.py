@@ -428,7 +428,10 @@ def _export_job(job_id, drama_ids):
                 zf.writestr(f"{folder}/english.srt", lines_to_srt(lns, "en"))
                 zf.writestr(f"{folder}/chinese.srt", lines_to_srt(lns, "zh"))
                 zf.writestr(f"{folder}/bilingual.srt", lines_to_bilingual_srt(lns))
-                keep_original_service.export_title_files(zf, did, d, folder)
+                keep_original_service.export_title_files(
+                    zf, did, d, folder,
+                    has_room=lambda need: has_disk_room(os.path.dirname(tmp), need),
+                    should_cancel=lambda: background_jobs.is_cancel_requested(job_id))
                 exported += 1
 
     name, _ = _write_artifact("export", ".zip", "The export could not be written.", write)
