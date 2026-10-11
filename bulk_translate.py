@@ -1575,19 +1575,19 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         # edits after this read, so deciding which lines are still the run's
         # from a second, earlier read would let an edit in between through.
         run_en = {ln.id: (ln.en or "") for ln in lines if getattr(ln, "id", None) is not None}
-        own_fresh = [ln for ln in db.load_line_objects(drama_id)
-                     if ln.id in enforce_ids and ln.id in run_en
+        fresh = db.load_line_objects(drama_id)
+        own_fresh = [ln for ln in fresh if ln.id in enforce_ids and ln.id in run_en
                      and (ln.en or "") == run_en[ln.id]]
         landed = {ln.id for ln in own_fresh}
+        # The version saved below must hold an edit the run kept, or restoring
+        # it later would bring this run's English back over the edit.
+        kept = {ln.id: ln.en for ln in fresh if ln.id not in landed}
+        for ln in lines:
+            ln.en = kept.get(ln.id, ln.en)
     if enforced:
-        # Substitute into a fresh DB read, not `lines` -- the job's own
-        # in-memory copies, which can be stale by the time the job finishes
-        # (a user can edit a line's English while the job is still running),
-        # so writing those back could clobber a live edit. Substituting into
-        # the fresh read means this only
-        # ever overwrites whatever is actually in the database right now,
-        # and db.save_lines' own orig-comparison (see its docstring) then
-        # skips writing any line the substitution didn't actually change.
+        # Substitute into a fresh DB read, not `lines`: the run's copies can
+        # be stale (the user may edit English while the job runs), and
+        # save_lines' orig-comparison then writes only what this changed.
         _fresh_lines = db.load_line_objects(drama_id) if own_fresh is None else own_fresh
         substituted = {}
         for ln in _fresh_lines:

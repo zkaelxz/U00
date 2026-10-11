@@ -540,7 +540,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
         _sanitized_snapshot(snap)
-        src_snap = src_store.snapshot_to(os.path.join(snapdir, "sources.db"))
+        src_snap = src_store.backup_snapshot(os.path.join(snapdir, "sources.db"))
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             if include_media:
                 if progress is not None:

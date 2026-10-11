@@ -689,7 +689,9 @@ BAD_LIBRARY_DB = ("The backup's library.db is not a readable Baihe library "
                    "database.")
 BAD_SOURCES_DB = "The backup's sources.db is not a readable database."
 SOURCES_DB_NOT_CARRIED = ("The current sources.db could not be copied into the restored "
-                          "library; nothing was changed.")
+                          "library (it may be damaged); nothing was changed. To restore "
+                          "without it, move sources.db out of the library folder (tracked "
+                          "series and source settings go with it) and try again.")
 RESTORE_DB_ERRORS = (BAD_LIBRARY_DB, BAD_SOURCES_DB, SOURCES_DB_NOT_CARRIED)
 
 def _schema_sql_allowed(sql: str) -> bool:

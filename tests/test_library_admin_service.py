@@ -693,6 +693,34 @@ def test_backup_holds_a_consistent_sources_db_snapshot(isolated_db, include_medi
         data, "SELECT series_id FROM tracked_series")) == ["s1", "s2"]
 
 
+def test_backup_never_holds_the_sources_settings(isolated_db):
+    # A proxy URL can carry a password; a restore keeps the live settings
+    # anyway, so the backup has no use for them.
+    _new("A")
+    src_store.set_setting("http_proxy_url", "http://user:hunter2@proxy.example:8080")
+    src_store.track_series("site", "s1", "Kept")
+    data = _backup_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        assert not [n for n in zf.namelist() if b"hunter2" in zf.read(n)]
+    assert _zip_sources_rows(data, "SELECT key FROM settings") == []
+    _restore(data)
+    assert [r["series_id"] for r in src_store.list_tracked_series()] == ["s1"]
+    assert src_store.get_setting("http_proxy_url") == "http://user:hunter2@proxy.example:8080"
+
+
+def test_busy_sources_db_fails_the_backup_with_the_fixed_message(isolated_db, monkeypatch):
+    _new("A")
+    src_store.track_series("site", "s1", "Kept")
+
+    def busy(dest, source=None):
+        raise src_store.SourcesDatabaseBusy()
+    monkeypatch.setattr(src_store, "snapshot_to", busy)
+    st = _wait(las.start_backup()["job_id"])
+    assert st["status"] == "error"
+    assert st["error"].endswith("The backup could not be written.")
+    assert "Sources" not in st["error"] and "busy" not in st["error"]
+
+
 def test_restore_without_sources_db_keeps_the_live_one(isolated_db):
     _new("A")
     src_store.track_series("site", "s1", "Backed up")
@@ -733,7 +761,7 @@ def test_unreadable_carried_sources_db_leaves_the_live_library(isolated_db, monk
     with pytest.raises(InvalidInputError) as ei:
         _restore(data)
     assert db.LIBRARY_DIR not in str(ei.value)
-    assert "sources.db" in str(ei.value)
+    assert "sources.db" in str(ei.value) and "try again" in str(ei.value)
     assert db.get_drama(a) and db.get_drama(b)
     assert [r["series_id"] for r in src_store.list_tracked_series()] == ["s1"]
     assert not _leftovers()

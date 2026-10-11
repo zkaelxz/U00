@@ -344,6 +344,26 @@ def snapshot_to(dest: str, source: str = None):
     return dest
 
 
+def backup_snapshot(dest: str):
+    """snapshot_to for a backup zip, with the settings table emptied: a
+    restore keeps the live settings, and the proxy URL can carry a password.
+    secure_delete keeps the removed rows out of free pages. Any SQLite
+    error (a busy database included) is an OSError, so the caller shows its
+    own fixed message."""
+    try:
+        if snapshot_to(dest) is None:
+            return None
+        conn = sqlite3.connect(dest, isolation_level=None)
+        try:
+            conn.execute("PRAGMA secure_delete = ON")
+            conn.execute("DELETE FROM settings")
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        raise OSError("sources snapshot could not be prepared") from None
+    return dest
+
+
 def connect() -> sqlite3.Connection:
     path = os.path.abspath(db_path())
     if path not in _initialised or not os.path.exists(path):

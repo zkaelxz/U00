@@ -67,6 +67,11 @@ def test_english_typed_while_the_run_works_is_kept(isolated_db, monkeypatch):
     assert rows["谢谢"]["en"] == "Typed while it ran"
     assert rows["你好"]["en"].startswith("[TEST]")
     assert job["result"]["kept_your_edit"] == [rows["谢谢"]["id"]]
+    # The version the run saved holds the kept edit, so restoring it later
+    # doesn't bring the machine English back over it.
+    [version] = db.list_translation_versions(did)
+    saved = {ln["zh"]: ln["en"] for ln in db.get_translation_version(version["id"])["lines"]}
+    assert saved["谢谢"] == "Typed while it ran"
 
 
 def test_refused_force_start_takes_no_undo_point(isolated_db, monkeypatch):
