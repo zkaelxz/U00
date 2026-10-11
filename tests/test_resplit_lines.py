@@ -673,3 +673,16 @@ def test_more_needs_no_word_splitter_for_korean_or_english(monkeypatch):
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None)
     for lang in ("ko", "en"):
         assert _count(SAMPLES[lang], 7.0, source=lang, sensitivity="more")["dry_run"]
+
+
+def test_more_checks_the_word_splitter_of_each_lines_own_language(monkeypatch):
+    # A Korean title holding a line tagged Japanese: that line is cut by length too.
+    monkeypatch.setattr(segment, "missing_word_segmenter", _REAL_MISSING_SEGMENTER)
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *a: None if name == "sudachipy" else real_find_spec(name, *a))
+    did, ids = _one_line(SAMPLES["ja"], 7.0, lang="ja", source="ko")
+    with pytest.raises(DependencyUnavailableError, match="sudachipy"):
+        svc.resplit_long_lines(did, ids, sensitivity="more", dry_run=True)
+    untagged, untagged_ids = _one_line(SAMPLES["ko"], 7.0, source="ko")
+    assert svc.resplit_long_lines(untagged, untagged_ids, sensitivity="more", dry_run=True)["dry_run"]

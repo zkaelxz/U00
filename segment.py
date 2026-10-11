@@ -96,6 +96,14 @@ def missing_word_segmenter(language: str):
     return next((name for name in needs if importlib.util.find_spec(name) is None), None)
 
 
+def missing_line_word_segmenter(lines, title_language: str):
+    """missing_word_segmenter over the title's language and every language the
+    lines are tagged with: a zh/ja line inside a title of another language is
+    cut by the same word rules."""
+    languages = {title_language, *(getattr(ln, "lang", None) for ln in lines)} - {None, ""}
+    return next(filter(None, map(missing_word_segmenter, sorted(languages))), None)
+
+
 def _load_jieba():
     global _jieba
     if _jieba is None:

@@ -1,5 +1,6 @@
 """Tests for services/review_jobs_service.py + /api/review-jobs (Migration
 Slice 44). Fully mocked: a fake engine and stubbed LLM helpers, no network."""
+import re
 import time
 
 import pytest
@@ -18,7 +19,7 @@ import translation_guide
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import fixflag_translate, review_jobs_service as svc, translate_service
+from services import fixflag_translate, jobs_service, review_jobs_service as svc, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
@@ -399,3 +400,28 @@ def test_flag_count_reflects_hand_edits_on_lines_the_job_left_alone(monkeypatch)
     job = _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
     assert db.load_lines(did)[0]["flag"] is None
     assert job["result"]["flagged_count"] == 0
+
+
+def test_fix_flagged_sends_no_timing_flags_and_reports_them(monkeypatch):
+    did = _seed((("甲", "a", "timing_drift"), ("乙", "b", "timing_overlap"),
+                 ("丙", "c", "reading_speed"), ("丁", "d", "uncertain_translation"),
+                 ("戊", "e", "timing_uncertain")))
+    prompts = _fake_fix_llm(monkeypatch)
+    job = _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    sent = "\n".join(prompts)
+    assert sorted(re.findall(r"\] Source: (.)", sent)) == ["丁", "丙"]
+    result = job["result"]
+    assert (result["fixed_count"], result["total_flagged"], result["timing_skipped_count"]) == (2, 2, 3)
+    rows = db.load_lines(did)
+    assert [r["flag"] for r in rows if r["zh"] in "甲乙戊"] == ["timing_drift", "timing_overlap",
+                                                              "timing_uncertain"]
+    message = jobs_service.derive_outcome("done", None, jobs_service.project_result(result))[1]
+    assert "3 timing flags skipped (fix them in the timing tools)" in message
+
+
+def test_fix_flagged_with_only_timing_flags_makes_no_paid_call(monkeypatch):
+    did = _seed((("甲", "a", "timing_drift"),))
+    prompts = _fake_fix_llm(monkeypatch)
+    job = _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    assert prompts == [] and job["result"]["timing_skipped_count"] == 1
+    assert job["result"]["fixed_count"] == 0
