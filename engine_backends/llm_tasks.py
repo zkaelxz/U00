@@ -27,6 +27,7 @@ from .shared import (
     SDK_REQUEST_TIMEOUT,
     TranslationCancelled,
 )
+from .prompt_fields import parse_line_id, source_language_phrase
 from .thinking import deepseek_extra_body
 from services import job_timing_service
 
@@ -562,7 +563,7 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15, usage_cb=
     return lines_to_fix
 
 
-def build_consistency_prompt(batch: list) -> str:
+def build_consistency_prompt(batch: list, source_language=None) -> str:
     """The consistency-check prompt for one window of already-translated
     lines. Position-based (1., 2., ...), not id-keyed -- an issue names a
     TERM ("a character's name spelled two ways"), never a specific line,
@@ -572,8 +573,9 @@ def build_consistency_prompt(batch: list) -> str:
     window of lines."""
     pairs = "\n".join(f"{i+1}. {ln.zh} -> {ln.en}" for i, ln in enumerate(batch))
     return (
-        "Below are Chinese source lines paired with their English translations, from the "
-        "same drama. Look for CONSISTENCY issues: the same Chinese name, term, or recurring "
+        f"Below are {source_language_phrase(source_language)} source lines paired with their "
+        "English translations, from the "
+        "same drama. Look for CONSISTENCY issues: the same source-language name, term, or recurring "
         "phrase translated differently in different lines (e.g. a character's name spelled "
         "two ways, or a recurring term like a nickname/title rendered inconsistently). "
         "Ignore normal translation variation for ordinary sentences -- only flag terms that "
@@ -584,7 +586,8 @@ def build_consistency_prompt(batch: list) -> str:
     )
 
 
-def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, cancel_check=None):
+def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, cancel_check=None,
+                          source_language=None):
     """Reviews already-translated lines for consistency issues: the same
     Chinese term/name translated differently in different places. Works
     on the .zh/.en pairs already present -- doesn't call any external
@@ -617,7 +620,7 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
             cancel_check()
         batch = translated[start:start + batch_size]
         total_batches += 1
-        prompt = build_consistency_prompt(batch)
+        prompt = build_consistency_prompt(batch, source_language)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback=None,
                                   usage_cb=usage_cb)
@@ -741,7 +744,7 @@ def matching_glossary_terms(zh: str, glossary_terms) -> list:
     return [t for t in (glossary_terms or []) if any(f and f in zh for f in _term_forms(t))]
 
 
-def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
+def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx, source_language=None) -> str:
     """The review-queue prompt for one batch of already-translated lines,
     each numbered by id_fn(ln) (its position by default, matching what
     flag_uncertain_lines' own by_idx lookup expects back). bulk_translate.py's
@@ -752,7 +755,8 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     reasons_desc = "\n".join(f"  - {k}: {v}" for k, v in FLAG_REASONS.items())
     pairs = "\n".join(f"[{id_fn(ln)}] {ln.zh} -> {ln.en}" for ln in batch)
     return (
-        "Below are Chinese source lines paired with their English translations. Flag ONLY "
+        f"Below are {source_language_phrase(source_language)} source lines paired with their "
+        "English translations. Flag ONLY "
         "the lines that genuinely need a second look -- most lines need none at all, and "
         "over-flagging defeats the point (the person reviewing this can't tell a real issue "
         "from noise). Reasons worth flagging:\n\n"
@@ -764,7 +768,7 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
 
 
 def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None,
-                         cancel_check=None):
+                         cancel_check=None, source_language=None):
     """
     Reviews already-translated lines and flags the ones worth a second
     look -- the review-queue idea: instead of scanning a whole multi-hour
@@ -787,12 +791,13 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
 
     n_batches = (len(translated) + batch_size - 1) // batch_size
     failed_batches = 0
+    unparsable = 0
 
     for bi, start in enumerate(range(0, len(translated), batch_size)):
         if cancel_check:
             cancel_check()
         batch = translated[start:start + batch_size]
-        prompt = build_flag_prompt(batch)
+        prompt = build_flag_prompt(batch, source_language=source_language)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]",
                                   usage_cb=usage_cb)
@@ -808,14 +813,23 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
             continue
         by_idx = {ln.idx: ln for ln in batch}
         for f in flagged:
-            if not isinstance(f, dict) or f.get("line_idx") is None:
+            if not isinstance(f, dict):
                 continue
-            ln = by_idx.get(int(f["line_idx"]))
-            if ln is None:
+            idx = parse_line_id(f.get("line_idx"))
+            if idx is None:
+                unparsable += 1
+                continue
+            ln = by_idx.get(idx)
+            # System flags record what the app measured; the model must not replace them.
+            if ln is None or ln.flag in SYSTEM_FLAG_REASONS:
                 continue
             reason = f.get("reason") if f.get("reason") in FLAG_REASONS else "uncertain_translation"
             ln.flag = reason
             ln.flag_note = f.get("note", "")
+    if unparsable:
+        import applog
+        applog.get_logger().warning("flag check skipped %d entries with an unreadable line_idx",
+                                    unparsable)
     if failed_batches:
         # Those batches were not checked, which is not the same as "no issues".
         import applog
