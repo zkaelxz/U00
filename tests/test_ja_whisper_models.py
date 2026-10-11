@@ -70,6 +70,108 @@ class TestAllowlist:
         assert jw.select_anime_files(names) == ["config.json", "merges.txt", "model.safetensors", "vocab.json"]
 
 
+class FakeRepo:
+    """Stands in for the hub: a listing, and a download that writes a stock-config folder."""
+
+    def __init__(self, monkeypatch, heads=((7, 0),), model_sha="auto"):
+        self.downloads = []
+        self.heads = [list(h) for h in heads]
+        self.model_sha = model_sha
+        monkeypatch.setattr(jw, "list_repo_files", self.list)
+        monkeypatch.setattr(jw, "download_files", self.download)
+
+    def list(self, repo, revision):
+        names = ["config.json", "model.bin", "tokenizer.json", "vocabulary.json", "preprocessor_config.json"]
+        sha = jw.sha256_file_bytes(self._bin_bytes()) if self.model_sha == "auto" else self.model_sha
+        return [(n, sha if n == "model.bin" else None) for n in names]
+
+    @staticmethod
+    def _bin_bytes():
+        return b"decoder/layer_0/x\0decoder/layer_1/x"
+
+    def download(self, repo, revision, names, dest):
+        self.downloads.append((repo, revision, list(names)))
+        Path(dest).mkdir(parents=True, exist_ok=True)
+        (Path(dest) / "model.bin").write_bytes(self._bin_bytes())
+        (Path(dest) / "config.json").write_text(json.dumps({"alignment_heads": self.heads}), encoding="utf-8")
+        for name in ("tokenizer.json", "vocabulary.json", "preprocessor_config.json"):
+            (Path(dest) / name).write_text("{}", encoding="utf-8")
+
+
+class TestFetchCommand:
+    def test_kotoba_with_the_stock_config_is_patched_and_succeeds(self, monkeypatch, tmp_path, capsys):
+        FakeRepo(monkeypatch)
+        out = tmp_path / "kotoba"
+        assert jw.main(["fetch", "kotoba", "--out", str(out)]) == 0
+        assert json.loads((out / "config.json").read_text())["alignment_heads"] == [[1, h] for h in range(20)]
+        assert json.loads((out / "config.json.orig").read_text())["alignment_heads"] == [[7, 0]]
+        assert "alignment_heads" in capsys.readouterr().out
+
+    def test_ja_1_5b_with_bad_heads_is_not_silently_patched(self, monkeypatch, tmp_path):
+        FakeRepo(monkeypatch)
+        out = tmp_path / "ja"
+        assert jw.main(["fetch", "ja-1.5b", "--out", str(out)]) == 1
+        assert not (out / "config.json.orig").exists()
+
+    def test_a_model_bin_that_does_not_match_the_listing_is_refused(self, monkeypatch, tmp_path, capsys):
+        FakeRepo(monkeypatch, model_sha="0" * 64)
+        assert jw.main(["fetch", "kotoba", "--out", str(tmp_path / "k")]) == 1
+        assert "sha256" in capsys.readouterr().err
+
+    def test_a_listing_without_a_checksum_still_downloads(self, monkeypatch, tmp_path):
+        FakeRepo(monkeypatch, model_sha=None)
+        assert jw.main(["fetch", "kotoba", "--out", str(tmp_path / "k")]) == 0
+
+
+class TestConvertCommand:
+    def test_refuses_an_existing_output_before_downloading(self, monkeypatch, tmp_path, capsys):
+        repo = FakeRepo(monkeypatch)
+        out = tmp_path / "anime"
+        out.mkdir()
+        assert jw.main(["convert-anime-whisper", "--out", str(out)]) == 1
+        assert repo.downloads == []
+        assert "must not exist" in capsys.readouterr().err
+
+    def test_converter_is_built_without_remote_code(self, monkeypatch, tmp_path):
+        names = ["model.safetensors", "config.json", "preprocessor_config.json", "vocab.json"]
+        monkeypatch.setattr(jw, "list_repo_files", lambda r, v: [(n, None) for n in names])
+
+        def download(repo, revision, wanted, dest):
+            for n in wanted:
+                (Path(dest) / n).write_text("{}", encoding="utf-8")
+            (Path(dest) / "tokenizer.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(jw, "download_files", download)
+        seen = {}
+
+        class FakeConverter:
+            def __init__(self, src, **kwargs):
+                seen.update(kwargs)
+
+            def convert(self, out, quantization=None):
+                Path(out).mkdir(parents=True)
+                fake_model_bin(Path(out) / "model.bin")
+                for n in ("config.json", "vocabulary.json"):
+                    (Path(out) / n).write_text(json.dumps({"alignment_heads": [[7, 0]]}), encoding="utf-8")
+                seen["quantization"] = quantization
+
+        class FakeTokenizer:
+            def save_pretrained(self, dest):
+                pass
+        sys_modules = {
+            "transformers": types.SimpleNamespace(AutoTokenizer=types.SimpleNamespace(
+                from_pretrained=lambda *a, **k: FakeTokenizer())),
+            "ctranslate2": types.ModuleType("ctranslate2"),
+            "ctranslate2.converters": types.SimpleNamespace(TransformersConverter=FakeConverter),
+        }
+        for name, mod in sys_modules.items():
+            monkeypatch.setitem(__import__("sys").modules, name, mod)
+        out = tmp_path / "anime"
+        assert jw.main(["convert-anime-whisper", "--out", str(out), "--quant", "int8"]) == 0
+        assert seen["trust_remote_code"] is False and seen["quantization"] == "int8"
+        assert json.loads((out / "config.json").read_text())["alignment_heads"] == [[1, h] for h in range(20)]
+        assert json.loads((out / "baihe-manifest.json").read_text())["quantization"] == "int8"
+
+
 class TestAlignmentHeads:
     def test_patch_writes_heads_and_keeps_a_backup(self, tmp_path):
         folder = make_folder(tmp_path, [[7, 0], [10, 17]])

@@ -126,7 +126,8 @@ def select_anime_files(names):
 def list_repo_files(repo, revision):
     from huggingface_hub import HfApi
     info = HfApi().model_info(repo, revision=revision, files_metadata=True, timeout=30)
-    return [(s.rfilename, s.size) for s in info.siblings]
+    # The LFS sha256 lets fetch confirm the weights on disk are the ones listed.
+    return [(s.rfilename, s.lfs.sha256 if s.lfs else None) for s in info.siblings]
 
 
 def download_files(repo, revision, names, dest):
@@ -140,6 +141,10 @@ def sha256_file(path):
         for block in iter(lambda: f.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def sha256_file_bytes(data):
+    return hashlib.sha256(data).hexdigest()
 
 
 def print_files(folder):
@@ -292,6 +297,7 @@ def cmd_fetch(args):
     try:
         files = list_repo_files(repo, revision)
         refuse_unexpected_files([name for name, _ in files])
+        listed_sha = dict(files).get("model.bin")
         missing = [n for n in CT2_REQUIRED if n not in {name for name, _ in files}]
         if missing:
             raise ToolError(f"the repository at the pinned revision lacks {', '.join(missing)}")
@@ -299,13 +305,18 @@ def cmd_fetch(args):
         out.mkdir(parents=True, exist_ok=True)
         print(f"Downloading {repo} at {revision} ...")
         download_files(repo, revision, [name for name, _ in files], out)
+        if listed_sha and sha256_file(out / "model.bin") != listed_sha:
+            raise ToolError("model.bin does not match the sha256 the repository lists for it. "
+                            "Delete the folder and try again.")
+        # Before the check: the stock kotoba heads are exactly what the check rejects.
+        if args.model == "kotoba":
+            patch_alignment_heads(out)
         problems, _ = inspect_folder(out)
         if problems:
             raise ToolError("the downloaded folder failed its own check: " + "; ".join(problems))
         print("Files:")
         print_files(out)
         if args.model == "kotoba":
-            patch_alignment_heads(out)
             print("\nPatched config.json: alignment_heads set to layer 1, heads 0-19 "
                   "(original saved as config.json.orig).\nWhy: the stock config points at decoder "
                   "layers that do not exist in this 2-layer model and crashes with word timestamps; "
@@ -322,6 +333,9 @@ def cmd_fetch(args):
 def cmd_convert_anime(args):
     out = Path(args.out)
     try:
+        if out.exists():
+            raise ToolError("--out must not exist yet (CTranslate2 refuses an existing output folder, "
+                            "and this check saves a 3 GB download).")
         files = list_repo_files(ANIME_REPO, ANIME_REVISION)
         wanted = select_anime_files([name for name, _ in files])
         out.parent.mkdir(parents=True, exist_ok=True)
