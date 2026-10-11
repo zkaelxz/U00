@@ -3,6 +3,7 @@ explains why it fell back to the CPU. No UI dependency; core.transcribe_for_timi
 and the services call into it."""
 
 import os
+import sys
 
 
 _whisper_model_cache = {}
@@ -195,6 +196,42 @@ def gpu_status() -> dict:
     except Exception as exc:
         status["errors"].append("torch: " + short_reason(exc))
     return status
+
+
+_CUBLAS_DLL = "cublas64_12.dll"
+GPU_RUNTIME_MISSING_REASON = (
+    "The CUDA 12 runtime libraries that Whisper needs on the GPU (cuBLAS) aren't installed on this PC.")
+
+
+def _load_windows_dll(name: str) -> None:
+    import ctypes
+    # winmode=0 keeps the plain PATH search ctranslate2 itself uses; the
+    # default for WinDLL skips PATH and would report a false "missing".
+    ctypes.WinDLL(name, winmode=0)
+
+
+def whisper_gpu_runtime(loader=None) -> dict:
+    """Whether the CUDA runtime DLL faster-whisper needs can be loaded here:
+    {"status": "ok" | "missing" | "unknown", "reason": fixed text or None}.
+    Never imports torch or loads a model, and never raises. "unknown" off
+    Windows, without ctranslate2, or when ctranslate2 sees no CUDA device
+    (nothing to run on the GPU anyway). The reason is fixed text so no path
+    or raw exception text reaches an API response."""
+    if sys.platform != "win32":
+        return {"status": "unknown", "reason": None}
+    try:
+        import ctranslate2
+        if int(ctranslate2.get_cuda_device_count()) < 1:
+            return {"status": "unknown", "reason": None}
+    except Exception:
+        return {"status": "unknown", "reason": None}
+    try:
+        (loader or _load_windows_dll)(_CUBLAS_DLL)
+    except OSError:
+        return {"status": "missing", "reason": GPU_RUNTIME_MISSING_REASON}
+    except Exception:
+        return {"status": "unknown", "reason": None}
+    return {"status": "ok", "reason": None}
 
 
 def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str = None,
