@@ -1297,6 +1297,26 @@ class TestSpokenLanguage:
         bt.run_scheduled_job(jid, Engine())
         assert contexts and all(contexts)
 
+    def test_offpeak_run_keeps_english_typed_while_it_runs(self, isolated_db):
+        did = _mixed_drama(isolated_db)
+        jid = bt.schedule_offpeak_translation(did, isolated_db.load_line_objects(did),
+                                              "deepseek", "m", {})
+
+        class Engine:
+            model = "m"
+
+            def translate_batch(self, zh_lines, context):
+                [ln] = [ln for ln in isolated_db.load_line_objects(did) if ln.zh == "안녕"]
+                ln.en = "Typed while it ran"
+                isolated_db.save_lines(did, [ln], fields=("en",))
+                return [f"EN:{z}" for z in zh_lines]
+
+        summary = bt.run_scheduled_job(jid, Engine())
+        rows = {r["zh"]: r["en"] for r in isolated_db.load_lines(did)}
+        assert rows["안녕"] == "Typed while it ran"
+        assert rows["こんにちは"] == "EN:こんにちは"
+        assert summary["kept_your_edit"] == 1
+
     def test_offpeak_run_tags_and_skips_english(self, isolated_db):
         did = _mixed_drama(isolated_db)
         lines = isolated_db.load_line_objects(did)

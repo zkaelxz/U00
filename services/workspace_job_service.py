@@ -124,12 +124,17 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     target_ids: optional set of permanent line ids (set by the API
     start) -- only those lines are translated; None = every eligible line.
 
-    own_lines_only (with target_ids): English is written only on the target
-    lines and only where it still is what the job loaded -- a line edited
-    meanwhile keeps the edit, with no Reflect note, substitution or flag
-    from this run -- and the glossary's exact-term substitution touches
-    only the target lines.
+    English is written only where it still is what the job loaded: a line
+    edited meanwhile keeps the edit, with no Reflect note, substitution or
+    flag from this run, and is listed in the result's kept_your_edit.
+    own_lines_only (with target_ids): the glossary's exact-term
+    substitution touches only the target lines.
+
+    force_retranslate: the lines are kept as an undo point first, here
+    rather than at the request, so a start that loses the race leaves none.
     """
+    if force_retranslate and any(ln.en for ln in lines):
+        db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
     cap_reached = {}
     if isinstance(engine, translate_engines.FallbackEngine):
         # Tokens a provider reported for an attempt that then failed are
@@ -154,15 +159,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         style_note=style_note or "", style_guidelines=style_guidelines or "",
         scene_aware_batches=scene_aware, thinking=thinking)
 
-    if own_lines_only:
-        _save, _notes = bulk_translate.own_lines_callbacks(drama_id, lines, provenance)
-    else:
-        def _save(ls):
-            db.save_lines(drama_id, ls, fields=("en",))
-            provenance(ls)
-
-        def _notes(notes):
-            db.save_translation_notes(drama_id, notes, id_by_idx=_id_by_idx(lines))
+    # A run takes minutes, and the user may type English meanwhile.
+    _save, _notes, kept_edits = bulk_translate.own_lines_callbacks(drama_id, lines, provenance)
 
     job_timing_service.mark_stage(job_id, "Translate")
     _, errors = translate_engines.translate_lines_with_engine(
@@ -181,8 +179,6 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         detail_cb=lambda frac, message: background_jobs.update_progress(
             job_id, frac, translate_engines.progress_message_with_rate_status(
                 engine, frac, base=message)),
-        # Translation owns `en` and nothing else -- a flag job, a merge or
-        # the user's own edits can run alongside without being overwritten.
         save_cb=_save,
         cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
@@ -204,7 +200,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap_usd,
             line_scoped=target_ids is not None,
-            enforce_ids=set(target_ids) if own_lines_only and target_ids is not None else None,
+            enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
+                         else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
             flags_needing_recheck=recheck):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
@@ -214,6 +211,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent"),
                                         **({"flags_needing_recheck": sorted(recheck)}
                                            if recheck else {}),
+                                        **({"kept_your_edit": sorted(kept_edits)}
+                                           if kept_edits else {}),
                                         **_fallback_result(engine)})
 
 
@@ -623,11 +622,14 @@ def restore_kept_names():
 _RESTORE_KEPT_AUTH_TABLES = auth_service.RESTORE_KEPT_TABLES
 
 # app_settings keys a restore takes from the current library, never from the
-# upload: the automatic-backup identity (auto_backup_service.IDENTITY_KEY).
-# A backup from another library must not bring that library's id (its
-# copies in a shared folder would then look like this one's and be rotated
-# out), and an older backup must not roll the copy sequence back.
-_RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity",)
+# upload: the automatic-backup identity (auto_backup_service.IDENTITY_KEY),
+# settings and state. A backup from another library must not bring that
+# library's id (its copies in a shared folder would then look like this
+# one's and be rotated out), an older backup must not roll the copy sequence
+# back, and an uploaded file must not choose where this library's copies
+# are written.
+_RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
+                              "auto_backup.state")
 
 
 # SQLite side files a restore never extracts: the validated library.db /
@@ -686,6 +688,9 @@ def _current_state_marker(library_dir: str):
 BAD_LIBRARY_DB = ("The backup's library.db is not a readable Baihe library "
                    "database.")
 BAD_SOURCES_DB = "The backup's sources.db is not a readable database."
+SOURCES_DB_NOT_CARRIED = ("The current sources.db could not be copied into the restored "
+                          "library; nothing was changed.")
+RESTORE_DB_ERRORS = (BAD_LIBRARY_DB, BAD_SOURCES_DB, SOURCES_DB_NOT_CARRIED)
 
 def _schema_sql_allowed(sql: str) -> bool:
     """True only for CREATE TABLE / CREATE [UNIQUE] INDEX text (comments
@@ -822,9 +827,11 @@ def _carry_app_settings(conn, live_path: str):
 def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
     """Replaces the uploaded library.db / sources.db in staging with fresh
     files built from the app's own schema (db.migrate_database_file /
-    sources.store._SCHEMA) and filled with the upload's rows -- except
+    sources.store.migrate_file) and filled with the upload's rows -- except
     the auth tables (current rows, sessions emptied: every session is
-    revoked) and the sources settings table (current rows). Running and
+    revoked) and the sources settings table (current rows). An upload
+    without sources.db gets a snapshot of the live one instead, migrated
+    the same way; either sources.db must pass quick_check. Running and
     queued job_records rows are marked cancelled and gpu_lock is cleared
     (a backup can only hold stale ones). The uploaded files never become
     a live schema: they are only ATTACHed read-only after
@@ -875,24 +882,46 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
                 os.remove(path)
 
     staged_src = os.path.join(staging_dir, "sources.db")
-    if not os.path.lexists(staged_src):
-        return
-    upload_src = os.path.join(staging_dir, ".uploaded_sources.db")
-    os.replace(staged_src, upload_src)
-    try:
+    live_src = os.path.join(library_dir, "sources.db")
+    if os.path.lexists(staged_src):
+        message = BAD_SOURCES_DB
+        upload_src = os.path.join(staging_dir, ".uploaded_sources.db")
+        os.replace(staged_src, upload_src)
         try:
-            conn = _open_carry_conn(staged_src)
             try:
-                conn.executescript(src_store.SCHEMA)
-            finally:
-                conn.close()
+                src_store.migrate_file(staged_src)
+            except sqlite3.Error:
+                raise ValueError(message) from None
+            _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
+                                 live_path=live_src, live_tables=("settings",), message=message)
+        finally:
+            os.remove(upload_src)
+    else:
+        # A backup without sources.db (database-only, an older backup) must
+        # not delete the tracked series and source settings: the restored
+        # library keeps the live ones.
+        message = SOURCES_DB_NOT_CARRIED
+        try:
+            if not src_store.snapshot_to(staged_src, source=live_src):
+                return
+            src_store.migrate_file(staged_src)
         except sqlite3.Error:
-            raise ValueError(BAD_SOURCES_DB) from None
-        _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
-                             live_path=os.path.join(library_dir, "sources.db"),
-                             live_tables=("settings",), message=BAD_SOURCES_DB)
-    finally:
-        os.remove(upload_src)
+            raise ValueError(message) from None
+    _require_quick_check(staged_src, message)
+
+
+def _require_quick_check(path: str, message: str) -> None:
+    import sqlite3
+    try:
+        conn = _open_carry_conn(path)
+        try:
+            ok = [r[0] for r in conn.execute("PRAGMA quick_check").fetchall()] == ["ok"]
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        ok = False
+    if not ok:
+        raise ValueError(message)
 
 
 def _remove_entry(path: str):

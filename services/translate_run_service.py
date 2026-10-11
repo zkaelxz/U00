@@ -500,8 +500,6 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         include_genre_notes=include_genre_notes,
         default_female_pronouns=default_female_pronouns)
 
-    if force_retranslate and any(ln.en for ln in lines):
-        db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
     novel_reference = load_novel_reference(drama_id, drama)
     resp = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
             "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
@@ -583,6 +581,8 @@ def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referen
     time so each carries its permanent id and current English."""
     def submit() -> int:
         lines = db.load_line_objects(drama_id)
+        if force_retranslate and any(ln.en for ln in lines):
+            db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
         if reflect:
             return bulk_translate.submit_reflect_pipeline(
                 drama_id, lines, engine, engine_name,

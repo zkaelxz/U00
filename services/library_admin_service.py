@@ -58,6 +58,7 @@ from services import library_translated_guard
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
+from sources import store as src_store
 
 log = logging.getLogger(__name__)
 
@@ -486,7 +487,6 @@ def _backup_excluded_top_level() -> tuple:
     exports, saved site sign-ins, approved source profiles (a restore keeps
     the current ones either way), the browser-extension token and the
     sources raw-content cache (rebuildable: a missing file is a cache miss)."""
-    from sources import store as src_store
     return wjs.restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
 
 
@@ -518,7 +518,7 @@ _BACKUP_PROGRESS_INTERVAL = 0.25
 
 def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                      progress=None, should_cancel=None):
-    """Writes a backup zip to `dest`: a sanitized library.db snapshot and,
+    """Writes a backup zip to `dest`: sanitized library.db and sources.db snapshots and,
     with include_media, every other library file except the excluded
     top-level entries (backups/, sign-ins, source profiles, extension
     token, source_cache/), the live database files, symlinks and any `.env`. `manifest`,
@@ -529,7 +529,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
     between files; when true this raises background_jobs.JobCancelled (the
     caller removes the partial file)."""
     library_dir = db.LIBRARY_DIR
-    skip = {db.DB_PATH, db.DB_PATH + "-wal", db.DB_PATH + "-shm"}
+    skip = {p + x for p in (db.DB_PATH, src_store.db_path()) for x in ("", "-wal", "-shm")}
     excluded = _backup_excluded_top_level()
 
     def check_cancel():
@@ -540,6 +540,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
         _sanitized_snapshot(snap)
+        src_snap = src_store.snapshot_to(os.path.join(snapdir, "sources.db"))
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             if include_media:
                 if progress is not None:
@@ -562,6 +563,8 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
             if progress is not None:
                 progress(_BACKUP_FILES_SHARE, "Writing database snapshot...")
             zf.write(snap, "library.db")
+            if src_snap:
+                zf.write(src_snap, "sources.db")
             if manifest is not None:
                 zf.writestr("manifest.json", manifest(snap))
 
@@ -1059,7 +1062,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
         except ServiceError:
             raise
         except (ValueError, zipfile.BadZipFile, RuntimeError, zlib.error) as e:
-            msg = str(e) if str(e) in (wjs.BAD_LIBRARY_DB, wjs.BAD_SOURCES_DB) else _BAD_ZIP
+            msg = str(e) if str(e) in wjs.RESTORE_DB_ERRORS else _BAD_ZIP
             raise InvalidInputError(msg) from None
         except OSError as e:
             log.exception("Library restore failed")
