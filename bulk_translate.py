@@ -517,9 +517,8 @@ def _parse_strict(text: str, expected_ids: list) -> dict:
 
 def _save_applied_english(job: dict, current: list, applied: int, changed_flag: bool, label: str):
     if applied:
-        import subtitle_formats
-        mode = subtitle_formats.flagging_mode_of(db.get_drama(job["drama_id"]))
-        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
+        from services import reading_speed_dismissal_service as dismissals
+        changed_flag = dismissals.flag_dense_lines(job["drama_id"], current) > 0 or changed_flag
     if applied or changed_flag:
         db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
     if applied:
@@ -1622,9 +1621,8 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # translate_lines_with_engine may already have set a content_blocked flag
     # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
-    import subtitle_formats
-    subtitle_formats.flag_dense_lines(
-        lines, mode=subtitle_formats.flagging_mode_of(db.get_drama(drama_id)))
+    from services import reading_speed_dismissal_service as dismissals
+    dismissals.flag_dense_lines(drama_id, lines)
     if landed is None:
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     else:

@@ -18,6 +18,7 @@ byte-identical to before this module existed.
 """
 
 import copy
+import hashlib
 import html
 import math
 import re
@@ -300,16 +301,32 @@ def _dense_note(ln, field: str, cps: float, limit: float, nxt, gap: float) -> st
     return head + "The speech is this fast: shorten the text."
 
 
+def text_hash(text) -> str:
+    return hashlib.sha1((text or "").strip().encode("utf-8")).hexdigest()[:16]
+
+
+def dismissal_key(ln) -> tuple:
+    """What a dismissed reading-speed flag is remembered by: the English it
+    was dismissed for, so an edit or re-translation can be flagged again."""
+    return (getattr(ln, "id", None), text_hash(getattr(ln, "en", "")))
+
+
 def flag_dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE,
-                     fps=None) -> int:
+                     fps=None, dismissed=None) -> int:
     """Flags (in place) lines too dense to read, without replacing a flag
     that's already there. Returns how many were newly flagged. Only the flag
     and its note are written: line times are never changed. `lines` are in
-    time order, so the next one bounds the free time after a cue."""
+    time order, so the next one bounds the free time after a cue.
+    `dismissed` is {(line id, text hash)} from
+    reading_speed_dismissal_service: those lines stay unflagged while their
+    English is the text that was dismissed."""
     gap = MIN_GAP_FRAMES / _frame_rate(fps)
+
     following = {id(a): b for a, b in zip(lines, lines[1:])}
     n = 0
     for ln, cps, limit in dense_lines(lines, field, mode):
+        if dismissed and dismissal_key(ln) in dismissed:
+            continue
         if not ln.flag:
             ln.flag = READING_SPEED_FLAG
             ln.flag_note = _dense_note(ln, field, cps, limit, following.get(id(ln)), gap)
