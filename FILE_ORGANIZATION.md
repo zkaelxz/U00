@@ -44,7 +44,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `cli_timing.py` (the `timing-check` command, and the wait after a Qwen-only `transcribe`)
 - `cli_translate.py` (the `translate` command)
 - `core.py`
-- `db.py`
+- `db/` (package; today only `__init__.py`)
 - `diagnostics.py`
 - `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
