@@ -544,7 +544,7 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_h
     # job thread left over from an earlier test in this worker may also
     # queue an event while the env fixture has notifications on, so only
     # this test's own messages are checked.
-    ours = {"Translation (title #1)", "Dub generation (drama #1)"}
+    ours = {"Translation (title #1)", "Dub generation (title #1)"}
     seen, both_queued = [], threading.Event()
     real = ns.notify_job_finished
 
