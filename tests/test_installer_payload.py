@@ -383,7 +383,9 @@ class TestStageService:
         assert (service / "wrapper" / "BaiheStudio.exe").read_bytes() == b"winsw"
         assert (service / "wrapper" / "licenses" / "WinSW-LICENSE.txt").is_file()
         assert (service / "helper" / "python" / "python.exe").is_file()
-        for name in ("service.py", "service_menu.ps1"):
+        names = [p.name for p in sorted(Path(bi.INSTALLER_DIR).glob("service*.py"))]
+        assert names == sorted(n for n in bi.SERVICE_HELPER_FILES if n.startswith("service"))
+        for name in (*names, "setup_lock.py", "service_menu.ps1"):
             assert ((service / "helper" / "lib" / "installer" / name).read_bytes()
                     == (Path(bi.INSTALLER_DIR) / name).read_bytes())
 

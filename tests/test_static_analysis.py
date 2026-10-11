@@ -160,10 +160,10 @@ class TestHttpCallsHaveTimeouts:
             "the timeout check no longer sees the fetcher's GET"
 
     def test_installer_service_helper(self):
-        # installer/service.py's loopback health check goes through an
+        # installer/service_checks.py's loopback health check goes through an
         # opener's .open(), which the name-based check above doesn't match,
         # so every .open( call is checked for a timeout here too.
-        path = os.path.join(PROJECT_ROOT, "installer", "service.py")
+        path = os.path.join(PROJECT_ROOT, "installer", "service_checks.py")
         assert _find_requests_calls_missing_timeout(path) == []
         src = open(path, encoding="utf-8").read()
         opens = re.findall(r"\.open\([^)]*\)", src)
@@ -840,7 +840,7 @@ _CAPTURE_ALLOWED = {
     "services/maintenance_assistant_service.py::_tracked_files": "probe: git ls-files",
     "lib/proc_kill.py::kill_tree": "taskkill, 10 s",
     # sc / netsh / icacls calls, timeout= COMMAND_TIMEOUT (120 s); no grandchildren.
-    "installer/service.py::__call__": "probe: sc/netsh, timeout=120",
+    "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",
     # pending: ffmpeg runs bounded by timeout= only.
     "core.py::extract_audio_from_video": "pending: ffmpeg",
     "core.py::extract_audio_slice": "pending: ffmpeg",

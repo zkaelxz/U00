@@ -467,7 +467,7 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
 
 The app can run as a **Windows service started at boot**, installed and
 removed by this installer, tested by the Windows Installer workflow. Code: [`installer/service.py`](../installer/service.py)
-(standard library only), the `service` task in `baihe.iss`, and the WinSW
+and its `service_*.py` siblings (standard library only), the `service` task in `baihe.iss`, and the WinSW
 staging in `build_installer.py`. `tests/test_installer_service.py` drives it
 against a fake `sc`/`icacls`/`netsh`; only the workflow's "Service --" steps
 prove it on Windows.
