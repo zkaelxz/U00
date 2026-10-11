@@ -157,6 +157,11 @@ def align_words(audio_path: str, words: list, device: str = "cpu",
     return results
 
 
+# Defaults of realign_oversized_segments.
+REALIGN_MIN_SECONDS = 12.0
+REALIGN_PAUSE_SECONDS = 0.6
+
+
 def _group_aligned_words_into_lines(aligned_words, offset: float, min_pause_seconds: float = 0.6):
     """
     aligned_words: [(word, start, end), ...] with start/end relative to
@@ -263,8 +268,9 @@ def _is_oversized(seg, min_duration_to_realign: float) -> bool:
 
 def realign_oversized_segments(segments, audio_path: str, language: str,
                                 chinese_script: str = "simplified",
-                                min_duration_to_realign: float = 12.0,
-                                min_pause_seconds: float = 0.6, device: str = "cpu",
+                                min_duration_to_realign: float = REALIGN_MIN_SECONDS,
+                                min_pause_seconds: float = REALIGN_PAUSE_SECONDS,
+                                device: str = "cpu",
                                 progress_cb=None, cancel_check=None):
     """
     Re-splits every segment longer than min_duration_to_realign using

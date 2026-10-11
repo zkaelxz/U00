@@ -19,7 +19,7 @@ import core as core_module
 import db
 import sensitivity_preset as presets
 from core import Line
-from services import asr_options_service, settings_service
+from services import asr_options_service, settings_service, timing_settings_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.transcribe_service import (_DEFAULT_TUNING, _drama_audio_path, _resolve_initial_prompt,
@@ -114,7 +114,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
               drama.get("source_language") or "zh", settings_service.get("use_gpu"),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
               drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
-              presets.stored_vad_threshold(drama),
+              timing_settings_service.vad_threshold_for(drama),
               bool(drama.get("whisper_fast_mode")),
               presets.normalize(drama.get("sensitivity_preset")),
               bool(drama.get("whisper_repeat_guard"))),

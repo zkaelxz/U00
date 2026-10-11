@@ -24,7 +24,8 @@ import whisper_models
 from core import transcribe_for_timing
 from services import (auth_service, fixflag_transcribe, fixflag_translate, job_timing_service,
                       language_pack_service, library_restore_sql, line_provenance_service,
-                      run_settings_service, settings_service, vdb_names_service)
+                      run_settings_service, settings_service, timing_settings_service,
+                      vdb_names_service)
 
 
 def _id_by_idx(lines):
@@ -172,6 +173,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         batch_size=batch_size, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
+        **timing_settings_service.translate_limits(),
         check_replies=settings_service.reply_guard_override(),
         thinking=thinking, cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),

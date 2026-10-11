@@ -20,15 +20,21 @@ import resegment
 EVEN_SPLIT_NOTE = resegment.EVEN_SPLIT_NOTE
 
 
-def split_long_segments(segments, *, rules=None, min_pause: float = segment_splitting.MIN_WORD_GAP_SECONDS) -> list:
+def split_long_segments(segments, *, rules=None, min_pause: float = segment_splitting.MIN_WORD_GAP_SECONDS,
+                        max_seconds: float = segment_splitting.SPLIT_MAX_SECONDS,
+                        max_cjk_chars: int = segment_splitting.SPLIT_MAX_CJK_CHARS,
+                        floors: segment_splitting.PieceFloors = segment_splitting.DEFAULT_FLOORS) -> list:
     """segment_splitting.split_long_segments, then an even cut of any piece still over the
     character limit. Pieces keep the line's other keys; an evenly cut piece
-    drops its words (they no longer line up) and carries the approximate flag."""
-    limit_c = rules.max_chars if rules else segment_splitting.SPLIT_MAX_CJK_CHARS
-    limit_s = rules.max_seconds if rules else segment_splitting.SPLIT_MAX_SECONDS
+    drops its words (they no longer line up) and carries the approximate flag.
+    `max_seconds` and `max_cjk_chars` are the limits when there are no `rules`."""
+    limit_c = rules.max_chars if rules else max_cjk_chars
+    limit_s = rules.max_seconds if rules else max_seconds
     count = rules.measure if rules else (lambda t: len(segment_splitting._CJK_RE.findall(t)))
     out = []
-    for piece in segment_splitting.split_long_segments(segments, rules=rules, min_pause=min_pause):
+    for piece in segment_splitting.split_long_segments(
+            segments, max_seconds=max_seconds, max_cjk_chars=max_cjk_chars, rules=rules,
+            min_pause=min_pause, floors=floors):
         text = piece.get("text") or ""
         if not limit_c or count(text) <= limit_c:
             out.append(piece)
@@ -91,7 +97,7 @@ def resegment_reason(lines, language: str, changed, new_lines=()) -> str:
 def nothing_to_split(candidates, cfg, next_hint: str) -> str:
     """Why a Review re-split cut nothing: lines over the limits with no place to
     cut are a different problem from no line being over them. `cfg` is the
-    restructure_service._Resplit in use."""
+    resplit_config._Resplit in use."""
     if cfg.sensitivity == "sentence":
         bare = sum(not segment_splitting._SENTENCE_END_RE.search(ln.zh) for ln in candidates)
         if bare:
@@ -102,8 +108,8 @@ def nothing_to_split(candidates, cfg, next_hint: str) -> str:
         if cfg.too_long(ln):
             stuck += 1
             continue
-        rules = cfg.rules(ln) or segment_splitting.SplitRules(max_chars=segment_splitting.SPLIT_MAX_CJK_CHARS,
-                                                 count_latin=False)
+        rules = cfg.rules(ln) or segment_splitting.SplitRules(max_chars=cfg.max_cjk_chars,
+                                                              count_latin=False)
         stuck += segment_splitting.exceeds_limits({"start": ln.start, "end": ln.end, "text": ln.zh}, rules)
     if stuck:
         return (f"{stuck} line{'s' if stuck != 1 else ''} over the limits at {cfg.label} "

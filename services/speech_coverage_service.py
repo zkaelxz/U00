@@ -26,6 +26,7 @@ import db
 import raw_transcript
 import vad_segments
 import video_export
+from services import timing_settings_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -166,9 +167,13 @@ def _decode_chunk(path: str, start: float, seconds: float):
     return np.frombuffer(out.stdout, dtype=np.float32)
 
 
+def _vad_threshold() -> float:
+    return timing_settings_service.value("speech_coverage_vad_threshold")
+
+
 def _detect_speech(chunk) -> list:
     return [tuple(s) for s in vad_segments.speech_spans(
-        chunk, _SAMPLE_RATE, threshold=VAD_THRESHOLD, pad_ms=0)]
+        chunk, _SAMPLE_RATE, threshold=_vad_threshold(), pad_ms=0)]
 
 
 def _scan_speech(job_id: str, path: str, total_seconds: float) -> list:
@@ -209,7 +214,7 @@ def _run_job(job_id: str, drama_id: int, audio_path: str, min_gap_seconds: float
     raw = raw_transcript.load_latest(db.drama_dir(drama_id))
     segments = raw.get("segments") or [] if raw else None
     report = find_gaps(spans, db.load_line_objects(drama_id), segments, min_gap_seconds)
-    report.update({"audio_seconds": round(total, 1), "vad_threshold": VAD_THRESHOLD,
+    report.update({"audio_seconds": round(total, 1), "vad_threshold": _vad_threshold(),
                    "min_gap_seconds": min_gap_seconds})
     background_jobs.set_result(job_id, report)
 

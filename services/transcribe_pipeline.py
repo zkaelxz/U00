@@ -29,7 +29,7 @@ import storage
 from asr_backend import coverage_warning
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from diarize import select_device
-from services import settings_service
+from services import settings_service, timing_settings_service
 from services.qwen3_requirements_service import import_failure_message
 from translate_engines import redact_secrets
 
@@ -221,7 +221,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
                        mixed_languages, hallucination_silence_sec, min_pause_sec, repeat_guard,
                        split_by_sentences, sensitivity_preset, voice_detector, qwen_prompt,
-                       scratch_dir, result_queue):
+                       timing, scratch_dir, result_queue):
     """Process-job target, started with spawn on every platform (top level
     and plain arguments only, so it pickles; nothing here may depend on
     state set up in the parent process after import): runs the pipeline for
@@ -253,7 +253,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             repeat_guard=repeat_guard, split_by_sentences=split_by_sentences,
             sensitivity_preset=sensitivity_preset, voice_detector=voice_detector,
-            qwen_prompt=qwen_prompt)
+            qwen_prompt=qwen_prompt, timing=timing)
         result_queue.put(("ok", outcome))
     except ImportError:
         result_queue.put(("ok", missing_package_outcome()))
@@ -285,7 +285,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
                          min_pause_sec=segment_splitting.MIN_WORD_GAP_SECONDS, repeat_guard=False,
                          split_by_sentences=False, sensitivity_preset="normal",
-                         voice_detector="standard", qwen_prompt=None) -> dict:
+                         voice_detector="standard", qwen_prompt=None, timing=None) -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
@@ -304,6 +304,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     is moved next to the audio, so a killed worker leaves no partial file.
     split_by_sentences: see docs/engine-backends.md. qwen_prompt: the
     "Vocabulary: ..." hint (vocabulary_hint_service) for the Qwen3 backends, or None.
+    timing: timing_settings_service.values() read by the caller (a worker process must
+    not read the database), or None for the built-in thresholds.
 
     asr_backend_choice / alignment_method are the drama's stored
     choices: "qwen3_asr" only applies in whisper transcript_mode, and
@@ -311,6 +313,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     with a failed_reason ("dependency_missing", "model_download",
     "qwen3_asr"); a forced-align ValueError (e.g. an oversized line) falls
     back to the diff alignment and is reported as forced_align_error."""
+    tuning = (timing_settings_service.asr_tuning(timing) if timing is not None
+              else asr_backend.DEFAULT_TUNING)
     gpu_fallback_msg = []
     whisper_clock = {}
     stage_seconds = {}
@@ -459,7 +463,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     refine_timing=vad_refine_timing, mixed_languages=mixed_languages,
                     stage_cb=_vad_set_stage, on_device=_on_vad_device,
                     on_gpu_fallback=_qwen_on_fallback, detector=voice_detector,
-                    on_notice=detector_notices.append, prompt=qwen_prompt)
+                    on_notice=detector_notices.append, prompt=qwen_prompt, tuning=tuning)
             except vad_segments.VadNotInstalledError:
                 return {"failed_reason": "dependency_missing",
                         "detail": _MISSING_VAD_MESSAGE}
@@ -541,7 +545,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         local_model_path=local_model_path, hf_token=None,
                         initial_prompt=initial_prompt,
                         beam_size=beam_size,
-                        min_silence_duration_ms=(asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS
+                        min_silence_duration_ms=(tuning.sentence_min_silence_ms
                                                  if sentence_lines else min_silence_ms),
                         vad_threshold=vad_threshold,
                         on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
@@ -549,7 +553,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         progress_cb=_whisper_progress,
                         fast_mode=whisper_fast_mode,
                         hallucination_silence_sec=hallucination_silence_sec,
-                        repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset)
+                        repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset,
+                        filter_hallucination_repeats=tuning.repeat_min_repeats,
+                        stock_isolation_sec=tuning.stock_isolation_sec)
                 coarse_whisper_timing = not whisper_models.supports_word_timestamps(whisper_size)
                 # Not recorded for the speed estimate: a per-span detection run is slower.
                 if "t" in whisper_clock and not mixed_whisper_run:
@@ -592,6 +598,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         # The job already holds a GPU slot (gpu_touching); use_gpu is the
                         # user's choice, so a CPU-only run never touches CUDA.
                         device=select_device(use_gpu),
+                        min_duration_to_realign=tuning.realign_min_seconds,
+                        min_pause_seconds=tuning.realign_pause_seconds,
                         progress_cb=_align_progress, cancel_check=rep.cancelled)
                 finally:
                     align_ticker.stop()
@@ -651,7 +659,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                      for i, seg in enumerate(
                          s for s in long_line_split.split_long_segments(
                              segments, min_pause=min_pause_sec,
-                             rules=asr_backend.SENTENCE_SPLIT_RULES if sentence_lines else None)
+                             max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
+                             floors=tuning.floors,
+                             rules=asr_backend.sentence_split_rules(tuning) if sentence_lines else None)
                          if s["text"].strip())]
             coverage_msg = " ".join(detector_notices + [coverage_warning(
                 segments, _audio_duration_seconds(audio_path),

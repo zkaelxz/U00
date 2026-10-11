@@ -208,23 +208,28 @@ class TestForceStopService:
 
 class TestGpuProbeOutsideTheLock:
     def test_a_slow_nvidia_smi_does_not_block_status_reads(self, isolated_db, monkeypatch):
-        def slow(*_):
-            time.sleep(0.4)
-        monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: slow() or False)
-        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: slow())
-        bg.start_job("other", lambda: time.sleep(0.01))
+        probe_started, release_probe = threading.Event(), threading.Event()
+
+        def blocked_probe(*_):
+            probe_started.set()
+            release_probe.wait(20)   # hang guard only; the test releases it
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: blocked_probe() or False)
+        monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: blocked_probe())
+        bg.start_job("other", lambda: None)
         starter = threading.Thread(
             target=lambda: bg.start_job("gpu_job", lambda: None, gpu_touching=True, description="g"))
         starter.start()
-        slowest = 0.0
-        while starter.is_alive():
-            t0 = time.monotonic()
-            bg.get_status("other")
-            bg.is_cancel_requested("other")
-            slowest = max(slowest, time.monotonic() - t0)
-            time.sleep(0.01)
-        starter.join()
-        assert slowest < 0.2, f"a status read waited {slowest:.2f}s behind the GPU probe"
+        try:
+            assert probe_started.wait(10), "the GPU probe never started"
+            # The probe is still blocked, so a read that returns here did not wait behind it.
+            reads = threading.Thread(target=lambda: (bg.get_status("other"), bg.is_cancel_requested("other")))
+            reads.start()
+            reads.join(10)
+            assert not reads.is_alive(), "a status read waited behind the GPU probe"
+            assert starter.is_alive(), "the probe must still be in flight during the reads"
+        finally:
+            release_probe.set()
+            starter.join(10)
         assert _wait_for(lambda: (bg.get_status("gpu_job") or {}).get("status") == "done")
 
     def test_a_probe_slower_than_the_max_age_is_still_the_reading_used(self, monkeypatch):
