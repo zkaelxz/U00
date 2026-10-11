@@ -13,7 +13,7 @@ import type {
   GlossaryVariants,
 } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
-import { aliasBlocker, aliasesWith, clusterBlocker, clusterTermBody, matchLabel, sourceLabel } from './glossaryVariants'
+import { aliasBlocker, aliasesWith, clusterBlocker, clusterTermBody, matchLabel, sourceLabel } from './glossaryVariantsModel'
 import './glossaryVariants.css'
 
 function Examples({ items }: { items: GlossaryVariantExample[] }) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GlossaryNameCluster } from '../../../types/translateStage'
-import { aliasBlocker, aliasesWith, clusterBlocker, clusterTermBody, matchLabel, sourceLabel } from './glossaryVariants'
+import { aliasBlocker, aliasesWith, clusterBlocker, clusterTermBody, matchLabel, sourceLabel } from './glossaryVariantsModel'
 
 const cluster = (over: Partial<GlossaryNameCluster> = {}): GlossaryNameCluster => ({
   suggested_original: 'ヤロー',
