@@ -208,9 +208,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/glossary/dramas/{drama_id}/instructions` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/instructions/project` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/instructions/series` | lines.edit |
+| `GET /api/glossary/dramas/{drama_id}/name-clusters` | lines.read |
 | `GET /api/glossary/dramas/{drama_id}/terms` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/terms` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/terms/bulk-delete` | lines.edit |
+| `GET /api/glossary/dramas/{drama_id}/variants` | lines.read |
 | `GET /api/health` | public() |
 | `GET /api/jellyfin/config` | local_only() |
 | `POST /api/jellyfin/config` | local_only() |

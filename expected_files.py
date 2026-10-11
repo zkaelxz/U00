@@ -53,6 +53,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "gpu_probe.py",
     "gpu_wait_message.py",
     "glossary_io.py",
+    "glossary_phonetic.py",
     "hardsub_ocr.py",
     "job_force_stop.py",
     "job_process_kill.py",
