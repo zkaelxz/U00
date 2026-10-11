@@ -402,3 +402,27 @@ def test_corrupt_lzma_epub_entry_is_422_not_500(client):
                     files={"file": ("b.epub", data, "application/epub+zip")})
     assert r.status_code == 422, r.text
     assert "not a valid EPUB" in r.json()["error"]["message"]
+
+
+_SJIS_TEXT = "こんにちは世界、元気ですか。\n"
+
+
+def test_shift_jis_novel_is_decoded_as_cp932_with_a_warning(client):
+    did = _drama(source_language="zh")
+    r = _up(client, _raw(did), _SJIS_TEXT.encode("cp932"))
+    assert r.status_code == 200, r.text
+    assert _file(did, "raw_novel_context.txt") == _SJIS_TEXT.strip()
+    assert "cp932" in r.json()["warning"]
+
+
+def test_utf8_novel_upload_has_no_warning(client):
+    did = _drama(source_language="zh")
+    r = _up(client, _raw(did), _SJIS_TEXT.encode("utf-8"))
+    assert r.status_code == 200 and r.json().get("warning") is None
+
+
+def test_guessed_gbk_novel_still_warns(client):
+    did = _drama(source_language="zh")
+    r = _up(client, _raw(did), "你好,世界。\n".encode("gb18030"))
+    assert _file(did, "raw_novel_context.txt") == "你好,世界。"
+    assert "gb18030" in r.json()["warning"]

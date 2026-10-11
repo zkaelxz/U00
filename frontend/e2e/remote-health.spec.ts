@@ -96,10 +96,11 @@ test('PC admin: nothing shows while remote access is OK or off', async ({ page }
 
 test('Away from the PC (household listener): no banner and no request', async ({ page }) => {
   const m = await mockPage(page, CRITICAL, false)
+  // The Library list loads after /api/meta has said this is not the PC, which is when a health read would start.
+  const libraryRead = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/library/dramas')
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Baihe Studio' })).toBeVisible()
-  // Proving a non-event: the health read would come from a mount effect, so give it a window.
-  await page.waitForTimeout(500)
+  await libraryRead
   expect(m.reads).toBe(0)
   await expect(page.getByTestId('remote-health-banner')).toHaveCount(0)
   expect(m.unmocked).toEqual([])

@@ -31,6 +31,7 @@ import pytest
 import background_jobs
 import db
 from services import auto_backup_service as abs_
+from services import drama_restore_service as drs
 from services import drama_service
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
@@ -352,7 +353,7 @@ def _state(**kw):
 
 
 def _restore(did):
-    return abs_.restore_drama(did, confirm=True, confirm_text="RESTORE")
+    return drs.restore_drama(did, confirm=True, confirm_text="RESTORE")
 
 
 # --------------------------------------------------------------------------
@@ -1043,7 +1044,7 @@ class TestSnapshotInfoAndDelete:
         with pytest.raises(NotFoundError):
             _restore(1)
         with pytest.raises(NotFoundError):
-            abs_.restore_drama(1, confirm=True, confirm_text="RESTORE",
+            drs.restore_drama(1, confirm=True, confirm_text="RESTORE",
                                snapshot=os.path.basename(real))
         with pytest.raises(NotFoundError):
             abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True)
@@ -1465,7 +1466,7 @@ class TestRotation:
             for name, data in members.items():
                 zf.writestr(name, data)
         _delete_drama(a)
-        res = abs_.restore_drama(a, confirm=True, confirm_text="RESTORE",
+        res = drs.restore_drama(a, confirm=True, confirm_text="RESTORE",
                                  snapshot=os.path.basename(path))
         assert db.get_drama(res["drama_id"])["hallucination_silence_sec"] == 0
 
@@ -1475,7 +1476,7 @@ class TestRotation:
         db.update_drama(a, title_en="Renamed")
         _run_at(monkeypatch, _at(2))
         _delete_drama(a)
-        res = abs_.restore_drama(a, confirm=True, confirm_text="RESTORE",
+        res = drs.restore_drama(a, confirm=True, confirm_text="RESTORE",
                                  snapshot=abs_.LEGACY_SNAPSHOT_NAME)
         assert db.get_drama(res["drama_id"])["title_en"] == "Legacy drama"
 
@@ -1553,9 +1554,9 @@ class TestNamedCopy:
         assert listing["name"] == older and [d["id"] for d in listing["dramas"]] == [a]
         assert abs_.list_snapshot_dramas()["name"] == newer
         with pytest.raises(NotFoundError):          # B isn't in the older copy
-            abs_.restore_drama(b, confirm=True, confirm_text="RESTORE", snapshot=older)
+            drs.restore_drama(b, confirm=True, confirm_text="RESTORE", snapshot=older)
         _delete_drama(a)
-        res = abs_.restore_drama(a, confirm=True, confirm_text="RESTORE", snapshot=older)
+        res = drs.restore_drama(a, confirm=True, confirm_text="RESTORE", snapshot=older)
         assert res["drama_id"] == a and not res["restored_as_new"]
         assert res["snapshot"] == older
         assert db.get_drama(a)["title_en"] == "Old title"
@@ -1591,7 +1592,7 @@ class TestNamedCopy:
         _delete_drama(a)
         before = _dump_all()
         for call in (lambda: abs_.list_snapshot_dramas(bad),
-                     lambda: abs_.restore_drama(a, confirm=True, confirm_text="RESTORE",
+                     lambda: drs.restore_drama(a, confirm=True, confirm_text="RESTORE",
                                                 snapshot=bad),
                      lambda: abs_.delete_snapshot(confirm=True, confirm_text="DELETE",
                                                   snapshot=bad)):
@@ -1612,7 +1613,7 @@ class TestNamedCopy:
         assert name not in [c["name"] for c in abs_.snapshot_info()["copies"]]
         _delete_drama(a)
         with pytest.raises(NotFoundError):
-            abs_.restore_drama(a, confirm=True, confirm_text="RESTORE", snapshot=name)
+            drs.restore_drama(a, confirm=True, confirm_text="RESTORE", snapshot=name)
         with pytest.raises(NotFoundError):
             abs_.delete_snapshot(confirm=True, confirm_text="DELETE", snapshot=name)
         _run_at(monkeypatch, _at(20))                # a prune never touches it
@@ -1633,9 +1634,9 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
         fk_tables = {t for t in _tables(c)
                      for fk in c.execute(f'PRAGMA foreign_key_list("{t}")')
                      if fk["table"] == "dramas"}
-    assert fk_tables == set(abs_.CHILD_TABLES) | set(abs_._SKIPPED_TABLES)
-    assert not set(abs_.CHILD_TABLES) & set(abs_._SKIPPED_TABLES)
-    assert set(abs_._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results",
+    assert fk_tables == set(drs.CHILD_TABLES) | set(drs._SKIPPED_TABLES)
+    assert not set(drs.CHILD_TABLES) & set(drs._SKIPPED_TABLES)
+    assert set(drs._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results",
                                             "speaker_merge_undos"}
 
 
@@ -1801,7 +1802,7 @@ class TestRestoreRoundTrip:
     @pytest.mark.parametrize("did", [0, -1, "1", True, 1.0, None])
     def test_bad_id(self, isolated_db, did):
         with pytest.raises(InvalidInputError):
-            abs_.restore_drama(did, confirm=True, confirm_text="RESTORE")
+            drs.restore_drama(did, confirm=True, confirm_text="RESTORE")
 
     @pytest.mark.parametrize("confirm,text", [(False, "RESTORE"), (True, "restore"), (True, ""),
                                               (1, "RESTORE"), (True, "DELETE")])
@@ -1811,7 +1812,7 @@ class TestRestoreRoundTrip:
         _delete_drama(a)
         before = _dump_all()
         with pytest.raises(InvalidInputError):
-            abs_.restore_drama(a, confirm=confirm, confirm_text=text)
+            drs.restore_drama(a, confirm=confirm, confirm_text=text)
         assert _dump_all() == before
 
     def test_refused_while_backup_running(self, isolated_db):
@@ -1845,7 +1846,7 @@ class TestRestoreRoundTrip:
         _enable()
         _state()
         seen = []
-        real = abs_._restore_from
+        real = drs._restore_from
 
         def spy(*args, **kw):
             seen.append(abs_.check_and_run())
@@ -1857,7 +1858,7 @@ class TestRestoreRoundTrip:
                 except ConflictError:
                     pass
             return real(*args, **kw)
-        monkeypatch.setattr(abs_, "_restore_from", spy)
+        monkeypatch.setattr(drs, "_restore_from", spy)
         monkeypatch.setattr(abs_, "_start", lambda media: pytest.fail("backup started"))
         _restore(a)
         assert seen == ["busy"]
@@ -1869,13 +1870,13 @@ class TestRestoreRoundTrip:
         _delete_drama(a)
         _delete_series(w["series"])
         before = _dump_all()
-        real = abs_._insert
+        real = drs._insert
 
         def flaky(dst, table, row, cols):
             if table == "wiki_entries":
                 raise sqlite3.IntegrityError(f"boom {db.LIBRARY_DIR}")
             return real(dst, table, row, cols)
-        monkeypatch.setattr(abs_, "_insert", flaky)
+        monkeypatch.setattr(drs, "_insert", flaky)
         with pytest.raises(ServiceError) as e:
             _restore(a)
         assert db.LIBRARY_DIR not in str(e.value)
@@ -1979,7 +1980,7 @@ class TestRestoreMedia:
             fh.write(b"B")
         _snap(include_media=True)
         _delete_drama(a)
-        armed, real_move = [], abs_.move_media_in
+        armed, real_move = [], drs.move_media_in
 
         def move(*args, **kw):
             real_move(*args, **kw)
@@ -1991,7 +1992,7 @@ class TestRestoreMedia:
                 armed.clear()
                 raise sqlite3.OperationalError("disk I/O error")
             return sqlite3.Connection.commit(self)
-        monkeypatch.setattr(abs_, "move_media_in", move)
+        monkeypatch.setattr(drs, "move_media_in", move)
         monkeypatch.setattr(db._TrackedConnection, "commit", commit, raising=False)
         with pytest.raises(ServiceError):
             _restore(a)
@@ -2060,7 +2061,7 @@ class TestRestoreRejectsUnsafeSnapshot:
         with zipfile.ZipFile(_default_path()) as zf:
             db_size = zf.getinfo("library.db").file_size
         assert db_size < 2_000_000
-        monkeypatch.setattr(abs_, "_MAX_MEMBER_BYTES", 2_000_000)
+        monkeypatch.setattr(drs, "_MAX_MEMBER_BYTES", 2_000_000)
         self._assert_refused(a)
 
     def test_oversized_library_db(self, isolated_db, monkeypatch):
@@ -3038,11 +3039,11 @@ class TestSharedBackupHelpers:
         staging.mkdir()
         with self._snapshot(tmp_path) as zf:
             with pytest.raises(InvalidInputError, match="disk space"):
-                abs_.stage_media(zf, 7, str(staging))
+                drs.stage_media(zf, 7, str(staging))
             assert asked == [db.DRAMAS_DIR]
             assert list(staging.iterdir()) == []
             free += 1
-            folder = abs_.stage_media(zf, 7, str(staging))
+            folder = drs.stage_media(zf, 7, str(staging))
         assert _read_bytes(os.path.join(folder, "a.txt")) == b"x" * 100
 
     def test_stage_media_goes_ahead_when_free_space_is_unreadable(self, isolated_db, tmp_path,
@@ -3053,7 +3054,7 @@ class TestSharedBackupHelpers:
         staging = tmp_path / "staging"
         staging.mkdir()
         with self._snapshot(tmp_path) as zf:
-            folder = abs_.stage_media(zf, 7, str(staging))
+            folder = drs.stage_media(zf, 7, str(staging))
         assert _read_bytes(os.path.join(folder, "a.txt")) == b"x" * 100
 
     def test_one_directory_flush_for_backups_and_the_media_journal(self, tmp_path, monkeypatch):

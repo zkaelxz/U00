@@ -208,7 +208,18 @@ body {
 .app-main[data-width='wide'] :is(.jobs-page, .sources-page, .discover-page, .page-narrow) { max-width: none; }
 
 /* ---- header + top nav ---- */
+/* --app-header-h is the header's measured height (nav/useHeaderHeight); --bar-h is what other sticky pieces offset
+   from, and a page with its own sticky strip (Workspace) redefines it as header + strip. */
+:root { --bar-h: calc(env(safe-area-inset-top, 0px) + var(--app-header-h, 0px)); }
 .app-header {
+  /* Above the page's own sticky bars (z 3-5); its menus keep their z-index inside this context. Modals are top-layer dialogs. */
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 6;
+  /* Pinned at the viewport edge the bar's padding, not the page gutter, sits above its buttons; the margin cancels it in flow. */
+  margin-top: calc(-1 * var(--space-2));
+  padding-top: var(--space-2);
+  background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -490,6 +501,9 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .deletable-list { list-style: none; padding: 0 !important; }
 .deletable-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .deletable-list .row-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Inline buttons that wrap onto a second line stack their 44px hit areas on top of each other at 360px; a wrapping flex row with a gap keeps them apart. Block children (preview, confirm) take a full row. */
+.records-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.records-list > li > :is(div, p, form, fieldset, section, pre) { flex: 1 1 100%; min-width: 0; }
 .rename-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); width: 100%; min-width: 0; }
 .rename-form .field-item { flex: 1 1 12rem; min-width: 0; }
 .rename-form .error { flex-basis: 100%; margin: 0; }
@@ -853,3 +867,8 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 }
 
 .source-link { font-size: 0.9em; white-space: nowrap; }
+/* Same trick as .btn-sm: the box stays inline-sized, the ::after extends the tap area to 44px. */
+@media (pointer: coarse), (max-width: 640px) {
+  .source-link { position: relative; }
+  .source-link::after { content: ''; position: absolute; inset: -12px -6px; }
+}

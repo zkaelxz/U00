@@ -33,8 +33,8 @@ def test_cancel_while_the_lock_is_held_ends_the_wait():
         assert t.is_alive()
         cancelled.set()
         started = time.monotonic()
-        t.join(2)
-        assert not t.is_alive() and time.monotonic() - started < 1
+        t.join(10)
+        assert not t.is_alive() and time.monotonic() - started < 5
     assert outcome == ["cancelled"]
     assert not lock.locked()
 

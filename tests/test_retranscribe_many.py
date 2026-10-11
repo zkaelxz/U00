@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 import bulk_translate
 import core
+import whisper_models
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -125,7 +126,7 @@ def fake_asr(monkeypatch, inline_process_jobs):
 
     monkeypatch.setattr(core, "extract_audio_slice", fake_slice)
     monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
-    monkeypatch.setattr(core, "is_whisper_model_cached", lambda size: True)
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
     return calls
 
 
@@ -325,7 +326,7 @@ class TestJob:
     def test_model_download_failure_stops_the_run_and_is_redacted(
             self, isolated_db, fake_asr, monkeypatch):
         def boom(*a, **k):
-            raise core.ModelDownloadError(f"download failed token={SECRET}")
+            raise whisper_models.ModelDownloadError(f"download failed token={SECRET}")
         monkeypatch.setattr(core, "transcribe_for_timing", boom)
         did, ids = _drama(isolated_db)
         _out, job = _run(did, ids)
@@ -379,18 +380,20 @@ class TestJob:
 
 
 class TestApply:
-    def test_writes_zh_clears_english_and_keeps_the_rest(self, isolated_db, fake_asr):
+    def test_writes_zh_keeps_english_flags_and_keeps_the_rest(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
         assert bulk_translate.untranslated_line_count(did) == 0
         _run(did, ids)
         out = svc.apply_retranscribe_many(did, f"retranscribe_{did}", _items(did, {ids[0], ids[1]}))
-        assert out == {"applied": [ids[0], ids[1]], "skipped": [], "untranslated_count": 2}
+        assert out == {"applied": [ids[0], ids[1]], "skipped": [], "untranslated_count": 0}
         lines = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
-        assert (lines[ids[0]].zh, lines[ids[0]].en) == ("新0", "")
-        assert (lines[ids[1]].zh, lines[ids[1]].en) == ("新2", "")
-        # speaker, flag and timing stay
-        assert (lines[ids[0]].speaker, lines[ids[0]].flag, lines[ids[0]].flag_note) == (
-            "B", "unsure", "check")
+        assert (lines[ids[0]].zh, lines[ids[0]].en) == ("新0", "Old 0")
+        assert (lines[ids[1]].zh, lines[ids[1]].en) == ("新2", "Old 1")
+        # The kept English no longer matches the source: flagged for review.
+        assert (lines[ids[0]].flag, lines[ids[0]].flag_note) == ("source_changed", "")
+        assert lines[ids[1]].flag == "source_changed"
+        # speaker and timing stay
+        assert lines[ids[0]].speaker == "B"
         assert (lines[ids[1]].speaker, lines[ids[1]].start, lines[ids[1]].end) == ("A", 2.0, 3.5)
         # Lines not applied keep text and English.
         assert (lines[ids[2]].zh, lines[ids[2]].en) == ("旧2", "Old 2")
@@ -423,7 +426,7 @@ class TestApply:
         assert (got[ids[0]].zh, got[ids[0]].en) == ("我改的", "Old 0")
         assert (got[ids[1]].zh, got[ids[1]].en) == ("旧1", "My translation")
         assert (got[ids[2]].zh, got[ids[2]].en, got[ids[2]].start) == ("旧2", "Old 2", 4.2)
-        assert (got[ids[3]].zh, got[ids[3]].en) == ("新6", "")
+        assert (got[ids[3]].zh, got[ids[3]].en, got[ids[3]].flag) == ("新6", "Old 3", "source_changed")
 
     def test_a_deleted_line_is_skipped(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
@@ -442,18 +445,12 @@ class TestApply:
         again = svc.apply_retranscribe_many(did, f"retranscribe_{did}", items)
         assert again["applied"] == [] and again["skipped"] == [ids[0]]
 
-    def test_reopens_a_translated_title_and_counts_refresh(self, isolated_db, fake_asr):
+    def test_a_translated_title_stays_translated(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
         assert isolated_db.get_drama(did)["status"] == "translated"
         _run(did, ids)
         out = svc.apply_retranscribe_many(did, f"retranscribe_{did}", _items(did, {ids[2]}))
-        assert out["untranslated_count"] == 1 == bulk_translate.untranslated_line_count(did)
-        assert isolated_db.get_drama(did)["status"] == "aligned"
-        # Translating the line again completes the title.
-        lines = isolated_db.load_line_objects(did)
-        lines[2].en = "New 2"
-        isolated_db.save_lines(did, lines, fields=("en",))
-        bulk_translate.mark_translated_if_complete(did)
+        assert out["untranslated_count"] == 0 == bulk_translate.untranslated_line_count(did)
         assert isolated_db.get_drama(did)["status"] == "translated"
 
     def test_a_dubbed_title_keeps_its_status(self, isolated_db, fake_asr):
@@ -528,7 +525,7 @@ def _hung_many_worker(*args):
         time.sleep(600)
     c.extract_audio_slice = cut
     c.transcribe_for_timing = hang
-    c.is_whisper_model_cached = lambda size: True
+    whisper_models.is_whisper_model_cached = lambda size: True
     rw.retranscribe_many_worker(*args)
 
 
@@ -617,7 +614,7 @@ class TestRoutes:
                   "expected_proposed": p["proposed_zh"]} for p in body["proposals"]]
         applied = client.post(_path(did, "/apply"), json={"job_id": body["job_id"], "items": items})
         assert applied.status_code == 200, applied.text
-        assert applied.json() == {"applied": ids[:2], "skipped": [], "untranslated_count": 2}
+        assert applied.json() == {"applied": ids[:2], "skipped": [], "untranslated_count": 0}
 
     def test_errors(self, client, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)

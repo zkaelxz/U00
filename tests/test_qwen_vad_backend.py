@@ -1,5 +1,6 @@
 """The opt-in qwen3_asr_vad backend: VAD spans -> Qwen3-ASR text -> lines, with
 optional forced-aligner timing. Models, audio and VAD are all faked."""
+import whisper_models
 import sys
 
 import numpy as np
@@ -265,7 +266,7 @@ class _Rep:
 def _pipeline(rep, tmp_path, monkeypatch, fake_transcribe):
     from services import transcribe_pipeline, transcribe_service
     monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake_transcribe)
-    monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 10.0)
     return transcribe_pipeline._transcribe_pipeline(
         rep, str(tmp_path / "a.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
@@ -346,7 +347,7 @@ def test_pipeline_reports_a_gpu_fallback_in_the_outcome_and_job_result(tmp_path,
     assert out["gpu_fallback_task"] == "Qwen3-ASR"
     assert out["device_msg"] == "Qwen3-ASR on CPU"
     from services import jobs_service, transcribe_service
-    notice = transcribe_service.core_module.gpu_fallback_notice(
+    notice = whisper_models.gpu_fallback_notice(
         out["gpu_fallback_task"], out["gpu_fallback_msgs"][0])
     assert notice.startswith("Qwen3-ASR ran on the CPU because the GPU couldn't be used (")
     shown = jobs_service.project_result({
@@ -452,7 +453,7 @@ def test_pipeline_runs_the_long_backend_and_reports_it(tmp_path, monkeypatch):
         seen["backend"] = self.name
         return [{"start": 1.0, "end": 2.0, "text": "你好"}]
     monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake)
-    monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 10.0)
     out = transcribe_pipeline._transcribe_pipeline(
         _Rep(), str(tmp_path / "a.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300,
@@ -471,7 +472,7 @@ def test_pipeline_passes_the_detector_and_surfaces_its_fallback_notice(tmp_path,
         kw["on_notice"]("The ASMR voice detector model is not downloaded. Used the Standard detector instead.")
         return [{"start": 1.0, "end": 2.0, "text": "你好"}]
     monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake)
-    monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 10.0)
     out = transcribe_pipeline._transcribe_pipeline(
         _Rep(), str(tmp_path / "a.wav"), "whisper", None, "ja", "simplified", "medium", 5, 300, 0.5,

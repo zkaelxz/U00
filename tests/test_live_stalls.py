@@ -18,10 +18,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
 import core
+import whisper_models
 import live_audio
 import live_translate as lt
 import live_whisper
 import ollama_unload
+from jobs import gpu_slots
 from services import live_service
 
 RATE = 8000
@@ -106,7 +108,7 @@ def job(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(live_whisper, "ABANDON_GRACE_SECONDS", 0.05)
     # Dropping the cached model must never be how a stuck call is handled.
     released = []
-    monkeypatch.setattr(core, "release_gpu_models", lambda: released.append(1))
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: released.append(1))
     notes = []
     session = {"dir": None, "engine": "x"}
     out_dir = str(tmp_path / "chunks")
@@ -168,7 +170,7 @@ def _fake_model_cache(monkeypatch):
             loads.append(size)
             cache[size] = object()
         return cache[size]
-    monkeypatch.setattr(core, "load_whisper_model", load)
+    monkeypatch.setattr(whisper_models, "load_whisper_model", load)
     return load, loads
 
 
@@ -210,7 +212,7 @@ class TestWhisperThatNeverReturns:
         live_counts, calls = [], []
 
         def whisper(path, **kw):
-            core.load_whisper_model("small")
+            whisper_models.load_whisper_model("small")
             calls.append(path)
             live_counts.append(_live_whisper_threads())
             if len(calls) == 1:
@@ -219,7 +221,7 @@ class TestWhisperThatNeverReturns:
             return [{"start": 0.5, "end": 1.0, "text": f"t{len(calls)}"}]
         monkeypatch.setattr(core, "transcribe_for_timing", whisper)
         monkeypatch.setattr(live_whisper, "warm_up",
-                            lambda size, gpu, cb=None: core.load_whisper_model(size))
+                            lambda size, gpu, cb=None: whisper_models.load_whisper_model(size))
         stream.add(2)
         assert start("live_one", Engine())
         assert _wait(lambda: len(calls) == 1)
@@ -426,17 +428,17 @@ class TestWhisperRunner:
         release = threading.Event()
         promoted = []
         monkeypatch.setattr(background_jobs, "_promote_next_queued_gpu_job",
-                            lambda: promoted.append(db.gpu_lock_status()[0]))
+                            lambda: promoted.append(gpu_slots.status()[0]))
         runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
                                             clock=TickingClock(), poll=0.005, grace=0.05, gpu=True)
         with pytest.raises(live_whisper.ChunkTimeout):
             runner.run(lambda cb: release.wait(20), 3, "chunk 4")
-        assert db.gpu_lock_status()[0] == live_whisper.CLAIM_HOLDER
+        assert gpu_slots.status()[0] == live_whisper.CLAIM_HOLDER
         # The Live job's own slot is released after this; a queued job still waits.
-        assert not db.try_acquire_gpu_lock("ui:queued", max_holders=1)
+        assert not gpu_slots.take("ui:queued", max_holders=1)
         release.set()
         assert _wait(lambda: promoted)
-        assert promoted == [None] and db.gpu_lock_status()[0] is None
+        assert promoted == [None] and gpu_slots.status()[0] is None
 
     def test_a_call_that_ends_within_the_grace_leaves_no_claim(self, isolated_db):
         import db
@@ -449,14 +451,14 @@ class TestWhisperRunner:
         with pytest.raises(live_whisper.ChunkTimeout):
             runner.run(decode, 3, "chunk 0")
         assert _wait(lambda: runner.busy_with() is None)
-        assert db.gpu_lock_status()[0] is None
+        assert gpu_slots.status()[0] is None
 
     def test_a_cpu_call_never_claims_the_gpu(self):
         release = threading.Event()
         with pytest.raises(live_whisper.ChunkTimeout):
             self._runner(clock=TickingClock()).run(lambda cb: release.wait(20), 3, "chunk 4")
         import db
-        assert db.gpu_lock_status()[0] is None
+        assert gpu_slots.status()[0] is None
         release.set()
 
     def test_per_segment_abort_reaches_the_real_decode_loop(self, monkeypatch, tmp_path):
@@ -476,7 +478,7 @@ class TestWhisperRunner:
                         yielded.append(i)
                         yield Seg(i)
                 return gen(), type("I", (), {"duration": 1000})()
-        monkeypatch.setattr(core, "load_whisper_model", lambda *a, **k: Model())
+        monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: Model())
         wav = tmp_path / "a.wav"
         _wav(wav, 1)
         runner = self._runner(clock=TickingClock())
@@ -517,28 +519,6 @@ class TestAbandonedWorkerBlocksAdminActions:
         assert not background_jobs.wait_for_job_threads(0.05)
         release.set()
         assert background_jobs.wait_for_job_threads(5.0)
-
-    def test_startup_clears_only_live_whisper_claims(self, isolated_db):
-        import db
-        assert db.try_acquire_gpu_lock(live_whisper.CLAIM_HOLDER, "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
-        assert db.try_acquire_gpu_lock("cli:123", "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
-        assert live_whisper.release_stale_claims() == 1
-        import contextlib
-        with contextlib.closing(db.get_conn()) as conn:
-            holders = [r["holder"] for r in conn.execute("SELECT holder FROM gpu_lock")]
-        assert holders == ["cli:123"]
-
-    def test_startup_keeps_a_live_process_claim_and_drops_a_dead_one(self, isolated_db, monkeypatch):
-        import contextlib
-        import db
-        alive, dead = f"{live_whisper.CLAIM_PREFIX}4242", f"{live_whisper.CLAIM_PREFIX}4343"
-        for holder in (alive, dead):
-            assert db.try_acquire_gpu_lock(holder, "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
-        monkeypatch.setattr(background_jobs, "owner_process_alive", lambda pid: pid == 4242)
-        assert live_whisper.release_stale_claims() == 1
-        with contextlib.closing(db.get_conn()) as conn:
-            holders = [r["holder"] for r in conn.execute("SELECT holder FROM gpu_lock")]
-        assert holders == [alive]
 
     def test_a_failed_thread_start_leaves_nothing_outstanding(self, isolated_db, monkeypatch):
         def refuse(self):
@@ -679,7 +659,7 @@ class TestWarmStart:
         entered = []
 
         def stuck_load(size, gpu, cb=None):
-            core.load_whisper_model(size)
+            whisper_models.load_whisper_model(size)
             entered.append(1)
             release.wait(20)
         monkeypatch.setattr(live_whisper, "warm_up", stuck_load)
@@ -720,7 +700,7 @@ class TestWarmStart:
                     seen["consumed"] = True
                     yield "segment"
                 return gen(), None
-        monkeypatch.setattr(core, "load_whisper_model", lambda size, use_gpu=False, **k: Model())
+        monkeypatch.setattr(whisper_models, "load_whisper_model", lambda size, use_gpu=False, **k: Model())
         # transcribe_for_timing always enables the VAD filter, so it must not be the path.
         monkeypatch.setattr(core, "transcribe_for_timing",
                             lambda *a, **k: pytest.fail("the warm-up must call the model directly"))

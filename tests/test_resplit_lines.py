@@ -1,5 +1,6 @@
 """Re-split over-long lines in place (services/restructure_service.resplit_long_lines and
 POST /api/restructure/dramas/{id}/resplit). Mocked: no GPU, no aligner model, no audio."""
+import whisper_models
 import os
 import subprocess
 import threading
@@ -251,7 +252,7 @@ def test_cancelled_job_releases_the_aligner(monkeypatch):
         background_jobs.request_cancel(f"resplit_{did}")
         return _aligned(texts)
     _fake_aligner(monkeypatch, align)
-    monkeypatch.setattr(svc.core_module, "release_gpu_models",
+    monkeypatch.setattr(whisper_models, "release_gpu_models",
                         lambda: calls.__setitem__("release", calls["release"] + 1))
     res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert res["failed_reason"] == "cancelled" and len(db.load_lines(did)) == 4

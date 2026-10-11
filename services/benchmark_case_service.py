@@ -15,7 +15,7 @@ from core import SOURCE_LANGUAGES
 def redact(text, key=None):
     """Secrets (redact_secrets, plus the run's own key by value, since a key
     without a recognisable prefix would otherwise slip through) and absolute
-    paths / the OS user name (diagnostics.redact_for_support, via
+    paths / the OS user name (diagnostics_report.redact_for_support, via
     jobs_service's never-raising wrapper): errors are shown to remote admins."""
     if not text:
         return text

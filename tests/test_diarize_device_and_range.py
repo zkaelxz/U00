@@ -16,6 +16,7 @@ import sys
 import types
 
 import pytest
+from tests.saved_settings import patch_setting
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -226,7 +227,7 @@ class TestServiceAndApi:
     def test_service_passes_use_gpu_and_range_to_the_worker(self, isolated_db, monkeypatch):
         from services import diarization_service, settings_service
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf")
-        monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+        patch_setting(monkeypatch, "use_gpu", True)
         did, ddir = _drama_with_audio(isolated_db)
         calls = self._capture_start(monkeypatch)
         diarization_service.start_diarization_run(did, min_speakers=2, max_speakers=4)
@@ -296,7 +297,7 @@ class TestCliParity:
         import cli
         from services import settings_service
         from core import Line
-        monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+        patch_setting(monkeypatch, "use_gpu", True)
         monkeypatch.setattr(cli, "release_gpu_models", lambda: None)
         did, ddir = _drama_with_audio(isolated_db)
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a")])

@@ -34,6 +34,8 @@ import type {
   LineAlternatives,
   LineGrammar,
   ShortenResult,
+  SourceChanged,
+  KeepEnglishResult,
 } from '../types/review'
 import { apiUrl, deleteJson, getJson, postJson } from './client'
 
@@ -66,6 +68,13 @@ export const setLinesLanguage = (id: number, req: SetLanguageRequest, f?: Fetch)
 
 export const dismissFlag = (id: number, lineId: number, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/dismiss-flag`, undefined, f)
+
+export const getSourceChanged = (id: number, f?: Fetch) =>
+  getJson<SourceChanged>(`${review(id)}/source-changed`, f)
+
+// Clears the source_changed flag only; text and English stay as they are.
+export const keepEnglish = (id: number, lineIds: number[], f?: Fetch) =>
+  postJson<KeepEnglishResult>(`${lines(id)}/source-changed/keep-english`, { line_ids: lineIds }, f)
 
 // expectedEn: the line's English as shown; the server refuses (409) if it changed.
 export const acceptTm = (id: number, lineId: number, entryId: number, expectedEn: string, f?: Fetch) =>

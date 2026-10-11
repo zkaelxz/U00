@@ -3,7 +3,10 @@
 .source-panel h3 { margin: 0; }
 .source-file { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; min-width: 0; }
 .source-file input[type='file'] { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
-.source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-3); min-width: 0; }
+/* start, not the default stretch: a tall cell (Voice detector's note and button) would otherwise stretch its
+   neighbours' grid rows and push their inputs to the bottom, away from their labels. */
+.source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-3); min-width: 0; align-items: start; }
+.source-grid select { text-overflow: ellipsis; }
 /* Field puts every child in one flex row, so notes and the button go below the Field instead of inside it. */
 .field-with-extras { display: grid; gap: var(--space-2); min-width: 0; align-content: start; }
 .field-with-extras > .muted { margin: 0; min-width: 0; }

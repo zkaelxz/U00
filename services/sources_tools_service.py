@@ -190,7 +190,7 @@ def start_pasted_import(url, html, drama_id, local: bool = True, principal=None)
     html = _pasted_html(html)
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
-        raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
+        raise InvalidInputError("Novel text imports into a novel title. Pick one, "
                                 "or create one first.")
     require_idle(drama_id)
     job_id = import_job_id(drama_id)

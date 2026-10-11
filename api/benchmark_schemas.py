@@ -8,6 +8,7 @@ from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.benchmark import BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
 from core import SOURCE_LANGUAGES
 
 Stage = Literal["translation", "transcription", "ocr"]
@@ -102,6 +103,9 @@ class BenchmarkRunRequest(_Strict):
     case_ids: Optional[List[int]] = Field(default=None, max_length=1000)
     label: str = Field(default="", max_length=120)
     prompt_version: str = Field(default="", max_length=60)
+    # Translation runs only: also have this engine score each output (see
+    # services/benchmark_judge_service.py).
+    judge: Optional[BenchmarkJudgeConfig] = None
     # Starting a run needs confirm=true: the client shows the estimate first.
     confirm: bool = False
 
@@ -123,6 +127,7 @@ class BenchmarkEstimate(BaseModel):
     remaining_usd: Optional[float] = None
     monthly_refusal: Optional[str] = None
     estimate_above_cap: bool
+    judge: Optional[BenchmarkJudgeEstimate] = None
 
 
 class BenchmarkRunStarted(BaseModel):
@@ -155,6 +160,7 @@ class BenchmarkRun(BaseModel):
     context_settings: dict = Field(default_factory=dict)
     case_filter: dict = Field(default_factory=dict)
     delta_vs_first: Optional[float] = None
+    judge: Optional[BenchmarkJudgeSummary] = None
 
 
 class BenchmarkRunList(BaseModel):
@@ -174,6 +180,7 @@ class BenchmarkResult(BaseModel):
     duration_seconds: Optional[float] = None
     cost_usd: float = 0.0
     error: Optional[str] = None
+    judge: Optional[BenchmarkJudgeScore] = None
 
 
 class BenchmarkRunDetail(BaseModel):

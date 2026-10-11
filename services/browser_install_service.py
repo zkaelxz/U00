@@ -22,7 +22,7 @@ from collections import deque
 import background_jobs
 import job_process_kill
 import browser_support
-import diagnostics
+import diagnostics_report
 import translate_engines
 from lib.proc import stream_tree
 from services import diagnostics_gaps_service as gaps
@@ -53,7 +53,7 @@ def _clean(text) -> str:
     """Secrets out first, then filesystem paths (the install folder shows
     up in Playwright's own output)."""
     out = translate_engines.redact_secrets("" if text is None else str(text))
-    return diagnostics.redact_for_support(out)[:OUTPUT_LINE_CHARS]
+    return diagnostics_report.redact_for_support(out)[:OUTPUT_LINE_CHARS]
 
 
 def _job_view(job_id: str):

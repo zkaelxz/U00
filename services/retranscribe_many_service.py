@@ -12,19 +12,21 @@ holds `proposals`, a one-line one `line_id`.
 
 The job writes nothing. Proposals live in its in-process result: GET /api/jobs
 shows only counts (jobs_service's allow-list), and the text is read back with
-get_retranscribe_many_result. apply_retranscribe_many writes `zh` and clears
-`en` for the chosen lines only, each as a compare-and-set against the line as
-the run read it, after a history snapshot; the translation is cleared because
-it describes the old source text, and a title with a blank English is what
-Translate counts as "left".
+get_retranscribe_many_result. apply_retranscribe_many writes `zh` for the
+chosen lines only, each as a compare-and-set against the line as the run read
+it, after a history snapshot. A translated line keeps its English and is
+flagged `source_changed` (see source_change.py), so Review shows the mismatch
+and the user retranslates or keeps it; clearing the English would lose it.
 """
 import functools
 
 import background_jobs
 import bulk_translate
 import core as core_module
+import whisper_models
 import db
 import sensitivity_preset as presets
+import source_change
 import storage
 from services import (compare_transcription_service as compare, settings_service,
                       transcribe_pipeline, transcribe_service, translate_service)
@@ -58,7 +60,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
         raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
     audio_path = transcribe_service._drama_audio_path(drama_id, drama)
     if audio_path is None:
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     if (not isinstance(line_ids, list) or not line_ids or len(line_ids) > MAX_LINES
             or any(isinstance(i, bool) or not isinstance(i, int) for i in line_ids)):
         raise InvalidInputError(f"Choose between 1 and {MAX_LINES} lines.")
@@ -66,14 +68,14 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
     wanted = set(line_ids)
     picked = [ln for ln in lines if ln.id in wanted]
     if len(picked) != len(wanted):
-        raise NotFoundError("Some of those lines are not in this drama any more.")
+        raise NotFoundError("Some of those lines are not in this title any more.")
     if any(not float(ln.end) > float(ln.start) for ln in picked):
         raise UnsupportedOperationError("A chosen line has no timing window to re-transcribe.")
     prompt = transcribe_service._resolve_initial_prompt(drama_id, initial_prompt, extra_names)
     for prefix in transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")
         if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this drama's lines. "
+            raise ConflictError("Another job is changing this title's lines. "
                                 "Try again when it finishes.")
     job_id = _job_id(drama_id)
     default_language = drama.get("source_language") or "zh"
@@ -90,15 +92,15 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
             args=(audio_path, windows, size,
                   drama.get("beam_size") or tuning["beam_size"],
                   drama.get("min_silence_ms") or tuning["min_silence_ms"],
-                  presets.stored_vad_threshold(drama), settings_service.get_use_gpu(), prompt,
+                  presets.stored_vad_threshold(drama), settings_service.get("use_gpu"), prompt,
                   transcribe_service.stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),
                   transcribe_pipeline._model_loading_message(
-                      size, core_module.is_whisper_model_cached(size)),
+                      size, whisper_models.is_whisper_model_cached(size)),
                   retranscribe_timeout_s(sum(w[2] - w[1] for w in windows)), scratch_dir),
             gpu_touching=True,
-            description=f"Re-transcribing {len(windows)} lines (drama #{drama_id})",
+            description=f"Re-transcribing {len(windows)} lines (title #{drama_id})",
             kill_whole_tree=True, initial_result={"line_count": len(windows)},
             start_method="spawn",
             on_done=functools.partial(apply_retranscribe_many_outcome, drama_id=drama_id,
@@ -109,7 +111,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
         raise
     if not started:
         transcribe_pipeline._remove_scratch_dir(scratch_dir)
-        raise ConflictError("A re-transcription is already running for this drama.")
+        raise ConflictError("A re-transcription is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(windows)}
 
 
@@ -149,9 +151,10 @@ def apply_retranscribe_many(drama_id: int, job_id, items) -> dict:
     get_retranscribe_many_result showed), and the line must still hold its
     zh, en, start and end from when the run read it -- one compare-and-set per
     line inside one transaction -- so a line edited, re-timed or translated
-    since is skipped and reported, never overwritten. Writes `zh` and clears
-    `en` on the applied lines only (speaker, flag and the rest stay), then
-    reopens a translated title so Translate counts them. A history snapshot is
+    since is skipped and reported, never overwritten. Writes `zh` on the
+    applied lines only, keeping `en` (a translated line whose text changes is
+    flagged `source_changed`; speaker and the rest stay), then brings the
+    title status in line with the lines. A history snapshot is
     taken first when at least one item still matches, unless this run's
     earlier apply already took the latest one. Returns {applied: [line_id],
     skipped: [line_id], untranslated_count}.
@@ -176,7 +179,9 @@ def apply_retranscribe_many(drama_id: int, job_id, items) -> dict:
             raise ConflictError("These aren't the proposals you were shown. "
                                 "Re-transcribe again.")
         order.append(line_id)
-        writes.append((line_id, {"zh": p["proposed_zh"], "en": ""},
+        writes.append((line_id, {"zh": p["proposed_zh"],
+                                 **source_change.flag_values(p["base_zh"], p["proposed_zh"],
+                                                             p["base_en"])},
                        {"zh": p["base_zh"], "en": p["base_en"],
                         "start": p["base_start"], "end": p["base_end"]}))
     with compare._apply_lock:

@@ -67,7 +67,7 @@ def list_engines(env_path: Optional[str] = None) -> list:
     persisted "Gemini free tier" setting (translate_engines.engine_picker_label)."""
     from services import model_registry_service  # imports this module at load time
     key_status = settings_service.key_status(env_path)
-    gemini_free_tier = settings_service.get_gemini_free_tier()
+    gemini_free_tier = settings_service.get("gemini_free_tier")
     engines = []
     for name in translate_engines.ENGINES:
         model_dict = ENGINE_MODEL_DICTS.get(name)

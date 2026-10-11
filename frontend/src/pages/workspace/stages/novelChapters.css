@@ -1,4 +1,7 @@
 .chapters-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); max-height: 24rem; overflow-y: auto; }
+/* The source link sits beside its row, not under it, so a long list keeps one block per chapter. */
+.chapters-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); }
+.chapters-item .source-link { display: inline-flex; align-items: center; min-height: 44px; }
 .chapters-row { display: grid; grid-template-columns: 3rem 1fr; gap: 0 var(--space-2); align-items: center; width: 100%; min-height: 44px; padding: var(--space-1) var(--space-2); text-align: left; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: inherit; cursor: pointer; }
 .chapters-row[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
 .chapters-num { grid-row: span 2; text-align: right; font-variant-numeric: tabular-nums; opacity: 0.7; }
@@ -12,7 +15,10 @@
 @media (pointer: coarse), (max-width: 640px) {
   .chapters-list { max-height: 18rem; }
   .chapters-text { max-height: 50vh; }
+  .chapters-item { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .chapters-item .source-link { justify-self: end; }
 }
 .chapters-nav { display: flex; gap: var(--space-2); align-items: center; }
 .chapters-nav select { flex: 1; min-width: 0; }
 .chapters-nav button, .chapters-nav select { min-height: 44px; min-width: 44px; }
+.chapters-preview .source-subhead { overflow-wrap: anywhere; }

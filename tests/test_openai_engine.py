@@ -249,13 +249,18 @@ def test_transport_failure_through_post_json_is_transient_for_the_fallback_chain
     assert KEY not in str(exc.value)
 
 
-def test_redirect_through_post_json_is_transient_but_401_is_not(monkeypatch):
+def test_redirect_through_post_json_is_not_transient_and_neither_is_401(monkeypatch):
     from types import SimpleNamespace
     from engine_backends import fallback, shared
-    _post_json_with(monkeypatch, SimpleNamespace(status=302, body=b"", headers={}))
-    with pytest.raises(Exception) as redirect:
+    from lib import http
+    _post_json_with(monkeypatch, SimpleNamespace(
+        status=308, body=b"", headers={"Location": "https://other.test/v1?key=abc"}))
+    with pytest.raises(shared.ProviderRedirected) as redirect:
         shared.post_json("https://x.test", {}, timeout=5)
-    assert fallback.is_transient_fallback_error(redirect.value)
+    assert isinstance(redirect.value, http.FetchError)
+    assert fallback.is_fallback_error(redirect.value)  # the chain still switches engines
+    assert not fallback.is_transient_fallback_error(redirect.value)  # but never retries in place
+    assert str(redirect.value) == shared.PROVIDER_REDIRECTED
 
     resp = SimpleNamespace(status=401, body=b"{}", headers={}, text=lambda: "{}")
     _post_json_with(monkeypatch, resp)
@@ -272,3 +277,15 @@ def test_post_json_headers_are_case_insensitive_and_deadline_is_twice_the_timeou
     _, headers = shared.post_json("https://x.test", {}, timeout=120)
     assert headers.get("x-ratelimit-limit-requests") == "20"
     assert seen["deadline"] == 240
+
+
+def test_error_response_text_is_redacted_on_the_exception(monkeypatch):
+    from types import SimpleNamespace
+    from engine_backends import shared
+    body = '{"error": {"message": "bad key sk-abcdefghijklmnop0123456789"}}'
+    resp = SimpleNamespace(status=400, body=body.encode(), headers={}, text=lambda: body)
+    _post_json_with(monkeypatch, resp)
+    with pytest.raises(requests.HTTPError) as exc:
+        shared.post_json("https://x.test", {}, timeout=5)
+    assert "sk-abcdefghijklmnop0123456789" not in exc.value.response.text
+    assert "[REDACTED]" in exc.value.response.text

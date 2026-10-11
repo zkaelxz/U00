@@ -21,6 +21,7 @@ import { buildPatch, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, type LineD
 import { CONFLICT_MESSAGE, formatTime, isToolMode, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
+import { isSourceChanged } from '../sourceChanged'
 
 export interface NoteDraft {
   term: string
@@ -226,6 +227,11 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
           </span>
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
+        {isSourceChanged(line) && (
+          <span data-testid="source-changed-badge" title="The source text changed after this line was translated">
+            <Badge tone="warn">Source changed</Badge>
+          </span>
+        )}
         {line.dub_filename && !isPhone && <span>Dub: {line.dub_filename}</span>}
         {line.flag && isPhone && (
           <span className="review-flag" data-testid="line-flag">
@@ -372,8 +378,9 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
             </button>
           )}
           {line.flag && (
-            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)} title="Dismiss flag (F)">
-              Dismiss flag
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)}
+                    title={isSourceChanged(line) ? 'Keep this English for the new source text (F)' : 'Dismiss flag (F)'}>
+              {isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}
             </button>
           )}
           {jobRunning ? (

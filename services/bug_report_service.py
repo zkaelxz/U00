@@ -14,7 +14,7 @@ Stored as files, not in the database, under
 and `screenshot.png`/`.jpg`. The old db.bug_reports table is unrelated and no longer written.
 
 Every stored string passes `_scrub`: translate_engines.redact_secrets and
-diagnostics.redact_for_support (OS user name, absolute paths), plus
+diagnostics_report.redact_for_support (OS user name, absolute paths), plus
 session-cookie / CSRF / Cookie-header / URL-userinfo / credential-query
 parameter / long-token and user-home-folder redaction. App
 routes and API paths are not filesystem paths, so they keep their shape
@@ -32,11 +32,12 @@ import subprocess
 import threading
 
 import db
-import diagnostics
+import diagnostics_report
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 DIR_NAME = "bug_reports"
 MAX_REPORTS = 100
+MAX_REPORTS_PER_USER = 10
 MAX_TOTAL_BYTES = 250 * 1024 * 1024
 MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 MAX_JSON_BYTES = 256 * 1024
@@ -60,14 +61,6 @@ _CSRF_RE = re.compile(r"(x-csrf-token[\"']?\s*[:=]\s*[\"']?)[^\s\"',;]+", re.IGN
 _COOKIE_HDR_RE = re.compile(r"(?im)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*")
 # URL userinfo: scheme://user:pass@host -> scheme://***@host.
 _USERINFO_RE = re.compile(r"(?<=//)[^/\s@\"'<>]+@")
-# Credential-shaped parameters of any length, wherever they sit (a query
-# string, a log line, JSON): token=, access_token=, sig=, signature=,
-# X-Amz-Signature=, Key-Pair-Id=, auth=, api_key=, password=, ... The name
-# set follows sources/ai_extract._SENSITIVE_PARAM (prompt_safe), without its
-# need for a preceding ?/&.
-_PARAM_RE = re.compile(
-    r"(?i)(?<![\w.\-])((?:[\w.\-]*(?:token|sig|auth|session|secret|credential|passw|key|jwt|"
-    r"ticket|hmac|policy)[\w.\-]*|x-amz-[\w.\-]+)=)[^&#\s\"'<>\\;,]*")
 _TOKENISH_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 _USER_DIR_RE = re.compile(
     r"(?i)((?:[a-z]:)?[\\/]+(?:users|documents and settings|home)[\\/]+)[^\\/\s\"'<>|:*?]+")
@@ -88,7 +81,7 @@ def _pre_scrub(text: str) -> str:
     text = _COOKIE_HDR_RE.sub(r"\1[REDACTED]", text)
     text = _CSRF_RE.sub(r"\1[REDACTED]", text)
     text = _USERINFO_RE.sub("***@", text)
-    text = _PARAM_RE.sub(r"\1[REDACTED]", text)
+    text = diagnostics_report.CREDENTIAL_PARAM_PATTERN.sub(r"\1[REDACTED]", text)
     text = _USER_DIR_RE.sub(r"\1[USER]", text)
     return _TOKENISH_RE.sub("[REDACTED]", text)
 
@@ -96,7 +89,7 @@ def _pre_scrub(text: str) -> str:
 def _scrub(value, limit: int = 5000) -> str:
     """Free text: secrets, tokens, user names and absolute paths removed."""
     text = "" if value is None else str(value)[:limit]
-    return diagnostics.redact_for_support(_pre_scrub(text))
+    return diagnostics_report.redact_for_support(_pre_scrub(text))
 
 
 def _scrub_route(value, limit: int = 300) -> str:
@@ -107,7 +100,7 @@ def _scrub_route(value, limit: int = 300) -> str:
     text = ("" if value is None else str(value)).split("?", 1)[0].split("#", 1)[-1][:limit]
     text = _pre_scrub(text)
     if _FS_LIKE_RE.search(text):
-        return diagnostics.redact_for_support(text)
+        return diagnostics_report.redact_for_support(text)
     import translate_engines
     import getpass
     text = translate_engines.redact_secrets(text)
@@ -395,13 +388,34 @@ def issue_title(what_happened: str) -> str:
     return f"[Bug] {short or 'Problem report'}"
 
 
+def _remote_reporters(existing: dict) -> list:
+    """The `reporter` of every saved report not filed at the PC. A report
+    saved before reporters were recorded counts as remote with no owner."""
+    root = _reports_dir()
+    out = []
+    for name in existing.values():
+        try:
+            with open(os.path.join(root, name, "report.json"), encoding="utf-8") as fh:
+                reporter = json.load(fh).get("reporter", "")
+        except (OSError, ValueError, AttributeError):
+            reporter = ""
+        if reporter != "local":
+            out.append(reporter)
+    return out
+
+
 def create_report(client: dict, screenshot: bytes = None, include_server_in_response=True,
-                  now: datetime.datetime = None) -> dict:
+                  now: datetime.datetime = None, reporter: str = None) -> dict:
     """Saves a report and returns {id, stamp, markdown, issue_markdown,
     what_happened, expected, title}. The stored markdown always has the
     server section; `markdown` has it only when include_server_in_response
     (the caller may read diagnostics); `issue_markdown` (for the public
-    GitHub link) never has it. The text fields are the scrubbed ones."""
+    GitHub link) never has it. The text fields are the scrubbed ones.
+
+    `reporter` is None for a report filed at the PC, else the remote
+    caller's key ("user:<id>"). Remote reports are capped per caller and
+    together (MAX_REPORTS); the PC owner's are bounded only by
+    MAX_TOTAL_BYTES, so remote members can never lock the owner out."""
     if not isinstance(client, dict) or not str(client.get("what_happened") or "").strip():
         raise InvalidInputError("Say what happened.")
     shot, ext = clean_screenshot(screenshot)
@@ -412,15 +426,22 @@ def create_report(client: dict, screenshot: bytes = None, include_server_in_resp
         # The cap is checked before any of the server-side work below runs.
         existing = _folders()
         root = _reports_dir()
-        if len(existing) >= MAX_REPORTS or (
-                existing and _folder_bytes(root) + len(shot or b"") > MAX_TOTAL_BYTES):
+        if existing and _folder_bytes(root) + len(shot or b"") > MAX_TOTAL_BYTES:
             raise ConflictError("Too many saved bug reports. Delete some in Diagnostics on the PC.")
+        if reporter is not None:
+            remote = _remote_reporters(existing)
+            if remote.count(reporter) >= MAX_REPORTS_PER_USER:
+                raise ConflictError("You have sent the most reports that can wait for review. "
+                                    "Ask the PC owner to look at them first.")
+            if len(remote) >= MAX_REPORTS:
+                raise ConflictError("Too many saved bug reports. Delete some in Diagnostics on the PC.")
         server = {"git_commit": _cached("git", _git_commit),
                   "setup": _cached("setup", _setup_summary, SETUP_CACHE_SECONDS),
                   "log_tail": _log_tail() if client.get("include_server_log", True) else []}
         report_id = max(_read_counter(root), max(existing, default=0)) + 1
         folder = os.path.join(root, f"{stamp}_{report_id}")
-        report = {"id": report_id, "created_at": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        report = {"id": report_id, "reporter": reporter or "local",
+                  "created_at": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
                   "has_screenshot": shot is not None, "client": cleaned, "server": server}
         markdown = build_markdown(report, include_server=True)
         os.makedirs(folder, exist_ok=False)

@@ -16,11 +16,13 @@ import pytest
 
 import background_jobs
 import core
+import whisper_models
 import db
 from core import Line
 from services import jobs_service, transcribe_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
+from tests.saved_settings import patch_setting
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 _PREFIXES = ("retranscribe_", "transcribe_", "fixflag_", "resegment_", "narration_",
@@ -123,7 +125,7 @@ def fake_asr(monkeypatch, inline_process_jobs):
 
     monkeypatch.setattr(core, "extract_audio_slice", fake_slice)
     monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
-    monkeypatch.setattr(core, "is_whisper_model_cached", lambda size: True)
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
     return calls
 
 
@@ -171,7 +173,7 @@ def _hung_transcribe_worker(*args):
         time.sleep(600)
     c.extract_audio_slice = cut
     c.transcribe_for_timing = hang
-    c.is_whisper_model_cached = lambda size: True
+    whisper_models.is_whisper_model_cached = lambda size: True
     ts._retranscribe_worker(*args)
 
 
@@ -230,7 +232,7 @@ class TestStart:
         did, ids = _drama(isolated_db)
         isolated_db.update_drama(did, whisper_size=planted)
         transcribe_service.start_retranscribe_line(did, ids[1])
-        assert captured["args"]["whisper_size"] == core.DEFAULT_WHISPER_SIZE
+        assert captured["args"]["whisper_size"] == whisper_models.DEFAULT_WHISPER_SIZE
         logged = "\n".join(applog.tail(20))
         assert "whisper_size" in logged and planted not in logged
 
@@ -244,7 +246,7 @@ class TestStart:
 
     def test_default_is_turbo_on_cpu_and_gpu_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
         for gpu in (True, False):
-            monkeypatch.setattr(transcribe_service.settings_service, "get_use_gpu", lambda gpu=gpu: gpu)
+            patch_setting(monkeypatch, "use_gpu", gpu)
             assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": ""}) == "large-v3-turbo"
             assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": "medium"}) == "medium"
 
@@ -418,7 +420,7 @@ class TestJobBody:
 
     def test_model_download_error_redacted(self, isolated_db, captured, fake_asr, monkeypatch):
         def boom(*a, **k):
-            raise core.ModelDownloadError(f"download failed token={SECRET}")
+            raise whisper_models.ModelDownloadError(f"download failed token={SECRET}")
         monkeypatch.setattr(core, "transcribe_for_timing", boom)
         did, ids = _drama(isolated_db)
         transcribe_service.start_retranscribe_line(did, ids[0])
@@ -546,9 +548,10 @@ class TestApply:
         assert out == {"drama_id": did, "line_id": ids[0], "zh": "新的文字"}
         lines = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
         assert lines[ids[0]].zh == "新的文字"
-        # everything else untouched: en, speaker, flag, timing, the other line
+        # en, speaker, timing and the other line untouched; the kept English
+        # no longer matches the source, so the line is flagged for review
         assert (lines[ids[0]].en, lines[ids[0]].speaker) == ("Hello", "A")
-        assert (lines[ids[0]].flag, lines[ids[0]].flag_note) == ("unsure", "check")
+        assert (lines[ids[0]].flag, lines[ids[0]].flag_note) == ("source_changed", "")
         assert (lines[ids[0]].start, lines[ids[0]].end) == (0.0, 1.5)
         assert lines[ids[1]].zh == "错字"
         hist = isolated_db.list_line_history(did)

@@ -276,20 +276,45 @@
       const background = /url\(["']?([^"')]+)["']?\)/.exec(getComputedStyle(holder).backgroundImage || "");
       if (background && httpUrl(background[1])) return httpUrl(background[1]);
     }
-    const parent = el.parentElement;
-    if (parent) {
-      for (const sibling of parent.querySelectorAll("img, amp-img")) {
-        const found = httpUrl(sibling.currentSrc || sibling.src
-          || IMAGE_URL_ATTRS.map((a) => sibling.getAttribute(a)).find(Boolean));
-        if (found) return found;
-      }
-    }
-    return "";
+    return siblingImageUrl(el);
   }
 
-  // Asks the service worker to download the file instead. For a canvas the
-  // download must have the canvas's proportions, otherwise it is not the page the
-  // person sees (a reader that reassembles scrambled tiles onto the canvas).
+  function imageUrlOf(node) {
+    return httpUrl(node.currentSrc || node.src
+      || IMAGE_URL_ATTRS.map((a) => node.getAttribute(a)).find(Boolean));
+  }
+
+  const hasBox = (r) => !!r && r.width > 0 && r.height > 0;
+
+  // A reader with one <img> and one canvas per page under one container would hand every canvas
+  // the first page's image if "the first image" were taken, and capture would then drop pages
+  // 2..N as duplicates. So a sibling counts only when it sits exactly where the canvas sits, or,
+  // when nothing has a box yet, at the same index; any doubt is "no image" rather than a wrong one.
+  function siblingImageUrl(el) {
+    const parent = el.parentElement;
+    if (!parent) return "";
+    const images = [...parent.querySelectorAll("img, amp-img")]
+      .map((node) => ({ node, url: imageUrlOf(node) })).filter((c) => c.url);
+    if (!images.length) return "";
+    const box = el.getBoundingClientRect();
+    if (hasBox(box)) {
+      const slack = (a, b) => Math.abs(a - b) <= Math.max(4, Math.max(a, b) * 0.02);
+      const aligned = images.filter(({ node }) => {
+        const r = node.getBoundingClientRect();
+        return hasBox(r) && slack(r.width, box.width) && slack(r.height, box.height)
+          && slack(r.left, box.left) && slack(r.top, box.top);
+      });
+      return aligned.length === 1 ? aligned[0].url : "";
+    }
+    const canvases = [...parent.querySelectorAll("canvas")];
+    const index = canvases.indexOf(el);
+    return index >= 0 && canvases.length === images.length ? images[index].url : "";
+  }
+
+  // Asks the service worker to download the file instead. For a canvas the download must have the
+  // canvas's proportions. That only rules out a thumbnail or another image: a scrambled tile sheet
+  // has the same size as the page reassembled from it, so such a file is passed on flagged
+  // `unverified` for the popup to say where the text came from.
   async function extractViaWorker(el, taintError) {
     const url = findImageUrl(el);
     if (!url) throw taintError;
@@ -320,6 +345,7 @@
     return {
       data, content_type, width, height,
       hash: await sha256Hex(bytes.buffer), url: response.data.url || url,
+      ...(el.tagName === "CANVAS" ? { unverified: true } : {}),
     };
   }
 
@@ -339,6 +365,11 @@
       error: `Your browser wouldn't let this page's image be read (${reason}). ` +
              "That happens when the site draws it from another domain without allowing it.",
     };
+  }
+
+  // Sent with a partial result too, so the popup still offers Allow for the pages that were left out.
+  function accessNeeded(needAccess) {
+    return needAccess.size ? { origins: [...needAccess] } : {};
   }
 
   function base64(buffer) {
@@ -632,6 +663,56 @@
     };
   }
 
+  // -- saving a novel page into a title -----------------------------------
+
+  // Prose, not a comic: no page-sized images (the same test the comic
+  // actions use) and a main text block of at least a few paragraphs.
+  const MIN_TEXT_PAGE_CHARS = 300;
+  // extension_novel_service.MAX_CAPTURE_CHARS, kept equal by a test. Over it
+  // the save is refused rather than cut, since a cut chapter would be saved
+  // as though it were whole.
+  const MAX_NOVEL_CHARS = 200000;
+
+  function isTextPage() {
+    return !candidateElements().length && mainContentBlock().length >= MIN_TEXT_PAGE_CHARS;
+  }
+
+  // Novel readers put the chapter title in the first heading; the tab title
+  // usually adds the book and site names, so it is only the fallback.
+  // Cut by code point: a UTF-16 slice can split an emoji or rare CJK
+  // character, and the lone surrogate left behind cannot be encoded as UTF-8.
+  function capHeading(text) {
+    return Array.from(text).slice(0, 200).join("");
+  }
+
+  function chapterHeading() {
+    for (const tag of ["h1", "h2", "h3"]) {
+      const el = document.querySelector(tag);
+      const text = el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+      if (text) return capHeading(text);
+    }
+    return capHeading((document.title || "").trim());
+  }
+
+  async function saveNovelText({ dramaId }) {
+    const selected = selectedText();
+    const text = selected || mainContentBlock();
+    if (!text) {
+      return { ok: false, error: "No chapter text found here. Select the text to save, or open the chapter itself." };
+    }
+    if (text.length > MAX_NOVEL_CHARS) {
+      return { ok: false, error: `That is more than ${MAX_NOVEL_CHARS} characters; select one chapter's worth and save that.` };
+    }
+    const response = await chrome.runtime.sendMessage({
+      type: "saveNovelText", dramaId, heading: chapterHeading(), text,
+      source: location.host, url: location.href,
+    });
+    if (!response || !response.ok) {
+      return response || { ok: false, error: "No answer from the extension's background worker." };
+    }
+    return { ok: true, data: { ...response.data, fromSelection: !!selected } };
+  }
+
   // -- text panel --------------------------------------------------------
 
   function ensureTextPanel() {
@@ -809,6 +890,7 @@
     const pending = new Map();
     const unreadable = [];
     const needAccess = new Set();
+    const unverified = new Set();
     const fromCache = [];
     for (const [position, el] of chosen.entries()) {
       try {
@@ -819,6 +901,7 @@
           fromCache.push(el);
           continue;
         }
+        if (extracted.unverified) unverified.add(extracted.hash);
         const entry = pending.get(extracted.hash);
         if (entry) {
           entry.elements.push(el);
@@ -837,7 +920,7 @@
       if (fromCache.length) {
         watchForPageChanges();
         return { ok: true, data: { pages: [], cached: fromCache.length,
-                                   captured: chosen.length, unreadable } };
+                                   captured: chosen.length, unreadable, ...accessNeeded(needAccess) } };
       }
       return unreadable.length
         ? unreadableResult(unreadable[0].error, needAccess)
@@ -902,7 +985,8 @@
 
     if (outcome.sentAny) watchForPageChanges();
     const data = { pages, skipped, failed: failedPages, ...totals, drawn,
-                   cached: fromCache.length, captured: chosen.length, unreadable };
+                   cached: fromCache.length, captured: chosen.length, unreadable,
+                   unverified: unverified.size, ...accessNeeded(needAccess) };
     if (outcome.failure) {
       const f = outcome.failure;
       if (!pages.length && !skipped.length) {
@@ -1182,6 +1266,7 @@
     if (counts.alreadyStored) tally.push(`${counts.alreadyStored} already in library`);
     if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
     if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
+    if (counts.unverified) tally.push(`${counts.unverified} read from the page's source image, not checked against what is drawn`);
     if (unreadablePages.length) {
       const named = unreadablePages.slice(0, 3)
         .map((u) => `page ${u.position}: ${u.error}`).join("; ");
@@ -1197,7 +1282,7 @@
     const seen = new Set();
     const handled = new WeakMap();
     const queue = [];
-    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0 };
+    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0 };
     let firstFailure = "";
     let serverStop = "";
     let seq = 0;
@@ -1205,6 +1290,9 @@
     let capHit = false;
     let unreadable = "";
     const needAccess = new Set();
+    // A tainted canvas has no element key to skip it by, so without this every step would download,
+    // re-encode and re-hash it again (up to 12 MB each).
+    const taintedReads = new Map();
     // Pages that could not be read, numbered in the order they were met, so
     // the closing summary can name them like Translate-visible does.
     const unreadablePages = [];
@@ -1232,7 +1320,12 @@
         if (key !== null && handled.get(el) === key) continue;
         let extracted;
         try {
-          extracted = await extractBytes(el);
+          const taintedId = el.tagName === "CANVAS" ? taintedKey(el) : null;
+          extracted = taintedId && taintedReads.get(taintedId);
+          if (!extracted) {
+            extracted = await extractBytes(el);
+            if (taintedCanvases.has(el) && taintedId) taintedReads.set(taintedId, extracted);
+          }
         } catch (e) {
           unreadable = String(e && e.message ? e.message : e);
           if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
@@ -1254,6 +1347,7 @@
         }
         seen.add(extracted.hash);
         found += 1;
+        if (extracted.unverified) counts.unverified += 1;
         if (cached) {
           drawOverlay(el, cached);
           counts.cached += 1;
@@ -1381,7 +1475,8 @@
     reportProgress(message);
     toast(message, 8000);
     return { ok: true, data: { reason, message, found: seen.size, ...counts,
-                               unreadable: unreadablePages, pages: [] } };
+                               unreadable: unreadablePages, pages: [],
+                               ...accessNeeded(needAccess) } };
   }
 
   function cancelCapture() {
@@ -1403,6 +1498,9 @@
           case "captureChapter":
             respond(await captureChapter(message));
             break;
+          case "saveNovelText":
+            respond(await saveNovelText(message));
+            break;
           case "cancelCapture":
             respond({ ok: true, data: { cancelled: cancelCapture() } });
             break;
@@ -1418,6 +1516,8 @@
               translated: state.active.size,
               overlaysVisible: state.overlaysVisible,
               capture: state.capture ? { running: true, text: state.capture.text } : null,
+              textPage: isTextPage(),
+              hasSelection: !!selectedText(),
               // The page's own host. The popup uses this to key "which
               // drama does this site go to", rather than reading
               // `tab.url` -- that needs the `tabs` permission or an
@@ -1439,6 +1539,7 @@
   // Exposed for the popup's injected checks and for tests.
   window.__baihe = { canvasSignature, translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
+                     isTextPage, chapterHeading, saveNovelText,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, unreadableLog };
 })();

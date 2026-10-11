@@ -1,5 +1,6 @@
 """ollama_unload: free a local Ollama's GPU memory before a GPU transcription
 loads, and warn when a model is still loaded. No real Ollama, network or GPU."""
+import whisper_models
 import io
 import json
 import sys
@@ -199,8 +200,8 @@ def test_the_whisper_loader_calls_the_hook_once_per_load(monkeypatch, hook_calls
     fake_fw = types.ModuleType("faster_whisper")
     fake_fw.WhisperModel = lambda *a, **k: object()
     monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
-    monkeypatch.setattr(core, "_whisper_model_cache", {})
-    core.load_whisper_model("tiny", use_gpu=True)
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+    whisper_models.load_whisper_model("tiny", use_gpu=True)
     assert hook_calls == [True]
 
 
@@ -213,7 +214,7 @@ def test_transcribe_for_timing_asks_once_for_a_job(monkeypatch, hook_calls):
             return iter([]), types.SimpleNamespace(duration=1)
     fake_fw.WhisperModel = lambda *a, **k: Model()
     monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
-    monkeypatch.setattr(core, "_whisper_model_cache", {})
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
     core.transcribe_for_timing("a.wav", "tiny", use_gpu=True)
     assert hook_calls == [True]
 

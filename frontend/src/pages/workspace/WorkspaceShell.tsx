@@ -68,15 +68,15 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     [id, drama, refetch],
   )
 
-  // The sticky strip's height is --bar-h, which Review's own sticky toolbar
-  // and side card offset from so they sit below the strip, not under it.
+  // --bar-h is the app header plus this sticky strip, which Review's own sticky
+  // toolbar and side card offset from so they sit below both, not under them.
   const sectionRef = useRef<HTMLElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const section = sectionRef.current
     const strip = stripRef.current
     if (!section || !strip) return
-    const apply = () => section.style.setProperty('--bar-h', `${strip.offsetHeight}px`)
+    const apply = () => section.style.setProperty('--bar-h', `calc(env(safe-area-inset-top, 0px) + var(--app-header-h, 0px) + ${strip.offsetHeight}px)`)
     apply()
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(apply)
@@ -93,7 +93,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       {drama && (
         <ButtonLink
           href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}
-          variant="primary"
+          variant="secondary"
           size="sm"
           className="ws-read"
           data-testid="header-open"
