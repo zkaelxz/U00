@@ -30,6 +30,8 @@ export interface BenchmarkOptions {
   source_languages: SourceLanguage[]
   translation_engines: BenchmarkEngineOption[]
   whisper_sizes: string[]
+  // {model: {language: reason}} for models not recommended for a language.
+  whisper_exclusions: Record<string, Record<string, string>>
   ocr_backends: string[]
   pass_threshold: number
   chrf_pass_threshold: number

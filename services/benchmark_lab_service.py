@@ -56,7 +56,7 @@ import translate_engines
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks
 from services import settings_service, translate_service
-from services.benchmark_case_service import (redact, require_whisper_fits_cases, run_file_case as _run_case_file,
+from services.benchmark_case_service import (redact, require_whisper_fits_cases, whisper_options, run_file_case as _run_case_file,
                                                    run_translation as _run_translation)
 from services.service_errors import (
     ConflictError,
@@ -407,7 +407,7 @@ def get_options() -> dict:
     return {
         "stages": list(STAGES), "tiers": list(TIERS), "source_languages": list(SOURCE_LANGUAGES),
         "translation_engines": translate_service.list_engines(),
-        "whisper_sizes": list(whisper_models.WHISPER_MODELS.keys()) + [benchmark.LOCAL_FOLDER_MODEL],
+        **whisper_options(),
         "ocr_backends": list(OCR_BACKENDS),
         "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
         "max_configs": MAX_CONFIGS,

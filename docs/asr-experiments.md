@@ -148,10 +148,21 @@ check is skipped for a folder, as it is for any local path.
 
 #### whisper-ja 1.5B in the app
 
-`ja-1.5b` appears in the Workspace Whisper model list, the Compare transcription list and the
-Benchmark Lab only for Japanese titles or cases; the server refuses it for any other source
-language (a title saved with it whose language is later changed falls back to the default),
-and `cli.py align` skips such a title. It is never the default.
+Which Whisper models a language may use is one table, `whisper_models.WHISPER_LANGUAGE_RULES`
+(model, languages, reason). The server refuses an excluded pair (title settings, a run that names
+another language, Compare transcription, Benchmark Lab, `cli.py align`), and the pickers read the same
+table from the config and options payloads (`whisper_exclusions`), showing an excluded model disabled with
+its reason. A title saved with a model that is no longer allowed falls back to the default and the
+Transcribe stage says so (`whisper_size_notice`). A model is excluded for a language only where this
+document shows it worse; Live's own size list is separate and not gated. Today:
+
+| Model | Not selectable for | Evidence |
+|---|---|---|
+| `medium` | Japanese | "medium about 1.9 points worse" than turbo, and slower (RTF 0.84 vs 0.56), in the model table above. Korean and Chinese showed no clear gap, so it stays there. |
+| `ja-1.5b` | Chinese, Korean | A Japanese fine-tune, only for Japanese titles. |
+
+Adding a model (anime-whisper, say) is a `WHISPER_MODELS` label plus, if it is language-bound, one
+`LanguageRule`. `ja-1.5b` is never the default.
 
 | | |
 |---|---|

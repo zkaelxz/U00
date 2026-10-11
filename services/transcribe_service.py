@@ -288,6 +288,8 @@ def get_transcribe_config(drama_id: int) -> dict:
         "asr_backend_choice": asr_options_service.stored_asr_backend(drama),
         "asr_backend_notice": asr_options_service.removed_asr_backend_notice(drama),
         "whisper_size": whisper_size,
+        "whisper_size_notice": whisper_size_notice(drama),
+        "whisper_exclusions": whisper_models.whisper_language_exclusions(),
         "whisper_model_cached": whisper_models.is_whisper_model_cached(whisper_size),
         "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get("use_gpu")),
         "measured_speed_runs": measured_transcribe_runs(whisper_size, settings_service.get("use_gpu")),
@@ -690,9 +692,10 @@ def default_whisper_size() -> str:
 
 
 def check_whisper_size_for_language(size: str, source_language: str) -> None:
-    """Refuses a Japanese-only model for any other source language."""
-    if not whisper_models.whisper_model_fits_language(size, source_language):
-        raise InvalidInputError("That Whisper model is only available for Japanese titles.")
+    """Refuses a model that whisper_models.WHISPER_LANGUAGE_RULES excludes for this language."""
+    problem = whisper_models.whisper_model_language_problem(size, source_language)
+    if problem:
+        raise InvalidInputError(problem)
 
 
 def stored_whisper_size(drama: dict) -> str:
@@ -700,8 +703,9 @@ def stored_whisper_size(drama: dict) -> str:
     not one of _allowed_whisper_sizes() (e.g. a value planted in the DB by
     hand): an arbitrary string must never reach WhisperModel, where it
     would be read as a Hugging Face repo id or a local path. Logs a warning
-    (without the value) when it falls back. A Japanese-only model saved on a
-    title whose language was later changed falls back the same way."""
+    (without the value) when it falls back. A model that is not recommended for
+    the title's language (saved before the rule, or after a language change)
+    falls back the same way; whisper_size_notice says so in the UI."""
     size = drama.get("whisper_size")
     if not size:
         return default_whisper_size()
@@ -714,10 +718,23 @@ def stored_whisper_size(drama: dict) -> str:
     if not whisper_models.whisper_model_fits_language(size, drama.get("source_language") or "zh"):
         import applog
         applog.get_logger().warning(
-            f"drama {drama.get('id')}: stored whisper_size is Japanese-only but the title is not "
-            f"Japanese; using the default {default_whisper_size()}")
+            f"drama {drama.get('id')}: stored whisper_size is not recommended for the title's "
+            f"language; using the default {default_whisper_size()}")
         return default_whisper_size()
     return size
+
+
+def whisper_size_notice(drama: dict):
+    """Plain sentence when the saved model is replaced by the default because it is not
+    recommended for the title's language, else None. Shown with the picker until the
+    user saves a choice, so the change is never silent."""
+    size = drama.get("whisper_size")
+    if not size or size not in _allowed_whisper_sizes():
+        return None
+    problem = whisper_models.whisper_model_language_problem(size, drama.get("source_language") or "zh")
+    if not problem:
+        return None
+    return f"This title was saved with {size}. {problem} It now uses {default_whisper_size()}."
 
 
 def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode, transcript_text,

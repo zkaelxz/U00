@@ -158,7 +158,7 @@ class TestCacheAndEstimates:
         assert memory_headroom.whisper_key("D:\\models\\whisper-ja-1.5B") == KEY
 
     def test_never_the_default(self):
-        assert wm.DEFAULT_WHISPER_SIZE != KEY and KEY in wm.JA_ONLY_WHISPER_MODELS
+        assert wm.DEFAULT_WHISPER_SIZE != KEY and wm.WHISPER_LANGUAGE_RULES[KEY].only_for == ("ja",)
         assert transcribe_service.default_whisper_size() != KEY
 
 

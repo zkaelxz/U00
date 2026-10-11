@@ -37,6 +37,10 @@ export interface TranscribeConfig {
   // Set when the saved backend was removed and the default is shown instead.
   asr_backend_notice: string | null
   whisper_size: string
+  // Set when the saved model is not recommended for the title's language and the default is shown instead.
+  whisper_size_notice: string | null
+  // {model: {language: reason}} for models not recommended for a language.
+  whisper_exclusions: Record<string, Record<string, string>>
   whisper_model_cached: boolean
   // Audio seconds per second of work on the last finished run of this model and device; null if none yet.
   measured_speed: number | null
@@ -416,6 +420,8 @@ export interface CompareOptions {
   saved_asr_backend: string
   saved_alignment_method: string
   whisper_sizes: string[]
+  source_language: string
+  whisper_exclusions: Record<string, Record<string, string>>
   backends: CompareBackendOption[]
   translation_engine: string
   aligner_reason?: string | null

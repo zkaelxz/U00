@@ -8,7 +8,7 @@ import {
   arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
   formatJudgeScore, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
-  toggleCompare, type RunSelection,
+  toggleCompare, whisperChoiceGroups, type RunSelection,
 } from './benchmarkForm'
 import { BENCH_INTRO, BENCH_PAGE_HELP, BENCH_SECTIONS } from './benchmarkHelp'
 
@@ -21,7 +21,8 @@ const options: BenchmarkOptions = {
     { name: 'ollama', label: 'x', free: true, models: null, key_configured: true },
     { name: 'deepseek', label: 'x', free: true, models: ['small'], key_configured: true },
   ],
-  whisper_sizes: ['small', 'medium', 'large-v3'],
+  whisper_sizes: ['small', 'medium', 'large-v3', 'ja-1.5b'],
+  whisper_exclusions: { medium: { ja: 'No medium for Japanese.' }, 'ja-1.5b': { zh: 'Japanese only.', ko: 'Japanese only.' } },
   ocr_backends: ['tesseract', 'paddle'],
   pass_threshold: 0.8,
   chrf_pass_threshold: 0.5,
@@ -124,7 +125,7 @@ describe('run request', () => {
   it('default configs pick the next unused engine, usable ones first', () => {
     expect(defaultConfig('translation', options)).toEqual({ engine: 'ollama' })
     expect(defaultConfig('translation', options, [{ engine: 'ollama' }])).toEqual({ engine: 'deepseek' })
-    expect(defaultConfig('transcription', options, [{ engine: 'whisper', model: 'small' }])).toEqual({ engine: 'whisper', model: 'medium' })
+    expect(defaultConfig('transcription', options, [{ engine: 'whisper', model: 'small' }])).toEqual({ engine: 'whisper', model: 'large-v3' })
     expect(defaultConfig('ocr', options, [{ engine: 'tesseract' }, { engine: 'paddle' }])).toBeNull()
   })
 
@@ -380,5 +381,23 @@ describe('judge', () => {
     expect(judgeRunLine({ engine: null, model: null, status: 'stopped_cap', same_as_tested: false, cost_usd: 0, scored: 0, average: {}, note: null })).toBe(
       'Judge — · 0 scored · judge cost $0.00 · stopped at cap',
     )
+  })
+})
+
+describe('whisper models in the Lab picker', () => {
+  it('groups models that are not recommended for every language, with their reasons', () => {
+    const groups = whisperChoiceGroups(options)
+    expect(groups.everywhere).toEqual(['small', 'large-v3'])
+    expect(groups.limited).toEqual([
+      { size: 'medium', reasons: ['No medium for Japanese.'] },
+      { size: 'ja-1.5b', reasons: ['Japanese only.'] },
+    ])
+  })
+
+  it('never picks a limited model by default', () => {
+    const first = defaultConfig('transcription', options)
+    expect(first?.model).toBe('small')
+    const rest = defaultConfig('transcription', options, [{ engine: 'whisper', model: 'small' }, { engine: 'whisper', model: 'large-v3' }])
+    expect(rest).toBeNull()
   })
 })

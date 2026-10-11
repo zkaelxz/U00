@@ -14,7 +14,6 @@ import { humanize, humanizeValue, type BadgeTone } from '../../components/labels
 import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
 import type { JobRecord } from '../../types/jobs'
 import { BENCH_DEFAULT_OPEN, type BenchSectionId } from './benchmarkHelp'
-import { JA_ONLY_WHISPER_SIZES } from '../workspace/sourceForm'
 
 export const STAGE_LABELS: Record<string, string> = {
   translation: 'Translation',
@@ -220,11 +219,25 @@ export function estimateKey(sel: RunSelection): string {
   return JSON.stringify({ stage, configs, tier: tier ?? null, set_name: set_name ?? null, judge: judge ?? null })
 }
 
+/** Whisper models for every case language, and those the server does not recommend for some language (with why).
+ *  A limited model is never picked by default; the server refuses it on a case it does not fit. */
+export function whisperChoiceGroups(options: BenchmarkOptions): { everywhere: string[]; limited: { size: string; reasons: string[] }[] } {
+  const exclusions = options.whisper_exclusions ?? {}
+  const everywhere: string[] = []
+  const limited: { size: string; reasons: string[] }[] = []
+  for (const size of options.whisper_sizes) {
+    const reasons = [...new Set(Object.values(exclusions[size] ?? {}))]
+    if (reasons.length) limited.push({ size, reasons })
+    else everywhere.push(size)
+  }
+  return { everywhere, limited }
+}
+
 /** The first config for a stage (or a new one added to the list): the next engine not picked yet. */
 export function defaultConfig(stage: BenchmarkStage, options: BenchmarkOptions, taken: BenchmarkConfig[] = []): BenchmarkConfig | null {
   const used = new Set(taken.map((c) => `${c.engine}|${c.model ?? ''}`))
   let candidates: BenchmarkConfig[]
-  if (stage === 'transcription') candidates = options.whisper_sizes.filter((s) => !JA_ONLY_WHISPER_SIZES.includes(s)).map((s) => ({ engine: 'whisper', model: s }))
+  if (stage === 'transcription') candidates = whisperChoiceGroups(options).everywhere.map((s) => ({ engine: 'whisper', model: s }))
   else if (stage === 'ocr') candidates = options.ocr_backends.map((b) => ({ engine: b }))
   else {
     const usable = options.translation_engines.filter((e) => e.key_configured)

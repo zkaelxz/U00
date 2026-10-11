@@ -4,6 +4,7 @@ and the services call into it."""
 
 import os
 import sys
+from dataclasses import dataclass
 
 
 _whisper_model_cache = {}
@@ -29,12 +30,65 @@ DEFAULT_WHISPER_SIZE = "large-v3-turbo"
 PINNED_CT2_REPOS = {
     "ja-1.5b": ("TransWithAI/whisper-ja-1.5B-ct2", "1527314b14da5bdf0d14e7328649d4fa26840188"),
 }
-# Offered and accepted only for a Japanese title; never a default or part of a preset.
-JA_ONLY_WHISPER_MODELS = frozenset({"ja-1.5b"})
+
+
+@dataclass(frozen=True)
+class LanguageRule:
+    """Where a model is not recommended. Either `only_for` (every other language is
+    excluded, including ones added later) or `not_for` (only these are). `reason` is the
+    sentence shown beside the disabled choice and returned by the server's refusal."""
+    reason: str
+    only_for: tuple = ()
+    not_for: tuple = ()
+
+
+# One entry per model that is NOT recommended for some language; a model with no entry
+# fits every language. An exclusion needs evidence in docs/asr-experiments.md, so a model
+# the docs do not show to be worse for a language stays selectable there. Adding a model
+# (an anime-whisper, say) is one WHISPER_MODELS label plus, if it is language-bound, one
+# entry here. Live's own list (LIVE_WHISPER_SIZES) is separate and not gated by this.
+WHISPER_LANGUAGE_RULES = {
+    # "medium about 1.9 points worse" than turbo on Japanese, and slower (RTF 0.84 vs 0.56).
+    # Korean and Chinese showed no clear gap, so it stays selectable there.
+    "medium": LanguageRule(
+        not_for=("ja",),
+        reason="Whisper medium isn't recommended for Japanese: in our tests it made about 1.9 points "
+               "more errors than large-v3-turbo and was slower."),
+    "ja-1.5b": LanguageRule(
+        only_for=("ja",),
+        reason="The whisper-ja 1.5B model is a Japanese fine-tune and is only for Japanese titles."),
+}
+
+
+def whisper_model_language_problem(model_size: str, source_language: str):
+    """Why this model is not offered for this language, or None when it is."""
+    rule = WHISPER_LANGUAGE_RULES.get(model_size)
+    if rule is None:
+        return None
+    if rule.only_for and source_language not in rule.only_for:
+        return rule.reason
+    if source_language in rule.not_for:
+        return rule.reason
+    return None
 
 
 def whisper_model_fits_language(model_size: str, source_language: str) -> bool:
-    return model_size not in JA_ONLY_WHISPER_MODELS or source_language == "ja"
+    return whisper_model_language_problem(model_size, source_language) is None
+
+
+def whisper_language_exclusions() -> dict:
+    """{model: {language: reason}} for every excluded pair: what the pickers read, so the
+    table above is the only place the rules live."""
+    from core import SOURCE_LANGUAGES
+    out = {}
+    for model in WHISPER_LANGUAGE_RULES:
+        for language in SOURCE_LANGUAGES:
+            problem = whisper_model_language_problem(model, language)
+            if problem:
+                out.setdefault(model, {})[language] = problem
+    return out
+
+
 # Live's choices. small stays its default: Live has to keep up with the stream
 # on a CPU, and turbo takes about 1.5x small's time on the repo's CPU test.
 LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo")
