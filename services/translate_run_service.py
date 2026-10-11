@@ -599,7 +599,7 @@ def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referen
                  "context_window": context_window, "cost_cap_usd": job_cost_cap_usd or None,
                  "novel_reference": novel_reference, "thinking": thinking, "batch_size": batch_size,
                  "context_window_ahead": context_window_ahead,
-                 "scene_aware_batches": settings_service.get("scene_aware_batches")},
+                 **settings_service.run_options()},
                 force_retranslate=force_retranslate)
         character_names = translation_guide.build_speaker_labels(
             db.list_characters_with_series_names(drama_id),

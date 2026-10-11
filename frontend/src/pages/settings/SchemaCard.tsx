@@ -216,7 +216,7 @@ function SchemaField({ row, props, value, onChange }: { row: SettingsSchemaRow; 
   }
   if (row.type === 'choice') {
     control = (
-      <select value={text} onChange={(e) => onChange(e.target.value)}>
+      <select value={text} title={help || undefined} onChange={(e) => onChange(e.target.value)}>
         {row.default == null && <option value="">None</option>}
         {(row.choices ?? []).map((c) => (
           <option key={c.value} value={c.value}>{choiceLabel(row, c.value)}</option>
