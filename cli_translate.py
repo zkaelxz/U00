@@ -331,6 +331,7 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             reflect=getattr(args, "reflect", False), scene_aware_batches=scene_aware,
+            check_replies=settings_service.reply_guard_override(),
             notes_cb=notes_cb,
             progress_cb=_progress,
             save_cb=save_cb,

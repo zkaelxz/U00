@@ -221,21 +221,38 @@ _STRONG_BATCH_MODELS = (
 )
 
 
-def default_batch_size(engine, model: str = None) -> int:
-    """Lines per request to use when the user hasn't chosen a batch size.
-    `engine` is an engine name or an engine instance (the pipeline holds the
-    instance); `model` None means the instance's model, else the engine's
-    effective default model."""
+def _engine_and_model_name(engine, model: str = None):
+    """(engine name, lowercased model name) for an engine name or instance."""
     if isinstance(engine, str):
         engine_name = engine
     else:
         engine_name = next((n for n, cls in ENGINES.items() if type(engine) is cls), "")
         model = model or getattr(engine, "model", None)
-    name = str(model or effective_default_model(engine_name) or "").lower()
-    for engine, fragments in _STRONG_BATCH_MODELS:
-        if engine == engine_name and any(f in name for f in fragments):
-            return STRONG_ENGINE_BATCH_SIZE
-    return DEFAULT_BATCH_SIZE
+    return engine_name, str(model or effective_default_model(engine_name) or "").lower()
+
+
+def _is_strong_model(engine_name: str, name: str) -> bool:
+    return any(engine == engine_name and any(f in name for f in fragments)
+               for engine, fragments in _STRONG_BATCH_MODELS)
+
+
+def default_batch_size(engine, model: str = None) -> int:
+    """Lines per request to use when the user hasn't chosen a batch size.
+    `engine` is an engine name or an engine instance (the pipeline holds the
+    instance); `model` None means the instance's model, else the engine's
+    effective default model."""
+    engine_name, name = _engine_and_model_name(engine, model)
+    return STRONG_ENGINE_BATCH_SIZE if _is_strong_model(engine_name, name) else DEFAULT_BATCH_SIZE
+
+
+def default_reply_guard(engine, model: str = None) -> bool:
+    """Whether the merged/shifted-reply guard runs when the caller doesn't say.
+    Off for Claude (including Haiku and a claude-* id served by another
+    engine) and the Gemini Pro class: 2,700 real replies from Claude-class
+    models had no missing, extra or duplicate ids, and the guard caught no
+    real mix-up. Every other engine and unknown models stay on."""
+    engine_name, name = _engine_and_model_name(engine, model)
+    return not (engine_name == "claude" or "claude" in name or _is_strong_model(engine_name, name))
 
 
 def override_models(engine_name: str) -> list:

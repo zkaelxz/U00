@@ -1300,6 +1300,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
         glossary_terms=terms, style_guidelines=args.get("style_guidelines", ""),
         context_window=args.get("context_window", 6), character_names=_character_names(did),
         save_cb=save, cancel_check_cb=cancel_check_cb, **options,
+        check_replies=args.get("check_replies"),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
             did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),

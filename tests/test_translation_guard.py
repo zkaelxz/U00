@@ -184,7 +184,7 @@ class TestBoundedSpend:
                           usage={"input_tokens": 1_000_000, "output_tokens": 0})
         engine.model = "claude-sonnet-5"
         lines = _lines()
-        _run(engine, lines, cost_cap_usd=0.5)
+        _run(engine, lines, cost_cap_usd=0.5, check_replies=True)
         assert len(engine.calls) == 1
         assert lines[2].flag == FLAG  # kept and flagged instead
 
@@ -214,6 +214,56 @@ class TestBoundedSpend:
         assert len(engine.calls) == 1
 
 
+MERGED = {101: GOOD[1] + " " + GOOD[2] + " Why didn't you call?", 102: "Why?"}
+
+
+def _merged_run(model, **kw):
+    engine = Scripted(MERGED)
+    engine.model = model
+    _run(engine, _lines(), **kw)
+    return engine
+
+
+class TestEngineAwareDefault:
+    @pytest.mark.parametrize("model", [
+        "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-fable-5-1"])
+    def test_claude_runs_no_guard_by_default(self, model):
+        assert len(_merged_run(model).calls) == 1
+
+    def test_gemini_pro_runs_no_guard_but_flash_does(self):
+        from engine_backends.gemini import GeminiEngine
+        for model, calls in (("gemini-pro-latest", 1), ("gemini-flash-lite-latest", 2)):
+            engine = GeminiEngine("key", model)
+            scripted = Scripted(MERGED)
+            engine.translate_batch = scripted.translate_batch
+            _run(engine, _lines())
+            assert len(scripted.calls) == calls
+
+    @pytest.mark.parametrize("model", [
+        "deepseek-chat", "gemini-flash-lite-latest", "gemini-flash-latest", "qwen3:8b",
+        "some-unknown-model", ""])
+    def test_other_engines_and_unknown_models_keep_the_reask(self, model):
+        assert len(_merged_run(model).calls) == 2
+
+    def test_registry_classifies_by_engine_name_and_instance(self):
+        assert not te.default_reply_guard("claude")
+        assert not te.default_reply_guard("gemini", "gemini-pro-latest")
+        assert te.default_reply_guard("gemini", "gemini-flash-latest")
+        assert te.default_reply_guard("deepseek")
+        assert te.default_reply_guard("ollama", "llama3")
+
+    def test_an_explicit_choice_wins_both_ways(self):
+        assert len(_merged_run("claude-sonnet-5-5", check_replies=True).calls) == 2
+        assert len(_merged_run("deepseek-chat", check_replies=False).calls) == 1
+
+    def test_an_engine_that_cannot_be_checked_stays_unchecked_even_when_forced(self):
+        class Echo(Scripted):
+            checks_replies = False
+        engine = Echo(MERGED)
+        _run(engine, _lines(), check_replies=True)
+        assert len(engine.calls) == 1
+
+
 class TestMatchedById:
     def _engine(self, replies_by_call):
         calls = []
@@ -236,7 +286,7 @@ class TestMatchedById:
         redo = {"101": GOOD[1], "104": GOOD[4]}
         engine, calls = self._engine([first, redo])
         lines = _lines()
-        _run(engine, lines)
+        _run(engine, lines, check_replies=True)
         assert len(calls) == 2
         asked = calls[1]["messages"][0]["content"]
         assert "101. " in asked and "104. " in asked and "100. " not in asked

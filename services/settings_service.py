@@ -339,6 +339,23 @@ def _voice_detector_choices() -> tuple:
     return asr_options_service.VOICE_DETECTOR_CHOICES
 
 
+REPLY_GUARD_MODES = ("auto", "on", "off")
+
+
+def reply_guard_override():
+    """The translate reply guard as the pipeline's `check_replies` argument:
+    None leaves the choice to the engine and model (auto), else forced on or off.
+    Callers read it here so the root translate modules never read settings."""
+    return {"on": True, "off": False}.get(get("translate_reply_guard"))
+
+
+def run_options() -> dict:
+    """The saved settings a translate run records in its job args, so a run
+    that is resumed or scheduled later behaves as it was submitted."""
+    return {"scene_aware_batches": get("scene_aware_batches"),
+            "check_replies": reply_guard_override()}
+
+
 _SCHEMA_CHOICES = {
     "engines": _engine_choices,
     "locales": lambda: LOCALE_CHOICES,
@@ -346,6 +363,7 @@ _SCHEMA_CHOICES = {
     "ocr_backends": _ocr_choices,
     "cookie_browsers": _cookie_browser_choices,
     "voice_detectors": _voice_detector_choices,
+    "reply_guard_modes": lambda: REPLY_GUARD_MODES,
 }
 
 
