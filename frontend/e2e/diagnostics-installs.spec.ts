@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { guard, mockDiagnostics, openSection } from './diagnosticsInstallsMocks'
 
-// Deno install (Setup) and "Test first" (Packages): both start a server job
+// Deno install (Packages and installs) and "Test first" (Packages): both start a server job
 // with a two-step confirm, then poll its status for progress and the result.
 
 const SHOTS = process.env.INSTALLS_SCREENS_DIR
@@ -10,7 +10,7 @@ const SHOTS = process.env.INSTALLS_SCREENS_DIR
 test('no JS runtime: Install Deno takes two presses, shows progress, then says to restart', async ({ page }) => {
   const m = await guard(page)
   await mockDiagnostics(page, m)
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/diagnostics?card=deno')
   const block = page.getByTestId('deno-install')
   await expect(block).toContainText("Downloads Deno's official release and checks its checksum.")
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/deno-offer.png`, fullPage: true })
@@ -50,7 +50,7 @@ test('Test first: two presses with the check target, progress, then the verdict 
   await openSection(page, /^Installed packages/)
   const list = page.getByRole('list', { name: 'Installed packages' })
   await expect(list.getByRole('button', { name: /Test pypinyin/ })).toHaveCount(0) // no test before a check
-  await page.getByRole('button', { name: 'Check for updates' }).click()
+  await page.getByRole('button', { name: 'Check for package updates' }).click()
   const row = list.locator('li', { hasText: 'pypinyin' })
   await row.getByRole('button', { name: 'Test pypinyin 0.55.0 first' }).click()
   await row.getByRole('button', { name: 'Confirm test pypinyin 0.55.0 (takes minutes)' }).click()
@@ -79,7 +79,7 @@ test('away from the PC: no Install Deno or Test first buttons', async ({ page })
   await expect(page.getByRole('button', { name: 'Install Deno' })).toHaveCount(0)
   await openSection(page, /^Packages/)
   await openSection(page, /^Installed packages/)
-  await page.getByRole('button', { name: 'Check for updates' }).click()
+  await page.getByRole('button', { name: 'Check for package updates' }).click()
   await expect(page.getByRole('button', { name: /Test pypinyin/ })).toHaveCount(0)
   expect(m.unmocked).toEqual([])
 })

@@ -1,7 +1,7 @@
 import { expect, test, type Request } from '@playwright/test'
 
 import { mockBrowser } from './browserInstallMocks'
-import { guard, mockDiagnostics, openSection } from './diagnosticsInstallsMocks'
+import { guard, mockDiagnostics } from './diagnosticsInstallsMocks'
 
 // Phone: the browser support row fits (no sideways scroll, 44 px targets).
 
@@ -11,8 +11,7 @@ test('phone: Install browser support fits the screen', async ({ page }) => {
   const m = await guard(page)
   await mockDiagnostics(page, m, { jsFound: true })
   await mockBrowser(page, [] as Request[])
-  await page.goto('/#/diagnostics')
-  await openSection(page, /^Setup/)
+  await page.goto('/#/diagnostics?card=browser')
   const install = page.getByRole('button', { name: 'Install browser support' })
   await expect(install).toBeVisible()
   expect((await install.boundingBox())!.height).toBeGreaterThanOrEqual(44)

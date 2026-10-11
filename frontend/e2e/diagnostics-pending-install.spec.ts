@@ -89,7 +89,7 @@ async function mockPage(page: Page, plan: unknown, planReply?: { status: number;
 }
 
 const openPackages = async (page: Page) => {
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/diagnostics?card=packages')
   const summary = page.locator('summary', { hasText: /^Packages/ }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
   // locator.all() doesn't wait: without this the groups can be listed before the presets arrive.

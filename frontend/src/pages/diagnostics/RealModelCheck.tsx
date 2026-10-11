@@ -29,19 +29,19 @@ export function RealModelCheckResults({ checks }: { checks: RealModelCheckResult
   )
 }
 
-/** "Real-model check": one transcription, OCR read and Ollama translation with the models you have. Complements "Test first", which only runs mocked tests. PC only. */
-export function RealModelCheck({ pc, jobsActive }: { pc: PcMode; jobsActive: boolean }) {
+/** "Test my models": one transcription, OCR read and Ollama translation with the models you have. Complements "Test first", which only runs mocked tests. PC only. */
+export function RealModelCheck({ pc, jobsActive, openSignal }: { pc: PcMode; jobsActive: boolean; openSignal?: number }) {
   if (pc === 'remote') {
     return (
-      <Section title="Real-model check" storageKey="diagnostics.realModel" summary={PC_ONLY_SUMMARY}>
+      <Section title="Test my models" storageKey="diagnostics.realModel" summary={PC_ONLY_SUMMARY} defaultOpen openSignal={openSignal}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
   }
-  return <RealModelCheckBody local={pc === 'local'} jobsActive={jobsActive} />
+  return <RealModelCheckBody local={pc === 'local'} jobsActive={jobsActive} openSignal={openSignal} />
 }
 
-function RealModelCheckBody({ local, jobsActive }: { local: boolean; jobsActive: boolean }) {
+function RealModelCheckBody({ local, jobsActive, openSignal }: { local: boolean; jobsActive: boolean; openSignal?: number }) {
   const { status, running, refresh } = useServerJobStatus(getRealModelCheck)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -60,7 +60,7 @@ function RealModelCheckBody({ local, jobsActive }: { local: boolean; jobsActive:
   const checks = status?.checks ?? []
   const blocked = running || starting || jobsActive
   return (
-    <Section title="Real-model check" storageKey="diagnostics.realModel">
+    <Section title="Test my models" storageKey="diagnostics.realModel" defaultOpen openSignal={openSignal}>
       <div className="diag-stack" data-testid="real-model-check">
         <p className="muted">
           Runs a short transcription, an OCR read and one Ollama translation with the models you have installed.
@@ -73,7 +73,7 @@ function RealModelCheckBody({ local, jobsActive }: { local: boolean; jobsActive:
         {error && <p className="error" role="alert">{error}</p>}
         {running && status?.job && (
           <>
-            <progress max={1} value={status.job.progress || 0} aria-label="Real-model check progress" />
+            <progress max={1} value={status.job.progress || 0} aria-label="Test my models progress" />
             <p className="muted" aria-live="polite">{jobProgressLine(status.job)}</p>
           </>
         )}
@@ -82,7 +82,7 @@ function RealModelCheckBody({ local, jobsActive }: { local: boolean; jobsActive:
           <div className="actions">
             <button type="button" className={buttonClass('secondary', 'sm')} disabled={blocked}
               aria-busy={running || starting} onClick={() => void start()}>
-              Run real-model check
+              Run the test
             </button>
             {jobsActive && !running && <span className="muted">Wait for running jobs to finish.</span>}
           </div>

@@ -9,18 +9,18 @@ import type { PortEntry } from '../../types/diagnostics'
 import { portsSummary, portStatus, portText } from './portsFormat'
 
 /** "Ports": the ports Baihe uses, whether each is in use, and how to change it. Read-only, PC only. */
-export function PortsSection({ pc }: { pc: PcMode }) {
+export function PortsSection({ pc, openSignal }: { pc: PcMode; openSignal?: number }) {
   if (pc === 'remote') {
     return (
-      <Section title="Ports" storageKey="diagnostics.ports" summary={PC_ONLY_SUMMARY}>
+      <Section title="Ports" storageKey="diagnostics.ports" summary={PC_ONLY_SUMMARY} defaultOpen openSignal={openSignal}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
   }
-  return <PortsBody />
+  return <PortsBody openSignal={openSignal} />
 }
 
-function PortsBody() {
+function PortsBody({ openSignal }: { openSignal?: number }) {
   const [ports, setPorts] = useState<PortEntry[] | null>(null)
   const [error, setError] = useState<unknown>(null)
 
@@ -29,7 +29,7 @@ function PortsBody() {
   }, [])
 
   return (
-    <Section title="Ports" storageKey="diagnostics.ports" summary={ports ? portsSummary(ports) : undefined}>
+    <Section title="Ports" storageKey="diagnostics.ports" summary={ports ? portsSummary(ports) : undefined} defaultOpen openSignal={openSignal}>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {!ports ? (
         !error && <p className="muted">Loading…</p>

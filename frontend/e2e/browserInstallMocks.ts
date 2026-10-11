@@ -1,6 +1,6 @@
 import type { Page, Request } from '@playwright/test'
 
-// Mocks for Diagnostics > Setup "Install browser support" (a polled server job).
+// Mocks for Diagnostics > Packages and installs "Install browser support" (a polled server job).
 
 export const status = (o: Record<string, unknown> = {}) => ({
   playwright_installed: true, app_browser_installed: false, system_browser_found: false, free_mb: 5000,

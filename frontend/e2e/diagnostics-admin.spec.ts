@@ -1,6 +1,8 @@
 import { mockPlainPlan } from './pendingInstallMocks'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { mockDependencyInstall } from './dependencyInstallMock'
+import { openSection } from './diagnosticsInstallsMocks'
+import { openDiagTab } from './diagnosticsTabsNav'
 import { openSettingsGroups } from './settingsNav'
 
 // Diagnostics admin sections and Settings > Browser extension (desktop).
@@ -71,25 +73,20 @@ async function mockPage(page: Page, o: { jobs?: unknown[]; setup?: unknown; stat
   if (o.stats) await page.route('**/api/library/stats', (r) => r.fulfill({ json: o.stats }))
 }
 
-const openSection = async (page: Page, title: RegExp) => {
-  const summary = page.locator('summary', { hasText: title }).first()
-  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
-}
-
-test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', async ({ page }) => {
+test('keeps the testids, hides Jobs when empty, and shows the Setup problem first', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, { setup: setup({ ffmpeg: { found: false, version: null } }) })
   await page.goto('/#/diagnostics')
   const summary = page.getByTestId('diagnostics-summary')
   await expect(summary.locator('.pill')).toHaveText(['1 setup problem', '2 of 4 packages', 'No jobs running'])
   await expect(summary.locator('.pill').first()).toHaveClass(/pill-warn/)
-  // Setup opens by itself on a problem; the problem sorts first with a Problem badge.
+  // Setup is open on its tab; the problem sorts first with a Problem badge.
   const setupRows = page.getByTestId('setup-rows')
   await expect(setupRows).toBeVisible()
   await expect(setupRows.locator('li').first()).toContainText('FFmpeg')
   await expect(setupRows.locator('li').first()).toContainText('FFmpeg not found')
   await expect(setupRows.locator('li').first().locator('.pill')).toHaveText('Problem')
-  await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: FFmpeg')
+  await expect(page.getByRole('tab', { name: /^Setup/ })).toContainText('1')
   await expect(page.getByTestId('dependency-panel')).toHaveCount(1)
   await expect(page.getByTestId('jobs-summary')).toHaveCount(0)
   const header = await summary.boundingBox()
@@ -107,8 +104,8 @@ test('install: two presses, PC-only header, every admin button waits, then the r
     ? { ok: true, output_tail: ['Successfully installed'] }
     : { ok: false, output_tail: ['ERROR: no space'] }, { hold: gate })
   await page.goto('/#/diagnostics')
+  await openSection(page, /^Reset library/)
   await openSection(page, /^Packages/)
-  await openSection(page, /^Danger zone/)
 
   await page.getByRole('button', { name: 'Install yt-dlp' }).click()
   expect(sent).toHaveLength(0) // first press only arms
@@ -125,9 +122,11 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   await expect(page.getByRole('button', { name: 'Install torch' })).toHaveAttribute('aria-describedby', runningId!)
   await expect(page.getByRole('button', { name: 'Install torch' })).toBeDisabled()
   await expect(page.getByRole('button', { name: /Update jieba/ })).toHaveCount(0) // no Update before a check
+  await openDiagTab(page, 'System')
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')
   await expect(page.getByRole('button', { name: 'Reset library' })).toBeDisabled()
   await expect(page.locator('.danger-zone')).toContainText('Wait for the install to finish.')
+  await openDiagTab(page, 'Packages and installs')
 
   // The job shows its progress and a Cancel button while it runs.
   await expect(page.getByTestId('install-progress')).toContainText('30% · Downloading wheel')
@@ -207,7 +206,7 @@ test('a running job blocks install and reset with a reason, and the reset reason
   await expect(page.getByRole('button', { name: /^Cancel Translate/ })).toHaveCount(0)
   await openSection(page, /^Packages/)
   await expect(page.getByTestId('dependency-panel')).toContainText('Wait for running jobs to finish.')
-  await openSection(page, /^Danger zone/)
+  await openSection(page, /^Reset library/)
   await expect(page.locator('.danger-zone')).toContainText('Stop running jobs first.')
   await expect(page.locator('.danger-zone').getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')
@@ -224,7 +223,7 @@ test('reset: exact RESET, sends the confirm word, then says so with a link', asy
     return r.fulfill({ json: { ok: true, reset_at: 1 } })
   })
   await page.goto('/#/diagnostics')
-  await openSection(page, /^Danger zone/)
+  await openSection(page, /^Reset library/)
   const zone = page.locator('.danger-zone')
   await expect(zone).toContainText('Currently 12 titles, 48,210 lines.')
   const button = zone.getByRole('button', { name: 'Reset library' })
@@ -244,7 +243,7 @@ test('an empty library needs no reset', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, { stats: { total_dramas: 0, total_lines: 0, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} } })
   await page.goto('/#/diagnostics')
-  await openSection(page, /^Danger zone/)
+  await openSection(page, /^Reset library/)
   await expect(page.locator('.danger-zone')).toContainText('Library is already empty.')
   await expect(page.getByLabel(/Type RESET to confirm/)).toHaveCount(0)
   expect(unmocked).toEqual([])
@@ -263,7 +262,7 @@ test('away from the PC: no install, reset or extension controls and no extension
   await openSection(page, /^Packages/)
   await expect(page.getByTestId('dependency-panel')).toContainText('Installing is PC only.')
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
-  await openSection(page, /^Danger zone/)
+  await openSection(page, /^Reset library/)
   await expect(page.locator('.danger-zone')).toContainText('Run this on the main PC.')
 
   // Settings always reads /api/settings on mount, alongside any extension read, so its answer closes the window.
@@ -310,7 +309,7 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   const panel = page.getByTestId('dependency-panel')
   await expect(panel).toContainText('Checking whether this is the main PC…')
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
-  await openSection(page, /^Danger zone/)
+  await openSection(page, /^Reset library/)
   await expect(page.locator('.danger-zone')).toContainText('Checking whether this is the main PC…')
   await expect(page.locator('.danger-zone').getByRole('textbox')).toHaveCount(0)
 
@@ -364,8 +363,8 @@ test('check access asks online only when pressed and links to the terms', async 
     } })
   })
   await page.goto('/#/diagnostics')
-  await expect(page.locator('summary', { hasText: /^Setup/ })).toContainText('All 6 OK') // folded: nothing is wrong
-  await openSection(page, /^Setup/)
+  await expect(page.locator('summary', { hasText: /^Speaker detection/ })).toContainText('Ready') // folded: nothing to do
+  await openSection(page, /^Speaker detection/)
   await expect(page.getByTestId('pyannote-summary')).toHaveText('Ready')
   await page.getByRole('button', { name: 'Check access online' }).click()
   await expect(page.getByText('pyannote/speaker-diarization-3.1: terms not accepted')).toBeVisible()
@@ -382,7 +381,7 @@ test('check access says why when huggingface_hub is missing', async ({ page }) =
     pyannote_installed: true, hf_token_configured: true, ready: true, models: null,
   } }))
   await page.goto('/#/diagnostics')
-  await openSection(page, /^Setup/)
+  await openSection(page, /^Speaker detection/)
   await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toHaveCount(0)
   await page.getByRole('button', { name: 'Check access online' }).click()
   await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toBeVisible()
