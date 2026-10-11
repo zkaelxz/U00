@@ -136,5 +136,5 @@ test('Model status links to Settings for keys', async ({ page }) => {
   await mockDiagnostics(page)
   await page.route('**/api/models/status', (r) => r.fulfill({ json: status({ items: [], checked_at: '2026-10-10T10:00:00Z' }) }))
   await page.goto('/#/diagnostics?card=model-status')
-  await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute('href', '#/settings')
+  await expect(fold(page, /^Model status/).getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute('href', '#/settings')
 })
