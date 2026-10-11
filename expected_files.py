@@ -29,6 +29,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "db/app_settings.py",
     "db/auth.py",
     "db/benchmark.py",
+    "db/comic_pages.py",
     "db/job_records.py",
     "db/speakers.py",
     "db/usage.py",

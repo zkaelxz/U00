@@ -205,6 +205,7 @@ class Module:
         self.purpose = ""
         self.symbols = []
         self.constants = []
+        self.reexports = []
         self.sections = []
         self.error = ""
         source = (ROOT / rel).read_text(encoding="utf-8", errors="replace")
@@ -228,6 +229,15 @@ class Module:
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 self.constants += [f"{t.id}:{node.lineno}" for t in targets
                                    if isinstance(t, ast.Name) and _CONST_RE.match(t.id)]
+        # A package front door (db/__init__.py) re-exports each submodule's names so
+        # callers keep `db.<name>`; one line per submodule says where they now live.
+        package = self.rel[:-len("/__init__.py")].replace("/", ".") if self.rel.endswith("/__init__.py") else None
+        for node in tree.body:
+            if (package and isinstance(node, ast.ImportFrom) and not node.level
+                    and (node.module or "").startswith(package + ".")):
+                n = len(node.names)
+                what = "all public names" if node.names[0].name == "*" else f"{n} name{'s' * (n != 1)}"
+                self.reexports.append(f"re-exports from {node.module}: {what}")
         lines = source.splitlines()
         for i, text in enumerate(lines[:-1]):
             title = lines[i + 1].strip()
@@ -299,6 +309,8 @@ def module_body(mod: Module, symbols=None) -> str:
     out = [s.render() for s in symbols]
     if mod.constants and symbols is mod.symbols:
         out.append("constants: " + ", ".join(mod.constants))
+    if symbols is mod.symbols:
+        out += mod.reexports
     return "\n".join(out)
 
 
@@ -342,6 +354,8 @@ def print_module(mod: Module, part=None):
                   + _clip(", ".join(names), 150))
         if mod.constants:
             print("constants: " + ", ".join(mod.constants))
+        for line in mod.reexports:
+            print(line)
         return
     if not 1 <= part <= len(parts):
         sys.exit(f"{mod.rel} has parts 1-{len(parts)}")
