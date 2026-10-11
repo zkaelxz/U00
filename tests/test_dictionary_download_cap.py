@@ -63,7 +63,7 @@ def test_a_slow_drip_download_is_stopped_by_the_total_deadline(monkeypatch, tmp_
 def test_an_error_page_is_not_treated_as_the_archive(monkeypatch, tmp_path):
     _install(monkeypatch, tmp_path, b"<html>404</html>")
     monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: _ErrResp(b"<html>404</html>"))
-    with pytest.raises(RuntimeError, match="^CEDICT download failed$"):
+    with pytest.raises(RuntimeError, match="^The CC-CEDICT download failed; check the connection and try again\.$"):
         dictionary._ensure_cedict()
     assert not (tmp_path / "cedict.txt").exists()
 
@@ -81,3 +81,12 @@ def test_a_network_failure_gets_the_dictionary_message(monkeypatch, tmp_path):
     monkeypatch.setattr(http, "pinned_get", down)
     with pytest.raises(RuntimeError, match="CC-CEDICT download failed"):
         dictionary._ensure_cedict()
+
+
+def test_a_failed_download_is_not_reported_as_an_engine_failure(monkeypatch, tmp_path):
+    from services import reader_service
+    _install(monkeypatch, tmp_path, b"<html>404</html>")
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: _ErrResp(b"<html>404</html>"))
+    with pytest.raises(reader_service.ServiceError) as err:
+        reader_service._run_engine(dictionary._ensure_cedict)
+    assert err.value.message == "The CC-CEDICT download failed; check the connection and try again."

@@ -29,6 +29,11 @@ CEDICT_DOWNLOAD_DEADLINE_SECONDS = 120
 _cedict_cache = None
 
 
+class CedictDownloadError(RuntimeError):
+    """The message is already user-ready: services show it as is rather than
+    wrapping it as an engine failure."""
+
+
 def _ensure_cedict():
     """Downloads CC-CEDICT if not already present locally. Requires
     internet on first use only; the file is then kept at CEDICT_PATH,
@@ -44,18 +49,18 @@ def _ensure_cedict():
                         deadline=CEDICT_DOWNLOAD_DEADLINE_SECONDS, guard=None,
                         allow_redirects=True)
     except http.ResponseTooLarge:
-        raise RuntimeError("The CC-CEDICT download is larger than expected.") from None
+        raise CedictDownloadError("The CC-CEDICT download is larger than expected.") from None
     except http.ResponseTooSlow:
-        raise RuntimeError("The CC-CEDICT download took too long.") from None
+        raise CedictDownloadError("The CC-CEDICT download took too long.") from None
     except http.FetchError:
-        raise RuntimeError("The CC-CEDICT download failed; check the connection and try again.") from None
+        raise CedictDownloadError("The CC-CEDICT download failed; check the connection and try again.") from None
     if resp.status != 200:
-        raise RuntimeError("CEDICT download failed")
+        raise CedictDownloadError("The CC-CEDICT download failed; check the connection and try again.")
     packed = resp.body
     with gzip.GzipFile(fileobj=io.BytesIO(packed)) as gz:
         raw = gz.read(CEDICT_MAX_UNPACKED_BYTES + 1)
     if len(raw) > CEDICT_MAX_UNPACKED_BYTES:
-        raise RuntimeError("The CC-CEDICT download is larger than expected.")
+        raise CedictDownloadError("The CC-CEDICT download is larger than expected.")
     atomic_write(CEDICT_PATH, raw, binary=True)
 
 

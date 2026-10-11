@@ -723,3 +723,20 @@ class TestReviewFixes:
             name = reader_service.export_vocab_csv(did)["filename"]
             name.encode("latin-1")
             assert name.isascii() and name == want
+
+
+def test_a_200kb_single_line_title_builds_a_page_quickly_with_the_same_text():
+    import re
+    import time
+    import reader
+    import segment
+    pytest.importorskip("jieba")
+    pytest.importorskip("pypinyin")
+    segment.segment_zh("你好")  # load the dictionaries outside the timed part
+    text = "很" * 200_000
+    line = Line(idx=0, start=0.0, end=1.0, zh=text, en="")
+    start = time.monotonic()
+    out = reader.build_reader_html([line], "zh", {})
+    assert time.monotonic() - start < 5
+    shown = "".join(re.findall(r'data-word="([^"]*)"', out))
+    assert shown == text

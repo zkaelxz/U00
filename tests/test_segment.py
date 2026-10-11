@@ -77,3 +77,20 @@ class TestSegmentAndAnnotateThreadsChineseScript:
         monkeypatch.setattr(segment, "segment_ko", lambda text: [(text, None)])
         result = segment.segment_and_annotate("안녕하세요", "ko", chinese_script="traditional")
         assert result == [("안녕하세요", None)]
+
+
+class TestVeryLongLine:
+    def test_a_long_unbroken_line_segments_in_linear_time_and_keeps_its_text(self):
+        import time
+        text = "很" * 200_000
+        start = time.monotonic()
+        words = [w for w, _ in segment.segment_zh(text)]
+        # jieba alone needs ~minutes on this input; 30 s only fails a quadratic walk.
+        assert time.monotonic() - start < 30
+        assert "".join(words) == text
+
+    def test_chunking_prefers_sentence_ends_so_words_stay_whole(self):
+        text = ("我们今天要去图书馆看书。" * 400)
+        chunks = segment.split_long_text(text, limit=500)
+        assert "".join(chunks) == text
+        assert all(c.endswith("。") for c in chunks)
