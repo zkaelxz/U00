@@ -252,6 +252,15 @@ def test_pc_reports_do_not_count_against_remote_caps(fakes, monkeypatch):
     assert svc.create_report(_report())["id"] == 5
 
 
+def test_pc_report_refused_over_the_total_size_cap(fakes, monkeypatch):
+    # MAX_TOTAL_BYTES is the only bound on the PC owner's reports.
+    svc.create_report(_report())
+    monkeypatch.setattr(svc, "MAX_TOTAL_BYTES", 1)
+    with pytest.raises(svc.ConflictError):
+        svc.create_report(_report())
+    assert [i["id"] for i in svc.list_reports()] == [1]
+
+
 def test_markdown_fence_survives_backticks(fakes):
     out = svc.create_report(_report(console=[{"level": "warn", "message": "a ```` b"}]))
     assert "`````text" in out["markdown"]

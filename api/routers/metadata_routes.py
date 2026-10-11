@@ -30,7 +30,7 @@ def analyze_media(drama_id: int = Path(ge=1)):
 
 @router.post("/dramas/{drama_id}/autofill", dependencies=[require_permission("media.import_url")], response_model=AutofillSuggestion,
              summary="Suggest metadata from a public page or pasted text (writes nothing)",
-             responses=_ERRS)
+             responses={**_ERRS, 429: {"model": ErrorResponse}})
 def autofill(payload: AutofillRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, payload.engine)
     with llm_slot(request):

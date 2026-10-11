@@ -500,8 +500,12 @@ def _variant_pattern(variant: str) -> str:
 def _is_free_text_note(variant: str, canonical: str) -> bool:
     """`notes` doubles as the variant list and a free-text note ("her
     childhood friend"); a spaced phrase longer than the name is a note,
-    unless it is just the name spaced differently ("Shen Qing Yi")."""
+    unless it is just the name spaced differently ("Shen Qing Yi"). Names
+    are capitalised, so only a phrase with a lowercase-initial word counts:
+    "Su Shan Shan" and "Ah Yao" are real variants."""
     if not re.search(r"\s", variant) or len(variant) <= len(canonical):
+        return False
+    if not any(w[0].islower() for w in variant.split()):
         return False
     squash = lambda t: re.sub(r"[\s\-]+", "", t).casefold()
     return squash(variant) != squash(canonical)
@@ -528,29 +532,31 @@ def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
                 if t.get("enforce_exact") and t.get("term_translation")]
     if not text or not enforced:
         return text
-    canonical_of = {}
+    canonical_of, has_variant = {}, False
     for t in sorted(enforced, key=lambda x: len(x["term_translation"]), reverse=True):
         canonical = t["term_translation"]
+        # The canonical form is an alternative too: as the longest match at
+        # its position it keeps a shorter variant inside it ("Qingyi" in
+        # "Shen Qingyi") from compounding, whatever case the model used.
+        canonical_of.setdefault(canonical.casefold(), (canonical, canonical))
         for v in (t.get("notes") or "").split("|"):
             v = v.strip()
             if v and v != canonical and not _is_free_text_note(v, canonical):
                 canonical_of.setdefault(v.casefold(), (v, canonical))
-    if not canonical_of:
+                has_variant = True
+    if not has_variant:
         return text
     variants = sorted(canonical_of.values(), key=lambda vc: len(vc[0]), reverse=True)
-    pattern = re.compile("|".join(_variant_pattern(v) for v, _ in variants), re.IGNORECASE)
-    protected = [(m.start(), m.end())
-                 for canonical in {t["term_translation"] for t in enforced}
-                 for m in re.finditer(re.escape(canonical), text)]
+    # One group per alternative: casefolding the match to find its variant
+    # breaks where IGNORECASE and casefold disagree (Turkish dotted I).
+    pattern = re.compile("|".join(f"({_variant_pattern(v)})" for v, _ in variants),
+                         re.IGNORECASE)
     out, pos, scan = [], 0, 0
     while True:
         m = pattern.search(text, scan)
         if m is None:
             break
-        if any(s <= m.start() and m.end() <= e for s, e in protected):
-            scan = m.start() + 1
-            continue
-        out += [text[pos:m.start()], canonical_of[m.group(0).casefold()][1]]
+        out += [text[pos:m.start()], variants[m.lastindex - 1][1]]
         pos = scan = m.end()
     out.append(text[pos:])
     return "".join(out)
