@@ -5,6 +5,7 @@ import type {
   MonthCounterResetResult,
   SettingsOverview,
   SettingsPreferences,
+  SettingsSchemaRow,
   SettingsToggleKey,
   SettingsUpdate,
 } from '../types/settings'
@@ -25,6 +26,9 @@ export const TOGGLES: { key: SettingsToggleKey; label: string }[] = [
 export function buildUpdate(key: SettingsToggleKey, value: boolean): SettingsUpdate {
   return { [key]: value === true }
 }
+
+export const fetchSettingsSchema = (f?: Fetch) =>
+  getJson<{ settings: SettingsSchemaRow[] }>('/api/settings/schema', f).then((r) => r.settings)
 
 export const getSettings = (f?: Fetch) => getJson<SettingsOverview>('/api/settings', f)
 export const updateSetting = (key: SettingsToggleKey, value: boolean, f?: Fetch) =>

@@ -254,12 +254,7 @@ def list_cases(stage: str = None, tier: str = None, set_name: str = None) -> dic
         raise InvalidInputError("Unknown stage.")
     if tier is not None:
         _check_tier(tier)
-    cases = db.list_benchmark_cases(stage)
-    if tier:
-        cases = [c for c in cases if (c.get("tier") or "application") == tier]
-    if set_name:
-        cases = [c for c in cases if (c.get("set_name") or "") == set_name]
-    return {"cases": [_case_out(c) for c in cases]}
+    return {"cases": [_case_out(c) for c in _select_cases(stage, tier, set_name)]}
 
 
 def list_sets() -> dict:
@@ -420,7 +415,7 @@ def get_options() -> dict:
 
 def _cap_applies(engine: str) -> bool:
     return engine in _CAP_ENGINES and not (
-        engine == "gemini" and settings_service.get_gemini_free_tier())
+        engine == "gemini" and settings_service.get("gemini_free_tier"))
 
 
 def check_config(stage: str, cfg) -> dict:
@@ -521,7 +516,7 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
 
 def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
               case_ids: list = None, label: str = "", prompt_version: str = "",
-              use_gpu: bool = None, max_cost_usd: float = None) -> dict:
+              use_gpu: bool = None, max_cost_usd: float = None, judge: dict = None) -> dict:
     """Starts a background run: one benchmark_sessions row per config
     (several configs = one Model Arena group). Refused when the monthly cap
     is used up or the estimate is over what's left of it. max_cost_usd is an
@@ -548,7 +543,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         raise ConflictError("A benchmark run is already going.")
     if background_jobs.exclusive_active() or background_jobs.maintenance_active():
         raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
-    use_gpu = settings_service.get_use_gpu() if use_gpu is None else bool(use_gpu)
+    use_gpu = settings_service.get("use_gpu") if use_gpu is None else bool(use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
     case_filter = json.dumps({"tier": tier, "set_name": set_name,
                               "case_ids": sorted(case_ids) if case_ids else None})
@@ -563,7 +558,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             "case_count": len(cases)}))
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = background_jobs.start_job(
-        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd,
+        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
         gpu_touching=stage != "translation" or any(
             translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
         description="Benchmark run")
@@ -598,9 +593,12 @@ def _reset_vram():
         pass
 
 
-def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
+def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
     try:
         _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap)
+        if judge:
+            from services import benchmark_judge_service
+            benchmark_judge_service.run_pass(job_id, plan, judge)
     finally:
         # A crash mid-run must not leave a run looking "running" forever.
         for sid, _cfg, _key in plan:
@@ -623,7 +621,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
             try:
                 engine = translate_engines.get_engine(
                     cfg["engine"], api_key, cfg["model"],
-                    free_tier=cfg["engine"] == "gemini" and settings_service.get_gemini_free_tier(),
+                    free_tier=cfg["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
                     base_url=(settings_service.resolve_key("ollama_url") or None)
                     if cfg["engine"] == "ollama" else None)
             except Exception as exc:

@@ -60,7 +60,7 @@ describe('groupHistory', () => {
 })
 
 describe('validateCreate', () => {
-  it('accepts a titled title with a language', () => {
+  it('accepts an English title with a language', () => {
     expect(validateCreate({ source_language: 'zh', title_en: 'A' })).toBeNull()
   })
   it('requires language and a title', () => {

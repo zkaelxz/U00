@@ -92,7 +92,7 @@ def _is_program_name(path: str) -> bool:
 def find_program() -> Optional[str]:
     """The lncrawl program to run, or None. The Settings path wins when set
     (and must be a real lncrawl file); otherwise PATH."""
-    configured = settings_service.get_lncrawl_cmd()
+    configured = settings_service.get("lncrawl_cmd") or None
     if configured:
         path = os.path.abspath(os.path.expanduser(configured))
         if _is_program_name(path) and os.path.isfile(path):
@@ -116,7 +116,7 @@ def get_status() -> dict:
     """Booleans only: whether lncrawl was found, and whether a Settings path
     is set (a set but wrong path reads installed: false)."""
     return {"installed": is_installed(),
-            "path_configured": bool(settings_service.get_lncrawl_cmd())}
+            "path_configured": bool(settings_service.get("lncrawl_cmd"))}
 
 
 # --- input checks and argv -------------------------------------------------

@@ -198,7 +198,11 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
             {r.need === 'key' && keyOpen && !readOnly && keyEngine && (
               <div className="preflight-key">
                 <SettingsKeyForm engine={keyEngine.name} label={engineLabel(keyEngine.name)} configured={keyEngine.key_configured}
-                  onResult={() => { setKeyOpen(false); recheck() }} />
+                  onResult={(r) => {
+                    // Keep the form open on a key the server doesn't pick up, so its warning shows.
+                    if (r.configured) setKeyOpen(false)
+                    recheck()
+                  }} />
               </div>
             )}
           </li>

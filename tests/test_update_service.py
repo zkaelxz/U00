@@ -8,6 +8,7 @@ import hashlib
 import json
 import threading
 import os
+import types
 
 import pytest
 import requests
@@ -24,6 +25,26 @@ HASH_URL = EXE_URL + ".sha256"
 CDN_URL = "https://release-assets.githubusercontent.com/x/BaiheStudio-Setup-0.2.0.exe"
 PAYLOAD = b"MZ fake installer " * 100
 NAME = "BaiheStudio-Setup-0.2.0.exe"
+DOWNLOAD_WAIT_SECONDS = 30
+
+
+def _wait_for_download():
+    # join() returns silently on timeout, so a download that outlived it would
+    # fail the caller's next assertion (or a later test) with no hint why.
+    thread = us._download_thread
+    thread.join(DOWNLOAD_WAIT_SECONDS)
+    assert not thread.is_alive(), "the download thread did not finish"
+
+
+@pytest.fixture(autouse=True)
+def _no_download_thread_outlives_its_test():
+    # A leftover download thread writes into the module state and clears the temp
+    # folder of whichever test runs next, so it must end inside its own test.
+    yield
+    stragglers = [t for t in threading.enumerate() if t.name == "update-download"]
+    for t in stragglers:
+        t.join(DOWNLOAD_WAIT_SECONDS)
+    assert not any(t.is_alive() for t in stragglers), "a download thread outlived its test"
 
 
 class FakeResp:
@@ -275,7 +296,7 @@ def test_start_download_thread_reports_verified(http):
     _serve_release(http)
     us.check()
     assert us.start_download()["download"] == "downloading"
-    us._download_thread.join(10)
+    _wait_for_download()
     s = us.status()
     assert s["download"] == "verified" and s["verified"] and s["downloaded_bytes"] == len(PAYLOAD)
 
@@ -299,7 +320,7 @@ def test_start_download_reports_downloading_even_if_the_thread_wins_the_race(htt
     # The snapshot is taken before the thread exists, so a fast download can't make
     # the call that started it report "verified".
     assert thread_started_at_snapshot == [False]
-    us._download_thread.join(10)
+    _wait_for_download()
 
 
 def _no_installer_left():
@@ -353,7 +374,7 @@ def test_failed_download_thread_reports_plain_error(http):
     http.add(HASH_URL, body=_hash_file(data=b"x"))
     us.check()
     us.start_download()
-    us._download_thread.join(10)
+    _wait_for_download()
     s = us.status()
     assert s["download"] == "failed" and "doesn't match" in s["download_error"]
     assert not s["verified"] and not s["can_install"]
@@ -631,7 +652,10 @@ def test_download_finished_after_a_newer_check_is_not_kept(http, monkeypatch):
 def test_second_download_start_is_refused(http, monkeypatch):
     _serve_release(http)
     us.check()
-    monkeypatch.setattr(us.threading, "Thread", lambda **kw: type("T", (), {"start": lambda self: None})())
+    # Only update_service sees the fake: patching threading.Thread itself would also
+    # replace the thread class for pytest-xdist and every other thread in the process.
+    inert = type("T", (), {"start": lambda self: None})
+    monkeypatch.setattr(us, "threading", types.SimpleNamespace(Thread=lambda **kw: inert()))
     us.start_download()
     with pytest.raises(ConflictError, match="already running"):
         us.start_download()
@@ -643,13 +667,13 @@ def test_slow_download_hits_the_deadline_and_can_be_retried(http, monkeypatch):
     ticks = iter([0.0] + [us.DOWNLOAD_DEADLINE_SECONDS + 1.0] * 1000)
     monkeypatch.setattr(us, "_monotonic", lambda: next(ticks))
     us.start_download()
-    us._download_thread.join(10)
+    _wait_for_download()
     s = us.status()
     assert s["download"] == "failed" and "took too long" in s["download_error"]
     assert _no_installer_left()
     monkeypatch.setattr(us, "_monotonic", lambda: 0.0)
     us.start_download()
-    us._download_thread.join(10)
+    _wait_for_download()
     assert us.status()["verified"] is True
 
 

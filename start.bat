@@ -136,6 +136,7 @@ if errorlevel 1 (
             echo Install Python 3.10 or newer from https://python.org/downloads/
             echo and make sure to tick "Add python.exe to PATH" during setup,
             echo then run this again.
+            echo ^(setup.bat on this PC can check and install what is missing.^)
         ) else (
             echo Python is on PATH but isn't runnable -- this is the
             echo Microsoft Store's non-functional "App execution aliases" stub,
@@ -352,6 +353,7 @@ if errorlevel 1 (
     echo --build-frontend needs Node.js and npm, and they weren't found on PATH.
     echo Install Node.js 22 from https://nodejs.org/, open a NEW window and run
     echo this again -- or use the prebuilt release zip ^(docs\RELEASE.md^).
+    echo setup.bat can install Node.js for you.
     if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
     exit /b 1
 )

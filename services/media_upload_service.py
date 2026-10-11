@@ -56,6 +56,7 @@ import time
 import background_jobs
 import db
 import video_export
+from lib import settings_schema
 from services import drama_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -130,7 +131,7 @@ def _env_limit_mb():
     if not (math.isfinite(mb) and mb > 0):
         return None
     # 1e303 is finite, but int(mb * _MB) would overflow to inf.
-    return min(mb, settings_service.MAX_UPLOAD_MB)
+    return min(mb, settings_schema.UPLOAD_MB_MAX)
 
 
 def upload_limit_from_env() -> bool:
@@ -144,7 +145,7 @@ def max_upload_bytes() -> int:
     so there is no separate household limit to apply."""
     mb = _env_limit_mb()
     if mb is None:
-        mb = settings_service.get_preference("max_upload_mb")
+        mb = settings_service.get("max_upload_mb")
     return int(mb * _MB)
 
 

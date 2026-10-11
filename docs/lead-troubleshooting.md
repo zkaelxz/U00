@@ -140,3 +140,29 @@ cd frontend && npx tsc --noEmit && npx vitest run    # when frontend files chang
 Then re-read the diff for: a frozen file that grew, a comment with a PR or
 step id, a route without a permission, an HTTP call without `timeout=`, an
 error message that could carry a path or key, a lock holding a blocking call.
+
+### 9. Review sessions stalled on "open the issue?"
+
+**Symptom.** Five whole-codebase review sessions finished their reading and
+then sat in `need_input`, asking whether to open the GitHub issue. Their
+drafts lived only in their containers; archiving them lost the work.
+
+**Lesson.** A session that must post to GitHub is created with
+`permission_mode: acceptEdits` and its brief says the post is pre-approved.
+Before archiving a `need_input` session, read its last message: if it holds
+a deliverable, relaunch with the fix to the brief first.
+
+### 10. Findings that lived only in a session's chat
+
+**Symptom.** Fix and review sessions reported "noted but not fixed" items,
+unrelated test failures and open questions in their closing chat message.
+That message is visible only in the session's own transcript. One review
+session wrote its whole report to its container's scratchpad and never
+posted it.
+
+**Lesson.** The PR body, a PR comment or an issue is the only durable place.
+Every brief ends with: "Anything found but not fixed, unsure, or seen
+failing goes in the PR body under 'Found but not fixed', never only in
+chat." When a session closes, read its PR body for that section before
+archiving; if the section is missing and the summary mentions something,
+relaunch a short session to add it.

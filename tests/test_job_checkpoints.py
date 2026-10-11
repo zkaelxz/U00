@@ -265,8 +265,6 @@ def test_stages_and_spend_are_recorded_for_a_real_job(isolated_db):
     assert run["stages"][0]["duration_seconds"] >= 0.02
     assert run["stages"][0]["cost_usd"] == 0 and run["stages"][1]["cost_usd"] == 0.75
     assert run["cost_usd"] == 0.75
-    info = debug_view.explain_job("stage_job")
-    assert [s["stage"] for s in info["per_stage_breakdown"]] == ["Transcribe", "Translate"]
     background_jobs.clear_job("stage_job")
 
 

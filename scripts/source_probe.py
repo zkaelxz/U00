@@ -71,10 +71,9 @@ def collect_hosts(include_set_aside: bool = False, data: dict = None) -> list:
 def http_fetch(url: str):
     """One GET, no redirects followed, no cookies kept, no proxy. Returns
     (status, headers, body_text)."""
-    import requests
-    with requests.Session() as session:
-        session.trust_env = False
-        session.proxies = {}
+    from lib import http as lib_http
+    with lib_http.session(timeout=TIMEOUT, guard=None, max_bytes=MAX_BODY_BYTES,
+                          trust_env=False) as session:
         resp = session.request("GET", url, headers={"User-Agent": USER_AGENT},
                                timeout=TIMEOUT, allow_redirects=False, stream=True)
         try:

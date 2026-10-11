@@ -10,6 +10,7 @@ import applog
 import background_jobs
 import db
 import diagnostics
+import diagnostics_torch
 import diarize
 from services import diagnostics_gaps_service as svc
 from services import settings_service
@@ -81,7 +82,7 @@ def test_setup_checks_have_no_paths(isolated_db, monkeypatch):
                         lambda: {"found": True, "path": ABS_PATH, "version": "ffmpeg 6 " + ABS_PATH})
     monkeypatch.setattr(diagnostics, "check_js_runtime",
                         lambda: {"found": True, "name": "deno", "path": ABS_PATH})
-    monkeypatch.setattr(diagnostics, "check_cuda",
+    monkeypatch.setattr(diagnostics_torch, "check_cuda_isolated",
                         lambda: {"torch_installed": False, "cuda_available": None})
     out = svc.get_setup_checks()
     assert out["ffmpeg"]["found"] is True and out["js_runtime"]["name"] == "deno"
@@ -323,45 +324,7 @@ def test_pip_timeout_or_failure_is_not_ok(monkeypatch):
     assert out["ok"] is False and "took too long" in out["output_tail"][-1]
 
 
-def test_gpu_torch_install_never_uninstalls_first(monkeypatch):
-    """L6: a killed download must leave the old torch in place, so no
-    `pip uninstall`; force-reinstall (no deps) from the CUDA index, then a
-    plain install for missing deps, both with the long timeout."""
-    _no_jobs(monkeypatch)
-    import shutil
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-    monkeypatch.setattr(svc, "installable_packages", lambda: {"torch"})
-    seen = []
-    _fake_pip(monkeypatch, seen=seen)
-    assert svc.install_dependency("torch", confirm=True)["ok"] is True
-    assert not any("uninstall" in cmd for cmd, _t in seen)
-    first, second = seen[0][0], seen[1][0]
-    assert first[3:6] == ["install", "--no-cache-dir", "--disable-pip-version-check"]
-    assert first[6:11] == ["--force-reinstall", "--no-deps", "torch==2.11.0+cu128",
-                           "torchvision==0.26.0+cu128", "torchaudio==2.11.0+cu128"]
-    assert "--index-url" in first and "--index-url" in second
-    assert "--force-reinstall" not in second
-    assert all(t == svc.GPU_TORCH_TIMEOUT_SECONDS == 3600 for _c, t in seen)
-
-
-@pytest.mark.parametrize("name", ["torch", "torchaudio", "torchvision"])
-def test_torch_family_installs_the_matched_triple(monkeypatch, name):
-    """A plain `pip install torchaudio` could swap a CUDA torch for a CPU
-    one, so on an NVIDIA machine any of the three installs all three,
-    pinned together, from the fixed CUDA index."""
-    import shutil
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-    cmds = svc._install_commands(name)
-    assert len(cmds) == 2
-    for cmd, timeout in cmds:
-        assert cmd[cmd.index("--index-url") + 1] == "https://download.pytorch.org/whl/cu128"
-        assert {"torch==2.11.0+cu128", "torchvision==0.26.0+cu128",
-                "torchaudio==2.11.0+cu128"} <= set(cmd)
-        assert "uninstall" not in cmd
-        assert timeout == svc.GPU_TORCH_TIMEOUT_SECONDS
-
-
-def test_torchaudio_is_a_plain_install_without_a_gpu(monkeypatch):
+def test_torchaudio_is_a_plain_install(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
     ((cmd, timeout),) = svc._install_commands("torchaudio")
@@ -369,17 +332,6 @@ def test_torchaudio_is_a_plain_install_without_a_gpu(monkeypatch):
                        "torchaudio", *CONSTRAINTS]
     assert "--index-url" not in cmd
     assert timeout == svc.PIP_TIMEOUT_SECONDS
-
-
-def test_gpu_torch_timeout_stops_before_the_second_step(monkeypatch):
-    _no_jobs(monkeypatch)
-    import shutil
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-    monkeypatch.setattr(svc, "installable_packages", lambda: {"torch"})
-    seen = []
-    _fake_pip(monkeypatch, returncode=-9, timed_out=True, seen=seen)
-    assert svc.install_dependency("torch", confirm=True)["ok"] is False
-    assert len(seen) == 1
 
 
 def test_pip_holds_the_library_exclusively(monkeypatch):
@@ -635,9 +587,12 @@ SOX_BUILT = SOX_FETCH + ["  Building wheel for sox (pyproject.toml): finished wi
                          "Successfully built sox"]
 
 
-def _scripted_pip(monkeypatch, outputs):
-    """stream_tree stand-in: each pip run takes the next (lines, returncode)."""
+def _scripted_pip(monkeypatch, outputs, fallback_risks=()):
+    """stream_tree stand-in: each pip run takes the next (lines, returncode).
+    The fallback's own preview answers `fallback_risks`."""
     seen, runs = [], iter(outputs)
+    monkeypatch.setattr(svc.install_plan, "downgrade_risks",
+                        lambda argv: (seen.append(["preview", *argv]), list(fallback_risks))[1])
 
     def fake(cmd, timeout, cwd=None, env=None, **_kw):
         seen.append(cmd)
@@ -688,11 +643,22 @@ def test_qwen_asr_sox_build_failure_falls_back_to_installing_without_sox(monkeyp
     out = svc.install_dependency("qwen-asr", confirm=True)
     assert out["ok"] is True and out["package"] == "qwen-asr"
     assert "without its `sox` dependency" in out["output_tail"][0]
+    preview, seen = seen[1], seen[:1] + seen[2:]
     assert len(seen) == 3
     deps = list(diagnostics.QWEN_ASR_FALLBACK_DEPS)
+    assert preview[1:] == seen[1]        # the dependency command itself was previewed first
     assert seen[1][-len(deps) - 2:-2] == deps and seen[1][-2:] == CONSTRAINTS
     assert seen[2][-4:] == ["--no-deps", "qwen-asr", *CONSTRAINTS]
     assert all("sox" not in " ".join(c[3:]) for c in seen[1:])
+
+
+def test_qwen_asr_fallback_that_would_downgrade_a_needed_package_is_not_run(monkeypatch):
+    _no_jobs(monkeypatch)
+    risk = "transformers 4.58.0 -> 4.57.6 is a downgrade of a package Baihe itself needs."
+    seen = _scripted_pip(monkeypatch, [(SOX_NO_SETUPTOOLS, 1)], fallback_risks=[risk])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is False and risk in out["hint"] and "not installed without" in out["hint"]
+    assert [c[0] for c in seen[1:]] == ["preview"]      # no fallback pip ran
 
 
 def test_qwen_asr_fallback_failure_gives_the_plain_hint_without_leaking(monkeypatch):

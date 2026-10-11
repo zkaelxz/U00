@@ -63,6 +63,10 @@ test('a failure names its step and links to that stage', async ({ page }) => {
   await expect(c.getByRole('alert')).toBeVisible()
   await expect(c.getByText('Failed at Translate.')).toBeVisible()
   await expect(c.getByRole('link', { name: 'Fix in Translate' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}/translate`)
+  // The failure is the first thing in the card, above the form it asks the viewer to fix.
+  const failedY = (await c.getByText('Failed at Translate.').boundingBox())!.y
+  expect(failedY).toBeLessThan((await c.getByLabel('Audio or video file').boundingBox())!.y)
+  expect(failedY).toBeLessThan((await c.getByRole('button', { name: 'Make subtitles' }).boundingBox())!.y)
 })
 
 test('a video file creates a video drama and the title can be changed', async ({ page }) => {

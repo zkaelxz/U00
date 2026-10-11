@@ -57,6 +57,23 @@ test('from another device: PC only, no nav link, no Settings card', async ({ pag
   expect(s.unmocked).toEqual([])
 })
 
+test('a hung ask can be cancelled, and the chat is usable again', async ({ page }) => {
+  const s = await mockAssistant(page, { developerMode: true, askGate: new Promise<void>(() => {}) })
+  await page.goto('/#/assistant')
+  const chat = page.getByRole('region', { name: 'Ask the assistant' })
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Why is this stuck?')
+  await chat.getByRole('button', { name: 'Ask', exact: true }).click()
+  await expect(chat.getByRole('button', { name: 'Asking…' })).toBeDisabled()
+  await expect(chat.getByRole('button', { name: 'New chat' })).toBeDisabled()
+  await chat.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(chat.getByText(/^Cancelled\./)).toBeVisible()
+  await expect(chat.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0)
+  await expect(chat.getByRole('button', { name: 'New chat' })).toBeEnabled()
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Try again')
+  await expect(chat.getByRole('button', { name: 'Ask', exact: true })).toBeEnabled()
+  expect(s.unmocked).toEqual([])
+})
+
 test('ask: busy state, plain-text answer, tools used, patch not applied, add suggestion to backlog', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   let release!: () => void

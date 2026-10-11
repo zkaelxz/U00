@@ -143,7 +143,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     character_names = tguide.build_speaker_labels(
         db.list_characters_with_series_names(drama_id),
         db.list_series_characters(_series_id) if _series_id else [])
-    scene_aware = settings_service.get_preference("scene_aware_batches")
+    scene_aware = settings_service.get("scene_aware_batches")
     # What produced each line, and per-stage timing.
     provenance = line_provenance_service.translate_run_tracker(
         drama_id, lines, engine, engine_choice, glossary_terms, locale=locale,
@@ -590,7 +590,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 if heard.get("error"):
                     errors.append(heard["error"])
                 elif heard["text"]:
-                    ln.zh = heard["text"]
+                    fixflag_transcribe.use_heard_text(ln, heard["text"])
             if ln.zh.strip() and translate_engines.is_english_line(ln):
                 ln.en = ln.zh
                 ln.flag, ln.flag_note = None, ""
@@ -603,13 +603,12 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                                   "line_languages": translate_engines.tagged_line_languages(
                                       [ln], source_language)})[0]
                     if hasattr(engine, "last_usage"):
-                        cost = translate_engines.estimate_cost_for_engine(
-                            engine, engine.last_usage.get("input_tokens", 0),
-                            engine.last_usage.get("output_tokens", 0))
+                        inp = engine.last_usage.get("input_tokens", 0)
+                        out = engine.last_usage.get("output_tokens", 0)
+                        cost = translate_engines.estimate_cost_for_engine(engine, inp, out)
                         spent += cost
                         db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
-                                     "fix_flagged_line", engine.last_usage.get("input_tokens", 0),
-                                     engine.last_usage.get("output_tokens", 0), cost)
+                                     "fix_flagged_line", inp, out, cost)
                     if translated.strip():
                         ln.en = translated
                         ln.flag, ln.flag_note = None, ""
@@ -626,11 +625,11 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     finally:
         if audio_path and os.path.exists(audio_path):
             whisper_models.release_gpu_models()  # re-transcription stage done
-        db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
+        kept = fixflag_transcribe.save_fixed(drama_id, lines)
     if cancelled:
         raise background_jobs.JobCancelled(job_id)
     background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": total_flagged,
-                                        "errors": errors[:20], "cap_reached": cap_reached})
+                                        "errors": errors[:20], "cap_reached": cap_reached, **kept})
 
 
 # Restore-a-backup guardrails -- generous, not tight, since a
@@ -868,6 +867,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
     _check_uploaded_db."""
     import shutil
     import sqlite3
+    from jobs import gpu_slots
     from sources import store as src_store
     staged = os.path.join(staging_dir, "library.db")
     upload = os.path.join(staging_dir, ".uploaded_library.db")
@@ -898,7 +898,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
                 conn.execute("UPDATE job_records SET status = 'cancelled', finished_at = ?, "
                              "cancel_requested = 0 WHERE status IN ('queued', 'running')",
                              (time.time(),))
-                conn.execute("DELETE FROM gpu_lock")
+                gpu_slots.clear(conn)
                 _carry_app_settings(conn, os.path.join(library_dir, "library.db"))
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
@@ -1110,7 +1110,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         ollama_base_url, allow_paid=allow_paid_summary)
     # The Settings default the single-title form starts from, so a title
     # translated in bulk matches one translated alone.
-    style_note = settings_service.get_preference("default_style_note") or ""
+    style_note = settings_service.get("default_style_note") or ""
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}, "partial": {}, "cancelled": False}
@@ -1135,7 +1135,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             results["skipped_no_lines"].append(did)
             continue
 
-        engine_choice = drama.get("translation_engine") or settings_service.get_default_engine()
+        engine_choice = drama.get("translation_engine") or settings_service.get("default_engine")
         # expected_engines: what the caller was checked against; an engine
         # changed since then is skipped rather than used unchecked.
         if (engine_choice not in translate_engines.ENGINES
@@ -1198,7 +1198,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             per_job_id, run_translate_job,
             per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
             default_locale, glossary_terms, style_guidelines, engine_choice, style_preset,
-            defaults["context_window"], settings_service.get_ollama_num_ctx_override() or None,
+            defaults["context_window"], settings_service.get("ollama_num_ctx_override") or None,
             cost_cap_usd=cost_cap,
             context_window_ahead=defaults["context_window_ahead"],
             batch_size=defaults["batch_size"],

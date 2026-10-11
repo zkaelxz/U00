@@ -9,3 +9,7 @@
 @media (max-width: 640px) {
   .more-filters > summary, .tag-filter .check { min-height: 44px; }
 }
+/* Library loading grid (LibraryList SkeletonGrid): real card parts with their text hidden. */
+.drama-grid.skeleton .skeleton-text { color: transparent; background: var(--surface-2); border-radius: var(--radius-sm); width: 80%; }
+.drama-grid.skeleton .skeleton-text.short { width: 50%; }
+.drama-grid.skeleton :is(.pill, .badge, .btn) { visibility: hidden; }

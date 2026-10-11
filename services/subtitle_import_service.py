@@ -21,6 +21,7 @@ from typing import Optional
 
 import core as core_module
 import db
+import source_change
 import subtitle_parse
 import subtitle_sidecar
 from services import restructure_service
@@ -165,8 +166,10 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
                 history_id = db.save_line_history_snapshot(drama_id, current, SNAPSHOT_LABEL)
                 for ln in written:
                     ln.en = plan["updates"][ln.id]
+                    source_change.clear_for_new_english(ln)
                 # Field-limited and compare-and-set so a translation edited since the load is kept.
-                kept = set(db.save_lines(drama_id, written, fields=("en",), only_if_unchanged=True))
+                kept = set(db.save_lines(drama_id, written, fields=("en", "flag", "flag_note"),
+                                         only_if_unchanged=True))
                 written = [ln for ln in written if ln.id not in kept]
         handle = restructure_service.undo_handle(drama_id, history_id) if history_id else None
     return {"mode": mode, "format": parsed.format, "encoding": parsed.encoding,

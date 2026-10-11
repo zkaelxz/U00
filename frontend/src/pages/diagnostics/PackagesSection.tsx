@@ -4,6 +4,7 @@ import { checkPackageUpdates, getInstallPresets, installDependency, setupGpuTorc
 import { getUpgradeCheck, testUpgrade } from '../../api/diagnosticsInstalls'
 import { cancelPendingInstall, dismissInstallResult, getPendingInstall, planInstall, queueInstall } from '../../api/pendingInstall'
 import { Badge } from '../../components/Badge'
+import { ErrorBanner } from '../../components/ErrorBanner'
 import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
@@ -21,7 +22,9 @@ import {
   isInstallable, useDetailsOpen, type AdminBusy,
 } from './diagnosticsAdmin'
 import { GpuTorchPanel } from './GpuTorchPanel'
-import { InstallPlanPanel, PendingInstallBanner, needsPlanPanel, pendingKeys, type PlannedInstall } from './PendingInstall'
+import {
+  InstallPlanPanel, PendingInstallBanner, needsPlanPanel, pendingKeys, planCheckUnavailable, planPanelKey, type PlannedInstall,
+} from './PendingInstall'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
 import { InstallProgress } from './InstallProgress'
 import { cancelledText, runInstallJob } from './installJob'
@@ -95,14 +98,23 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 
   // Installs waiting for the next start, and how the last one went.
   const [queuedStatus, setQueuedStatus] = useState<PendingInstallStatus | null>(null)
+  // A failed cancel or dismiss leaves the banner (and the install) in place, so say so.
+  const [queuedError, setQueuedError] = useState<unknown>(null)
   const loadQueued = useCallback(() => {
-    getPendingInstall().then(setQueuedStatus, () => undefined)
+    getPendingInstall().then((s) => {
+      setQueuedStatus(s)
+      setQueuedError(null)
+    }, setQueuedError)
   }, [])
   useEffect(() => {
     if (pc === 'local') loadQueued()
   }, [pc, loadQueued])
   const queued = pendingKeys(queuedStatus)
   const [planned, setPlanned] = useState<PlannedInstall | null>(null)
+  const [queueing, setQueueing] = useState(false)
+  const [planError, setPlanError] = useState<unknown>(null)
+  // An open plan holds the install buttons: a second install would swap the plan under a ticked "I understand".
+  const blocked = installBlockedReason(jobsActive, busy) ?? (planned ? 'Close the install preview above first.' : null)
 
   const deps = splitDependencies(overview.dependencies)
   // Missing packages no task installs (a package that isn't on PyPI, one that ships with the app).
@@ -116,7 +128,6 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   }, [wantsTranscription])
   const hasTasks = !!presets && presets.tasks.length > 0
   const leftover = deps.missing.filter((d) => !inTask.has(d.name) && d.tier !== 'required' && d.tier !== 'dev')
-  const blocked = installBlockedReason(jobsActive, busy)
   const running = busyLine(busy)
 
   // "Check for updates": PyPI is asked (on the server) only when pressed.
@@ -137,41 +148,48 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 
   // Previews what an install would change before it runs. A preview that
   // can't be had (older server, offline) falls back to installing as before.
-  const withPlan = async (label: string, keys: string[], installNow: () => Promise<void>) => {
+  const withPlan = async (label: string, keys: string[], installNow: (acceptedRisks: string[]) => Promise<void>) => {
     setOutcome(null)
+    setPlanError(null)
     onBusy({ kind: 'install', name: `Checking what ${label} will change` })
     let plan
     try {
       plan = await planInstall(keys)
-    } catch {
-      return installNow()
+    } catch (e) {
+      if (planCheckUnavailable(e)) return installNow([])
+      onBusy(null)
+      setPlanError(e)
+      return
     }
-    if (!needsPlanPanel(plan)) return installNow()
+    if (!needsPlanPanel(plan)) return installNow([])
     onBusy(null)
-    setPlanned({ label, keys, plan, installNow: () => { setPlanned(null); void installNow() } })
+    setPlanned({ label, keys, plan, installNow: (accepted) => { setPlanned(null); void installNow(accepted) } })
   }
 
   const queueForRestart = async (acceptRisk: boolean) => {
-    if (!planned) return
+    if (!planned || queueing) return
     const { label, keys } = planned
+    setQueueing(true)
     try {
       const r = await queueInstall(keys, acceptRisk)
       setPlanned(null)
-      if (r.install_now) return void planned.installNow()
+      if (r.install_now) return void planned.installNow(acceptRisk ? planned.plan.needs_confirm : [])
       setOutcome({ kind: 'install', name: label, ok: true, output: [], text: `${label} is queued. It installs when you restart Baihe.` })
       loadQueued()
     } catch (e) {
       setPlanned(null)
       setOutcome({ kind: 'install', name: label, error: e })
+    } finally {
+      setQueueing(false)
     }
   }
 
-  const run = async (kind: Kind, name: string, target?: string) => {
+  const run = async (kind: Kind, name: string, target?: string, acceptedRisks: string[] = []) => {
     onBusy({ kind, name })
     setOutcome(null)
     try {
       const r = kind === 'install'
-        ? await runInstallJob(() => installDependency(name), (job) => onBusy({ kind, name, job }), name)
+        ? await runInstallJob(() => installDependency(name, undefined, acceptedRisks), (job) => onBusy({ kind, name, job }), name)
         : await upgradeDependency(name, target ?? '')
       const cancelled = 'cancelled' in r && r.cancelled
       setOutcome({ kind, name, ok: r.ok, output: r.output_tail, hint: r.hint,
@@ -231,7 +249,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   // "Install for this task": one package at a time (the server runs one pip
   // at a time); a failure doesn't stop the rest.
   const [taskRunning, setTaskRunning] = useState<string | null>(null)
-  const runTask = async (t: DiagnosticsInstallTask) => {
+  const runTask = async (t: DiagnosticsInstallTask, acceptedRisks: string[] = []) => {
     setOutcome(null)
     setTaskRunning(t.id)
     const results: TaskRunResult[] = []
@@ -242,7 +260,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         const busyName = `${name} (${i + 1} of ${t.to_install.length})`
         onBusy({ kind: 'install', name: busyName })
         try {
-          const r = await runInstallJob(() => installDependency(name), (job) => onBusy({ kind: 'install', name: busyName, job }), name)
+          const r = await runInstallJob(() => installDependency(name, undefined, acceptedRisks), (job) => onBusy({ kind: 'install', name: busyName, job }), name)
           results.push({ name, ok: r.ok, output: r.output_tail, hint: r.hint })
           if (r.cancelled) {
             cancelledTask = true
@@ -283,7 +301,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         disabled={!!blocked}
         describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={!!busy && taskRunning === t.id}
-        onConfirm={() => void withPlan(t.label, t.to_install, () => runTask(t))}
+        onConfirm={() => void withPlan(t.label, t.to_install, (accepted) => runTask(t, accepted))}
       />
     )} />
   )
@@ -300,7 +318,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         disabled={!!blocked}
         describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={busy?.name === name && busy.kind === kind}
-        onConfirm={() => void (kind === 'install' ? withPlan(name, [name], () => run(kind, name, target)) : run(kind, name, target))}
+        onConfirm={() => void (kind === 'install' ? withPlan(name, [name], (accepted) => run(kind, name, target, accepted)) : run(kind, name, target))}
       />
     )
 
@@ -334,11 +352,13 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         </p>
         {queuedStatus && (
           <PendingInstallBanner status={queuedStatus}
-            onCancel={() => void cancelPendingInstall().then(loadQueued, loadQueued)}
-            onDismiss={() => void dismissInstallResult().then(loadQueued, loadQueued)} />
+            onCancel={() => void cancelPendingInstall().then(loadQueued, setQueuedError)}
+            onDismiss={() => void dismissInstallResult().then(loadQueued, setQueuedError)} />
         )}
+        <ErrorBanner error={queuedError} describe={{ pcOnly: true, serverText: true }} onDismiss={() => setQueuedError(null)} />
+        <ErrorBanner error={planError} describe={{ pcOnly: true, serverText: true }} onDismiss={() => setPlanError(null)} />
         {planned && (
-          <InstallPlanPanel planned={planned} onQueue={(risk) => void queueForRestart(risk)} onCancel={() => setPlanned(null)} />
+          <InstallPlanPanel key={planPanelKey(planned.keys)} planned={planned} queueing={queueing} onQueue={(risk) => void queueForRestart(risk)} onCancel={() => setPlanned(null)} />
         )}
         {busy?.kind === 'install' && <InstallProgress job={busy.job} name={busy.name} />}
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}

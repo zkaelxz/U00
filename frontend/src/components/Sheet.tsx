@@ -7,8 +7,9 @@
  * Esc, a click on the backdrop and the "Close" button all call onClose. The
  * browser keeps focus inside while it is open and returns it on close.
  */
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 
+import { useModalDialog } from '../hooks/useModalDialog'
 import './sheet.css'
 
 type SheetProps = {
@@ -19,19 +20,8 @@ type SheetProps = {
 }
 
 export function Sheet({ open, title, onClose, children }: SheetProps) {
-  const ref = useRef<HTMLDialogElement>(null)
+  const ref = useModalDialog(open)
   const titleId = useId()
-
-  useEffect(() => {
-    const d = ref.current
-    if (!d) return
-    if (open && !d.open) {
-      if (typeof d.showModal === 'function') d.showModal()
-      else d.setAttribute('open', '')
-    } else if (!open && d.open) {
-      d.close()
-    }
-  }, [open])
 
   return (
     <dialog

@@ -25,8 +25,8 @@ def client(isolated_db):
 
 class TestService:
     def test_defaults(self, isolated_db):
-        assert settings_service.get_use_gpu() is False
-        assert settings_service.get_gemini_free_tier() is False
+        assert settings_service.get("use_gpu") is False
+        assert settings_service.get("gemini_free_tier") is False
         ov = settings_service.get_settings_overview()
         assert ov["use_gpu"] is False and ov["gemini_free_tier"] is False
 
@@ -41,8 +41,8 @@ class TestService:
                                        "use_gpu": True, "gemini_free_tier": True})
         assert background_jobs.get_gpu_limit_enabled() is False
         assert background_jobs.get_notify_on_completion() is True
-        assert settings_service.get_use_gpu() is True
-        assert settings_service.get_gemini_free_tier() is True
+        assert settings_service.get("use_gpu") is True
+        assert settings_service.get("gemini_free_tier") is True
 
     def test_gpu_max_parallel_defaults_to_one_and_is_clamped(self, isolated_db):
         assert settings_service.get_settings_overview()["gpu_max_parallel"] == 1
@@ -55,7 +55,7 @@ class TestService:
     def test_gpu_max_parallel_must_be_a_whole_number(self, isolated_db, bad):
         with pytest.raises(InvalidInputError):
             settings_service.set_settings({"use_gpu": True, "gpu_max_parallel": bad})
-        assert settings_service.get_use_gpu() is False  # nothing written
+        assert settings_service.get("use_gpu") is False  # nothing written
 
     def test_unknown_key_rejected_without_echo(self, isolated_db):
         with pytest.raises(InvalidInputError) as ei:
@@ -67,7 +67,7 @@ class TestService:
         with pytest.raises(InvalidInputError) as ei:
             settings_service.set_settings({"use_gpu": True, "notify_on_completion": bad})
         assert "sk-secret-value" not in str(ei.value)
-        assert settings_service.get_use_gpu() is False  # nothing written
+        assert settings_service.get("use_gpu") is False  # nothing written
 
 
 class TestApi:

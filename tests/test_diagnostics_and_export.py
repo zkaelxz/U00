@@ -802,6 +802,16 @@ class TestKnownInstallLimitationReason:
 
 
 class TestRedactForSupport:
+    @pytest.fixture(autouse=True)
+    def _pinned_profile(self, monkeypatch):
+        # The runner's own login and home folder would otherwise be redacted
+        # too; expanduser ignores HOME on Windows, so it is pinned as well.
+        monkeypatch.setattr("getpass.getuser", lambda: "tester")
+        monkeypatch.setenv("HOME", "/home/tester")
+        monkeypatch.setenv("USERPROFILE", "C:\\Users\\tester")
+        monkeypatch.setattr(diagnostics_report.os.path, "expanduser",
+                            lambda p: os.environ["HOME"] if p == "~" else p)
+
     def test_strips_api_keys(self):
         text = diagnostics_report.redact_for_support("key=sk-ant-api03-" + "X" * 40)
         assert "sk-ant-api03" not in text
@@ -810,6 +820,76 @@ class TestRedactForSupport:
         monkeypatch.setattr("getpass.getuser", lambda: "bobsmith")
         text = diagnostics_report.redact_for_support("C:\\Users\\bobsmith\\project\\library\\foo.txt")
         assert "bobsmith" not in text
+
+    def test_strips_a_profile_folder_named_differently_from_the_login(self, monkeypatch):
+        monkeypatch.setattr("getpass.getuser", lambda: "bob")
+        monkeypatch.setenv("USERPROFILE", "C:\\Users\\张三")
+        monkeypatch.setenv("HOME", "/home/oldname")
+        text = diagnostics_report.redact_for_support("张三 and oldname opened a file")
+        assert text == "[USER] and [USER] opened a file"
+
+    def test_a_short_username_does_not_corrupt_words(self, monkeypatch):
+        monkeypatch.setattr("getpass.getuser", lambda: "li")
+        text = diagnostics_report.redact_for_support("Library check by li: Linux ok")
+        assert text == "Library check by [USER]: Linux ok"
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("push failed for bob@bob-laptop", "push failed for [USER]@[USER]-laptop"),
+        ("Author: Bob <bob@example.com>", "Author: [USER] <[USER]@example.com>"),
+        ("connected to BOB-PC", "connected to [USER]-PC"),
+        ("saved bob_notes.txt", "saved [USER]_notes.txt"),
+        ("wrote C:\\Users\\x\\bob_notes.txt", "wrote .../[USER]_notes.txt"),
+    ])
+    def test_a_username_ends_at_any_non_alphanumeric(self, monkeypatch, raw, expected):
+        monkeypatch.setattr("getpass.getuser", lambda: "bob")
+        assert diagnostics_report.redact_for_support(raw) == expected
+
+    def test_a_username_inside_a_word_is_kept(self, monkeypatch):
+        monkeypatch.setattr("getpass.getuser", lambda: "li")
+        assert (diagnostics_report.redact_for_support("Library_li and li-ion in Linux")
+                == "Library_[USER] and [USER]-ion in Linux")
+
+    @pytest.mark.parametrize("raw", [
+        "x \x00URL7\x00",
+        "\x00URL" + "9" * 5000 + "\x00",
+        "https://h/a \x00URL0\x00 \x00URL1\x00",
+        "\x00\x00URL\x00\x00",
+        "",
+        "\x00",
+        "a\x00b " * 20000,
+        ("C:\\a b\\" * 2000) + "c.txt " + "https://h/p?sig=1 " * 2000,
+        "token=\x00URL0\x00 https://h/x",
+    ])
+    def test_hostile_input_never_raises(self, raw):
+        out = diagnostics_report.redact_for_support(raw)
+        assert isinstance(out, str) and "\x00" not in out
+
+    def test_a_forged_placeholder_cannot_pull_in_another_url(self):
+        out = diagnostics_report.redact_for_support("see \x00URL0\x00 and https://h/p?sig=1")
+        assert out == "see URL0 and https://h/p"
+
+    @pytest.mark.parametrize("raw,expected", [
+        # Only http(s) links are parked, so the rest goes through the path pass.
+        ("wss://h/live?X-Goog-Signature=abc&x=1", "ws.../live?X-Goog-Signature=[REDACTED]&x=1"),
+        ("refresh_token=abc def", "refresh_token=[REDACTED] def"),
+        ("id_token=a.b.c", "id_token=[REDACTED]"),
+        ("Key-Pair-Id=K1 Policy=eyJ", "Key-Pair-Id=[REDACTED] Policy=[REDACTED]"),
+        ("X-Goog-Credential=svc%2F2026", "X-Goog-Credential=[REDACTED]"),
+        ("api_key=abc; auth=xyz, password=hunter2", "api_key=[REDACTED]; auth=[REDACTED], password=[REDACTED]"),
+    ])
+    def test_credential_params_outside_a_url_are_redacted(self, raw, expected):
+        assert diagnostics_report.redact_for_support(raw) == expected
+
+    def test_getuser_raising_does_not_fail_redaction(self, monkeypatch):
+        def boom():
+            raise OSError("no username")
+        monkeypatch.setattr("getpass.getuser", boom)
+        assert diagnostics_report.redact_for_support("plain text") == "plain text"
+
+    def test_urls_keep_scheme_host_and_path_not_a_mangled_path(self):
+        text = diagnostics_report.redact_for_support(
+            "download https://huggingface.co/org/model/resolve/main/model.bin?token=abc stalled")
+        assert text == "download https://huggingface.co/org/model/resolve/main/model.bin stalled"
 
     def test_collapses_posix_paths_to_the_last_segment(self):
         text = diagnostics_report.redact_for_support("saved to /home/bob/U00/library/drama_3/audio.wav")
@@ -853,6 +933,26 @@ class TestRedactForSupport:
         text = diagnostics_report.redact_for_support(
             "failed to open /a/b.wav because the disk is full, see notes.txt")
         assert text == "failed to open .../b.wav because the disk is full, see notes.txt"
+
+    def test_spaced_filename_with_dotted_earlier_word_is_fully_redacted(self):
+        text = diagnostics_report.redact_for_support(
+            r"saved to C:\Users\me\Videos\v1.2 final.wav, retrying")
+        assert text == "saved to .../v1.2 final.wav, retrying"
+        text = diagnostics_report.redact_for_support(
+            "saved to /home/me/ep 3.5 cut.mp4 then stopped")
+        assert text == "saved to .../ep 3.5 cut.mp4 then stopped"
+        text = diagnostics_report.redact_for_support(
+            r"saved to \\server\share\v1.2 final.wav")
+        assert text == "saved to .../v1.2 final.wav"
+
+    def test_version_number_without_a_path_is_not_redacted(self):
+        text = "using build v1.2 final for the release, see notes v2.1 draft"
+        assert diagnostics_report.redact_for_support(text) == text
+
+    def test_dotted_word_after_a_spaced_filename_is_still_prose(self):
+        text = diagnostics_report.redact_for_support(
+            "failed to open /a/b.wav because v1.2 final.wav is newer")
+        assert text == "failed to open .../b.wav because v1.2 final.wav is newer"
 
     def test_two_paths_in_one_sentence_stay_separate(self):
         text = diagnostics_report.redact_for_support(

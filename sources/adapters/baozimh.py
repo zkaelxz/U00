@@ -145,13 +145,13 @@ class ChapterImageDecoder:
         unzigzagged = cls._unzigzag(reordered)
         try:
             standard = "".join(cls._DECODE_TABLE[ch] for ch in unzigzagged)
-        except KeyError as e:
-            raise LayoutChanged(f"a valid chapter-image character ({e})") from None
+        except KeyError:
+            raise LayoutChanged("a valid chapter-image character") from None
         pad = (4 - len(standard) % 4) % 4
         try:
             return base64.urlsafe_b64decode(standard + "=" * pad).decode("utf-8")
-        except Exception as e:
-            raise LayoutChanged(f"a decodable chapter-image payload ({e})") from None
+        except Exception:
+            raise LayoutChanged("a decodable chapter-image payload") from None
 
     @classmethod
     def _unzigzag(cls, s: str) -> str:

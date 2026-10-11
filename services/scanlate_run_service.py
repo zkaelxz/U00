@@ -64,7 +64,7 @@ def _build_engine(engine_name: str):
     try:
         return translate_engines.get_engine(
             engine_name, api_key,
-            free_tier=engine_name == "gemini" and settings_service.get_gemini_free_tier(),
+            free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
     except Exception:
@@ -113,7 +113,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
     if not targets:
         raise UnsupportedOperationError("No pages to run: they are all hidden.")
     _require_ocr_backend(drama_id)
-    engine_name = engine or settings_service.get_default_engine()
+    engine_name = engine or settings_service.get("default_engine")
     # Pure-MT engines are called once per region, outside call_llm_json.
     built = llm_tasks.bound_batches(_build_engine(engine_name))
     started = pages_svc.start_drama_job(
@@ -266,7 +266,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
     detect_kwargs = {"detect_backend": detect_backend,
                      "hf_token": settings_service.resolve_key("hf_token") or None,
                      "ocr_backend": ocr_backend,
-                     "tesseract_cmd": settings_service.get_tesseract_cmd()}
+                     "tesseract_cmd": settings_service.get("tesseract_cmd") or None}
     counts = {"translated": 0, "done": 0, "skipped": 0, "stale": 0, "kept": 0, "failed": 0}
     total = len(page_ids)
     # Cancel and a total deadline for every AI call of the run, not only between

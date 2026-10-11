@@ -38,9 +38,13 @@ def client(isolated_db, monkeypatch):
     for method in ("search", "get_series", "get_chapters", "get_pages"):
         monkeypatch.setattr(SourceAdapter, method, no_network, raising=False)
     yield TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-    for jid in list(background_jobs.list_all_jobs()):
-        if jid.startswith(("sources_", "sourceimport_")):
-            background_jobs.clear_job(jid)
+    ids = [jid for jid in background_jobs.list_all_jobs() if jid.startswith(("sources_", "sourceimport_"))]
+    # Clearing a record does not stop its thread; a thread still running here
+    # writes into the next test's library, and the autouse fixture otherwise
+    # joins it for up to 5 s per test.
+    assert background_jobs.wait_for_job_threads(10.0, set(ids))
+    for jid in ids:
+        background_jobs.clear_job(jid)
 
 
 def _mark(client, on=True, note=None):

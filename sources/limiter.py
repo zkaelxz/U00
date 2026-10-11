@@ -43,7 +43,13 @@ class _Entry:
                 while len(g._held) >= min([*g._held, *g._waiting]):
                     g._cond.wait(WAIT_POLL_SECONDS if self._on_wait else None)
                     if self._on_wait:
-                        self._on_wait()
+                        # The callback can block on SQLite; holding the
+                        # condition would stall every client of this source.
+                        g._cond.release()
+                        try:
+                            self._on_wait()
+                        finally:
+                            g._cond.acquire()
             finally:
                 g._waiting.remove(self._limit)
                 # A departing strict waiter may be what was holding others back.

@@ -44,7 +44,7 @@ test('header: Back to Library, status, media type, line count and Read are all s
   await expect(header.locator('.ws-media')).toBeVisible()
   await expect(header.getByTestId('stage-counts')).toHaveText('12 lines')
   await expect(page.locator('.ws-actions').getByRole('link', { name: 'Read', exact: true })).toBeVisible()
-  await expect(page.locator('.ws-actions').getByRole('link', { name: 'Read', exact: true })).toHaveClass(/btn-primary/)
+  await expect(page.locator('.ws-actions').getByRole('link', { name: 'Read', exact: true })).toHaveClass(/btn-secondary/)
   await header.getByRole('link', { name: 'Back to Library' }).click()
   await expect(page).toHaveURL(/#\/library$|#\/$|\/$/)
 })

@@ -108,6 +108,16 @@ def content_disposition(filename: str) -> str:
     return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(clean, safe='')}"
 
 
+def drama_disposition(drama_id: int, what: str, language: str, ext: str) -> str:
+    return content_disposition(download_filename(drama_id, what, language, ext))
+
+
+def dub_track_disposition(drama_id: int, track_name: str) -> str:
+    what = "narration track" if track_name.startswith("narration") else "dub track"
+    language = narration_language(db.get_drama(drama_id) or {})
+    return drama_disposition(drama_id, what, language, "wav")
+
+
 def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subtitles") -> str:
     drama = db.get_drama(drama_id) or {}
     what = f"bilingual {noun}" if field == "bilingual" else noun
@@ -310,7 +320,7 @@ def get_export_readiness(drama_id: int) -> dict:
     names = auto_qc.build_name_list(
         glossary_terms, db.list_series_characters(series_id) if series_id else [])
     qc_issues = auto_qc.find_issues(lines, names, auto_qc.build_banned_terms(glossary_terms))
-    dense = subtitle_formats.dense_lines(lines, mode=subtitle_formats.reading_speed_mode_of(drama))
+    dense = subtitle_formats.dense_lines(lines, mode=subtitle_formats.flagging_mode_of(drama))
 
     return {
         "drama_id": drama_id,
@@ -408,7 +418,7 @@ def flag_dense_lines(drama_id: int) -> dict:
     drama, lines = _load_drama_and_lines(drama_id)
 
     newly_flagged = subtitle_formats.flag_dense_lines(
-        lines, mode=subtitle_formats.reading_speed_mode_of(drama))
+        lines, mode=subtitle_formats.flagging_mode_of(drama))
     if newly_flagged:
         # flag/flag_note only: a concurrent edit to a line's text, timing or
         # speaker must survive this write.
@@ -460,7 +470,7 @@ def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
                 ln.flag = None
                 ln.flag_note = ""
         reflagged = (subtitle_formats.flag_dense_lines(
-            lines, mode=subtitle_formats.reading_speed_mode_of(drama)) if recheck else 0)
+            lines, mode=subtitle_formats.flagging_mode_of(drama)) if recheck else 0)
         if targets or reflagged:
             db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return {"cleared_count": len(targets), "flagged_count": reflagged, "history_id": history_id}
