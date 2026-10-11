@@ -356,6 +356,8 @@ def run_config(plan: Plan, cfg: Config, engine, dry: bool, budget: float):
             except Exception as exc:
                 stats.errors.append("usage log write failed: " + translate_engines.redact_secrets(str(exc)))
 
+    # The merged/shifted re-asks would add requests the configs being compared don't share.
+    engine.checks_replies = False
     _, errors = translate_engines.translate_lines_with_engine(
         lines, engine, drama_meta=plan.drama, batch_size=cfg.batch, locale=plan.locale,
         glossary_terms=plan.glossary_terms, style_guidelines=plan.style_guidelines,

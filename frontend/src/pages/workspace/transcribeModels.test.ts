@@ -6,6 +6,7 @@ import { whisperEstimateSeconds } from './stages/transcribeEstimate'
 const exclusions: WhisperExclusions = {
   medium: { ja: 'Whisper medium isn\'t recommended for Japanese.' },
   'ja-1.5b': { zh: 'Only for Japanese titles.', ko: 'Only for Japanese titles.' },
+  'kotoba-v2': { zh: 'Only for Japanese titles.', ko: 'Only for Japanese titles.' },
 }
 
 const choice = (language: string, current = 'large-v3-turbo') =>
@@ -15,6 +16,7 @@ describe('Whisper model choices per language', () => {
   it.each([
     ['ja', 'medium', true], ['zh', 'medium', false], ['ko', 'medium', false],
     ['ja', 'ja-1.5b', false], ['zh', 'ja-1.5b', true], ['ko', 'ja-1.5b', true],
+    ['ja', 'kotoba-v2', false], ['zh', 'kotoba-v2', true], ['ko', 'kotoba-v2', true],
     ['ja', 'large-v3', false], ['zh', 'large-v3-turbo', false], ['ko', 'small', false],
   ])('%s / %s is disabled: %s', (language, size, disabled) => {
     const c = choice(language)
@@ -25,6 +27,7 @@ describe('Whisper model choices per language', () => {
   it('shows the server reason for a disabled choice', () => {
     expect(choice('ja').medium).toBe(exclusions.medium.ja)
     expect(whisperExclusionReason(exclusions, 'ja-1.5b', 'ko')).toBe('Only for Japanese titles.')
+    expect(choice('zh')['kotoba-v2']).toBe('Only for Japanese titles.')
     expect(whisperExclusionReason(exclusions, 'medium', 'zh')).toBeNull()
     expect(whisperExclusionReason(undefined, 'medium', 'ja')).toBeNull()
   })
@@ -42,5 +45,6 @@ describe('Whisper model choices per language', () => {
 
   it('has a time estimate for the Japanese model', () => {
     expect(whisperEstimateSeconds({ audioSeconds: 600, whisperSize: 'ja-1.5b', useGpu: true, fastMode: false })).not.toBeNull()
+    expect(whisperEstimateSeconds({ audioSeconds: 600, whisperSize: 'kotoba-v2', useGpu: true, fastMode: false })).not.toBeNull()
   })
 })

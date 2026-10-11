@@ -142,16 +142,23 @@ from engine_backends.local import (  # noqa: F401
     chain_touches_local_gpu,
     ollama_touches_local_gpu,
 )
-from engine_backends.llm_tasks import (  # noqa: F401
+from engine_backends.flag_reasons import (  # noqa: F401
     FLAG_REASONS,
     SYSTEM_FLAG_REASONS,
+    flag_reason_label,
+)
+from engine_backends.reflect_prompts import (  # noqa: F401
+    build_reflect_expressive_prompt,
+    build_reflect_faithful_prompt,
+    build_reflect_reflection_prompt,
+)
+from engine_backends.llm_tasks import (  # noqa: F401
     TAG_SPEAKERS_PROMPT_VERSION,
     build_consistency_prompt,
     build_episode_summary_prompt,
     build_flag_prompt,
     call_llm_json,
     check_consistency_llm,
-    flag_reason_label,
     flag_uncertain_lines,
     flaggable_lines,
     generate_episode_summary,
@@ -219,9 +226,6 @@ from engine_backends.standalone import (  # noqa: F401
 from engine_backends.translate_pipeline import (  # noqa: F401
     TRANSLATE_PROMPT_VERSION,
     _translate_lines_with_engine,
-    build_reflect_expressive_prompt,
-    build_reflect_faithful_prompt,
-    build_reflect_reflection_prompt,
     build_translation_context,
     plan_batches,
     reflect_translate_batch,
