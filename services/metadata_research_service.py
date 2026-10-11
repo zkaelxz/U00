@@ -136,7 +136,7 @@ def budget_status() -> dict:
             "free_remaining": _free_remaining(day, month),
             "paid_price_per_search_usd": GROUNDED_PAID_PRICE_USD,
             "free_lookup_min": MAX_QUERIES_PER_LOOKUP,
-            "free_tier_key": settings_service.get_gemini_free_tier(),
+            "free_tier_key": settings_service.get("gemini_free_tier"),
             "key_configured": bool(settings_service.resolve_key("gemini")),
             "monthly_cap_usd": cap,
             # Counted since any reset under a cap; the real spend with none.
@@ -339,7 +339,7 @@ def _response(drama_id: int, drama: dict, key: str, result: dict, cached: bool) 
 
 
 def estimate_cost(mode: str, model: str, paid_search: bool) -> float:
-    if settings_service.get_gemini_free_tier():
+    if settings_service.get("gemini_free_tier"):
         return 0.0
     cost = translate_engines.estimate_cost(model, EST_INPUT_TOKENS[mode], EST_OUTPUT_TOKENS[mode])
     # Worst case: every query the model may run is a paid one.
@@ -403,7 +403,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     api_key = settings_service.resolve_key("gemini")
     if not api_key:
         raise DependencyUnavailableError("No Gemini key is configured. Set one in Settings first.")
-    free_tier = settings_service.get_gemini_free_tier()
+    free_tier = settings_service.get("gemini_free_tier")
     paid_search, free_before = _reserve_search(mode, model, allow_paid, free_tier)
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))

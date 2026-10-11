@@ -6,6 +6,7 @@ import os
 import types
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("PIL")
 pytest.importorskip("fastapi")
@@ -178,7 +179,7 @@ def test_run_starts_only_visible_pages_of_the_chapter(drama, monkeypatch):
     seen = {}
     monkeypatch.setattr(run, "_require_ocr_backend", lambda d: None)
     monkeypatch.setattr(run, "_build_engine", lambda n: object())
-    monkeypatch.setattr(run.settings_service, "get_default_engine", lambda: "x")
+    patch_setting(monkeypatch, "default_engine", "x")
     monkeypatch.setattr(run.pages_svc, "start_drama_job",
                         lambda d, fn, jid, *a, **k: seen.update(targets=a[2]) or {"job_id": jid})
     run.start_run(drama, chapter_id="src:c2")

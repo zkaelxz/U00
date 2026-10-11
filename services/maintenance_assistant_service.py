@@ -47,7 +47,7 @@ import time
 import action_tiers
 import db
 import diagnostics
-from lib import proc as proc_run
+from lib import http, proc as proc_run
 from services import diagnostics_gaps_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
@@ -950,7 +950,7 @@ def build_engine(engine_name=None, model=None):
     from services import line_ai_service, settings_service
     require_cloud_consent(engine_name, model)
     engine = reader_service.llm_engine(engine_name, model)
-    line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get_gemini_free_tier())
+    line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get("gemini_free_tier"))
     return engine, engine_name, model
 
 
@@ -997,7 +997,11 @@ def _tier_failure(error: ServiceError, engine_name: str, ladder: list) -> Servic
     if reason == "no_key":
         reason = "unavailable"
     if reason is None:
-        if isinstance(error, UnsupportedOperationError):
+        if isinstance(error, http.FetchError):
+            # Ollama that isn't running surfaces as a fetch failure, which is
+            # a DependencyUnavailableError and would read as "not set up".
+            reason = "unreachable"
+        elif isinstance(error, UnsupportedOperationError):
             # The monthly cap refusal, or an engine that can't chat.
             reason = "spend_cap" if "spending cap" in error.message else "unavailable"
         else:
@@ -1218,7 +1222,7 @@ def build_review_engine():
     model = settings["review_model"]
     require_cloud_consent(name, model)  # the reviewer reads the same code and logs
     engine = reader_service.llm_engine(name, model)
-    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get_gemini_free_tier())
+    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get("gemini_free_tier"))
     return engine, name, model
 
 

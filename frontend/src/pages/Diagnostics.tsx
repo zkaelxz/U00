@@ -5,6 +5,7 @@ import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RemoteHealthLine } from '../components/RemoteHealthBanner'
+import { useHolds } from '../hooks/useHolds'
 import { useJobs } from '../hooks/useJobs'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
@@ -24,7 +25,21 @@ import { isActive, splitDependencies } from './diagnosticsFormat'
 
 const POLL_MS = 3000
 
+// The gate sits outside the page so a member's browser never fires the
+// diagnostics calls the server would refuse.
 export default function DiagnosticsPage() {
+  if (!useHolds('admin.diagnostics')) {
+    return (
+      <section className="page-narrow diag-page" aria-label="Diagnostics">
+        <header className="page-head"><h2>Diagnostics</h2></header>
+        <p className="muted" data-testid="diagnostics-not-allowed">Only an admin can see this page.</p>
+      </section>
+    )
+  }
+  return <DiagnosticsContent />
+}
+
+function DiagnosticsContent() {
   const pc = usePcOnly()
   const { jobs, error: jobsError, polling, reload: refreshJobs } = useJobs()
   const [overview, setOverview] = useState<DiagnosticsOverview | null>(null)
@@ -32,6 +47,7 @@ export default function DiagnosticsPage() {
   const [checking, setChecking] = useState(false)
   const [cache, setCache] = useState<DiagnosticsModelCache | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [cacheError, setCacheError] = useState<unknown>(null)
   // One install, upgrade or reset at a time; every admin button waits for it.
   const [adminBusy, setAdminBusy] = useState<AdminBusy>(null)
   const [packagesOpen, setPackagesOpen] = useState(false)
@@ -53,14 +69,17 @@ export default function DiagnosticsPage() {
     Promise.all([
       getDiagnostics().then(setOverview),
       getSetupChecks().then(setSetup),
-    ]).then(done, (e: unknown) => {
+    ]).then(() => {
+      setError(null)
+      done()
+    }, (e: unknown) => {
       setError(e)
       done()
     })
   }, [])
 
   const refreshCache = useCallback(() => {
-    getModelCache().then(setCache, () => undefined)
+    getModelCache().then((c) => { setCache(c); setCacheError(null) }, setCacheError)
   }, [])
 
   useEffect(() => {
@@ -103,7 +122,9 @@ export default function DiagnosticsPage() {
         </div>
         <RemoteHealthLine />
       </header>
-      <ErrorBanner error={error ?? jobsError} onDismiss={() => setError(null)} />
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <ErrorBanner error={jobsError} />
+      <ErrorBanner error={cacheError} />
 
       {setup ? (
         <SetupSection

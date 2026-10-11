@@ -52,6 +52,7 @@ import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
 from services import (auth_service, drama_service, ownership_service, settings_service,
                       translate_run_service, translate_service)
+from services import library_translated_guard
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -230,7 +231,7 @@ def bulk_set_status(drama_ids, status: str) -> dict:
     """Sets only `status` on each drama. Per-id results."""
     if status not in STATUSES:
         raise InvalidInputError("Unknown status.", details={"allowed": list(STATUSES)})
-    return _bulk_apply(drama_ids, lambda did: db.update_drama(did, status=status))
+    return library_translated_guard.set_status(_bulk_apply, drama_ids, status)
 
 
 def bulk_set_tags(drama_ids, tag: str, present: bool) -> dict:
@@ -289,7 +290,7 @@ def _bulk_translate_plan(ids, principal=None):
             skipped.append({"drama_id": did, "reason": "job_running"})
         else:
             queued.append(did)
-            engines[did] = drama.get("translation_engine") or settings_service.get_default_engine()
+            engines[did] = drama.get("translation_engine") or settings_service.get("default_engine")
     return queued, skipped, engines
 
 
@@ -335,7 +336,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
     ids = _check_ids(drama_ids)
     if default_locale is None:
-        default_locale = settings_service.get_preference("default_locale")
+        default_locale = settings_service.get("default_locale")
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")
@@ -362,7 +363,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,
         default_locale=default_locale,
         ollama_base_url=settings_service.resolve_key("ollama_url") or None,
-        gemini_free_tier=settings_service.get_gemini_free_tier(),
+        gemini_free_tier=settings_service.get("gemini_free_tier"),
         models={}, monthly_cap=cap, expected_engines=expected_engines,
         allow_paid_summary=allow_paid_summary,
         include_genre_notes=include_genre_notes,
@@ -439,21 +440,8 @@ def start_export_zip(drama_ids=None) -> dict:
     """Job: zips english/chinese/bilingual SRT (+ dub track) for each
     translated/dubbed/exported drama -- the picked ones, or all of them.
     Returns {job_id, drama_ids}; with explicit ids also `results`, one per
-    requested id ({drama_id, ok, error: not_found|not_translated})."""
-    results = None
-    if drama_ids is None:
-        ids = [d["id"] for d in db.list_dramas() if d.get("status") in _EXPORTABLE_STATUSES]
-    else:
-        ids, results = [], []
-        for did in _check_ids(drama_ids):
-            drama = db.get_drama(did)
-            if drama is None:
-                results.append({"drama_id": did, "ok": False, "error": "not_found"})
-            elif drama.get("status") not in _EXPORTABLE_STATUSES:
-                results.append({"drama_id": did, "ok": False, "error": "not_translated"})
-            else:
-                ids.append(did)
-                results.append({"drama_id": did, "ok": True})
+    requested id ({drama_id, ok, error: not_found|not_translated|no_translated_lines})."""
+    ids, results = library_translated_guard.pick_exportable(drama_ids, _check_ids, _EXPORTABLE_STATUSES)
     if not ids:
         raise InvalidInputError("No translated titles to export.",
                                 details={"results": results} if results is not None else None)

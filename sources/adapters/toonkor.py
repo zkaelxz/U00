@@ -96,8 +96,8 @@ def decode_toon_img(html: str) -> list:
         raise LayoutChanged("the chapter's toon_img script")
     try:
         decoded = base64.b64decode(m.group(1)).decode("utf-8", errors="replace")
-    except Exception as e:
-        raise LayoutChanged(f"a readable toon_img payload ({e})") from None
+    except Exception:
+        raise LayoutChanged("a readable toon_img payload") from None
     urls = _IMG_SRC.findall(decoded)
     if not urls:
         raise LayoutChanged("any page images inside the decoded toon_img payload")

@@ -660,13 +660,13 @@ def test_a_title_naming_a_folder_never_has_the_folder_moved(client, isolated_db)
 
 
 def test_import_drops_a_file_reference_that_names_a_folder(tmp_path):
-    from services import auto_backup_service as abs_
+    from services import drama_restore_service as drs
     os.makedirs(tmp_path / "pages")
     (tmp_path / "a.mp3").write_bytes(b"a")
-    assert abs_._import_file_ref(str(tmp_path), "pages", None) is None
-    assert abs_._import_file_ref(str(tmp_path), "a.mp3", None) == "a.mp3"
+    assert drs._import_file_ref(str(tmp_path), "pages", None) is None
+    assert drs._import_file_ref(str(tmp_path), "a.mp3", None) == "a.mp3"
     # unchanged: a name whose file wasn't in the backup is still kept
-    assert abs_._import_file_ref(str(tmp_path), "missing.mp3", None) == "missing.mp3"
+    assert drs._import_file_ref(str(tmp_path), "missing.mp3", None) == "missing.mp3"
 
 
 def _status(client, did):
