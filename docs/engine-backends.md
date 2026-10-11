@@ -28,6 +28,9 @@ name from the `engine_backends/` package so `import translate_engines` and
 | `fallback.py` | `FallbackEngine`, the translate fallback chain |
 | `standalone.py` | the standalone (non-drama) text translator |
 | `translate_pipeline.py` | Reflect mode and the per-run translate loop (`translate_lines_with_engine`) |
+| `flag_reasons.py` | flag keys a line can carry and their labels |
+| `reflect_prompts.py` | the three Reflect-mode prompts (per-batch text, and instructions + text as one string for bulk) |
+| `translation_guard.py` | post-checks for replies that carry every id but are merged, shifted or untranslated, and the bounded re-ask of just those lines |
 
 Engine map today:
 

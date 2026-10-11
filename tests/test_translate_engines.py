@@ -2579,10 +2579,15 @@ class _ScriptedReflectEngine:
         self.client = self
         self.messages = self
         self.responses = list(responses)
-        self.prompts = []
+        self.prompts = []  # system + user text: everything the model is shown
+        self.systems = []
+        self.users = []
 
-    def create(self, model, max_tokens, messages):
-        self.prompts.append(messages[0]["content"])
+    def create(self, model, max_tokens, messages, system=None):
+        system_text = "".join(b["text"] for b in system or [])
+        self.systems.append(system)
+        self.users.append(messages[0]["content"])
+        self.prompts.append(system_text + messages[0]["content"])
         text = self.responses[len(self.prompts) - 1]
         return type("Resp", (), {"content": [_FakeBlock(text)]})()
 

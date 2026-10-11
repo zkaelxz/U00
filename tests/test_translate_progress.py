@@ -32,7 +32,7 @@ class _Reflect:
         self.calls = 0
         self.fail_first = fail_first
 
-    def create(self, model, max_tokens, messages):
+    def create(self, model, max_tokens, messages, system=None):
         self.calls += 1
         if self.fail_first and self.calls == 1:
             raise self.fail_first
