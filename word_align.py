@@ -282,6 +282,45 @@ def realign_oversized_segments(segments, audio_path: str, language: str,
     """
     _check_dependencies()
     total = sum(1 for seg in segments if _is_oversized(seg, min_duration_to_realign))
+    try:
+        return _realign_each(segments, audio_path, language, chinese_script,
+                             min_duration_to_realign, min_pause_seconds, device,
+                             progress_cb, cancel_check, total)
+    finally:
+        if device != "cpu":
+            _release_gpu()
+
+
+def _release_gpu():
+    # The aligner is only referenced from _realign_each, so it is already
+    # collectable here; this hands its cached blocks back to the other jobs.
+    try:
+        import torch
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _load_aligner_with_fallback(device: str):
+    """(aligner, device actually used). A GPU that cannot hold the model
+    (out of memory, broken CUDA) falls back to the CPU rather than losing the
+    realign."""
+    import memory_headroom
+    try:
+        memory_headroom.before_load("aligner", "mms", device != "cpu", False)
+        return load_aligner(device), device
+    except Exception as exc:
+        if device == "cpu":
+            raise
+        import applog
+        applog.get_logger().warning(
+            f"word-level realignment: loading on {device} failed, using the CPU: {exc}")
+        memory_headroom.before_load("aligner", "mms", False, False)
+        return load_aligner("cpu"), "cpu"
+
+
+def _realign_each(segments, audio_path, language, chinese_script, min_duration_to_realign,
+                  min_pause_seconds, device, progress_cb, cancel_check, total):
     done = 0
     out = []
     loaded = None  # loaded lazily on the first oversized segment, then reused
@@ -293,7 +332,7 @@ def realign_oversized_segments(segments, audio_path: str, language: str,
                 break
             if loaded is None:
                 try:
-                    loaded = load_aligner(device)
+                    loaded, device = _load_aligner_with_fallback(device)
                 except Exception as exc:
                     import applog
                     applog.get_logger().error(

@@ -13,7 +13,8 @@ from dataclasses import dataclass, field, replace
 
 import source_change
 import whisper_models
-from segment_splitting import _word_dicts, tighten_to_words, words_for_text
+from segment_splitting import (_word_dicts, encode_line_words, line_words, tighten_to_words,
+                               words_for_text)
 
 
 # The source languages the app handles, and the full names LLM and aligner
@@ -375,10 +376,40 @@ _STOCK_PHRASE_RES = [re.compile(p) for p in (
 # (a missing neighbour counts as silence), so dialogue that happens to say
 # "thanks for watching" between other lines survives.
 STOCK_PHRASE_ISOLATION_SEC = 5.0
+# Whisper loops inside one segment too ("谢谢谢谢…"). A run of one character is
+# only a loop at a higher count than a longer phrase: "哈哈哈哈" and "..." are
+# real speech, "好的好的好的好的" almost never is.
+LOOP_MIN_REPEATS_SINGLE_CHAR = 10
+LOOP_MIN_REPEATS_PHRASE = 4
+# Longest phrase treated as the unit of a loop; anything longer repeated that
+# often is a quoted passage, not a decoder stuck on one phrase.
+LOOP_MAX_PHRASE_CHARS = 12
+_LOOP_RES = (
+    re.compile(r"(.)\1{%d,}" % (LOOP_MIN_REPEATS_SINGLE_CHAR - 1), re.S),
+    re.compile(r"(.{2,%d}?)\1{%d,}" % (LOOP_MAX_PHRASE_CHARS, LOOP_MIN_REPEATS_PHRASE - 1), re.S),
+)
 
 
 def _stock_key(text):
     return "".join(ch for ch in (text or "").casefold() if ch.isalnum())
+
+
+def collapse_phrase_loop(text):
+    """`text` with each run of a phrase repeated past the LOOP_* counts cut
+    down to its first copy; punctuation between copies is ignored when
+    matching and dropped with the run. Other text is untouched."""
+    while True:
+        # Case-folded per character so the key keeps one entry per kept character.
+        kept = [(i, ch.lower() if len(ch.lower()) == 1 else ch)
+                for i, ch in enumerate(text) if ch.isalnum()]
+        key = "".join(ch for _, ch in kept)
+        hits = [m for rx in _LOOP_RES if (m := rx.search(key))]
+        if not hits:
+            return text
+        m = min(hits, key=lambda hit: hit.start())
+        unit_end = kept[m.start() + len(m.group(1)) - 1][0] + 1
+        run_end = kept[m.end() - 1][0] + 1
+        text = text[:unit_end] + text[run_end:]
 
 
 def _is_isolated_stock_phrase(segments, i):
@@ -394,6 +425,14 @@ def _is_isolated_stock_phrase(segments, i):
     except KeyError:
         return False
     return True
+
+
+def _without_phrase_loop(seg):
+    text = collapse_phrase_loop(seg["text"])
+    if text == seg["text"]:
+        return seg
+    # The word timings spelled the longer text, so they no longer fit.
+    return {k: v for k, v in seg.items() if k != "words"} | {"text": text}
 
 
 def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
@@ -426,6 +465,9 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     loops are still getting through on your content, raise it if you've
     actually hit the false-positive case.
 
+    Inside one segment, a phrase repeated past the LOOP_* counts is cut to
+    its first copy (collapse_phrase_loop).
+
     Also drops a segment whose WHOLE text is a stock credit/outro phrase
     ("Thanks for watching", "字幕由…提供", "ご視聴ありがとうございました") when it
     has at least STOCK_PHRASE_ISOLATION_SEC of silence on each side.
@@ -433,9 +475,11 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     if not segments:
         return segments
 
-    def _norm(text):
-        return "".join((text or "").split())
+    # Punctuation-insensitive: Whisper writes the same looped phrase with and
+    # without its full stop.
+    _norm = _stock_key
 
+    segments = [_without_phrase_loop(seg) for seg in segments]
     out = []
     i = 0
     n = len(segments)
@@ -667,7 +711,8 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
               for seg in data.get("segments", []) if seg.get("text", "").strip()]
     if progress_cb:
         progress_cb(1.0)
-    return result
+    # The local path filters its output the same way (transcribe_for_timing).
+    return filter_hallucinated_segments(result)
 
 
 # ---------------------------------------------------------------------------
@@ -756,6 +801,34 @@ def extract_audio_slice(audio_path: str, start: float, end: float, out_path: str
     return out_path
 
 
+# A line opening with one of these marks a change of speaker in a transcript
+# that carries no speaker labels.
+_TURN_MARKS = ("-", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\uff0d")
+
+
+def _is_hangul(ch):
+    return "\uac00" <= ch <= "\ud7a3" or "\u3131" <= ch <= "\u318e"
+
+
+def _join_source(first: str, second: str) -> str:
+    """Source text of two merged lines. Korean separates words with spaces,
+    so a join between two Hangul characters keeps one; Chinese and Japanese
+    are written without."""
+    first, second = first.rstrip(), second.strip()
+    if first and second and _is_hangul(first[-1]) and _is_hangul(second[0]):
+        return first + " " + second
+    return first + second
+
+
+def _merged_words(first, second):
+    """Both lines' stored words joined, or None unless each line has valid words
+    and they run in time order."""
+    words, more = line_words(first), line_words(second)
+    if words and more and more[0]["start"] >= words[-1]["start"]:
+        return words + more
+    return None
+
+
 def merge_adjacent_short_lines(lines, min_duration: float = 1.2, max_gap: float = 0.5, max_chars: int = 80):
     """
     Combines consecutive short subtitle lines from the same speaker
@@ -766,11 +839,14 @@ def merge_adjacent_short_lines(lines, min_duration: float = 1.2, max_gap: float 
     in translate_engines.py which only flags pacing issues without
     changing anything.
 
-    A pair merges when: same speaker (or both unlabeled), the gap
-    between them is under max_gap seconds, and the combined line
-    wouldn't exceed max_chars. Only lines under min_duration are
-    considered candidates for merging -- a line that's already a
-    comfortable length is left alone.
+    A pair merges when: same speaker (or both unlabeled), the second line
+    doesn't open with a speaker-change dash, the gap between them is under
+    max_gap seconds, and the combined line wouldn't exceed max_chars. Only
+    lines under min_duration are considered candidates for merging -- a line
+    that's already a comfortable length is left alone.
+
+    The first line keeps its id. Its stored word timings are carried over
+    only when both lines have valid ones, so they always spell its text.
     """
     if not lines:
         return lines
@@ -780,8 +856,9 @@ def merge_adjacent_short_lines(lines, min_duration: float = 1.2, max_gap: float 
         prev = merged[-1]
         prev_duration = prev.end - prev.start
         gap = ln.start - prev.end
-        same_speaker = (prev.speaker or None) == (ln.speaker or None)
-        combined_zh_len = len(prev.zh) + len(ln.zh)
+        same_speaker = ((prev.speaker or None) == (ln.speaker or None)
+                        and not ln.zh.lstrip().startswith(_TURN_MARKS))
+        zh = _join_source(prev.zh, ln.zh)
         combined_en_len = len(prev.en) + len(ln.en) + 1  # +1 for the joining space
         combined_duration = ln.end - prev.start
 
@@ -789,11 +866,13 @@ def merge_adjacent_short_lines(lines, min_duration: float = 1.2, max_gap: float 
         # otherwise a short line followed by a naturally long one would keep
         # getting absorbed just because prev alone was under the threshold.
         if (prev_duration < min_duration and same_speaker and gap <= max_gap
-                and combined_zh_len <= max_chars and combined_en_len <= max_chars
+                and len(zh) <= max_chars and combined_en_len <= max_chars
                 and combined_duration < min_duration * 2.5):
-            prev.zh = (prev.zh.rstrip() + ln.zh.strip())
+            words = _merged_words(prev, ln)
+            prev.zh = zh
             prev.en = (prev.en.rstrip() + " " + ln.en.strip()).strip()
             prev.end = ln.end
+            prev.word_timings = encode_line_words(zh, words) if words else None
             if not prev.flag and ln.flag:
                 prev.flag, prev.flag_note = ln.flag, ln.flag_note
             if getattr(prev, "lang", None) != getattr(ln, "lang", None):
@@ -865,7 +944,7 @@ def align_transcript_to_timing(user_lines, whisper_segments):
         dur = max(seg["end"] - seg["start"], 0.01)
         for i, ch in enumerate(text):
             w_chars.append(ch)
-            w_times.append(seg["start"] + dur * (i / n))
+            w_times.append((seg["start"] + dur * (i / n), seg["start"] + dur * ((i + 1) / n)))
     w_stream = "".join(w_chars)
 
     u_chars, u_line_of_char = [], []
@@ -880,7 +959,9 @@ def align_transcript_to_timing(user_lines, whisper_segments):
     for block in sm.get_matching_blocks():
         for k in range(block.size):
             li = u_line_of_char[block.b + k]
-            per_line_times[li].append(w_times[block.a + k])
+            # Both ends of the character's slot: a line then ends where its last
+            # character ends, not where that character starts.
+            per_line_times[li].extend(w_times[block.a + k])
 
     total_audio_end = whisper_segments[-1]["end"] if whisper_segments else 0.0
     return lines_from_char_times(user_lines, per_line_times, total_audio_end)

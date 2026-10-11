@@ -420,6 +420,32 @@ class TestAlignerLoadedOncePerRun:
         assert loads == ["cuda"]
         assert seen == [sentinel] * 4
 
+    def test_a_gpu_that_cannot_load_the_model_falls_back_to_the_cpu(self, monkeypatch):
+        monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
+        monkeypatch.setattr("memory_headroom.before_load", lambda *a, **k: None)
+        loads, used = [], []
+
+        def fake_load(device="cpu"):
+            loads.append(device)
+            if device == "cuda":
+                raise RuntimeError("CUDA out of memory")
+            return object()
+        monkeypatch.setattr(word_align, "load_aligner", fake_load)
+        monkeypatch.setattr(word_align, "realign_long_segment",
+                            lambda audio, seg, lang, **k: used.append(k["device"]) or [seg])
+
+        word_align.realign_oversized_segments(
+            [{"start": 0.0, "end": 20.0, "text": "long"}], "/fake.wav", "zh", device="cuda")
+
+        assert loads == ["cuda", "cpu"]
+        assert used == ["cpu"]
+
+    def test_the_model_stays_full_precision(self):
+        # The owner's V100 has no native bf16, so nothing here may cast the model.
+        import inspect
+        source = inspect.getsource(word_align)
+        assert "bfloat16" not in source and ".half()" not in source
+
     def test_no_load_when_nothing_is_oversized(self, monkeypatch):
         monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
         loads = []
