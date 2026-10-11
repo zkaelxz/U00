@@ -2,33 +2,63 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { mockDiskUsage } from './diskUsageMocks'
 
-// Library tools > Disk usage, desktop. The API is mocked (nothing on disk is
+// Library tools > Storage and Data folder tabs, desktop. The API is mocked (nothing on disk is
 // touched). DISK_SHOTS_DIR=<dir> also saves review screenshots.
 
 const SHOTS = process.env.DISK_SHOTS_DIR
 
-async function openSection(page: Page) {
-  await page.goto('/#/library-tools')
-  const summary = page.locator('summary', { hasText: 'Disk usage' })
-  const details = page.locator('details.section', { has: summary })
-  if ((await details.getAttribute('open')) === null) await summary.click()
-  return page.getByRole('region', { name: 'Disk usage', exact: true })
+// The tab's panel: the only visible tabpanel, so every locator below stays inside the open tab.
+async function openSection(page: Page, tab: 'data' | 'storage' = 'data') {
+  await page.goto(`/#/library-tools?tab=${tab}`)
+  const panel = page.getByRole('tabpanel')
+  // The longer Storage tab starts with only its most used cards open; the specs below use all of them.
+  if (tab === 'storage') {
+    await expect(panel.getByTestId('storage-summary')).toBeVisible()
+    for (const name of ['Unused voice clips', 'Temp files']) {
+      const card = panel.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${name}$`) }) })
+      if ((await card.count()) && (await card.getAttribute('open')) === null) await card.locator('summary').click()
+    }
+  }
+  return panel
 }
 
 const row = (page: Page, name: string) => page.locator('.du-row', { has: page.locator('.du-name', { hasText: new RegExp(`^${name}$`) }) })
 
-test('nothing is scanned until the section is opened; then the root shows biggest first', async ({ page }) => {
+test('nothing is scanned until a disk tab is opened; then the root shows biggest first', async ({ page }) => {
   let scans = 0
   await mockDiskUsage(page)
   await page.route('**/api/data-usage', async (r) => { scans += 1; await r.fallback() })
   await page.goto('/#/library-tools')
-  await expect(page.locator('summary', { hasText: 'Disk usage' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Organize' })).toHaveAttribute('aria-selected', 'true')
   expect(scans).toBe(0)
+  await page.getByRole('tab', { name: 'Data folder' }).click()
+  const sec = page.getByRole('tabpanel')
+  await expect(sec.locator('.du-list .du-name')).toHaveText(['library', 'model_cache', '.env'])
+  expect(scans).toBe(1)
+  await expect(sec).toContainText('2.8 GB free of 252.0 GB on this drive')
+  await expect(sec.getByTestId('du-treemap').locator('.du-cell')).toHaveCount(6)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-root-desktop.png`, fullPage: true })
+})
+
+test('program files fold into one closed row with their total and are not listed as cards', async ({ page }) => {
+  await mockDiskUsage(page)
   const sec = await openSection(page)
   await expect(sec.locator('.du-list .du-name')).toHaveText(['library', 'model_cache', '.env'])
-  await expect(sec).toContainText('2.8 GB free of 252.0 GB on this drive')
-  await expect(sec.getByTestId('du-treemap').locator('.du-cell')).toHaveCount(3)
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-root-desktop.png`, fullPage: true })
+  const program = sec.locator('details.du-program')
+  await expect(program).toContainText('Program files (protected)')
+  await expect(program).toContainText('4.4 GB')
+  await expect(program).not.toHaveAttribute('open', '')
+  await expect(sec.getByRole('button', { name: /Move (venv|frontend|\.git) to Trash/ })).toHaveCount(0)
+  await program.locator('summary').click()
+  await expect(program.locator('li')).toHaveText([/venv/, /frontend/, /\.git/])
+})
+
+test('Storage opens with a one-line summary of what is used and what is free', async ({ page }) => {
+  await mockDiskUsage(page)
+  const sec = await openSection(page, 'storage')
+  await expect(sec.getByTestId('storage-summary')).toHaveText('58.6 GB used, 2.8 GB free on this drive')
+  for (const name of ['Cleanup', 'Unused voice clips', 'Trash', 'Temp files']) await expect(sec.locator('summary', { hasText: new RegExp(`^${name}`) })).toBeVisible()
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/storage-desktop.png`, fullPage: true })
 })
 
 test('drill down with the breadcrumb, protected items are disabled with their reason', async ({ page }) => {
@@ -77,14 +107,15 @@ test('move to Trash is two steps, names the size, says nothing is freed, and the
   await expect(sec.getByRole('status').filter({ hasText: 'Moved tmp (2.4 GB) to Trash. Nothing is freed until you delete it from Trash' })).toBeVisible()
   expect(mock.posts[0].body).toEqual({ path: 'library/tmp', confirm: true, expected_size_bytes: 2_400_000_000, expected_file_count: 80 })
   await expect(row(page, 'tmp')).toHaveCount(0)
-  const trash = sec.getByRole('region', { name: 'Trash' })
+  await page.getByRole('tab', { name: 'Storage' }).click()
+  const trash = page.getByRole('tabpanel').getByRole('region', { name: 'Trash' })
   await expect(trash.getByTestId('trash-line')).toHaveText('Trash uses 2.4 GB; nothing is freed until you delete from it.')
   await expect(trash).toContainText('library/tmp')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-trashed-desktop.png`, fullPage: true })
 })
 
 test('Trash starts empty and says so', async ({ page }) => {
-  const sec = await (async () => { await mockDiskUsage(page); return openSection(page) })()
+  const sec = await (async () => { await mockDiskUsage(page); return openSection(page, 'storage') })()
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash.getByTestId('trash-line')).toHaveText('Trash uses 0 B; nothing is freed until you delete from it.')
   await expect(trash).toContainText('Trash is empty.')
@@ -93,20 +124,21 @@ test('Trash starts empty and says so', async ({ page }) => {
 
 test('restore puts an item back and the folder lists it again', async ({ page }) => {
   const mock = await mockDiskUsage(page, { trash: [{ path: 'library/scratch', size: 2_400_000_000, files: 80 }] })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash).toContainText('library/scratch')
   await trash.getByRole('button', { name: 'Restore library/scratch' }).click()
   await expect(sec.getByRole('status').filter({ hasText: 'Restored library/scratch to where it came from.' })).toBeVisible()
   expect(mock.posts[0]).toEqual({ path: 'restore', body: { id: mock.posts[0].body.id, confirm: true } })
   await expect(trash).toContainText('Trash is empty.')
+  await page.getByRole('tab', { name: 'Data folder' }).click()
   await sec.getByRole('button', { name: 'Open library' }).click()
   await expect(row(page, 'scratch')).toBeVisible()
 })
 
 test('a restore that is not possible shows the plain reason and keeps the item', async ({ page }) => {
   await mockDiskUsage(page, { trash: [{ path: 'library/tmp', size: 5, files: 1, restorable: false }] })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash).toContainText('Restore may not work right now')
   await trash.getByRole('button', { name: 'Restore library/tmp' }).click()
@@ -116,7 +148,7 @@ test('a restore that is not possible shows the plain reason and keeps the item',
 
 test('Delete permanently needs the typed word DELETE exactly and shows the size', async ({ page }) => {
   const mock = await mockDiskUsage(page, { trash: [{ path: 'library/tmp', size: 2_400_000_000, files: 80 }, { path: 'model_cache/old', size: 1_000, files: 1 }] })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await trash.getByRole('button', { name: 'Delete library/tmp permanently' }).click()
   await expect(trash).toContainText('Permanently deletes library/tmp (2.4 GB · 80 files) from this PC.')
@@ -140,7 +172,7 @@ test('deleting from Trash names the "Keep original files" pin of the title it ca
     { path: 'library/dramas/7/source.mp4', size: 900_000_000, files: 1, kept: true },
     { path: 'library/tmp', size: 1_000, files: 1 },
   ] })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(row(page, 'library/dramas/7/source.mp4')).toContainText('From a title with "Keep original files" on.')
   await expect(row(page, 'library/tmp')).not.toContainText('Keep original files')
@@ -157,7 +189,7 @@ test('Empty Trash says how many items came from titles with "Keep original files
     { path: 'library/dramas/7/source.mp4', size: 900, files: 1, kept: true },
     { path: 'library/tmp', size: 1_000, files: 1 },
   ] })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await trash.getByRole('button', { name: 'Empty Trash…' }).click()
   await expect(trash.getByTestId('trash-kept-titles')).toHaveText(/^1 item came from titles with "Keep original files" on/)
@@ -165,7 +197,7 @@ test('Empty Trash says how many items came from titles with "Keep original files
 
 test('Empty Trash needs the typed word and frees everything in it', async ({ page }) => {
   const mock = await mockDiskUsage(page, { trash: [{ path: 'library/tmp', size: 2_400_000_000, files: 80 }, { path: 'model_cache/old', size: 600_000_000, files: 3 }] })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await trash.getByRole('button', { name: 'Empty Trash…' }).click()
   const go = trash.getByRole('button', { name: 'Empty Trash permanently' })
@@ -183,7 +215,7 @@ test('Empty Trash needs the typed word and frees everything in it', async ({ pag
 test('while a job runs, Trash can not be restored or deleted', async ({ page }) => {
   const mock = await mockDiskUsage(page, { trash: [{ path: 'library/tmp', size: 5, files: 1 }] })
   mock.setBusy('A job, restore or other library task is running. Wait for it to finish, then try again.')
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash.getByRole('button', { name: 'Restore library/tmp' })).toBeDisabled()
   await expect(trash.getByRole('button', { name: 'Delete library/tmp permanently' })).toBeDisabled()
@@ -294,15 +326,15 @@ test('a failed scan shows an error and Rescan recovers', async ({ page }) => {
   await expect(sec.locator('.du-list .du-name').first()).toHaveText('library')
 })
 
-test('away from the PC the section only says to use the main PC', async ({ page }) => {
+test('away from the PC the disk tabs only say to use the main PC', async ({ page }) => {
   await page.route('**/api/meta', (r) => r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   let scans = 0
   await page.route('**/api/data-usage**', (r) => { scans += 1; return r.fulfill({ status: 403, json: {} }) })
-  await page.goto('/#/library-tools')
-  const summary = page.locator('summary', { hasText: 'Disk usage' })
-  await summary.click()
-  await expect(page.locator('details.section', { has: summary }).getByText('Run this on the main PC.')).toBeVisible()
-  await expect(page.getByRole('button', { name: /Rescan|Clear/ })).toHaveCount(0)
+  for (const tab of ['Storage', 'Data folder']) {
+    await page.goto('/#/library-tools?tab=' + (tab === 'Storage' ? 'storage' : 'data'))
+    await expect(page.getByRole('tabpanel').getByText('Run this on the main PC.')).toBeVisible()
+    await expect(page.getByRole('button', { name: /Rescan|Clear/ })).toHaveCount(0)
+  }
   expect(scans).toBe(0)
 })
 
@@ -324,14 +356,16 @@ test('the Trash list shows up while a slow scan is still running', async ({ page
   await mockDiskUsage(page, { slowScan: 4000, trash: [{ path: 'library/tmp', size: 5, files: 1 }] })
   const sec = await openSection(page)
   await expect(sec.getByRole('status').filter({ hasText: 'Scanning' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Storage' }).click()
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash).toContainText('library/tmp')
+  await page.getByRole('tab', { name: 'Data folder' }).click()
   await expect(sec.getByRole('status').filter({ hasText: 'Scanning' })).toBeVisible()
 })
 
 test('restoring or deleting an item that is already gone refreshes the list without an error', async ({ page }) => {
   const mock = await mockDiskUsage(page, { trash: [{ path: 'library/tmp', size: 5, files: 1 }, { path: 'model_cache/old', size: 7, files: 1 }] })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash).toContainText('library/tmp')
   mock.trash.length = 0
@@ -342,7 +376,7 @@ test('restoring or deleting an item that is already gone refreshes the list with
 
 test('Empty Trash after the list changed is refused and the list is reloaded', async ({ page }) => {
   const mock = await mockDiskUsage(page, { trash: [{ path: 'library/tmp', size: 5, files: 1 }] })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash).toContainText('library/tmp')
   await trash.getByRole('button', { name: 'Empty Trash…' }).click()
@@ -364,7 +398,7 @@ const CLIPS = [
 
 test('unused voice clips list per title with a total and no file names', async ({ page }) => {
   await mockDiskUsage(page, { clips: CLIPS })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const clips = sec.getByRole('region', { name: 'Unused voice clips' })
   await expect(clips).toContainText('Not used by any speaker. Moves to the Baihe trash, where you can restore it.')
   await expect(clips.getByTestId('clips-line')).toHaveText('3 clips · 2.0 MB')
@@ -375,7 +409,7 @@ test('unused voice clips list per title with a total and no file names', async (
 
 test('Clean temp files now needs the second press and shows counts and MB only', async ({ page }) => {
   const mock = await mockDiskUsage(page)
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const temp = sec.getByRole('region', { name: 'Temp files' })
   await temp.getByRole('button', { name: 'Clean temp files now' }).click()
   expect(mock.posts.filter((p) => p.path === 'clean-temp')).toHaveLength(0)
@@ -387,7 +421,7 @@ test('Clean temp files now needs the second press and shows counts and MB only',
 test('Clean temp files now says why when a job is running', async ({ page }) => {
   const mock = await mockDiskUsage(page)
   mock.setBusy('Finish or cancel the running jobs first, then clean temp files.')
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const temp = sec.getByRole('region', { name: 'Temp files' })
   await temp.getByRole('button', { name: 'Clean temp files now' }).click()
   await temp.getByRole('button', { name: 'Confirm: delete all temp files' }).click()
@@ -396,7 +430,7 @@ test('Clean temp files now says why when a job is running', async ({ page }) => 
 
 test('moving one unused clip needs the second press and sends its id and shown size', async ({ page }) => {
   const mock = await mockDiskUsage(page, { clips: CLIPS })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const clips = sec.getByRole('region', { name: 'Unused voice clips' })
   await clips.getByRole('button', { name: 'Move clip 2 of Moonlit Court to Trash' }).click()
   expect(mock.posts.filter((p) => p.path === 'clips-to-trash')).toHaveLength(0)
@@ -409,7 +443,7 @@ test('moving one unused clip needs the second press and sends its id and shown s
 
 test('move all skips a clip a speaker started using and says so', async ({ page }) => {
   const mock = await mockDiskUsage(page, { clips: CLIPS })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   mock.clips[1].clips[0].used = true
   const clips = sec.getByRole('region', { name: 'Unused voice clips' })
   await clips.getByRole('button', { name: 'Move all unused voice clips to Trash' }).click()
@@ -424,7 +458,7 @@ const manyClips = (n: number) => [{
 
 test('move all sends batches of at most 500 clips, one after another', async ({ page }) => {
   const mock = await mockDiskUsage(page, { clips: manyClips(1001) })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const clips = sec.getByRole('region', { name: 'Unused voice clips' })
   await clips.getByRole('button', { name: 'Move all unused voice clips to Trash' }).click()
   await clips.getByRole('button', { name: /^Confirm: move 1,001 clips/ }).click()
@@ -435,7 +469,7 @@ test('move all sends batches of at most 500 clips, one after another', async ({ 
 
 test('move all stops at the first failing batch and reports the totals', async ({ page }) => {
   const mock = await mockDiskUsage(page, { clips: manyClips(1001), clipsFailPost: 2 })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const clips = sec.getByRole('region', { name: 'Unused voice clips' })
   await clips.getByRole('button', { name: 'Move all unused voice clips to Trash' }).click()
   await clips.getByRole('button', { name: /^Confirm: move 1,001 clips/ }).click()
@@ -445,7 +479,7 @@ test('move all stops at the first failing batch and reports the totals', async (
 
 test('titles with a clip-reading job are called out, and an empty list says so', async ({ page }) => {
   await mockDiskUsage(page, { clips: [], clipsInUse: 2 })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const clips = sec.getByRole('region', { name: 'Unused voice clips' })
   await expect(clips).toContainText('No unused voice clips.')
   await expect(clips).toContainText('2 titles are left out because a dub, narration or audiobook job is running.')
@@ -454,7 +488,7 @@ test('titles with a clip-reading job are called out, and an empty list says so',
 test('unused voice clips on a phone: no sideways scroll, 44 px buttons', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 })
   await mockDiskUsage(page, { clips: CLIPS })
-  const sec = await openSection(page)
+  const sec = await openSection(page, 'storage')
   const clips = sec.getByRole('region', { name: 'Unused voice clips' })
   await expect(clips.getByRole('button', { name: 'Move all unused voice clips to Trash' })).toBeVisible()
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
