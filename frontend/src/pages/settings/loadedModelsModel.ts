@@ -1,4 +1,4 @@
-// Pure helpers for the "Loaded now" card (LoadedModelsCard.tsx).
+// Pure helpers for the "Models in memory" card (LoadedModelsCard.tsx).
 import type { LoadedModels } from '../../api/loadedModels'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
 

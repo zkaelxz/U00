@@ -1,14 +1,31 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 import { openTranscribeOptions } from './sourceHelpers'
 
-// Steps 101/103: Settings > Transcription experiments and the "where did speaker detection run" note.
+// Steps 101/103: Settings > System > Advanced transcription and the "where did speaker detection run" note.
 // Settings hit the real (seeded) API; every change is restored at the end.
 
-test('transcription experiments save, and MOSS is not offered', async ({ page }) => {
+// The batch size is a Developer Mode field; the seeded library has the mode off, so the read says it is on.
+async function developerModeOn(page: Page) {
+  await page.route('**/api/assistant/settings', async (route) => {
+    const resp = await route.fetch()
+    return route.fulfill({ response: resp, json: { ...(await resp.json()), developer_mode: true } })
+  })
+}
+
+test('the batch size is hidden until Developer Mode is on', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'System')
-  const card = page.getByRole('region', { name: 'Transcription experiments' })
+  const card = page.getByRole('region', { name: 'Advanced transcription' })
+  await expect(card.getByLabel('Mixed languages', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Qwen3-ASR batch size', { exact: true })).toHaveCount(0)
+})
+
+test('advanced transcription saves, and MOSS is not offered', async ({ page }) => {
+  await developerModeOn(page)
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'System')
+  const card = page.getByRole('region', { name: 'Advanced transcription' })
   const batch = card.getByLabel('Qwen3-ASR batch size', { exact: true })
   await expect(batch).toHaveValue('1')
   const saved = () => page.waitForResponse((r) => r.url().endsWith('/api/settings/asr-options') && r.request().method() === 'POST')
@@ -20,7 +37,7 @@ test('transcription experiments save, and MOSS is not offered', async ({ page })
   await Promise.all([saved(), card.getByRole('button', { name: 'Save batch size' }).click()])
   await page.reload()
   await openSettingsGroups(page, 'System')
-  await expect(page.getByRole('region', { name: 'Transcription experiments' }).getByLabel('Qwen3-ASR batch size', { exact: true })).toHaveValue('4')
+  await expect(page.getByRole('region', { name: 'Advanced transcription' }).getByLabel('Qwen3-ASR batch size', { exact: true })).toHaveValue('4')
 
   await expect(page.getByRole('switch', { name: /MOSS/ })).toHaveCount(0)
 
@@ -33,7 +50,7 @@ test('transcription experiments save, and MOSS is not offered', async ({ page })
   // Restore the batch size.
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'System')
-  const card2 = page.getByRole('region', { name: 'Transcription experiments' })
+  const card2 = page.getByRole('region', { name: 'Advanced transcription' })
   await card2.getByLabel('Qwen3-ASR batch size', { exact: true }).fill('1')
   await Promise.all([saved(), card2.getByRole('button', { name: 'Save batch size' }).click()])
 })

@@ -55,6 +55,9 @@ __all__ = [
     "GlossaryRunCancelRequest",
     "GlossaryVariantExample", "GlossaryVariantCandidate", "GlossaryVariants",
     "GlossaryNameSpelling", "GlossaryNameCluster", "GlossaryNameClusters",
+    "SpellingSuggestRequest", "SpellingSuggestRunResult", "SpellingProposal",
+    "SpellingSuggestResult", "SpellingSuggestStatus",
+    "NameConsistencyRow", "NameConsistency",
 ]
 
 
@@ -519,3 +522,63 @@ class GlossaryNameClusters(BaseModel):
     clusters: List[GlossaryNameCluster] = Field(default_factory=list)
     # Names from the optional downloaded VTuber list found in the lines; empty unless the title opted in.
     known_vtuber_names: List[GlossaryNameCluster] = Field(default_factory=list)
+
+
+class SpellingSuggestRequest(BaseModel):
+    term_id: int = Field(ge=1)
+    english: str = Field(min_length=1, max_length=80, description=(
+        "The name in English (or the form the owner knows it by)"))
+
+
+class SpellingSuggestRunResult(BaseModel):
+    job_id: str
+    engine: str
+
+
+class SpellingProposal(BaseModel):
+    """A model-proposed spelling that really occurs in the source lines."""
+    text: str
+    count: int
+    is_alias: bool
+    is_term: bool
+    examples: List[GlossaryVariantExample] = Field(default_factory=list)
+
+
+class SpellingSuggestResult(BaseModel):
+    term: Optional[str] = None
+    english: Optional[str] = None
+    proposals: List[SpellingProposal] = Field(default_factory=list)
+    unusable: bool = False
+    lines_scanned: int = 0
+    truncated: bool = False
+
+
+class SpellingSuggestStatus(BaseModel):
+    job_id: str
+    status: str
+    progress: Optional[float] = None
+    message: str = ""
+    run_id: Optional[str] = None
+    result: Optional[SpellingSuggestResult] = None
+
+
+class NameConsistencyRow(BaseModel):
+    line_idx: int
+    source: str
+    english: str
+
+
+class NameConsistency(BaseModel):
+    term: str
+    english: str
+    available: bool
+    reason: str = ""
+    lines_with_name: int
+    untranslated: int
+    consistent: int
+    differing: List[NameConsistencyRow] = Field(default_factory=list)
+    other_words: List[str] = Field(default_factory=list)
+    lines_scanned: int = 0
+    # The scan stopped at its line/character budget; more_rows: more differing lines than are listed.
+    truncated: bool
+    more_rows: bool = False

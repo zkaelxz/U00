@@ -1,5 +1,5 @@
 /*
- * Settings > Browser extension devices: per-computer tokens the browser
+ * Settings > Extension tokens per computer: per-computer tokens the browser
  * extension will use to reach Baihe from away from the main PC. A signed-in
  * person adds a device by name and gets its token once (copy it into the
  * extension's options; Baihe keeps only a fingerprint), sees when each was
@@ -32,7 +32,7 @@ import {
   activeCount, adminTokensBlock, extensionDevicesView, labelProblem, tokenDetails,
 } from './extensionDevicesModel'
 
-const TITLE = 'Browser extension devices'
+const TITLE = 'Extension tokens per computer'
 
 export function ExtensionDevicesCard() {
   const session = useSession()

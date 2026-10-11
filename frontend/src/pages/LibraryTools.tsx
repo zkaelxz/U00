@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
 import {
@@ -11,18 +11,20 @@ import { ButtonLink } from '../components/Button'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
-import { Section } from '../components/Section'
+import { Tabs } from '../components/Tabs'
+import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { SharingControl } from '../components/SharingControl'
 import { VoiceBankPlayButton } from '../components/VoiceBankPlayButton'
 import { countDramas, dramaName, parseTime, readHref, workspaceHref } from '../components/libraryView'
 import { buttonClass } from '../components/uiClasses'
 import { useHolds } from '../hooks/useHolds'
 import { useLoad } from '../hooks/useLoad'
-import { PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
+import { usePersistedState } from '../hooks/usePersistedState'
+import { PC_ONLY_BODY, PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
-import { DiskUsageSection } from './diskUsage/DiskUsageSection'
-import { AdminSection } from './libraryAdmin/AdminSection'
+import { DataFolderPanel } from './diskUsage/DiskUsageSection'
+import { useDiskUsage } from './diskUsage/useDiskUsage'
 import { exportableCount } from './libraryAdmin/libraryAdmin'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
 import { RENAME_MAX, groupHistory, showFold, validateRename } from './libraryForm'
@@ -34,22 +36,27 @@ import './manga/manga.css'
 import { SERIES_HELP } from '../helpText'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
+import { useRoute } from '../router'
+import { BackupTab } from './libraryTools/BackupTab'
+import { StorageTab } from './libraryTools/StorageTab'
+import { TabCard } from './libraryTools/TabCard'
+import { CARDS, LIBRARY_TOOLS_TABS, isLibraryToolsTab, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
 
 // A "Library tools" fold: rare lists stay collapsed (spec rule 16); one with
 // nothing in it renders nothing, but a failed load stays visible.
-function ToolSection({ title, count, summary, error, defaultOpen, children }: {
-  title: string; count?: number; summary?: string; error: unknown; defaultOpen?: boolean; children: ReactNode
+function ToolSection({ card, count, summary, error, children }: {
+  card: LibraryToolsCard; count?: number; summary?: string; error: unknown; children: ReactNode
 }) {
   if (!showFold(count, error)) return null
   return (
-    <Section title={title} count={count} summary={summary} defaultOpen={defaultOpen} storageKey={`library.tools.${title.toLowerCase().replace(/\W+/g, '-')}`}>
-      <section aria-label={title} className="tool-body">
+    <TabCard card={card} count={count} summary={summary}>
+      <section aria-label={CARDS[card].title} className="tool-body">
         <ErrorBanner error={error} />
         {children}
       </section>
-    </Section>
+    </TabCard>
   )
 }
 
@@ -198,6 +205,26 @@ export default function LibraryToolsPage() {
   const saved = useLoad(listSavedSeries, reloadKey)
   const exporter = useAdminJob(ADMIN_JOB_IDS.export, 'export')
   const onChanged = () => setReloadKey((k) => k + 1)
+
+  const route = useRoute()
+  const [storedTab, setStoredTab] = usePersistedState<LibraryToolsTab>('library-tools.tab', 'organize')
+  // A link's tab wins over the remembered one from the first render, so the tab it names is what shows.
+  const [tab, setTabState] = useState<LibraryToolsTab>(() =>
+    (route.name === 'library-tools' ? route.tab : undefined) ?? (isLibraryToolsTab(storedTab) ? storedTab : 'organize'))
+  const selectTab = useCallback((t: LibraryToolsTab) => {
+    setTabState(t)
+    setStoredTab(t)
+  }, [setStoredTab])
+  useEffect(() => {
+    if (route.name === 'library-tools' && route.tab) selectTab(route.tab)
+  }, [route, selectTab])
+  // The disk scan walks the data folder, so it waits until a tab that shows it is opened.
+  const usage = useDiskUsage(pc !== 'remote' && (tab === 'storage' || tab === 'data'))
+  const panel = (id: LibraryToolsTab, children: ReactNode) => (
+    <div key={id} id={tabPanelId('library-tools', id)} role="tabpanel" aria-labelledby={tabButtonId('library-tools', id)} className="tools-panel" hidden={tab !== id}>
+      {children}
+    </div>
+  )
   const grouped = history.data ? groupHistory(history.data.items) : undefined
   const shared = series.data ? sharedSeries(series.data.items) : undefined
   const totalCost = costs.data?.items.reduce((sum, c) => sum + c.estimated_cost_usd, 0)
@@ -207,14 +234,16 @@ export default function LibraryToolsPage() {
       <header className="page-head">
         <div className="page-head-text">
           <h2 className="page-title">Library tools</h2>
-          <p className="page-meta">Series, saved manga, costs, reading history, presets, backups and disk usage. Titles and Continue stay on the Library page.</p>
+          <p className="page-meta">Series, saved manga, costs, reading history, presets, backups, storage and the data folder. Titles and Continue stay on the Library page.</p>
         </div>
         <ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>
       </header>
       <ErrorBanner error={stats.error} />
+      <Tabs label="Library tools" idPrefix="library-tools" tabs={LIBRARY_TOOLS_TABS} active={tab} onSelect={selectTab} />
       <section className="tools-stack" aria-label="Library tools">
-        <h3 className="tools-group-title">Organize</h3>
-        <ToolSection title="Series" defaultOpen count={shared?.length} summary={SERIES_HELP} error={series.error}>
+        {panel('organize', (
+          <>
+        <ToolSection card="series" count={shared?.length} summary={SERIES_HELP} error={series.error}>
           <ul className="tool-list series-list">
             {shared?.map((x) => (
               <li key={x.id} className="series-item">
@@ -242,7 +271,7 @@ export default function LibraryToolsPage() {
             ))}
           </ul>
         </ToolSection>
-        <ToolSection title="Presets" count={presets.data?.items.length} error={presets.error}>
+        <ToolSection card="presets" count={presets.data?.items.length} error={presets.error}>
           <DeletableList
             pc={pc}
             help="Titles that used it keep their settings."
@@ -254,7 +283,7 @@ export default function LibraryToolsPage() {
             onDeleted={onChanged}
           />
         </ToolSection>
-        <ToolSection title="Voice bank" count={voices.data?.items.length} error={voices.error}>
+        <ToolSection card="voice-bank" count={voices.data?.items.length} error={voices.error}>
           <DeletableList
             pc={pc}
             help="Characters that used it keep their own copy."
@@ -266,12 +295,15 @@ export default function LibraryToolsPage() {
               ? <VoiceBankPlayButton entryId={id} name={name} /> : null}
           />
         </ToolSection>
-        <ToolSection title="Saved manga" count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
+        <ToolSection card="saved-manga" count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
           {saved.data && <SavedSeriesRows items={saved.data} />}
         </ToolSection>
-        <h3 className="tools-group-title">Activity</h3>
+          </>
+        ))}
+        {panel('activity', (
+          <>
         <ToolSection
-          title="Cost by title"
+          card="cost"
           count={costs.data?.items.length}
           summary={totalCost !== undefined ? `$${totalCost.toFixed(2)} in all` : undefined}
           error={costs.error}
@@ -290,7 +322,7 @@ export default function LibraryToolsPage() {
             ))}
           </ul>
         </ToolSection>
-        <ToolSection title="Reading history" count={grouped?.length} error={history.error}>
+        <ToolSection card="history" count={grouped?.length} error={history.error}>
           <ul className="tool-list">
             {grouped?.map(({ entry: h, count }) => (
               <li key={`${h.drama_id}-${h.accessed_at}`}>
@@ -310,9 +342,11 @@ export default function LibraryToolsPage() {
           </ul>
           <ClearHistory pc={pc} onCleared={onChanged} />
         </ToolSection>
-        <h3 className="tools-group-title">Data</h3>
-        <AdminSection pc={pc} exportable={exportableCount(stats.data?.by_status)} exporter={exporter} />
-        <DiskUsageSection pc={pc} />
+          </>
+        ))}
+        {panel('backup', <BackupTab pc={pc} exportable={exportableCount(stats.data?.by_status)} exporter={exporter} />)}
+        {panel('storage', <StorageTab pc={pc} usage={usage} />)}
+        {panel('data', pc === 'remote' ? <p className="muted">{PC_ONLY_BODY}</p> : <DataFolderPanel usage={usage} />)}
       </section>
     </main>
   )

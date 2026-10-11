@@ -245,7 +245,7 @@ one shared token). Remote mode will let a household member's own computer
 (desktop Chrome or Edge) reach Baihe through the household address, and is
 being built in three parts:
 
-1. **Per-device tokens (built).** Settings > Browser extension devices: a
+1. **Per-device tokens (built).** Settings > Sharing and devices > Extension tokens per computer: a
    signed-in member with the `extension.send` permission names a device
    and gets a token once (`baihe_dt_…`, 256 random bits; Baihe stores only
    its SHA-256). They see when each was last used (time and a coarse

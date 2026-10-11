@@ -17,10 +17,10 @@ table) is in `archive/asr-experiments-history.md`.
 | Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
 | Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
 | ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`. |
-| Qwen3-ASR batch size | Settings > Transcription experiments (PC only) | 1 | Range 1-16. |
+| Qwen3-ASR batch size | Settings > System > Advanced transcription (PC only; shown only while Developer Mode is on) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
 | Mixed languages | same card | off | |
-| Voice detector | Settings > Transcription experiments (PC only) | `auto` | Choices come from `settings_service._voice_detector_choices`. Used by the speech-detection backends. |
+| Voice detector | the Transcribe stage's voice detector field (no Settings card holds it) | `auto` | Choices come from `settings_service._voice_detector_choices`. Used by the speech-detection backends. |
 | Separate vocals first | per title | off | |
 | Sensitivity | per title | `normal` | `sensitive` lowers the VAD threshold to 0.35 (`sensitivity_preset.py`). |
 | Min silence, VAD threshold, Beam size | per title (Developer Mode) | 300 ms, 0.5, 5 | Whisper's own pass. Min silence is not used when "Split lines by sentences" is on. |
@@ -172,7 +172,7 @@ Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB
 A candidate such as a Japanese fine-tune can be tried in the Benchmark Lab without
 changing the model of any title:
 
-1. On the PC, set Settings > Offline Whisper model folder to the downloaded
+1. On the PC, set Settings > System > Offline, paths and limits > Offline Whisper model folder to the downloaded
    faster-whisper (CTranslate2) model folder.
 2. In the Lab, pick the Transcription stage and add an arm with the model
    `local-folder`. It is listed in the Whisper sizes and shows as "offline model

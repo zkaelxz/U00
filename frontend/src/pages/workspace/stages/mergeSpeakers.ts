@@ -38,13 +38,13 @@ export function mergeSummary(source: CharacterEntry, targetLabel: string): strin
 /** Whether the merge leaves the source's voice clip file behind. The server
  *  moves the voice group (clip, transcript, engine, design) only when the
  *  target has neither a clip nor a designed voice; otherwise the source's file
- *  is orphaned and listed under Library tools > Disk usage. */
+ *  is orphaned and listed under Library tools > Storage. */
 export function leavesVoiceClip(source: CharacterEntry, target: CharacterEntry | undefined): boolean {
   if (!source.has_ref_audio || !target) return false
   return target.has_ref_audio || target.voice_design.trim() !== ''
 }
 
-export const VOICE_CLIP_NOTE = 'Its voice sample stays on disk. You can remove it later in Library tools > Disk usage.'
+export const VOICE_CLIP_NOTE = 'Its voice sample stays on disk. You can remove it later in Library tools > Storage.'
 
 /** What the page remembers of the last merge: the server's opaque undo id and
  *  the two labels, for the button and the notice. No Characters row. */

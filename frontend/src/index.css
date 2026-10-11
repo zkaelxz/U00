@@ -693,6 +693,10 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .card-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .card-body { display: grid; gap: var(--space-3); min-width: 0; }
 .card-body > * { margin: 0; }
+/* A Card that folds (Settings): the Section's summary row is its header, so it looks like the title row of an open Card. */
+.card-fold > details.section { margin: 0; }
+.card-fold > details.section > summary { align-items: center; min-height: 44px; }
+.card-fold > details.section > summary .section-title { font-size: var(--text-lg); font-weight: var(--weight-bold); }
 
 @media (pointer: coarse), (max-width: 640px) {
   button.toggle::after { inset: -11px -8px; }

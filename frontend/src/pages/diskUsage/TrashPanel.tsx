@@ -1,5 +1,5 @@
 /*
- * The Trash list under Library tools > Disk usage: what "Move to Trash" put
+ * The Trash list under Library tools > Storage: what "Move to Trash" put
  * aside. Restore puts an item back where it came from; "Delete permanently…"
  * and "Empty Trash…" are the only places anything is really deleted, and each
  * needs the word DELETE typed. Nothing here shows a file system path: only the
@@ -44,7 +44,6 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
   }
   return (
     <section aria-label="Trash" className="du-trash">
-      <h3 className="du-trash-title">Trash</h3>
       <p className="du-trash-line" data-testid="trash-line">{trashLine(trash.size_bytes, trash.partial)}</p>
       {trash.items.length === 0 ? (
         <p className="muted">Trash is empty.</p>

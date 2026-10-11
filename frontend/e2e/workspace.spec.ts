@@ -231,7 +231,7 @@ test('upload-and-transcribe waits for the replace box, also after the server ask
   await expect(transcribe).toBeEnabled()
   await expect(page.getByTestId('transcribe-staged-unused')).toContainText('Replace the current audio/video')
   await expect(page.getByTestId('kept-media')).toContainText('2 files, 3.5 MB')
-  await expect(page.getByTestId('kept-media')).toContainText('Disk usage')
+  await expect(page.getByTestId('kept-media')).toContainText('Storage')
 
   await box.check()
   await expect(transcribe).toBeEnabled()
