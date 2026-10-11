@@ -425,7 +425,7 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     leftover files could not be removed."""
     library_service.get_library_drama(drama_id)  # id check + existence
     if confirm is not True or confirm_text != _DELETE_CONFIRM_TEXT:
-        raise InvalidInputError("Deleting a drama needs confirm=true and confirm_text set to "
+        raise InvalidInputError("Deleting a title needs confirm=true and confirm_text set to "
                                 "the word DELETE, in capitals.")
     if job_running_for_drama(drama_id):
         raise ConflictError("A background job is still running for this title -- wait for it "

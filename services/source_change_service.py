@@ -20,7 +20,7 @@ def _flagged(ln) -> bool:
 
 def _lines_by_id(drama_id: int) -> dict:
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return {ln.id: ln for ln in db.load_line_objects(drama_id)}
 
 
@@ -66,7 +66,7 @@ def start_retranslate(drama_id: int, line_ids, **run_options) -> dict:
     wanted = _id_list(line_ids)
     by_id = _lines_by_id(drama_id)
     if not set(wanted) <= set(by_id):
-        raise InvalidInputError("line_ids must be this drama's line ids.")
+        raise InvalidInputError("line_ids must be this title's line ids.")
     ids = sorted(lid for lid in wanted if _flagged(by_id[lid]))
     if not ids:
         raise ConflictError('None of these lines is marked "source changed" any more.',
