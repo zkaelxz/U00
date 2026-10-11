@@ -24,6 +24,12 @@ import wave
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# Both import only the standard library, so `--help` still starts without the app's packages.
+from lib.ct2_repo import CT2_ALLOWED, CT2_REQUIRED, RepoFilesRefused, refuse_unexpected_files as _refuse_ct2
+from whisper_models import PINNED_CT2_REPOS
 
 # huggingface_hub reads these when it is imported (every import in this file is
 # lazy and comes later). Without them a stalled connection can hang a call forever.
@@ -35,8 +41,7 @@ TOOL_NAME = "tools/ja_whisper_models.py"
 # Full commit shas, not branch names or short prefixes: a repo owner can move a
 # branch (or push a new file next to the weights) after this tool was reviewed,
 # and a download at a sha always returns the files that were looked at.
-JA_1_5B_REPO = "TransWithAI/whisper-ja-1.5B-ct2"
-JA_1_5B_REVISION = "1527314b14da5bdf0d14e7328649d4fa26840188"
+JA_1_5B_REPO, JA_1_5B_REVISION = PINNED_CT2_REPOS["ja-1.5b"]
 KOTOBA_REPO = "kotoba-tech/kotoba-whisper-v2.0-faster"
 KOTOBA_REVISION = "f44edd35eaeb2274e85ac7b31fb2c6f59ff1c4bc"
 ANIME_REPO = "litagin/anime-whisper"
@@ -46,14 +51,6 @@ CT2_SOURCES = {
     "ja-1.5b": (JA_1_5B_REPO, JA_1_5B_REVISION),
     "kotoba": (KOTOBA_REPO, KOTOBA_REVISION),
 }
-
-# Every file a CTranslate2 build may contain; the download is refused if the repo
-# has anything else, so a pickle or script added later is never fetched.
-CT2_ALLOWED = frozenset({
-    "config.json", "model.bin", "tokenizer.json", "vocabulary.json", "vocabulary.txt",
-    "preprocessor_config.json", "README.md", "LICENSE", ".gitattributes",
-})
-CT2_REQUIRED = ("config.json", "model.bin", "tokenizer.json", "preprocessor_config.json")
 
 # Written by this tool next to the model, so `check` must not call them unexpected.
 OUR_FILES = frozenset({"config.json.orig", "baihe-manifest.json"})
@@ -104,11 +101,11 @@ def _fail(message):
 # --- file lists --------------------------------------------------------------
 
 def refuse_unexpected_files(names, allowed=CT2_ALLOWED):
-    for name in names:
-        if name not in allowed:
-            raise ToolError(
-                f"the repository contains '{name}', which is not on the allowlist. "
-                "Nothing was downloaded. Do not use this repository without reviewing it.")
+    try:
+        _refuse_ct2(names, allowed)
+    except RepoFilesRefused as exc:
+        raise ToolError(f"{exc}. Nothing was downloaded. "
+                        "Do not use this repository without reviewing it.") from exc
 
 
 def select_anime_files(names):

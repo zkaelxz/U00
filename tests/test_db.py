@@ -1505,7 +1505,7 @@ class TestImportTimeSafety:
     real library/library.db before isolated_db redirects it."""
 
     @staticmethod
-    def _imported_modules(path):
+    def _imported_modules(path, module):
         # Function-level imports count too: init_db imports device_tokens
         # lazily, and the first-call test needs it present.
         tree = ast.parse(open(path, encoding="utf-8").read())
@@ -1514,9 +1514,16 @@ class TestImportTimeSafety:
             if isinstance(node, ast.Import):
                 names.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                names.add(node.module.split(".")[0])
+                names.update((node.module.split(".")[0], node.module))
                 # `from lib import gzip_text` needs the submodule too.
                 names.update(f"{node.module}.{alias.name}" for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level > 0:
+                package = module if os.path.basename(path) == "__init__.py" else module.rpartition(".")[0]
+                parts = package.split(".")
+                base = ".".join(parts[:len(parts) - (node.level - 1)])
+                source = f"{base}.{node.module}" if node.module else base
+                names.add(source)
+                names.update(f"{source}.{alias.name}" for alias in node.names)
         return names
 
     @classmethod
@@ -1551,7 +1558,7 @@ class TestImportTimeSafety:
             dest = os.path.join(temp_dir, rel)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             shutil.copy(os.path.join(base, rel), dest)
-            queue.extend(cls._imported_modules(os.path.join(base, rel)))
+            queue.extend(cls._imported_modules(os.path.join(base, rel), name))
         assert {"db", "core"} <= seen, seen
 
     def test_bare_import_does_not_touch_any_library_dir(self):
@@ -1568,6 +1575,21 @@ class TestImportTimeSafety:
             )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_relative_and_package_imports_are_followed(self, tmp_path):
+        # Once db/ submodules import each other, a dependency reached only
+        # through `from . import x` or `from .x import y` must still be
+        # copied, or the fresh-import tests above import a partial package.
+        pkg = tmp_path / "pkg"
+        (pkg / "sub").mkdir(parents=True)
+        (pkg / "__init__.py").write_text(
+            "from .store import a\nfrom . import helpers\nfrom pkg import other\nfrom pkg.models import c\n"
+            "def f():\n    from .lazy import b\n")
+        (pkg / "sub" / "mod.py").write_text("from .. import x\nfrom ..store import y\nfrom . import z\n")
+        top = self._imported_modules(str(pkg / "__init__.py"), "pkg")
+        assert {"pkg.store", "pkg.helpers", "pkg.other", "pkg.models", "pkg.lazy"} <= top
+        sub = self._imported_modules(str(pkg / "sub" / "mod.py"), "pkg.sub.mod")
+        assert {"pkg.x", "pkg.store", "pkg.sub.z"} <= sub
 
     def test_first_real_call_still_initializes_the_schema(self):
         # The other half of the guarantee: init must still happen, just
