@@ -775,11 +775,11 @@ begin
     'backups are inside it by default. This can''t be undone.' + #13#10#13#10 +
     'Type DELETE in capital letters to delete it. Anything else keeps it.', Typed) and
     (CompareStr(Typed, 'DELETE') = 0);
-  if not Result then
-    MsgBox('Your library was kept: you did not type DELETE.', mbInformation, MB_OK);
 end;
 
 function InitializeUninstall(): Boolean;
+var
+  Extra: String;
 begin
   Result := True;
   DeleteLibrary := False;
@@ -808,9 +808,27 @@ begin
     if Result and DeleteLibrary and not ConfirmLibraryDelete() then
     begin
       // "Remove everything" would delete the whole data folder, library
-      // included, so it can't stand once the library is kept.
+      // included, so it can't stand once the library is kept. The settings
+      // and models it ticked go back to what the user had chosen themselves,
+      // as when they answer No to its own confirmation.
+      if CleanAll then
+      begin
+        DeleteSettings := PrevSettings;
+        DeleteModels := PrevModels;
+      end;
       CleanAll := False;
       DeleteLibrary := False;
+      Extra := '';
+      if DeleteSettings then
+        Extra := Extra + #13#10 + '  - your settings and API keys (.env)';
+      if DeleteModels then
+        Extra := Extra + #13#10 + '  - downloaded AI models (model_cache)';
+      if Extra = '' then
+        MsgBox('Your library was kept: you did not type DELETE. Nothing else of yours will be deleted.',
+          mbInformation, MB_OK)
+      else
+        MsgBox('Your library was kept: you did not type DELETE. These will still be deleted, ' +
+          'because you ticked them:' + Extra, mbInformation, MB_OK);
     end;
   end;
   if Result then

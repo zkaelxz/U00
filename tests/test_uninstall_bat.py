@@ -57,3 +57,11 @@ def test_leftovers_are_listed_and_never_deleted():
     # Helpers only measure and print.
     helpers = bat[bat.index("\n:foldersize\n"):]
     assert not re.search(r"rmdir|\bdel\b|rd /s|Remove-Item", helpers)
+
+
+def test_no_path_is_echoed_through_an_unquoted_argument_expansion():
+    # A & in a path would split the echo line and run the rest as a command.
+    for line in _bat().splitlines():
+        # %~1 is always a fixed label; every path argument is %~2 or %~dp0.
+        if line.lstrip().lower().startswith("echo ") and ("%~2" in line or "%~dp0" in line):
+            raise AssertionError(line)

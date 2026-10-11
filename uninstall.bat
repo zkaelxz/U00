@@ -153,8 +153,10 @@ exit /b 0
 :leftover
 REM %1 = label, %2 = path. Lists it with its size when it exists; never deletes.
 if not exist "%~2" exit /b 0
-call :foldersize "%~2" LEFT_SIZE
-echo   - %~1: %~2 ^(!LEFT_SIZE!^)
+set "LEFT_PATH=%~2"
+call :foldersize "!LEFT_PATH!" LEFT_SIZE
+REM Delayed expansion: an unquoted %~2 would let a & in the path split the line.
+echo   - %~1: !LEFT_PATH! ^(!LEFT_SIZE!^)
 exit /b 0
 
 :wingetprog

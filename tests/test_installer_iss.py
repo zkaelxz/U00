@@ -524,3 +524,12 @@ class TestUninstallLibraryConfirmation:
             assert needle in step
         assert "DeleteTree(EnvOrDefault" not in step
         assert "DelTree" not in _func(iss, "NoteShared")
+
+    def test_declining_the_word_restores_the_boxes_remove_everything_ticked(self, iss):
+        init = _func(iss, "InitializeUninstall")
+        declined = init[init.index("not ConfirmLibraryDelete()"):]
+        # Without this, Remove everything + Yes + a mistyped word still deletes
+        # .env and model_cache (AskWhatToDelete set them from CleanAll).
+        restore = re.search(r"if CleanAll then\s+begin\s+DeleteSettings := PrevSettings;\s+"
+                            r"DeleteModels := PrevModels;\s+end;\s+CleanAll := False;", declined)
+        assert restore
