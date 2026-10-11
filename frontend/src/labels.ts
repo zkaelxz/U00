@@ -59,6 +59,7 @@ export const ENGINE_LABELS: Record<string, string> = {
   deepseek: 'DeepSeek',
   gemini: 'Gemini',
   ollama: 'Ollama',
+  echo: 'Echo (testing)',
   groq: 'Groq',
   openai: 'OpenAI',
   hf_token: 'Hugging Face token',

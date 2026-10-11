@@ -43,14 +43,20 @@ The `deepseek` engine needs the `openai` package, which is why
 `diagnostics.OPTIONAL_DEPENDENCIES["openai"]` is described as "DeepSeek
 translation engine".
 
-**No other engines exist.** DeepL, Google Cloud Translation and LibreTranslate
+**Echo (testing)** (`echo`, `engine_backends/echo.py`) is the one test engine in the
+app: no model, no key, output `[EN] <text>`. Developer Mode only: it is added to
+`ENGINES`, `FREE_ENGINES` and `KEYLESS_ENGINES` when the setting is saved on (and at
+server start) and removed when it is saved off, so a run naming it then gets the
+usual refusal with a Developer Mode hint. Bulk translate needs a batch provider
+(Claude, Gemini), so it does not accept Echo.
+
+**No other real engines exist.** DeepL, Google Cloud Translation and LibreTranslate
 were removed. `engine_registry.REMOVED_ENGINES` keeps their ids so a saved
 preset, routing rule or fallback chain that still names one is refused with
 `unknown_engine_message()` ("The X engine was removed") instead of a bare
 KeyError. The only trace left is a DeepL key pattern in
-`shared._SECRET_PATTERNS`, which is harmless. There is also no "test mode"
-engine in the app: the key-free `FakeEngine` lives in `tests/fake_engine.py`
-(id `fake`, output `[TEST] <text>`), is installed by `tests/conftest.py` and by
+`shared._SECRET_PATTERNS`, which is harmless. The key-free `FakeEngine` lives in `tests/fake_engine.py`
+(id `fake`, output `[TEST] <text>`), is `EchoEngine` with a different prefix, is installed by `tests/conftest.py` and by
 `frontend/e2e/serve_seeded_api.py`, and is never in the shipped `ENGINES`.
 
 ### What `shared.py` provides

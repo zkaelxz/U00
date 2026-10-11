@@ -59,6 +59,8 @@ def unknown_engine_message(engine_name) -> str:
     """The refusal text for an engine name that is not in ENGINES."""
     if engine_name in REMOVED_ENGINES:
         return f"The {engine_name} engine was removed. Pick another engine."
+    if engine_name == "echo":
+        return "The Echo (testing) engine needs Developer Mode. Turn it on in Settings or pick another engine."
     return "Unknown engine."
 
 
