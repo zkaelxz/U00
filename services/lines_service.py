@@ -27,9 +27,10 @@ import bulk_translate
 import core as core_module
 import db
 import source_change
+import subtitle_formats
 import timing_drift
 import translation_guide
-from services import timing_check_service, translate_service
+from services import reading_speed_dismissal_service, timing_check_service, translate_service
 from services.review_lines_service import line_dict
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -228,6 +229,8 @@ def dismiss_flag(drama_id: int, line_id: int) -> dict:
     Idempotent: an unflagged line is returned unchanged."""
     _, _, ln = load(drama_id, line_id)
     was_timing_drift = ln.flag == timing_drift.TIMING_DRIFT_FLAG
+    was_reading_speed = ln.flag == subtitle_formats.READING_SPEED_FLAG
+    english = ln.en
     ln.flag, ln.flag_note = None, ""
     db.save_lines(drama_id, [ln], fields=("flag", "flag_note"))
     if was_timing_drift:
@@ -239,6 +242,13 @@ def dismiss_flag(drama_id: int, line_id: int) -> dict:
             import applog
             applog.get_logger().warning(f"timing dismissal not remembered for drama {drama_id}: "
                                         f"{type(exc).__name__}")
+    if was_reading_speed:
+        try:
+            reading_speed_dismissal_service.note_dismissed(drama_id, line_id, english)
+        except Exception as exc:
+            import applog
+            applog.get_logger().warning(f"reading-speed dismissal not remembered for drama "
+                                        f"{drama_id}: {type(exc).__name__}")
     return _reload_dict(drama_id, line_id)
 
 
