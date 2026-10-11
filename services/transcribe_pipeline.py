@@ -33,7 +33,7 @@ from services import settings_service, timing_settings_service
 from services.qwen3_requirements_service import import_failure_message
 from translate_engines import redact_secrets
 
-VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
+VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
 
 
 def _audio_duration_seconds(path) -> Optional[float]:
@@ -334,6 +334,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     qwen_device = {}
     fallback_tasks = []
     vad_stage = {"ticker": None, "percent": False}
+    anime_run = asr_backend_choice == "anime_whisper"
+    vad_engine_task, vad_engine_name = (("Anime-whisper", "anime-whisper") if anime_run
+                                        else ("Qwen3-ASR", "Qwen3-ASR"))
 
     def _qwen_on_fallback(task, exc):
         gpu_fallback_msg.append(whisper_models.short_reason(exc))
@@ -346,8 +349,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         _qwen_on_device(task, label)
         # The model load ends the loading stage; until the first percent the
         # stage text says where the work runs.
-        if task == "Qwen3-ASR" and vad_stage["ticker"] and not vad_stage["percent"]:
-            _vad_set_stage(f"Transcribing with Qwen3-ASR on {label} (no percent until "
+        if task == vad_engine_task and vad_stage["ticker"] and not vad_stage["percent"]:
+            _vad_set_stage(f"Transcribing with {vad_engine_name} on {label} (no percent until "
                            "the first batch finishes)")
 
     def _vad_set_stage(text):
@@ -444,14 +447,14 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 vad_stage["ticker"].stop()
                 frac = min(max(frac, 0.0), 1.0)
                 if ((vad_refine_timing or asr_backend_choice == "qwen3_asr_long")
-                        and not mixed_languages and frac > 0.9):
+                        and not mixed_languages and not anime_run and frac > 0.9):
                     # The backend gives the last tenth to the forced aligner.
                     where = qwen_device.get("Qwen3 forced alignment")
                     message = ("Aligning timing with the Qwen3 forced aligner"
                                f"{f' on {where}' if where else ''}... {frac * 100:.0f}%")
                 else:
-                    where = qwen_device.get("Qwen3-ASR")
-                    message = (f"Transcribing with Qwen3-ASR{f' on {where}' if where else ''}"
+                    where = qwen_device.get(vad_engine_task)
+                    message = (f"Transcribing with {vad_engine_name}{f' on {where}' if where else ''}"
                                f"... {frac * 100:.0f}%")
                 rep.progress(frac * RUNNING_MAX, message)
 
@@ -463,7 +466,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     refine_timing=vad_refine_timing, mixed_languages=mixed_languages,
                     stage_cb=_vad_set_stage, on_device=_on_vad_device,
                     on_gpu_fallback=_qwen_on_fallback, detector=voice_detector,
-                    on_notice=detector_notices.append, prompt=qwen_prompt, tuning=tuning)
+                    on_notice=detector_notices.append, prompt=qwen_prompt, tuning=tuning,
+                    # Only anime-whisper takes it; the Qwen3 backends have no decode penalties.
+                    **({"repeat_guard": repeat_guard} if anime_run else {}))
             except vad_segments.VadNotInstalledError:
                 return {"failed_reason": "dependency_missing",
                         "detail": _MISSING_VAD_MESSAGE}
@@ -615,7 +620,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         if transcript_mode == "whisper":
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
             if vad_run:
-                raw_backend, raw_model = asr_backend_choice, "Qwen3-ASR"
+                raw_backend, raw_model = asr_backend_choice, vad_engine_task
             elif asr_backend_choice == "qwen3_asr":
                 if rep.cancelled():
                     return {"failed_reason": "cancelled"}

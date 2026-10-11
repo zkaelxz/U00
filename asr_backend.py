@@ -594,6 +594,11 @@ class Qwen3ASRLongBackend(Qwen3ASRVadBackend):
     long_windows = True
 
 
+# Its own module (asr_backend would pass the size ceiling); it imports this one only inside
+# functions, so importing either first works.
+from anime_whisper import AnimeWhisperBackend, place_words_in_spans  # noqa: E402,F401
+
+
 # The seam: every selectable transcription backend by its stored
 # asr_backend_choice value.
 BACKENDS = {
@@ -601,6 +606,7 @@ BACKENDS = {
     Qwen3ASRBackend.name: Qwen3ASRBackend,
     Qwen3ASRVadBackend.name: Qwen3ASRVadBackend,
     Qwen3ASRLongBackend.name: Qwen3ASRLongBackend,
+    AnimeWhisperBackend.name: AnimeWhisperBackend,
 }
 
 

@@ -29,7 +29,7 @@ PRESET_KEYS = ("beam", "vad", "prompt", "align", "detector")
 GRAMMAR = """\
 recipe grammar:  BACKEND[:MODEL][,KEY=VALUE]...
 
-  BACKEND  whisper | qwen3_asr | qwen3_asr_vad | qwen3_asr_long
+  BACKEND  whisper | qwen3_asr | qwen3_asr_vad | qwen3_asr_long | anime_whisper
   MODEL    a Whisper model key from the Transcribe stage (small, medium, large-v3,
            large-v3-turbo, ja-1.5b, kotoba-v2). Only whisper and qwen3_asr take
            one; omitted, the title's saved model is used. A model that is not
@@ -44,7 +44,11 @@ recipe grammar:  BACKEND[:MODEL][,KEY=VALUE]...
                                                           whisper, qwen3_asr_vad
                             (qwen3_asr_long always aligns)
     detector=standard|asmr  voice detector (default: the Settings choice, auto)
-                                                          qwen3_asr_vad, qwen3_asr_long
+                                                          qwen3_asr_vad, qwen3_asr_long,
+                                                          anime_whisper
+
+anime_whisper is Japanese only and for personal, non-commercial use; it downloads its
+own pinned model on first use and takes no MODEL.
 
 examples:
   whisper:large-v3-turbo
@@ -52,6 +56,7 @@ examples:
   whisper:large-v3-turbo,vad=sensitive,beam=1
   qwen3_asr_vad,detector=asmr
   qwen3_asr_long
+  anime_whisper
 
 The first --config is the baseline. Anything not named in a recipe is what the
 title already uses, so a recipe only has to say what differs."""
@@ -157,6 +162,14 @@ def run_qwen3_vad(ctx: RunContext, r: Recipe) -> list:
         on_gpu_fallback=lambda task, exc: ctx.note_gpu_fallback(exc))
 
 
+def run_anime_whisper(ctx: RunContext, r: Recipe) -> list:
+    detector = r.detector or asr_options_service.resolve_voice_detector(ctx.drama, ctx.language)
+    return asr_backend.get_backend("anime_whisper").transcribe(
+        ctx.wav, ctx.language, use_gpu=ctx.use_gpu, detector=detector,
+        on_notice=ctx.notes.append,
+        on_gpu_fallback=lambda task, exc: ctx.note_gpu_fallback(exc))
+
+
 # What each recipe loads: (headroom kind, headroom name, label).
 def _whisper_load(r):
     return [("whisper", r.model, f"Whisper {r.model}")]
@@ -184,6 +197,9 @@ BACKENDS = {
     "qwen3_asr_long": BackendSpec(
         "qwen3_asr_long", frozenset({"detector"}), False, run_qwen3_vad,
         lambda r: _qwen_load() + _aligner_load(), (0.35, 2.0)),
+    "anime_whisper": BackendSpec(
+        "anime_whisper", frozenset({"detector"}), False, run_anime_whisper,
+        lambda r: [("whisper", "anime-whisper", "anime-whisper")], (0.15, 1.0)),
 }
 
 

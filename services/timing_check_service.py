@@ -34,7 +34,7 @@ from services.service_errors import (ConflictError, InvalidInputError, NotFoundE
 from translate_engines import redact_secrets
 
 # Backends whose line times are Silero's spans or the forced aligner's, with no Whisper pass behind them.
-QWEN_ONLY_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
+NO_WHISPER_PASS_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
 SNAP_HISTORY_LABEL = "before snapping lines to speech"
 _STATE_FILE = "timing_check.json"
 _MAX_SNAP_IDS = 5000
@@ -312,7 +312,7 @@ def after_run(drama_id: int, outcome: dict) -> bool:
             # The bump also keeps a check still unwinding on the old lines from writing them back.
             _generation[drama_id] = _generation.get(drama_id, 0) + 1
             _write_state(drama_id, {"dismissed": [], "suggestions": {}, "last_check": None})
-        if outcome.get("raw_backend") not in QWEN_ONLY_BACKENDS:
+        if outcome.get("raw_backend") not in NO_WHISPER_PASS_BACKENDS:
             return False
         start_timing_check(drama_id, after_transcription=True)
         return True

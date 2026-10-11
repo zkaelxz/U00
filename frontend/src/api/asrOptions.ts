@@ -75,7 +75,14 @@ export function parseBatchSize(raw: string, min: number, max: number): number | 
 
 // Transcribe > Advanced "ASR backend" choices.
 export function asrBackendOptions(): string[] {
-  return ['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long']
+  return ['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long', 'anime_whisper']
+}
+
+// Backends that exist for one language only; the server refuses them elsewhere too.
+const LANGUAGE_ONLY_BACKENDS: Record<string, string> = { anime_whisper: 'ja' }
+
+export function asrBackendOptionsFor(language: string): string[] {
+  return asrBackendOptions().filter((o) => !LANGUAGE_ONLY_BACKENDS[o] || LANGUAGE_ONLY_BACKENDS[o] === language)
 }
 
 // The muted line under the batch-size field.

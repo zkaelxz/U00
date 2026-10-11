@@ -69,6 +69,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 **ASR, transcription & alignment**
 
+- `anime_whisper.py` (the opt-in Japanese-only anime-whisper backend: window decoding, forced alignment, words placed in speech spans; personal non-commercial use)
 - `asmr_vad.py`
 - `asr_backend.py`
 - `asr_benchmark.py`
@@ -180,6 +181,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
 - `gzip_text.py` (`pack`/`unpack`: gzip for stored text that readers must take in both plain and compressed form, with a capped inflate)
 - `ct2_repo.py` (which files of a Hugging Face CTranslate2 Whisper repo may be downloaded; refuses a listing holding code-bearing files; shared by `whisper_models` and `tools/ja_whisper_models.py`)
+- `file_lock.py` (`hold`: an exclusive cross-process lock on a file, for a model download two processes must not run at once)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)

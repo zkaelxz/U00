@@ -83,7 +83,7 @@ import background_jobs
 import cli_subtitle
 import cli_timing
 from jobs import gpu_slots, job_store
-from services import (dub_service, export_service, glossary_service, jobs_service, lines_service,
+from services import (asr_options_service, dub_service, export_service, glossary_service, jobs_service, lines_service,
                       narration_service, review_extras_service, settings_service, transcribe_pipeline,
                       transcribe_service)
 from services.narration_service import TAG_ENGINES
@@ -1060,7 +1060,8 @@ def main():
     p_transcribe.add_argument("--whisper-size", default=None,
                               help="Whisper model size, saved on the title.")
     p_transcribe.add_argument("--asr-backend", default=None,
-                              choices=transcribe_service.ASR_BACKEND_CHOICES,
+                              choices=[c for c in transcribe_service.ASR_BACKEND_CHOICES
+                                       if c not in asr_options_service.APP_ONLY_ASR_BACKENDS],
                               help="Speech recognition backend, saved on the title.")
     p_transcribe.add_argument("--beam-size", type=int, default=None, help="Whisper beam size (1-10).")
     p_transcribe.add_argument("--min-silence-ms", type=int, default=None,

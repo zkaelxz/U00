@@ -14,8 +14,8 @@ import ollama_unload
 from translate_engines import redact_secrets
 
 SLICE_TIMEOUT_S = 120
-# The Qwen3 backends that find speech themselves instead of hearing Whisper's segments.
-VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
+# The backends that find speech themselves instead of hearing Whisper's segments.
+VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
 
 
 def hear(slice_path: str, cfg: dict, language, on_fallback) -> str:
