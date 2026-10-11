@@ -5,7 +5,7 @@ import { mediaStreamUrl } from '../../../api/media'
 import { cancelJob } from '../../../api/jobs'
 import { getSpeechCoverage, startSpeechCoverage } from '../../../api/speechCoverage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { safeDetail } from '../../../components/errorMessages'
+import { isForbidden, LINES_READ_FORBIDDEN, safeDetail } from '../../../components/errorMessages'
 import { Section } from '../../../components/Section'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import { routeHref } from '../../../router'
@@ -138,7 +138,11 @@ export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Pro
             {blocker && <span className="muted">{blocker}</span>}
           </div>
         )}
-        <ErrorBanner error={error ?? loadError} onDismiss={() => { setError(null); clearError() }} />
+        {!error && isForbidden(loadError) ? (
+          <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>
+        ) : (
+          <ErrorBanner error={error ?? loadError} onDismiss={() => { setError(null); clearError() }} />
+        )}
         {status?.status === 'error' && (
           <p className="error" role="alert">
             {safeDetail(status.message) ?? 'The check failed. Details are in the app log.'}

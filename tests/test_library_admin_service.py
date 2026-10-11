@@ -652,6 +652,134 @@ def test_restore_keeps_current_sources_settings(isolated_db):
     assert src_store.get_setting("page_server_enabled") is False
 
 
+def _zip_sources_rows(data, sql):
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        raw = zf.read("sources.db")
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.write(fd, raw)
+    os.close(fd)
+    try:
+        conn = sqlite3.connect(path)
+        try:
+            return conn.execute(sql).fetchall()
+        finally:
+            conn.close()
+    finally:
+        os.remove(path)
+
+
+@pytest.mark.parametrize("include_media", [True, False])
+def test_backup_holds_a_consistent_sources_db_snapshot(isolated_db, include_media, tmp_path):
+    _new("A")
+    src_store.track_series("site", "s1", "Before")
+    # An open read transaction stops a checkpoint, so the next write stays in
+    # sources.db-wal, where a plain copy of sources.db would miss it.
+    reader = sqlite3.connect(src_store.db_path())
+    try:
+        reader.execute("BEGIN")
+        reader.execute("SELECT COUNT(*) FROM tracked_series").fetchone()
+        src_store.track_series("site", "s2", "In the log")
+        dest = str(tmp_path / "b.zip")
+        las.write_backup_zip(dest, include_media=include_media)
+    finally:
+        reader.close()
+    with open(dest, "rb") as f:
+        data = f.read()
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+    assert "sources.db" in names
+    assert not [n for n in names if n.startswith("sources.db-")]
+    assert sorted(r[0] for r in _zip_sources_rows(
+        data, "SELECT series_id FROM tracked_series")) == ["s1", "s2"]
+
+
+def test_backup_never_holds_the_sources_settings(isolated_db):
+    # A proxy URL can carry a password; a restore keeps the live settings
+    # anyway, so the backup has no use for them.
+    _new("A")
+    src_store.set_setting("http_proxy_url", "http://user:hunter2@proxy.example:8080")
+    src_store.track_series("site", "s1", "Kept")
+    data = _backup_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        assert not [n for n in zf.namelist() if b"hunter2" in zf.read(n)]
+    assert _zip_sources_rows(data, "SELECT key FROM settings") == []
+    _restore(data)
+    assert [r["series_id"] for r in src_store.list_tracked_series()] == ["s1"]
+    assert src_store.get_setting("http_proxy_url") == "http://user:hunter2@proxy.example:8080"
+
+
+def test_busy_sources_db_fails_the_backup_with_the_fixed_message(isolated_db, monkeypatch):
+    _new("A")
+    src_store.track_series("site", "s1", "Kept")
+
+    def busy(dest, source=None):
+        raise src_store.SourcesDatabaseBusy()
+    monkeypatch.setattr(src_store, "snapshot_to", busy)
+    st = _wait(las.start_backup()["job_id"])
+    assert st["status"] == "error"
+    assert st["error"].endswith("The backup could not be written.")
+    assert "Sources" not in st["error"] and "busy" not in st["error"]
+
+
+def test_restore_without_sources_db_keeps_the_live_one(isolated_db):
+    _new("A")
+    src_store.track_series("site", "s1", "Backed up")
+    with zipfile.ZipFile(io.BytesIO(_backup_bytes())) as src:
+        data = _zip({n: src.read(n) for n in src.namelist() if n != "sources.db"})
+    src_store.track_series("site", "s2", "Tracked later")
+    src_store.set_setting("http_proxy_url", "http://127.0.0.1:8080")
+    _restore(data)
+    assert sorted(r["series_id"] for r in src_store.list_tracked_series()) == ["s1", "s2"]
+    assert src_store.get_setting("http_proxy_url") == "http://127.0.0.1:8080"
+
+
+def test_restored_sources_db_has_migrated_columns_and_wal(isolated_db):
+    _new("A")
+    src_store.track_series("site", "s1", "Saved as CBZ")
+    assert src_store.set_tracked_save("site", "s1", True)
+    data = _backup_bytes()
+    _restore(data)
+    [row] = src_store.list_tracked_series()
+    assert row["save_cbz"] == 1
+    assert src_store.set_tracked_save("site", "s1", False)
+    with src_store.connect() as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+def test_unreadable_carried_sources_db_leaves_the_live_library(isolated_db, monkeypatch):
+    a = _new("A")
+    src_store.track_series("site", "s1", "Live")
+    with zipfile.ZipFile(io.BytesIO(_backup_bytes())) as src:
+        data = _zip({n: src.read(n) for n in src.namelist() if n != "sources.db"})
+    b = _new("B")
+
+    def torn_snapshot(dest, source=None):
+        with open(dest, "wb") as f:
+            f.write(b"SQLite format 3\x00" + b"\xff" * 4000)
+        return dest
+    monkeypatch.setattr(src_store, "snapshot_to", torn_snapshot)
+    with pytest.raises(InvalidInputError) as ei:
+        _restore(data)
+    assert db.LIBRARY_DIR not in str(ei.value)
+    assert "sources.db" in str(ei.value) and "try again" in str(ei.value)
+    assert db.get_drama(a) and db.get_drama(b)
+    assert [r["series_id"] for r in src_store.list_tracked_series()] == ["s1"]
+    assert not _leftovers()
+
+
+def test_restore_keeps_the_live_auto_backup_settings_and_state(isolated_db):
+    from services import auto_backup_service as abs_
+    _new("A")
+    db.set_app_setting(abs_.SETTINGS_KEY, {"enabled": True, "folder": "elsewhere"})
+    db.set_app_setting(abs_.STATE_KEY, {"last_success_at": "from the backup"})
+    data = _backup_bytes()
+    db.set_app_setting(abs_.SETTINGS_KEY, {"enabled": False, "folder": ""})
+    db.set_app_setting(abs_.STATE_KEY, {"last_success_at": "live"})
+    _restore(data)
+    assert db.get_app_setting(abs_.SETTINGS_KEY) == {"enabled": False, "folder": ""}
+    assert db.get_app_setting(abs_.STATE_KEY) == {"last_success_at": "live"}
+
+
 def test_restore_rechecks_jobs_before_swap(isolated_db, monkeypatch):
     a = _new("A")
     data = _backup_bytes()

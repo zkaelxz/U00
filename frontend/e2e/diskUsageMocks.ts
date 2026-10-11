@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-// Stateful page.route mock for /api/data-usage (Library tools > Disk usage).
+// Stateful page.route mock for /api/data-usage (Library tools > Storage and Data folder tabs).
 // Folders hold items; moving to Trash takes the item out of its folder into a
 // trash list (restore puts it back, purge and empty delete it) and a move
 // repoints the backup folder. Every POST body is recorded in `posts`.
@@ -25,6 +25,9 @@ export const TREE: Record<string, Node[]> = {
     { name: 'library', kind: 'folder', size: 48_000_000_000, files: 52000, protected: 'Holds database or key files. Open it and clear items inside instead.' },
     { name: 'model_cache', kind: 'folder', size: 6_200_000_000, files: 340, regen: { label: 'Downloaded models', note: 'Downloaded again when a feature needs them.' } },
     { name: '.env', kind: 'file', size: 412, files: 1, protected: 'Holds API keys or other secrets.' },
+    { name: 'venv', kind: 'folder', size: 3_100_000_000, files: 21000, protected: 'Part of the program, not your data.' },
+    { name: 'frontend', kind: 'folder', size: 900_000_000, files: 30000, protected: 'Part of the program, not your data.' },
+    { name: '.git', kind: 'folder', size: 400_000_000, files: 5000, protected: 'Part of the program, not your data.' },
   ],
   library: [
     { name: 'dramas', kind: 'folder', size: 41_000_000_000, files: 9000, irreplaceable: true },

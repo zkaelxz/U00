@@ -45,6 +45,7 @@ _BACKEND_LABELS = {
     "whisper": "Whisper", "qwen3_asr": "Qwen3 ASR",
     "qwen3_asr_vad": "Qwen3 ASR with speech detection",
     "qwen3_asr_long": "Qwen3 ASR on long windows",
+    "anime_whisper": "anime-whisper (Japanese, experimental, non-commercial)",
 }
 
 
@@ -62,9 +63,17 @@ def _drama_or_404(drama_id: int) -> dict:
 def _backend_problem(choice: str, language: str):
     """Why this backend can't run here, or None. Same checks a full
     transcribe run makes, as a reason instead of an error."""
+    problem = asr_options_service.asr_backend_language_problem(choice, language)
+    if problem:
+        return problem
     try:
         if choice == "qwen3_asr":
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
+        elif choice == "anime_whisper":
+            transcribe_service._require_vad_packages()
+            problem = transcribe_service.anime_whisper_package_problem()
+            if problem:
+                return problem
         elif choice in _VAD_BACKENDS:
             transcribe_service.require_vad_backend_packages(choice, language)
             transcribe_service._require_vad_packages()
@@ -74,7 +83,8 @@ def _backend_problem(choice: str, language: str):
     if (choice in ("whisper", "qwen3_asr")
             and not transcribe_service.diagnostics.check_dependency("faster_whisper")):
         return transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE
-    if (choice == "qwen3_asr" or choice in _VAD_BACKENDS) and language not in asr_backend.LANGUAGE_NAMES:
+    if ((choice == "qwen3_asr" or choice in _VAD_BACKENDS and choice != "anime_whisper")
+            and language not in asr_backend.LANGUAGE_NAMES):
         return "Qwen3-ASR doesn't cover this title's language."
     return None
 
@@ -313,6 +323,9 @@ def _line_language(ln, cfg: dict, line_number: int):
     detection. Plain Qwen3 re-hears Whisper's spans in a fixed language and
     refuses one outside zh/ja/ko, so that line is skipped, not mis-heard."""
     language = ln.lang or cfg["language"]
+    if asr_options_service.asr_backend_language_problem(cfg["backend"], language):
+        return language, (f"line {line_number}: anime-whisper only hears Japanese "
+                          f"({language}), skipped")
     if language in asr_backend.LANGUAGE_NAMES:
         return language, None
     if cfg["backend"] in _VAD_BACKENDS:

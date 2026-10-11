@@ -38,7 +38,13 @@ VOICE_DETECTOR_CHOICES = ("auto", "asmr", "standard")
 MIN_BATCH_SIZE = 1
 MAX_BATCH_SIZE = 16
 
-ASR_BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "qwen3_asr_long")
+ASR_BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
+# Not offered by the CLI, which is maintenance-only (a title that saved one in the app still runs it).
+APP_ONLY_ASR_BACKENDS = ("anime_whisper",)
+# Backends that exist for one language only, with the sentence shown when another is picked.
+LANGUAGE_ONLY_ASR_BACKENDS = {
+    "anime_whisper": ("ja", "anime-whisper is only for Japanese titles."),
+}
 # Backends that used to be offered. A title may still have one saved, so it
 # loads as the default backend with a notice; the saved value is left alone.
 REMOVED_ASR_BACKENDS = {"moss_td": "MOSS-Transcribe-Diarize"}
@@ -194,11 +200,20 @@ def _raise_if_cancelled():
         raise background_jobs.JobCancelled()
 
 
+def asr_backend_language_problem(choice, language):
+    """Why this backend is not offered for this language, or None when it is."""
+    only = LANGUAGE_ONLY_ASR_BACKENDS.get(choice)
+    return only[1] if only and language != only[0] else None
+
+
 def removed_asr_backend_notice(drama):
-    """A plain notice when the title's saved backend was removed, else None."""
-    label = REMOVED_ASR_BACKENDS.get(drama.get("asr_backend_choice"))
+    """A plain notice when the title's saved backend was removed or no longer fits
+    its language, else None."""
+    saved = drama.get("asr_backend_choice")
+    label = REMOVED_ASR_BACKENDS.get(saved)
     if not label:
-        return None
+        problem = asr_backend_language_problem(saved, drama.get("source_language") or "zh")
+        return f"{problem} This title now uses its default backend." if problem else None
     return f"The {label} backend was removed, so this title now uses its default backend."
 
 
@@ -207,6 +222,10 @@ def stored_asr_backend(drama) -> str:
     stays on Whisper: Qwen3-ASR downloads several GB of weights on first use,
     and transformers 5.15+ alone (which other features install) is no sign the
     user wants that. A saved backend that has been removed also reads as
-    Whisper."""
+    Whisper, as does one the title's language no longer fits (a language change after
+    anime-whisper was picked)."""
     saved = drama.get("asr_backend_choice")
-    return saved if saved and saved not in REMOVED_ASR_BACKENDS else "whisper"
+    if not saved or saved in REMOVED_ASR_BACKENDS or asr_backend_language_problem(
+            saved, drama.get("source_language") or "zh"):
+        return "whisper"
+    return saved

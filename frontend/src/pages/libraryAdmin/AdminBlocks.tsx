@@ -7,50 +7,21 @@ import {
 } from '../../api/libraryAdmin'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
-import { Section } from '../../components/Section'
 import { TypedConfirm } from '../../components/TypedConfirm'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   ADMIN_JOB_IDS, STORAGE_PRESETS, type LibraryStorageScan, type StoragePreset,
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
-import { SnapshotBlock } from './SnapshotBlock'
 import { anyJobActive, describeClean, describeScan, formatBytes } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
 
 const SERVER = { pcOnly: true, serverText: true } as const
 const JOB_POLL_MS = 3000
 
-/** "Backup & storage": export, backup, restore and storage cleanup. PC only. */
-export function AdminSection({ pc, exportable, exporter }: {
-  pc: PcMode
-  exportable: number
-  // The page-level export job (shared with the selection bar).
-  exporter: AdminJob
-}) {
-  if (pc === 'remote') {
-    return (
-      <Section title="Backup & storage" summary={PC_ONLY_SUMMARY} storageKey="library.admin">
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
-  return (
-    <Section title="Backup & storage" summary="Export, back up, restore, free space" storageKey="library.admin">
-      <ExportBlock exportable={exportable} job={exporter} />
-      <BackupBlock />
-      <RestoreBlock />
-      <SnapshotBlock />
-      <StorageBlock />
-    </Section>
-  )
-}
-
-function ExportBlock({ exportable, job }: { exportable: number; job: AdminJob }) {
+export function ExportBlock({ exportable, job }: { exportable: number; job: AdminJob }) {
   return (
     <div className="admin-block">
-      <h3>Export</h3>
       <div className="actions">
         <button type="button" disabled={!exportable || job.active} onClick={() => void job.start(() => startExport())}>
           Export all translated ({exportable})
@@ -65,12 +36,11 @@ function ExportBlock({ exportable, job }: { exportable: number; job: AdminJob })
   )
 }
 
-function BackupBlock() {
+export function BackupBlock() {
   const full = useAdminJob(ADMIN_JOB_IDS.backup, 'backup')
   const database = useAdminJob(ADMIN_JOB_IDS.database, 'database')
   return (
     <div className="admin-block">
-      <h3>Backup</h3>
       <div className="actions">
         <button type="button" disabled={full.active} onClick={() => void full.start(() => startBackup(false))}>
           Back up library
@@ -84,13 +54,12 @@ function BackupBlock() {
       <ErrorBanner error={full.startError} describe={SERVER} />
       <AdminJobLine job={database} busyText="Backing up the database…" artifact="database" />
       <ErrorBanner error={database.startError} describe={SERVER} />
-      <UserBackup />
     </div>
   )
 }
 
 /** Backup of just one person's dramas and series, for moving to their own install. */
-function UserBackup() {
+export function UserBackup() {
   const job = useAdminJob(ADMIN_JOB_IDS.userBackup, 'user_backup')
   const [users, setUsers] = useState<AdminUser[]>([])
   const [owner, setOwner] = useState('')
@@ -105,7 +74,7 @@ function UserBackup() {
   }, [])
 
   return (
-    <>
+    <div className="admin-block">
       <Field
         label="Backup of just my stuff"
         help="Only these titles and series, with their media. No other person's items and no sign-in data. Restore it into a new install."
@@ -128,11 +97,11 @@ function UserBackup() {
       </div>
       <AdminJobLine job={job} busyText="Backing up…" artifact="user_backup" />
       <ErrorBanner error={job.startError} describe={SERVER} />
-    </>
+    </div>
   )
 }
 
-function RestoreBlock() {
+export function RestoreBlock() {
   const [file, setFile] = useState<File | null>(null)
   const [inputKey, setInputKey] = useState(0)
   const [jobsBusy, setJobsBusy] = useState(false)
@@ -183,7 +152,6 @@ function RestoreBlock() {
 
   return (
     <div className="admin-block">
-      <h3>Restore</h3>
       {done ? (
         <div className="actions" role="status">
           <span>Restored.</span>
@@ -229,7 +197,7 @@ function RestoreBlock() {
   )
 }
 
-function StorageBlock() {
+export function CleanupBlock() {
   const [preset, setPreset] = useState<StoragePreset>('balanced')
   const [scan, setScan] = useState<LibraryStorageScan | null>(null)
   const [cleaning, setCleaning] = useState(false)
@@ -275,7 +243,6 @@ function StorageBlock() {
 
   return (
     <div className="admin-block">
-      <h3>Storage</h3>
       <div className="field-row preset-row">
         <Field label="Cleanup preset" help="Scan is a dry run: nothing is removed until Clean up.">
           <select
