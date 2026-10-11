@@ -61,7 +61,7 @@ def start_retime(drama_id: int, line_ids: list) -> dict:
     job_id = retime_job_id(drama_id)
     started = background_jobs.start_job(
         job_id, run_retime_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
-        drama.get("source_language") or "zh", settings_service.get_use_gpu(),
+        drama.get("source_language") or "zh", settings_service.get("use_gpu"),
         gpu_touching=True,
         description=f"Re-timing {len(picked)} line(s) with the Qwen3 aligner (drama #{drama_id})")
     if not started:

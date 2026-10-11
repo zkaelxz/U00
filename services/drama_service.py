@@ -79,6 +79,8 @@ def _check_text(name, value):
         raise InvalidInputError(f"{name} is too long (max {cap} characters).")
     if name == "source_url" and value and not value.startswith(("http://", "https://")):
         raise InvalidInputError("source_url must be empty or start with http:// or https://.")
+    if name in _STRIPPED and "\x00" in value:
+        raise InvalidInputError(f"{name} must not contain a NUL character.")
     return value.strip() if name in _STRIPPED else value
 
 
@@ -159,7 +161,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     else:
         # Settings > Defaults for new dramas (the column's own default is
         # claude, so an unstamped drama would never see the setting).
-        fields["translation_engine"] = settings_service.get_default_engine()
+        fields["translation_engine"] = settings_service.get("default_engine")
     try:
         new_id = db.create_drama(**fields)
     except db.DramaFolderConflict as exc:

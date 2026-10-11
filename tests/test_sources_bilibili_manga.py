@@ -195,3 +195,31 @@ class TestEmptyShellMessages:
             return STATIC_SHELL_HTML, ""
         out = ladder.rendered_tier(None, shell)("https://manga.bilibili.com/mc1/2")
         assert not out.ok and "browser tier also returned an empty page" in out.detail
+
+
+class TestChapterImportKeepsEveryPageKind:
+    """import_comic_page with no budget (the adapter path) keeps a GIF
+    page and a page its CDN labels text/plain, and reports what it left
+    out."""
+
+    def test_gif_and_text_plain_pages_are_kept_and_skips_reported(self, isolated_db):
+        import io as _io
+        from PIL import Image
+        from sources.http import Response
+        from .sources_helpers import png
+        buf = _io.BytesIO()
+        Image.new("P", (800, 1200), 3).save(buf, "GIF")
+        icon = "https://images.hdslb.com/bfs/manga-static/abc/icon.png?token=sig333"
+        rendered = ('<html><body><div class="manga-reader">'
+                    f'<img src="{TOKEN_IMG_1}"><img src="{TOKEN_IMG_2}"><img src="{icon}">'
+                    '</div></body></html>')
+        routes = {CHAPTER_URL: html(STATIC_SHELL_HTML),
+                  TOKEN_IMG_1: Response(200, {"content-type": "image/gif"}, buf.getvalue(), ""),
+                  TOKEN_IMG_2: Response(200, {"content-type": "text/plain"},
+                                        png(800, 1200, 2), ""),
+                  icon: image(10, 10, 3)}
+        a, t = _adapter(routes, lambda url: (rendered, ""))
+        chapter = _chapter()
+        refs = a.get_pages(chapter)
+        assert [r.url for r in refs] == [TOKEN_IMG_1, TOKEN_IMG_2]
+        assert a.skipped_pages(chapter) == ["too small to be a page (10x10)"]

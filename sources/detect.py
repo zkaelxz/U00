@@ -16,7 +16,17 @@ from .models import FailureReason
 # No "<" inside the tag or the title text: a lazy `(.*?)</title>` is
 # quadratic on many unclosed "<title>" tags (pasted page source can be 5 MB).
 _TITLE_RE = re.compile(r"<title[^<>]*>([^<]*)</title>", re.I)
-_TAG_RE = re.compile(r"<(script|style|noscript)\b.*?</\1>|<[^>]+>", re.I | re.S)
+# Script/style/noscript blocks are cut by `_strip_blocks` with str.find: a
+# lazy `<script\b.*?</script>` regex is quadratic on an unclosed <script>,
+# and this runs on every fetched page. No "<" inside a tag for the same
+# reason: `<[^>]+>` rescans to the end from every "<" when no ">" follows.
+_TAG_RE = re.compile(r"<[^<>]+>")
+_BLOCK_OPEN_RE = re.compile(r"<(script|style|noscript)\b", re.I)
+_BLOCK_CLOSE_RE = {tag: re.compile("</" + tag, re.I) for tag in ("script", "style", "noscript")}
+# Every threshold classify() compares against is a few thousand characters,
+# so text past this cap can't change a verdict. Applied to the text, not the
+# markup: a page can carry far more markup than this before its first word.
+_MAX_VISIBLE_TEXT = 512 * 1024
 
 # Cloudflare's managed/JS challenge. `cf-mitigated: challenge` is the
 # authoritative signal; the body markers catch older challenge pages.
@@ -87,9 +97,32 @@ def page_title(html: str) -> str:
     return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
 
 
+def _strip_blocks(html: str) -> str:
+    parts = []
+    pos = 0
+    while True:
+        m = _BLOCK_OPEN_RE.search(html, pos)
+        if not m:
+            parts.append(html[pos:])
+            break
+        parts.append(html[pos:m.start()])
+        # An unclosed block runs to the end of the page, as a browser treats it.
+        # Searched in `html` itself: offsets from a lowercased copy drift,
+        # since some characters ("İ") lowercase to two code points.
+        close = _BLOCK_CLOSE_RE[m.group(1).lower()].search(html, m.end())
+        if not close:
+            break
+        end = html.find(">", close.end())
+        if end < 0:
+            break
+        parts.append(" ")
+        pos = end + 1
+    return "".join(parts)
+
+
 def visible_text(html: str) -> str:
-    text = _TAG_RE.sub(" ", html or "")
-    return re.sub(r"\s+", " ", text).strip()
+    text = _TAG_RE.sub(" ", _strip_blocks(html or ""))
+    return re.sub(r"\s+", " ", text).strip()[:_MAX_VISIBLE_TEXT]
 
 
 def machine_translated(html: str) -> list:
