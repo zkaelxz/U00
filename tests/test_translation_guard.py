@@ -290,3 +290,31 @@ class TestReflectCachedInstructions:
         engine = self.Claude()
         call_llm_json(engine, "hi")
         assert "system" not in engine.requests[0]
+
+
+class TestReaskFailuresAndForcedRetranslate:
+    def test_a_reask_that_hits_the_daily_limit_is_recorded_and_stops_the_run(self):
+        class Limited(Scripted):
+            def translate_batch(self, zh_lines, context):
+                if self.calls:
+                    raise te.FreeTierDailyLimitReached("daily limit")
+                return super().translate_batch(zh_lines, context)
+        engine = Limited({102: "Why didn't you 给我打电话 yesterday?"})
+        lines = _lines(6) + [Line(idx=10 + i, start=10 + i, end=11 + i, zh=SOURCES[i], id=200 + i)
+                             for i in range(6)]
+        _, errors = _run(engine, lines)
+        assert len(errors) == 1 and errors[0]["batch_index"] == 0
+        assert errors[0]["lines"] == [lines[2].idx] and "daily limit" in errors[0]["error"]
+        assert all(not ln.en for ln in lines[6:])  # the run stopped; the error says why
+
+    def test_force_retranslate_leaves_a_line_the_reply_omitted_alone(self):
+        class Omits(Scripted):
+            def translate_batch(self, zh_lines, context):
+                out = super().translate_batch(zh_lines, context)
+                return ["" if i == 102 else t for i, t in zip(context["line_ids"], out)]
+        engine = Omits()
+        lines = _lines()
+        lines[2].en = "My own hand-edited English 吗"  # would look suspect to the checks
+        _run(engine, lines, force_retranslate=True)
+        assert lines[2].en == "My own hand-edited English 吗" and not lines[2].flag
+        assert len(engine.calls) == 1

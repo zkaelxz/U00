@@ -650,12 +650,13 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 # ids missing from the reply with "", so a cut-off reply still
                 # matches in length; an empty result must not overwrite
                 # anything or look like a success.
-                empty = []
+                empty, fresh = [], []
                 for ln, tr in zip(chunk, translations):
                     if (tr or "").strip():
                         ln.en = tr
                         source_change.clear_for_new_english(ln)
                         translated.append(ln)
+                        fresh.append(ln)
                     else:
                         empty.append(ln)
                 if empty:
@@ -667,7 +668,9 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 # fragment lengths say nothing there.
                 if (allow_bisect and not reflect and not groups
                         and getattr(engine, "checks_replies", True)):
-                    _guard_merged_or_shifted(chunk)
+                    # Only this attempt's replies: a line it left out still holds its
+                    # old English (maybe the user's edit), which must not be re-asked or flagged.
+                    _guard_merged_or_shifted(fresh)
 
         def _guard_merged_or_shifted(chunk):
             def stop():
@@ -681,11 +684,14 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 except TranslationCancelled:
                     return None
                 except Exception as e:
+                    redacted = redact_secrets(str(e))
                     if isinstance(e, (FreeTierDailyLimitReached, HeadroomError, LLMTaskTimeout)):
+                        # The run ends here, so the reason must reach the job's errors.
                         stop_run.append(True)
+                        errors.append({"batch_index": bi, "lines": [ln.idx for ln in lines_to_redo],
+                                       "error": redacted})
                     import applog
-                    applog.get_logger().warning(
-                        f"merge/shift re-ask skipped for batch {bi}: {redact_secrets(str(e))}")
+                    applog.get_logger().warning(f"merge/shift re-ask skipped for batch {bi}: {redacted}")
                     return None
 
             for ln, _reason in guard_batch(chunk, redo, stop, allowed_runs):
