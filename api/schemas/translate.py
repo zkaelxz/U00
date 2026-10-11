@@ -31,6 +31,8 @@ __all__ = [
     "GlossaryAffectedPreview",
     "GlossaryAffectedRunStart",
     "GlossaryAffectedRunStarted",
+    "SourceChangedRetranslateStart",
+    "SourceChangedRetranslateStarted",
     "TranslateBulkResumeEntry",
     "TranslateBulkResumeResult",
     "TranslateBulkJobEntry",
@@ -270,6 +272,32 @@ class GlossaryAffectedRunStart(BaseModel):
 class GlossaryAffectedRunStarted(TranslateRunStarted):
     line_ids: List[int]
     skipped_hand_edited_count: int
+
+
+class SourceChangedRetranslateStart(BaseModel):
+    """Review's "Retranslate these": the lines flagged source_changed the
+    client showed, and the run options (the Translate form's, never bulk)."""
+    model_config = ConfigDict(extra="forbid")
+    line_ids: List[int] = Field(min_length=1, max_length=100000)
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+    style_preset: Optional[str] = Field(None, max_length=40)
+    style_note: str = Field("", max_length=4000)
+    locale: str = Field("en-US", max_length=10)
+    context_window: Optional[int] = Field(None, ge=0, le=100)
+    context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
+    batch_size: Optional[int] = Field(None, ge=1, le=200)
+    gemini_free_tier: Optional[bool] = None
+    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+    fallback_chain: Optional[List[TranslateFallbackEngine]] = Field(None, max_length=2)
+    reflect: bool = False
+    default_female_pronouns: Optional[bool] = None
+    include_genre_notes: Optional[bool] = None
+    thinking: Optional[bool] = None
+
+
+class SourceChangedRetranslateStarted(TranslateRunStarted):
+    line_ids: List[int]
 
 
 TranslateRunStart.model_rebuild()

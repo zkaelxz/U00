@@ -100,6 +100,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
+- `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`
 - `translation_guide.py`
 - `translation_memory.py`
@@ -279,6 +280,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `service_errors.py` (re-exports `lib/errors.py` for the existing call sites)
 - `settings_service.py`
 - `shutdown_service.py`
+- `source_change_service.py` (Review's lines whose source changed after translation: the list, "Keep English" and "Retranslate these")
 - `source_domains_service.py`
 - `source_service.py`
 - `sources_extension_service.py`

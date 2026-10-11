@@ -548,9 +548,10 @@ class TestApply:
         assert out == {"drama_id": did, "line_id": ids[0], "zh": "新的文字"}
         lines = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
         assert lines[ids[0]].zh == "新的文字"
-        # everything else untouched: en, speaker, flag, timing, the other line
+        # en, speaker, timing and the other line untouched; the kept English
+        # no longer matches the source, so the line is flagged for review
         assert (lines[ids[0]].en, lines[ids[0]].speaker) == ("Hello", "A")
-        assert (lines[ids[0]].flag, lines[ids[0]].flag_note) == ("unsure", "check")
+        assert (lines[ids[0]].flag, lines[ids[0]].flag_note) == ("source_changed", "")
         assert (lines[ids[0]].start, lines[ids[0]].end) == (0.0, 1.5)
         assert lines[ids[1]].zh == "错字"
         hist = isolated_db.list_line_history(did)
