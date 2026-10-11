@@ -24,6 +24,7 @@ import { AutoBackupCard } from './settings/AutoBackupCard'
 import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionDevicesCard } from './settings/ExtensionDevicesCard'
 import { ExtensionSection } from './settings/ExtensionSection'
+import { LanguagePacksCard } from './settings/LanguagePacksCard'
 import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
@@ -216,6 +217,7 @@ export default function SettingsPage() {
               />
             </SettingsCard>
             <SettingsCard id="defaults"><DefaultsCard {...prefProps} /></SettingsCard>
+            <SettingsCard id="language-packs"><LanguagePacksCard /></SettingsCard>
             <SettingsCard id="spending"><SpendingCard {...prefProps} /></SettingsCard>
             <SettingsCard id="past-costs"><PastCostsCard /></SettingsCard>
             <SettingsCard id="spend-history"><SpendHistoryCard /></SettingsCard>

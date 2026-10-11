@@ -267,10 +267,14 @@ def build_pack_block(entries) -> str:
     if not entries:
         return ""
     lines = ["LANGUAGE PACK TERMS -- starter defaults for forms of address and common terms. "
-             "Use the given English when the word is used this way. If it is used in its literal "
-             "sense (for example a real older sister, not an address), use plain English instead. "
-             "A term in the glossary above always wins:"]
+             "Pack entries are defaults; the note says when another rendering is right; choose by "
+             "the scene and the speakers' relationship; a glossary term with the same source always "
+             "wins. If a word is used in its literal sense (for example a real older sister, not an "
+             "address), use plain English instead:"]
     for e in entries:
-        hint = "; ".join(p for p in (e["context"], e["note"]) if p)
-        lines.append(f"  {e['source']} → {e['en']}" + (f" -- {hint}" if hint else ""))
+        # "default:" keeps the model from treating the rendering as the only
+        # option; the hint says when to depart from it.
+        hint = "; ".join(p for p in (f"use when: {e['context']}" if e["context"] else "",
+                                     f"note: {e['note']}" if e["note"] else "") if p)
+        lines.append(f"  {e['source']} → default: {e['en']}" + (f" ({hint})" if hint else ""))
     return "\n".join(lines)

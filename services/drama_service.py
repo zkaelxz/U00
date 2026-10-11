@@ -36,7 +36,7 @@ import uuid
 import background_jobs
 import db
 from core import SOURCE_LANGUAGES
-from services import library_service, ownership_service, settings_service, source_link_service
+from services import language_pack_service, library_service, ownership_service, settings_service, source_link_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -371,6 +371,7 @@ def hard_delete_drama(drama_id) -> bool:
             except OSError:
                 log.exception("Could not restore drama folder %s after a failed delete", folder)
         raise ServiceError("The title could not be deleted.")
+    language_pack_service.forget_title(drama_id)
     if tomb is None:
         return False
     try:

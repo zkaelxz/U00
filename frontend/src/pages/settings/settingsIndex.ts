@@ -15,6 +15,7 @@ const e = (tab: SettingsTab, cardId: string, label: string, keywords = ''): Sett
 export const SETTINGS_INDEX: SettingsEntry[] = [
   e('translation', 'engine-routing', 'Which engine does what', 'engines keys api key test gemini openai deepl routing'),
   e('translation', 'defaults', 'Translation style', 'english variant locale style note default'),
+  e('translation', 'language-packs', 'Language packs', 'honorifics address terms kinship set phrases glossary built-in defaults'),
   e('translation', 'spending', 'Spending', 'monthly cap budget cost counter reset usd'),
   e('translation', 'past-costs', 'Past costs', 'cost by title history spend'),
   e('translation', 'spend-history', 'Spend history', 'monthly spend chart months'),

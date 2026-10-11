@@ -227,6 +227,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/jobs/{job_id}/force-stop` | jobs.cancel |
 | `GET /api/jobs/{job_id}/stages` | library.read |
 | `GET /api/language-packs` | library.read |
+| `GET /api/language-packs/defaults/{language}` | library.read |
 | `POST /api/language-packs/defaults/{language}` | admin.settings |
 | `GET /api/language-packs/dramas/{drama_id}` | library.read |
 | `POST /api/language-packs/dramas/{drama_id}` | lines.edit |

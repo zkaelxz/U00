@@ -52,6 +52,14 @@ def set_title_packs(request: Request, payload: LanguagePackChoice, drama_id: int
     return language_pack_service.set_title_packs(drama_id, payload.model_dump(), principal=request.state.principal)
 
 
+@router.get("/defaults/{language}", dependencies=[require_permission("library.read")],
+            response_model=LanguagePackDefaultResult,
+            summary="The packs on by default for a source language",
+            responses={422: {"model": ErrorResponse}})
+def get_language_default(language: str = Path(max_length=2)):
+    return language_pack_service.get_language_default(language)
+
+
 @router.post("/defaults/{language}", dependencies=[require_permission("admin.settings")],
              response_model=LanguagePackDefaultResult,
              summary="Set the packs used by titles of a source language that have no choice of their own",
