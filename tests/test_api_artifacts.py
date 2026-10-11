@@ -265,9 +265,10 @@ def _label_dir(did):
 
 def test_symlinked_download_label_is_ignored(did, tmp_path):
     name = f"softsub_video_{did}.mkv"
-    _write(did, "softsub_video", name)
+    st = os.stat(_write(did, "softsub_video", name))
     real = tmp_path / "label.json"
-    real.write_text(json.dumps({"file": name, "language": "en"}))
+    real.write_text(json.dumps({"file": name, "language": "en",
+                                "size": st.st_size, "mtime_ns": st.st_mtime_ns}))
     try:
         os.symlink(real, os.path.join(_label_dir(did), ".download.json"))
     except (OSError, NotImplementedError):
@@ -277,10 +278,11 @@ def test_symlinked_download_label_is_ignored(did, tmp_path):
 
 def test_oversized_download_label_is_ignored(did):
     name = f"softsub_video_{did}.mkv"
-    _write(did, "softsub_video", name)
+    st = os.stat(_write(did, "softsub_video", name))
     pad = "x" * 8192
     with open(os.path.join(_label_dir(did), ".download.json"), "w") as f:
-        json.dump({"file": name, "language": "en", "pad": pad}, f)
+        json.dump({"file": name, "language": "en", "size": st.st_size,
+                   "mtime_ns": st.st_mtime_ns, "pad": pad}, f)
     assert artifact_service.get_artifact(did, "softsub_video")["language"] == ""
 
 
