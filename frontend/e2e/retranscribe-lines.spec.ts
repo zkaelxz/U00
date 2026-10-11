@@ -46,7 +46,7 @@ test('tick lines, re-transcribe them, choose which new text to apply', async ({ 
   await expect(rows).toHaveCount(3)
   await expect(rows.first()).toContainText('第1句')
   await expect(rows.first()).toContainText('第一句话')
-  await expect(rows.first()).toContainText('clears its English')
+  await expect(rows.first()).toContainText('keeps its English, marked Source changed')
   await expect(rows.nth(2)).toContainText('(empty)')
   await expect(panel.getByTestId('retranscribe-lines-failed')).toContainText('#4 (no speech heard)')
   expect(seen.applies).toEqual([]) // nothing is applied by looking
@@ -54,7 +54,7 @@ test('tick lines, re-transcribe them, choose which new text to apply', async ({ 
   await rows.nth(1).getByRole('checkbox').uncheck()
   await panel.getByRole('button', { name: 'Apply selected (2)' }).click()
   await expect(panel.getByTestId('retranscribe-lines-note')).toContainText('Replaced the source text of 2 lines')
-  await expect(panel.getByTestId('retranscribe-lines-note')).toContainText('Cleared the English on 1')
+  await expect(panel.getByTestId('retranscribe-lines-note')).toContainText('Kept the English on 1 and marked it “Source changed”')
   expect(seen.applies).toEqual([{
     job_id: 'retranscribe_3',
     items: [

@@ -91,6 +91,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "segment_splitting.py",
     "sensevoice_tags.py",
     "sensitivity_preset.py",
+    "source_change.py",
     "stereo_cues.py",
     "stereo_render.py",
     "storage.py",
