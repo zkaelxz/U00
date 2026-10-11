@@ -10,6 +10,8 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
+import storage
+
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import artifact_service
@@ -307,13 +309,14 @@ def test_label_is_written_before_the_move_and_a_download_in_between_gets_no_lang
     src = tmp_path / "out.mp4"
     src.write_bytes(b"chinese export, different size")
     seen = []
-    real_move = media_export_service.shutil.move
+    real_replace = os.replace
 
-    def spying_move(a, b):
-        seen.append(artifact_service.get_artifact(did, "video")["language"])  # the old file mid-swap
-        return real_move(a, b)
+    def spying_replace(a, b):
+        if str(b) == final:   # the label store replaces its own files too
+            seen.append(artifact_service.get_artifact(did, "video")["language"])  # the old file mid-swap
+        return real_replace(a, b)
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(media_export_service.shutil, "move", spying_move)
+        mp.setattr(storage.os, "replace", spying_replace)
         media_export_service._move_labelled(did, "video", str(src), final, "zh")
     assert seen == [""]
     assert artifact_service.get_artifact(did, "video")["language"] == "zh"
@@ -325,9 +328,14 @@ def test_a_failed_move_removes_the_label_written_ahead(isolated_db, tmp_path):
     final = artifact_service.output_path(did, "video", "burned_video.mp4")
     src = tmp_path / "out.mp4"
     src.write_bytes(b"x")
+    real_replace = os.replace
+
+    def failing_replace(a, b):
+        if str(b) == final:
+            raise OSError("disk full")
+        return real_replace(a, b)
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(media_export_service.shutil, "move",
-                   lambda a, b: (_ for _ in ()).throw(OSError("disk full")))
+        mp.setattr(storage.os, "replace", failing_replace)
         with pytest.raises(OSError):
             media_export_service._move_labelled(did, "video", str(src), final, "zh")
     assert ".download.json" not in os.listdir(os.path.dirname(final))

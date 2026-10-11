@@ -104,7 +104,7 @@ def _move_labelled(drama_id, kind, src, final, language):
     name = os.path.basename(final)
     artifact_service.set_download_language(drama_id, kind, name, language, source=src)
     try:
-        shutil.move(src, final)
+        storage.move_into_place(src, final)
     except BaseException:
         artifact_service.clear_download_language(drama_id, kind, name)
         raise
