@@ -208,13 +208,47 @@ class TestSelection:
             lp._cache = None
 
     @pytest.mark.parametrize("pack, text, expected", [
-        ("ja-address", "先輩、行きましょう", "先輩 → senpai"),
-        ("ko-address", "오빠, 같이 가요", "오빠 → oppa"),
-        ("zh-address", "姐姐，我们走吧", "姐姐 → big sis"),
+        ("ja-address", "先輩、行きましょう", "先輩 → default: senpai"),
+        ("ko-address", "오빠, 같이 가요", "오빠 → default: oppa"),
+        ("zh-address", "姐姐，我们走吧", "姐姐 → default: big sis"),
     ])
     def test_prompt_text(self, pack, text, expected):
         block = lp.build_pack_block(lp.matching_entries({pack: None}, text))
-        assert expected in block and "A term in the glossary above always wins" in block
+        assert expected in block and "a glossary term with the same source always wins" in block
+
+    def test_context_and_note_are_marked_and_the_default_is_a_default(self):
+        block = lp.build_pack_block(lp.matching_entries({"ko-address": "natural"}, "아저씨"))
+        assert "아저씨 → default: mister (use when: to a middle-aged man; note: " in block
+        assert "Pack entries are defaults" in block
+
+    def test_entry_without_context_or_note_has_no_parentheses(self):
+        block = lp.build_pack_block([{"source": "x", "en": "y", "context": "", "note": ""}])
+        assert block.endswith("  x → default: y")
+
+    def test_block_is_identical_for_the_same_run_text(self):
+        text = "老婆 阿姨 叔叔 大小姐 姐姐"
+        first = lp.build_pack_block(lp.matching_entries({"zh-address": None, "zh-common": None}, text))
+        assert first == lp.build_pack_block(lp.matching_entries({"zh-address": None, "zh-common": None}, text))
+
+    def test_full_block_stays_bounded(self):
+        # 60 entries is the cap; the zh set fills it. About 5.2k chars (~1.5k tokens) today.
+        packs = [p for p in lp.all_packs().values() if p["language"] in ("zh", "any")]
+        text = " ".join(e["source"] for p in packs for e in p["entries"])
+        entries = lp.matching_entries({p["id"]: None for p in packs}, text, language="zh")
+        assert len(entries) == lp.MAX_PROMPT_ENTRIES
+        assert len(lp.build_pack_block(entries)) <= 6500
+
+    @pytest.mark.parametrize("pack, source, must_mention", [
+        ("zh-address", "老婆", ["my wife", "babe"]),
+        ("zh-common", "阿姨", ["ma'am", "housekeeper"]),
+        ("zh-common", "叔叔", ["sir", "mister"]),
+        ("zh-address", "大小姐", ["Milady", "Young Miss"]),
+        ("ja-common", "社長", ["president", "CEO"]),
+        ("ko-address", "아저씨", ["ajusshi", "old man", "buddy"]),
+    ])
+    def test_contested_entries_name_their_alternatives(self, pack, source, must_mention):
+        entry = next(e for e in lp.all_packs()[pack]["entries"] if e["source"] == source)
+        assert all(w.lower() in entry["note"].lower() for w in must_mention)
 
     def test_no_entries_means_no_block(self):
         assert lp.build_pack_block([]) == ""
@@ -233,22 +267,22 @@ class TestTitleChoice:
         svc.set_title_packs(did, {"packs": {"ja-address": None}})
         d, lines = isolated_db.get_drama(did), cli.lines_from_rows(isolated_db.load_lines(did))
         _, g, _ = workspace_job_service.build_run_style_context(did, d, lines, "audio_drama")
-        assert "先輩 → senpai" in g and "お兄ちゃん → onii-chan" in g
+        assert "先輩 → default: senpai" in g and "お兄ちゃん → default: onii-chan" in g
         isolated_db.upsert_glossary_term(d["series_id"], "先輩", "Senior Li")
         glossary, g, _ = workspace_job_service.build_run_style_context(did, d, lines, "audio_drama")
-        assert "先輩 → senpai" not in g and "先輩 → Senior Li" in g
+        assert "先輩 → default: senpai" not in g and "先輩 → Senior Li" in g
         assert [t["term_original"] for t in glossary] == ["先輩"]
 
     def test_style_flip_changes_the_wording(self, isolated_db):
         did = _drama(isolated_db, "zh", ["姐姐"])
         svc.set_title_packs(did, {"packs": {"zh-address": "pinyin"}})
-        assert "姐姐 → jiejie" in svc.block_for(isolated_db.get_drama(did), [Line(0, 0, 1, "姐姐")])
+        assert "姐姐 → default: jiejie" in svc.block_for(isolated_db.get_drama(did), [Line(0, 0, 1, "姐姐")])
 
     def test_language_default_applies_until_the_title_chooses(self, isolated_db):
         did = _drama(isolated_db, "ko", ["오빠"])
         svc.set_language_default("ko", {"packs": {"ko-address": None}})
         assert svc.get_title_packs(did)["uses_default"] is True
-        assert "오빠 → oppa" in svc.block_for(isolated_db.get_drama(did), [Line(0, 0, 1, "오빠")])
+        assert "오빠 → default: oppa" in svc.block_for(isolated_db.get_drama(did), [Line(0, 0, 1, "오빠")])
         svc.set_title_packs(did, {"packs": {}})
         assert svc.get_title_packs(did)["uses_default"] is False
         assert svc.block_for(isolated_db.get_drama(did), [Line(0, 0, 1, "오빠")]) == ""
@@ -297,4 +331,4 @@ class TestTitleChoice:
         lines = cli.lines_from_rows(isolated_db.load_lines(did))
         _, expected, _ = workspace_job_service.build_run_style_context(
             did, isolated_db.get_drama(did), lines, "audio_drama")
-        assert seen["style_guidelines"] == expected and "오빠 → oppa" in expected
+        assert seen["style_guidelines"] == expected and "오빠 → default: oppa" in expected
