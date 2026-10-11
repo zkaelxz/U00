@@ -154,6 +154,28 @@ def test_oversized_module_is_split_at_banner_sections(tmp_path, monkeypatch):
     assert all(len(p.encode()) <= 1500 * 1.2 for p in parts)
 
 
+def test_package_re_exports_collapse_to_one_line_per_submodule(tmp_path, monkeypatch):
+    front_door = (
+        "import os\n"
+        "from pkg.alpha import (  # noqa: F401\n" + "".join(f"    name_{i},\n" for i in range(29)) + ")\n"
+        "from pkg.beta import only_one  # noqa: F401\n"
+        "from pkg.gamma import *  # noqa: F401,F403\n"
+        "from other.mod import elsewhere\n"
+        "def kept(): pass\n"
+    )
+    _tree(tmp_path, monkeypatch, {"pkg/__init__.py": front_door, "pkg/alpha.py": "from pkg.beta import x\n"})
+    out = _run("pkg/__init__")
+    assert out.splitlines()[-3:] == [
+        "re-exports from pkg.alpha: 29 names",
+        "re-exports from pkg.beta: 1 name",
+        "re-exports from pkg.gamma: all public names",
+    ]
+    assert "name_" not in out and "other.mod" not in out and "def kept()" in out
+    assert "re-exports" not in _run("pkg/alpha")
+    monkeypatch.setattr(rm, "BUDGET_BYTES", 10)
+    assert "re-exports from pkg.alpha: 29 names" in _run("pkg/__init__")
+
+
 def test_unknown_target_and_bad_part_exit_cleanly(tmp_path, monkeypatch):
     _tree(tmp_path, monkeypatch, {"a.py": "def f(): pass\n"})
     with pytest.raises(SystemExit):

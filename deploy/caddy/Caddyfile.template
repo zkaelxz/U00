@@ -153,10 +153,11 @@
 		path /api/characters/dramas/*/reference-clip /api/characters/dramas/*/reference-clip/remove
 		path /api/scanlate/dramas/*/pages
 		path /api/jobs/clear-finished /api/jobs/*/delete
+		path /api/vdb-names/fetch
 	}
 	@pc_only_delete {
 		method DELETE
-		path /api/dramas/* /api/translate/history
+		path /api/dramas/* /api/translate/history /api/vdb-names
 	}
 
 	route {

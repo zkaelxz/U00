@@ -191,6 +191,7 @@ from engine_backends.engine_registry import (  # noqa: F401
     _read_overrides,
     builtin_default_model,
     default_batch_size,
+    default_reply_guard,
     default_translate_options,
     effective_default_model,
     effective_tier,

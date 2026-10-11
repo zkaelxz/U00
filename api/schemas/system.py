@@ -307,6 +307,7 @@ class SettingsPreferences(TimingPreferences):
     default_locale: str
     default_style_note: str
     scene_aware_batches: bool
+    translate_reply_guard: str = "auto"
     episode_summary_engine: str
     monthly_cap_usd: Optional[float] = None
     max_upload_mb: int = 20480
@@ -394,6 +395,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
     scene_aware_batches: Optional[StrictBool] = None
+    translate_reply_guard: Optional[StrictStr] = Field(None, max_length=40)
     episode_summary_engine: Optional[StrictStr] = Field(None, max_length=40)
     monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None
     max_upload_mb: Optional[StrictInt] = None

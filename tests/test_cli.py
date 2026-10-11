@@ -94,6 +94,31 @@ class TestCmdTranslateParity:
         # was actually computed and passed, not left as the default "".
         assert seen["style_guidelines"]
 
+    @pytest.mark.parametrize("model,mode,calls", [
+        ("claude-sonnet-5-5", "auto", 1), ("deepseek-chat", "auto", 2),
+        ("claude-sonnet-5-5", "on", 2), ("deepseek-chat", "off", 1)])
+    def test_reply_guard_follows_the_setting_and_model_like_the_app(
+            self, isolated_db, monkeypatch, model, mode, calls):
+        patch_setting(monkeypatch, "translate_reply_guard", mode)
+        from tests.test_translation_guard import GOOD, MERGED, Scripted
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        zh = ["今天晚上我们一起去吃饭吧", "明天早上我要去公司开会啊", "你昨天为什么没有给我打电话"]
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=z) for i, z in enumerate(zh)])
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        engine = Scripted({ids[1]: MERGED[101], ids[2]: "Why?"})
+        engine.model = model
+
+        def translate(zh_lines, context):
+            engine.calls.append(list(context["line_ids"]))
+            first = len(engine.calls) == 1
+            return [engine.script[0].get(i, GOOD[n]) if first else GOOD[n]
+                    for n, i in enumerate(context["line_ids"])]
+        engine.translate_batch = translate
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli_translate.cmd_translate(_translate_args(id=did))
+        assert len(engine.calls) == calls
+
     @pytest.mark.parametrize("flags,female,genre", [
         ({}, False, True),
         ({"female_pronouns": True, "no_genre_notes": True}, True, False),

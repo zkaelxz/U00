@@ -2,7 +2,7 @@
 
 import inspect
 import sentence_groups
-from .engine_registry import default_batch_size
+from .engine_registry import default_batch_size, default_reply_guard
 from .fallback import FallbackEngine
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded, call_llm_json,
                         llm_tasks_scope_active, request_deadline_for)
@@ -321,7 +321,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float = None,
                                  cap_cb=None, target_ids=None, detail_cb=None,
                                  scene_aware_batches: bool = False, thinking: bool = None,
-                                 translate_by_sentence=None,
+                                 translate_by_sentence=None, check_replies: bool = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS):
     """thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
@@ -338,6 +338,10 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     the fragments (sentence_groups). None means the title's saved choice
     (drama_meta["translate_by_sentence"]), so every translate path agrees.
     Inert for Reflect mode and for engines that don't follow instructions.
+
+    check_replies: run the merged/shifted-reply guard. None = the engine
+    and model's default (default_reply_guard); an explicit True/False wins.
+    An engine with checks_replies = False is never checked.
 
     detail_cb: optional callable (fraction, message) for a job that wants
     finer progress than progress_cb: fires at the start and end of every
@@ -476,6 +480,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             usage_cb(inp, out, cache_read, cache_write)
 
     size = batch_size or default_batch_size(engine)
+    guard_enabled = default_reply_guard(engine) if check_replies is None else bool(check_replies)
     batches = (plan_batches(target_lines, size, scene_break_gap) if scene_aware_batches
                else [target_lines[i:i + size]
                      for i in range(0, len(target_lines), size)])
@@ -672,7 +677,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 # Sentence mode redistributes one sentence over its fragments, so
                 # fragment lengths say nothing there.
                 if (allow_bisect and not reflect and not groups
-                        and getattr(engine, "checks_replies", True)):
+                        and getattr(engine, "checks_replies", True) and guard_enabled):
                     # Only this attempt's replies: a line it left out still holds its
                     # old English (maybe the user's edit), which must not be re-asked or flagged.
                     _guard_merged_or_shifted(fresh)

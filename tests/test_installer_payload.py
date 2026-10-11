@@ -30,7 +30,7 @@ def fake_repo(tmp_path):
     repo = tmp_path / "repo"
     for rel in (
         # Ships
-        "app.py", "portable.py", "db/__init__.py", "db/app_settings.py", "db/auth.py", "db/benchmark.py", "db/job_records.py", "db/speakers.py", "db/usage.py", "check_setup.py", "README.md", "__init__.py",
+        "app.py", "portable.py", "db/__init__.py", "db/app_settings.py", "db/auth.py", "db/benchmark.py", "db/comic_pages.py", "db/job_records.py", "db/speakers.py", "db/usage.py", "check_setup.py", "README.md", "__init__.py",
         "requirements-core.txt", "requirements-media.txt", "constraints.txt",
         "api/__init__.py", "api/__main__.py", "services/settings_service.py",
         "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",
@@ -59,7 +59,7 @@ def fake_repo(tmp_path):
 
 
 SHIPS = {
-    "app.py", "portable.py", "db/__init__.py", "db/app_settings.py", "db/auth.py", "db/benchmark.py", "db/job_records.py", "db/speakers.py", "db/usage.py", "check_setup.py", "README.md", "__init__.py",
+    "app.py", "portable.py", "db/__init__.py", "db/app_settings.py", "db/auth.py", "db/benchmark.py", "db/comic_pages.py", "db/job_records.py", "db/speakers.py", "db/usage.py", "check_setup.py", "README.md", "__init__.py",
     "requirements-core.txt", "requirements-media.txt", "constraints.txt",
     "api/__init__.py", "api/__main__.py", "services/settings_service.py",
     "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",

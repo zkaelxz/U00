@@ -63,7 +63,7 @@ def test_preference_defaults(isolated_db, env_file):
     assert set(timing_settings_service.KEYS) <= set(prefs)
     assert {k: v for k, v in prefs.items() if k not in timing_settings_service.KEYS} == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
-        "scene_aware_batches": True, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
+        "scene_aware_batches": True, "translate_reply_guard": "auto", "episode_summary_engine": "ollama", "monthly_cap_usd": None,
         "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
         "keep_free_ram_gb": 0.0, "whisper_model_path": "", "ocr_backend": "auto",
         "ocr_prefer_paddle_vl_manga": False, "tesseract_cmd": "", "lncrawl_cmd": "",

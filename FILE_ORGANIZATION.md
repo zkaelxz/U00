@@ -21,7 +21,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW); `installer/service.py` runs the Windows service (`Services`; its siblings are `service_layout.py` folder safety, `service_config.py` config, XML and Caddyfile text, `service_control.py` sc/icacls/netsh commands, `service_checks.py` health checks and `service_cli.py` the command line) and `installer/setup_lock.py` holds the named mutexes that keep Setup and the service commands apart | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
-| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`); `windows_script_checks.py` runs setup.bat, start.bat and uninstall.bat on the Windows CI runner (`docs/testing-and-ci.md`); `self_test.py` runs the owner's hardware checks in one go and writes a redacted report (`docs/runbook.md` 2c); `translate_context_bench.py` re-translates one window of a title under several batch-size/context configs with Claude (dry run unless `--yes`, spend-capped, saves nothing to the title) and writes a comparison report; `ja_whisper_models.py` fetches or converts and checks Japanese Whisper fine-tune folders for the Benchmark Lab (`docs/asr-experiments.md`) | `python tools/repo_map.py --help`, `python tools/route_table.py --write`, `python tools/ja_whisper_models.py --help`, `python -m tools.self_test`, `python -m tools.translate_context_bench TITLE_ID` |
+| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`); `windows_script_checks.py` runs setup.bat, start.bat and uninstall.bat on the Windows CI runner (`docs/testing-and-ci.md`); `self_test.py` runs the owner's hardware checks in one go and writes a redacted report (`docs/runbook.md` 2c); `asr_bench.py` runs one window of a title's audio through several transcription recipes (dry run unless `--yes`, takes the GPU slot, saves nothing to the title) and writes a comparison report, with its recipe grammar and backend registry in `asr_bench_recipes.py` (`docs/asr-experiments.md`); `translate_context_bench.py` re-translates one window of a title under several batch-size/context configs with Claude (dry run unless `--yes`, spend-capped, saves nothing to the title) and writes a comparison report; `ja_whisper_models.py` fetches or converts and checks Japanese Whisper fine-tune folders for the Benchmark Lab (`docs/asr-experiments.md`) | `python tools/repo_map.py --help`, `python tools/route_table.py --write`, `python tools/ja_whisper_models.py --help`, `python -m tools.self_test`, `python -m tools.translate_context_bench TITLE_ID`, `python -m tools.asr_bench TITLE_ID --config whisper` |
 | `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md`, `docs/user-guide.md` |
 | `library/` | your data (gitignored, created automatically) | n/a |
 
@@ -47,6 +47,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
   - `db/app_settings.py` (cross-process app settings, the metadata research cache and results, field provenance)
   - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
   - `db/benchmark.py` (accuracy benchmark cases and runs, Benchmark Lab sessions and results)
+  - `db/comic_pages.py` (comic pages and their text regions for scanlation and typesetting: page rows, id-preserving bubble edits, the legacy full replace)
   - `db/job_records.py` (the job_records mirror of background job status)
   - `db/speakers.py` (characters and speakers: speaker rename and merge with its undo, series characters and voice links, the voice bank)
   - `db/usage.py` (usage and cost log, monthly spend and its reset, re-costing, the standalone translate tool's history)
@@ -248,6 +249,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `job_timing_service.py`
 - `jobs_service.py`
 - `language_pack_service.py`
+- `vdb_names_service.py` (the optional personal VTuber name list, downloaded on demand; personal use only, never exported)
 - `library_admin_service.py`
 - `library_restore_sql.py` (SQL helpers for the library restore)
 - `library_service.py`
@@ -386,6 +388,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `glossary_routes.py`
 - `jellyfin_routes.py`
 - `language_pack_routes.py`
+- `vdb_names_routes.py`
 - `job_stage_routes.py`
 - `jobs_routes.py`
 - `library_admin_routes.py`

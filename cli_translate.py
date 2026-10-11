@@ -332,6 +332,7 @@ def cmd_translate(args):
             batch_size=_flag_or(args, "batch_size", tdefaults),
             reflect=getattr(args, "reflect", False), scene_aware_batches=scene_aware,
             **timing_settings_service.translate_limits(),
+            check_replies=settings_service.reply_guard_override(),
             notes_cb=notes_cb,
             progress_cb=_progress,
             save_cb=save_cb,
