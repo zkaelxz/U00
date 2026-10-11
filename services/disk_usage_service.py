@@ -67,12 +67,13 @@ import background_jobs
 import db
 import portable
 import storage
+from jobs import gpu_slots
 from services import auto_backup_service as abs_
 from services import disk_usage_links
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
-TRASH_DIRNAME = "baihe_trash"       # installer.service.DATA_FOLDER_ENTRIES holds it too
+TRASH_DIRNAME = "baihe_trash"       # installer.service_layout.DATA_FOLDER_ENTRIES holds it too
 MAX_ENTRIES = 2_000_000
 MAX_SECONDS = 30.0
 _TIME_CHECK_EVERY = 256
@@ -267,7 +268,7 @@ def _baihe_top_level_names() -> frozenset:
     the installer's own list plus the save folder. If that list can't be
     loaded only the library qualifies, so everything else is protected."""
     try:
-        from installer import service as installer_service
+        from installer import service_layout as installer_service
         names = set(installer_service.DATA_FOLDER_ENTRIES)
     except Exception:
         names = set()
@@ -752,7 +753,7 @@ def _busy_under_hold() -> bool:
             or library_admin_service.any_job_running()):
         return True
     try:
-        return db.gpu_lock_status()[0] is not None
+        return gpu_slots.status()[0] is not None
     except Exception:
         return True
 

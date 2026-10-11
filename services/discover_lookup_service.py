@@ -100,7 +100,7 @@ def _build_engine(engine_name: str):
     if not api_key:
         raise MissingKeyError(engine_name)
     return translate_engines.get_engine(
-        engine_name, api_key, free_tier=settings_service.get_gemini_free_tier())
+        engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"))
 
 
 # ----- input checks ---------------------------------------------------------
@@ -447,8 +447,8 @@ def _url_is_detail(url: str, prepared: list) -> bool:
 
 
 def _labels_from_text(text: str) -> list:
-    """Static stand-in for navigator.fetch_visible_labels: short visible
-    lines of the page text (menu items, buttons, headings), deduped."""
+    """Short visible lines of the already-fetched page text (menu items,
+    buttons, headings), deduped."""
     labels, seen = [], set()
     for ln in text.splitlines():
         ln = ln.strip()

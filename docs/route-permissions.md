@@ -62,6 +62,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/benchmark/runs` | local_only() |
 | `GET /api/benchmark/runs/{run_id}` | admin.diagnostics |
 | `GET /api/benchmark/sets` | admin.diagnostics |
+| `POST /api/benchmark/sets/from-title` | local_only() |
 | `GET /api/characters/dramas/{drama_id}` | library.read |
 | `POST /api/characters/dramas/{drama_id}/character` | lines.edit |
 | `GET /api/characters/dramas/{drama_id}/clone-engines` | library.read |
@@ -273,6 +274,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/lines/dramas/{drama_id}/notes/{note_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/set-language` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/shorten-overlong` | lines.edit |
+| `POST /api/lines/dramas/{drama_id}/source-changed/keep-english` | lines.edit |
 | `GET /api/live/ollama-check` | library.read |
 | `GET /api/live/sessions` | library.read |
 | `POST /api/live/sessions` | media.import_url |
@@ -338,7 +340,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/reader/dramas/{drama_id}/notes` | library.read |
 | `POST /api/reader/dramas/{drama_id}/notes` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/overview` | library.read |
-| `GET /api/reader/dramas/{drama_id}/page` | library.read |
+| `GET /api/reader/dramas/{drama_id}/page` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/progress` | lines.edit |
 | `POST /api/reader/dramas/{drama_id}/story/explain` | jobs.start |
 | `POST /api/reader/dramas/{drama_id}/story/recap` | jobs.start |
@@ -395,6 +397,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/review/dramas/{drama_id}/notes/markdown` | review.use |
 | `GET /api/review/dramas/{drama_id}/pacing-flags` | lines.read |
 | `GET /api/review/dramas/{drama_id}/search` | lines.read |
+| `GET /api/review/dramas/{drama_id}/source-changed` | lines.read |
 | `GET /api/review/dramas/{drama_id}/tendencies` | review.use |
 | `GET /api/review/dramas/{drama_id}/tm-suggestions` | review.use |
 | `GET /api/review/dramas/{drama_id}/versions` | review.use |
@@ -558,6 +561,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/translate-run/dramas/{drama_id}/glossary-affected` | lines.read |
 | `POST /api/translate-run/dramas/{drama_id}/glossary-affected/run` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/run` | jobs.start |
+| `POST /api/translate-run/dramas/{drama_id}/source-changed/run` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/workflow-tier` | lines.edit |
 | `POST /api/translate-run/presets` | admin.library |
 | `GET /api/translate/engines` | library.read |

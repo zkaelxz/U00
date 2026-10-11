@@ -7,6 +7,7 @@ import translate_engines
 from services import (discover_lookup_service, live_service, metadata_service,
                       narration_service, reader_service, restructure_service,
                       settings_service, translate_service)
+from tests.saved_settings import patch_setting
 
 
 class _Engine:
@@ -17,7 +18,7 @@ class _Engine:
 @pytest.fixture
 def built(monkeypatch):
     calls = []
-    monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: True)
+    patch_setting(monkeypatch, "gemini_free_tier", True)
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda k, *a, **kw: "http://saved:11434" if k == "ollama_url" else "k")
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a, **kw: "k")

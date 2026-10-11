@@ -228,7 +228,8 @@ class TestFindReplace:
         ])
         assert out["applied"] == 1 and out["stale"] == 2
         assert out["applied_ids"] == [ids[0]] and out["stale_ids"] == [ids[2], 987654]
-        assert save_spy == [("en",)]
+        # Field-scoped: the English plus the source_changed flag new English clears.
+        assert save_spy == [("en", "flag", "flag_note")]
         assert _row(did, ids[0])["en"] == "Howdy"
         assert _row(did, ids[2])["en"] == "Thanks (edited)"
         assert db.list_translation_memory(sid)[0]["translation"] == "Howdy"
