@@ -136,9 +136,20 @@ def asr_repo_id(model_size: str) -> str:
     return ASR_REPO_TEMPLATE.format(size=model_size)
 
 
+def _native_bf16(torch) -> bool:
+    # is_bf16_supported() answers True on Volta (a V100) because torch emulates
+    # bfloat16 there, which is much slower than float16.
+    try:
+        return bool(torch.cuda.is_bf16_supported(including_emulation=False))
+    except TypeError:       # older torch has no such flag
+        return torch.cuda.get_device_capability()[0] >= 8
+
+
 def pick_dtype(torch, use_gpu: bool):
-    """bfloat16, as before; on a GPU without bfloat16 support, float16."""
-    if use_gpu and not torch.cuda.is_bf16_supported():
+    """bfloat16, as before; on a GPU without native bfloat16, float16 (these
+    models run in float16 on cards without bfloat16; float32 only if a model
+    overflows, and none has so far)."""
+    if use_gpu and not _native_bf16(torch):
         return torch.float16
     return torch.bfloat16
 

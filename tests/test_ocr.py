@@ -271,6 +271,9 @@ def _install_fake_transformers(monkeypatch, version="5.19.0"):
     class FakeModel:
         device, dtype = "cpu", "float32"
 
+        def to(self, device):
+            return self
+
         def eval(self):
             calls["eval"] = True
 
@@ -336,6 +339,21 @@ class TestPaddleVlMangaNative:
         assert calls["generate"]["max_new_tokens"] == 256
         assert calls["decoded"] == [[40, 41]]
         assert text == "今日はいい天気ですね"
+
+    @pytest.mark.parametrize("native_bf16,dtype", [(False, "float16"), (True, "bf16")])
+    def test_gpu_dtype_is_bfloat16_only_with_native_support(self, monkeypatch, page, native_bf16, dtype):
+        import sys
+        import types
+        from services import vram_service
+        calls = _install_fake_transformers(monkeypatch)
+        torch = sys.modules["torch"]
+        torch.float16 = "float16"
+        torch.cuda = types.SimpleNamespace(
+            is_available=lambda: True,
+            is_bf16_supported=lambda including_emulation=True: native_bf16 or including_emulation)
+        monkeypatch.setattr(vram_service, "check_fits", lambda name: None)
+        ocr.extract_text_paddle_vl_manga(page)
+        assert calls["model"][1]["dtype"] == dtype
 
     def test_model_is_cached_between_calls(self, monkeypatch, page):
         calls = _install_fake_transformers(monkeypatch)

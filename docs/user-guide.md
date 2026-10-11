@@ -60,7 +60,7 @@ On Windows `cmd`, run `set BAIHE_API_ENV=development` first. The API reads `BAIH
 
 ## Resetting for testing
 
-Diagnostics > Danger zone > **Reset library** deletes every drama, translation, glossary, series, progress record and file, then reinitializes an empty database. You confirm by typing RESET; there is no undo. To remove one drama, use its delete button.
+Diagnostics > System > **Reset library** deletes every drama, translation, glossary, series, progress record and file, then reinitializes an empty database. You confirm by typing RESET; there is no undo. To remove one drama, use its delete button.
 
 ## Translation
 
@@ -71,7 +71,7 @@ Diagnostics > Danger zone > **Reset library** deletes every drama, translation, 
 | `claude` | Paid per token (API key from console.anthropic.com, billed separately from a Claude.ai subscription) | Best tone and character voice; novel reference with prompt caching. Model picker in Workspace > Translate (Sonnet 5.5 default, Opus 5.5, Haiku 4.5, plus older Sonnet and Opus kept for saved presets); see `CLAUDE_MODELS` in `engine_backends/pricing.py`. |
 | `deepseek` | Paid, far cheaper than Claude | Strong on Chinese; a good default for context-aware, glossary-aware work. |
 | `gemini` | Paid, cheap (Flash-Lite tier); key from aistudio.google.com | Strong on Chinese/Japanese. Translation only: transcription still uses Whisper. Lineup changes often; see `GEMINI_MODELS`. |
-| `openai` | Paid per token; `BAIHE_OPENAI_KEY` | GPT models (default `gpt-5-mini`) over Chat Completions. Newer GPT-5+ models appear in the picker after Diagnostics > Model health with "Also offer models … that this app doesn't know yet" ticked, costed at a high ceiling ($5 in / $40 out per 1M tokens) because their real price is unknown; see `OPENAI_MODELS`. |
+| `openai` | Paid per token; `BAIHE_OPENAI_KEY` | GPT models (default `gpt-5-mini`) over Chat Completions. Newer GPT-5+ models appear in the picker after Diagnostics > Models > Model status with "Also offer models … that this app doesn't know yet" ticked, costed at a high ceiling ($5 in / $40 out per 1M tokens) because their real price is unknown; see `OPENAI_MODELS`. |
 | `ollama` | Free, uses your hardware | Local Gemma 4 via [Ollama](https://ollama.com) on your GPU; free and private. The default 12B model is about 8 GB and fits fully on a 12 GB GPU. |
 
 Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; an engine that can't follow instructions tags everything "Narrator".
@@ -244,7 +244,7 @@ Credits keep the original script and gain a romanized companion: 一半山川 di
 
 ### Fetching from JS-heavy sites
 
-Some sites (baihehub, Fanjiao) build pages with JavaScript, so a plain fetch returns an empty shell. `page_fetch.py` handles it in three layers: it detects an unrendered shell and says so; with the `playwright` package installed (Diagnostics > Packages, or `pip install playwright`) it re-fetches with a real browser: an installed Chrome or Edge, Playwright's own Chromium, or the program named by the `BAIHE_BROWSER_PATH` system environment variable. No browser download is needed when Chrome or Edge is installed; Diagnostics > Setup shows the package and the browser separately; and manual paste (copy the page text into the app) always works.
+Some sites (baihehub, Fanjiao) build pages with JavaScript, so a plain fetch returns an empty shell. `page_fetch.py` handles it in three layers: it detects an unrendered shell and says so; with the `playwright` package installed (Diagnostics > Packages and installs > Packages, or `pip install playwright`) it re-fetches with a real browser: an installed Chrome or Edge, Playwright's own Chromium, or the program named by the `BAIHE_BROWSER_PATH` system environment variable. No browser download is needed when Chrome or Edge is installed; Diagnostics > Setup shows the package and the browser separately (the browser install is on Packages and installs); and manual paste (copy the page text into the app) always works.
 
 ## The job queue
 
@@ -320,14 +320,13 @@ Frontend checks, from `frontend/` after `npm ci`: `npm run lint`, `npm test` (vi
 
 ### Diagnostics ("Check my setup")
 
-The Diagnostics page (nav item "Diagnostics") reports, in one place:
-- **Setup** -- Python version, whether ffmpeg is on PATH, GPU and PyTorch state, the Deno install, which API keys are configured, whether the library folder is writable, and the pyannote gated-model check (an on-demand check that your Hugging Face token can actually access the diarization model, separate from just having a token set), plus one list of the models in use.
-- **Jobs** -- a summary of background jobs; the full list of every job across the app (translate, transcribe, dub, diarize, Live capture, etc.) with progress, a per-job cancel button and delete for finished jobs is the separate **Jobs** page.
-- **Model health** -- every model the app is set up to use, flagged when it is retired, deprecated or no longer listed by its provider (the provider check runs only when you press "Check providers now").
-- **Packages** -- installed versions, install-by-task presets, per-package Install / Update (PC only), a "Test first" upgrade check and the GPU PyTorch set-up.
-- **Ports** and **Log** (recent redacted lines of the app's own log, 50/100/200), 
-- **Danger zone** -- the "Reset library" button described in [Resetting for testing](#resetting-for-testing).
-- A link to the Benchmark Lab, which is its own page (below).
+The Diagnostics page (nav item "Diagnostics") has four tabs, the same kind of tab row as Settings. The tab you last used is remembered, and links from other pages (for example "Open Diagnostics" on a job, or on Before you run) open the right tab and card. A tab with a number on it has something that needs a look (a setup problem, an install waiting for the next start, a model that is retired or older). On a short tab every card starts open; on a longer tab only the cards you use most start open and the rest show a one-line summary. Each card can be folded, and the app remembers which.
+- **Setup** -- one **Setup** card: Python version, whether ffmpeg is on PATH, the JavaScript runtime, GPU and PyTorch state, the app files and whether the library folder is writable, problems first.
+- **Packages and installs** -- every install lives here. **Packages** has installed versions, install-by-task presets, per-package Install / Update (PC only) with "Check for package updates", a "Test first" upgrade check and the GPU PyTorch set-up. **Browser support** and **JavaScript runtime** (Deno) cards appear when Setup finds those missing. **Speaker detection** shows whether pyannote and your Hugging Face token are ready, with an on-demand check that the token can open the gated models.
+- **Models** -- **Model status** lists every model the app is set up to use, flagged when it is retired, deprecated or no longer listed by its provider (the provider check runs only when you press "Check providers now"; engines that need a key link to Settings). **Models** lists each engine with its version and the model files you have downloaded (size, Delete); an engine that isn't installed says what it is for and links to Packages and installs. **Test my models** runs one transcription, OCR read and Ollama translation with the models you have. A link to the Benchmark Lab, which is its own page (below), sits at the bottom.
+- **System** -- **Ports**, **Log** (recent redacted lines of the app's own log, 50/100/200) and, last and closed, **Reset library** (described in [Resetting for testing](#resetting-for-testing)).
+
+The list of every background job (translate, transcribe, dub, diarize, Live capture, etc.) with progress, cancel and delete is the separate **Jobs** page; accounts and the audit log are on **Admin**.
 
 The redacted support report (strips API keys, paths and user names) is in the header's "Report a problem" dialog ("Copy a report for a bug"). The App Assistant (Developer Mode, PC only) is its own page.
 

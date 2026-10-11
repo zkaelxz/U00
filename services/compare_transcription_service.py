@@ -87,8 +87,7 @@ def get_options(drama_id: int) -> dict:
     language = drama.get("source_language") or "zh"
     has_audio = (drama.get("content_mode") or "audio_drama") in ("audio_drama", "streamer_vod") \
         and transcribe_service._drama_audio_path(drama_id, drama) is not None
-    sizes = sorted(size for size in transcribe_service._allowed_whisper_sizes()
-                   if whisper_models.whisper_model_fits_language(size, language))
+    sizes = sorted(transcribe_service._allowed_whisper_sizes())
     backends = []
     for choice in BACKEND_CHOICES:
         problem = _backend_problem(choice, language)
@@ -108,6 +107,8 @@ def get_options(drama_id: int) -> dict:
         "saved_asr_backend": asr_options_service.stored_asr_backend(drama),
         "saved_alignment_method": drama.get("alignment_method") or "whisper_diff",
         "whisper_sizes": sizes,
+        "source_language": language,
+        "whisper_exclusions": whisper_models.whisper_language_exclusions(),
         "backends": backends,
         "translation_engine": drama.get("translation_engine") or settings_service.get("default_engine"),
     }

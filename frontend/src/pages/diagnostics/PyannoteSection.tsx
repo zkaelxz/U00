@@ -3,12 +3,13 @@ import { useEffect, useState } from 'react'
 import { getPyannote } from '../../api/diagnostics'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { DiagnosticsPyannoteReadiness } from '../../types/diagnostics'
 import { hfModelUrl, pyannoteSummary } from './diagnosticsAdmin'
 
-/** Setup > "Speaker detection": pyannote installed, token set, and (on request) gated models open. */
-export function PyannoteSection() {
+/** Packages and installs > "Speaker detection": pyannote installed, token set, and (on request) gated models open. */
+export function PyannoteSection({ openSignal }: { openSignal?: number }) {
   const [data, setData] = useState<DiagnosticsPyannoteReadiness | null>(null)
   const [checked, setChecked] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -35,8 +36,8 @@ export function PyannoteSection() {
   }
 
   return (
+    <Section title="Speaker detection" storageKey="diagnostics.speaker" summary={data ? pyannoteSummary(data) : 'Checking…'} openSignal={openSignal}>
     <div className="diag-stack" role="group" aria-label="Speaker detection">
-      <h4>Speaker detection</h4>
       {data && <p className="muted" data-testid="pyannote-summary">{pyannoteSummary(data)}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {!data ? (
@@ -79,5 +80,6 @@ export function PyannoteSection() {
         </div>
       )}
     </div>
+    </Section>
   )
 }

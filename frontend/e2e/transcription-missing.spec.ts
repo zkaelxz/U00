@@ -29,7 +29,7 @@ test('installed: no note on the card and no block in Diagnostics', async ({ page
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
   await expect(page.locator('#transcribe-not-installed')).toHaveCount(0)
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/diagnostics?card=packages')
   await expect(page.getByTestId('dependency-panel')).toBeVisible()
   await expect(page.getByTestId('transcription-missing')).toHaveCount(0)
 })

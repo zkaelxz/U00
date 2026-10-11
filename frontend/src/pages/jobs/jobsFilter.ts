@@ -157,7 +157,8 @@ const PAGE_LINKS: Partial<Record<JobPage, { label: string; route: Route }>> = {
   discover: { label: 'Discover', route: { name: 'discover' } },
   live: { label: 'Live', route: { name: 'live' } },
   settings: { label: 'Settings', route: { name: 'settings' } },
-  diagnostics: { label: 'Diagnostics', route: { name: 'diagnostics' } },
+  // Every job that names this page is an install or update check, which live on the Packages card.
+  diagnostics: { label: 'Diagnostics', route: { name: 'diagnostics', card: 'packages' } },
 }
 
 /** Where a job's title and stage live. A job with no title links to the page the server says it belongs to, if any. */
