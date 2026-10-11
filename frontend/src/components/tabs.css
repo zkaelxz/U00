@@ -1,0 +1,11 @@
+/* Tabs: a tab row with an accent underline on the selected tab; 44px targets. */
+.ui-tabs { display: flex; gap: var(--space-2); border-bottom: 1px solid var(--border); }
+.ui-tab { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 44px; padding: var(--space-2) var(--space-4); border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
+.ui-tab:hover { color: var(--text); }
+.ui-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.ui-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) {
+  /* Scrolls inside the row so the page itself never scrolls sideways. */
+  .ui-tabs { overflow-x: auto; gap: var(--space-1); scrollbar-width: thin; }
+  .ui-tab { flex: 0 0 auto; padding-inline: var(--space-3); white-space: nowrap; }
+}

@@ -32,7 +32,7 @@ const overview = {
   gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
   model_engine_versions: [
     engine('Whisper (faster-whisper)', { version: '1.1.0' }),
-    engine('Qwen3-ASR', { version: 'not installed', installed: false }),
+    engine('Qwen3-ASR', { version: 'not installed', installed: false, help: 'Qwen3-ASR help text' }),
     engine('SenseVoice (FunASR)', { version: '1.2.0' }),
     engine('pyannote diarization model', { package: null, version: 'pyannote/speaker-diarization-3.1' }),
   ],

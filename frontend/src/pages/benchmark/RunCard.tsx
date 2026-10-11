@@ -384,10 +384,10 @@ function PrefillNote({ prefill, onDismiss }: { prefill: ComparePrefill; onDismis
     <div className="bench-prefill" role="status" data-testid="bench-compare-note">
       <p>
         {names.length >= 2
-          ? `Set up from Model health: ${names.join(' vs ')}. Pick a golden set, then estimate the cost.`
+          ? `Set up from Model status: ${names.join(' vs ')}. Pick a golden set, then estimate the cost.`
           : names.length === 1
-            ? `Set up from Model health: ${names[0]}. Add another engine to compare, or estimate the cost.`
-            : 'Nothing from that Model health link can be run here; your engine picks are unchanged.'}
+            ? `Set up from Model status: ${names[0]}. Add another engine to compare, or estimate the cost.`
+            : 'Nothing from that Model status link can be run here; your engine picks are unchanged.'}
       </p>
       {prefill.notes.length > 0 && (
         <ul>
