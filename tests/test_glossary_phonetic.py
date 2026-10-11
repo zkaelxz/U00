@@ -123,6 +123,26 @@ class TestSimilarRule:
             assert 0 <= ph.key_distance(a, b) <= 1
 
 
+class TestWorkBounds:
+    def test_length_gap_alone_rules_out_a_match(self):
+        # 4 vs 9 letters: even with half-price tail edits that is far over the threshold.
+        assert not ph.similar("yalo", "yalokumoto", "ja")
+        assert ph.similar("yalo", "yaloku", "ja")
+
+    def test_very_long_keys_only_match_when_identical(self):
+        long = "a" * (ph.MAX_KEY_LEN + 1)
+        assert ph.similar(long, long)
+        assert not ph.similar(long, long[:-1] + "b")
+
+    def test_a_pathological_pair_is_cheap(self):
+        import time
+        a, b = "ab" * 100, "ba" * 100
+        t = time.perf_counter()
+        for _ in range(2000):
+            ph.similar(a, b)
+        assert time.perf_counter() - t < 1.0
+
+
 class TestAvailability:
     def test_korean_and_latin_need_nothing(self):
         assert ph.availability("ko")["available"] and ph.availability("en")["available"]

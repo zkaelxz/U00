@@ -100,7 +100,8 @@ def get_glossary_csv(drama_id: int = Path(ge=1)):
                         drama_id, "glossary", "en", "csv")})
 
 
-@router.get("/dramas/{drama_id}/variants", dependencies=[require_permission("library.read")],
+# lines.read, not library.read: the examples are source line text.
+@router.get("/dramas/{drama_id}/variants", dependencies=[require_permission("lines.read")],
             response_model=GlossaryVariants,
             summary="Spellings in the source lines that sound like a term (read-only, offline)",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
@@ -111,7 +112,7 @@ def get_term_variants(drama_id: int = Path(ge=1),
     return glossary_variants_service.find_variants(drama_id, term)
 
 
-@router.get("/dramas/{drama_id}/name-clusters", dependencies=[require_permission("library.read")],
+@router.get("/dramas/{drama_id}/name-clusters", dependencies=[require_permission("lines.read")],
             response_model=GlossaryNameClusters,
             summary="Names that recur under several sound-alike spellings (read-only, offline)",
             responses={404: {"model": ErrorResponse}})

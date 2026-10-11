@@ -31,6 +31,9 @@ MIN_FUZZY_KEY_LEN = 3
 # Extra or missing letters at the END of a name cost this much instead of 1: ASR
 # often adds or drops a trailing sound (ヤロ / ヤロック, Yalo / Yaloch).
 TAIL_EDIT_COST = 0.5
+# No name sounds longer than this; longer keys (a pasted sentence, a 200-letter alias) only
+# match an identical key, which also bounds the cost of one comparison.
+MAX_KEY_LEN = 40
 
 _INSTALL_HINTS = {
     "ja": ("pykakasi", "Japanese kanji readings need the pykakasi package (pip install pykakasi)."),
@@ -300,6 +303,11 @@ def similar(a_key: str, b_key: str, language: str = "latin") -> bool:
         return False
     if a_key == b_key:
         return True
-    if min(len(a_key), len(b_key)) < MIN_FUZZY_KEY_LEN:
+    if min(len(a_key), len(b_key)) < MIN_FUZZY_KEY_LEN or max(len(a_key), len(b_key)) > MAX_KEY_LEN:
         return False
-    return key_distance(a_key, b_key) <= SIMILARITY_THRESHOLD.get(_lang(language), SIMILARITY_THRESHOLD["latin"])
+    threshold = SIMILARITY_THRESHOLD.get(_lang(language), SIMILARITY_THRESHOLD["latin"])
+    # The length gap alone is a lower bound on the distance, so most pairs never reach the DP.
+    gap = abs(len(a_key) - len(b_key))
+    if gap * TAIL_EDIT_COST / max(len(a_key), len(b_key)) > threshold:
+        return False
+    return key_distance(a_key, b_key) <= threshold

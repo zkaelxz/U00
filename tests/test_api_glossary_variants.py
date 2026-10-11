@@ -27,10 +27,12 @@ def _title():
 _emails = itertools.count()
 
 
-def _session(*permissions):
+def _session(*permissions, keep=()):
     user = auth_service.add_user(f"kid{next(_emails)}@example.com")
     # New users start with the household defaults; the 403 cases need them gone.
-    auth_service.revoke_permission(user["id"], "library.read")
+    for gone in ("library.read", "lines.read"):
+        if gone not in keep:
+            auth_service.revoke_permission(user["id"], gone)
     for p in permissions:
         auth_service.grant_permission(user["id"], p)
     s = auth_service.create_session(user["id"], "pytest", "203.0.113.9")
@@ -43,12 +45,12 @@ def remote(isolated_db):
     return TestClient(app, base_url="https://baihe.example.com", raise_server_exceptions=False)
 
 
-def test_reading_the_glossary_permission_is_enough(remote):
+def test_reading_the_lines_permission_is_enough(remote):
     did = _title()
     url = f"/api/glossary/dramas/{did}/variants?term=Yalo"
     assert remote.get(url).status_code == 401
     assert remote.get(url, headers=_session()).status_code == 403
-    headers = _session("library.read")
+    headers = _session("lines.read")
     body = remote.get(url, headers=headers).json()
     assert body["available"] is True
     assert {c["text"] for c in body["candidates"]} == {"Yaloch", "Yalou"}
@@ -58,13 +60,21 @@ def test_reading_the_glossary_permission_is_enough(remote):
         "available", "reason", "lines_scanned", "truncated", "clusters"}
 
 
+def test_snippets_are_line_text_so_library_read_alone_is_refused(remote):
+    # Both routes return source line text, which every other route gates with lines.read.
+    did = _title()
+    headers = _session(keep=("library.read",))
+    assert remote.get(f"/api/glossary/dramas/{did}/variants?term=Yalo", headers=headers).status_code == 403
+    assert remote.get(f"/api/glossary/dramas/{did}/name-clusters", headers=headers).status_code == 403
+
+
 def test_clusters_need_the_same_permission(remote):
     did = _title()
     assert remote.get(f"/api/glossary/dramas/{did}/name-clusters", headers=_session()).status_code == 403
 
 
 def test_errors_use_the_standard_shape(remote):
-    headers = _session("library.read")
+    headers = _session("lines.read")
     did = _title()
     assert remote.get("/api/glossary/dramas/9999/variants?term=Yalo", headers=headers).status_code == 404
     assert remote.get("/api/glossary/dramas/9999/name-clusters", headers=headers).status_code == 404

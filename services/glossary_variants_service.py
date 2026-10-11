@@ -37,12 +37,20 @@ MAX_WINDOW_CHARS = 12         # no CJK name is longer; bounds the work per start
 KEY_LEN_SLACK_BELOW = 2       # a candidate's key may be this much shorter than the term's...
 KEY_LEN_SLACK_ABOVE = 3       # ...or this much longer (ASR adds trailing sounds more than it drops them)
 MAX_LATIN_WORDS = 3           # "Shen Qing Yi"
+MAX_REF_KEYS = 20             # the term plus its first aliases; more only slows every window
+MAX_SIMILARITY_CHECKS = 150_000   # one request's share of comparisons (windows x references)
+MAX_NAME_COMPARISONS = 20_000     # the same for clustering names
+MAX_NAME_CHARS = 20           # a longer string is a sentence or a label, not a name
 MIN_NAME_COUNT = 2            # a cluster heard once is not recurring
 MAX_NAME_CANDIDATES = 300     # clustering compares pairs, so the pool is capped
 MAX_CLUSTERS = 30
 MAX_CLUSTER_SPELLINGS = 12
 
 _CJK_SCRIPTS = ("kana", "han", "hangul")
+
+
+class _BudgetSpent(Exception):
+    """The request used up its comparison budget; what was found so far is returned."""
 
 _KATAKANA_RUN = re.compile(r"[ァ-ヺー]{2,12}")
 _LATIN_CAPITAL = re.compile(r"\b[A-Z][a-z]{2,15}\b")
@@ -173,11 +181,19 @@ def find_variants(drama_id: int, term_id_or_text) -> dict:
     if not status["available"]:
         return {**base, **_unavailable(status["hint"], candidates=[])}
     try:
-        refs = [(text, ph.phonetic_key(text, language)) for text in [term_text, *aliases]]
-        refs = [(text, key) for text, key in refs if key]
-        if not refs or not ph.phonetic_key(term_text, language):
+        term_key = ph.phonetic_key(term_text, language)
+        if not term_key:
             raise InvalidInputError("That text has no sound to compare (it has no letters).")
-        term_key = refs[0][1]
+        if len(term_key) > ph.MAX_KEY_LEN:
+            raise InvalidInputError("That text is too long to be a name.")
+        refs = [(term_text, term_key)]
+        seen_keys = {term_key}
+        for text in aliases:
+            key = ph.phonetic_key(text, language)
+            # An alias that long can't be a name; one with the same sound adds no new match.
+            if key and len(key) <= ph.MAX_KEY_LEN and key not in seen_keys and len(refs) < MAX_REF_KEYS:
+                seen_keys.add(key)
+                refs.append((text, key))
         exact = {_norm(t) for t, _ in refs}
         alias_set = {_norm(a) for a in aliases}
         other_terms = {_norm(t["term_original"]) for t in terms if t["term_original"] != term_text}
@@ -186,9 +202,14 @@ def find_variants(drama_id: int, term_id_or_text) -> dict:
         max_len = max(len(k) for _, k in refs) + KEY_LEN_SLACK_ABOVE
 
         score_cache: Dict[str, float] = {}
+        checks = 0
 
         def score(key: str) -> float:
+            nonlocal checks
             if key not in score_cache:
+                checks += len(refs)
+                if checks > MAX_SIMILARITY_CHECKS:
+                    raise _BudgetSpent
                 best = 0.0
                 for _, ref_key in refs:
                     if ph.similar(key, ref_key, language):
@@ -200,12 +221,16 @@ def find_variants(drama_id: int, term_id_or_text) -> dict:
         found: Dict[str, dict] = {}
         for idx, text in lines:
             hits = []
-            for s, e, key in _windows(text, language, first_letters, min_len, max_len):
-                piece = text[s:e]
-                is_exact = _norm(piece) in exact
-                sc = 1.0 if is_exact else score(key)
-                if sc > 0:
-                    hits.append((sc, s, e, piece, key, is_exact))
+            try:
+                for s, e, key in _windows(text, language, first_letters, min_len, max_len):
+                    piece = text[s:e]
+                    is_exact = _norm(piece) in exact
+                    sc = 1.0 if is_exact else score(key)
+                    if sc > 0:
+                        hits.append((sc, s, e, piece, key, is_exact))
+            except _BudgetSpent:
+                truncated = True
+                break
             claimed = [(s, e) for _, s, e, _, _, ex in hits if ex]
             taken: List[Tuple[int, int]] = []
             for sc, s, e, piece, key, is_exact in sorted(
@@ -291,8 +316,10 @@ def discover_names(drama_id: int) -> dict:
 
     # Single mentions stay in the pool: a spelling heard once is exactly what a recurring
     # name's cluster should absorb. Clusters that stay too small are dropped below.
-    pool = sorted(found.values(), key=lambda c: (-c["count"], c["text"]))[:MAX_NAME_CANDIDATES]
+    pool = sorted((c for c in found.values() if len(c["text"]) <= MAX_NAME_CHARS),
+                  key=lambda c: (-c["count"], c["text"]))[:MAX_NAME_CANDIDATES]
     clusters: List[dict] = []
+    comparisons = 0
     try:
         for cand in pool:
             key = ph.phonetic_key(cand["text"], language)
@@ -300,11 +327,16 @@ def discover_names(drama_id: int) -> dict:
                 continue
             cand["key"] = key
             for cluster in clusters:
+                comparisons += 1
+                if comparisons > MAX_NAME_COMPARISONS:
+                    raise _BudgetSpent
                 if ph.similar(key, cluster["key"], language):
                     cluster["members"].append(cand)
                     break
             else:
                 clusters.append({"key": key, "members": [cand]})
+    except _BudgetSpent:
+        truncated = True
     except ph.PhoneticUnavailable as exc:
         return _unavailable(str(exc), clusters=[])
 

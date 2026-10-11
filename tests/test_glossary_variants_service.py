@@ -175,3 +175,40 @@ class TestDiscoverNames:
     def test_empty_title(self, isolated_db):
         out = gv.discover_names(db.create_drama(title_en="E", source_language="ja"))
         assert out["clusters"] == [] and out["lines_scanned"] == 0
+
+
+class TestWorkIsBounded:
+    def test_fifty_long_aliases_finish_fast(self, isolated_db):
+        import time
+        aliases = [("ヤロ" * 100)[: 150 + i] for i in range(50)]
+        did = _title(["ヤローが来た" * 4] * 400, language="ja", terms=[("ヤロ", aliases)])
+        t = time.perf_counter()
+        out = gv.find_variants(did, "ヤロ")
+        assert time.perf_counter() - t < 5
+        assert out["available"] and {c["text"] for c in out["candidates"]} >= {"ヤロー"}
+
+    def test_a_term_too_long_to_be_a_name_is_refused(self, isolated_db):
+        did = _title(["ヤロー"], language="ja")
+        with pytest.raises(InvalidInputError):
+            gv.find_variants(did, "ヤロ" * 40)
+
+    def test_similarity_work_budget_stops_the_scan_and_says_so(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(gv, "MAX_SIMILARITY_CHECKS", 5)
+        did = _title(["ヤローが来た", "ヤロックはどこだ", "ヤロウさん", "ヤルーも"] * 10, language="ja")
+        out = gv.find_variants(did, "ヤロ")
+        assert out["truncated"] is True
+
+    def test_three_hundred_long_speaker_labels_finish_fast(self, isolated_db):
+        import time
+        labels = {i: ("アキラ" * 40) + str(i) for i in range(300)}
+        did = _title(["あ"] * 300, language="ja", speakers=labels)
+        t = time.perf_counter()
+        out = gv.discover_names(did)
+        assert time.perf_counter() - t < 5
+        assert out["available"] and out["clusters"] == []        # nothing is name-sized
+
+    def test_comparison_budget_stops_clustering_and_says_so(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(gv, "MAX_NAME_COMPARISONS", 3)
+        texts = [n for n in ("アキラ", "ヒロシ", "ケンジ", "タロウ", "ミカ", "サクラ", "ユウキ") for _ in range(2)]
+        out = gv.discover_names(_title(texts, language="ja"))
+        assert out["truncated"] is True
