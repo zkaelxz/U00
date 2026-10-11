@@ -110,6 +110,7 @@ def test_partial_update_touches_only_passed(isolated_db):
 def test_none_means_not_passed_and_empty_call_is_noop(isolated_db):
     did = db.create_drama(title_en="A", source_language="zh")
     before = db.get_drama(did)
+    before.pop("source_url_full")    # never handed out by the service
     assert ds.update_drama_metadata(did, title_en=None) == before
     assert ds.update_drama_metadata(did) == before
 
