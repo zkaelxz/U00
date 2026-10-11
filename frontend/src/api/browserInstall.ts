@@ -1,4 +1,4 @@
-// Diagnostics > Setup "Install browser support"
+// Diagnostics > Packages and installs "Install browser support"
 // (api/routers/diagnostics_browser_routes.py). Starting it is PC only
 // (pcOnlyFetch); the status read is admin.diagnostics and is polled while
 // the job runs.

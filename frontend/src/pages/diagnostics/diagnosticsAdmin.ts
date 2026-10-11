@@ -112,11 +112,11 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
     // null/undefined means the server couldn't tell; only a definite false is a problem.
     if (typeof c.browser.package === 'boolean') {
       add('playwright', 'Playwright package', c.browser.package, 'installed',
-        'Playwright package not installed (add it from Diagnostics > Packages, the playwright row, or run pip install playwright; no browser download is needed when Chrome or Edge is installed)')
+        'Playwright package not installed (install it from Packages and installs; no browser download is needed when Chrome or Edge is installed)')
     }
     add('browser', 'Browser for JavaScript-only sites', c.browser.found,
       `Using ${BROWSER_NAMES[c.browser.name ?? ''] ?? c.browser.name ?? 'a browser'}`,
-      'None found: install Chrome or Edge, or use Install browser support (Diagnostics > Setup)')
+      'None found: install Chrome or Edge, or use Install browser support (Packages and installs)')
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
@@ -136,12 +136,6 @@ export function setupSummary(rows: SetupRow[]): string {
 /** One "‹name›: ‹version›" row per model engine. */
 export const engineRow = (m: ModelEngineVersion) =>
   `${m.name}: ${m.installed ? (m.version ?? 'installed') : 'not installed'}`
-
-/** Model engines with a pip package that aren't installed, minus names already listed as packages. */
-export function installableEngines(engines: ModelEngineVersion[], packageNames: string[]) {
-  const seen = new Set(packageNames)
-  return engines.filter((m) => !m.installed && m.package && !seen.has(m.package))
-}
 
 type HeaderBadge = { key: string; text: string; tone: BadgeTone }
 

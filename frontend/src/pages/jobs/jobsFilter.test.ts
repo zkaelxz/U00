@@ -129,7 +129,7 @@ describe('links and display helpers', () => {
     const cases: Array<[JobPage, string, Route]> = [
       ['sources', 'Sources', { name: 'sources' }], ['discover', 'Discover', { name: 'discover' }],
       ['live', 'Live', { name: 'live' }], ['settings', 'Settings', { name: 'settings' }],
-      ['diagnostics', 'Diagnostics', { name: 'diagnostics' }],
+      ['diagnostics', 'Diagnostics', { name: 'diagnostics', card: 'packages' }],
     ]
     for (const [page, label, route] of cases) {
       expect(jobLinks({ drama_id: null, kind: 'other', page })).toEqual({ title: null, stage: { label, route } })

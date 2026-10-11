@@ -1,3 +1,4 @@
+import { openSection } from './diagnosticsInstallsMocks'
 import { expect, test, type Page, type Request } from '@playwright/test'
 
 import { ME } from './authMocks'
@@ -168,11 +169,6 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
   return { sent, unmocked }
 }
 
-const openSection = async (page: Page, title: RegExp) => {
-  const summary = page.locator('summary', { hasText: title }).first()
-  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
-}
-
 test('tasks list what they need, sizes, links, and install one package at a time', async ({ page }) => {
   const { sent, unmocked } = await mockPage(page)
   await page.goto('/#/diagnostics')
@@ -285,7 +281,7 @@ test('installed packages show versions; Update appears only after a check, with 
   await expect(list.getByRole('button')).toHaveCount(0)
   expect(sent).toHaveLength(0) // nothing asked PyPI on load
 
-  await page.getByRole('button', { name: 'Check for updates' }).click()
+  await page.getByRole('button', { name: 'Check for package updates' }).click()
   await expect(page.getByTestId('update-check')).toContainText('1 update available, 1 held back')
   expect(sent.map((r) => new URL(r.url()).pathname)).toEqual(['/api/diagnostics/package-updates/check'])
   await expect(pinyin.getByTestId('pkg-update')).toHaveText('Update to 0.55.0 available')

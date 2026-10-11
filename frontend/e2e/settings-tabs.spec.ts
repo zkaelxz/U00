@@ -51,5 +51,7 @@ test('the Ports link goes to Diagnostics', async ({ page }) => {
   await page.goto('/#/settings')
   await page.getByRole('tab', { name: 'System' }).click()
   await page.getByRole('link', { name: 'Open Ports on Diagnostics' }).click()
-  await expect(page).toHaveURL(/#\/diagnostics$/)
+  await expect(page).toHaveURL(/#\/diagnostics\?card=ports$/)
+  await expect(page.getByRole('tab', { name: 'System' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('summary', { hasText: /^Ports/ })).toBeVisible()
 })

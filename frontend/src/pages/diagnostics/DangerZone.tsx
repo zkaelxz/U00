@@ -1,5 +1,5 @@
 /*
- * Danger zone: reset the whole library (PC only). Kept self-contained and
+ * Reset library: reset the whole library (PC only). Kept self-contained and
  * mounted with one line in Diagnostics.tsx, so it can be removed if reset
  * becomes CLI-only. No storageKey: always collapsed on load.
  */
@@ -15,19 +15,20 @@ import { routeHref } from '../../router'
 import type { LibraryDashboard } from '../../types/library'
 import { adminErrorText, libraryStatsLine, resetBlockedReason, useDetailsOpen, type AdminBusy } from './diagnosticsAdmin'
 
-export function DangerZone({ pc, jobsActive, busy, onBusy, onReset, onOpenChange }: {
+export function DangerZone({ pc, jobsActive, busy, onBusy, onReset, onOpenChange, openSignal }: {
   pc: PcMode
   jobsActive: boolean
   busy: AdminBusy
   onBusy: (b: AdminBusy) => void
   onReset: () => void
   onOpenChange: (open: boolean) => void
+  openSignal?: number
 }) {
   const pending = usePcPendingNote(pc)
   if (pending) {
     return (
       <div className="danger-zone">
-        <Section title="Danger zone" summary="Reset library">
+        <Section title="Reset library" summary="Deletes every title and account" openSignal={openSignal}>
           <p className="muted" data-testid="pc-pending">{pending}</p>
         </Section>
       </div>
@@ -36,7 +37,7 @@ export function DangerZone({ pc, jobsActive, busy, onBusy, onReset, onOpenChange
   if (pc === 'remote') {
     return (
       <div className="danger-zone">
-        <Section title="Danger zone" summary={PC_ONLY_SUMMARY}>
+        <Section title="Reset library" summary={PC_ONLY_SUMMARY} openSignal={openSignal}>
           <p className="muted">{PC_ONLY_BODY}</p>
         </Section>
       </div>
@@ -44,7 +45,7 @@ export function DangerZone({ pc, jobsActive, busy, onBusy, onReset, onOpenChange
   }
   return (
     <div className="danger-zone">
-      <Section title="Danger zone" summary="Reset library">
+      <Section title="Reset library" summary="Deletes every title and account" openSignal={openSignal}>
         <ResetBlock jobsActive={jobsActive} busy={busy} onBusy={onBusy} onReset={onReset} onOpenChange={onOpenChange} />
       </Section>
     </div>
@@ -110,7 +111,6 @@ function ResetBlock({ jobsActive, busy, onBusy, onReset, onOpenChange }: {
   const line = stats ? libraryStatsLine(stats) : null
   return (
     <div ref={openRef} className="diag-stack">
-      <h3>Reset library</h3>
       {done && (
         <p ref={doneRef} tabIndex={-1} role="status" data-testid="reset-done">
           Library reset. <a href={routeHref({ name: 'library' })}>Go to Library</a>

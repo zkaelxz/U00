@@ -1,8 +1,9 @@
 import type { Page, Request } from '@playwright/test'
 
 import { ME } from './authMocks'
+import { openTabFor } from './diagnosticsTabsNav'
 
-// Mocks for Diagnostics > Setup "Install Deno" and Packages "Test first"
+// Mocks for Diagnostics > Packages and installs "Install Deno" and Packages "Test first"
 // (both server jobs, polled) plus the voice-bank Play. Every POST is
 // mocked; guard() records and aborts any other non-GET /api call.
 
@@ -120,6 +121,7 @@ export async function mockDiagnostics(page: Page, m: Mocks, o: { jsFound?: boole
 }
 
 export const openSection = async (page: Page, title: RegExp) => {
+  await openTabFor(page, title)
   // Some sections start open (defaultOpen), and clicking an open one would close it: click only a closed one.
   const summary = page.locator('summary', { hasText: title }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

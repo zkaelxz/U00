@@ -13,7 +13,7 @@ import {
 } from './diagnosticsAdmin'
 
 /** "Log": the last 50/100/200 redacted log lines, loaded when opened. */
-export function LogSection() {
+export function LogSection({ openSignal }: { openSignal?: number }) {
   const [openRef, open] = useDetailsOpen()
   const [stored, setN] = usePersistedState<number>('diagnostics.logN', 50)
   const n = (LOG_LINE_CHOICES as readonly number[]).includes(stored) ? stored : 50
@@ -56,7 +56,7 @@ export function LogSection() {
   }, [open, n, keyword, tick])
 
   return (
-    <Section title="Log" storageKey="diagnostics.log" summary="Recent lines from the app log">
+    <Section title="Log" storageKey="diagnostics.log" summary="Recent lines from the app log" openSignal={openSignal}>
       <div ref={openRef} className="diag-stack">
         <div className="field-row">
           <Field label="Filter" help="A title name, or ERROR.">

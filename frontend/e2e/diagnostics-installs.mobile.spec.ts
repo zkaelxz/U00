@@ -9,7 +9,7 @@ const noSideScroll = () => document.documentElement.scrollWidth <= window.innerW
 test('phone: Deno install and Test first fit the screen', async ({ page }) => {
   const m = await guard(page)
   await mockDiagnostics(page, m)
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/diagnostics?card=deno')
   const install = page.getByRole('button', { name: 'Install Deno' })
   await expect(install).toBeVisible()
   expect((await install.boundingBox())!.height).toBeGreaterThanOrEqual(44)
@@ -20,7 +20,7 @@ test('phone: Deno install and Test first fit the screen', async ({ page }) => {
 
   await openSection(page, /^Packages/)
   await openSection(page, /^Installed packages/)
-  await page.getByRole('button', { name: 'Check for updates' }).click()
+  await page.getByRole('button', { name: 'Check for package updates' }).click()
   const test1 = page.getByRole('button', { name: 'Test pypinyin 0.55.0 first' })
   expect((await test1.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   await test1.click()

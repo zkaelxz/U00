@@ -3,6 +3,7 @@ import { useId, useState } from 'react'
 import { getBrowserInstallStatus, installBrowser } from '../../api/browserInstall'
 import { cancelJob } from '../../api/jobs'
 import { ConfirmButton } from '../../components/ConfirmButton'
+import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import { BROWSER_CONFIRM, BROWSER_INTRO, browserResultLine, browserStatusLine, canOfferBrowser, showBrowser } from './browserInstallText'
@@ -11,16 +12,17 @@ import { jobProgressLine } from './jobPoll'
 import { useServerJobStatus } from './useServerJobStatus'
 
 /**
- * Setup card: "Install browser support" when no Chrome or Edge is found
+ * Packages and installs card: "Install browser support" when no Chrome or Edge is found
  * (PC only, two-step). The server runs the download as a job; this polls
  * its status, offers Cancel while it runs, then shows the result.
  */
-export function BrowserInstall({ pc, jobsActive, busy, onStarted, onFinished }: {
+export function BrowserInstall({ pc, jobsActive, busy, onStarted, onFinished, openSignal }: {
   pc: PcMode
   jobsActive: boolean
   busy: AdminBusy
   onStarted: () => void
   onFinished: () => void
+  openSignal?: number
 }) {
   const { status, running, refresh } = useServerJobStatus(getBrowserInstallStatus, onFinished)
   const [error, setError] = useState<string | null>(null)
@@ -59,8 +61,8 @@ export function BrowserInstall({ pc, jobsActive, busy, onStarted, onFinished }: 
   }
 
   return (
+    <Section title="Browser support" storageKey="diagnostics.browser" summary={line ?? 'No browser found'} defaultOpen openSignal={openSignal}>
     <div className="diag-subcard browser-install" data-testid="browser-install" role="group" aria-label="Browser support">
-      <p><strong>Install browser support</strong></p>
       <p className="muted">{BROWSER_INTRO}</p>
       {line && <p className="muted" data-testid="browser-status">{line}</p>}
       {running && status.job && (
@@ -109,5 +111,6 @@ export function BrowserInstall({ pc, jobsActive, busy, onStarted, onFinished }: 
         </div>
       )}
     </div>
+    </Section>
   )
 }

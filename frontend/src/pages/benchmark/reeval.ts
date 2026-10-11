@@ -286,7 +286,7 @@ export function promoteEffects(c: Pick<ModelCandidate, 'engine' | 'model'>, prod
   out.push(c.engine !== production.engine
     ? `Settings' default engine changes from ${humanize('engine', production.engine)} to ${humanize('engine', c.engine)}.`
     : `Settings' default engine stays ${humanize('engine', production.engine)}.`)
-  out.push("Presets keep their own model; switch those with Model health on Diagnostics.")
+  out.push("Presets keep their own model; switch those with Model status on Diagnostics.")
   return out
 }
 

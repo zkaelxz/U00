@@ -140,7 +140,7 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
   const action = (r: PreflightRow) => {
     if (readOnly || r.noFix) return <p className="muted preflight-ask">{DENIED_NOTE}</p>
     if (r.need === 'whisper') {
-      if (!task) return <ButtonLink variant="secondary" size="sm" href="#/diagnostics?install=transcription">Open Diagnostics</ButtonLink>
+      if (!task) return <ButtonLink variant="secondary" size="sm" href="#/diagnostics?card=packages&install=transcription">Open Diagnostics</ButtonLink>
       const size = formatApproxMb(task.approx_mb)
       return (
         <ConfirmButton

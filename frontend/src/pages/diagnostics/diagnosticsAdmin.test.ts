@@ -5,7 +5,7 @@ import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../.
 import {
   LOST_CONTACT_INSTALL, adminErrorText, busyLine, copyFallbackText,
   extensionEngineNote, extensionSummary, extensionToggleNote,
-  headerBadges, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
+  headerBadges, installBlockedReason, installConfirmLabel, installResultText,
   isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, reconcileModels, resetBlockedReason,
   setupRows, setupSummary,
 } from './diagnosticsAdmin'
@@ -122,16 +122,6 @@ describe('packages', () => {
     expect(installConfirmLabel('torch')).toBe('Confirm install torch (about 2.5 GB)')
     expect(installConfirmLabel('torchaudio')).toBe('Confirm install torchaudio (about 2.5 GB)')
     expect(installConfirmLabel('jieba')).toBeUndefined()
-  })
-
-  it('lists uninstalled model engines with a package not already shown', () => {
-    const e = (name: string, installed: boolean, pkg: string | null): ModelEngineVersion =>
-      ({ name, installed, package: pkg, version: null, url: null, help: null })
-    const out = installableEngines(
-      [e('A', false, 'a-pkg'), e('B', true, 'b-pkg'), e('C', false, null), e('D', false, 'pyannote.audio')],
-      ['pyannote.audio'],
-    )
-    expect(out.map((m) => m.name)).toEqual(['A'])
   })
 
   it('gives one blocked reason for install and for reset', () => {

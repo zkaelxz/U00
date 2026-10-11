@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
+
 export type Route =
   | { name: 'library' }
   | { name: 'library-tools' }
@@ -11,7 +13,9 @@ export type Route =
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   | { name: 'settings'; section?: 'developer-mode' | 'uploads' }
   | { name: 'admin' }
-  | { name: 'diagnostics' }
+  // card: "#/diagnostics?card=ports" opens the tab that holds that card and scrolls to it;
+  // tab alone opens that tab. install=transcription (Before-you-run) lands on the Packages card.
+  | { name: 'diagnostics'; tab?: DiagnosticsTab; card?: DiagnosticsCard }
   // compare: the raw "engine:model,engine:model" value of ?compare= (Model
   // health's "Compare in Benchmark Lab"; pages/benchmark/benchmarkForm.ts reads it).
   | { name: 'benchmark'; compare?: string }
@@ -46,7 +50,13 @@ export function parseRoute(hash: string): Route {
       : { name: 'settings' }
   }
   if (head === 'admin' && parts.length === 1) return { name: 'admin' }
-  if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
+  if (head === 'diagnostics' && parts.length === 1) {
+    const q = new URLSearchParams(qs)
+    const card = q.get('card') ?? (q.get('install') === 'transcription' ? 'packages' : null)
+    const tab = q.get('tab')
+    if (isDiagnosticsCard(card)) return { name: 'diagnostics', card }
+    return isDiagnosticsTab(tab) ? { name: 'diagnostics', tab } : { name: 'diagnostics' }
+  }
   if (head === 'benchmark' && parts.length === 1) {
     // Kept raw (still %-encoded) so a ":" or "," inside a model name can't be misread.
     const compare = qs.split('&').find((p) => p.startsWith('compare='))?.slice('compare='.length)
@@ -109,6 +119,7 @@ export function routeHref(r: Route): string {
     const base = `#/manga/${[r.source, r.series, r.chapter].map(encodeURIComponent).join('/')}`
     return r.page ? `${base}?page=${r.page}` : base
   }
+  if (r.name === 'diagnostics' && (r.card || r.tab)) return r.card ? `#/diagnostics?card=${r.card}` : `#/diagnostics?tab=${r.tab}`
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
   if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
   return `#/${r.name}`

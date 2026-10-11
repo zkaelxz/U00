@@ -16,7 +16,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { useRoute } from '../router'
+import { routeHref, useRoute } from '../router'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
@@ -38,7 +38,8 @@ import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
 import { filterSettings, SETTINGS_INDEX, SETTINGS_TABS, type SettingsTab } from './settings/settingsIndex'
 import { SettingsCard, SettingsSearch, VisibleCardsProvider } from './settings/SettingsSearch'
-import { panelId, SettingsTabs, tabId } from './settings/SettingsTabs'
+import { Tabs } from '../components/Tabs'
+import { tabButtonId, tabPanelId } from '../components/tabIds'
 import './settings/settings.css'
 
 // Members who get 403 on the settings call see only these.
@@ -177,7 +178,7 @@ export default function SettingsPage() {
   }, [searchHitsAdvanced, query])
 
   const panel = (id: SettingsTab, children: ReactNode) => (
-    <div key={id} id={panelId(id)} role="tabpanel" aria-labelledby={tabId(id)} className="settings-panel" hidden={active !== id}>
+    <div key={id} id={tabPanelId('settings', id)} role="tabpanel" aria-labelledby={tabButtonId('settings', id)} className="settings-panel" hidden={active !== id}>
       {children}
     </div>
   )
@@ -187,7 +188,9 @@ export default function SettingsPage() {
       <h2>Settings</h2>
       <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />
       {visibleTabs.length > 1 && (
-        <SettingsTabs
+        <Tabs
+          label="Settings"
+          idPrefix="settings"
           tabs={visibleTabs.map((t) => ({ ...t, count: searching ? match.counts[t.id] : undefined }))}
           active={active}
           onSelect={setStoredTab}
@@ -284,7 +287,7 @@ export default function SettingsPage() {
             <SettingsCard id="ports">
               <Card title="Ports" meta="Which ports Baihe listens on">
                 <div className="settings-actions">
-                  <ButtonLink href="#/diagnostics" variant="ghost">Open Ports on Diagnostics</ButtonLink>
+                  <ButtonLink href={routeHref({ name: 'diagnostics', card: 'ports' })} variant="ghost">Open Ports on Diagnostics</ButtonLink>
                 </div>
               </Card>
             </SettingsCard>

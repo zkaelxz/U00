@@ -2,6 +2,7 @@ import { useId, useState } from 'react'
 
 import { getDenoStatus, installDeno } from '../../api/diagnosticsInstalls'
 import { ConfirmButton } from '../../components/ConfirmButton'
+import { Section } from '../../components/Section'
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import { DENO_CONFIRM, canOfferDeno, denoIntro, denoNote, denoResultLine, showDeno } from './denoInstallText'
 import { adminErrorText, installBlockedReason, type AdminBusy } from './diagnosticsAdmin'
@@ -9,18 +10,19 @@ import { jobProgressLine } from './jobPoll'
 import { useServerJobStatus } from './useServerJobStatus'
 
 /**
- * Setup card, under the rows: "Install Deno…" when no JS runtime is found
+ * Packages and installs card: "Install Deno…" when no JS runtime is found
  * (PC only, two-step). The server runs it as a job; this polls its status
  * and shows progress, then the result. Other admin buttons wait for it
  * (it is a running job), and it waits for them.
  */
-export function DenoInstall({ pc, jobsActive, busy, onStarted, onFinished }: {
+export function DenoInstall({ pc, jobsActive, busy, onStarted, onFinished, openSignal }: {
   pc: PcMode
   jobsActive: boolean
   busy: AdminBusy
   // A job started (refresh the jobs list) / finished (re-run the setup checks).
   onStarted: () => void
   onFinished: () => void
+  openSignal?: number
 }) {
   const { status, running, refresh } = useServerJobStatus(getDenoStatus, onFinished)
   const [error, setError] = useState<string | null>(null)
@@ -48,6 +50,7 @@ export function DenoInstall({ pc, jobsActive, busy, onStarted, onFinished }: {
   }
 
   return (
+    <Section title="JavaScript runtime" storageKey="diagnostics.deno" summary={result?.text ?? 'Not found'} defaultOpen openSignal={openSignal}>
     <div className="diag-subcard deno-install" data-testid="deno-install" role="group" aria-label="JavaScript runtime">
       <p className="muted">{denoIntro(status.install_method)}</p>
       {running && status.job && (
@@ -84,5 +87,6 @@ export function DenoInstall({ pc, jobsActive, busy, onStarted, onFinished }: {
         </div>
       )}
     </div>
+    </Section>
   )
 }

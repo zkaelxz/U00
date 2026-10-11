@@ -6,6 +6,7 @@ import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
+import { routeHref } from '../../router'
 import { buttonClass } from '../../components/uiClasses'
 import type { PcMode } from '../../hooks/usePcOnly'
 import {
@@ -14,14 +15,19 @@ import {
 } from './modelHealth'
 
 /**
- * "Model health": every model this app is set up to use (built-in
+ * "Model status": every model this app is set up to use (built-in
  * defaults, workflow tiers, saved presets), with the ones that are retired,
  * deprecated, no longer listed or older shown first. The provider check is a
  * button, never automatic, and PC only; so is switching a preset or choosing
  * another model for a built-in default or tier, which ask for a second press.
  * Nothing switches by itself.
  */
-export function ModelHealthCard({ pc, onShowEngines }: { pc: PcMode; onShowEngines: () => void }) {
+export function ModelHealthCard({ pc, onProblems, openSignal }: {
+  pc: PcMode
+  // How many configured models are retired, deprecated or older (drives the tab's attention badge).
+  onProblems: (count: number) => void
+  openSignal?: number
+}) {
   const [status, setStatus] = useState<ModelStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -137,11 +143,12 @@ export function ModelHealthCard({ pc, onShowEngines }: { pc: PcMode; onShowEngin
   const checks = status ? engineCheckLines(status.engines_checked) : []
 
   const problems = status ? status.warnings : 0
+  useEffect(() => onProblems(problems), [problems, onProblems])
   const summary = status ? `${badge?.text ?? ''} · ${lastCheckedLine(status.checked_at)}` : 'Loading…'
 
   return (
-    <Section key={status ? 'loaded' : 'loading'} title="Model health" storageKey="diagnostics.modelHealth" summary={summary} defaultOpen={problems > 0}>
-      <div className="model-health" role="region" aria-label="Model health">
+    <Section key={status ? 'loaded' : 'loading'} title="Model status" storageKey="diagnostics.modelHealth" summary={summary} defaultOpen openSignal={openSignal}>
+      <div className="model-health" role="region" aria-label="Model status">
       <div className="actions">
         {badge && (
           <span data-testid="model-health-badge">
@@ -162,10 +169,6 @@ export function ModelHealthCard({ pc, onShowEngines }: { pc: PcMode; onShowEngin
       )}
       {status && (
         <>
-          <p className="muted">
-            Local model engines (install, status, downloads) are listed in Setup.{' '}
-            <button type="button" className={buttonClass('secondary', 'sm')} onClick={onShowEngines}>Show model engines</button>
-          </p>
           <p className="muted">
             Nothing switches automatically: a preset only changes when you confirm it here.{' '}
             {canAct
@@ -208,7 +211,7 @@ export function ModelHealthCard({ pc, onShowEngines }: { pc: PcMode; onShowEngin
             </ul>
           )}
           {status.checked_at && checks.length === 0 && (
-            <p className="muted">No provider was checked: only Claude, Gemini and DeepSeek can be asked, and each needs a key in Settings.</p>
+            <p className="muted">No provider was checked: only Claude, Gemini and DeepSeek can be asked, and each needs a key in <a href={routeHref({ name: 'settings' })}>Settings</a>.</p>
           )}
 
           {attention.length > 0 ? (

@@ -56,7 +56,7 @@ test('a title-less job links its Stage cell to the page the server names', async
   await page.goto('/#/jobs')
   await chip(page, 'All').click()
   await expect(page.getByTestId('job-row-sources_search').getByRole('link', { name: 'Sources', exact: true })).toHaveAttribute('href', '#/sources')
-  await expect(page.getByTestId('job-row-deno_install').getByRole('link', { name: 'Diagnostics', exact: true })).toHaveAttribute('href', '#/diagnostics')
+  await expect(page.getByTestId('job-row-deno_install').getByRole('link', { name: 'Diagnostics', exact: true })).toHaveAttribute('href', '#/diagnostics?card=packages')
   await expect(page.getByTestId('job-row-benchmark_lab').getByRole('link')).toHaveCount(0)
 })
 

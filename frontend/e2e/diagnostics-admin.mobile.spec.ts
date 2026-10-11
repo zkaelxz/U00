@@ -67,7 +67,7 @@ test('Diagnostics on a phone: 44px targets, no sideways scroll', async ({ page }
   // Jobs live in the header menu and on the Jobs page, not on Diagnostics.
   await expect(page.getByTestId('jobs-summary')).toHaveCount(0)
 
-  await page.locator('summary', { hasText: /^Log/ }).click()
+  await openSection(page, /^Log/)
   await expect(page.getByLabel('Log lines')).toContainText('INFO fine')
   // The job blocks installs; drop it so the Install button works.
   await page.unroute('**/api/jobs')

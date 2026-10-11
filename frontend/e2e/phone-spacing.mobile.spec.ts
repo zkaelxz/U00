@@ -20,7 +20,7 @@ test.beforeAll(() => {
 
 const sizes = [{ width: 390, height: 844 }, { width: 360, height: 800 }]
 const themes = ['light', 'dark', 'sepia', 'oled']
-const routes = ['/#/', '/#/drama/3/source', '/#/drama/3/translate', '/#/drama/3/review', '/#/settings', '/#/diagnostics']
+const routes = ['/#/', '/#/drama/3/source', '/#/drama/3/translate', '/#/drama/3/review', '/#/settings', '/#/diagnostics', '/#/diagnostics?tab=packages', '/#/diagnostics?tab=models', '/#/diagnostics?tab=system']
 
 async function load(page: Page, url: string, theme = 'dark') {
   await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
@@ -101,7 +101,7 @@ for (const size of sizes) {
     for (const url of [...routes, '/#/drama/3/translate']) {
       await load(page, url)
       // Diagnostics fetches per section; the speaker-detection one carries the dense "Check access online" button.
-      if (url.endsWith('/diagnostics')) await expect(page.getByTestId('pyannote-summary')).toBeAttached()
+      if (url.includes('/diagnostics')) await expect(page.getByTestId('pyannote-summary')).toBeAttached()
       // A hash-only navigation keeps the previous page's scroll, and the sticky back button would then sit over this page's content.
       await page.evaluate(() => window.scrollTo(0, 0))
       // The glossary's instruction editors arrive after networkidle; measure with them present, not sometimes without.

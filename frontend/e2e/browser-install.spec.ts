@@ -3,7 +3,7 @@ import { expect, test, type Request } from '@playwright/test'
 import { mockBrowser, status } from './browserInstallMocks'
 import { guard, mockDiagnostics, openSection } from './diagnosticsInstallsMocks'
 
-// Diagnostics > Setup "Install browser support": a server job started with a
+// Diagnostics > Packages and installs "Install browser support": a server job started with a
 // two-step confirm, polled for progress, cancellable, then a result. Every
 // endpoint is mocked; nothing is downloaded.
 
@@ -12,8 +12,7 @@ test('no Chrome or Edge: install takes two presses, shows progress, then the res
   await mockDiagnostics(page, m, { jsFound: true })
   const sent: Request[] = []
   await mockBrowser(page, sent)
-  await page.goto('/#/diagnostics')
-  await openSection(page, /^Setup/)
+  await page.goto('/#/diagnostics?card=browser')
   const block = page.getByTestId('browser-install')
   await expect(block).toContainText('Downloads about 150 MB.')
   await expect(block).toContainText('Not needed if Chrome or Edge is installed.')
@@ -38,8 +37,7 @@ test('cancel stops the install and says so; the buttons are phone-sized', async 
   })
   const sent: Request[] = []
   await mockBrowser(page, sent)
-  await page.goto('/#/diagnostics')
-  await openSection(page, /^Setup/)
+  await page.goto('/#/diagnostics?card=browser')
   const block = page.getByTestId('browser-install')
   await block.getByRole('button', { name: 'Install browser support' }).click()
   await block.getByRole('button', { name: 'Confirm install browser support (about 150 MB)' }).click()
@@ -67,8 +65,7 @@ test('the playwright package missing: the reason shows and there is no button', 
   await mockBrowser(page, [], status({
     playwright_installed: false, refusal: 'Install the playwright package first (Diagnostics > Packages).',
   }))
-  await page.goto('/#/diagnostics')
-  await openSection(page, /^Setup/)
+  await page.goto('/#/diagnostics?card=browser')
   const block = page.getByTestId('browser-install')
   await expect(block).toContainText('Install the playwright package first')
   await expect(block.getByRole('button', { name: 'Install browser support' })).toHaveCount(0)
@@ -80,8 +77,7 @@ test('away from the PC: the install is not offered', async ({ page }) => {
   await mockBrowser(page, [])
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
-  await page.goto('/#/diagnostics')
-  await openSection(page, /^Setup/)
+  await page.goto('/#/diagnostics?card=browser')
   await expect(page.getByTestId('browser-install')).toContainText('Installing is PC only.')
   await expect(page.getByRole('button', { name: 'Install browser support' })).toHaveCount(0)
 })
