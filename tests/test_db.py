@@ -11,10 +11,15 @@ import sqlite3
 import subprocess
 import sys
 import os
+
+import pytest
 import tempfile
 import threading
 import time
 import weakref
+
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
@@ -2138,6 +2143,18 @@ class TestInitDbSchema:
     database and an upgraded old one must end up with the same schema, and
     running it again must change nothing."""
 
+    @pytest.fixture
+    def isolated_db(self):
+        # Its own folder with a from-scratch init_db: "fresh" below must not be
+        # a copy of the shared template these tests are meant to be checked against.
+        previous = db.LIBRARY_DIR
+        parent_dir = tempfile.mkdtemp(prefix="baihe_test_")
+        db.configure_library_dir(os.path.join(parent_dir, "library"))
+        db.init_db()
+        yield db
+        db.configure_library_dir(previous)
+        shutil.rmtree(parent_dir, ignore_errors=True)
+
     def test_running_init_db_again_changes_nothing(self, isolated_db):
         before = _exact_snapshot(isolated_db.DB_PATH)
         isolated_db.init_db()
@@ -2334,3 +2351,80 @@ class TestSearchWildcards:
                                    Line(idx=1, start=1.0, end=2.0, zh="别的", en="x_y")])
         assert [r["idx"] for r in isolated_db.search_lines_globally("%")] == [0]
         assert [r["idx"] for r in isolated_db.search_lines_globally("_")] == [1]
+
+
+def _stored_version():
+    return db.get_app_setting(db.APP_VERSION_SETTING)
+
+
+def _open_as(monkeypatch, running):
+    monkeypatch.setattr(db, "_running_app_version", lambda: running)
+    db.init_db()
+
+
+def test_init_db_refuses_a_library_last_opened_by_a_newer_version(isolated_db, monkeypatch):
+    from lib.errors import NewerDatabaseError
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.1.0")
+    with pytest.raises(NewerDatabaseError) as err:
+        _open_as(monkeypatch, "2.0.5")
+    message = err.value.message
+    assert "2.1.0" in message and "2.0.5" in message and "backups" in message
+    assert db.LIBRARY_DIR not in message and os.sep not in message
+    assert _stored_version() == "2.1.0"
+
+
+def test_a_refused_library_stays_refused_on_the_next_use(isolated_db, monkeypatch):
+    from lib.errors import NewerDatabaseError
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.1.0")
+    monkeypatch.setattr(db, "_running_app_version", lambda: "2.0.5")
+    db.configure_library_dir(db.LIBRARY_DIR)   # forget readiness, as a fresh start
+    with pytest.raises(NewerDatabaseError):
+        db.get_conn()
+    with pytest.raises(NewerDatabaseError):
+        db.get_conn()
+
+
+@pytest.mark.parametrize("stored", ["1.9.0", "2.0.5"])
+def test_init_db_opens_an_older_or_equal_version_and_records_the_running_one(
+        isolated_db, monkeypatch, stored):
+    db.set_app_setting(db.APP_VERSION_SETTING, stored)
+    _open_as(monkeypatch, "2.0.5")
+    assert _stored_version() == "2.0.5"
+
+
+def test_init_db_opens_when_no_version_was_recorded(isolated_db, monkeypatch):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (db.APP_VERSION_SETTING,))
+        conn.commit()
+    _open_as(monkeypatch, "2.0.5")
+    assert _stored_version() == "2.0.5"
+
+
+@pytest.mark.parametrize("stored", ["dev", "banana", "", 7, None])
+def test_init_db_opens_when_the_stored_version_is_malformed(isolated_db, monkeypatch, stored):
+    db.set_app_setting(db.APP_VERSION_SETTING, stored)
+    _open_as(monkeypatch, "2.0.5")
+    assert _stored_version() == "2.0.5"
+
+
+def test_a_source_checkout_neither_checks_nor_records_a_version(isolated_db, monkeypatch):
+    db.set_app_setting(db.APP_VERSION_SETTING, "9.9.9")
+    _open_as(monkeypatch, None)
+    assert _stored_version() == "9.9.9"
+
+
+def test_installed_app_version_comes_from_the_install_manifest(tmp_path, monkeypatch):
+    import portable
+    app = tmp_path / "app"
+    app.mkdir()
+    monkeypatch.setattr(portable, "APP_DIR", str(app))
+    monkeypatch.setattr(portable, "is_installed", lambda: True)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text('{"product": "Baihe Studio", "app_version": "0.1.0"}')
+    assert portable.installed_app_version() == "0.1.0"
+    manifest.write_text('{"product": "Other", "app_version": "0.1.0"}')
+    assert portable.installed_app_version() is None
+    manifest.write_text("not json")
+    assert portable.installed_app_version() is None
+    monkeypatch.setattr(portable, "is_installed", lambda: False)
+    assert portable.installed_app_version() is None
