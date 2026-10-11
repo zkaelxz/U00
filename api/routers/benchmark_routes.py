@@ -11,11 +11,15 @@ services/benchmark_lab_service.py.
   owner's paid keys, so it is PC-only and needs `confirm=true` (the page
   shows the estimate first). The run is refused when the monthly cap is used
   up or the estimate is over what is left of it, and stops at the cap.
+- "Build a set from a reviewed title" reads a title's lines and writes cases, so
+  it is PC only too (the title's ownership is still checked).
+- A translation run may ask for an LLM judge (`judge` on the run request and the
+  estimate); the judge's summary and per-case scores ride on the run reads.
 """
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import local_only, require_permission
 from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseCreate,
@@ -26,8 +30,10 @@ from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseC
                                    BenchmarkRunList, BenchmarkRunRequest,
                                    BenchmarkRunStarted, BenchmarkSetList)
 from api.routers.settings_routes import require_confirm
-from api.schemas import ErrorResponse
+from api.schemas import BenchmarkSetBuildRequest, BenchmarkSetBuildResult, ErrorResponse
+from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
+from services import benchmark_set_builder_service as builder_svc
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
@@ -38,6 +44,24 @@ _READ = [require_permission("admin.diagnostics")]
 
 def _configs(body: BenchmarkRunRequest) -> list:
     return [c.model_dump() for c in body.configs]
+
+
+def _judge(body: BenchmarkRunRequest):
+    """(judge config without the flag, allow_same_model) from the request."""
+    if body.judge is None:
+        return None, False
+    cfg = body.judge.model_dump()
+    return {"engine": cfg["engine"], "model": cfg["model"]}, cfg["allow_same_model"]
+
+
+def _with_judge(runs: list, rows: list = None) -> None:
+    """Adds the judge summary to each run and, in Arena rows, its scores to
+    each cell (cell i belongs to run i)."""
+    judge_svc.annotate_runs(runs)
+    for row in rows or []:
+        for run, cell in zip(runs, row["results"]):
+            if cell is not None:
+                judge_svc.annotate_results(run, [cell])
 
 
 @router.get("/options", dependencies=_READ, response_model=BenchmarkOptions,
@@ -90,10 +114,21 @@ def post_regression(drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return svc.add_regression_case(drama_id, line_id)
 
 
+@router.post("/sets/from-title", dependencies=[local_only()], response_model=BenchmarkSetBuildResult,
+             responses=_ERRS,
+             summary="PC only: build a set of cases from a title's reviewed lines (dry_run counts only)")
+def post_build_set(body: BenchmarkSetBuildRequest, request: Request):
+    return builder_svc.build_set(
+        request.state.principal, body.drama_id, body.set_name, body.include, body.line_start,
+        body.line_end, body.scene_count, body.lines_per_case, body.dry_run)
+
+
 @router.post("/estimate", dependencies=_READ, response_model=BenchmarkEstimate,
              responses=_ERRS, summary="What a run would cost and whether the monthly cap allows it")
 def post_estimate(body: BenchmarkRunRequest):
-    return svc.estimate(body.stage, _configs(body), body.tier, body.set_name, body.case_ids)
+    judge, same_ok = _judge(body)
+    return judge_svc.estimate_with_judge(body.stage, _configs(body), body.tier, body.set_name,
+                                         body.case_ids, judge, same_ok)
 
 
 @router.post("/runs", dependencies=[local_only()], response_model=BenchmarkRunStarted,
@@ -101,24 +136,32 @@ def post_estimate(body: BenchmarkRunRequest):
              summary="PC only: start a benchmark run (two or more engines = Model Arena; confirm=true)")
 def post_run(body: BenchmarkRunRequest):
     require_confirm(body.confirm)
-    return svc.start_run(body.stage, _configs(body), body.tier, body.set_name, body.case_ids,
-                         body.label, body.prompt_version)
+    judge, same_ok = _judge(body)
+    return judge_svc.start_run(body.stage, _configs(body), body.tier, body.set_name, body.case_ids,
+                               body.label, body.prompt_version, judge, same_ok)
 
 
 @router.get("/runs", dependencies=_READ, response_model=BenchmarkRunList, responses=_ERRS,
             summary="Recorded benchmark runs, newest first")
 def get_runs(stage: Optional[str] = Query(default=None, max_length=20),
              limit: int = Query(default=50, ge=1, le=200)):
-    return svc.list_runs(stage, limit)
+    out = svc.list_runs(stage, limit)
+    _with_judge(out["runs"])
+    return out
 
 
 @router.get("/runs/{run_id}", dependencies=_READ, response_model=BenchmarkRunDetail,
             responses=_ERRS, summary="One run with its per-case results")
 def get_run(run_id: int = Path(ge=1)):
-    return svc.get_run(run_id)
+    out = svc.get_run(run_id)
+    judge_svc.annotate_runs([out["run"]])
+    judge_svc.annotate_results(out["run"], out["results"])
+    return out
 
 
 @router.get("/arena", dependencies=_READ, response_model=BenchmarkArena, responses=_ERRS,
             summary="Model Arena: 2-4 runs side by side, case by case")
 def get_arena(run_ids: List[int] = Query(min_length=2, max_length=4)):
-    return svc.arena(run_ids)
+    out = svc.arena(run_ids)
+    _with_judge(out["runs"], out["rows"])
+    return out

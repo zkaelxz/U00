@@ -131,12 +131,18 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const requested = useRef(new Set<number>())
 
   useEffect(() => {
+    // Title A's link must not show on title B while B loads, or if B's load fails.
+    setSourceUrl(null)
+    let cancelled = false
     api.getDrama(id).then(
       (d) => {
+        if (cancelled) return
         setTitle(d.title_en || d.title_zh || `Title #${d.id}`)
         setSourceUrl(d.source_url ?? null)
       },
-      () => setTitle(null),
+      () => {
+        if (!cancelled) setTitle(null)
+      },
     )
     comicApi.pages(id).then(setData, setError)
     comicApi.progress(id).then(
@@ -148,6 +154,9 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       // Unknown (refused or failed): start at page 1 but don't save it.
       () => setSavedPage(1),
     )
+    return () => {
+      cancelled = true
+    }
   }, [id])
 
   // After an upload or a Scanlate job: reload the page list (new pages, new

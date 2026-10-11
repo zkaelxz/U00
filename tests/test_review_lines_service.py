@@ -156,7 +156,9 @@ class TestChecks:
         expected = translate_engines.smart_segment_lines(loaded)
         got = svc.get_pacing_flags(did)
         assert got["count"] == len(expected) and expected
-        assert [{k: f[k] for k in ("idx", "issue", "detail")} for f in got["flags"]] == expected
+        # Same flags, worst first.
+        assert got["flags"] == [dict(f, id=got["flags"][i]["id"]) for i, f in enumerate(
+            sorted(expected, key=lambda f: -f["severity"]))]
         assert all(f["id"] is not None for f in got["flags"])
 
 

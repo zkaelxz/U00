@@ -14,8 +14,10 @@ dialog). Thin: see services/bug_report_service.py.
   is already loopback. A request with Transfer-Encoding is refused, the
   Content-Length is checked first, and the body stream itself is counted,
   so a body past the cap is cut off with 413 whatever the headers say.
-  At most MAX_REPORTS reports are kept (409 past that), and each principal
-  may send RATE_MAX reports per RATE_WINDOW seconds (429).
+  Reports sent from away from the PC are capped at MAX_REPORTS_PER_USER
+  per user and MAX_REPORTS in all (409 past either); reports sent at the PC
+  count against neither. Each principal may send RATE_MAX reports per
+  RATE_WINDOW seconds (429).
 - GET list and GET one (the markdown) are `admin.diagnostics`.
 - POST .../{id}/delete is `local_only()` with confirm=true and the folder
   stamp from the list, like the other PC-only deletes.
@@ -146,7 +148,8 @@ async def post_bug_report(request: Request):
         await form.close()
     return await run_in_threadpool(
         svc.create_report, client.model_dump(), data,
-        include_server_in_response=holds(request, "admin.diagnostics"))
+        include_server_in_response=holds(request, "admin.diagnostics"),
+        reporter=None if shots_ok else _principal_key(request))
 
 
 @router.get("", dependencies=[require_permission("admin.diagnostics")],

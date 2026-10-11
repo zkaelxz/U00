@@ -1,7 +1,7 @@
 /* Comic viewer (pages/Comic.tsx). Builds on reader.css; tokens only; phone rules at the end. */
 .comic {
   /* Room left for a page fitted to the screen height (bars above it). */
-  --comic-avail-h: calc(100dvh - 232px);
+  --comic-avail-h: calc(100dvh - var(--bar-h, 0px) - 232px);
   --comic-page-max: 56rem;
   --comic-box-line: var(--accent);
 }
@@ -9,7 +9,7 @@
 /* Desktop bar: breadcrumb, pager + scrubber, Typeset/Text/zoom, Aa. Sticky. */
 .comic-top {
   position: sticky;
-  top: 0;
+  top: var(--bar-h, 0px);
   z-index: 5;
   display: flex;
   align-items: center;
@@ -53,6 +53,8 @@
 .comic-stage.comic-zoomed { touch-action: none; cursor: grab; }
 .comic-zoom-layer { transform-origin: 0 0; }
 .comic-stage-vertical .comic-zoom-layer { display: grid; justify-items: center; }
+/* ComicPageView compensates for pages above the reader resizing; native anchoring on top would scroll twice. */
+.comic-stage-vertical { overflow-anchor: none; }
 .comic-stage-paged { min-height: var(--comic-avail-h); display: grid; }
 .comic-stage-paged .comic-zoom-layer { display: grid; place-items: center; }
 
@@ -115,8 +117,8 @@
 /* Desktop text panel */
 .comic-panel {
   position: sticky;
-  top: 72px;
-  max-height: calc(100dvh - 88px);
+  top: calc(var(--bar-h, 0px) + 72px);
+  max-height: calc(100dvh - var(--bar-h, 0px) - 88px);
   overflow-y: auto;
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
@@ -133,14 +135,14 @@
 .comic-chrome-off .comic-bottom { display: none; }
 
 /* Phone: full-bleed pages, slim sticky top bar, 56px bottom scrubber. */
-.comic-phone { --comic-avail-h: calc(100dvh - 100px - 56px - env(safe-area-inset-bottom, 0px)); }
+.comic-phone { --comic-avail-h: calc(100dvh - var(--bar-h, 0px) - 100px - 56px - env(safe-area-inset-bottom, 0px)); }
 .comic-phone .comic-stage {
   width: calc(100% + 2 * var(--space-4));
   margin-inline: calc(-1 * var(--space-4));
   border-radius: 0;
-  scroll-margin-top: 100px;
+  scroll-margin-top: calc(var(--bar-h, 0px) + 100px);
 }
-.comic-phone .comic-page { max-width: none; scroll-margin-top: 100px; }
+.comic-phone .comic-page { max-width: none; scroll-margin-top: calc(var(--bar-h, 0px) + 100px); }
 .comic-phone .comic-stage-paged .comic-zoom-layer { place-items: start center; }
 .comic-count { flex: 0 0 auto; min-width: 7ch; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
 .comic-bottom { display: flex; align-items: center; gap: var(--space-2); padding-inline: var(--space-2); min-height: 56px; }

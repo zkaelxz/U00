@@ -35,7 +35,7 @@ import { JobPanel } from './JobPanel'
 import { NovelChaptersPanel } from './NovelChaptersPanel'
 import { SubtitleImport } from './SubtitleImport'
 import { NovelPanel } from './NovelPanel'
-import { novelSections } from './novelFile'
+import { novelSections, stableNovelSections } from './novelFile'
 import { useNovelPresence } from './novelFileEvents'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
@@ -56,6 +56,7 @@ export default function SourceStage() {
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [replace, setReplace] = useState(false)
   // The server says the drama has audio/video even if the status we read did not.
   const [serverHasMedia, setServerHasMedia] = useState(false)
@@ -139,9 +140,11 @@ export default function SourceStage() {
   const confirmReplace = mustConfirm && replace
 
   const upload = () => {
-    if (!file || (mustConfirm && !replace)) return
+    if (!file || uploading || (mustConfirm && !replace)) return
+    setUploading(true)
     uploadMedia(dramaId, file, confirmReplace).then(
       (r) => {
+        setUploading(false)
         setError(null)
         setReplace(false)
         setServerHasMedia(false)
@@ -158,6 +161,7 @@ export default function SourceStage() {
         onJobDone()
       },
       (e: unknown) => {
+        setUploading(false)
         if (needsReplaceConfirm(e)) setServerHasMedia(true)
         setError(e)
       },
@@ -228,10 +232,10 @@ export default function SourceStage() {
           <button
             type="button"
             className={buttonClass('secondary')}
-            disabled={!file || busy || (mustConfirm && !replace)}
+            disabled={!file || busy || uploading || (mustConfirm && !replace)}
             onClick={upload}
           >
-            Upload
+            {uploading ? 'Uploading...' : 'Upload'}
           </button>
           {mustConfirm && (
             <label>
@@ -284,11 +288,15 @@ export default function SourceStage() {
   const kind = mediaKind(drama.media_type)
   const novelPresence = useNovelPresence(dramaId, reloads)
   const presenceSections = novelSections(kind, drama.media_type, drama.content_mode, novelPresence)
-  // Saving a raw novel from the optional row must not move that panel to Transcribe under the
-  // viewer's hands, so the row stays until the page is reloaded or another title is opened.
+  // A panel must not move under the viewer's hands: saving a raw novel from the optional row
+  // leaves it there, and removing one from Transcribe leaves that panel (and its "Removed."
+  // notice) there, until the page is reloaded or another title is opened.
   const [optionalFor, setOptionalFor] = useState<number | null>(null)
-  if (novelPresence && presenceSections === 'optional' && optionalFor !== dramaId) setOptionalFor(dramaId)
-  const sections = presenceSections === 'full' && optionalFor === dramaId && kind === 'audio' ? 'optional' : presenceSections
+  const [fullFor, setFullFor] = useState<number | null>(null)
+  const sections = stableNovelSections(kind, presenceSections, optionalFor === dramaId, fullFor === dramaId)
+  // Record what is shown, not what was read, so a held layout never counts as the other one.
+  if (novelPresence && sections === 'optional' && optionalFor !== dramaId) setOptionalFor(dramaId)
+  if (novelPresence && sections === 'full' && fullFor !== dramaId) setFullFor(dramaId)
   const transcribe = (
     <Section
       key="transcribe"
