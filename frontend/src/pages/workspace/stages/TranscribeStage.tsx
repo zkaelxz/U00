@@ -84,7 +84,7 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_asr: 'Qwen3 ASR',
   qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
   qwen3_asr_long: 'Qwen3 ASR on long windows (no Whisper)',
-  anime_whisper: 'anime-whisper (experimental, non-commercial use only)',
+  anime_whisper: 'Anime-whisper (experimental, non-commercial use only)',
   auto: 'Automatic',
   normal: 'Normal (default)',
   sensitive: 'More sensitive',
