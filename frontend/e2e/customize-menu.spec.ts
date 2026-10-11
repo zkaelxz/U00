@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { expectDiscoverGone, expectLockedItemsCannotBeSwitchedOff, hideDiscoverFromSettings } from './customizeMenu'
 import { navLink, openSettingsGroups } from './settingsNav'
 
-// Settings > Customize menu on the wide screen (left rail), against the seeded API (auth off).
+// Settings > Menu items on the wide screen (left rail), against the seeded API (auth off).
 
 test('hiding Discover removes it from the rail, the address still loads and the choice survives a reload', async ({ page }) => {
   await hideDiscoverFromSettings(page)
@@ -17,7 +17,7 @@ test('hiding Discover removes it from the rail, the address still loads and the 
   // Switching it back on restores the link.
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Sharing and devices')
-  await page.getByRole('region', { name: 'Customize menu' }).getByRole('switch', { name: 'Discover' }).click()
+  await page.getByRole('region', { name: 'Menu items' }).getByRole('switch', { name: 'Discover' }).click()
   await expect(navLink(page, 'Discover')).toBeVisible()
 })
 

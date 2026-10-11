@@ -10,7 +10,7 @@ test('extension devices fit a phone with 44px targets', async ({ page }) => {
   const s = await mockExtensionDevices(page, { ...ME.signedIn, permissions: [...ME.signedIn.permissions, 'extension.send'] })
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Sharing and devices')
-  const card = page.getByRole('region', { name: 'Browser extension devices' })
+  const card = page.getByRole('region', { name: 'Extension tokens per computer' })
   const revoke = card.getByRole('button', { name: 'Revoke Home desktop' })
   const add = card.getByRole('button', { name: 'Add device' })
   for (const b of [revoke, add, card.getByLabel('Device name'), card.getByLabel('Expires')]) {

@@ -111,7 +111,9 @@ test('Settings: a member gets no keys, engines or system tabs and no sharing lis
   // Nothing that writes a key or an engine choice is on the page at all.
   await expect(page.getByRole('tab')).toHaveCount(0)
   await expect(page.locator('input[type="password"]')).toHaveCount(0)
-  await expect(page.getByRole('switch', { name: 'Discover' })).toHaveCount(1) // Customize menu is the member's own
+  // Menu items is the member's own; it starts closed beside the open Sharing card.
+  await page.getByRole('button', { name: 'Expand all' }).click()
+  await expect(page.getByRole('switch', { name: 'Discover' })).toHaveCount(1)
   await expect(page.getByText('Stronger translation for hard lines')).toHaveCount(0)
   // The admin-only per-item sharing list is hidden, not just refused.
   await expect(sharing.getByRole('list', { name: 'Titles and series' })).toHaveCount(0)

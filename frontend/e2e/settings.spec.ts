@@ -124,10 +124,10 @@ test('a collapsible section shows a summary and starts closed on every visit', a
   await details().locator('summary').click()
   await expect(details()).toHaveAttribute('open', '')
   await expect(details().locator('.section-summary')).toHaveCount(0)
-  expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('baihe.section.settings.')))).toEqual([])
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('baihe.section.settings.') && !k.includes('.card.')))).toEqual([])
 
   await page.reload()
-  await expect(page.locator('details.section[open]')).toHaveCount(0)
+  await expect(page.locator('.section-body details.section[open]')).toHaveCount(0)
   await openSettingsGroups(page, 'System')
   await expect(details()).not.toHaveAttribute('open', '')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)

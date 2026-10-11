@@ -17,7 +17,7 @@ test('the batch size is hidden until Developer Mode is on', async ({ page }) => 
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'System')
   const card = page.getByRole('region', { name: 'Advanced transcription' })
-  await expect(card.getByLabel('Mixed languages')).toBeVisible()
+  await expect(card.getByLabel('Mixed languages', { exact: true })).toBeVisible()
   await expect(card.getByLabel('Qwen3-ASR batch size', { exact: true })).toHaveCount(0)
 })
 
