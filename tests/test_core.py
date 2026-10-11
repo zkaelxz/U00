@@ -1347,6 +1347,13 @@ class TestSplitLongSegments:
         assert len(out) > 1
         self._check(seg, out)
 
+    def test_proportional_cuts_are_flagged_timing_uncertain(self):
+        seg = self._seg(",".join(["一二三四五六七八九十"] * 8) + "。", 0.0, 30.0)
+        out = segment_splitting.split_long_segments([seg], max_seconds=8)
+        assert len(out) > 1
+        assert {p["flag"] for p in out} == {"timing_uncertain"}
+        assert {p["flag_note"] for p in out} == {segment_splitting.PROPORTIONAL_SPLIT_NOTE}
+
     def test_no_punctuation_left_alone(self):
         seg = self._seg("一二三四五六七八九十" * 10)
         assert segment_splitting.split_long_segments([seg]) == [seg]
