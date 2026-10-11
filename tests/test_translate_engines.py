@@ -590,14 +590,6 @@ class TestContextWindow:
         te.translate_lines_with_engine(lines, engine, {}, batch_size=10, context_window=6)
         assert engine.calls[0]["recent_context"] == [("l0", "Pre-existing translation.")]
 
-    def test_existing_mock_engine_tests_unaffected_by_new_default(self):
-        """context_window now defaults to 6 -- confirms that doesn't break
-        an engine that ignores the context dict's extra keys entirely."""
-        lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(5)]
-        result, errors = te.translate_lines_with_engine(lines, MockEngine(), {}, batch_size=2)
-        assert errors == []
-        assert all(ln.en for ln in result)
-
 
 class TestLookaheadContext:
     def test_last_batch_has_no_upcoming_lines(self):

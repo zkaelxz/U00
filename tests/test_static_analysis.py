@@ -5,6 +5,7 @@ and the requirements/constraints files stay consistent with the launchers.
 """
 import ast
 import collections
+import functools
 import os
 import re
 import sys
@@ -12,6 +13,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+@functools.lru_cache(maxsize=None)
+def parsed(path):
+    """The parsed tree of a source file, shared by every guard that walks the
+    repo so each file is read and parsed once per process. Callers only read it."""
+    with open(path, encoding="utf-8") as f:
+        return ast.parse(f.read(), path)
 
 
 _HTTP_VERBS = ("post", "get", "put", "patch", "delete", "head", "request")
@@ -31,7 +40,7 @@ def _find_requests_calls_missing_timeout(path, session_verbs=False):
 
     Retired when no raw `requests`/`httpx`/`urlopen` call remains outside
     `lib/http.py` and `engine_backends/` (lib.http always passes timeout=)."""
-    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    tree = parsed(path)
     problems = []
     session_names = set()
     if session_verbs:
@@ -204,7 +213,7 @@ def _find_httpx_calls_missing_timeout(path):
     in `path`: every `OAuth2Client(...)`, `httpx.Client(...)`,
     `httpx.<verb>(...)` and `<client>.<verb>/fetch_token(...)` on a name
     bound by `with ... as <client>` must pass `timeout=`."""
-    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    tree = parsed(path)
     clients = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.withitem) and isinstance(node.optional_vars, ast.Name):
@@ -253,7 +262,7 @@ def _find_socket_calls_missing_timeout(path):
     without `timeout=`, and for `socket.socket()` bound in a `with` whose
     body never calls `.settimeout(`: a silent peer would otherwise block
     the caller forever."""
-    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    tree = parsed(path)
     problems, checked = [], 0
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
@@ -325,7 +334,7 @@ def _find_sdk_clients_missing_timeout(path):
     """(lineno list, number checked) for LLM SDK client constructors in
     `path` -- `Anthropic(...)`, `anthropic.Anthropic(...)`, `OpenAI(...)`
     and their Async forms -- that pass no `timeout=` (B-07)."""
-    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    tree = parsed(path)
     problems, checked = [], 0
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -563,8 +572,7 @@ class TestRequirementsPackageNameParserItself:
 def _absolute_imports(path):
     """(line, module) for every absolute import in `path`; `from x import y`
     also yields `x.y`, so `from db import foo` and `import db` both show."""
-    with open(path, encoding="utf-8") as f:
-        tree = ast.parse(f.read(), filename=path)
+    tree = parsed(path)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
