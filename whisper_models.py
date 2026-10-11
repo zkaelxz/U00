@@ -34,6 +34,23 @@ PINNED_CT2_REPOS = {
     "kotoba-v2": ("kotoba-tech/kotoba-whisper-v2.0-faster", "f44edd35eaeb2274e85ac7b31fb2c6f59ff1c4bc"),
 }
 
+# anime-whisper (litagin/anime-whisper) is NOT a key of WHISPER_MODELS or PINNED_CT2_REPOS:
+# it must not reach the size picker, Live, mixed-language, Benchmark Lab or the CLI, and
+# only asr_backend.AnimeWhisperBackend loads it, by this name. The CTranslate2 build is
+# byte-identical to `tools/ja_whisper_models.py convert-anime-whisper` (same model.bin
+# sha256). Personal, non-commercial use only: the training data forbids commercial use of
+# models trained on it, whatever the model card's MIT licence says.
+ANIME_WHISPER_KEY = "anime-whisper"
+ANIME_WHISPER_PIN = {
+    "repo": "quantumcookie/anime-whisper-ct2-fp16",
+    "revision": "8ad0b0053dd0af6e108eea290e6f50a3aea49008",
+    "model_bin_sha256": "3a20db4ea35c80e0e4302565560de93af7191b24c9e4dcfa67411ce33bc67d7e",
+    # Calibrated on this 2-layer decoder. The stock config carries large-v3's heads, which
+    # do not exist here; layer-0 heads align badly.
+    "alignment_heads": [[1, 14], [1, 8], [1, 12]],
+}
+ANIME_WHISPER_MANIFEST = "baihe-manifest.json"
+
 # Models that must not be asked for word timestamps. kotoba's CTranslate2 config copies
 # large-v3's alignment_heads (decoder layers 7-19) onto a 2-layer decoder, so
 # word_timestamps=True can fail inside ctranslate2. Their lines keep Whisper's segment
@@ -234,6 +251,8 @@ def _pinned_snapshot(model_size: str):
 def is_whisper_model_cached(model_size: str) -> bool:
     """Whether a model is already downloaded, so the UI can warn about a
     large download before starting rather than failing partway."""
+    if model_size == ANIME_WHISPER_KEY:
+        return _anime_whisper_ready(anime_whisper_folder())
     if model_size in PINNED_CT2_REPOS:
         return _pinned_snapshot(model_size) is not None
     hub_dir = _hub_dir()
@@ -368,6 +387,118 @@ def _fetch_pinned_model(model_size: str, token) -> str:
             "Check your Hugging Face token in Settings and try again.") from exc
 
 
+def anime_whisper_folder() -> str:
+    import portable
+    return os.path.join(portable.data_dir(), "model_cache", "anime_whisper")
+
+
+def _sha256_of(path: str) -> str:
+    import hashlib
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _anime_whisper_ready(folder: str) -> bool:
+    """True when `folder` holds a download that passed _fetch_anime_whisper's checks at
+    the pinned revision. The manifest is written only after the sha256 matched, so the
+    weights are not hashed again on every load; a changed size still counts as not ready."""
+    import json
+    from lib.ct2_repo import CT2_REQUIRED
+    try:
+        with open(os.path.join(folder, ANIME_WHISPER_MANIFEST), encoding="utf-8") as f:
+            manifest = json.load(f)
+        weights = os.path.join(folder, "model.bin")
+        return (manifest.get("revision") == ANIME_WHISPER_PIN["revision"]
+                and manifest.get("model_bin_sha256") == ANIME_WHISPER_PIN["model_bin_sha256"]
+                and manifest.get("model_bin_size") == os.path.getsize(weights)
+                and all(os.path.isfile(os.path.join(folder, n)) for n in CT2_REQUIRED))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def _finish_anime_whisper(partial: str) -> None:
+    """Checks a finished download in `partial` and prepares it for use, or raises
+    ModelDownloadError. Nothing in the folder is trusted until this passes: it must hold
+    only regular files from the CTranslate2 allow-list, and model.bin must be the pinned
+    bytes."""
+    import json
+    import shutil
+    from lib.ct2_repo import CT2_ALLOWED
+    # huggingface_hub's own bookkeeping folder for a local_dir download.
+    shutil.rmtree(os.path.join(partial, ".cache"), ignore_errors=True)
+    for name in os.listdir(partial):
+        path = os.path.join(partial, name)
+        if name not in CT2_ALLOWED or os.path.islink(path) or not os.path.isfile(path):
+            raise ModelDownloadError(
+                "Not using the anime-whisper download: it holds a file outside the expected "
+                "CTranslate2 set. Nothing was installed.")
+    weights = os.path.join(partial, "model.bin")
+    if _sha256_of(weights) != ANIME_WHISPER_PIN["model_bin_sha256"]:
+        raise ModelDownloadError(
+            "The downloaded anime-whisper model.bin does not match the pinned checksum, so it "
+            "was discarded. Try again; if it keeps failing, report it.")
+    config_path = os.path.join(partial, "config.json")
+    shutil.copy2(config_path, config_path + ".orig")
+    with open(config_path, encoding="utf-8") as f:
+        config = json.load(f)
+    config["alignment_heads"] = ANIME_WHISPER_PIN["alignment_heads"]
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+    with open(os.path.join(partial, ANIME_WHISPER_MANIFEST), "w", encoding="utf-8") as f:
+        json.dump({"source_repo": ANIME_WHISPER_PIN["repo"],
+                   "revision": ANIME_WHISPER_PIN["revision"],
+                   "model_bin_sha256": ANIME_WHISPER_PIN["model_bin_sha256"],
+                   "model_bin_size": os.path.getsize(weights)}, f, indent=2)
+
+
+def _fetch_anime_whisper(token) -> str:
+    """Local folder of the pinned anime-whisper CTranslate2 build, downloaded on first use.
+
+    Same safety rules as _fetch_pinned_model, plus: real files in Baihe's own model
+    folder (config.json is edited, which must not write through a cache link), a
+    checksum on the weights, and a download that is built in a side folder and moved
+    into place only after every check passed."""
+    folder = anime_whisper_folder()
+    if _anime_whisper_ready(folder):
+        return folder
+    import shutil
+    from lib.ct2_repo import RepoFilesRefused, select_ct2_files
+    import huggingface_hub
+    repo, revision = ANIME_WHISPER_PIN["repo"], ANIME_WHISPER_PIN["revision"]
+    partial = folder + ".partial"
+    try:
+        info = huggingface_hub.HfApi().model_info(repo, revision=revision, token=token, timeout=30)
+        if getattr(info, "sha", revision) != revision:
+            raise ModelDownloadError("Not downloading anime-whisper: the repository did not "
+                                     "return the pinned revision. Nothing was downloaded.")
+        try:
+            wanted = select_ct2_files(s.rfilename for s in info.siblings)
+        except RepoFilesRefused as exc:
+            raise ModelDownloadError(
+                f"Not downloading anime-whisper: {exc}. Nothing was downloaded.") from exc
+        shutil.rmtree(partial, ignore_errors=True)
+        huggingface_hub.snapshot_download(
+            repo, revision=revision, token=token, allow_patterns=wanted, local_dir=partial,
+            etag_timeout=30)
+        _finish_anime_whisper(partial)
+        shutil.rmtree(folder, ignore_errors=True)
+        os.replace(partial, folder)
+        return folder
+    except ModelDownloadError:
+        raise
+    except Exception as exc:
+        if is_network_error(exc):
+            raise
+        # Fixed text: the raw error can carry URLs and local paths.
+        raise ModelDownloadError(
+            f"Couldn't download the anime-whisper model ({type(exc).__name__}).") from exc
+    finally:
+        shutil.rmtree(partial, ignore_errors=True)
+
+
 _CUBLAS_DLL = "cublas64_12.dll"
 GPU_RUNTIME_MISSING_REASON = (
     "The CUDA 12 runtime libraries that Whisper needs on the GPU (cuBLAS) aren't installed on this PC.")
@@ -437,7 +568,9 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
 
     device_info = {"device": "cpu", "compute_type": "int8", "gpu_error": None}
     try:
-        if model_size in PINNED_CT2_REPOS and not local_model_path:
+        if model_size == ANIME_WHISPER_KEY:
+            model_path = _fetch_anime_whisper(_tok)
+        elif model_size in PINNED_CT2_REPOS and not local_model_path:
             model_path = _fetch_pinned_model(model_size, _tok)
         elif _tok and not local_model_path:
             model_path = _download_model(model_size, _tok)

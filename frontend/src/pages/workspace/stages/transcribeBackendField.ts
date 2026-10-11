@@ -19,6 +19,7 @@ export const ASR_BACKEND_HELP: Record<string, string> = {
   qwen3_asr: 'Qwen3 ASR: Whisper cuts the lines, Qwen3 rewrites the text. Slower; downloads a model.',
   qwen3_asr_vad: 'Qwen3 ASR with speech detection: no Whisper; lines are cut at speech pauses. Downloads a model.',
   qwen3_asr_long: 'Qwen3 ASR on long windows: no Whisper; keeps quiet speech, one line per sentence. Default for Chinese and Japanese when installed.',
+  anime_whisper: 'anime-whisper (experimental, Japanese only): for anime and ASMR; no Whisper pass. Personal, non-commercial use only: its training data forbids commercial use. Downloads about 1.5 GB on first use.',
 }
 
 export function asrBackendHelp(options: string[]): string {

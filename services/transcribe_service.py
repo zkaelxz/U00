@@ -367,6 +367,10 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     if "asr_backend_choice" in fields and fields["asr_backend_choice"] is not None:
         if fields["asr_backend_choice"] not in ASR_BACKEND_CHOICES:
             raise InvalidInputError(f"Unknown asr_backend_choice {fields['asr_backend_choice']!r}.")
+        problem = asr_options_service.asr_backend_language_problem(
+            fields["asr_backend_choice"], drama.get("source_language") or "zh")
+        if problem:
+            raise InvalidInputError(problem)
         updates["asr_backend_choice"] = fields["asr_backend_choice"]
     if "beam_size" in fields and fields["beam_size"] is not None:
         if not 1 <= fields["beam_size"] <= 10:
@@ -430,8 +434,13 @@ def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, la
                 "Qwen3 forced alignment needs a transcript to align, but this title is in "
                 "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
                 "to 'whisper_diff'.")
+        problem = asr_options_service.asr_backend_language_problem(asr_backend_choice, language)
+        if problem:
+            raise InvalidInputError(problem)
         if asr_backend_choice == "qwen3_asr":
             require_qwen3_packages("Qwen3-ASR")
+        elif asr_backend_choice == "anime_whisper":
+            _require_vad_packages()
         elif asr_backend_choice in transcribe_pipeline.VAD_BACKENDS:
             require_vad_backend_packages(asr_backend_choice, language)
             _require_vad_packages()
@@ -440,7 +449,7 @@ def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, la
 
 
 def _require_vad_packages() -> None:
-    """The speech-detection Qwen3 backend needs faster-whisper (it bundles the
+    """The speech-detection backends need faster-whisper (it bundles the
     Silero VAD and decodes the audio for it)."""
     if importlib.util.find_spec("faster_whisper") is None:
         raise DependencyUnavailableError(
