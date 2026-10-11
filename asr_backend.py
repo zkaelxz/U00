@@ -452,6 +452,9 @@ class Qwen3ASRVadBackend:
             if text:
                 pieces.extend({**p, "span": n} for p in split_long_segments(
                     [{**seg, "text": text}],
+                    # The aligner replaces the estimated times, so only an
+                    # unrefined run needs them marked as guesses.
+                    flag_estimated=not refine_timing,
                     **({"rules": SENTENCE_SPLIT_RULES} if long_windows else {})))
         pieces = filter_hallucinated_segments(pieces)
         groups = {}

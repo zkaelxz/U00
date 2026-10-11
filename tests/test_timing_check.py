@@ -76,6 +76,10 @@ class TestFindDrift:
         assert set(found) == {1}
         assert "Overlaps the next line by 1.5 s" in found[1].note
 
+    def test_an_overlap_of_exactly_the_tolerance_is_not_flagged(self):
+        # 16.1 - 16.0 is 0.10000000000000142 in floats.
+        assert self.notes([L(0, 12.0, 16.1), L(1, 16.0, 16.5)], spans=[(12.0, 16.5)]) == {}
+
     def test_sfx_lines_are_not_judged(self):
         assert self.notes([L(0, 15.0, 18.0, sfx=True)]) == {}
 

@@ -320,6 +320,38 @@ class TestRepairFlagsLines:
         assert (result[2].start, result[2].end) == (4.0, 6.0)
 
 
+class TestAllZeroAlignerResult:
+    def test_a_line_the_aligner_gave_only_zero_length_units_falls_back_to_coarse_timing(
+            self, monkeypatch):
+        import forced_align as fa
+        segs = [{"start": 0.0, "end": 6.0, "text": "你好再见"}]
+        monkeypatch.setattr(fa, "_extract_audio_slice",
+                            lambda a, s, e, out: open(out, "wb").close())
+
+        class Model:
+            def align(self, audio, text, language):
+                return [[FakeUnit(c, 1.0, 1.0) for c in text]]
+        monkeypatch.setattr(fa, "load_qwen3_aligner", lambda use_gpu=False: Model())
+
+        result = fa.align_with_qwen3("/f.wav", ["你好", "再见"], segs, language="zh")
+        assert [ln.flag_note for ln in result] == [fa.TIMING_FALLBACK_NOTE] * 2
+
+    def test_refine_segment_timing_labels_it_a_fallback_too(self, monkeypatch):
+        import forced_align as fa
+        monkeypatch.setattr(fa, "_extract_audio_slice",
+                            lambda a, s, e, out: open(out, "wb").close())
+
+        class Model:
+            def align(self, audio, text, language):
+                return [[FakeUnit(c, 0.0, 0.0) for c in text]]
+        monkeypatch.setattr(fa, "load_qwen3_aligner", lambda use_gpu=False: Model())
+
+        out = fa.refine_segment_timing(
+            "/f.wav", [[{"start": 0.0, "end": 3.0, "text": "你好"}]], "zh")
+        assert out[0]["flag_note"] == fa.TIMING_FALLBACK_NOTE
+        assert (out[0]["start"], out[0]["end"]) == (0.0, 3.0)
+
+
 class TestAlignWithQwen3:
     def _fake_model_returning(self, per_chunk_text_to_units):
         class FakeModel:

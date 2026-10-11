@@ -271,6 +271,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
                   <p className="muted">{preview.reason || "Nothing to re-segment. Turn on Use AI to split lines the rules can't."}</p>
                 ) : (
                   <>
+                    {preview.reason && <p className="muted">{preview.reason}</p>}
                     <ul className="review-matches">
                       {preview.changed.slice(0, SHOWN_CHANGES).map((c) => (
                         <li key={`${c.line_id ?? 'x'}-${c.idx}`}>

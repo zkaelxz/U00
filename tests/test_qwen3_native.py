@@ -193,7 +193,27 @@ def test_a_forced_language_and_no_hint_sends_exactly_the_old_request(fake_torch,
     assert processor.requests == [{"audio": ["audio:/a.wav"], "language": "Chinese", "kwargs": {}}]
     assert processor.decoded[1] == "parsed"
     assert [(r.text, r.language) for r in out] == [("你好", "Chinese")]
-    assert fake.calls[0]["max_new_tokens"] == qwen3_native.MAX_NEW_TOKENS
+    assert fake.calls[0]["max_new_tokens"] == qwen3_native.MIN_NEW_TOKENS
+
+
+def test_a_long_window_gets_more_new_tokens_than_the_floor(fake_torch, monkeypatch):
+    import numpy as np
+    monkeypatch.setattr(qwen3_native, "load_audio_16k",
+                        lambda path: np.zeros(30 * qwen3_native.SAMPLE_RATE, dtype="float32"))
+    model, _, fake = _asr([{"language": None, "transcription": "x"}])
+    model.transcribe(audio="/a.wav", language="Chinese")
+    assert fake.calls[0]["max_new_tokens"] == 30 * qwen3_native.NEW_TOKENS_PER_AUDIO_SECOND
+    assert fake.calls[0]["max_new_tokens"] > qwen3_native.MIN_NEW_TOKENS
+
+
+def test_new_tokens_follow_the_longest_clip_and_stop_at_the_ceiling(fake_torch, monkeypatch):
+    import numpy as np
+    lengths = {"/short.wav": 5, "/huge.wav": 3600}
+    monkeypatch.setattr(qwen3_native, "load_audio_16k",
+                        lambda path: np.zeros(lengths[path] * qwen3_native.SAMPLE_RATE, dtype="float32"))
+    model, _, fake = _asr([{"language": None, "transcription": "x"}] * 2)
+    model.transcribe(audio=["/short.wav", "/huge.wav"], language="Chinese")
+    assert fake.calls[0]["max_new_tokens"] == qwen3_native.MAX_NEW_TOKENS_CEILING
 
 
 def test_an_empty_prompt_is_never_sent(fake_torch, fake_audio):

@@ -359,3 +359,22 @@ class TestResegmentSubprocessWorker:
         outcome = result_queue.get_nowait()
 
         assert outcome == ("error", "RuntimeError", "resegment exploded")
+
+
+class TestEvenCutReason:
+    def _preview(self, text):
+        import long_line_split
+        ln = Line(idx=0, start=0.0, end=10.0, zh=text, id=1)
+        new, changed = rs.resegment_lines([ln], "zh", boundaries_fn=lambda *a: set())
+        return long_line_split.resegment_reason([ln], "zh", changed, new)
+
+    def test_lines_cut_evenly_point_to_use_ai(self):
+        reason = self._preview(RUN_ON)
+        assert "cut evenly" in reason and "Use AI" in reason
+
+    def test_nothing_cut_evenly_gives_no_reason_when_lines_changed(self):
+        import long_line_split
+        ln = Line(idx=0, start=0.0, end=10.0, zh=RUN_ON, id=1)
+        new, changed = rs.resegment_lines([ln], "zh", even_split=False,
+                                          boundaries_fn=lambda *a: set(range(len(RUN_ON) + 1)))
+        assert changed and long_line_split.resegment_reason([ln], "zh", changed, new) == ""

@@ -61,11 +61,19 @@ LONG_LINE_SECONDS = 12.0
 LONG_LINE_CHARS = 40
 
 
-def resegment_reason(lines, language: str, changed) -> str:
-    """Why a rules preview cut nothing. Re-segmenting counts characters only, so
-    a line that runs long in time but is short in text needs Split long lines."""
+def resegment_reason(lines, language: str, changed, new_lines=()) -> str:
+    """Why a rules preview cut nothing, or, when it did cut, which cuts were
+    guesses. Re-segmenting counts characters only, so a line that runs long in
+    time but is short in text needs Split long lines."""
     if changed:
-        return ""
+        # The rules always fall back to an even cut, so "could not be cut" never
+        # happens; what Use AI can still improve is where those even cuts land.
+        even = sum(ln.flag_note == EVEN_SPLIT_NOTE for ln in new_lines)
+        if not even:
+            return ""
+        return (f"{even} piece{'s were' if even != 1 else ' was'} cut evenly by length because "
+                "there was no punctuation or pause to cut at, so the times are approximate. "
+                "Try Use AI for better break points.")
     cap = resegment.max_line_chars(language)
     real = [ln for ln in lines if not ln.sfx and (ln.zh or "").strip()]
     over = sum(resegment.length(ln.zh) > cap for ln in real)

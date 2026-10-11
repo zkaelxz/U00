@@ -23,6 +23,9 @@ LATE_END_S = 0.7
 MIN_SPEECH_FRACTION = 0.4
 # Two consecutive lines may touch; flag only a real overlap.
 OVERLAP_TOLERANCE_S = 0.1
+# Float subtraction of times like 16.1 - 16.0 gives 0.10000000000000142, which
+# would flag an overlap that is exactly the tolerance.
+OVERLAP_EPSILON_S = 1e-6
 # Streamer VODs have music and noise the detector can take for speech, so every
 # tolerance is relaxed by this factor and the note says the check is unsure.
 CONSERVATIVE_FACTOR = 1.5
@@ -136,7 +139,7 @@ def find_drift(lines, spans, audio_seconds: Optional[float], *, conservative: bo
             if fraction < min_fraction:
                 reasons.append(f"mostly silence ({fraction:.0%} speech)")
         over = ln.end - next_start.get(ln.id, ln.end)
-        if over > OVERLAP_TOLERANCE_S:
+        if over > OVERLAP_TOLERANCE_S + OVERLAP_EPSILON_S:
             reasons.append(f"overlaps the next line by {_seconds(over)}")
         if reasons:
             text = "; ".join(reasons)

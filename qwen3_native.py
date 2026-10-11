@@ -32,9 +32,15 @@ ALIGNER_REPO = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
 # not reused.
 APPROX_DOWNLOAD_GB = {"1.7B": 4.1, "0.6B": 1.6, "aligner": 1.8}
 
-# One subtitle segment is a few seconds of speech; this matches the limit the
-# qwen-asr package applied.
-MAX_NEW_TOKENS = 256
+# The old fixed cap (what the qwen-asr package applied) suits a few-second
+# segment but truncates a 30 s window, so the cap scales with the audio and
+# never drops below it.
+MIN_NEW_TOKENS = 256
+# Fast CJK speech is 6-8 characters per second at about one token each; 12
+# leaves room for the "language X<asr_text>" prefix and slower tokenisation.
+NEW_TOKENS_PER_AUDIO_SECOND = 12
+# Bounds a runaway repetition loop on a very long clip.
+MAX_NEW_TOKENS_CEILING = 2048
 
 SAMPLE_RATE = 16000
 
@@ -179,14 +185,20 @@ def _prepare(inputs, processor, model):
     return inputs.to(model.device, dtype=model.dtype)
 
 
+def _new_token_budget(arrays, floor: int) -> int:
+    longest_s = max((len(a) for a in arrays), default=0) / SAMPLE_RATE
+    wanted = int(longest_s * NEW_TOKENS_PER_AUDIO_SECOND)
+    return min(MAX_NEW_TOKENS_CEILING, max(floor, wanted))
+
+
 class NativeQwen3ASR:
-    def __init__(self, model, processor, max_new_tokens: int = MAX_NEW_TOKENS):
+    def __init__(self, model, processor, max_new_tokens: int = MIN_NEW_TOKENS):
         self.model = model
         self.processor = processor
         self.max_new_tokens = max_new_tokens
 
     @classmethod
-    def from_pretrained(cls, model_id: str, device: str, dtype, max_new_tokens=MAX_NEW_TOKENS):
+    def from_pretrained(cls, model_id: str, device: str, dtype, max_new_tokens=MIN_NEW_TOKENS):
         require_transformers("Qwen3-ASR")
         from transformers import AutoModelForMultimodalLM, AutoProcessor
         processor = AutoProcessor.from_pretrained(model_id)
@@ -208,7 +220,8 @@ class NativeQwen3ASR:
         inputs = self.processor.apply_transcription_request(arrays, language=language, **kwargs)
         inputs = _prepare(inputs, self.processor, self.model)
         with torch.inference_mode():
-            generated = self.model.generate(**inputs, max_new_tokens=self.max_new_tokens)
+            generated = self.model.generate(
+                **inputs, max_new_tokens=_new_token_budget(arrays, self.max_new_tokens))
         generated = generated[:, inputs["input_ids"].shape[1]:]
         parsed = self.processor.decode(generated, return_format="parsed")
         if isinstance(parsed, dict):

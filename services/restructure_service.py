@@ -363,7 +363,7 @@ def _reseg_inputs(drama_id: int, drama: dict):
 
 def preview_resegmentation(drama_id: int) -> dict:
     """Read-only, rules only (no LLM call, nothing written). `needs_confirm`
-    is True when any line long enough to be split carries a translation,
+    is True if any line long enough to be split carries a translation,
     flag or note -- Apply then needs confirm=true."""
     drama = _require_drama(drama_id)
     language, script, segments, min_pause = _reseg_inputs(drama_id, drama)
@@ -379,7 +379,7 @@ def preview_resegmentation(drama_id: int) -> dict:
                         for ln, p in changed],
             **_affected_counts(drama_id, lines, changed_ids),
             "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"]),
-            "reason": long_line_split.resegment_reason(lines, language, changed)}
+            "reason": long_line_split.resegment_reason(lines, language, changed, new_lines)}
 
 
 def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
