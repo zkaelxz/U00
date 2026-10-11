@@ -613,7 +613,8 @@ def _verify_torch_once(cancel=None) -> dict:
     out["cuda_available"] = data.get("cuda_available") if isinstance(
         data.get("cuda_available"), bool) else None
     devices = data.get("devices")
-    no_kernels = gpu_torch.unsupported_gpu_message(devices if isinstance(devices, list) else None)
+    no_kernels = gpu_torch.unsupported_gpu_message(
+        devices if isinstance(devices, list) else None, data.get("torch"))
     errors = [data[k] for k in ("error", "torchvision_error", "torchaudio_error") if data.get(k)]
     if no_kernels:
         errors.insert(0, no_kernels)
@@ -750,8 +751,8 @@ def setup_gpu_torch(variant: str = None, confirm: bool = False, job_id: str = No
             result["ok"] = False
             no_kernels = (verify.get("error") or "").startswith(gpu_torch.NO_KERNELS_PREFIX)
             result["hint"] = (
-                "pip finished, but this PyTorch can't run on your GPU (see below). Install the "
-                f"{gpu_torch.TORCH_OLD_GPU_VARIANT} build." if no_kernels else
+                "pip finished, but this PyTorch can't run on your GPU (see the message below)."
+                if no_kernels else
                 "pip finished, but the new PyTorch didn't pass the check "
                 "(see below). Restart the app and open this section again; if "
                 "CUDA still isn't available, update the NVIDIA driver.")

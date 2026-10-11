@@ -432,6 +432,7 @@ def torch_setup_pip_args(variant: str, project_root: str = None) -> list:
 # the torch this process may already have imported. Prints one JSON line.
 TORCH_VERIFY_SCRIPT = """
 import json
+import re
 out = {}
 try:
     import torch
@@ -445,8 +446,9 @@ try:
         for i in range(torch.cuda.device_count()):
             major, minor = torch.cuda.get_device_capability(i)
             # Native kernels, or PTX built for this arch or an older one (JIT-compiled).
+            ptx = [int(m.group(1)) for m in (re.match(r"compute_(\d+)", a) for a in archs) if m]
             supported = ("sm_%d%d" % (major, minor)) in archs or any(
-                a.startswith("compute_") and int(a[8:]) <= major * 10 + minor for a in archs)
+                p <= major * 10 + minor for p in ptx)
             out["devices"].append({"index": i, "name": torch.cuda.get_device_name(i)[:120],
                                    "capability": "%d.%d" % (major, minor), "supported": supported})
             if supported:
@@ -465,14 +467,17 @@ print(json.dumps(out))
 NO_KERNELS_PREFIX = "This PyTorch build has no kernels for your GPU"
 
 
-def unsupported_gpu_message(devices):
+def unsupported_gpu_message(devices, torch_version=None):
     """Plain words for the GPUs the verify script found without kernels in
-    this build, or None when every GPU is covered (or none were listed)."""
+    this build, or None when every GPU is covered (or none were listed).
+    Already on the cu126 build there is no other build to suggest."""
     bad = [d for d in devices or [] if d.get("supported") is False]
     if not bad:
         return None
     cards = ", ".join(f"{d.get('name') or 'GPU ' + str(d.get('index'))} (compute {d.get('capability')})"
                       for d in bad)
+    if (torch_version or "").endswith("+" + TORCH_OLD_GPU_VARIANT):
+        return f"{NO_KERNELS_PREFIX} {cards}."
     return f"{NO_KERNELS_PREFIX} {cards}; install the {TORCH_OLD_GPU_VARIANT} build."
 
 

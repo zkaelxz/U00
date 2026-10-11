@@ -484,7 +484,8 @@ def test_setup_fails_with_the_no_kernels_message_instead_of_passing(monkeypatch)
             [{"name": "Tesla V100", "capability": "7.0", "supported": False}])})
     _fake_pip(monkeypatch, [])
     out = svc.setup_gpu_torch("cu128", confirm=True)
-    assert out["ok"] is False and "cu126" in out["hint"]
+    assert out["ok"] is False and "can't run on your GPU" in out["hint"]
+    assert "install the cu126 build" in out["verify"]["error"]
 
 
 def test_verify_torch_surfaces_the_no_kernels_message(monkeypatch):
@@ -494,3 +495,15 @@ def test_verify_torch_surfaces_the_no_kernels_message(monkeypatch):
                                   "devices": devices})))
     out = svc.verify_torch()
     assert "no kernels for your GPU" in out["error"]
+
+
+def test_verify_script_ignores_the_suffix_on_ptx_arch_names(monkeypatch, capsys):
+    fake = _FakeTorch([("Tesla V100", (7, 0))], ["sm_90a", "compute_90a"])
+    data = _run_verify(monkeypatch, capsys, fake)
+    assert "error" not in data and data["devices"][0]["supported"] is False
+
+
+def test_no_kernels_message_on_the_cu126_build_does_not_suggest_it_again():
+    devices = [{"index": 0, "name": "Tesla V100", "capability": "7.0", "supported": False}]
+    msg = diagnostics_torch.unsupported_gpu_message(devices, "2.11.0+cu126")
+    assert msg == "This PyTorch build has no kernels for your GPU Tesla V100 (compute 7.0)."
