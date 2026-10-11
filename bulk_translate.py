@@ -69,7 +69,7 @@ def _polled_by_outer_job(job: dict) -> bool:
     kind = {"reflect": "translate", "translation_notes": "notes"}.get(kind, kind)
     outer_id = f"bulk_{kind}_{job['drama_id']}"
     with background_jobs._lock:
-        # A force-stopped worker may still bill.
+        # Force-stopped workers may still bill.
         return (background_jobs.is_running(outer_id)
                 or job_force_stop.abandoned_alive_locked(outer_id))
 
@@ -792,9 +792,9 @@ def _stage_texts(job) -> dict:
 
 
 def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
-    """Submits the next Reflect stage (at most once per pipeline) and returns
-    job's new status. A failed submit holds "needs_resubmit" for a retry; past
-    the month's cap or STAGE_SUBMIT_ATTEMPTS the paid drafts are written."""
+    """Submits the next Reflect stage (once per pipeline), returning job's new
+    status. A failed submit holds "needs_resubmit"; past the cap or
+    STAGE_SUBMIT_ATTEMPTS the paid drafts are written."""
     nxt = "reflect" if job["stage"] == "faithful" else "expressive"
     rows = db.list_bulk_job_lines(job["id"])
     survivors = [r["line_id"] for r in rows
@@ -802,7 +802,7 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
     if sibling_stage_job(job["pipeline_id"], nxt, skip_failed=True) is not None:
         return _leave_applying(job["id"], "applied", result_summary=summary, last_error=None)
     if nxt == "expressive" and "drafts_applied" not in summary:
-        # Failed reflections skip the expressive stage; keep their drafts.
+        # Failed reflections skip the next stage; keep their drafts.
         failed = {r["line_id"] for r in rows if r["result_text"] is None}
         summary["drafts_applied"] = summary.get("drafts_applied", 0) + (
             _apply_reflect_drafts(job, failed) if failed else 0)
@@ -827,7 +827,7 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
         if summary["next_stage_attempts"] < STAGE_SUBMIT_ATTEMPTS:
             return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
                                    last_error=f"The next Reflect stage couldn't be sent yet: {error}")
-    summary["drafts_applied"] = summary.get("drafts_applied", 0) + _apply_reflect_drafts(job)
+    summary["drafts_applied"] = summary.get("drafts_applied", 0) + _apply_reflect_drafts(job, set(survivors))
     return _leave_applying(job["id"], "applied", result_summary=summary,
                            last_error=f"The next Reflect stage wasn't sent ({error}); "
                                       "the first-pass drafts were used instead.")
@@ -842,12 +842,13 @@ def _leave_applying(job_id: int, status: str, **fields) -> str:
 
 
 def _fail_keeping_drafts(job: dict, message: str, summary: dict = None) -> str:
-    """A Reflect batch with nothing usable still keeps the paid drafts."""
     if job.get("kind") == "reflect" and job.get("stage") in ("reflect", "expressive"):
-        summary = {**(summary or {}), "drafts_applied": _apply_reflect_drafts(job)}
+        # Paid drafts survive an unusable batch, for its own lines only: an
+        # earlier-written draft may since have been reverted.
+        own = {r["line_id"] for r in db.list_bulk_job_lines(job["id"])}
+        summary = {**(summary or {}), "drafts_applied": _apply_reflect_drafts(job, own)}
         message += " First-pass drafts were used."
-    db.update_bulk_job(job["id"], status="failed", last_error=message, result_summary=summary)
-    return "failed"
+    return _leave_applying(job["id"], "failed", last_error=message, result_summary=summary)
 
 
 def _apply_reflect_drafts(job: dict, only_ids=None) -> int:
@@ -861,9 +862,8 @@ def _apply_reflect_drafts(job: dict, only_ids=None) -> int:
 
 
 def _apply_reflect_expressive(job: dict, results) -> dict:
-    """The only Reflect stage that writes to a line. en_at_submit is from the
-    ORIGINAL faithful submission, so an edit made anywhere in the pipeline
-    is kept. Also saves the critique as a note."""
+    """The only Reflect stage that writes to a line (en_at_submit dates from
+    the faithful submission) and saves the critique as a note."""
     job_lines = db.list_bulk_job_lines(job["id"])
     row_by_id = {r["line_id"]: r for r in job_lines}
     ids_by_key = {}
@@ -892,7 +892,7 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
             final_by_id[lid] = final_map.get(str(lid)) or draft_by_id.get(lid) or ""
     for key, request_ids in ids_by_key.items():
         if key not in succeeded:
-            # Failed or unanswered: the paid draft stands in; its critique is dropped.
+            # Failed/unanswered: the paid draft stands in, critique dropped.
             for lid in request_ids:
                 final_by_id[lid] = draft_by_id.get(lid) or ""
                 critique_by_id.pop(lid, None)

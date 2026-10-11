@@ -1615,6 +1615,80 @@ class TestReflectStageSubmitFailure:
         assert bt.check_once(reflect["id"], provider, engine=engine) == "applied"
         assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)}[lone] == ""
 
+    def _lines(self, isolated_db, did):
+        return {ln.id: ln.en for ln in isolated_db.load_line_objects(did)}
+
+    def _one_failed_reflection(self, isolated_db, monkeypatch=None, submit_failures=0):
+        """21 lines = reflect requests of 20 and 1; the 1-line one is left unanswered."""
+        engine, did, ids, reflect, provider = self._to_stage(isolated_db, "reflect", n=21)
+        sizes = {}
+        for r in isolated_db.list_bulk_job_lines(reflect["id"]):
+            sizes.setdefault(r["request_key"], []).append(r["line_id"])
+        lone_key = min(sizes, key=lambda k: len(sizes[k]))
+        self._answer(isolated_db, engine, reflect["id"], "critique", skip=(lone_key,))
+        if submit_failures:
+            self._break_submit(monkeypatch, engine, times=submit_failures)
+        return engine, did, reflect, provider, sizes[lone_key][0]
+
+    def test_an_expired_expressive_batch_does_not_overwrite_a_reverted_draft(self, isolated_db, monkeypatch):
+        engine, did, reflect, provider, lone = self._one_failed_reflection(isolated_db)
+        assert bt.check_once(reflect["id"], provider, engine=engine) == "applied"
+        assert self._lines(isolated_db, did)[lone] == f"draft-{lone}"
+        self._edit(isolated_db, did, lone, "")
+        expressive = bt.sibling_stage_job(reflect["pipeline_id"], "expressive")
+
+        status = bt.check_once(expressive["id"], self._expired_gemini(monkeypatch), engine=engine)
+
+        en = self._lines(isolated_db, did)
+        assert status == "failed" and en[lone] == ""
+        assert all(v == f"draft-{k}" for k, v in en.items() if k != lone)
+
+    def test_a_cancel_after_the_claim_stays_cancelled_but_the_drafts_are_written(
+            self, isolated_db, monkeypatch):
+        engine, did, ids, job, _ = self._to_stage(isolated_db, "reflect")
+        real = bt._apply_reflect_drafts
+
+        def cancelled_while_applying(*a, **k):
+            written = real(*a, **k)
+            bt.cancel_bulk_job(job["id"])
+            return written
+        monkeypatch.setattr(bt, "_apply_reflect_drafts", cancelled_while_applying)
+
+        assert bt.check_once(job["id"], self._expired_gemini(monkeypatch), engine=engine) == "cancelled"
+        assert isolated_db.get_bulk_job(job["id"])["status"] == "cancelled"
+        assert self._lines(isolated_db, did) == {i: f"draft-{i}" for i in ids}
+
+    def test_the_last_resort_drafts_leave_a_line_the_user_reverted_between_attempts(
+            self, isolated_db, monkeypatch):
+        engine, did, reflect, provider, lone = self._one_failed_reflection(
+            isolated_db, monkeypatch, submit_failures=100)
+        assert bt.check_once(reflect["id"], provider, engine=engine) == "needs_resubmit"
+        self._edit(isolated_db, did, lone, "")
+
+        statuses = [bt.check_once(reflect["id"], provider, engine=engine)
+                    for _ in range(bt.STAGE_SUBMIT_ATTEMPTS - 1)]
+
+        assert statuses[-1] == "applied"
+        en = self._lines(isolated_db, did)
+        assert en[lone] == "" and all(v == f"draft-{k}" for k, v in en.items() if k != lone)
+
+    def test_an_expressive_batch_that_returns_nothing_keeps_the_paid_drafts(self, isolated_db):
+        engine, did, ids, job, provider = self._to_stage(isolated_db, "expressive")
+        engine.client.messages.batches.results_list = []
+
+        assert bt.check_once(job["id"], provider, engine=engine) == "failed"
+        assert self._lines(isolated_db, did) == {i: f"draft-{i}" for i in ids}
+
+    def test_a_failed_batch_left_applying_by_a_restart_is_failed_without_rewriting_lines(self, isolated_db):
+        engine, did, ids, job, _ = self._to_stage(isolated_db, "expressive")
+        isolated_db.update_bulk_job(job["id"], status="applying")
+        background_jobs.clear_all_jobs()
+
+        bt.resume_pending(did, lambda e, m: engine)
+
+        assert isolated_db.get_bulk_job(job["id"])["status"] == "failed"
+        assert self._lines(isolated_db, did) == {i: "" for i in ids}
+
     def test_the_monthly_cap_is_checked_before_the_next_stage_is_submitted(self, isolated_db):
         engine, did, jid = self._pipeline(isolated_db)
         ids = self._faithful_results(isolated_db, engine, jid)
