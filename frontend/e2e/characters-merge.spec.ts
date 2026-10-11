@@ -88,7 +88,7 @@ test('merge with a confirm step, then undo', async ({ page }) => {
   expect(m.unmocked).toEqual([])
 })
 
-const NOTE = 'Its voice sample stays on disk. You can remove it later in Library tools > Disk usage.'
+const NOTE = 'Its voice sample stays on disk. You can remove it later in Library tools > Storage.'
 
 test('confirm text mentions the leftover clip only when the target does not take it', async ({ page }) => {
   await mockAll(page, () => [entry('SPEAKER_01', { line_count: 4, has_ref_audio: true }),

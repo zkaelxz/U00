@@ -46,7 +46,7 @@ describe('leavesVoiceClip', () => {
     expect(leavesVoiceClip(src, undefined)).toBe(false)
   })
   it('has the plain wording', () => {
-    expect(VOICE_CLIP_NOTE).toBe('Its voice sample stays on disk. You can remove it later in Library tools > Disk usage.')
+    expect(VOICE_CLIP_NOTE).toBe('Its voice sample stays on disk. You can remove it later in Library tools > Storage.')
   })
 })
 

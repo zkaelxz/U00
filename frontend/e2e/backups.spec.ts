@@ -13,10 +13,7 @@ const SHOTS = process.env.BACKUP_SHOTS_DIR
 const card = (page: Page) => page.getByRole('region', { name: 'Automatic backups', exact: true })
 
 async function openAdmin(page: Page) {
-  await page.goto('/#/library-tools')
-  const summary = page.locator('summary', { hasText: 'Backup & storage' })
-  const details = page.locator('details.section', { has: summary })
-  if ((await details.getAttribute('open')) === null) await summary.click()
+  await page.goto('/#/library-tools?tab=backup')
   return page.getByTestId('snapshot-block')
 }
 
