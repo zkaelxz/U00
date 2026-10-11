@@ -13,6 +13,7 @@ import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
 import { engineOptionLabel } from '../translatePage'
 import { BenchSection } from './BenchSection'
+import { JA_ONLY_WHISPER_SIZES } from '../workspace/sourceForm'
 import { NO_CASES_HINT } from './benchmarkHelp'
 import {
   JUDGE_SAME_MODEL_WARNING, OCR_LABELS, STAGE_LABELS, TIER_LABELS, casesInSelection, comparePrefill, configLabel, defaultConfig,
@@ -283,9 +284,14 @@ function ConfigRow({ stage, options, config, index, onChange }: {
     return (
       <Field label={`Whisper model ${n}`}>
         <select value={config.model ?? ''} onChange={(e) => onChange({ engine: 'whisper', model: e.target.value })}>
-          {options.whisper_sizes.map((s) => (
+          {options.whisper_sizes.filter((s) => !JA_ONLY_WHISPER_SIZES.includes(s)).map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
+          <optgroup label="Japanese cases only (licence not declared)">
+            {options.whisper_sizes.filter((s) => JA_ONLY_WHISPER_SIZES.includes(s)).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </optgroup>
         </select>
       </Field>
     )

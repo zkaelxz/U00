@@ -226,7 +226,7 @@ class TestFlagDenseLines:
 
 
     def test_the_titles_mode_is_honoured(self, isolated_db):
-        text = "word " * 12  # 11.8 cps over 5 s
+        text = "word " * 20  # 19.8 cps over 5 s: over 17, under 20
         for mode, count in (("normal", 1), ("relaxed", 0), ("off", 0)):
             did = _drama(isolated_db)
             export_service.set_reading_speed_mode(did, mode)
@@ -254,7 +254,7 @@ class TestReadingSpeedMode:
 
     def test_changing_the_mode_does_not_clear_existing_flags(self, isolated_db):
         did = _drama(isolated_db)
-        isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="", en="word " * 12)])
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="", en="word " * 20)])
         export_service.flag_dense_lines(did)
         export_service.set_reading_speed_mode(did, "off")
         assert isolated_db.load_lines(did)[0]["flag"] == "reading_speed"
@@ -302,7 +302,7 @@ class TestClearReadingSpeedFlags:
 
     def test_recheck_flags_again_at_the_current_mode(self, isolated_db):
         did = _drama(isolated_db)
-        text = "word " * 12  # 11.8 cps over 5 s
+        text = "word " * 20  # 19.8 cps over 5 s
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="", en=text,
                                           flag="reading_speed", flag_note="old")])
         export_service.set_reading_speed_mode(did, "relaxed")
