@@ -31,6 +31,7 @@ import background_jobs
 from bulk_providers import BulkAuthError, make_provider
 import db
 import emotion
+import source_change
 import translate_engines
 import translation_guide as tguide
 
@@ -106,7 +107,8 @@ def _copy_english_lines(drama_id: int, targets: list) -> list:
     if english:
         for ln in english:
             ln.en = ln.zh
-        db.save_lines(drama_id, english, fields=("en",))
+            source_change.clear_for_new_english(ln)
+        db.save_lines(drama_id, english, fields=("en", "flag", "flag_note"))
     return [ln for ln in targets if not translate_engines.is_english_line(ln)]
 
 
@@ -558,6 +560,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
             if enforced:
                 translation = tguide.apply_hard_term_substitutions(translation, enforced)
             ln.en = translation
+            source_change.clear_for_new_english(ln)
             counts["applied"] += 1
 
     if counts["applied"]:
@@ -899,6 +902,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
         if enforced:
             translation = tguide.apply_hard_term_substitutions(translation, enforced)
         ln.en = translation
+        source_change.clear_for_new_english(ln)
         counts["applied"] += 1
         critique = critique_by_id.get(lid)
         if critique:
@@ -1559,6 +1563,9 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     are still what it was computed from (the flag can be a reading-speed
     or a content-blocked one); the ids of lines that changed during the
     run are added to flags_needing_recheck (a set, if given)."""
+    # First: the exact-term substitution below changes `en` in the database,
+    # which the compare-and-set on this run's English would then refuse.
+    source_change.save_cleared_flags(drama_id, lines)
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
     landed = own_fresh = None
     if enforce_ids is not None:

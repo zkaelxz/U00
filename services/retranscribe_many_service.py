@@ -12,11 +12,11 @@ holds `proposals`, a one-line one `line_id`.
 
 The job writes nothing. Proposals live in its in-process result: GET /api/jobs
 shows only counts (jobs_service's allow-list), and the text is read back with
-get_retranscribe_many_result. apply_retranscribe_many writes `zh` and clears
-`en` for the chosen lines only, each as a compare-and-set against the line as
-the run read it, after a history snapshot; the translation is cleared because
-it describes the old source text, and a title with a blank English is what
-Translate counts as "left".
+get_retranscribe_many_result. apply_retranscribe_many writes `zh` for the
+chosen lines only, each as a compare-and-set against the line as the run read
+it, after a history snapshot. A translated line keeps its English and is
+flagged `source_changed` (see source_change.py), so Review shows the mismatch
+and the user retranslates or keeps it; clearing the English would lose it.
 """
 import functools
 
@@ -26,6 +26,7 @@ import core as core_module
 import whisper_models
 import db
 import sensitivity_preset as presets
+import source_change
 import storage
 from services import (compare_transcription_service as compare, settings_service,
                       transcribe_pipeline, transcribe_service, translate_service)
@@ -150,9 +151,10 @@ def apply_retranscribe_many(drama_id: int, job_id, items) -> dict:
     get_retranscribe_many_result showed), and the line must still hold its
     zh, en, start and end from when the run read it -- one compare-and-set per
     line inside one transaction -- so a line edited, re-timed or translated
-    since is skipped and reported, never overwritten. Writes `zh` and clears
-    `en` on the applied lines only (speaker, flag and the rest stay), then
-    reopens a translated title so Translate counts them. A history snapshot is
+    since is skipped and reported, never overwritten. Writes `zh` on the
+    applied lines only, keeping `en` (a translated line whose text changes is
+    flagged `source_changed`; speaker and the rest stay), then brings the
+    title status in line with the lines. A history snapshot is
     taken first when at least one item still matches, unless this run's
     earlier apply already took the latest one. Returns {applied: [line_id],
     skipped: [line_id], untranslated_count}.
@@ -177,7 +179,9 @@ def apply_retranscribe_many(drama_id: int, job_id, items) -> dict:
             raise ConflictError("These aren't the proposals you were shown. "
                                 "Re-transcribe again.")
         order.append(line_id)
-        writes.append((line_id, {"zh": p["proposed_zh"], "en": ""},
+        writes.append((line_id, {"zh": p["proposed_zh"],
+                                 **source_change.flag_values(p["base_zh"], p["proposed_zh"],
+                                                             p["base_en"])},
                        {"zh": p["base_zh"], "en": p["base_en"],
                         "start": p["base_start"], "end": p["base_end"]}))
     with compare._apply_lock:

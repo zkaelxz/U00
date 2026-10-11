@@ -1,7 +1,8 @@
 """
 api/routers/lines_routes.py -- the Review stage's per-line WRITES for one
 drama: partial line edit (with compare-and-set on the
-client's old values), set lines' spoken language, dismiss flag, find-and-replace apply, translation-memory
+client's old values), set lines' spoken language, dismiss flag, keep English
+on source-changed lines, find-and-replace apply, translation-memory
 accept, and translation-note add/delete.
 
 Lines are addressed by permanent line id, never by position, and every write
@@ -20,11 +21,12 @@ from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (ErrorResponse, LinesAcceptTmRequest, LinesFindReplaceApplyRequest,
-                         LinesFindReplaceApplyResult, LinesNote, LinesNoteCreate,
+                         LinesFindReplaceApplyResult, LinesKeepEnglishRequest,
+                         LinesKeepEnglishResult, LinesNote, LinesNoteCreate,
                          LinesNoteDeleteResult, LinesPatchRequest, LinesSetLangRequest,
                          LinesSetLangResult, LinesShortenRequest, LinesShortenResult,
                          ReviewLinesLine)
-from services import line_ai_service, line_tools_service, lines_service
+from services import line_ai_service, line_tools_service, lines_service, source_change_service
 
 router = APIRouter(prefix="/api/lines", tags=["lines"])
 
@@ -43,6 +45,14 @@ def post_patch_line(body: LinesPatchRequest, drama_id: int = Path(ge=1), line_id
              summary="Clear one line's flag and flag note", responses=_404_422)
 def post_dismiss_flag(drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return lines_service.dismiss_flag(drama_id, line_id)
+
+
+@router.post("/dramas/{drama_id}/source-changed/keep-english", dependencies=[require_permission("lines.edit")],
+             response_model=LinesKeepEnglishResult,
+             summary="Keep the English of lines whose source changed (clears their flag)",
+             responses=_404_422)
+def post_keep_english(body: LinesKeepEnglishRequest, drama_id: int = Path(ge=1)):
+    return source_change_service.keep_english(drama_id, body.line_ids)
 
 
 @router.post("/dramas/{drama_id}/set-language", dependencies=[require_permission("lines.edit")], response_model=LinesSetLangResult,

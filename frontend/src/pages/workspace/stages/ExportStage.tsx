@@ -15,6 +15,7 @@ import { ExportAss } from './ExportAss'
 import { ExportJellyfin } from './ExportJellyfin'
 import { ExportEpub, ExportMediaJobs, MarkExported } from './ExportMedia'
 import { ExportSubtitles, type ExportFormat } from './ExportSubtitles'
+import { SourceChangedWarning } from './SourceChangedWarning'
 import './export.css'
 
 const FORMATS: readonly ExportFormat[] = ['srt', 'vtt', 'lrc', 'ass']
@@ -112,6 +113,7 @@ export default function ExportStage() {
             )}
           </>
         )}
+        <SourceChangedWarning dramaId={dramaId} />
         <ExportSubtitles
           fmt={fmt}
           setFmt={setFmt}

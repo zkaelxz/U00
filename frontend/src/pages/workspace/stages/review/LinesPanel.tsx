@@ -8,6 +8,7 @@ import { readSectionOpen, writeSectionOpen } from '../../../../components/sectio
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
+import { useRoute } from '../../../../router'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { FindReplacePanel } from './FindReplacePanel'
 import { HiddenEditBanner } from './HiddenEditBanner'
@@ -90,7 +91,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
   const selection = useLineSelectionContext()
-  const [filter, setFilter] = useState<LineFilter>('all')
+  const route = useRoute()
+  // A warning elsewhere links here with ?focus=flagged to show those lines first.
+  const [filter, setFilter] = useState<LineFilter>(() =>
+    route.name === 'drama' && route.focus === 'flagged' ? 'flagged' : 'all')
   const [page, setPage] = useState(1)
   const [input, setInput] = useState('')
   const [term, setTerm] = useState('')

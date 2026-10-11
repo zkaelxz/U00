@@ -11,6 +11,7 @@ import difflib
 import tempfile
 from dataclasses import dataclass, field, replace
 
+import source_change
 import whisper_models
 from segment_splitting import _word_dicts, tighten_to_words, words_for_text
 
@@ -219,7 +220,13 @@ def restore_saved_lines(rows, current, translation_only: bool = False) -> list:
         en_by_id = {r["id"]: r.get("en") or "" for r in rows}
         return [replace(ln, en=en_by_id[ln.id]) for ln in current]
     recorded = {f for f in SAVED_MARK_FIELDS if rows and all(f in r for r in rows)}
-    return adopt_ids(lines_from_saved(rows), current, recorded)
+    restored = adopt_ids(lines_from_saved(rows), current, recorded)
+    if "flag" not in recorded:
+        # adopt_ids carried today's flags over, but the source and English
+        # come back together, so a source change no longer applies.
+        for ln in restored:
+            source_change.clear_for_new_english(ln)
+    return restored
 
 
 def fmt_ts(seconds: float) -> str:

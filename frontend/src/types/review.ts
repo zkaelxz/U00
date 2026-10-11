@@ -29,6 +29,19 @@ export interface ReviewLinesPage {
   untranslated_count: number
 }
 
+// Lines flagged source_changed (source text changed after translation), in line order.
+export interface SourceChanged {
+  count: number
+  line_ids: number[]
+}
+
+export interface KeepEnglishResult {
+  cleared: number
+  line_ids: number[]
+  // Not this title's lines, or not flagged source_changed any more.
+  skipped_ids: number[]
+}
+
 export interface FindReplaceRequest {
   find: string
   replace: string

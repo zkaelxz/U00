@@ -4,17 +4,25 @@ import {
   compareVersions,
   getCoverage,
   getPacingFlags,
+  getSourceChanged,
   getTendencies,
+  keepEnglish,
   listNotes,
   listVersions,
   notesMarkdownUrl,
 } from '../../../../api/review'
+import { getTranslateConfig, startSourceChangedRun } from '../../../../api/translateStage'
+import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { buttonClass } from '../../../../components/uiClasses'
+import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { lineNumber } from '../../../../lineNumber'
-import type { Coverage, Pacing, ShortenResult, Tendencies, VersionCompare, VersionItem } from '../../../../types/review'
+import { TERMINAL_STATUSES } from '../../../../types/jobs'
+import type { Coverage, Pacing, ShortenResult, SourceChanged, Tendencies, VersionCompare, VersionItem } from '../../../../types/review'
+import { JobPanel } from '../JobPanel'
+import { retranslateBody, sourceChangedText } from '../sourceChanged'
 import { FindingList } from './FindingList'
 import { ShortenOverlong, TOO_LONG } from './ShortenOverlong'
 import { coverageGroups, pacingFindings, pacingKindCounts, pacingKindLabel, type GoToLine } from './reviewResults'
@@ -93,7 +101,12 @@ export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning, 
     <>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {render({
-        coverage: <CoverageSection coverage={coverage} pacing={pacing} onGoTo={onGoTo} />,
+        coverage: (
+          <>
+            <SourceChangedSection dramaId={dramaId} reloads={reloads} jobRunning={jobRunning} onChanged={onChanged} />
+            <CoverageSection coverage={coverage} pacing={pacing} onGoTo={onGoTo} />
+          </>
+        ),
         shorten:
           tooLong > 0 || shortened !== null ? (
             <Section storageKey="review.shorten" title="Shorten overlong" count={tooLong} summary="Rewrite lines too long for their time slot">
@@ -122,6 +135,93 @@ export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning, 
         ),
       })}
     </>
+  )
+}
+
+const plural = (n: number) => `${n} line${n === 1 ? '' : 's'}`
+
+// Lines whose source text changed after they were translated keep their English
+// until the user picks: retranslate exactly those lines with the Translate
+// stage's starting options, or keep the English (two-step, it clears the flags).
+function SourceChangedSection({ dramaId, reloads, jobRunning, onChanged }: {
+  dramaId: number
+  reloads: number
+  jobRunning: boolean
+  onChanged: () => void
+}) {
+  const [data, setData] = useState<SourceChanged | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const [pending, setPending] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const [jobId, setJobId, runKey] = useJobRun()
+  const { job, error: pollError } = useJob(jobId, { runKey, onDone: onChanged })
+
+  useEffect(() => {
+    let cancelled = false
+    getSourceChanged(dramaId).then(
+      (r) => !cancelled && setData(r),
+      (e: unknown) => !cancelled && setError(e),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, reloads])
+
+  const running = !!jobId && (!job || !TERMINAL_STATUSES.includes(job.status)) && !pollError
+  const count = data?.count ?? 0
+  if (count === 0 && !jobId && !error) return null
+  const ids = data?.line_ids ?? []
+  const blocked = pending || running || jobRunning || count === 0
+
+  const retranslate = () => {
+    setError(null)
+    setNote(null)
+    setPending(true)
+    getTranslateConfig(dramaId)
+      .then((c) => startSourceChangedRun(dramaId, retranslateBody(c, ids)))
+      .then((r) => {
+        setJobId(r.job_id)
+        setNote(`Retranslating ${plural(r.line_ids.length)} with ${r.engine}.`)
+      }, setError)
+      .finally(() => setPending(false))
+  }
+  const keepAll = () => {
+    setError(null)
+    setNote(null)
+    setPending(true)
+    keepEnglish(dramaId, ids)
+      .then((r) => {
+        setNote(`Kept the English on ${plural(r.cleared)}.`)
+        onChanged()
+      }, setError)
+      .finally(() => setPending(false))
+  }
+
+  return (
+    <Section storageKey="review.sourceChanged" title="Source changed" count={count} summary="English may not match the new source text" defaultOpen>
+      <div data-testid="source-changed">
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {count > 0 && <p data-testid="source-changed-count">{sourceChangedText(count)}.</p>}
+        <div className="review-actions">
+          <button type="button" className={buttonClass('primary', 'sm')} onClick={retranslate} disabled={blocked}>
+            Retranslate these
+          </button>
+          <ConfirmButton
+            name={`the English on ${plural(count)}`}
+            label="Keep English for all…"
+            confirmLabel={`Confirm: keep the English on ${plural(count)}`}
+            verb="keep"
+            tone="primary"
+            busy={pending}
+            disabled={blocked}
+            onConfirm={keepAll}
+          />
+        </div>
+        {jobRunning && !running && <p className="muted">Another job is running on this title. Try again when it finishes.</p>}
+        {note && <p className="muted" role="status">{note}</p>}
+        {jobId && <JobPanel jobId={jobId} job={job} pollError={pollError} />}
+      </div>
+    </Section>
   )
 }
 

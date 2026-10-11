@@ -98,6 +98,8 @@ Lines you rewrite in Review are recorded as before/after pairs. After 8 or more,
 
 Review > AI review > "Flag lines for a second look" asks the translation engine to flag only the already-translated lines worth a second look (possible mistranslation, unresolved pronoun, uncertain name, idiom). Flags are saved, can be filtered with the "Flagged" tab, and clear when you edit the line or dismiss the flag.
 
+A line marked "Source changed" had its source text changed (by an edit, a re-transcription or Fix flagged) after it was translated: its English is kept but may no longer match, and Translate and Export show how many such lines remain. In Review checks, "Retranslate these" translates exactly those lines again with the Translate stage's starting options, and "Keep English for all" (or "Keep English" on one line) keeps the English as it is and removes the mark.
+
 ### Emotion-aware translation
 
 Lines are tagged with an emotional register (14, including sarcasm, dry humour, suppressed anger) plus an intensity, and the tags are folded into the next translation run for charged lines only. Tags also map to TTS rate and pitch for dubbing.
