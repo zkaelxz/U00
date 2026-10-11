@@ -152,6 +152,22 @@ def test_is_newer(latest, current, newer):
     assert us.is_newer(latest, current) is newer
 
 
+@pytest.mark.parametrize("latest,current,newer", [
+    ("0.1.0-beta.2", "0.1.0-beta.1", True),
+    ("0.1.0-beta.10", "0.1.0-beta.9", True),
+    ("0.1.0-beta.1", "0.1.0-beta.1", False),
+    ("0.1.0-beta.1", "0.1.0-beta.2", False),   # never older than installed
+    ("0.1.0-beta.1", "0.1.0", False),          # a beta is below its own release
+    ("0.1.0", "0.1.0-beta.9", True),           # the release beats a same-base beta
+    ("0.1.1-beta.1", "0.1.0", True),
+    ("0.1.0-beta.3", "0.1.1", False),
+    ("0.1.0-beta", "0.1.0-beta.1", False),
+    ("0.1.0-rc.1", "0.1.0-beta.5", True),
+])
+def test_is_newer_with_prereleases(latest, current, newer):
+    assert us.is_newer(latest, current, include_prereleases=True) is newer
+
+
 # --- check --------------------------------------------------------------------
 
 def test_check_reports_newer_release_without_urls_or_credentials(http):
@@ -187,6 +203,78 @@ def test_check_ignores_prereleases_and_drafts(http, kw):
     http.add(API_URL, body=_release(**kw))
     s = us.check()
     assert s["latest"] is None and s["update_available"] is False
+
+
+def _beta_mode(monkeypatch, on=True, developer=True):
+    monkeypatch.setattr(us, "current_version", lambda: "0.1.0-beta.1")
+    if on:
+        db.set_app_setting("update.include_prereleases", True)
+    if developer:
+        db.set_app_setting("assistant.developer_mode", True)
+
+
+def _beta_list(*releases):
+    return json.dumps([_release_obj(**r) for r in releases]).encode()
+
+
+def test_prerelease_is_ignored_by_default(http, monkeypatch):
+    _beta_mode(monkeypatch, on=False)
+    http.add(API_URL, body=_release(tag="v0.1.0-beta.2", prerelease=True))
+    s = us.check()
+    assert s["latest"] is None and s["update_available"] is False
+
+
+def test_prerelease_is_offered_when_the_option_is_on(http, monkeypatch):
+    _beta_mode(monkeypatch)
+    http.add(API_URL, body=_release(tag="v0.1.0-beta.2", prerelease=True))
+    s = us.check()
+    assert s["latest"] == "0.1.0-beta.2" and s["update_available"] is True
+    assert "http" not in json.dumps(s)
+
+
+def test_the_option_does_nothing_without_developer_mode(http, monkeypatch):
+    _beta_mode(monkeypatch, developer=False)
+    http.add(API_URL, body=_release(tag="v0.1.0-beta.2", prerelease=True))
+    assert us.check()["latest"] is None
+
+
+def test_prerelease_not_newer_than_installed_is_never_an_update(http, monkeypatch):
+    _beta_mode(monkeypatch)
+    http.add(API_URL, body=_release(tag="v0.1.0-beta.1", prerelease=True))
+    assert us.check()["update_available"] is False
+    with pytest.raises(ConflictError):
+        us.start_download()
+    monkeypatch.setattr(us, "current_version", lambda: "0.1.0-beta.5")
+    http.add(API_URL, body=_release(tag="v0.1.0-beta.4", prerelease=True))
+    s = us.check()
+    assert s["latest"] == "0.1.0-beta.4" and s["update_available"] is False
+
+
+def test_draft_is_ignored_even_with_the_option_on(http, monkeypatch):
+    _beta_mode(monkeypatch)
+    http.add(API_URL, body=_release(tag="v0.1.0-beta.2", prerelease=True, draft=True))
+    assert us.check()["latest"] is None
+    http.add(API_URL, body=_release(tag="v0.2.0", draft=True))
+    assert us.check()["latest"] is None
+
+
+def test_stable_release_is_preferred_over_a_same_base_beta(http, monkeypatch):
+    _beta_mode(monkeypatch)
+    # GitHub lists the newest first; the stable one is the newer of the two here.
+    http.add(API_URL, body=_beta_list({"tag": "v0.1.0"},
+                                      {"tag": "v0.1.0-beta.3", "prerelease": True}))
+    s = us.check()
+    assert s["latest"] == "0.1.0" and s["update_available"] is True
+
+
+def test_turning_the_option_off_stops_an_offered_beta_from_downloading(http, monkeypatch):
+    _beta_mode(monkeypatch)
+    http.add(API_URL, body=_release(tag="v0.1.0-beta.2", prerelease=True))
+    us.check()
+    db.set_app_setting("update.include_prereleases", False)
+    assert us.status()["update_available"] is False
+    with pytest.raises(ConflictError):
+        us.start_download()
 
 
 def test_a_404_is_reported_as_not_found_not_as_an_error(http):

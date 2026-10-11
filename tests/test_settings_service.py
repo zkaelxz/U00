@@ -12,6 +12,8 @@ documented priority order and BOM-safe parsing.
 
 import sqlite3
 
+import pytest
+
 from services import settings_service
 
 
@@ -110,3 +112,14 @@ def test_an_unreadable_setting_warns_once_per_key_and_returns_the_default(monkey
     assert settings_service.get("developer_mode") == expected
     assert settings_service.get("developer_mode") == expected
     assert warnings == ["Setting 'developer_mode' could not be read; using its default."]
+
+
+def test_include_prereleases_can_only_be_changed_in_developer_mode(isolated_db):
+    import db
+    from services.service_errors import InvalidInputError
+    with pytest.raises(InvalidInputError):
+        settings_service.set_settings({"update.include_prereleases": True})
+    assert settings_service.get("update.include_prereleases") is False
+    db.set_app_setting("assistant.developer_mode", True)
+    settings_service.set_settings({"update.include_prereleases": True})
+    assert settings_service.get("update.include_prereleases") is True
