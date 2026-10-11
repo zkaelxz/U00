@@ -57,7 +57,11 @@ def _clean_jobs():
 # --- service: preferences --------------------------------------------------------
 
 def test_preference_defaults(isolated_db, env_file):
-    assert settings_service.get_preferences() == {
+    from services import timing_settings_service
+    # The Timing and splitting rows are pinned by tests/test_timing_settings.py.
+    prefs = settings_service.get_preferences()
+    assert set(timing_settings_service.KEYS) <= set(prefs)
+    assert {k: v for k, v in prefs.items() if k not in timing_settings_service.KEYS} == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
         "scene_aware_batches": True, "translate_reply_guard": "auto", "episode_summary_engine": "ollama", "monthly_cap_usd": None,
         "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,

@@ -659,7 +659,7 @@ def test_the_worker_forwards_the_hint_to_the_pipeline(monkeypatch, tmp_path):
     transcribe_pipeline._transcribe_worker(
         "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
         False, False, False, "", False, "qwen3_asr", "whisper_diff", None, 1, False, False,
-        2.0, 0.35, False, False, "normal", "standard", "Vocabulary: 龙", str(tmp_path / "scratch"), q)
+        2.0, 0.35, False, False, "normal", "standard", "Vocabulary: 龙", None, str(tmp_path / "scratch"), q)
     assert seen["qwen_prompt"] == "Vocabulary: 龙"
 
 

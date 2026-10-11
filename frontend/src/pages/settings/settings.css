@@ -60,3 +60,7 @@
 .backup-status { display: grid; gap: var(--space-1); min-width: 0; }
 .backup-status > p, .backup-copies { margin: 0; }
 .backup-copies { padding-left: var(--space-5); }
+
+/* Timing and splitting: each row is a field with its default and a Reset beside it. */
+.timing-row { display: grid; gap: var(--space-1); min-width: 0; }
+.timing-default { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--text-sm); }

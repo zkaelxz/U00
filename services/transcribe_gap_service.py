@@ -20,7 +20,8 @@ from typing import Optional
 import core as core_module
 import db
 from services import restructure_service as restructure
-from services import speech_coverage_service, transcribe_pipeline, transcribe_service
+from services import (speech_coverage_service, timing_settings_service, transcribe_pipeline,
+                      transcribe_service)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
@@ -82,11 +83,14 @@ def _coverage_gaps(drama_id: int) -> Optional[list]:
     return [(float(g["start"]), float(g["end"])) for g in report["gaps"]]
 
 
-def list_gaps(drama_id: int, min_gap: float = MIN_GAP_SECONDS) -> dict:
+def list_gaps(drama_id: int, min_gap: float = None) -> dict:
     """{gaps: [{start, end, seconds, pieces, part, parts, after_line_id,
     before_line_id, speech}], speech_checked}. A stretch longer than
     MAX_ADD_SECONDS comes as `parts` equal consecutive windows, each one
-    addable on its own. NotFoundError for an unknown drama."""
+    addable on its own. `min_gap` defaults to Settings > Timing and splitting.
+    NotFoundError for an unknown drama."""
+    if min_gap is None:
+        min_gap = timing_settings_service.value("gap_fill_min_gap_seconds")
     if db.get_drama(drama_id) is None:
         raise NotFoundError(f"No title with id {drama_id}.")
     lines = db.load_line_objects(drama_id)

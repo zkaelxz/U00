@@ -5,6 +5,7 @@ the request/retry loop lives in engine_backends/shared.py and the run loop in
 engine_backends/translate_pipeline.py.
 """
 import re
+from typing import NamedTuple
 
 # Transcription splits a sentence at word pauses, so fragments of one sentence
 # are close together. It must stay below the pipeline's scene-break gap (3 s)
@@ -13,6 +14,18 @@ MAX_GAP_SECONDS = 1.0
 MAX_GROUP_LINES = 4
 MAX_GROUP_CHARS = 60
 MAX_GROUP_SECONDS = 12.0
+
+
+class GroupLimits(NamedTuple):
+    """How much may be joined into one sentence. The defaults are the constants above;
+    a caller with Settings > Timing and splitting values passes its own."""
+    max_gap_seconds: float = MAX_GAP_SECONDS
+    max_lines: int = MAX_GROUP_LINES
+    max_chars: int = MAX_GROUP_CHARS
+    max_seconds: float = MAX_GROUP_SECONDS
+
+
+DEFAULT_LIMITS = GroupLimits()
 
 # Closing quotes count as final: a quoted utterance has ended even when the
 # punctuation before it is a comma.
@@ -37,7 +50,7 @@ def is_sentence_final(text: str) -> bool:
     return bool(stripped) and stripped[-1] in _SENTENCE_FINAL
 
 
-def _continues(prev, nxt) -> bool:
+def _continues(prev, nxt, max_gap_seconds: float = MAX_GAP_SECONDS) -> bool:
     """Whether `nxt` reads as the rest of the sentence `prev` was cut from."""
     if not (prev.zh or "").strip() or not (nxt.zh or "").strip():
         return False
@@ -47,7 +60,7 @@ def _continues(prev, nxt) -> bool:
         return False
     if is_sentence_final(prev.zh):
         return False
-    return 0 <= nxt.start - prev.start and nxt.start - prev.end <= MAX_GAP_SECONDS
+    return 0 <= nxt.start - prev.start and nxt.start - prev.end <= max_gap_seconds
 
 
 def join_fragments(parts: list) -> str:
@@ -63,7 +76,8 @@ def join_fragments(parts: list) -> str:
     return out
 
 
-def group_fragments(target_lines: list, all_lines: list) -> list:
+def group_fragments(target_lines: list, all_lines: list,
+                    limits: GroupLimits = DEFAULT_LIMITS) -> list:
     """Splits `target_lines` into consecutive groups (lists of Lines); a
     one-line group is a line to translate as usual. Only lines that are
     neighbours in `all_lines` can share a group, so an already-translated
@@ -73,10 +87,10 @@ def group_fragments(target_lines: list, all_lines: list) -> list:
     for ln in target_lines:
         cur = groups[-1] if groups else None
         if (cur and position.get(ln.idx) == position.get(cur[-1].idx, -2) + 1
-                and _continues(cur[-1], ln)
-                and len(cur) < MAX_GROUP_LINES
-                and sum(len(x.zh.strip()) for x in cur) + len(ln.zh.strip()) <= MAX_GROUP_CHARS
-                and ln.end - cur[0].start <= MAX_GROUP_SECONDS):
+                and _continues(cur[-1], ln, limits.max_gap_seconds)
+                and len(cur) < limits.max_lines
+                and sum(len(x.zh.strip()) for x in cur) + len(ln.zh.strip()) <= limits.max_chars
+                and ln.end - cur[0].start <= limits.max_seconds):
             cur.append(ln)
         else:
             groups.append([ln])

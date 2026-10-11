@@ -10,7 +10,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import NamedTuple, Optional
 
 
 # A transcribed line longer than either limit is cut into subtitle-sized pieces.
@@ -30,6 +30,17 @@ _CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯])\s+|\s+(?=[぀-ヿ㐀-�
 MIN_PIECE_SECONDS = 0.8
 MIN_PIECE_CJK_CHARS = 4
 MIN_PIECE_WORDS = 2
+
+
+class PieceFloors(NamedTuple):
+    """The smallest piece a cut may leave. The defaults are the MIN_PIECE_* constants;
+    a caller with Settings > Timing and splitting values passes its own."""
+    seconds: float = MIN_PIECE_SECONDS
+    cjk_chars: int = MIN_PIECE_CJK_CHARS
+    words: int = MIN_PIECE_WORDS
+
+
+DEFAULT_FLOORS = PieceFloors()
 # A silence between two Whisper words at least this long is a place a line with no
 # punctuation may be cut; shorter ones are ordinary breathing inside a phrase. The
 # per-title "Pause that can split a long line" setting; keep the bounds in sync
@@ -141,7 +152,8 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
                         max_cjk_chars: int = SPLIT_MAX_CJK_CHARS, *,
                         rules: Optional[SplitRules] = None,
                         min_pause: float = MIN_WORD_GAP_SECONDS,
-                        flag_estimated: bool = False) -> list:
+                        flag_estimated: bool = False,
+                        floors: PieceFloors = DEFAULT_FLOORS) -> list:
     """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
     punctuation, then at commas, then at spaces next to CJK text, packing
     neighbouring pieces up to the limits.
@@ -164,7 +176,7 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
     MIN_PIECE_* floors into a neighbour; without it behaviour is unchanged.
 
     `min_pause`: the shortest silence between words a line with no punctuation
-    may be cut at."""
+    may be cut at. `floors`: the smallest piece a cut may leave."""
     out = []
     for seg in segments:
         text = seg.get("text") or ""
@@ -227,7 +239,7 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
                 return estimated_fits(piece) if words is None else fits_words(*words)
 
             split = _split_on_words(seg, text, cut(fits_real), index, fits_words, rules,
-                                    min_pause)
+                                    min_pause, floors)
             if split is not None:
                 out.extend(split)
                 continue
@@ -235,7 +247,7 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
         pieces = [p for p in pieces if p.strip()]
         if rules:
             pieces = _fold_small(
-                pieces, lambda p: _is_stub(p, dur * len("".join(p.split())) / total))
+                pieces, lambda p: _is_stub(p, dur * len("".join(p.split())) / total, floors))
         if len(pieces) < 2:
             out.append(seg)
             continue
@@ -276,10 +288,10 @@ def _fold_small(pieces: list, small, join="".join) -> list:
     return [join(parts) for parts in out]
 
 
-def _is_stub(text: str, seconds: float) -> bool:
+def _is_stub(text: str, seconds: float, floors: PieceFloors = DEFAULT_FLOORS) -> bool:
     cjk = len(_CJK_RE.findall(text))
-    return (cjk < MIN_PIECE_CJK_CHARS if cjk else len(text.split()) < MIN_PIECE_WORDS) \
-        or seconds < MIN_PIECE_SECONDS
+    return (cjk < floors.cjk_chars if cjk else len(text.split()) < floors.words) \
+        or seconds < floors.seconds
 
 
 class _WordIndex:
@@ -377,29 +389,30 @@ class _WordIndex:
         return min(found, key=lambda k: abs((self.te[k - 1] + self.ts[k]) / 2 - middle),
                    default=None)
 
-    def gap_cuts(self, i: int, j: int, fits, min_pause: float = MIN_WORD_GAP_SECONDS) -> list:
+    def gap_cuts(self, i: int, j: int, fits, min_pause: float = MIN_WORD_GAP_SECONDS,
+                 floors: PieceFloors = DEFAULT_FLOORS) -> list:
         """Word ranges covering i..j-1 that fit, cut only at pauses of at least
-        `min_pause` and never leaving a side under the MIN_PIECE_* floors.
+        `min_pause` and never leaving a side under the piece floors.
         A range with no admissible pause is returned as it is."""
         done, stack = [], [(i, j)]
         while stack:
             a, b = stack.pop()
-            k = None if fits(a, b) or b - a < 2 else self._pick_cut(a, b, min_pause)
+            k = None if fits(a, b) or b - a < 2 else self._pick_cut(a, b, min_pause, floors)
             if k is None:
                 done.append((a, b))
             else:
                 stack.extend(((k, b), (a, k)))
         return done
 
-    def _pick_cut(self, i: int, j: int, min_pause: float):
+    def _pick_cut(self, i: int, j: int, min_pause: float, floors: PieceFloors):
         cjk = self.cjk[j] - self.cjk[i]
         if cjk:
-            lo = bisect.bisect_left(self.cjk, self.cjk[i] + MIN_PIECE_CJK_CHARS)
-            hi = bisect.bisect_right(self.cjk, self.cjk[j] - MIN_PIECE_CJK_CHARS) - 1
+            lo = bisect.bisect_left(self.cjk, self.cjk[i] + floors.cjk_chars)
+            hi = bisect.bisect_right(self.cjk, self.cjk[j] - floors.cjk_chars) - 1
         else:
-            lo, hi = i + MIN_PIECE_WORDS, j - MIN_PIECE_WORDS
-        lo = max(lo, i + 1, bisect.bisect_left(self.te, self.ts[i] + MIN_PIECE_SECONDS) + 1)
-        hi = min(hi, j - 1, bisect.bisect_right(self.ts, self.te[j - 1] - MIN_PIECE_SECONDS) - 1)
+            lo, hi = i + floors.words, j - floors.words
+        lo = max(lo, i + 1, bisect.bisect_left(self.te, self.ts[i] + floors.seconds) + 1)
+        hi = min(hi, j - 1, bisect.bisect_right(self.ts, self.te[j - 1] - floors.seconds) - 1)
         if lo > hi:
             return None
         biggest = self._max_gap(lo, hi)
@@ -409,7 +422,8 @@ class _WordIndex:
                                                    biggest * _SIMILAR_GAP_RATIO))
 
 
-def _split_on_words(seg, text, pieces, index, fits, rules, min_pause=MIN_WORD_GAP_SECONDS):
+def _split_on_words(seg, text, pieces, index, fits, rules, min_pause=MIN_WORD_GAP_SECONDS,
+                    floors=DEFAULT_FLOORS):
     """Cuts `seg` where its punctuation pieces (strings that concatenate to
     `text`) and then the largest pauses between words say, with each piece timed
     by its own first and last word and its text sliced from `text`. Returns None
@@ -431,11 +445,11 @@ def _split_on_words(seg, text, pieces, index, fits, rules, min_pause=MIN_WORD_GA
 
     if rules:
         ranges = _fold_small(
-            ranges, lambda r: _is_stub(text[r[0]:r[1]], index.seconds(r[2], r[3])), join)
+            ranges, lambda r: _is_stub(text[r[0]:r[1]], index.seconds(r[2], r[3]), floors), join)
 
     cut = []
     for a, b, i, j in ranges:
-        parts = sorted(index.gap_cuts(i, j, fits, min_pause))
+        parts = sorted(index.gap_cuts(i, j, fits, min_pause, floors))
         for n, (pi, pj) in enumerate(parts):
             cut.append((a if n == 0 else index.cs[pi], b if n == len(parts) - 1 else index.cs[pj],
                         pi, pj))

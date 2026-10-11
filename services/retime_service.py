@@ -17,7 +17,8 @@ import whisper_models
 import db
 import forced_align
 from services import (compare_transcription_service as compare, jobs_service,
-                      settings_service, transcribe_pipeline, transcribe_service)
+                      settings_service, timing_settings_service, transcribe_pipeline,
+                      transcribe_service)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 
@@ -102,15 +103,15 @@ def _groups(lines, wanted: set, default_language: str, errors: list) -> list:
     return groups
 
 
-def _segments(lines, members: list) -> list:
+def _segments(lines, members: list, pad_s: float = _PAD_S) -> list:
     """The group's lines as aligner input, the outer edges widened into the gap
     next to the neighbouring (unselected or other-group) lines."""
     first, last = lines[members[0]], lines[members[-1]]
     floor = float(lines[members[0] - 1].end) if members[0] > 0 else 0.0
     ceiling = (float(lines[members[-1] + 1].start) if members[-1] + 1 < len(lines)
-               else float(last.end) + _PAD_S)
-    window_start = min(float(first.start), max(floor, float(first.start) - _PAD_S))
-    window_end = max(float(last.end), min(ceiling, float(last.end) + _PAD_S))
+               else float(last.end) + pad_s)
+    window_start = min(float(first.start), max(floor, float(first.start) - pad_s))
+    window_end = max(float(last.end), min(ceiling, float(last.end) + pad_s))
     segments = [{"start": float(lines[i].start), "end": float(lines[i].end), "text": lines[i].zh}
                 for i in members]
     segments[0]["start"], segments[-1]["end"] = window_start, window_end
@@ -180,6 +181,7 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
         device["label"] = label
         background_jobs.update_progress(job_id, progress[0], f"Aligning on {label}...")
 
+    pad_s = timing_settings_service.value("retime_window_pad_seconds")
     try:
         for n, (group_language, members) in enumerate(groups):
             if background_jobs.is_cancel_requested(job_id):
@@ -189,7 +191,7 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
             background_jobs.update_progress(job_id, progress[0], f"Group {n + 1} of {len(groups)}")
             try:
                 out = forced_align.refine_segment_timing(
-                    audio_path, [_segments(lines, members)], group_language,
+                    audio_path, [_segments(lines, members, pad_s)], group_language,
                     # A failed GPU load would otherwise be retried for every group.
                     use_gpu=use_gpu and not fallback, on_device=on_device,
                     on_gpu_fallback=lambda exc: fallback.append(whisper_models.short_reason(exc)),

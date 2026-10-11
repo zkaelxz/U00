@@ -25,18 +25,20 @@ def normalize(value) -> str:
     return value if value in PRESETS else NORMAL
 
 
-def effective_vad_threshold(stored, preset) -> float:
+def effective_vad_threshold(stored, preset,
+                            sensitive_threshold: float = SENSITIVE_VAD_THRESHOLD) -> float:
     """The threshold a run uses. The Transcribe form sends the number back on every
     save, so a stored value equal to the default means "never changed it": only a
     different one is the owner's own and wins over the preset."""
     threshold = stored or DEFAULT_VAD_THRESHOLD
     if normalize(preset) == SENSITIVE and threshold == DEFAULT_VAD_THRESHOLD:
-        return SENSITIVE_VAD_THRESHOLD
+        return sensitive_threshold
     return threshold
 
 
-def stored_vad_threshold(drama) -> float:
-    return effective_vad_threshold(drama.get("vad_threshold"), drama.get("sensitivity_preset"))
+def stored_vad_threshold(drama, sensitive_threshold: float = SENSITIVE_VAD_THRESHOLD) -> float:
+    return effective_vad_threshold(drama.get("vad_threshold"), drama.get("sensitivity_preset"),
+                                   sensitive_threshold)
 
 
 def decode_kwargs(preset, anti_loop_kwargs: dict, repeat_guard_kwargs: dict | None = None,

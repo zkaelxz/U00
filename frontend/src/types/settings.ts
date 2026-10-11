@@ -7,9 +7,52 @@ export type SettingsToggleKey =
   | 'bulk_auto_resume'
   | 'offer_provider_models'
 
+// Settings > Timing and splitting (the three sections of lib/settings_schema.py), all numbers.
+// Optional here so a preferences object built before these rows existed still type-checks;
+// the server always sends every one. tests/test_timing_settings.py keeps this list in step.
+export interface TimingPreferences {
+  sentence_split_min_silence_ms?: number
+  sensitive_vad_threshold?: number
+  qwen_vad_threshold?: number
+  qwen_vad_min_silence_ms?: number
+  qwen_vad_min_speech_ms?: number
+  qwen_vad_pad_ms?: number
+  qwen_long_vad_threshold?: number
+  qwen_long_vad_min_speech_ms?: number
+  qwen_long_vad_pad_ms?: number
+  qwen_merge_gap_seconds?: number
+  qwen_merge_gap_mixed_seconds?: number
+  qwen_span_cap_seconds?: number
+  qwen_span_cap_search_seconds?: number
+  qwen_context_pad_seconds?: number
+  qwen_long_merge_gap_seconds?: number
+  qwen_long_window_seconds?: number
+  qwen_long_cut_search_seconds?: number
+  asmr_start_threshold?: number
+  asmr_stop_threshold?: number
+  speech_coverage_vad_threshold?: number
+  split_max_seconds?: number
+  split_max_cjk_chars?: number
+  split_min_piece_seconds?: number
+  split_min_piece_cjk_chars?: number
+  split_min_piece_words?: number
+  quick_split_seconds?: number
+  realign_min_seconds?: number
+  realign_pause_seconds?: number
+  stock_phrase_isolation_seconds?: number
+  repeat_loop_min_repeats?: number
+  retime_window_pad_seconds?: number
+  gap_fill_min_gap_seconds?: number
+  scene_break_gap_seconds?: number
+  sentence_group_gap_seconds?: number
+  sentence_group_max_lines?: number
+  sentence_group_max_chars?: number
+  sentence_group_max_seconds?: number
+}
+
 // Persisted PC-side preferences (GET/POST /api/settings). Paths are paths
 // only; a cookies file's contents never cross the API.
-export interface SettingsPreferences {
+export interface SettingsPreferences extends TimingPreferences {
   default_engine: string
   default_locale: string
   default_style_note: string

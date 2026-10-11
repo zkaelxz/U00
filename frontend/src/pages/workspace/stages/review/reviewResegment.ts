@@ -38,6 +38,22 @@ export function wordSplitterPackages(language: string | null | undefined): strin
   return WORD_SPLITTER_PACKAGES[language ?? ''] ?? []
 }
 
+/** What the one-click "Split long lines" uses until Settings > Timing and splitting says otherwise. */
+export const QUICK_SPLIT_DEFAULTS = { seconds: 12, chars: 40 }
+
+/** The one-click split's limits from the saved preferences; anything missing or unusable keeps the defaults. */
+export function quickSplitLimits(prefs: { quick_split_seconds?: number; split_max_cjk_chars?: number } | null | undefined) {
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback)
+  return {
+    seconds: num(prefs?.quick_split_seconds, QUICK_SPLIT_DEFAULTS.seconds),
+    chars: num(prefs?.split_max_cjk_chars, QUICK_SPLIT_DEFAULTS.chars),
+  }
+}
+
+export function quickSplitHelp(limits: { seconds: number; chars: number }): string {
+  return `Splits every line over about ${limits.seconds} seconds or ${limits.chars} characters at sentence ends, then commas, then the longest pauses (evenly by length, flagged approximate, if there is nothing else), and re-times the pieces from the audio.`
+}
+
 /** Seconds offered for "Also split by duration"; null keeps the preset's own limit. */
 export const RESPLIT_DURATION_CAPS = [5, 10, 15, 20]
 

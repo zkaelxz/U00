@@ -33,6 +33,7 @@ import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
 import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
+import { TimingSettingsCard } from './settings/TimingSettingsCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
@@ -284,6 +285,7 @@ export default function SettingsPage() {
             <SettingsCard id="advanced">
               <AdvancedCard {...prefProps} openSignal={advancedSignal} uploadsSignal={uploadsSignal} />
             </SettingsCard>
+            <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>
             <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>
             <SettingsCard id="developer-mode"><DeveloperModeCard /></SettingsCard>
             <SettingsCard id="ports">

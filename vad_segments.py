@@ -16,6 +16,14 @@ _FRAME_S = 0.02
 # A piece shorter than this is too little context for an ASR model.
 _MIN_PIECE_S = 1.0
 
+# Defaults of speech_spans and cap_spans; callers with their own values pass them in.
+THRESHOLD = 0.5
+MIN_SILENCE_MS = 300
+MIN_SPEECH_MS = 250
+PAD_MS = 100
+SPAN_CAP_S = 15.0
+SPAN_CAP_SEARCH_S = 3.0
+
 
 class Span(NamedTuple):
     start_s: float
@@ -59,8 +67,9 @@ def _normalize(spans: Iterable, duration: float) -> list:
     return out
 
 
-def speech_spans(audio, sr: int, *, threshold: float = 0.5, min_silence_ms: int = 300,
-                 min_speech_ms: int = 250, pad_ms: int = 100,
+def speech_spans(audio, sr: int, *, threshold: float = THRESHOLD,
+                 min_silence_ms: int = MIN_SILENCE_MS,
+                 min_speech_ms: int = MIN_SPEECH_MS, pad_ms: int = PAD_MS,
                  vad_fn: Optional[Callable] = None) -> list:
     """Sorted, non-overlapping speech spans in seconds, clamped to the audio.
 
@@ -110,8 +119,8 @@ def _quietest_cut(audio, sr, lo_s: float, hi_s: float) -> float:
     return float((first + best * frame + frame / 2) / sr)
 
 
-def cap_spans(spans, audio, sr: int, *, max_s: float = 15.0,
-              search_window_s: float = 3.0) -> list:
+def cap_spans(spans, audio, sr: int, *, max_s: float = SPAN_CAP_S,
+              search_window_s: float = SPAN_CAP_SEARCH_S) -> list:
     """Cuts spans longer than max_s into pieces of at most max_s.
 
     Each cut is the quietest point in the last search_window_s before max_s of

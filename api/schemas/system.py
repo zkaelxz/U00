@@ -7,7 +7,7 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 from pydantic import (BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr,
                       StringConstraints)
 
-from api.schemas.common import TranslateEngine
+from api.schemas.common import TimingPreferences, TimingPreferencesUpdate, TranslateEngine
 
 __all__ = [
     "UsageRecostModelRow",
@@ -299,7 +299,7 @@ class JobListResponse(BaseModel):
     count: int
 
 
-class SettingsPreferences(BaseModel):
+class SettingsPreferences(TimingPreferences):
     """Persisted PC-side preferences. Paths are paths only: a cookies file's contents are never
     read or returned. The four paths are returned only to the PC itself;
     any other caller gets "" there and only the *_configured booleans."""
@@ -377,7 +377,7 @@ class MonthCounterResetResult(BaseModel):
     after: MonthSpendStatus
 
 
-class SettingsUpdateRequest(BaseModel):
+class SettingsUpdateRequest(TimingPreferencesUpdate):
     """Non-secret Settings writes (preferences). Unknown fields are rejected; keys and endpoint URLs
     are never accepted here (they have their own guarded routes).
     settings_service.set_settings re-validates every value. For
