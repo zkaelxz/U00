@@ -62,6 +62,7 @@ import uuid
 import background_jobs
 import db
 import dub
+import video_export
 from services import characters_service, drama_service
 from services.media_upload_service import AUDIO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
@@ -453,7 +454,7 @@ def _extract_job(job_id, drama_id, speaker_label, max_candidates):
             token = uuid.uuid4().hex
             out = os.path.join(cdir, f"{token}.wav")
             cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}",
-                   "-i", audio, "-vn", "-ac", "1", "-ar", "24000", "-acodec", "pcm_s16le", out]
+                   *video_export.local_input(), "-i", audio, "-vn", "-ac", "1", "-ar", "24000", "-acodec", "pcm_s16le", out]
             try:
                 background_jobs.run_cancellable(job_id, cmd, cwd=root,
                                                 timeout=FFMPEG_CUT_TIMEOUT_SECONDS)

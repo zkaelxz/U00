@@ -431,6 +431,100 @@ class TestAuthOn:
         assert c.get("/api/library/dramas", headers=_h(s)).status_code == 401
 
 
+class TestLineTextNeedsLinesRead:
+    """Every route that returns line text needs lines.read on top of its own
+    permission, so revoking lines.read hides line text everywhere."""
+
+    @staticmethod
+    def _seed():
+        from core import Line, lines_from_rows
+        sid = db.get_or_create_series("S")
+        did = db.create_drama(title_en="Show", series_id=sid)
+        db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"needle{i}", en=f"e{i}",
+                                 speaker="A") for i in range(2)])
+        lines = lines_from_rows(db.load_lines(did))
+        db.save_line_history_snapshot(did, lines, "snap")
+        v1 = db.save_translation_version(did, lines, "v1")
+        lines[1].en = "changed"
+        v2 = db.save_translation_version(did, lines, "v2")
+        db.record_translation_memory(sid, "needle0", "Remembered")
+        hid = db.list_line_history(did)[0]["id"]
+        b = f"/api/review/dramas/{did}"
+        return ["/api/library/search?q=needle", f"/api/characters/dramas/{did}",
+                f"{b}/history/{hid}", f"{b}/versions/compare?left_id={v1}&right_id={v2}",
+                f"{b}/tm-suggestions"]
+
+    def test_403_without_lines_read_even_with_the_route_permission(self, isolated_db):
+        urls = self._seed()
+        c = _remote(_app())
+        u, s = _user()
+        auth_service.revoke_permission(u["id"], "lines.read")
+        assert {"library.read", "review.use"} <= set(
+            auth_service.effective_permissions(u["id"]))
+        for url in urls:
+            assert c.get(url, headers=_h(s)).status_code == 403, url
+
+    def test_200_with_both(self, isolated_db):
+        urls = self._seed()
+        c = _remote(_app())
+        _u, s = _user()
+        for url in urls:
+            r = c.get(url, headers=_h(s))
+            assert r.status_code == 200, (url, r.text)
+            assert "needle" in r.text, url
+
+    def test_route_permission_still_needed_with_lines_read(self, isolated_db):
+        urls = self._seed()
+        c = _remote(_app())
+        u, s = _user()
+        auth_service.revoke_permission(u["id"], "library.read")
+        auth_service.revoke_permission(u["id"], "review.use")
+        for url in urls:
+            assert c.get(url, headers=_h(s)).status_code == 403, url
+
+    def test_stronger_engine_try_and_speech_coverage_need_lines_read(self, isolated_db):
+        """The stronger-engine try returns the line's English (based_on_en), and
+        the speech-coverage gaps carry raw transcript text."""
+        did = db.create_drama(title_en="Show")
+        c = _remote(_app())
+        u, s = _user("engines.paid")
+        try_url = f"/api/stronger-engine/dramas/{did}/lines/1/try"
+        coverage_url = f"/api/transcribe/dramas/{did}/speech-coverage"
+        assert c.get(coverage_url, headers=_h(s)).status_code == 200
+        assert c.post(try_url, json={}, headers=_h(s)).status_code != 403
+        auth_service.revoke_permission(u["id"], "lines.read")
+        assert c.get(coverage_url, headers=_h(s)).status_code == 403
+        assert c.post(try_url, json={}, headers=_h(s)).status_code == 403
+
+    def test_household_default_role_reads_line_text(self, isolated_db):
+        """A new household member keeps every permission these routes need."""
+        u = auth_service.add_user("new@example.com")
+        assert {"library.read", "lines.read", "review.use"} <= set(
+            auth_service.effective_permissions(u["id"]))
+
+    def test_several_permissions_are_one_declaration(self):
+        app = _app("on")
+        table = route_declarations(app)
+        assert table["GET /api/library/search"] == "library.read + lines.read"
+        assert table["GET /api/review/dramas/{drama_id}/tm-suggestions"] == \
+            "review.use + lines.read"
+        assert table["POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try"] == \
+            "review.use + lines.read"
+        assert table["GET /api/transcribe/dramas/{drama_id}/speech-coverage"] == \
+            "library.read + lines.read"
+        with pytest.raises(ValueError):
+            api_auth.require_permission("lines.read", "library.raed")
+
+    @pytest.mark.parametrize("perms", [("lines.read", "admin.settings"),
+                                       ("admin.users.read", "library.read"),
+                                       ("admin.settings", "admin.library")])
+    def test_admin_permission_is_never_combined(self, perms):
+        """Guard tests and the household listener classify a route by its one
+        admin.* label; a compound one would slip past them."""
+        with pytest.raises(ValueError):
+            api_auth.require_permission(*perms)
+
+
 class TestCsrf:
     def test_post_needs_matching_csrf(self, isolated_db):
         c = _remote(_app())

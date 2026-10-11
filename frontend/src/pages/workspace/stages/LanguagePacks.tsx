@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { getLanguagePack, getTitleLanguagePacks, setLanguagePackDefault, setTitleLanguagePacks } from '../../../api/languagePacks'
+import { pcOnlyFetch } from '../../../api/pcOnly'
 import { saveGlossaryTerm } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { usePcOnly } from '../../../hooks/usePcOnly'
 import type { LanguagePack, TitleLanguagePack, TitleLanguagePacks } from '../../../types/languagePacks'
 import { useStage } from '../StageContext'
 import { choiceAfter, entryRendering, PACK_LANGUAGE_NAMES, packsSummary, termFromEntry } from './languagePacksModel'
@@ -85,6 +87,8 @@ export function LanguagePacks({ glossarySources, hasSeries, onAdded }: {
   const [data, setData] = useState<TitleLanguagePacks | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [saved, setSaved] = useState<string | null>(null)
+  const [defaultError, setDefaultError] = useState<unknown>(null)
+  const pc = usePcOnly()
 
   useEffect(() => {
     let cancelled = false
@@ -134,9 +138,10 @@ export function LanguagePacks({ glossarySources, hasSeries, onAdded }: {
   const makeDefault = () => {
     if (!data) return
     const lang = data.source_language
-    setLanguagePackDefault(lang, { packs: choiceAfter(data.packs, { id: '' }) }).then(
+    setDefaultError(null)
+    setLanguagePackDefault(lang, { packs: choiceAfter(data.packs, { id: '' }) }, pcOnlyFetch()).then(
       () => setSaved(`Saved. ${PACK_LANGUAGE_NAMES[lang] ?? 'These'} titles without their own choice now use these packs.`),
-      setError,
+      setDefaultError,
     )
   }
 
@@ -186,12 +191,19 @@ export function LanguagePacks({ glossarySources, hasSeries, onAdded }: {
         {!hasSeries && packs.length > 0 && <p className="muted" id="lp-add-reason">Still needed to add entries to your glossary: a series (above).</p>}
         {packs.length > 0 && (
           <div className="lp-actions">
-            <button type="button" className={buttonClass('secondary')} onClick={makeDefault}>
-              Use this choice for {langName} titles
-            </button>
-            <span className="muted">{saved ?? 'Titles without their own choice follow it. Changing it needs the admin.'}</span>
+            {pc !== 'remote' && (
+              <button type="button" className={buttonClass('secondary')} onClick={makeDefault}>
+                Use this choice for {langName} titles
+              </button>
+            )}
+            <span className="muted">
+              {saved ?? (pc === 'remote'
+                ? `The default for ${langName} titles is changed on the main PC.`
+                : 'Titles without their own choice follow it. Changing it is PC only.')}
+            </span>
           </div>
         )}
+        <ErrorBanner error={defaultError} onDismiss={() => setDefaultError(null)} describe={{ pcOnly: true }} />
       </div>
     </Section>
   )

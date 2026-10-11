@@ -6,15 +6,15 @@ services/language_pack_service.py.
   the packs, and one pack's entries.
 - `GET|POST .../dramas/{drama_id}` (`library.read` / `lines.edit`): which packs
   a title uses.
-- `POST .../defaults/{language}` (`admin.settings`): the choice titles of that
-  source language follow until they get their own.
+- `POST .../defaults/{language}` (`local_only()`, an app-wide setting): the
+  choice titles of that source language follow until they get their own.
 """
 
 from typing import List
 
 from fastapi import APIRouter, Path, Request
 
-from api.auth import require_permission
+from api.auth import local_only, require_permission
 from api.schemas import (ErrorResponse, LanguagePack, LanguagePackChoice,
                          LanguagePackDefaultResult, LanguagePackSummary, TitleLanguagePacks)
 from services import language_pack_service
@@ -60,7 +60,7 @@ def get_language_default(language: str = Path(max_length=2)):
     return language_pack_service.get_language_default(language)
 
 
-@router.post("/defaults/{language}", dependencies=[require_permission("admin.settings")],
+@router.post("/defaults/{language}", dependencies=[local_only()],
              response_model=LanguagePackDefaultResult,
              summary="Set the packs used by titles of a source language that have no choice of their own",
              responses={422: {"model": ErrorResponse}})

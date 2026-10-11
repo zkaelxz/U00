@@ -17,7 +17,9 @@ out, so a CLI or another service could call them too.
 """
 import os
 import re
+import threading
 import unicodedata
+from collections import OrderedDict
 from typing import Optional
 from urllib.parse import quote
 
@@ -346,21 +348,46 @@ _FPS_PROBE_TIMEOUT_S = 5
 _MAX_PLAUSIBLE_FPS = 240
 
 
+# Any caller with lines.read can ask for a tidied export, and each probe can
+# hold a worker thread for the whole timeout, so a file's answer is kept until
+# the file changes. A failed probe is not kept: a timeout or a missing ffprobe
+# is transient and must not pin 24 fps. Bounded so it can't grow with the
+# library.
+_FPS_CACHE_MAX = 256
+_fps_cache: "OrderedDict[tuple, float]" = OrderedDict()
+_fps_cache_lock = threading.Lock()
+
+
 def _probe_title_fps(drama_id: int, drama: dict) -> float:
     """The frame rate of the title's own video, else DEFAULT_FPS. It is not
     stored on the title and ffprobe may be missing or slow, so any failure is
     the old 24 fps behaviour rather than an export error."""
     path = metadata_service.stored_media_path(drama_id, drama)
-    if path:
-        try:
-            fps = media_inspect.analysis_from_probe(
-                media_inspect.run_ffprobe(path, timeout=_FPS_PROBE_TIMEOUT_S),
-                os.path.basename(path)).fps
-        except (media_inspect.ProbeError, ValueError, TypeError, OSError):
-            fps = None
-        if fps and 0 < fps <= _MAX_PLAUSIBLE_FPS:
-            return fps
-    return subtitle_formats.DEFAULT_FPS
+    if not path:
+        return subtitle_formats.DEFAULT_FPS
+    try:
+        st = os.stat(path)
+    except OSError:
+        return subtitle_formats.DEFAULT_FPS
+    key = (path, st.st_mtime_ns, st.st_size)
+    with _fps_cache_lock:
+        if key in _fps_cache:
+            _fps_cache.move_to_end(key)
+            return _fps_cache[key]
+    try:
+        fps = media_inspect.analysis_from_probe(
+            media_inspect.run_ffprobe(path, timeout=_FPS_PROBE_TIMEOUT_S),
+            os.path.basename(path)).fps
+    except (media_inspect.ProbeError, ValueError, TypeError, OSError):
+        return subtitle_formats.DEFAULT_FPS
+    if not (fps and 0 < fps <= _MAX_PLAUSIBLE_FPS):
+        fps = subtitle_formats.DEFAULT_FPS
+    with _fps_cache_lock:
+        _fps_cache[key] = fps
+        _fps_cache.move_to_end(key)
+        while len(_fps_cache) > _FPS_CACHE_MAX:
+            _fps_cache.popitem(last=False)
+    return fps
 
 
 def generate_subtitle_text(drama_id: int, fmt: str, field: str, **options) -> str:

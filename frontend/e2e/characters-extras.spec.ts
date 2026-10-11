@@ -227,3 +227,14 @@ test('a refused remember (409, already linked) shows in the row error banner', a
   await expect(row.getByRole('alert')).toHaveCount(0)
   expect(m.unmocked).toEqual([])
 })
+
+test('characters without permission to read lines: a plain note, no error banner', async ({ page }) => {
+  await mockAll(page)
+  await page.route('**/api/characters/dramas/1', (route) =>
+    route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }))
+  await page.goto('/#/drama/1/translate')
+  await openSection(page, 'Characters')
+  const region = page.getByRole('region', { name: 'Characters' })
+  await expect(region.getByText('Seeing line text needs permission to read lines. Ask the owner of the main PC.')).toBeVisible()
+  await expect(region.getByRole('alert')).toHaveCount(0)
+})

@@ -95,7 +95,7 @@ def post_start_speech_coverage(payload: SpeechCoverageRunRequest, drama_id: int 
         drama_id, min_gap_seconds=payload.min_gap_seconds)
 
 
-@router.get("/dramas/{drama_id}/speech-coverage", dependencies=[require_permission("library.read")],
+@router.get("/dramas/{drama_id}/speech-coverage", dependencies=[require_permission("library.read", "lines.read")],
             response_model=SpeechCoverageStatus,
             summary="Status and (when done) the gaps of this title's speech coverage check",
             responses={404: {"model": ErrorResponse}})

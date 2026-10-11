@@ -15,7 +15,7 @@ import {
 } from '../../../api/voiceClone'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { safeDetail } from '../../../components/errorMessages'
+import { isForbidden, LINES_READ_FORBIDDEN, safeDetail } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
@@ -287,6 +287,7 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
   const [cands, setCands] = useState<VoiceCloneCandidates | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [jobError, setJobError] = useState<unknown>(null)
+  const [loadForbidden, setLoadForbidden] = useState(false)
   const [extractFor, setExtractFor] = useState<string | null>(null)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   useReattachJob([voiceCloneJobId(dramaId)], adoptJob)
@@ -294,9 +295,10 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
 
   useEffect(() => {
     let cancelled = false
+    setLoadForbidden(false)
     getCharacters(dramaId).then(
       (c) => !cancelled && setEntries(c),
-      (e: unknown) => !cancelled && setError(e),
+      (e: unknown) => !cancelled && (isForbidden(e) ? setLoadForbidden(true) : setError(e)),
     )
     // Conveniences: a failure leaves the pickers empty.
     getVoiceBank().then((b) => !cancelled && setBank(b), () => undefined)
@@ -355,6 +357,7 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
     >
       <div className="voice-clone" role="region" aria-label="Voices and cloning">
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {loadForbidden && <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>}
         {jobId && (
           <div className="voice-job" data-testid="voice-extract-status">
             <span>

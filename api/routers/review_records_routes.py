@@ -34,7 +34,7 @@ def get_history(drama_id: int = Path(ge=1)):
     return review_records_service.list_line_history(drama_id)
 
 
-@router.get("/dramas/{drama_id}/history/{history_id}", dependencies=[require_permission("review.use")], response_model=ReviewRecordsSnapshot,
+@router.get("/dramas/{drama_id}/history/{history_id}", dependencies=[require_permission("review.use", "lines.read")], response_model=ReviewRecordsSnapshot,
             summary="One history snapshot's lines (404 if it belongs to another drama)",
             responses=_NF_422)
 def get_history_snapshot(drama_id: int = Path(ge=1), history_id: int = Path(ge=1)):
@@ -48,7 +48,7 @@ def get_versions(drama_id: int = Path(ge=1)):
     return review_records_service.list_translation_versions(drama_id)
 
 
-@router.get("/dramas/{drama_id}/versions/compare", dependencies=[require_permission("review.use")], response_model=ReviewRecordsCompare,
+@router.get("/dramas/{drama_id}/versions/compare", dependencies=[require_permission("review.use", "lines.read")], response_model=ReviewRecordsCompare,
             summary="Differences between two of this drama's translation versions",
             responses=_NF_422)
 def get_versions_compare(drama_id: int = Path(ge=1),
@@ -95,7 +95,7 @@ def get_tendencies(drama_id: int = Path(ge=1)):
     return review_records_service.get_edit_tendencies(drama_id)
 
 
-@router.get("/dramas/{drama_id}/tm-suggestions", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsTmSuggestion],
+@router.get("/dramas/{drama_id}/tm-suggestions", dependencies=[require_permission("review.use", "lines.read")], response_model=List[ReviewRecordsTmSuggestion],
             summary="Translation-memory suggestions (nothing is applied)",
             responses=_NF_422)
 def get_tm_suggestions(drama_id: int = Path(ge=1),

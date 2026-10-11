@@ -25,6 +25,15 @@ const GENERIC: Record<string, string> = {
 // A PC-only call refused with 403 (the viewer is not at the main PC).
 export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
 
+// A call that returns line text refused with 403: the account may use the
+// panel but not read lines, so it gets a plain note, not an error banner.
+export const LINES_READ_FORBIDDEN = 'Seeing line text needs permission to read lines. Ask the owner of the main PC.'
+
+export function isForbidden(err: unknown): boolean {
+  const e = err as { status?: number; code?: string } | null
+  return e?.status === 403 || e?.code === 'forbidden'
+}
+
 // The one message for a refused key, token or address save (403).
 export const KEY_WRITES_REFUSED =
   'Change this on the Baihe PC with key writes on. start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1.'

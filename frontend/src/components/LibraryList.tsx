@@ -14,6 +14,7 @@ import { Badge } from './Badge'
 import { Card } from './Card'
 import { DramaCards } from './DramaCards'
 import { ErrorBanner } from './ErrorBanner'
+import { isForbidden, LINES_READ_FORBIDDEN } from './errorMessages'
 import './libraryParity.css'
 import {
   NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
@@ -303,7 +304,7 @@ export function LibraryList({
 function LineHits({ hits, error }: { hits: LibrarySearchHit[] | null; error: unknown }) {
   return (
     <div className="line-hits">
-      <ErrorBanner error={error} />
+      {isForbidden(error) ? <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p> : <ErrorBanner error={error} />}
       {hits === null && !error && <p className="muted">Type a word or phrase and press Enter to search every title's lines.</p>}
       {hits && <p className="muted" data-testid="search-count">{hits.length} {hits.length === 1 ? 'match' : 'matches'}</p>}
       {hits && hits.length > 0 && (

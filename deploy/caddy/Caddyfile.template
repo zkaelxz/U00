@@ -153,6 +153,7 @@
 		path /api/characters/dramas/*/reference-clip /api/characters/dramas/*/reference-clip/remove
 		path /api/scanlate/dramas/*/pages
 		path /api/jobs/clear-finished /api/jobs/*/delete
+		path /api/language-packs/defaults/*
 		path /api/vdb-names/fetch
 	}
 	@pc_only_delete {

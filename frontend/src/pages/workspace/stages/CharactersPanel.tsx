@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { mergeSpeakers, rememberSeriesCharacter, renameSpeaker, undoMergeSpeakers, undoRenameSpeaker } from '../../../api/characters'
 import { applyVoiceBankEntry, getCharacters, getCloneEngines, getVoiceBank, saveCharacter } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { isForbidden, LINES_READ_FORBIDDEN } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
 import { Section } from '../../../components/Section'
@@ -296,6 +297,7 @@ export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
   const [engines, setEngines] = useState<CloneEngines | null>(null)
   const [bank, setBank] = useState<VoiceBankEntry[]>([])
   const [error, setError] = useState<unknown>(null)
+  const [loadForbidden, setLoadForbidden] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   // Bumped to re-read the voice suggestions (a speaker changed) and the
   // series cast (someone was remembered).
@@ -391,9 +393,10 @@ export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
 
   useEffect(() => {
     let cancelled = false
+    setLoadForbidden(false)
     getCharacters(dramaId).then(
       (c) => !cancelled && setEntries(c),
-      (e: unknown) => !cancelled && setError(e),
+      (e: unknown) => !cancelled && (isForbidden(e) ? setLoadForbidden(true) : setError(e)),
     )
     // Options are conveniences: a failure leaves free-text/empty pickers.
     getCloneEngines(dramaId).then((c) => !cancelled && setEngines(c), () => undefined)
@@ -413,6 +416,7 @@ export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
     >
       <div id="translate-characters" role="region" aria-label="Characters">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {loadForbidden && <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>}
       {entries && entries.length === 0 && <p className="muted">No speakers yet. They appear after transcription.</p>}
       {entries && entries.length > 0 && drama.series_id ? (
         <VoiceSuggestions dramaId={dramaId} refresh={suggestRefresh} onAccepted={replace} />

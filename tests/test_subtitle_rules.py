@@ -241,14 +241,59 @@ class TestProbedFrameRate:
             open(os.path.join(db.drama_dir(did), "v.mp4"), "wb").close()
         return did
 
+    @pytest.fixture(autouse=True)
+    def _empty_fps_cache(self):
+        export_service._fps_cache.clear()
+        yield
+        export_service._fps_cache.clear()
+
     @staticmethod
     def _probe(monkeypatch, rate=None, error=None):
+        calls = []
+
         def fake(path, timeout=30):
             assert timeout <= 10
+            calls.append(path)
             if error:
                 raise error
             return {"format": {}, "streams": [{"codec_type": "video", "r_frame_rate": rate}]}
         monkeypatch.setattr(export_service.media_inspect, "run_ffprobe", fake)
+        return calls
+
+    def test_repeat_export_does_not_probe_again(self, isolated_db, monkeypatch):
+        calls = self._probe(monkeypatch, "25/1")
+        did = self._title(isolated_db)
+        for _ in range(3):
+            assert export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)["fps"] == 25.0
+        assert len(calls) == 1
+
+    def test_failed_probe_is_not_remembered(self, isolated_db, monkeypatch):
+        """A timeout or a missing ffprobe is transient: it must not pin 24 fps
+        for the file once ffprobe works again."""
+        calls = self._probe(monkeypatch, error=export_service.media_inspect.ProbeError("slow"))
+        did = self._title(isolated_db)
+        assert export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)["fps"] == 24.0
+        assert export_service._fps_cache == {}
+        self._probe(monkeypatch, "25/1")
+        assert export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)["fps"] == 25.0
+        assert len(calls) == 1
+
+    def test_changed_media_file_is_probed_again(self, isolated_db, monkeypatch):
+        calls = self._probe(monkeypatch, "25/1")
+        did = self._title(isolated_db)
+        export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)
+        with open(os.path.join(isolated_db.drama_dir(did), "v.mp4"), "wb") as f:
+            f.write(b"new video")
+        self._probe(monkeypatch, "30/1")
+        assert export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)["fps"] == 30.0
+
+    def test_cache_is_bounded(self, isolated_db, monkeypatch):
+        self._probe(monkeypatch, "25/1")
+        monkeypatch.setattr(export_service, "_FPS_CACHE_MAX", 2)
+        dids = [self._title(isolated_db) for _ in range(3)]
+        for did in dids:
+            export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)
+        assert len(export_service._fps_cache) == 2
 
     @pytest.mark.parametrize("rate,fps", [("24000/1001", 23.976), ("25/1", 25.0), ("30/1", 30.0)])
     def test_uses_the_probed_rate(self, isolated_db, monkeypatch, rate, fps):

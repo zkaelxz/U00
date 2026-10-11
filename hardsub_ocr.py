@@ -42,6 +42,7 @@ import numpy as np
 
 import ocr as ocr_module
 import storage
+import video_export
 
 
 # Frame sampling decodes the whole video once; generous for a multi-hour file.
@@ -61,7 +62,7 @@ def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
     """
     os.makedirs(out_dir, exist_ok=True)
     pattern = os.path.join(out_dir, "frame_%06d.png")
-    cmd = ["ffmpeg", "-y", "-i", video_path, "-vf", f"fps=1/{interval_sec}",
+    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path, "-vf", f"fps=1/{interval_sec}",
            "-q:v", "2", pattern]
     if job_id:
         import background_jobs

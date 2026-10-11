@@ -58,7 +58,7 @@ def render_vertical_clip(video_path: str, ass_text: str, out_path: str,
     try:
         crop = f"crop=ih*9/16:ih:(iw-ih*9/16)*{crop_position:.4f}:0"
         vf = f"{crop},subtitles='{_escape_filter_path(ass_path)}'"
-        cmd = ["ffmpeg", "-y", "-ss", str(max(start, 0.0)), "-i", video_path]
+        cmd = ["ffmpeg", "-y", "-ss", str(max(start, 0.0)), *local_input(), "-i", video_path]
         if end is not None:
             cmd += ["-t", str(max(end - start, 0.1))]
         cmd += ["-vf", vf, "-c:v", "libx264", "-c:a", "aac", out_path]
@@ -143,7 +143,7 @@ def burn_subtitles(video_path: str, srt_text: str, out_path: str,
             f"Bold={-1 if bold else 0},Italic={-1 if italic else 0},Alignment={alignment}"
         )
         cmd = [
-            "ffmpeg", "-y", "-i", video_path,
+            "ffmpeg", "-y", *local_input(), "-i", video_path,
             "-vf", f"subtitles='{escaped}':force_style='{style}'",
             "-c:a", "copy", out_path,
         ]
@@ -162,7 +162,7 @@ def burn_ass(video_path: str, ass_text: str, out_path: str):
         f.write(ass_text)
     try:
         cmd = [
-            "ffmpeg", "-y", "-i", video_path,
+            "ffmpeg", "-y", *local_input(), "-i", video_path,
             "-vf", f"subtitles='{_escape_filter_path(ass_path)}'",
             "-c:a", "copy", out_path,
         ]

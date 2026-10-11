@@ -285,3 +285,14 @@ test('screenshots', async ({ page }) => {
     await row.screenshot({ path: `${SHOTS}/desktop-${scheme}-line-origin.png` })
   }
 })
+
+test('compare without permission to read lines: a plain note, no error banner', async ({ page }) => {
+  await page.route('**/api/review/dramas/3/versions/compare?*', (route) =>
+    route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }))
+  await page.goto('/#/drama/3/review')
+  await expect(rows(page)).toHaveCount(4)
+  const v = await open(page, 'Compare versions')
+  await v.getByRole('button', { name: 'Show differences' }).click()
+  await expect(v.getByText('Seeing line text needs permission to read lines. Ask the owner of the main PC.')).toBeVisible()
+  await expect(v.getByRole('alert')).toHaveCount(0)
+})

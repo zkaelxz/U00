@@ -39,3 +39,14 @@ test('checks on demand and lists the gaps with what Whisper produced', async ({ 
   await expect(rows.nth(0).getByRole('link', { name: 'Open Review' })).toHaveAttribute('href', /#\/drama\/1\/review/)
   await expect(page.getByRole('button', { name: 'Check again' })).toBeEnabled()
 })
+
+test('without permission to read lines: a plain note, no error banner', async ({ page }) => {
+  await page.route('**/api/transcribe/dramas/1/speech-coverage', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
+      : route.continue())
+  await openPanel(page)
+  const panel = page.getByTestId('speech-coverage')
+  await expect(panel.getByText('Seeing line text needs permission to read lines. Ask the owner of the main PC.')).toBeVisible()
+  await expect(panel.getByRole('alert')).toHaveCount(0)
+})
