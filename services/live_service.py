@@ -34,9 +34,11 @@ from typing import Optional
 
 import background_jobs
 import live_cue_feed
+import live_pipeline
 import live_translate
 import storage
 import translate_engines
+import whisper_models
 from core import SOURCE_LANGUAGES
 from lib import url_guard
 from services import (egress_proxy, job_stage_service, jobs_service, ownership_service,
@@ -50,7 +52,7 @@ from services.service_errors import (
     ServiceError,
 )
 
-WHISPER_SIZES = ("tiny", "base", "small", "medium")
+WHISPER_SIZES = whisper_models.LIVE_WHISPER_SIZES
 SEGMENT_RANGE = (3, 60)
 OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
@@ -61,6 +63,12 @@ MAX_URL_LEN = 2000
 # Kept per session, newest last: the skipped-chunk and catch-up events the status
 # line would otherwise overwrite a second later.
 MAX_NOTES = 6
+# live_pipeline.LagStats figures, the only numbers a session status carries
+# from the job: whatever else a caller passes is dropped.
+STAT_FIELDS = {"lag_seconds": float, "processing_seconds": float, "translations_skipped": int,
+               "translate_queue": int, "chunks_measured": int}
+FINISHING_NOTE = ("Stopping: the audio already captured is being captioned. "
+                  "Press Stop now to end at once.")
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -175,6 +183,19 @@ def add_note(session_id: str, text: str, key: Optional[str] = None) -> None:
             del notes[:-MAX_NOTES]
 
 
+def set_stats(session_id: str, numbers: dict) -> None:
+    """Keeps the job's lag figures for the session status, numbers only."""
+    clean = {}
+    for name, cast in STAT_FIELDS.items():
+        value = numbers.get(name) if isinstance(numbers, dict) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value:
+            clean[name] = cast(value)
+    with _lock:
+        entry = _sessions.get(session_id)
+        if entry is not None:
+            entry.setdefault("stats", {}).update(clean)
+
+
 def _remove_dir(session_id: str):
     with _lock:
         entry = _sessions.get(session_id)
@@ -233,7 +254,8 @@ def _make_target(session_id: str):
                 live_translate.run_live_job(
                     *args, proxy=proxy.url,
                     report_stage=functools.partial(job_stage_service.set_stage, session_id),
-                    report_note=functools.partial(add_note, session_id), **kwargs)
+                    report_note=functools.partial(add_note, session_id),
+                    report_stats=functools.partial(set_stats, session_id), **kwargs)
         finally:
             job_stage_service.clear_stage(session_id)
             _remove_dir(session_id)
@@ -331,6 +353,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                     break
         _sessions[session_id] = {"dir": out_dir, "engine": engine_name,
                                  "model": getattr(eng, "model", None), "starting": True,
+                                 "segment_seconds": segment_seconds,
                                  "owner_user_id": ownership_service.acting_user_id()}
     try:
         started = background_jobs.start_job(
@@ -380,19 +403,25 @@ def _require(session_id, principal=None) -> dict:
 
 
 def stop_session(session_id, principal=None) -> dict:
-    """Bumps the generation first (so an in-flight chunk's result is
-    discarded), then cancels: cancel_queued if still queued, else
-    request_cancel. Idempotent on a finished session."""
+    """The first Stop on a capturing session asks it to finish: the audio
+    already captured is captioned, then it ends ("finishing": true). Any other
+    Stop (a second press, or a session not capturing yet) stops at once: the
+    generation is bumped first (so an in-flight chunk's result is discarded),
+    then cancel_queued if still queued, else request_cancel. Idempotent on a
+    finished session."""
     job = _require(session_id, principal)
     with _lock:
         entry = _sessions.get(session_id) or {}
     ownership_service.require_job_changeable(principal, session_id, entry.get("owner_user_id"))
+    if (job or {}).get("status") == "running" and live_pipeline.request_finish(session_id):
+        add_note(session_id, FINISHING_NOTE, key="finishing")
+        return {"session_id": session_id, "stopping": True, "finishing": True}
     live_translate.bump_generation(session_id)
     if job is None or background_jobs.cancel_queued(session_id):
         _remove_dir(session_id)
     else:
         background_jobs.request_cancel(session_id)
-    return {"session_id": session_id, "stopping": True}
+    return {"session_id": session_id, "stopping": True, "finishing": False}
 
 
 def _status(job) -> str:
@@ -405,8 +434,8 @@ def _status(job) -> str:
 
 
 def get_session(session_id, after=0, principal=None) -> dict:
-    """{status, message, progress, cues[after:], next_index}. Never a
-    traceback, a filesystem path or a key. A cue is added untranslated and
+    """{status, message, progress, cues[after:], next_index, the lag figures}.
+    Never a traceback, a filesystem path or a key. A cue is added untranslated and
     changes in place when its translation lands, so a client that wants those
     updates asks again from its oldest still-pending cue's id."""
     job = _require(session_id, principal)
@@ -437,6 +466,8 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "engine": entry.get("engine"), "model": entry.get("model"),
             "progress": float((job or {}).get("progress") or 0.0),
             "notes": list(entry.get("notes") or ()),
+            "segment_seconds": int(entry.get("segment_seconds") or 0),
+            **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}
 
 

@@ -290,3 +290,35 @@ test('a switch inside a field keeps its own size', async ({ page }) => {
   await live.getByText('Advanced').click()
   await expectSwitchKeepsItsSize(live)
 })
+
+test('the first Stop finishes what was captured, and Stop now ends it at once', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 1 }]
+  m.state.status = 'running'
+  m.state.message = 'Chunk 4: transcribing 20 s of audio with Whisper small (CPU)'
+  m.state.cues = [cue(0), { ...cue(1), translated: '', translation: 'skipped' }]
+  m.state.finishOnStop = true
+  const live = await openLive(page)
+  await expect(live.getByText('Not translated: skipped to keep up with the stream.')).toBeVisible()
+  await live.getByRole('button', { name: 'Stop', exact: true }).click()
+  m.state.notes = ['Stopping: the audio already captured is being captioned. Press Stop now to end at once.']
+  const stopNow = live.getByRole('button', { name: 'Stop now', exact: true })
+  await expect(stopNow).toBeEnabled()
+  await expect(live.getByTestId('live-notes')).toContainText('Press Stop now')
+  await stopNow.click()
+  await expect(live.getByTestId('live-status')).toHaveText('Stopped · 2 lines')
+  expect(m.posts.filter((p) => p.url.endsWith('/stop'))).toHaveLength(2)
+  expect(m.unmocked).toEqual([])
+})
+
+test('large-v3-turbo is offered with what it costs, small stays the default', async ({ page }) => {
+  await mockLive(page)
+  const live = await openLive(page)
+  await live.getByText('Advanced').click()
+  const select = live.getByLabel('Whisper model', { exact: true })
+  await expect(select).toHaveValue('small')
+  await expect(select.locator('option')).toHaveText(['tiny', 'base', 'small', 'medium', 'large-v3-turbo'])
+  await expect(select).toHaveAccessibleDescription(/large-v3-turbo is slower but more accurate/)
+  await expect(select).toHaveAccessibleDescription(/about 2\.6 GB of graphics memory/)
+  await expect(select).toHaveAccessibleDescription(/medium is slower and less accurate than turbo/)
+})

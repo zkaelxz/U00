@@ -98,7 +98,8 @@ def test_start_poll_stop_flow(client, fake_live):
     assert lst.status_code == 200 and lst.json()[0]["session_id"] == sid
     assert lst.json()[0]["cue_count"] == 2
     s = client.post(f"/api/live/sessions/{sid}/stop")
-    assert s.status_code == 200 and s.json() == {"session_id": sid, "stopping": True}
+    assert s.status_code == 200 and s.json() == {"session_id": sid, "stopping": True,
+                                                 "finishing": False}
     assert _wait(lambda: client.get(f"/api/live/sessions/{sid}").json()["status"] == "cancelled")
     assert client.post(f"/api/live/sessions/{sid}/stop").status_code == 200  # idempotent
 

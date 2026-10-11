@@ -9,6 +9,7 @@ import time
 import pytest
 
 import background_jobs
+import live_pipeline
 import live_translate
 from services import live_service, translate_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
@@ -206,12 +207,23 @@ def test_clean_message_keeps_words_containing_the_os_username(monkeypatch):
     assert "sk-ant" not in shown and "/home" not in shown and "chunk_00001" not in shown
 
 
-def test_dir_removed_on_cancel_while_running(live):
+def test_dir_removed_when_stop_finishes_a_running_session(live):
     sid = _start()
     assert _wait(lambda: "out_dir" in live)
     out_dir = live["out_dir"]
     assert os.path.isdir(out_dir)
+    assert live_service.stop_session(sid)["finishing"] is True
+    assert _terminal(sid)
+    assert live_service.get_session(sid)["status"] == "done"
+    assert not os.path.exists(out_dir)
+
+
+def test_dir_removed_on_stop_now_while_running(live):
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    out_dir = live["out_dir"]
     live_service.stop_session(sid)
+    assert live_service.stop_session(sid)["finishing"] is False   # Stop now
     assert _terminal(sid)
     assert live_service.get_session(sid)["status"] == "cancelled"
     assert not os.path.exists(out_dir)
@@ -236,6 +248,11 @@ def test_status_names_the_stage_and_what_a_stop_does(live, monkeypatch):
     assert "Chunk 0: transcribing 0 s of audio with Whisper small" in \
         live_service.get_session(sid)["message"]
 
+    # The first Stop lets chunk 0 finish and says how to stop at once.
+    assert live_service.stop_session(sid)["finishing"] is True
+    status = live_service.get_session(sid)
+    assert "Chunk 0: transcribing" in status["message"]
+    assert any("Press Stop now" in n for n in status["notes"]), status["notes"]
     live_service.stop_session(sid)
     message = live_service.get_session(sid)["message"]
     assert "stopping Whisper on chunk 0" in message
@@ -315,11 +332,11 @@ def test_max_minutes_stops_job(live, monkeypatch):
     assert live["procs"][0].stopped
 
 
-def test_stop_bumps_generation_before_cancel(live, monkeypatch):
+def test_stop_now_bumps_generation_before_cancel(live, monkeypatch):
     sid = _start()
     # run_live_job bumps first thing in its worker thread; let that land so
     # only stop_session's bump is recorded.
-    assert _wait(lambda: live_service.get_session(sid)["message"] != "Starting...")
+    assert _wait(lambda: sid in live_pipeline._controls)
     order = []
     real_bump = live_translate.bump_generation
     monkeypatch.setattr(live_translate, "bump_generation",
@@ -330,7 +347,57 @@ def test_stop_bumps_generation_before_cancel(live, monkeypatch):
     monkeypatch.setattr(background_jobs, "cancel_queued",
                         lambda j: order.append("cancel_queued") or False)
     live_service.stop_session(sid)
+    assert order == []   # the first Stop only asks the loop to finish
+    live_service.stop_session(sid)
     assert order == ["bump", "cancel_queued", "cancel"]
+
+
+def test_stop_before_capture_starts_is_stop_now(live, monkeypatch):
+    release = threading.Event()
+    monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: release.wait(5) and "http://media")
+    sid = _start()
+    assert _wait(lambda: background_jobs.is_running(sid))
+    assert live_service.stop_session(sid)["finishing"] is False
+    release.set()
+    assert _terminal(sid)
+    assert live_service.get_session(sid)["status"] == "cancelled"
+
+
+def test_whisper_large_v3_turbo_is_offered_and_small_stays_the_default(live, monkeypatch):
+    import inspect
+    seen = []
+    monkeypatch.setattr(live_translate, "run_live_job",
+                        lambda job_id, url, out_dir, seg, lang, size, *a, **k: seen.append(size))
+    sid = _start(whisper_size="large-v3-turbo")
+    assert _terminal(sid)
+    assert seen == ["large-v3-turbo"]
+    assert "large-v3-turbo" in live_service.WHISPER_SIZES and "medium" in live_service.WHISPER_SIZES
+    assert inspect.signature(live_service.start_session).parameters["whisper_size"].default == "small"
+
+
+def test_lag_figures_reach_the_status_as_numbers_only(live, monkeypatch):
+    dirs = []
+
+    def fake_run(job_id, url, out_dir, *a, report_stats=None, **k):
+        dirs.append(out_dir)
+        report_stats({"lag_seconds": 27.5, "processing_seconds": 7.25, "translations_skipped": 3,
+                      "translate_queue": 1, "chunks_measured": 4, "path": out_dir})
+    monkeypatch.setattr(live_translate, "run_live_job", fake_run)
+    sid = _start(segment_seconds=12)
+    assert _terminal(sid)
+    s = live_service.get_session(sid)
+    assert (s["lag_seconds"], s["processing_seconds"], s["translations_skipped"],
+            s["translate_queue"], s["chunks_measured"], s["segment_seconds"]) == (27.5, 7.25, 3, 1, 4, 12)
+    assert "path" not in s and dirs and dirs[0] not in repr(s)
+
+
+def test_a_new_session_starts_with_zero_figures(live, monkeypatch):
+    monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: None)
+    sid = _start()
+    assert _terminal(sid)
+    s = live_service.get_session(sid)
+    assert (s["lag_seconds"], s["processing_seconds"], s["translations_skipped"],
+            s["chunks_measured"]) == (0.0, 0.0, 0, 0)
 
 
 # --- get / list ----------------------------------------------------------------
