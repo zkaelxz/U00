@@ -23,7 +23,7 @@ from typing import Dict, List, Tuple
 
 import db
 import glossary_phonetic as ph
-from services import glossary_service
+from services import glossary_service, vdb_names_service
 from services.glossary_common import MAX_TERM_LEN, _drama, _text
 from services.service_errors import InvalidInputError, NotFoundError
 
@@ -291,6 +291,28 @@ def _name_candidates(lines, speakers: Counter, language: str) -> Dict[str, dict]
 
 
 def discover_names(drama_id: int) -> dict:
+    """The recurring-name clusters, plus the downloaded VTuber names this title found in
+    its lines when it opted in (read-only suggestions; a name a term already covers is
+    marked, not hidden)."""
+    result = _discover_clusters(drama_id)
+    result["known_vtuber_names"] = _known_vtuber_names(drama_id)
+    return result
+
+
+def _known_vtuber_names(drama_id: int) -> List[dict]:
+    if not vdb_names_service.is_enabled(drama_id):
+        return []
+    lines, _ = _source_lines(drama_id)
+    terms = glossary_service.list_glossary_terms(drama_id)
+    known = {_norm(s): t["term_original"] for t in terms for s in [t["term_original"], *t["aliases"]]}
+    return [{"suggested_original": name, "existing_term": known.get(_norm(name)), "total": count,
+             "spellings": [{"text": name, "count": count, "sources": [], "is_alias": False,
+                            "is_term": _norm(name) in known}],
+             "examples": []}
+            for name, count in vdb_names_service.matches_for_text("\n".join(t for _, t in lines))]
+
+
+def _discover_clusters(drama_id: int) -> dict:
     """Recurring name-like strings (speaker labels, katakana runs, capitalised Latin
     words, names before an honorific or at the start of a line), grouped into clusters
     that sound alike. A cluster of several spellings is "these may be one name"; a

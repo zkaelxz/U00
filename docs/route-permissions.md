@@ -582,6 +582,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/translate/engines` | library.read |
 | `DELETE /api/translate/history` | local_only() |
 | `GET /api/translate/history` | library.read |
+| `DELETE /api/vdb-names` | local_only() |
+| `GET /api/vdb-names` | library.read |
+| `GET /api/vdb-names/dramas/{drama_id}` | library.read |
+| `POST /api/vdb-names/dramas/{drama_id}` | lines.edit |
+| `POST /api/vdb-names/fetch` | local_only() |
 | `GET /api/web-search/config` | local_only() |
 | `POST /api/web-search/config` | local_only() |
 | `POST /api/web-search/search` | library.read |

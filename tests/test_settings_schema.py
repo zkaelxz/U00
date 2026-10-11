@@ -49,6 +49,8 @@ DYNAMIC_KEYS = {
         "title-scoped: the language pack chosen for one title",
     ("services/language_pack_service.py", "_DEFAULT_KEY.format(language)"):
         "per language: the default language pack",
+    ("services/vdb_names_service.py", "_TITLE_KEY.format(drama_id)"):
+        "title-scoped: whether one title uses the downloaded VTuber names",
     ("services/benchmark_judge_service.py", "_setting_key(sid)"):
         "benchmark_judge.<session>: blind-judge pass state for one benchmark session",
     ("services/benchmark_judge_service.py", "_setting_key(session_id)"):

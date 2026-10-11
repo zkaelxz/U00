@@ -20,7 +20,7 @@ test('similar spellings and possible names fit a phone', async ({ page }) => {
   }))
   await page.route('**/api/glossary/dramas/1/name-clusters', (route) => route.fulfill({
     json: {
-      available: true, reason: '', lines_scanned: 10, truncated: false,
+      available: true, reason: '', lines_scanned: 10, truncated: false, known_vtuber_names: [],
       clusters: [{
         suggested_original: 'ミカ', existing_term: null, total: 5,
         spellings: [

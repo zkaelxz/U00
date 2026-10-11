@@ -249,6 +249,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `job_timing_service.py`
 - `jobs_service.py`
 - `language_pack_service.py`
+- `vdb_names_service.py` (the optional personal VTuber name list, downloaded on demand; personal use only, never exported)
 - `library_admin_service.py`
 - `library_restore_sql.py` (SQL helpers for the library restore)
 - `library_service.py`
@@ -385,6 +386,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `glossary_routes.py`
 - `jellyfin_routes.py`
 - `language_pack_routes.py`
+- `vdb_names_routes.py`
 - `job_stage_routes.py`
 - `jobs_routes.py`
 - `library_admin_routes.py`

@@ -118,6 +118,7 @@ from api.routers import (
     spend_history_routes,
     update_routes,
     usage_recost_routes,
+    vdb_names_routes,
     voice_bank_audio_routes,
     voice_clone_routes,
     web_search_routes,
@@ -277,6 +278,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(characters_routes.router)
     app.include_router(glossary_routes.router)
     app.include_router(language_pack_routes.router)
+    app.include_router(vdb_names_routes.router)
     app.include_router(review_lines_routes.router)
     app.include_router(review_records_routes.router)
     app.include_router(lines_routes.router)

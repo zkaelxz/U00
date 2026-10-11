@@ -405,4 +405,6 @@ export interface GlossaryNameClusters {
   lines_scanned: number
   truncated: boolean
   clusters: GlossaryNameCluster[]
+  /** Downloaded VTuber names found in the lines; empty unless the title opted in. */
+  known_vtuber_names: GlossaryNameCluster[]
 }

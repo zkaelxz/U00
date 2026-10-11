@@ -19,6 +19,7 @@ import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossary
 import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
 import { PossibleNames, SimilarSpellings } from './GlossaryVariants'
+import { VtuberNames } from './VtuberNames'
 import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
@@ -404,6 +405,7 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
         hasSeries={seriesId != null}
         onAdded={() => setReloads((n) => n + 1)}
       />
+      <VtuberNames />
       {instructions && (
         <>
           <InstructionsEditor key="project" scope="project" initial={instructions.project} />

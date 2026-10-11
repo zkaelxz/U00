@@ -167,7 +167,7 @@ function ClusterCard({ cluster, hasSeries, onCreated }: {
         </span>
       </div>
       <div className="muted">
-        {cluster.spellings.map((s) => `${s.text}: ${s.count}× (${s.sources.map(sourceLabel).join(', ')})`).join('; ')}
+        {cluster.spellings.map((s) => `${s.text}: ${s.count}×${s.sources.length ? ` (${s.sources.map(sourceLabel).join(', ')})` : ''}`).join('; ')}
       </div>
       <Examples items={cluster.examples} />
       {cluster.existing_term && <span className="muted">Already in the glossary as “{cluster.existing_term}”.</span>}
@@ -240,6 +240,25 @@ export function PossibleNames({ hasSeries, onCreated }: { hasSeries: boolean; on
       {result && !result.available && <Unavailable reason={result.reason} />}
       {result?.available && result.truncated && <p className="muted">Only the first {result.lines_scanned} lines were checked.</p>}
       {result?.available && result.clusters.length === 0 && <p role="status">No recurring names found yet.</p>}
+      {result && result.known_vtuber_names.length > 0 && (
+        <>
+          <h4>Known VTuber names</h4>
+          <p className="muted">From your downloaded VTuber list, found in this title’s lines. Suggestions only; nothing is added until you make a term.</p>
+          <ul className="glossary-variants-list">
+            {result.known_vtuber_names.map((c) => (
+              <ClusterCard
+                key={c.suggested_original}
+                cluster={c}
+                hasSeries={hasSeries}
+                onCreated={(done) => {
+                  setResult((cur) => cur && { ...cur, known_vtuber_names: cur.known_vtuber_names.filter((x) => x !== done) })
+                  onCreated()
+                }}
+              />
+            ))}
+          </ul>
+        </>
+      )}
       {result?.available && result.clusters.length > 0 && (
         <ul className="glossary-variants-list">
           {result.clusters.map((c) => (
