@@ -295,3 +295,92 @@ class TestPipelineWiring:
     def test_other_models_never_touch_the_aligner(self, monkeypatch, tmp_path):
         out, _ = self.run(monkeypatch, tmp_path, "large-v3-turbo", "should not matter")
         assert [ln.end for ln in out["lines"]] == [2.0, 5.0] and not out["coverage_warning"]
+
+
+class TestRefinementNeverLosesTheTranscription:
+    """The aligner is optional: whatever it raises, Whisper's finished segments are kept."""
+
+    def refine(self, monkeypatch, *, load=None, align=None, extract=None):
+        monkeypatch.setattr(qwen3_native, "aligner_language_problem", lambda lang: None)
+        monkeypatch.setattr(qwen3_native, "transformers_problem", lambda feature="": None)
+        monkeypatch.setattr(wm, "release_gpu_models", lambda: None)
+
+        class Aligner:
+            def align(self, audio, text, language):
+                if align:
+                    raise align
+                return []
+
+        def load_aligner(**kw):
+            if load:
+                raise load
+            return Aligner()
+        monkeypatch.setattr(forced_align, "load_qwen3_aligner", load_aligner)
+
+        def extract_slice(*a):
+            if extract:
+                raise extract
+            open(a[3], "wb").close()
+        monkeypatch.setattr(forced_align, "_extract_audio_slice", extract_slice)
+        notices = []
+        out = transcribe_pipeline._refine_without_word_timestamps(
+            SEGMENTS, "/a.wav", "ja", True, _Rep(), {}, lambda *a: None, notices, False, 0.99)
+        return out, notices
+
+    @pytest.mark.parametrize("fault", [
+        {"load": memory_headroom.HeadroomError("Not enough graphics memory to load the aligner.")},
+        {"align": RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")},
+        {"extract": __import__("subprocess").CalledProcessError(1, ["ffmpeg", "-i", "C:\\Users\\me\\a.wav"])},
+    ])
+    def test_any_failure_keeps_the_segments_and_reports_the_notice(self, monkeypatch, fault):
+        out, notices = self.refine(monkeypatch, **fault)
+        assert out == SEGMENTS
+        assert notices and notices[0].startswith("Line timing was not refined (")
+        assert "C:\\" not in notices[0] and "ffmpeg" not in notices[0]
+
+    def test_a_cancel_still_propagates(self, monkeypatch):
+        import background_jobs
+        with pytest.raises(background_jobs.JobCancelled):
+            self.refine(monkeypatch, load=background_jobs.JobCancelled("x"))
+
+    def test_whisper_is_unloaded_before_the_aligner_loads(self, monkeypatch):
+        events = []
+        monkeypatch.setattr(qwen3_native, "aligner_language_problem", lambda lang: None)
+        monkeypatch.setattr(qwen3_native, "transformers_problem", lambda feature="": None)
+        monkeypatch.setattr(wm, "release_gpu_models", lambda: events.append("release"))
+        monkeypatch.setattr(forced_align, "refine_whisper_segments",
+                            lambda *a, **k: events.append("refine") or list(SEGMENTS))
+        transcribe_pipeline._refine_without_word_timestamps(
+            SEGMENTS, "/a.wav", "ja", True, _Rep(), {}, lambda *a: None, [], False, 0.99)
+        assert events == ["release", "refine"]
+
+    def test_an_import_error_path_never_reaches_the_notice(self, monkeypatch):
+        def refine(*a, **k):
+            raise ImportError("cannot import name x from /usr/lib/python3/site-packages/transformers/y.py")
+        monkeypatch.setattr(qwen3_native, "aligner_language_problem", lambda lang: None)
+        monkeypatch.setattr(qwen3_native, "transformers_problem", lambda feature="": None)
+        monkeypatch.setattr(wm, "release_gpu_models", lambda: None)
+        monkeypatch.setattr(forced_align, "refine_whisper_segments", refine)
+        notices = []
+        transcribe_pipeline._refine_without_word_timestamps(
+            SEGMENTS, "/a.wav", "ja", True, _Rep(), {}, lambda *a: None, notices, False, 0.99)
+        assert notices and "site-packages" not in notices[0] and "/usr" not in notices[0]
+
+
+class TestOnlyForWhisperTranscripts:
+    def test_a_supplied_transcript_is_not_refined(self, monkeypatch, tmp_path):
+        refined = []
+        monkeypatch.setattr(wm, "release_gpu_models", lambda: None)
+        monkeypatch.setattr(wm, "is_whisper_model_cached", lambda s: True)
+        monkeypatch.setattr(wm, "load_whisper_model", lambda *a, **k: None)
+        monkeypatch.setattr(wm, "get_whisper_device_info", lambda *a, **k: {})
+        monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 6.0)
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
+                            lambda *a, **k: [dict(s) for s in SEGMENTS])
+        monkeypatch.setattr(transcribe_pipeline, "_refine_without_word_timestamps",
+                            lambda *a, **k: refined.append(1) or a[0])
+        out = transcribe_pipeline._transcribe_pipeline(
+            _Rep(), str(tmp_path / "a.wav"), "have_transcript", "line one\nline two", "ja",
+            "simplified", KEY, 5, 300, 0.5, False, "auto", False, False, False, None, "", False,
+            "whisper", "whisper_diff")
+        assert out["lines"] and refined == []

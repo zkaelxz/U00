@@ -22,6 +22,7 @@ import background_jobs
 import core as core_module
 import whisper_models
 import long_line_split
+import memory_headroom
 import ollama_unload
 import segment_splitting
 import storage
@@ -82,7 +83,7 @@ def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep
                                     on_fallback, notices, mixed, stage_max) -> list:
     """Word timing for a Whisper model that cannot give it: the Qwen3 forced aligner
     refines the segment times. Where it cannot run (not installed, a mixed-language run
-    whose spans have different languages, a download or alignment error) the segment
+    whose spans have different languages, or any error while loading or running it) the segment
     times are kept and the job reports why, so the transcription itself is never lost
     to the optional step. Lines are not flagged: plain Whisper segment times are normal
     timing, and a flag on every line would bury the ones that really need a check."""
@@ -92,6 +93,9 @@ def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep
                else qwen3_native.aligner_language_problem(language)
                or qwen3_native.transformers_problem("Qwen3 forced alignment"))
     if not problem:
+        # Whisper has finished: its VRAM must be free before the aligner loads, or the
+        # headroom check refuses the load while the transcription is already done.
+        whisper_models.release_gpu_models()
         ticker = rep.stage("Refining line timing with the Qwen3 forced aligner").start()
         try:
             def _on_device(label):
@@ -109,8 +113,15 @@ def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep
         except background_jobs.JobCancelled:
             whisper_models.release_gpu_models()
             raise
-        except (ImportError, whisper_models.ModelDownloadError, ValueError) as exc:
+        except ImportError as exc:
+            problem = import_failure_message(exc)
+        except (whisper_models.ModelDownloadError, memory_headroom.HeadroomError, ValueError) as exc:
             problem = redact_secrets(str(exc))
+        except Exception as exc:
+            # Anything else (CUDA out of memory, ffmpeg failing on a slice) must not cost
+            # the finished transcription; only the type is shown because the text can
+            # hold a command line or a path.
+            problem = f"{type(exc).__name__} while aligning"
         finally:
             ticker.stop()
     notices.append(f"Line timing was not refined ({problem})")
@@ -553,7 +564,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         if not segments:
             return {"failed_reason": "empty"}
 
-        if coarse_whisper_timing and not rep.cancelled():
+        # Only a Whisper transcript carries the notice; a supplied one is aligned below.
+        if coarse_whisper_timing and transcript_mode == "whisper" and not rep.cancelled():
             segments = _refine_without_word_timestamps(
                 segments, audio_path, source_language, use_gpu, rep, qwen_device,
                 _qwen_on_fallback, detector_notices, mixed_whisper_run, stage_max)
