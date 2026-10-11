@@ -96,6 +96,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `emotion.py`
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
+- `glossary_phonetic.py` (sound-alike keys and edit distance for names in kana, kanji, hanzi, Hangul and Latin; offline, all thresholds in one block)
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
 - `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
@@ -238,6 +239,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
 - `glossary_service.py`
+- `glossary_variants_service.py` (read-only scans: other spellings of a glossary term in the source lines, and names that recur under several spellings)
 - `jellyfin_service.py`
 - `keep_original_service.py` (the per-title "Keep original files" pin: which files are originals, storage cleanup, Trash and export)
 - `job_checkpoint_service.py`

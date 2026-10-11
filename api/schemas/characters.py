@@ -53,6 +53,8 @@ __all__ = [
     "GlossaryProposalsApplyRequest",
     "LinesGlossaryApplyRequest",
     "GlossaryRunCancelRequest",
+    "GlossaryVariantExample", "GlossaryVariantCandidate", "GlossaryVariants",
+    "GlossaryNameSpelling", "GlossaryNameCluster", "GlossaryNameClusters",
 ]
 
 
@@ -462,3 +464,56 @@ class GlossaryRunCancelRequest(BaseModel):
     """The run_id from the extraction's status: only that run is cancelled."""
     model_config = ConfigDict(extra="forbid")
     run_id: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class GlossaryVariantExample(BaseModel):
+    line_idx: int
+    snippet: str
+
+
+class GlossaryVariantCandidate(BaseModel):
+    """A spelling in the source lines that sounds like the term. `score` is 0..1
+    (1 = same sound); `is_alias` / `is_term` mean it is already in the glossary."""
+    text: str
+    count: int
+    score: float
+    is_alias: bool
+    is_term: bool
+    examples: List[GlossaryVariantExample] = Field(default_factory=list)
+
+
+class GlossaryVariants(BaseModel):
+    """`available` is false when a reading library the title's language needs is not
+    installed; `reason` then says what to install."""
+    term: str
+    available: bool
+    reason: str = ""
+    lines_scanned: int
+    truncated: bool
+    candidates: List[GlossaryVariantCandidate] = Field(default_factory=list)
+
+
+class GlossaryNameSpelling(BaseModel):
+    text: str
+    count: int
+    sources: List[str] = Field(default_factory=list)
+    is_alias: bool
+    is_term: bool
+
+
+class GlossaryNameCluster(BaseModel):
+    """Spellings that may be one name. `existing_term` is set when one of them is
+    already a term or alias."""
+    suggested_original: str
+    existing_term: Optional[str] = None
+    total: int
+    spellings: List[GlossaryNameSpelling]
+    examples: List[GlossaryVariantExample] = Field(default_factory=list)
+
+
+class GlossaryNameClusters(BaseModel):
+    available: bool
+    reason: str = ""
+    lines_scanned: int
+    truncated: bool
+    clusters: List[GlossaryNameCluster] = Field(default_factory=list)
