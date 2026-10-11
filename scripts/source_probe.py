@@ -7,7 +7,8 @@ scripts/source_probe.py -- which source hosts still answer? A manual dev tool.
     python scripts/source_probe.py --use-env-proxy     # cloud sandbox: go through HTTPS_PROXY
 
 For each host: ONE GET of the site root, sequentially with a 2 s gap, an honest
-User-Agent, timeout=(5, 10), at most 3 redirects, no cookies, no proxy. Each
+User-Agent, timeout=(5, 10), at most 3 redirects, no cookies, no proxy unless
+--use-env-proxy (below). Each
 host is classified reachable / challenge-page / http-error / dns-failure /
 timeout (connection-error for any other network failure). A challenge page is
 only named, never solved. Nothing is written anywhere: with --include-set-aside
@@ -200,6 +201,16 @@ def main(argv=None, fetch=http_fetch, sleep=time.sleep) -> int:
               "(use --allow-ci to override).", file=sys.stderr)
         return 2
     if args.use_env_proxy and fetch is http_fetch:
+        # requests raises a bare OSError (not RequestException) for a missing
+        # bundle, which would escape probe_host as a traceback naming the path.
+        for var in ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+            bundle = os.environ.get(var)
+            if bundle:
+                if not os.path.isfile(bundle):
+                    print(f"{var} points at a file that does not exist; fix it or unset it.",
+                          file=sys.stderr)
+                    return 2
+                break
         fetch = functools.partial(http_fetch, use_env_proxy=True)
     entries = collect_hosts(args.include_set_aside)
     results = probe_all(entries, fetch, sleep=sleep)

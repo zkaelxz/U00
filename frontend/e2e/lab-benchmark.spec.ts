@@ -31,8 +31,8 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   const setName = `e2e-${Date.now()}`
 
   // Reached from Diagnostics; on the wide rail it has its own item, which becomes current .
-  await page.goto('/#/diagnostics')
-  await page.getByRole('main').or(page.locator('.app-main')).getByRole('link', { name: 'Benchmark Lab' }).click()
+  await page.goto('/#/diagnostics?tab=models')
+  await page.getByRole('main').or(page.locator('.app-main')).getByRole('link', { name: 'Open Benchmark Lab' }).click()
   await expect(page).toHaveURL(/#\/benchmark$/)
   await expect(page.getByRole('heading', { name: 'Benchmark Lab' })).toBeVisible()
   await openBenchSections(page)
