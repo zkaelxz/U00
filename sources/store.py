@@ -298,21 +298,70 @@ def _open(path: str) -> sqlite3.Connection:
     return conn
 
 
+def migrate_file(path: str) -> None:
+    """Brings the sources database at `path` to the current schema and WAL
+    mode. Also run on a library restore's staged copy, which connect()
+    would otherwise never migrate: its path is already initialised."""
+    conn = _open(path)
+    try:
+        # WAL is stored in the file, so it is set here once rather than
+        # per connection: readers then never wait on the writer.
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.executescript(SCHEMA)
+        _add_missing_columns(conn)
+    finally:
+        conn.close()
+
+
 def _initialise(path: str) -> None:
     with _init_lock:
         if path in _initialised and os.path.exists(path):
             return
-        conn = _open(path)
+        migrate_file(path)
+        _initialised.add(path)
+
+
+def snapshot_to(dest: str, source: str = None):
+    """Writes a consistent copy of sources.db (or of the sources database
+    at `source`) to `dest`, as one file not in WAL mode, through SQLite's
+    backup API: a plain file copy misses changes still in sources.db-wal
+    and can catch a write half-done. Returns dest, or None, writing
+    nothing, when there is no such database."""
+    source = source or db_path()
+    if not os.path.isfile(source):
+        return None
+    src = _open(source)
+    try:
+        dest_conn = sqlite3.connect(dest)
         try:
-            # WAL is stored in the file, so it is set here once rather than
-            # per connection: readers then never wait on the writer.
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA synchronous = NORMAL")
-            conn.executescript(SCHEMA)
-            _add_missing_columns(conn)
+            src.backup(dest_conn)
+            dest_conn.execute("PRAGMA journal_mode = DELETE")
+        finally:
+            dest_conn.close()
+    finally:
+        src.close()
+    return dest
+
+
+def backup_snapshot(dest: str):
+    """snapshot_to for a backup zip, with the settings table emptied: a
+    restore keeps the live settings, and the proxy URL can carry a password.
+    secure_delete keeps the removed rows out of free pages. Any SQLite
+    error (a busy database included) is an OSError, so the caller shows its
+    own fixed message."""
+    try:
+        if snapshot_to(dest) is None:
+            return None
+        conn = sqlite3.connect(dest, isolation_level=None)
+        try:
+            conn.execute("PRAGMA secure_delete = ON")
+            conn.execute("DELETE FROM settings")
         finally:
             conn.close()
-        _initialised.add(path)
+    except sqlite3.Error:
+        raise OSError("sources snapshot could not be prepared") from None
+    return dest
 
 
 def connect() -> sqlite3.Connection:

@@ -527,7 +527,7 @@ class TestOwnLinesOnly:
         did, _sid, rows = _seed([("一", "one"), ("二", "two")], series=None)
         lines = db.load_line_objects(did)
         saved = []
-        save_cb, notes_cb = bulk_translate.own_lines_callbacks(did, lines, saved.extend)
+        save_cb, notes_cb, _kept = bulk_translate.own_lines_callbacks(did, lines, saved.extend)
         # A Reflect critique arrives before its batch is saved.
         notes_cb([{"line_idx": ln.idx, "term": "", "note_type": "reflection",
                    "note": f"critique {ln.idx}"} for ln in lines])

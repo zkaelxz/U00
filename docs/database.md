@@ -178,8 +178,11 @@ nothing there can interfere with `db.save_lines()` or a library backup.
   lock error.
 - Schema is the `SCHEMA` string plus `_ADDED_COLUMNS`, applied by
   `_add_missing_columns`. This list is **not** covered by `_INIT_DB_MIGRATED_COLUMNS`.
-- A library restore rebuilds it from `SCHEMA`, keeping the current settings
-  table (`workspace_job_service._build_staged_databases`).
+- Every backup zip holds a backup-API snapshot of it (`store.snapshot_to`). A
+  library restore rebuilds it with `store.migrate_file`, keeping the current
+  settings table, or carries a snapshot of the live one when the zip has none;
+  either copy must pass `quick_check` before the swap
+  (`workspace_job_service._build_staged_databases`).
 
 ## 4. Rules learned from bugs
 
@@ -293,8 +296,8 @@ What they skip or keep:
   `-shm` files, symlinks and `.env`. A full restore keeps the current copies of
   these instead of taking them from the upload.
 - **A full restore keeps** the live `users`, `user_permissions`, `audit_log`, the
-  sources settings table and `app_settings["auto_backup.identity"]`
-  (`_RESTORE_KEPT_APP_SETTINGS`); every session is revoked and an audit row
+  sources settings table and the `app_settings` automatic-backup identity,
+  settings and state (`_RESTORE_KEPT_APP_SETTINGS`); every session is revoked and an audit row
   written. It refuses while any job runs (exclusive hold), validates the zip
   first, and rolls back if the swap fails. The uploaded database is only ever
   attached read-only; its rows are copied into a database built fresh from the
