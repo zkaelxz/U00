@@ -831,6 +831,7 @@ _CAPTURE_ALLOWED = {
     "diagnostics.py::_warn_deno_old": "probe: deno --version",
     "diagnostics_torch.py::external_gpu_load": "probe: nvidia-smi",
     "diagnostics_torch.py::nvidia_driver_info": "probe: nvidia-smi",
+    "diagnostics_torch.py::lowest_compute_capability": "probe: nvidia-smi",
     "services/loaded_models_service.py::_gpu_from_nvidia_smi": "probe: nvidia-smi",
     "media_inspect.py::run_ffprobe": "probe: ffprobe",
     "raw_transcript.py::_git_commit": "probe: git rev-parse",

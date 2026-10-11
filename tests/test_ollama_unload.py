@@ -225,7 +225,7 @@ def test_the_qwen3_asr_and_aligner_loaders_call_the_hook(monkeypatch, hook_calls
     import qwen3_native
     fake_torch = types.SimpleNamespace(
         bfloat16=object(), float16=object(),
-        cuda=types.SimpleNamespace(is_bf16_supported=lambda: True))
+        cuda=types.SimpleNamespace(is_bf16_supported=lambda including_emulation=True: True))
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setattr(qwen3_native, "require_transformers", lambda feature="x": None)
     monkeypatch.setattr(qwen3_native.NativeQwen3ASR, "from_pretrained",

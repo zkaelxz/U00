@@ -612,7 +612,11 @@ def _verify_torch_once(cancel=None) -> dict:
     out = {k: (_redact(v)[:120] if v is not None else None) for k, v in out.items()}
     out["cuda_available"] = data.get("cuda_available") if isinstance(
         data.get("cuda_available"), bool) else None
+    devices = data.get("devices")
+    no_kernels = gpu_torch.unsupported_gpu_message(devices if isinstance(devices, list) else None)
     errors = [data[k] for k in ("error", "torchvision_error", "torchaudio_error") if data.get(k)]
+    if no_kernels:
+        errors.insert(0, no_kernels)
     out["error"] = _redact(" | ".join(str(e) for e in errors))[:600] if errors else None
     return out
 
@@ -648,7 +652,7 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
     nvidia = gpu_torch.nvidia_driver_info()
     versions = gpu_torch.torch_family_versions()
     problems = gpu_torch.torch_family_problems(versions)
-    variant = gpu_torch.TORCH_RECOMMENDED_VARIANT_GPU if nvidia else "cpu"
+    variant, reason = gpu_torch.recommended_gpu_variant() if nvidia else ("cpu", None)
     recommended = _variant_row(variant)
     driver = gpu_torch.driver_check(nvidia["driver_version"]) if nvidia else None
     installed = {n: versions[n]["version"] for n in gpu_torch.TORCH_FAMILY}
@@ -674,6 +678,7 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
         "state": state,
         "python_supported": _python_supported(),
         "recommended": recommended,
+        "recommended_reason": reason,
         "variants": [_variant_row(v) for v in gpu_torch.TORCH_VARIANTS],
         "probe": verify_torch(blocking=False) if probe else None,
     }
@@ -688,7 +693,7 @@ def prepare_gpu_torch_setup(variant: str = None, confirm: bool = False) -> str:
     guard(confirm)
     nvidia = gpu_torch.nvidia_driver_info()
     if variant is None:
-        variant = gpu_torch.TORCH_RECOMMENDED_VARIANT_GPU if nvidia else "cpu"
+        variant = gpu_torch.recommended_gpu_variant()[0] if nvidia else "cpu"
     if variant not in gpu_torch.TORCH_VARIANTS:
         raise AdminActionNotPossible("Unknown PyTorch variant.")
     spec = gpu_torch.TORCH_VARIANTS[variant]
@@ -705,7 +710,7 @@ def prepare_gpu_torch_setup(variant: str = None, confirm: bool = False) -> str:
         drv = gpu_torch.driver_check(nvidia["driver_version"])
         if drv["status"] == "too_old":
             raise AdminActionNotPossible(
-                f"NVIDIA driver {nvidia['driver_version']} is too old for CUDA 12.8 "
+                f"NVIDIA driver {nvidia['driver_version']} is too old for CUDA 12 "
                 f"(needs at least {drv['minimum']}, recommended {drv['recommended']}). "
                 "Update the driver from nvidia.com, then try again.")
     return variant
@@ -743,9 +748,13 @@ def setup_gpu_torch(variant: str = None, confirm: bool = False, job_id: str = No
             good = good and verify.get("cuda_available") is True
         if not good:
             result["ok"] = False
-            result["hint"] = ("pip finished, but the new PyTorch didn't pass the check "
-                              "(see below). Restart the app and open this section again; if "
-                              "CUDA still isn't available, update the NVIDIA driver.")
+            no_kernels = (verify.get("error") or "").startswith(gpu_torch.NO_KERNELS_PREFIX)
+            result["hint"] = (
+                "pip finished, but this PyTorch can't run on your GPU (see below). Install the "
+                f"{gpu_torch.TORCH_OLD_GPU_VARIANT} build." if no_kernels else
+                "pip finished, but the new PyTorch didn't pass the check "
+                "(see below). Restart the app and open this section again; if "
+                "CUDA still isn't available, update the NVIDIA driver.")
     result.update(package="torch", variant=variant)
     return result
 
