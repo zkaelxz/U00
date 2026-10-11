@@ -100,6 +100,8 @@ Review > AI review > "Flag lines for a second look" asks the translation engine 
 
 A line marked "Source changed" had its source text changed (by an edit, a re-transcription or Fix flagged) after it was translated: its English is kept but may no longer match, and Translate and Export show how many such lines remain. In Review checks, "Retranslate these" translates exactly those lines again with the Translate stage's starting options, and "Keep English for all" (or "Keep English" on one line) keeps the English as it is and removes the mark.
 
+**Fix flagged** re-translates the flagged lines in batches and, on an AI engine, tells it why each line was flagged and shows the English it has now. A line whose new English is the same as before stays flagged (nothing was fixed), and the result counts those lines. Fix flagged, the AI flag pass, the consistency check, emotion tagging, translation notes and AI re-segmentation are refused with "the monthly cap is used up" once this month's Spending cap is spent. **Re-split long lines** offers "More" and "Sentence by sentence"; for Chinese and Japanese titles "More" is greyed out, with an Install button, until the word splitter (jieba, or sudachipy for Japanese) is installed. The one-click "Split long lines" button uses the fresh-transcription limits (about 12 seconds or 40 characters).
+
 ### Emotion-aware translation
 
 Lines are tagged with an emotional register (14, including sarcasm, dry humour, suppressed anger) plus an intensity, and the tags are folded into the next translation run for charged lines only. Tags also map to TTS rate and pitch for dubbing.

@@ -380,7 +380,7 @@ class TestResplit:
         db.update_line_fields_if(did, ids[0], {"start": START - 1.0, "end": END + 0.6}, {})
         dry = svc.resplit_long_lines(did, ids, dry_run=True)
         plan = svc._resplit_plan(db.load_line_objects(did, with_words=True),
-                                 svc._Resplit("zh", "normal", None))
+                                 svc._Resplit("zh", None, None))
         assert (plan[ids[0]][0]["start"], plan[ids[0]][-1]["end"]) == pytest.approx(
             (START - 1.0, END + 0.6))
         svc.resplit_long_lines(did, ids)

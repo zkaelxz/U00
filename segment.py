@@ -88,6 +88,14 @@ def _cut_traditional(text: str):
     return words
 
 
+def missing_word_segmenter(language: str):
+    """The package name a language's word cuts need but which isn't installed,
+    else None. Korean words are space-delimited and need none."""
+    import importlib.util
+    needs = {"zh": ("jieba",), "ja": ("sudachipy", "sudachidict_core")}.get(language, ())
+    return next((name for name in needs if importlib.util.find_spec(name) is None), None)
+
+
 def _load_jieba():
     global _jieba
     if _jieba is None:
