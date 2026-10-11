@@ -248,7 +248,9 @@ def _scope(drama: dict) -> str:
 def _visible_edit_samples(principal) -> list:
     """Other users' private edits must neither feed a user's learned style
     nor be counted for them."""
-    samples = db.list_edit_samples()
+    # No row limit: filtering the newest 100 would let other users' private
+    # edits push this user's own out of the window.
+    samples = db.list_edit_samples(limit=-1)
     visible = set(ownership_service.filter_visible_drama_ids(
         principal, {s["drama_id"] for s in samples}))
     return [s for s in samples if s["drama_id"] in visible]

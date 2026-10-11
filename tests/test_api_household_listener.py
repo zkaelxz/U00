@@ -888,6 +888,8 @@ class TestRunServers:
         from api import __main__ as main_mod
         from services import settings_service
         monkeypatch.setattr(settings_service, "read_env_file", lambda *a, **k: {})
+        for k in ("BAIHE_API_HOUSEHOLD_PORT", "BAIHE_API_PORT", "BAIHE_API_HOST", *SIGN_IN_ENV):
+            monkeypatch.delenv(k, raising=False)
         monkeypatch.setenv("BAIHE_API_ENV", "development")
         monkeypatch.setenv("BAIHE_API_AUTH", auth)
         calls = []
