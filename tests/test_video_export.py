@@ -366,3 +366,54 @@ class TestBurnInNeverNeedsNvenc:
         # Re-encoding clips ask for libx264; the full burn-ins leave the video
         # encoder to ffmpeg's default for the container (libx264 for mp4).
         assert all("libx264" in c for c in cmds[:2])
+
+
+class TestStoredMediaIsReadOnlyAsLocalMedia:
+    """A stored file named .mp4 can be an HLS/DASH manifest naming network
+    URLs: every ffmpeg that reads the title's media reads it through
+    local_input(), right before its -i."""
+
+    @staticmethod
+    def _cmds(monkeypatch):
+        cmds = []
+
+        def run(cmd, **kw):
+            cmds.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        monkeypatch.setattr(subprocess, "run", run)
+        return cmds
+
+    def test_burn_ins_and_clips(self, monkeypatch):
+        cmds = self._cmds(monkeypatch)
+        ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4", start=2.0, end=4.0)
+        ve.burn_subtitles("in.mp4", "1\n00:00:00,000 --> 00:00:01,000\nhi\n", "out.mp4")
+        ve.burn_ass("in.mp4", "[ASS]", "out.mp4")
+        self._assert_local(cmds, 3)
+
+    def test_core_audio_extraction_and_slices(self, monkeypatch):
+        import core
+        cmds = self._cmds(monkeypatch)
+        core.extract_audio_from_video("in.mp4", "out.wav")
+        core.extract_audio_slice("in.m4a", 1.0, 2.0, "out.wav")
+        self._assert_local(cmds, 2)
+
+    def test_hardsub_frames(self, monkeypatch, tmp_path):
+        pytest.importorskip("cv2")
+        import hardsub_ocr
+        cmds = self._cmds(monkeypatch)
+        hardsub_ocr.extract_frames("in.mp4", str(tmp_path / "frames"))
+        self._assert_local(cmds, 1)
+
+    def test_speech_coverage_decode(self, monkeypatch):
+        pytest.importorskip("numpy")
+        from services import speech_coverage_service
+        cmds = self._cmds(monkeypatch)
+        speech_coverage_service._decode_chunk("in.mp3", 0.0, 30.0)
+        self._assert_local(cmds, 1)
+
+    @staticmethod
+    def _assert_local(cmds, n):
+        assert len(cmds) == n
+        for cmd in cmds:
+            i = cmd.index("-i")
+            assert cmd[i - 4:i] == ve.local_input(), cmd

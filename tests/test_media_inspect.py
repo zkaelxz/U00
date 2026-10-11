@@ -20,6 +20,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import media_inspect as mi
+import video_export
 
 
 def _fake_run(stdout_obj):
@@ -139,6 +140,17 @@ class TestProbeMediaParsing:
         real_run = subprocess.run
         monkeypatch.setattr(mi.subprocess, "run", lambda cmd, **kw: real_run(child, **kw))
         assert mi.run_ffprobe("video.mp4")["format"]["tags"]["title"] == "日本語タイトル"
+
+    def test_ffprobe_opens_only_local_files(self, monkeypatch):
+        """A stored HLS/DASH manifest must not make ffprobe fetch its URLs."""
+        seen = []
+        monkeypatch.setattr(mi.subprocess, "run", lambda cmd, **kw: seen.append(cmd) or
+                            subprocess.CompletedProcess(cmd, 0, stdout="{}"))
+        mi.run_ffprobe("list.m3u8")
+        cmd = seen[0]
+        i = cmd.index("-protocol_whitelist")
+        assert cmd[i:i + 4] == video_export.local_input() and cmd[-1] == "list.m3u8"
+        assert "hls" not in cmd[i + 3].split(",") and "dash" not in cmd[i + 3].split(",")
 
     @pytest.mark.parametrize("stdout", [None, ""])
     def test_ffprobe_no_output_raises_probe_error(self, monkeypatch, stdout):

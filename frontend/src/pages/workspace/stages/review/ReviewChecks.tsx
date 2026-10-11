@@ -14,6 +14,7 @@ import {
 import { getTranslateConfig, startSourceChangedRun } from '../../../../api/translateStage'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { isForbidden, LINES_READ_FORBIDDEN } from '../../../../components/errorMessages'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { buttonClass } from '../../../../components/uiClasses'
@@ -365,7 +366,11 @@ function CompareSection({ dramaId, versions }: { dramaId: number; versions: Vers
         </button>
         {left === right && <span className="muted">Pick two different versions.</span>}
       </div>
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {isForbidden(error) ? (
+        <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>
+      ) : (
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      )}
       {result && (
         <>
           <p role="status" data-testid="compare-count">
