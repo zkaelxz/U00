@@ -173,6 +173,14 @@ def test_planted_key_and_windows_path_redacted_on_disk(client):
     assert stored["client"]["failed_requests"][0]["path"] == "/api/review/dramas/3/lines"
 
 
+def test_nul_and_forged_url_placeholders_do_not_fail_the_report(client):
+    """NUL marks redaction's URL placeholders; a forged one used to raise."""
+    for text in ("x \x00URL7\x00", "\x00URL" + "9" * 4400 + "\x00 https://h/p?sig=1"):
+        r = _post(client, _report(what_happened=text))
+        assert r.status_code == 200, r.text
+        assert "\\u0000" not in json.dumps(svc.get_report(r.json()["id"]))
+
+
 def test_jpeg_metadata_stripped_and_bad_images_refused(client):
     r = _post(client, files={"screenshot": ("s.jpg", _jpeg(), "image/jpeg")})
     assert r.status_code == 200

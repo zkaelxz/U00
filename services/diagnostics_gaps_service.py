@@ -85,7 +85,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     py = diagnostics.check_python_version()
     ff = diagnostics.check_ffmpeg()
     js = diagnostics.check_js_runtime()
-    cuda = diagnostics.check_cuda()
+    cuda = gpu_torch.check_cuda_isolated()
     browser = diagnostics.check_browser()
     files = diagnostics.check_file_completeness(project_root)
     return {
@@ -544,6 +544,7 @@ def _clear_update_cache() -> None:
     with _UPDATES_LOCK:
         _UPDATES.update(checked_at=None, packages={},
                         generation=_UPDATES.get("generation", 0) + 1)
+    gpu_torch.forget_gpu_status()
 
 
 def cached_update(name: str):
