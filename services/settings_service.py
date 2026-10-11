@@ -218,7 +218,8 @@ def get_settings_overview(env_path: str = None) -> dict:
 # Writable, non-secret switches whose value lives in app_settings under the
 # schema's store_key. Keys are never here (D2); preferences are the schema's
 # pref.* rows, endpoint URLs go through set_endpoint_url.
-_DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models")
+_DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models",
+                "update.include_prereleases")
 
 # Switches whose owner (a root module) keeps its own storage and setter.
 _WRITABLE_SETTINGS = {
@@ -255,6 +256,12 @@ def _refusal(key: str, reason: str) -> InvalidInputError:
     return InvalidInputError(f"'{key}' must be a {kind} from {low} to {high}.")
 
 
+def _developer_mode_on() -> bool:
+    # Imported here: the maintenance assistant imports this module.
+    from services import maintenance_assistant_service
+    return maintenance_assistant_service.developer_mode_enabled()
+
+
 def set_settings(updates: dict, env_path: str = None) -> dict:
     """Applies a batch of non-secret toggles and preferences, then returns
     the refreshed overview. Validates everything before writing anything,
@@ -263,6 +270,8 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
     for key, value in updates.items():
         if key in _WRITABLE_SETTINGS or key in _DB_TOGGLES or key == "gpu_max_parallel" \
                 or _is_preference(key):
+            if settings_schema.BY_KEY[key].dev_only and not _developer_mode_on():
+                raise InvalidInputError("Turn on Developer Mode to change this setting.")
             try:
                 cleaned[key] = settings_schema.validate(key, value, _choices_for(key))
             except ValueError as exc:
