@@ -9,6 +9,7 @@ const LOADED = {
   ollama: { state: 'running', models: [{ name: 'gemma4:12b', size_bytes: 8_000_000_000, vram_bytes: 5_000_000_000 }] },
   app: { state: 'ok', models: [{ name: 'large-v3-turbo', kind: 'Whisper', device: 'GPU' }] },
   gpu: { state: 'ok', name: 'RTX 4090', total_bytes: 24_000_000_000, used_bytes: 9_000_000_000, free_bytes: 15_000_000_000 },
+  memory: { vram: { state: 'unknown', total_bytes: null, free_bytes: null, reserved_bytes: 0 }, ram: { state: 'unknown', total_bytes: null, free_bytes: null, reserved_bytes: 0 } },
   llama_cpp_running: false,
   gpu_job_running: false,
 }
@@ -46,7 +47,7 @@ async function mock(page: Page, first: object) {
 test('lists what is loaded and frees app models after a confirm', async ({ page }) => {
   const { posts, unmocked } = await mock(page, LOADED)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const card = page.getByRole('region', { name: 'Loaded now', exact: true })
   const table = card.getByTestId('loaded-table')
   await expect(table).toContainText('gemma4:12b')
@@ -67,7 +68,7 @@ test('lists what is loaded and frees app models after a confirm', async ({ page 
 test('empty states are honest and Refresh re-reads', async ({ page }) => {
   const { set } = await mock(page, EMPTY)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const card = page.getByRole('region', { name: 'Loaded now', exact: true })
   await expect(card.getByTestId('loaded-empty')).toContainText('Nothing loaded.')
   await expect(card.getByTestId('loaded-gpu')).toHaveText('GPU info unavailable.')
@@ -79,7 +80,7 @@ test('empty states are honest and Refresh re-reads', async ({ page }) => {
 test('free is disabled while a GPU job runs', async ({ page }) => {
   await mock(page, { ...LOADED, gpu_job_running: true })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const card = page.getByRole('region', { name: 'Loaded now', exact: true })
   await expect(card.getByRole('button', { name: /^Free app models/ })).toBeDisabled()
   await expect(card).toContainText('GPU job is running')
@@ -91,7 +92,7 @@ test('away from the PC there is no free button', async ({ page }) => {
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'System')
   const card = page.getByRole('region', { name: 'Loaded now', exact: true })
   await expect(card.getByTestId('loaded-table')).toBeVisible()
   await expect(card.getByRole('button', { name: /Free app models/ })).toHaveCount(0)

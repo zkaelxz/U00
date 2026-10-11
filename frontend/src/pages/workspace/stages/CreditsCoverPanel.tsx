@@ -91,7 +91,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
                 {romanizing ? 'Romanizing…' : 'Romanize credits'}
               </button>
               <p className="muted">
-                {`Uses this drama's translation engine (${engine}). Names are romanized; studios keep an official English name when there is one.`}
+                {`Uses this title's translation engine (${engine}). Names are romanized; studios keep an official English name when there is one.`}
               </p>
             </div>
           ) : (
@@ -110,7 +110,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
               <img
                 className="cover-preview"
                 src={coverUrl(dramaId, coverVersion)}
-                alt={`Cover of ${drama.title_en || drama.title_zh || `drama #${dramaId}`}`}
+                alt={`Cover of ${drama.title_en || drama.title_zh || `title #${dramaId}`}`}
                 onError={() => setCoverBroken(true)}
               />
             ) : (

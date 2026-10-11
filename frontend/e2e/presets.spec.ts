@@ -33,9 +33,8 @@ test('applying a saved preset fills the form and starts nothing', async ({ page 
   let runs = 0
   page.on('request', (r) => r.url().includes('/translate-run/dramas/1/run') && runs++)
   await page.goto('/#/drama/1/translate')
-  const apply = page.getByRole('button', { name: 'Apply preset' })
-  await expect(apply).toBeDisabled()
-  await page.getByLabel('Saved preset', { exact: true }).selectOption('7')
+  const apply = page.getByRole('button', { name: 'Apply', exact: true })
+  await page.getByLabel('Start from…', { exact: true }).selectOption('preset:7')
   await apply.click()
   await expect(page.getByRole('status').filter({ hasText: 'Applied preset "Wuxia preset"' })).toBeVisible()
   expect(bodies).toEqual([{ preset_id: 7 }])
@@ -45,11 +44,11 @@ test('applying a saved preset fills the form and starts nothing', async ({ page 
   expect(runs).toBe(0)
 })
 
-test('no saved presets, no preset picker', async ({ page }) => {
+test('no saved presets, no My presets group', async ({ page }) => {
   await page.route('**/api/library/presets', (r) => r.fulfill({ json: { items: [] } }))
   await page.goto('/#/drama/1/translate')
-  await expect(page.getByRole('button', { name: 'Apply tier' })).toBeVisible()
-  await expect(page.getByLabel('Saved preset', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeVisible()
+  await expect(page.locator('optgroup[label="My presets"]')).toHaveCount(0)
 })
 
 test('a preset and a voice can be renamed in the Library', async ({ page }) => {

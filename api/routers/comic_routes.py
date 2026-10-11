@@ -8,6 +8,7 @@ services/comic_view_service.py:
 - GET  /dramas/{id}/pages/{pid}/regions          lines.read
 - GET  /dramas/{id}/progress                     library.read
 - POST /dramas/{id}/progress                     lines.edit
+- POST /dramas/{id}/pages/visibility             lines.edit
 
 Images go through Starlette's FileResponse (Range, HEAD, ETag,
 Last-Modified); this module adds the If-None-Match 304 that FileResponse
@@ -21,9 +22,10 @@ from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse, Response
 
 from api.auth import require_permission
-from api.comic_schemas import ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest
+from api.comic_schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest,
+                              ComicVisibilityRequest, ComicVisibilityResult)
 from api.schemas import ErrorResponse
-from services import comic_view_service
+from services import comic_chapters_service, comic_view_service
 
 router = APIRouter(prefix="/api/scanlate", tags=["comic"])
 
@@ -91,3 +93,13 @@ def get_progress(drama_id: int = Path(ge=1)):
              summary="Record the page being read (last_page and percent only)", responses=_ERRS)
 def post_progress(body: ComicProgressRequest, drama_id: int = Path(ge=1)):
     return comic_view_service.save_progress(drama_id, body.page)
+
+
+@router.post("/dramas/{drama_id}/pages/visibility", dependencies=[require_permission("lines.edit")],
+             response_model=ComicVisibilityResult,
+             summary="Hide or restore pages that are not part of the story (credits, promos)",
+             responses=_ERRS)
+def post_visibility(body: ComicVisibilityRequest, drama_id: int = Path(ge=1)):
+    return comic_chapters_service.set_visibility(
+        drama_id, body.hidden, page_ids=body.page_ids, chapter_id=body.chapter_id,
+        edge=body.edge, count=body.count)

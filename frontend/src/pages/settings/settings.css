@@ -7,20 +7,16 @@
 .settings-page .setting-list { margin: 0; }
 .settings-note { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 
-/* Folds: one collapsible group per topic. Cards inside lose their box so a
-   fold is not a box in a box; their titles become sub-headings. */
-.settings-jump { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.settings-jump-link { min-height: 32px; padding: var(--space-1) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); font: inherit; font-size: var(--text-sm); cursor: pointer; }
-.settings-jump-link:hover { border-color: var(--accent); }
-.settings-fold { scroll-margin-top: var(--space-4); min-width: 0; }
-.settings-fold > details.section { margin: 0; padding: var(--space-2) var(--space-4); background: var(--surface); border-radius: var(--radius-lg); }
-.settings-fold > details.section > summary { font-size: var(--text-lg); }
-.settings-fold > details.section > summary .section-title { font-weight: var(--weight-bold); }
-.settings-fold > details.section > .section-body { gap: var(--space-5); }
-.settings-fold .card { padding: 0; border: 0; box-shadow: none; background: none; }
-.settings-fold .card-title { font-size: var(--text-md); }
-.settings-fold .section-body > .card + .card, .settings-fold .section-body > details.section { border-top: 1px solid var(--border); padding-top: var(--space-4); }
-.settings-fold-single .card-head .card-title { display: none; }
+/* Search above the tabs; the tab row is left-aligned on desktop and a 3-column grid on phones. */
+.settings-search input { width: 100%; box-sizing: border-box; }
+.settings-tabs { display: flex; gap: var(--space-2); border-bottom: 1px solid var(--border); }
+.settings-tab { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 44px; padding: var(--space-2) var(--space-4); border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
+.settings-tab:hover { color: var(--text); }
+.settings-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.settings-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-panel { display: grid; gap: var(--space-5); min-width: 0; }
+.settings-panel[hidden], .settings-card[hidden], .settings-card:empty { display: none; }
+.settings-card { min-width: 0; scroll-margin-top: var(--space-4); }
 
 /* One row per key or channel: name, status badge, action on the right; the
    form for that row opens underneath it. */
@@ -56,13 +52,10 @@
 .sharing-status { font-size: var(--text-sm); color: var(--muted); }
 .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-6); }
 
-@media (pointer: coarse), (max-width: 640px) {
-  .settings-jump-link, .settings-fold > details.section > summary { min-height: 44px; }
-  .settings-fold > details.section > summary { align-items: center; }
-}
 @media (max-width: 640px) {
-  .settings-fold > details.section { padding-inline: var(--space-3); }
-  .settings-page { gap: var(--space-5); }
+  .settings-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-1); }
+  .settings-tab { padding-inline: var(--space-1); text-align: center; line-height: 1.2; overflow-wrap: anywhere; flex-wrap: wrap; }
+  .settings-page { gap: var(--space-4); }
   .settings-page .status-list > li { padding-inline: var(--space-3); }
   .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-5); }
 }

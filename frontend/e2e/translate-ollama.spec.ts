@@ -43,7 +43,7 @@ test('warns when Ollama is unreachable, keeps Translate enabled, and Check again
   await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
 
   // An unsaved form edit survives the re-check.
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   await run.getByLabel('Batch size', { exact: true }).fill('17')
 
   // Still down: the warning stays and says it checked.
@@ -67,4 +67,36 @@ test('no warning when Ollama is only picked in the form (not checked yet)', asyn
   await run.getByLabel('AI engine', { exact: true }).selectOption('ollama')
   await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
   await expect(run.getByTestId('ollama-warning')).toHaveCount(0)
+})
+
+test('a cloud model is labelled and explains that text leaves the PC; local models do not', async ({ page }) => {
+  await page.route('**/api/translate-run/dramas/1/config', async (route) => {
+    const real = await (await route.fetch()).json()
+    const ollama = {
+      name: 'ollama', label: 'Ollama', free: true, key_configured: true,
+      models: ['gemma4:12b', 'gemma4:31b-cloud'],
+      model_labels: { 'gemma4:31b-cloud': 'gemma4:31b-cloud -- CLOUD: sends text off this PC' },
+      cloud_models: ['gemma4:31b-cloud'],
+    }
+    await route.fulfill({
+      json: {
+        ...real,
+        engines: [...real.engines.filter((e: Engine) => e.name !== 'ollama'), ollama],
+        translation_engine: 'ollama',
+        ollama_reachable: true,
+        line_count: 3,
+        untranslated_count: 3,
+      },
+    })
+  })
+  await page.goto('/#/drama/1/translate')
+  const run = page.getByRole('region', { name: 'Translate run' })
+  const model = run.getByLabel('Model', { exact: true })
+
+  await expect(run.getByTestId('cloud-model-notice')).toHaveCount(0)
+  await model.selectOption('gemma4:31b-cloud')
+  await expect(run.getByTestId('cloud-model-notice')).toContainText('sent off this PC')
+  await expect(run.getByTestId('cloud-model-notice')).toContainText('limits')
+  await model.selectOption('gemma4:12b')
+  await expect(run.getByTestId('cloud-model-notice')).toHaveCount(0)
 })

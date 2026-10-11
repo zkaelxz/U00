@@ -46,7 +46,8 @@ def test_post_returns_ass_download(client, drama):
     r = client.post(_url(drama), json={})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/x-ssa")
-    assert r.headers["content-disposition"] == f'attachment; filename="drama_{drama}_en.ass"'
+    assert r.headers["content-disposition"] == (
+        "attachment; filename=\"D - subtitles (en).ass\"; filename*=UTF-8''D%20-%20subtitles%20%28en%29.ass")
     assert r.text.startswith("[Script Info]")
     assert "Hello" in r.text
 
@@ -61,7 +62,9 @@ def test_fields(client, drama, field, present, absent):
         assert absent not in r.text
     else:
         assert "你好" in r.text
-    assert f"drama_{drama}_{field}.ass" in r.headers["content-disposition"]
+    code = {"en": "en", "zh": "zh", "bilingual": "zh+en"}[field]
+    what = "bilingual subtitles" if field == "bilingual" else "subtitles"
+    assert f'filename="D - {what} ({code}).ass"' in r.headers["content-disposition"]
 
 
 def test_style_override_applied_and_unset_falls_back_to_preset(client, drama):

@@ -47,6 +47,8 @@ import time
 import action_tiers
 import db
 import diagnostics
+from engine_backends import echo
+from lib import http, proc as proc_run
 from services import diagnostics_gaps_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
@@ -107,7 +109,7 @@ _SECRET_NAME_RE = re.compile(r"(^\.env|secret|token|password|credential|cookie|\
 
 def _redact(text) -> str:
     """Keys and tokens out, plus this PC's absolute project/home folder
-    prefixes. Deliberately NOT diagnostics.redact_for_support: that one
+    prefixes. Deliberately NOT diagnostics_report.redact_for_support: that one
     collapses every "a/b/c" to ".../c" and replaces the OS user name as a
     bare substring, which mangles repo-relative paths, code and patches.
     The log, job history and support report tools are already redacted
@@ -163,10 +165,14 @@ def _get(key: str, default=None):
 DEFAULT_ENGINE = "ollama"
 
 
-def _is_local_engine(name: str) -> bool:
-    """Only Ollama runs on this PC, and only while its endpoint is loopback
-    (_ollama_is_local): code and logs never leave it."""
-    return name == "ollama" and _ollama_is_local()
+def _is_local_engine(name: str, model=None) -> bool:
+    """Loopback Ollama with a non-hosted model (None: the saved one)."""
+    from translate_engines import is_ollama_cloud_model
+    if name != "ollama" or not _ollama_is_local():
+        return False
+    if model is None and (_get("engine") or DEFAULT_ENGINE) == name:
+        model = _get("model")
+    return not is_ollama_cloud_model(model)
 
 
 def _cloud_consent() -> dict:
@@ -177,31 +183,19 @@ def _cloud_consent() -> dict:
 def _ollama_is_local() -> bool:
     """Ollama is local only when its endpoint is this PC (loopback); a
     remote or LAN Ollama server needs consent like a cloud engine."""
-    import ipaddress
-    from urllib.parse import urlsplit
     from services import settings_service
-    url = settings_service.resolve_key("ollama_url") or "http://localhost:11434"
-    try:
-        host = urlsplit(url if "://" in url else "http://" + url).hostname or ""
-    except ValueError:
-        return False
-    if host.lower() == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+    return settings_service.ollama_endpoint_is_loopback()
 
 
-def cloud_consent_given(engine_name: str) -> bool:
+def cloud_consent_given(engine_name: str, model=None) -> bool:
     """A local engine needs no consent; a cloud one (or Ollama on another
     machine) needs the owner's saved, per-provider "allow sending code
     and logs" consent."""
-    return _is_local_engine(engine_name) or _cloud_consent().get(engine_name) is True
+    return _is_local_engine(engine_name, model) or _cloud_consent().get(engine_name) is True
 
 
-def require_cloud_consent(engine_name: str):
-    if not cloud_consent_given(engine_name):
+def require_cloud_consent(engine_name: str, model=None):
+    if not cloud_consent_given(engine_name, model):
         raise ConflictError(
             f"Sending this app's code and logs to {engine_name} isn't allowed yet. Allow it "
             "for that engine in the assistant's settings, or use Ollama to keep everything "
@@ -345,7 +339,7 @@ def set_settings(updates: dict) -> dict:
             merged = _cloud_consent()
             for eng, allowed in value.items():
                 _check_engine_name(eng, "cloud_consent engine")
-                # Ollama can be on another machine, so it may need consent too.
+                # Ollama may be on another machine.
                 if not isinstance(allowed, bool):
                     raise InvalidInputError("cloud_consent is for cloud engines, as true/false.")
                 merged[eng] = allowed
@@ -367,9 +361,10 @@ def set_settings(updates: dict) -> dict:
     current = get_settings()
     for eng, mod in (("engine", "model"), ("review_engine", "review_model")):
         if eng in cleaned and mod not in cleaned and cleaned[eng] != current[eng]:
-            cleaned[mod] = None  # a model name belongs to the engine it was saved with
+            cleaned[mod] = None  # a model belongs to its engine
     for key, value in cleaned.items():
         db.set_app_setting(_SETTINGS_PREFIX + key, value)
+    echo.set_enabled(developer_mode_enabled())
     return get_settings()
 
 
@@ -736,12 +731,9 @@ def tool_run_tests(args: dict) -> str:
     try:
         cmd = [sys.executable, "-m", "pytest", "-q", "-o", "addopts=", "-p", "no:cacheprovider",
                "-p", "services.assistant_pytest_guard", "--no-header", "-rfE", path]
-        try:
-            proc = subprocess.run(cmd, cwd=repo_root(), capture_output=True, text=True,
-                                  encoding="utf-8", errors="replace",
-                                  timeout=TEST_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL,
-                                  env=_test_env())
-        except subprocess.TimeoutExpired:
+        proc = proc_run.run_captured(cmd, TEST_TIMEOUT_SECONDS, cwd=repo_root(),
+                                            env=_test_env())
+        if proc.timed_out:
             return f"The test run took over {TEST_TIMEOUT_SECONDS} seconds and was stopped."
         output = (proc.stdout or "") + (proc.stderr or "")
         tail = "\n".join(output.strip().splitlines()[-60:])
@@ -958,9 +950,9 @@ def build_engine(engine_name=None, model=None):
     engine_name = _check_engine_name(engine_name) or saved_engine
     model = _check_model(model) or (settings["model"] if engine_name == saved_engine else None)
     from services import line_ai_service, settings_service
-    require_cloud_consent(engine_name)
+    require_cloud_consent(engine_name, model)
     engine = reader_service.llm_engine(engine_name, model)
-    line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get_gemini_free_tier())
+    line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get("gemini_free_tier"))
     return engine, engine_name, model
 
 
@@ -1007,7 +999,11 @@ def _tier_failure(error: ServiceError, engine_name: str, ladder: list) -> Servic
     if reason == "no_key":
         reason = "unavailable"
     if reason is None:
-        if isinstance(error, UnsupportedOperationError):
+        if isinstance(error, http.FetchError):
+            # Ollama that isn't running surfaces as a fetch failure, which is
+            # a DependencyUnavailableError and would read as "not set up".
+            reason = "unreachable"
+        elif isinstance(error, UnsupportedOperationError):
             # The monthly cap refusal, or an engine that can't chat.
             reason = "spend_cap" if "spending cap" in error.message else "unavailable"
         else:
@@ -1086,17 +1082,16 @@ def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt
 _ASK_LOCK = threading.Lock()
 
 
-def _check_escalation(engine_name, consent, ladder):
-    """An escalation names a tier of the ladder, and a tier that leaves
-    this PC needs consent=True on this very request (on top of the saved
-    per-provider consent build_engine checks): the page asks before each
-    send, it never escalates on its own."""
+def _check_escalation(engine_name, consent, ladder, model=None):
+    """An escalation names a ladder tier; one that leaves this PC needs
+    consent=True on this very request (on top of the saved per-provider
+    consent): the page asks before each send."""
     if not engine_name:
         raise InvalidInputError("An escalation names the engine to ask.")
     if _tier_of(engine_name, ladder)[0] is None:
         raise InvalidInputError("That engine isn't one of the assistant's tiers. Add it in the "
                                 "assistant's settings first.")
-    if not _is_local_engine(engine_name) and consent is not True:
+    if not _is_local_engine(engine_name, model) and consent is not True:
         raise ConflictError(
             f"Asking {engine_name} sends your question, the recent chat and the redacted tool "
             "output to that provider. Confirm it first.",
@@ -1124,7 +1119,7 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
     ladder = tier_ladder()
     engine_name = _check_engine_name(engine_name)
     if escalate:
-        _check_escalation(engine_name, consent, ladder)
+        _check_escalation(engine_name, consent, ladder, _check_model(model))
     target = engine_name or get_settings()["engine"] or DEFAULT_ENGINE
     try:
         engine, engine_name, model = build_engine(target, model)
@@ -1153,7 +1148,8 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
             # The escalation dialog lists only the tier being asked; a cloud
             # reviewer would send the question, answer and patches to a
             # provider the user didn't confirm.
-            if escalate and settings["review_engine"] and not _is_local_engine(settings["review_engine"]):
+            reviewer = settings["review_engine"]
+            if escalate and reviewer and not _is_local_engine(reviewer, settings["review_model"]):
                 review_skipped = ("The reviewer is a cloud engine, so it wasn't asked as part of "
                                   "this escalation. Ask for a review separately.")
             else:
@@ -1173,7 +1169,7 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
         "review": review,
         "review_skipped": review_skipped,
         "tier": tier,
-        "local": _is_local_engine(engine_name),
+        "local": _is_local_engine(engine_name, model),
         "next_engine": next_engine,
         # What the next tier (or a developer report) gets if the user asks
         # for it: redacted, and cut to the size the request accepts.
@@ -1226,9 +1222,9 @@ def build_review_engine():
         raise ConflictError("No review engine is set. Pick one that differs from the "
                             "implementing engine in the assistant's settings.")
     model = settings["review_model"]
-    require_cloud_consent(name)  # the reviewer reads the same code and logs
+    require_cloud_consent(name, model)  # the reviewer reads the same code and logs
     engine = reader_service.llm_engine(name, model)
-    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get_gemini_free_tier())
+    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get("gemini_free_tier"))
     return engine, name, model
 
 

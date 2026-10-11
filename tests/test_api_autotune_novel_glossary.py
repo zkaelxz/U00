@@ -21,7 +21,7 @@ import translation_guide as tguide
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, glossary_service, transcribe_service, translate_service
+from services import (auth_service, autotune_service, glossary_extract_service, glossary_service, translate_service)
 from services.service_errors import ConflictError
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
@@ -92,7 +92,7 @@ class _Engine:
 @pytest.fixture
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
-    monkeypatch.setattr(glossary_service.translate_engines, "get_engine",
+    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
                         lambda name, key, **kw: _Engine())
 
 
@@ -159,7 +159,7 @@ class TestAutotuneStart:
         assert r.status_code == 409
 
     def test_no_paid_engine(self):
-        assert transcribe_service.PAID_ENGINE_FUNCTIONS == ()
+        assert autotune_service.PAID_ENGINE_FUNCTIONS == ()
 
 
 class TestAutotuneStatus:

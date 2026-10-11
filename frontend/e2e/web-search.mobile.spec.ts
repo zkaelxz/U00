@@ -40,7 +40,7 @@ test('phone: web results fit, targets are 44px', async ({ page }) => {
 test('phone: settings card fits', async ({ page }) => {
   await page.route('**/api/web-search/config', (route) => route.fulfill({ json: { enabled: true, base_url: 'http://192.168.1.20:8888' } }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Web search' })
   await expect(card).toContainText('On')
   await card.scrollIntoViewIfNeeded()

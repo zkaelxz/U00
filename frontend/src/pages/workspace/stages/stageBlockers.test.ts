@@ -22,7 +22,7 @@ describe('translateBlocker', () => {
 })
 
 describe('exportBlocked', () => {
-  it('blocks only a loaded 0-line drama', () => {
+  it('blocks only a loaded 0-line title', () => {
     expect(exportBlocked(0)).toBe(true)
     expect(exportBlocked(3)).toBe(false)
     expect(exportBlocked(null)).toBe(false)

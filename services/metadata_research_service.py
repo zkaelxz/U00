@@ -38,7 +38,8 @@ from urllib.parse import urlsplit
 
 import db
 import translate_engines
-from services import capped_body, drama_service, library_service, settings_service
+from services import drama_service, library_service, settings_service
+from lib import http
 from services.metadata_service import SUGGEST_FIELDS, require_drama
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -135,7 +136,7 @@ def budget_status() -> dict:
             "free_remaining": _free_remaining(day, month),
             "paid_price_per_search_usd": GROUNDED_PAID_PRICE_USD,
             "free_lookup_min": MAX_QUERIES_PER_LOOKUP,
-            "free_tier_key": settings_service.get_gemini_free_tier(),
+            "free_tier_key": settings_service.get("gemini_free_tier"),
             "key_configured": bool(settings_service.resolve_key("gemini")),
             "monthly_cap_usd": cap,
             # Counted since any reset under a cap; the real spend with none.
@@ -189,20 +190,14 @@ def _prompt(entity: dict, mode: str) -> str:
 
 
 def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
-    import requests
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    resp = requests.post(url, headers={"x-goog-api-key": api_key},
-                         json={"contents": [{"parts": [{"text": prompt}]}],
-                               "tools": [{"google_search": {}}]},
-                         timeout=REQUEST_TIMEOUT, stream=True)
-    try:
-        resp.raise_for_status()
-    except Exception:
-        resp.close()
-        raise
-    return json.loads(capped_body.read_capped(
-        resp, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT * 3,
-        lambda: ValueError("the Gemini response was too large")))
+    resp = http.post(url, headers={"x-goog-api-key": api_key},
+                     json={"contents": [{"parts": [{"text": prompt}]}],
+                           "tools": [{"google_search": {}}]},
+                     timeout=REQUEST_TIMEOUT, max_bytes=MAX_RESPONSE_BYTES, guard=None)
+    if not resp.ok:
+        raise http.FetchError()
+    return json.loads(resp.body)
 
 
 def _safe_url(url) -> Optional[str]:
@@ -344,7 +339,7 @@ def _response(drama_id: int, drama: dict, key: str, result: dict, cached: bool) 
 
 
 def estimate_cost(mode: str, model: str, paid_search: bool) -> float:
-    if settings_service.get_gemini_free_tier():
+    if settings_service.get("gemini_free_tier"):
         return 0.0
     cost = translate_engines.estimate_cost(model, EST_INPUT_TOKENS[mode], EST_OUTPUT_TOKENS[mode])
     # Worst case: every query the model may run is a paid one.
@@ -408,7 +403,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     api_key = settings_service.resolve_key("gemini")
     if not api_key:
         raise DependencyUnavailableError("No Gemini key is configured. Set one in Settings first.")
-    free_tier = settings_service.get_gemini_free_tier()
+    free_tier = settings_service.get("gemini_free_tier")
     paid_search, free_before = _reserve_search(mode, model, allow_paid, free_tier)
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))
@@ -491,7 +486,7 @@ def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optiona
         if not isinstance(seen, dict) or field not in seen:
             raise InvalidInputError(f"Send the {field} value you were shown.")
         if (seen[field] or "").strip() != current:
-            raise ConflictError("This drama's details changed since the research was shown. "
+            raise ConflictError("This title's details changed since the research was shown. "
                                 "Look again before applying.", details={"reason": "changed",
                                                                        "field": field})
         if choice == "confirm" and fields[field]["value"] != current:

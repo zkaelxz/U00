@@ -1,0 +1,95 @@
+{
+ "id": "ko-common",
+ "version": 1,
+ "language": "ko",
+ "title": "Korean kinship, roles, set phrases and streamer terms",
+ "description": "Starter pack, review it. Family and workplace words, daily set phrases, interjections and a few streaming terms.",
+ "entries": [
+  {
+   "source": "엄마",
+   "en": "Mom",
+   "category": "kinship"
+  },
+  {
+   "source": "아빠",
+   "en": "Dad",
+   "category": "kinship"
+  },
+  {
+   "source": "할머니",
+   "en": "Grandma",
+   "category": "kinship"
+  },
+  {
+   "source": "할아버지",
+   "en": "Grandpa",
+   "category": "kinship"
+  },
+  {
+   "source": "동생",
+   "en": "younger sibling",
+   "category": "kinship",
+   "note": "Say 'little sister' or 'little brother' if the gender is clear."
+  },
+  {
+   "source": "회장님",
+   "en": "chairman",
+   "category": "role"
+  },
+  {
+   "source": "재벌",
+   "en": "chaebol",
+   "category": "role",
+   "note": "Keep as 'chaebol' and, if needed, a note: a rich family that owns big companies."
+  },
+  {
+   "source": "잘 먹겠습니다",
+   "en": "Thanks for the meal",
+   "category": "phrase",
+   "note": "Said before eating."
+  },
+  {
+   "source": "수고했어",
+   "en": "Good work",
+   "category": "phrase",
+   "note": "Thanks for your effort."
+  },
+  {
+   "source": "화이팅",
+   "en": "You can do it",
+   "category": "phrase",
+   "note": "Cheering someone on."
+  },
+  {
+   "source": "어머",
+   "en": "Oh my",
+   "category": "interjection"
+  },
+  {
+   "source": "아이고",
+   "en": "Oh dear",
+   "category": "interjection"
+  },
+  {
+   "source": "헐",
+   "en": "What?!",
+   "category": "interjection"
+  },
+  {
+   "source": "방송",
+   "en": "broadcast",
+   "category": "streamer",
+   "note": "'Stream' when it is a live stream."
+  },
+  {
+   "source": "시청자",
+   "en": "viewers",
+   "category": "streamer"
+  },
+  {
+   "source": "후원",
+   "en": "donation",
+   "category": "streamer"
+  }
+ ]
+}

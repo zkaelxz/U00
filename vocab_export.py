@@ -19,6 +19,12 @@ import time
 from core import extract_audio_slice as _extract_audio_slice
 
 
+def _spreadsheet_safe(cell: str) -> str:
+    """Words come from clicking imported text, so a cell may be a formula
+    (=cmd|...) once opened in Excel or Sheets; a leading quote makes it text."""
+    return "'" + cell if cell[:1] in ("=", "+", "-", "@", "\t", "\r") else cell
+
+
 def export_vocab_csv(vocab_rows) -> str:
     """vocab_rows: list of dicts from db.list_vocab_lookups().
     Returns CSV text: front = word + reading, back = definitions."""
@@ -29,7 +35,7 @@ def export_vocab_csv(vocab_rows) -> str:
         reading = f" ({row['reading']})" if row.get("reading") else ""
         front = f"{row['word']}{reading}"
         back = "; ".join(row.get("definitions") or [])
-        writer.writerow([front, back])
+        writer.writerow([_spreadsheet_safe(front), _spreadsheet_safe(back)])
     return buf.getvalue()
 
 

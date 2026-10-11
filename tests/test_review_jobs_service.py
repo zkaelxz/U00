@@ -3,6 +3,7 @@ Slice 44). Fully mocked: a fake engine and stubbed LLM helpers, no network."""
 import time
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -68,9 +69,9 @@ def _spy_save_lines(monkeypatch):
     calls = []
     real = db.save_lines
 
-    def spy(d, ls, fields=None):
+    def spy(d, ls, fields=None, **kw):
         calls.append(fields)
-        return real(d, ls, fields=fields)
+        return real(d, ls, fields=fields, **kw)
     monkeypatch.setattr(db, "save_lines", spy)
     return calls
 
@@ -155,6 +156,20 @@ def test_flag_keeps_manual_flag_change_made_just_before_the_write(monkeypatch):
     assert job["result"]["flagged_count"] == 2
 
 
+@pytest.mark.parametrize("starter,job_prefix", [(svc.start_flag_review, "flag_"),
+                                                (svc.start_consistency_check, "consistency_")])
+def test_live_review_jobs_name_the_titles_source_language(monkeypatch, starter, job_prefix):
+    did = _seed()
+    db.update_drama(did, source_language="ja")
+    prompts = []
+    monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
+                        lambda engine, prompt, **kw: prompts.append(prompt) or "[]")
+    out = starter(did, engine_name="claude")
+    assert out["job_id"].startswith(job_prefix)
+    _wait(out["job_id"])
+    assert prompts and "Japanese source lines" in prompts[0]
+
+
 def test_consistency_saves_issues(monkeypatch):
     did = _seed()
     monkeypatch.setattr(translate_engines, "check_consistency_llm",
@@ -202,7 +217,6 @@ def test_fix_flagged_retranslates_and_clears_flag(monkeypatch):
 
 
 def test_fix_flagged_sends_default_locale_and_style_note(monkeypatch):
-    from services import settings_service
     seen = []
 
     class Spy(FakeEngine):
@@ -211,9 +225,8 @@ def test_fix_flagged_sends_default_locale_and_style_note(monkeypatch):
             return super().translate_batch(texts, ctx)
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Spy())
     prefs = {"default_locale": "en-GB", "default_style_note": "Keep honorifics."}
-    real = settings_service.get_preference
-    monkeypatch.setattr(settings_service, "get_preference",
-                        lambda name: prefs.get(name, real(name)))
+    for name, value in prefs.items():
+        patch_setting(monkeypatch, name, value)
     did = _seed((("你好", "old", "uncertain"),))
     _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
     assert seen and seen[0]["locale"] == "en-GB" and seen[0]["style_note"] == "Keep honorifics."

@@ -23,7 +23,7 @@ Conventions shared by all of them:
   - plain dicts/lists/str/bytes out, never a filesystem path or key
     (media_file_path is the one server-internal exception, documented);
   - keys are resolved server-side, never accepted or returned, and an
-    engine failure is passed through diagnostics.redact_for_support (keys
+    engine failure is passed through diagnostics_report.redact_for_support (keys
     and absolute paths removed), a local OSError becomes a fixed message;
   - AI results are matched back by id or name, never by list position;
   - writes are scoped to their own table/fields (vocab_lookups,
@@ -36,10 +36,11 @@ limit (the whole drama); a route or React caller that wants spoiler-free
 must pass that boundary explicitly.
 
 Permission contract for routes (user decision, 2026-09-29):
-  - reads (page, overview, notes, vocab list, wiki list,
+  - reads (overview, notes, vocab list, wiki list,
     media availability): `library.read`;
-  - caption tracks, media streaming and every export
-    (CSV, .apkg, wiki Markdown): `lines.read`;
+  - the page (it carries line text; owner decision 2026-10-10), caption
+    tracks, media streaming and every export (CSV, .apkg, wiki Markdown):
+    `lines.read`;
   - reader-data writes (progress, notes, rich-export queue, clear wiki):
     `lines.edit`;
   - LLM tools (who-is, explain, recap, relationships, wiki update, Q&A,
@@ -49,12 +50,11 @@ Permission contract for routes (user decision, 2026-09-29):
 
 import os
 import re
-import shutil
-import tempfile
 
 import core as core_module
 import db
 import reader
+import storage
 import story_context
 import subtitle_formats
 import translate_engines
@@ -97,7 +97,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     NotFoundError for an unknown drama or one with no lines yet, the
     same vocabulary every other service in this app's migration uses."""
     if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
-        raise InvalidInputError("A drama id is a positive whole number.")
+        raise InvalidInputError("A title id is a positive whole number.")
     if not isinstance(chapter_size, int) or isinstance(chapter_size, bool) or not (10 <= chapter_size <= 200):
         raise InvalidInputError("chapter_size must be a whole number from 10 to 200.")
     if not isinstance(page, int) or isinstance(page, bool) or page < 1:
@@ -105,7 +105,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
 
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -165,10 +165,10 @@ def _require_drama(drama_id) -> dict:
     """The ownership check every function below starts with: a bad id is
     InvalidInputError, an unknown drama NotFoundError."""
     if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
-        raise InvalidInputError("A drama id is a positive whole number.")
+        raise InvalidInputError("A title id is a positive whole number.")
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
@@ -247,7 +247,7 @@ def llm_engine(engine_name=None, model=None):
         raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get_gemini_free_tier(),
+        free_tier=settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
@@ -257,16 +257,19 @@ def llm_engine(engine_name=None, model=None):
 
 
 def _run_engine(fn):
+    import dictionary
     try:
         return fn()
     except ServiceError:
         raise
-    except OSError:  # local work (e.g. the CEDICT download/cache): no path out
+    except dictionary.CedictDownloadError as e:  # already user-ready, not an engine failure
+        raise ServiceError(str(e)) from None
+    except OSError:  # local work (e.g. the CEDICT cache): no path out
         raise ServiceError("A local dictionary or file step failed; see the app log.") from None
     except Exception as e:  # engine/network failure: never leak a key or path
-        import diagnostics
+        import diagnostics_report
         raise ServiceError("The engine call failed: "
-                           + diagnostics.redact_for_support(str(e))[:300]) from None
+                           + diagnostics_report.redact_for_support(str(e))[:300]) from None
 
 
 def _text_arg(value, field: str, max_len: int) -> str:
@@ -370,7 +373,7 @@ def media_file_path(drama_id: int, kind: str) -> tuple:
         raise InvalidInputError("kind must be one of: " + ", ".join(MEDIA_KINDS))
     found = _media_paths(drama_id, drama).get(kind)
     if found is None:
-        raise NotFoundError(f"This drama has no {kind} media file.")
+        raise NotFoundError(f"This title has no {kind} media file.")
     return found
 
 
@@ -544,7 +547,7 @@ def set_rich_export(drama_id: int, words: list, queued: bool = True) -> dict:
     known = {r["word"] for r in db.list_vocab_lookups(drama_id)}
     missing = [w for w in words if w not in known]
     if missing:
-        raise NotFoundError("Not in this drama's vocab list: " + ", ".join(missing[:10]))
+        raise NotFoundError("Not in this title's vocab list: " + ", ".join(missing[:10]))
     unique = list(dict.fromkeys(words))
     for w in unique:
         db.set_vocab_export_rich(drama_id, w, bool(queued))
@@ -557,7 +560,7 @@ def export_vocab_csv(drama_id: int) -> dict:
     drama = _require_drama(drama_id)
     vocab = db.list_vocab_lookups(drama_id)
     if not vocab:
-        raise NotFoundError("No words have been looked up in this drama yet.")
+        raise NotFoundError("No words have been looked up in this title yet.")
     return {"filename": _safe_filename(_title(drama, "vocab"), "csv"), "media_type": "text/csv",
             "content": vocab_export.export_vocab_csv(vocab)}
 
@@ -575,7 +578,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
     vocab = db.list_vocab_lookups(drama_id, rich_only=bool(rich))
     if not vocab:
         raise NotFoundError("No words queued for the rich export yet." if rich
-                            else "No words have been looked up in this drama yet.")
+                            else "No words have been looked up in this title yet.")
     cards_capped = bool(rich) and len(vocab) > MAX_RICH_CARDS
     if cards_capped:
         vocab = vocab[:MAX_RICH_CARDS]
@@ -585,8 +588,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
         original = None
     deck = _title(drama, "Baihe Vocab")
     name = "vocab_sentence.apkg" if rich else "vocab.apkg"
-    tmp = tempfile.mkdtemp(prefix="baihe_vocab_")
-    try:
+    with storage.job_workdir("vocab_export") as tmp:
         out_path = os.path.join(tmp, name)
         try:
             if rich:
@@ -602,8 +604,6 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
                 "Needs `pip install genanki` for .apkg export -- CSV works without it.") from None
         with open(out_path, "rb") as f:
             content = f.read()
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
     return {"filename": name, "media_type": "application/octet-stream", "content": content,
             "audio_omitted": audio_omitted, "cards_capped": cards_capped}
 

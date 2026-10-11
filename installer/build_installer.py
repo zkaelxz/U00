@@ -21,7 +21,9 @@ Payload (build/installer/payload/):
                     installer scripts (app/installer/launcher.py, postinstall.py)
     service/        the boot service's files: helper/ (a second copy of the
                     interpreter with no site-packages, installer/service.py and
-                    the Start-menu service menu, installer/service_menu.ps1)
+                    its service_*.py modules, installer/setup_lock.py and
+                    the Start-menu service menu,
+                    installer/service_menu.ps1)
                     and wrapper/ (WinSW, pinned by SHA-256, as BaiheStudio.exe
                     with its licence), and caddy/ (WinSW as BaiheCaddy.exe and
                     caddy.exe built from installer/caddy, with the licence files
@@ -83,6 +85,12 @@ INSTALLER_APP_ID = "973BDBB4-4ADC-4E54-973B-682E2A04362F"
 # .iss) is build-only.
 RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py")
 
+# The Python files of the elevated service script, which imports its siblings
+# as installer.<name> from helper/lib; one missing here breaks it only on
+# the user's machine.
+SERVICE_HELPER_FILES = ("service.py", "service_checks.py", "service_cli.py", "service_config.py",
+                        "service_control.py", "service_layout.py", "setup_lock.py")
+
 # The Windows service wrapper (docs/windows-installer-design.md, "Boot
 # service"): WinSW, MIT licence, the .NET Framework 4.6.1 build, which runs
 # on the .NET Framework 4.8 that Windows 10 and 11 include. The hash was
@@ -128,7 +136,7 @@ EXCLUDED_FILE_NAMES = frozenset({
     "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
     "make_shortcut.bat", "make_lock.bat",
     # Developer-only files. (run_tests.py ships: Diagnostics' file check
-    # expects it, diagnostics.EXPECTED_TOP_LEVEL_FILES.)
+    # expects it, expected_files.EXPECTED_TOP_LEVEL_FILES.)
     "pytest.ini", "conftest.py", "CLAUDE.md", "FILE_ORGANIZATION.md",
     ".gitignore", ".gitattributes", "Thumbs.db", ".DS_Store",
 })
@@ -283,7 +291,7 @@ def download(url: str, dest: Path, max_bytes: int = DOWNLOAD_MAX_BYTES,
              deadline_seconds: float = DOWNLOAD_DEADLINE_SECONDS, clock=time.monotonic) -> Path:
     """Fetches `url` to `dest`, refusing more than `max_bytes` (declared or
     actual) or a transfer slower than `deadline_seconds` in all. Standard
-    library only, like the rest of installer/, so services.capped_body isn't
+    library only, like the rest of installer/, so lib.capped_body isn't
     used; the caller checks the pinned hash afterwards."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
@@ -605,10 +613,11 @@ def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses)
         shutil.rmtree(service)
     helper_python = prepare_python(python_zip, service / "helper" / "python")
     tag = "".join(PYTHON_VERSION.split(".")[:2])
-    (helper_python / f"python{tag}._pth").write_text(f"python{tag}.zip\n.\n", encoding="ascii",
+    (helper_python / f"python{tag}._pth").write_text(f"python{tag}.zip\n.\n..\\lib\n", encoding="ascii",
                                                    newline="\r\n")
     shutil.rmtree(helper_python / "Lib")
-    _copy(INSTALLER_DIR / "service.py", service / "helper" / "lib" / "installer" / "service.py")
+    for name in SERVICE_HELPER_FILES:
+        _copy(INSTALLER_DIR / name, service / "helper" / "lib" / "installer" / name)
     # The Start-menu "Baihe Studio service" menu runs elevated, so it is
     # run only from the admin folder's copy.
     _copy(INSTALLER_DIR / "service_menu.ps1",

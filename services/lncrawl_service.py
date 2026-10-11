@@ -18,7 +18,7 @@ Safety of a run (the lncrawl 4.x CLI: `lncrawl crawl --noin -f epub
 - the argv is a fixed list built here, never a shell; the only user values
   are the URL (checked: http/https, no userinfo, no control characters, not
   starting with "-", passed after "--") and a chapter count (an int);
-- the URL is checked with `services.url_guard` first (private, loopback and
+- the URL is checked with `lib.url_guard` first (private, loopback and
   link-local hosts refused). lncrawl does its own fetching and redirects,
   which Baihe's per-request pinning cannot cover; that is why the routes are
   local_only();
@@ -50,7 +50,8 @@ from urllib.parse import urlsplit
 
 import background_jobs
 import db
-from services import drama_service, novel_attach_service, settings_service, url_guard
+from services import drama_service, novel_attach_service, settings_service
+from lib import url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -91,7 +92,7 @@ def _is_program_name(path: str) -> bool:
 def find_program() -> Optional[str]:
     """The lncrawl program to run, or None. The Settings path wins when set
     (and must be a real lncrawl file); otherwise PATH."""
-    configured = settings_service.get_lncrawl_cmd()
+    configured = settings_service.get("lncrawl_cmd") or None
     if configured:
         path = os.path.abspath(os.path.expanduser(configured))
         if _is_program_name(path) and os.path.isfile(path):
@@ -115,7 +116,7 @@ def get_status() -> dict:
     """Booleans only: whether lncrawl was found, and whether a Settings path
     is set (a set but wrong path reads installed: false)."""
     return {"installed": is_installed(),
-            "path_configured": bool(settings_service.get_lncrawl_cmd())}
+            "path_configured": bool(settings_service.get("lncrawl_cmd"))}
 
 
 # --- input checks and argv -------------------------------------------------
@@ -216,7 +217,7 @@ def start_import(drama_id: int, url, chapters: str = "all", count: Optional[int]
                  mode: str = "replace") -> dict:
     """Checks everything, then starts the background job. Returns {job_id}."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if mode not in ("append", "replace"):
         raise InvalidInputError("mode must be one of append, replace.")
     chapters, count = check_range(chapters, count)
@@ -227,13 +228,13 @@ def start_import(drama_id: int, url, chapters: str = "all", count: Optional[int]
             "or set its program path in Settings.")
     url = check_url(url)
     if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError("A job is running for this drama. Wait for it to finish or cancel it.")
+        raise ConflictError("A job is running for this title. Wait for it to finish or cancel it.")
     job_id = job_id_for(drama_id)
     started = background_jobs.start_job(
         job_id, _run_job, job_id, drama_id, program, url, chapters, count, mode,
-        description=f"Import with lightnovel-crawler (drama {drama_id})")
+        description=f"Import with lightnovel-crawler (title {drama_id})")
     if not started:
-        raise ConflictError("A lightnovel-crawler import is already running for this drama.")
+        raise ConflictError("A lightnovel-crawler import is already running for this title.")
     return {"job_id": job_id}
 
 

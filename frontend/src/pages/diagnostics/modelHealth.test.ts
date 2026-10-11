@@ -70,7 +70,7 @@ describe('header badge', () => {
 describe('row text', () => {
   it('names where the model is set in plain words', () => {
     expect(whereLabel(item({ engine: 'deepseek', kind: 'default', where: 'deepseek built-in default' }))).toBe('DeepSeek: built-in default')
-    expect(whereLabel(item({ kind: 'preset', where: 'Preset: Drama A' }))).toBe('Preset: Drama A')
+    expect(whereLabel(item({ kind: 'preset', where: 'Preset: Title A' }))).toBe('Preset: Title A')
     expect(whereLabel(item({ kind: 'tier', where: 'Workflow tier: Fast' }))).toBe('Workflow tier: Fast')
   })
 
@@ -79,7 +79,7 @@ describe('row text', () => {
     expect(kindHelp(item({ kind: 'tier' }))).toBeNull()
     expect(kindHelp(item({ kind: 'preset', can_switch: true, replacement: 'b' }))).toBeNull()
     expect(kindHelp(item({ kind: 'preset', can_switch: false, replacement: 'new-model' }))).toMatch(/^new-model isn't offered for this engine/)
-    expect(kindHelp(item({ kind: 'preset', can_switch: false }))).toBe("To pick a different model, change the preset in a drama's Translate step.")
+    expect(kindHelp(item({ kind: 'preset', can_switch: false }))).toBe("To pick another model, change the preset in a title's Translate step.")
   })
 })
 

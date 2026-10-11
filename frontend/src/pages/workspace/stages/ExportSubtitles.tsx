@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { getAssText, getSubtitleText } from '../../../api/export'
+import { getAssText, getSubtitleText, type SubtitleFile } from '../../../api/export'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { downloadText } from '../../../components/downloadText'
 import { Toggle } from '../../../components/Toggle'
 import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
@@ -13,7 +14,7 @@ import { useStage } from '../StageContext'
 import { ExportTextResult } from './ExportTextResult'
 import { exportBlocked } from './stageBlockers'
 
-export type ExportFormat = 'srt' | 'vtt' | 'ass'
+export type ExportFormat = 'srt' | 'vtt' | 'lrc' | 'ass'
 
 // "no wrap", "wrap 42", or "wrap 42/30" (English/source), for the Advanced summary.
 function wrapSummary(en: string, src: string): string {
@@ -24,7 +25,7 @@ function wrapSummary(en: string, src: string): string {
   return `wrap ${e || 'off'}/${s || 'off'}`
 }
 
-const MIME: Record<ExportFormat, string> = { srt: 'application/x-subrip', vtt: 'text/vtt', ass: 'text/x-ssa' }
+const MIME: Record<ExportFormat, string> = { srt: 'application/x-subrip', vtt: 'text/vtt', lrc: 'text/plain', ass: 'text/x-ssa' }
 
 interface Props {
   fmt: ExportFormat
@@ -44,9 +45,17 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [result, setResult] = useState<{ text: string; filename: string; fmt: ExportFormat } | null>(null)
+  const [pending, setPending] = useState(false)
+  const latest = useRef(0)
   const set = <K extends keyof AssForm>(k: K, v: AssForm[K]) => setForm({ ...form, [k]: v })
 
-  const fetchText = (): Promise<string> | null => {
+  // A response for the old format or language must not appear (or download) under the new selection.
+  useEffect(() => {
+    latest.current += 1
+    setPending(false)
+  }, [fmt, form.field])
+
+  const fetchText = (): Promise<SubtitleFile> | null => {
     if (fmt === 'ass') {
       if (!options) {
         setProblem('The style options have not loaded yet.')
@@ -66,22 +75,24 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
   }
 
   const exportFile = () => {
+    if (pending) return
     const p = fetchText()
     if (!p) return
+    const mine = ++latest.current
+    setPending(true)
     p.then(
-      (text) => {
-        const filename = exportFilename(form.baseName, dramaId, form.field, fmt)
+      ({ text, filename: serverName }) => {
+        if (mine !== latest.current) return
+        setPending(false)
+        const filename = exportFilename(form.baseName, dramaId, form.field, fmt, serverName)
         setError(null)
         setResult({ text, filename, fmt })
         if (!text.trim()) return
-        const url = URL.createObjectURL(new Blob([text], { type: `${MIME[fmt]};charset=utf-8` }))
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        a.click()
-        URL.revokeObjectURL(url)
+        downloadText(text, filename, MIME[fmt])
       },
       (e: unknown) => {
+        if (mine !== latest.current) return
+        setPending(false)
         setResult(null)
         setError(e)
       },
@@ -95,6 +106,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           <select value={fmt} onChange={(e) => setFmt(e.target.value as ExportFormat)}>
             <option value="srt">SRT</option>
             <option value="vtt">VTT</option>
+            <option value="lrc">LRC (lyrics)</option>
             <option value="ass">ASS</option>
           </select>
         </Field>
@@ -108,18 +120,18 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         <button
           type="button"
           className="primary"
-          disabled={blocked}
+          disabled={blocked || pending}
           aria-describedby={blocked ? 'export-blocker' : undefined}
           onClick={exportFile}
         >
-          Export
+          {pending ? 'Exporting...' : 'Export'}
         </button>
       </div>
       {blocked && (
         <p className="stage-blocker" id="export-blocker" data-testid="export-blocker">
           <span>No lines to export yet.</span>
           <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-            Go to Source
+            Go to Media
           </ButtonLink>
         </p>
       )}

@@ -19,6 +19,7 @@ Returns plain dicts; no FastAPI import.
 import os
 import stat
 
+import comic_chapters
 import db
 from services.service_errors import InvalidInputError, NotFoundError
 
@@ -35,11 +36,11 @@ _IMAGE_MISSING = "Page image not found."
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
-def _find_page(drama_id: int, page_id: int, message: str = "No such page in this drama."):
+def _find_page(drama_id: int, page_id: int, message: str = "No such page in this title."):
     """(ordinal, page row, page count). The page must belong to this drama."""
     pages = db.list_pages(drama_id)
     for i, page in enumerate(pages):
@@ -110,7 +111,13 @@ def list_pages(drama_id: int) -> dict:
         if _visible(b):
             visible_counts[b["page_id"]] = visible_counts.get(b["page_id"], 0) + 1
     pages = []
-    for i, page in enumerate(db.list_pages(drama_id)):
+    rows = db.list_pages(drama_id)
+    manifest = comic_chapters.load(drama_id)
+    groups = comic_chapters.group_pages(rows, manifest)
+    owner = {name: (g["id"], g["first_page"]) for g in groups for name in g["filenames"]}
+    hidden = set(manifest["hidden"])
+    for i, page in enumerate(rows):
+        gid, first = owner.get(page.get("filename"), (None, 1))
         original = safe_file(drama_id, page.get("filename"))
         rendered = safe_file(drama_id, page.get("rendered_filename"))
         mtimes = [int(f[1].st_mtime * 1000) for f in (original, rendered) if f]
@@ -120,11 +127,16 @@ def list_pages(drama_id: int) -> dict:
             "has_rendered": rendered is not None,
             "has_regions": visible_counts.get(page["id"], 0) > 0,
             "image_version": max(mtimes) if mtimes else 0,
+            "chapter_id": gid, "chapter_page": i + 2 - first if gid else i + 1,
+            "hidden": page.get("filename") in hidden,
         })
     media_type = drama.get("media_type") or "other"
     return {"drama_id": drama_id, "media_type": media_type,
             "reading_mode_default": "paged" if media_type in _PAGED_MEDIA_TYPES else "vertical",
-            "page_count": len(pages), "pages": pages, "chapters": []}
+            "page_count": len(pages), "pages": pages,
+            "hidden_count": sum(1 for p in pages if p["hidden"]),
+            "chapters": [{k: v for k, v in g.items() if k not in ("filenames", "chapter_id")}
+                         for g in groups]}
 
 
 def resolve_page_image(drama_id: int, page_id: int, variant: str = "original") -> dict:
@@ -182,7 +194,7 @@ def save_progress(drama_id: int, page: int) -> dict:
     count = len(db.list_pages(drama_id))
     if not isinstance(page, int) or page < 1 or page > count:
         raise InvalidInputError("page is past the last page." if count else
-                                "This drama has no pages.")
+                                "This title has no pages.")
     db.save_progress(drama_id, last_page=page,
                      percent_complete=round(page / count * 100, 2))
     return _progress_view(drama_id)

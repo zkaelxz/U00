@@ -46,9 +46,9 @@ test('popover shows the job and cancels it', async ({ page }) => {
   const cancelled = await serveJobs(page, jobs)
   await page.goto('/#/drama/3/review')
   await page.getByTestId('job-pill').click()
-  const region = page.getByRole('region', { name: 'Running on this drama' })
+  const region = page.getByRole('region', { name: 'Running on this title' })
   await expect(region.getByTestId('job-percent')).toHaveText('42%')
-  await region.getByRole('button', { name: 'Cancel job' }).click()
+  await region.getByRole('button', { name: /^Cancel / }).click()
   await expect.poll(() => cancelled).toEqual(['translate_3'])
   await expect(page.getByTestId('job-pill')).toHaveText('Failed')
 })
@@ -64,9 +64,9 @@ test('no Cancel for a job a remote admin does not own', async ({ page }) => {
   await serveJobs(page, { current: [rec({ owned_by_me: false })] })
   await page.goto('/#/drama/3/source')
   await page.getByTestId('job-pill').click()
-  const region = page.getByRole('region', { name: 'Running on this drama' })
+  const region = page.getByRole('region', { name: 'Running on this title' })
   await expect(region.getByText('Changing other people’s items is done on the main PC.')).toBeVisible()
-  await expect(region.getByRole('button', { name: 'Cancel job' })).toHaveCount(0)
+  await expect(region.getByRole('button', { name: /^Cancel / })).toHaveCount(0)
 })
 
 test('flashes Done for 5 s when the job finishes, then disappears and refetches', async ({ page }) => {

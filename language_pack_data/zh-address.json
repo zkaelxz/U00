@@ -1,0 +1,306 @@
+{
+ "id": "zh-address",
+ "version": 1,
+ "language": "zh",
+ "title": "Chinese address terms and honorifics",
+ "description": "Starter pack, review it. Default renders address terms naturally, and keeps kinship used as address as 'big sis' or 'big brother'.",
+ "styles": {
+  "default": "natural",
+  "options": {
+   "natural": "Natural English (kinship used as address becomes big sis, big brother)",
+   "pinyin": "Keep address terms as pinyin (for example jiejie, gege, shixiong)"
+  }
+ },
+ "entries": [
+  {
+   "source": "前辈",
+   "en": {
+    "natural": "senior",
+    "pinyin": "qianbei"
+   },
+   "category": "honorific",
+   "note": "Often said instead of the name.",
+   "context": "to a more experienced person"
+  },
+  {
+   "source": "前輩",
+   "en": {
+    "natural": "senior",
+    "pinyin": "qianbei"
+   },
+   "category": "honorific",
+   "note": "Often said instead of the name.",
+   "context": "to a more experienced person"
+  },
+  {
+   "source": "学长",
+   "en": {
+    "natural": "senior",
+    "pinyin": "xuezhang"
+   },
+   "category": "honorific",
+   "note": "Male senior at school; can be 'Senior' plus the name.",
+   "context": "to an older male schoolmate"
+  },
+  {
+   "source": "學長",
+   "en": {
+    "natural": "senior",
+    "pinyin": "xuezhang"
+   },
+   "category": "honorific",
+   "note": "Male senior at school; can be 'Senior' plus the name.",
+   "context": "to an older male schoolmate"
+  },
+  {
+   "source": "学姐",
+   "en": {
+    "natural": "senior",
+    "pinyin": "xuejie"
+   },
+   "category": "honorific",
+   "note": "Female senior at school; can be 'Senior' plus the name.",
+   "context": "to an older female schoolmate"
+  },
+  {
+   "source": "學姐",
+   "en": {
+    "natural": "senior",
+    "pinyin": "xuejie"
+   },
+   "category": "honorific",
+   "note": "Female senior at school; can be 'Senior' plus the name.",
+   "context": "to an older female schoolmate"
+  },
+  {
+   "source": "学妹",
+   "en": {
+    "natural": "junior",
+    "pinyin": "xuemei"
+   },
+   "category": "honorific",
+   "context": "older schoolmate referring to a younger girl"
+  },
+  {
+   "source": "學妹",
+   "en": {
+    "natural": "junior",
+    "pinyin": "xuemei"
+   },
+   "category": "honorific",
+   "context": "older schoolmate referring to a younger girl",
+   "note": ""
+  },
+  {
+   "source": "学弟",
+   "en": {
+    "natural": "junior",
+    "pinyin": "xuedi"
+   },
+   "category": "honorific",
+   "context": "older schoolmate referring to a younger boy"
+  },
+  {
+   "source": "學弟",
+   "en": {
+    "natural": "junior",
+    "pinyin": "xuedi"
+   },
+   "category": "honorific",
+   "context": "older schoolmate referring to a younger boy",
+   "note": ""
+  },
+  {
+   "source": "师兄",
+   "en": {
+    "natural": "senior brother",
+    "pinyin": "shixiong"
+   },
+   "category": "honorific",
+   "note": "Cultivation and martial settings; a fellow disciple.",
+   "context": "to an older male fellow disciple"
+  },
+  {
+   "source": "師兄",
+   "en": {
+    "natural": "senior brother",
+    "pinyin": "shixiong"
+   },
+   "category": "honorific",
+   "note": "Cultivation and martial settings; a fellow disciple.",
+   "context": "to an older male fellow disciple"
+  },
+  {
+   "source": "师姐",
+   "en": {
+    "natural": "senior sister",
+    "pinyin": "shijie"
+   },
+   "category": "honorific",
+   "note": "Cultivation and martial settings; a fellow disciple.",
+   "context": "to an older female fellow disciple"
+  },
+  {
+   "source": "師姐",
+   "en": {
+    "natural": "senior sister",
+    "pinyin": "shijie"
+   },
+   "category": "honorific",
+   "note": "Cultivation and martial settings; a fellow disciple.",
+   "context": "to an older female fellow disciple"
+  },
+  {
+   "source": "师弟",
+   "en": {
+    "natural": "junior brother",
+    "pinyin": "shidi"
+   },
+   "category": "honorific",
+   "context": "to a younger male fellow disciple"
+  },
+  {
+   "source": "師弟",
+   "en": {
+    "natural": "junior brother",
+    "pinyin": "shidi"
+   },
+   "category": "honorific",
+   "context": "to a younger male fellow disciple"
+  },
+  {
+   "source": "师妹",
+   "en": {
+    "natural": "junior sister",
+    "pinyin": "shimei"
+   },
+   "category": "honorific",
+   "context": "to a younger female fellow disciple"
+  },
+  {
+   "source": "師妹",
+   "en": {
+    "natural": "junior sister",
+    "pinyin": "shimei"
+   },
+   "category": "honorific",
+   "context": "to a younger female fellow disciple"
+  },
+  {
+   "source": "师尊",
+   "en": {
+    "natural": "Master",
+    "pinyin": "shizun"
+   },
+   "category": "honorific",
+   "note": "Respectful; keep capitalised.",
+   "context": "disciple to their teacher in a cultivation setting"
+  },
+  {
+   "source": "師尊",
+   "en": {
+    "natural": "Master",
+    "pinyin": "shizun"
+   },
+   "category": "honorific",
+   "note": "Respectful; keep capitalised.",
+   "context": "disciple to their teacher in a cultivation setting"
+  },
+  {
+   "source": "师父",
+   "en": {
+    "natural": "master",
+    "pinyin": "shifu"
+   },
+   "category": "honorific",
+   "context": "disciple to teacher, or to a skilled craftsperson"
+  },
+  {
+   "source": "師父",
+   "en": {
+    "natural": "master",
+    "pinyin": "shifu"
+   },
+   "category": "honorific",
+   "context": "disciple to teacher, or to a skilled craftsperson"
+  },
+  {
+   "source": "哥哥",
+   "en": {
+    "natural": "big brother",
+    "pinyin": "gege"
+   },
+   "category": "honorific",
+   "note": "Use 'older brother' when it is about a blood brother and not address.",
+   "context": "younger person to an older brother or older man"
+  },
+  {
+   "source": "姐姐",
+   "en": {
+    "natural": "big sis",
+    "pinyin": "jiejie"
+   },
+   "category": "honorific",
+   "note": "Use 'older sister' when it is about a blood sister and not address.",
+   "context": "younger person to an older sister or older woman"
+  },
+  {
+   "source": "妹妹",
+   "en": {
+    "natural": "little sis",
+    "pinyin": "meimei"
+   },
+   "category": "honorific",
+   "context": "older person to a younger sister or girl"
+  },
+  {
+   "source": "弟弟",
+   "en": {
+    "natural": "little brother",
+    "pinyin": "didi"
+   },
+   "category": "honorific",
+   "context": "older person to a younger brother or boy"
+  },
+  {
+   "source": "老师",
+   "en": {
+    "natural": "teacher",
+    "pinyin": "laoshi"
+   },
+   "category": "honorific",
+   "note": "Often attached to the name: 'Teacher Li'.",
+   "context": "student to teacher"
+  },
+  {
+   "source": "老師",
+   "en": {
+    "natural": "teacher",
+    "pinyin": "laoshi"
+   },
+   "category": "honorific",
+   "note": "Often attached to the name: 'Teacher Li'.",
+   "context": "student to teacher"
+  },
+  {
+   "source": "大小姐",
+   "en": {
+    "natural": "young lady",
+    "pinyin": "daxiaojie"
+   },
+   "category": "honorific",
+   "note": "Wealthy family's eldest daughter; 'milady' is also fine.",
+   "context": "servants and others to the eldest daughter"
+  },
+  {
+   "source": "老婆",
+   "en": {
+    "natural": "honey",
+    "pinyin": "laopo"
+   },
+   "category": "honorific",
+   "note": "Wife or affectionate partner; use 'my wife' when it is a fact.",
+   "context": "between spouses or lovers"
+  }
+ ]
+}

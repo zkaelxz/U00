@@ -16,7 +16,7 @@ test('hiding Discover removes it from the rail, the address still loads and the 
 
   // Switching it back on restores the link.
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   await page.getByRole('region', { name: 'Customize menu' }).getByRole('switch', { name: 'Discover' }).click()
   await expect(navLink(page, 'Discover')).toBeVisible()
 })

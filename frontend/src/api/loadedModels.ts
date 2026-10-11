@@ -20,11 +20,18 @@ export type GpuMemory = {
   used_bytes?: number | null
   free_bytes?: number | null
 }
+export type KeepFreeMemory = {
+  state: 'ok' | 'unknown'
+  total_bytes: number | null
+  free_bytes: number | null
+  reserved_bytes: number
+}
 export type LoadedModels = {
   checked_at: string
   ollama: OllamaLoaded
   app: AppLoaded
   gpu: GpuMemory
+  memory: { vram: KeepFreeMemory; ram: KeepFreeMemory }
   llama_cpp_running: boolean
   gpu_job_running: boolean
 }

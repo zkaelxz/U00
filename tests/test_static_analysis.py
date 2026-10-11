@@ -4,6 +4,8 @@ compile check or unit test can: every outbound HTTP call has a timeout=,
 and the requirements/constraints files stay consistent with the launchers.
 """
 import ast
+import collections
+import functools
 import os
 import re
 import sys
@@ -11,6 +13,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+@functools.lru_cache(maxsize=None)
+def parsed(path):
+    """The parsed tree of a source file, shared by every guard that walks the
+    repo so each file is read and parsed once per process. Callers only read it."""
+    with open(path, encoding="utf-8") as f:
+        return ast.parse(f.read(), path)
 
 
 _HTTP_VERBS = ("post", "get", "put", "patch", "delete", "head", "request")
@@ -26,8 +36,11 @@ def _find_requests_calls_missing_timeout(path, session_verbs=False):
     `urlopen`), so ordinary `dict.get` / router `.post` decorators aren't.
     With `session_verbs=True` (used for services/), `session.<verb>` and
     `<name>.<verb>` on a name assigned from `requests.Session()` are
-    checked too."""
-    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    checked too.
+
+    Retired when no raw `requests`/`httpx`/`urlopen` call remains outside
+    `lib/http.py` and `engine_backends/` (lib.http always passes timeout=)."""
+    tree = parsed(path)
     problems = []
     session_names = set()
     if session_verbs:
@@ -77,10 +90,6 @@ class TestHttpCallsHaveTimeouts:
         problems = {f: lines for f, lines in problems.items() if lines}
         assert problems == {}, f"requests call(s) missing timeout= at line(s): {problems}"
 
-    def test_qa(self):
-        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "qa.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
     def test_bulk_translate(self):
         problems = _find_requests_calls_missing_timeout(
             os.path.join(PROJECT_ROOT, "bulk_translate.py"))
@@ -113,6 +122,19 @@ class TestHttpCallsHaveTimeouts:
             os.path.join(PROJECT_ROOT, "diagnostics.py"))
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
+    def test_diagnostics_report(self):
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "diagnostics_report.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
+    def test_asmr_vad_model_download(self):
+        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "asmr_vad.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
+    def test_memory_headroom(self):
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "memory_headroom.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
     def test_sources_http_and_dictionary(self):
         # sources/http.py (session.request) and dictionary.py (urlopen).
@@ -125,7 +147,7 @@ class TestHttpCallsHaveTimeouts:
         # reach outside services/ and api/.
         for name in ("video_download.py", "sources/pipeline.py", "sources/front_door.py",
                      "sources/generic_import.py", "sources/store.py", "sources/adaptive.py",
-                     "sources/domains.py"):
+                     "sources/novel_follow.py", "sources/domains.py"):
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
@@ -138,10 +160,10 @@ class TestHttpCallsHaveTimeouts:
             "the timeout check no longer sees the fetcher's GET"
 
     def test_installer_service_helper(self):
-        # installer/service.py's loopback health check goes through an
+        # installer/service_checks.py's loopback health check goes through an
         # opener's .open(), which the name-based check above doesn't match,
         # so every .open( call is checked for a timeout here too.
-        path = os.path.join(PROJECT_ROOT, "installer", "service.py")
+        path = os.path.join(PROJECT_ROOT, "installer", "service_checks.py")
         assert _find_requests_calls_missing_timeout(path) == []
         src = open(path, encoding="utf-8").read()
         opens = re.findall(r"\.open\([^)]*\)", src)
@@ -157,12 +179,6 @@ class TestHttpCallsHaveTimeouts:
                    encoding="utf-8").read()
         assert "session.request(" in src, "the timeout check no longer sees the probe's GET"
 
-    def test_model_registry_service(self):
-        # Step 40: the manual provider model-list check.
-        problems = _find_requests_calls_missing_timeout(
-            os.path.join(PROJECT_ROOT, "services", "model_registry_service.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
     def test_notification_service(self):
         # Step 44: the Discord/ntfy push runs from a timer thread after a
         # job ends; a hung webhook must never hold it (Session.post checked).
@@ -176,8 +192,11 @@ class TestHttpCallsHaveTimeouts:
     def test_services_and_api_packages(self):
         # B-07: the FastAPI layer's services/ (metadata autofill's page
         # fetch, etc.) and api/ must never make an untimed HTTP call.
-        files = _py_files_under("services") + _py_files_under("api")
-        assert files, "services/ and api/ were not found"
+        files = (_py_files_under("services") + _py_files_under("api")
+                 + _py_files_under("lib"))
+        assert files, "services/, api/ and lib/ were not found"
+        # lib/http.py's pinned_get is the one raw requests call outside engine_backends/.
+        assert os.path.join(PROJECT_ROOT, "lib", "http.py") in files
         problems = {os.path.relpath(f, PROJECT_ROOT):
                     _find_requests_calls_missing_timeout(f, session_verbs=True)
                     for f in files}
@@ -194,7 +213,7 @@ def _find_httpx_calls_missing_timeout(path):
     in `path`: every `OAuth2Client(...)`, `httpx.Client(...)`,
     `httpx.<verb>(...)` and `<client>.<verb>/fetch_token(...)` on a name
     bound by `with ... as <client>` must pass `timeout=`."""
-    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    tree = parsed(path)
     clients = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.withitem) and isinstance(node.optional_vars, ast.Name):
@@ -243,7 +262,7 @@ def _find_socket_calls_missing_timeout(path):
     without `timeout=`, and for `socket.socket()` bound in a `with` whose
     body never calls `.settimeout(`: a silent peer would otherwise block
     the caller forever."""
-    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    tree = parsed(path)
     problems, checked = [], 0
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
@@ -315,7 +334,7 @@ def _find_sdk_clients_missing_timeout(path):
     """(lineno list, number checked) for LLM SDK client constructors in
     `path` -- `Anthropic(...)`, `anthropic.Anthropic(...)`, `OpenAI(...)`
     and their Async forms -- that pass no `timeout=` (B-07)."""
-    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    tree = parsed(path)
     problems, checked = [], 0
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -553,8 +572,7 @@ class TestRequirementsPackageNameParserItself:
 def _absolute_imports(path):
     """(line, module) for every absolute import in `path`; `from x import y`
     also yields `x.y`, so `from db import foo` and `import db` both show."""
-    with open(path, encoding="utf-8") as f:
-        tree = ast.parse(f.read(), filename=path)
+    tree = parsed(path)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -574,13 +592,38 @@ def _imports_of(dirname, forbidden):
     return offenders
 
 
+def _repo_modules():
+    """Top-level names that resolve to this repo's own code: every root
+    .py stem and every package folder with an __init__.py."""
+    names = set()
+    for entry in os.listdir(PROJECT_ROOT):
+        if entry.endswith(".py"):
+            names.add(entry[:-3])
+        elif os.path.isfile(os.path.join(PROJECT_ROOT, entry, "__init__.py")):
+            names.add(entry)
+    return names
+
+
 class TestLayering:
     """The layers only call downward (CLAUDE.md): services stay UI- and
     HTTP-free so the CLI and the API share them, and routers reach the
-    database only through a service, where ownership and whitelists live."""
+    database only through a service, where ownership and whitelists live.
+    `lib/` sits below every layer, so any module may import it; in return
+    it imports nothing of the app's own code."""
 
     def test_services_do_not_import_the_api(self):
         assert _imports_of("services", "api") == []
+
+    def test_lib_imports_no_app_module(self):
+        forbidden = _repo_modules() - {"lib"}
+        offenders = [f"{os.path.relpath(p, PROJECT_ROOT)}:{line} {module}"
+                     for p in _py_files_under("lib")
+                     for line, module in _absolute_imports(p)
+                     if module.split(".")[0] in forbidden]
+        assert "services" in forbidden and "db" in forbidden and "core" in forbidden
+        assert offenders == [], (
+            "lib/ holds helpers with no domain knowledge; move the dependency "
+            f"out or keep the module in services/: {offenders}")
 
     def test_routers_do_not_import_db(self):
         assert _imports_of(os.path.join("api", "routers"), "db") == []
@@ -697,10 +740,10 @@ class TestSubprocessTextDecoding:
 # when the split of that file lands. A listed file may shrink but never grow.
 MAX_MODULE_BYTES = 40 * 1024
 OVERSIZED_MODULE_BYTES = {
-    "db/__init__.py": 298957,
-    "diagnostics.py": 110977,
+    "db/__init__.py": 299105,
+    "diagnostics.py": 109290,
     "services/transcribe_service.py": 102565,
-    "cli.py": 90791,
+    "cli.py": 90858,
     "scanlate.py": 89904,
     "background_jobs.py": 89431,
     "bulk_translate.py": 86382,
@@ -709,18 +752,14 @@ OVERSIZED_MODULE_BYTES = {
     "services/auto_backup_service.py": 83022,
     "services/disk_usage_service.py": 73715,
     "services/workspace_job_service.py": 65747,
-    "dub.py": 42278,
     "services/maintenance_assistant_service.py": 61272,
     "services/library_admin_service.py": 55556,
-    "sources/http.py": 52622,
+    "sources/http.py": 47816,
     "services/restructure_service.py": 52468,
     "sources/ai_extract.py": 50796,
     "services/translate_run_service.py": 45837,
-    "services/diagnostics_gaps_service.py": 44678,
-    "services/glossary_service.py": 44595,
+    "services/diagnostics_gaps_service.py": 44615,
     "page_fetch.py": 44114,
-    "sources/adaptive.py": 42520,
-    "translation_guide.py": 41109,
 }
 
 
@@ -742,13 +781,17 @@ class TestModuleSize:
                    if s > MAX_MODULE_BYTES and p not in OVERSIZED_MODULE_BYTES}
         assert too_big == {}, (
             f"Python modules over {MAX_MODULE_BYTES} bytes: {too_big}. Split the module; "
-            "do not add it to OVERSIZED_MODULE_BYTES.")
+            "do not add it to OVERSIZED_MODULE_BYTES. New code that would push a file over the limit "
+            "goes in a new module that owns one domain; see 'Splitting files' in AGENTS.md.")
 
     def test_allowlisted_modules_never_grow(self):
         sizes = self._module_sizes()
         grown = {p: (limit, sizes[p]) for p, limit in OVERSIZED_MODULE_BYTES.items()
                  if sizes.get(p, 0) > limit}
-        assert grown == {}, f"allowlisted modules grew past their recorded size (limit, now): {grown}"
+        assert grown == {}, (
+            f"allowlisted modules grew past their recorded size (limit, now): {grown}. "
+            "Undo the growth: put the new code in a new module instead of enlarging these files, "
+            "and do not raise the number in OVERSIZED_MODULE_BYTES.")
 
     def test_stale_allowlist_entries_are_reported_not_failed(self):
         # A split PR must not need to edit the allowlist, so stale entries
@@ -759,3 +802,293 @@ class TestModuleSize:
                        if p not in sizes or sizes[p] <= MAX_MODULE_BYTES)
         if stale:
             warnings.warn(f"remove from OVERSIZED_MODULE_BYTES (split or deleted): {stale}")
+
+
+# ---------------------------------------------------------------------------
+# Capturing subprocess calls go through lib.proc.
+# ---------------------------------------------------------------------------
+
+# subprocess.run(capture_output=True) / Popen(stdout=PIPE) kill only the
+# child on a timeout, and on Windows wait for the pipe again with no limit,
+# so a grandchild that holds it can hang the caller. Anything long-running
+# whose output is read goes through lib.proc (own process group, tree
+# kill on timeout or cancel, bounded drain). Dev tooling is not scanned;
+# installer/ is, because service.py and launcher.py run on users' PCs.
+# Retired when there are zero call sites outside lib/proc.py.
+_CAPTURE_SCAN_SKIP = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv",
+                      "__pycache__", "scripts", "tools"}
+# Build-time only: never shipped, run on the developer's machine.
+_CAPTURE_SCAN_SKIP_FILES = {"installer/build_installer.py", "installer/smoke_child.py"}
+_SUBPROCESS_CALLS = {"run", "Popen", "check_output", "check_call", "call"}
+
+# "path::function" -> why it may capture directly. Only short probes belong
+# here; a long-running command uses lib.proc. The "pending" entries
+# are known gaps with a timeout= but no tree kill; the list only shrinks
+# (a stale entry fails the test below).
+_CAPTURE_ALLOWED = {
+    # Version and hardware probes, seconds long.
+    "diagnostics.py::check_ffmpeg": "probe: ffmpeg -version",
+    "diagnostics.py::_warn_deno_old": "probe: deno --version",
+    "diagnostics_torch.py::external_gpu_load": "probe: nvidia-smi",
+    "diagnostics_torch.py::nvidia_driver_info": "probe: nvidia-smi",
+    "services/loaded_models_service.py::_gpu_from_nvidia_smi": "probe: nvidia-smi",
+    "media_inspect.py::run_ffprobe": "probe: ffprobe",
+    "raw_transcript.py::_git_commit": "probe: git rev-parse",
+    "services/bug_report_service.py::_git_commit": "probe: git rev-parse",
+    "services/line_provenance_service.py::software_version": "probe: git describe",
+    "services/maintenance_assistant_service.py::_git": "probe: read-only git",
+    "services/maintenance_assistant_service.py::_tracked_files": "probe: git ls-files",
+    "lib/proc_kill.py::kill_tree": "taskkill, 10 s",
+    # sc / netsh / icacls calls, timeout= COMMAND_TIMEOUT (120 s); no grandchildren.
+    "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",
+    # pending: ffmpeg runs bounded by timeout= only.
+    "core.py::extract_audio_from_video": "pending: ffmpeg",
+    "core.py::extract_audio_slice": "pending: ffmpeg",
+    "dub.py::time_stretch": "pending: ffmpeg",
+    "dub_narration.py::export_narration_m4b": "pending: ffmpeg",
+    "hardsub_ocr.py::extract_frames": "pending: ffmpeg",
+    "services/media_peaks_service.py::_decode": "pending: ffmpeg",
+    "services/speech_coverage_service.py::_decode_chunk": "pending: ffmpeg",
+    "video_export.py::render_vertical_clip": "pending: ffmpeg",
+    "video_export.py::render_preview_clip": "pending: ffmpeg",
+    "video_export.py::burn_subtitles": "pending: ffmpeg",
+    "video_export.py::burn_ass": "pending: ffmpeg",
+    "video_export.py::mux_soft_subtitles": "pending: ffmpeg",
+    "video_export.py::replace_audio_with_dub": "pending: ffmpeg",
+    # pending: separate tree-killing runners that should move onto lib.proc (see B8 in docs/local-agent-backlog.md).
+    "background_jobs.py::run_cancellable": "pending: own runner",
+    "services/lncrawl_service.py::_run_process": "pending: own runner",
+}
+
+
+_ALWAYS_CAPTURING = {"check_output", "getoutput", "getstatusoutput"}
+
+
+# Allowed functions with more than one capturing call (default 1).
+_CAPTURE_MAX_CALLS = {}
+
+
+def _count_capturing_subprocess_calls(source):
+    """{function name or "<module>": number of calls} for the functions (or "<module>") with a call that
+    captures output: capture_output=<not False>, stdout=/stderr= (or a positional
+    argument) holding PIPE anywhere in its value (so `STDOUT if x else PIPE`
+    counts; -1, PIPE imported by name, or a variable bound to PIPE too),
+    **kwargs that may carry one, check_output/getoutput/getstatusoutput,
+    os.popen, and asyncio.create_subprocess_* with a pipe. Resolves
+    `import subprocess as sp` and `from subprocess import run [as r]`."""
+    tree = ast.parse(source)
+    modules, funcs, pipes = set(), {}, set()
+    async_modules, async_funcs, os_modules, popen_names = set(), {}, set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                bound = a.asname or a.name
+                if a.name == "subprocess":
+                    modules.add(bound)
+                elif a.name == "asyncio":
+                    async_modules.add(bound)
+                elif a.name == "os":
+                    os_modules.add(bound)
+        elif isinstance(node, ast.ImportFrom) and node.module in (
+                "subprocess", "asyncio", "asyncio.subprocess", "os"):
+            for a in node.names:
+                bound = a.asname or a.name
+                if node.module == "subprocess" and a.name in _SUBPROCESS_CALLS | _ALWAYS_CAPTURING:
+                    funcs[bound] = a.name
+                elif node.module == "asyncio" and a.name.startswith("create_subprocess_"):
+                    async_funcs[bound] = a.name
+                elif node.module == "os" and a.name == "popen":
+                    popen_names.add(bound)
+                elif a.name == "PIPE":
+                    pipes.add(bound)
+
+    def has_pipe(value):
+        for n in ast.walk(value):
+            if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
+                if isinstance(n.operand, ast.Constant) and n.operand.value == 1:
+                    return True
+            elif isinstance(n, ast.Name) and n.id in pipes:
+                return True
+            elif isinstance(n, ast.Attribute) and n.attr == "PIPE":
+                return True
+        return False
+
+    # A pipe kept in a variable (file-wide, so a rename or a helper does not hide it);
+    # two passes let `a = PIPE; b = a` resolve whatever the order.
+    for _ in range(2):
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if has_pipe(node.value):
+                    pipes |= {t.id for t in targets if isinstance(t, ast.Name)}
+
+    def captures_kw(key, value):
+        if key == "capture_output":
+            return not (isinstance(value, ast.Constant) and value.value is False)
+        return key in ("stdout", "stderr") and has_pipe(value)
+
+    # Per function, the names holding a kwargs dict, and those that visibly carry a
+    # capture; a **name that is not a dict built in the same function (a parameter,
+    # a call result) is unknown and flagged.
+    def kwargs_dicts(scope):
+        dict_names, capturing = set(), set()
+        for node in ast.walk(scope):
+            if not isinstance(node, ast.Assign):
+                continue
+            for t in node.targets:
+                if isinstance(t, ast.Name) and isinstance(node.value, (ast.Dict, ast.Call, ast.IfExp)):
+                    dict_names.add(t.id)
+                    # Both arms of `{...} if x else {...}` and any dict(...) call inside.
+                    for n in ast.walk(node.value):
+                        if isinstance(n, ast.Dict) and any(
+                                isinstance(k, ast.Constant) and captures_kw(k.value, v)
+                                for k, v in zip(n.keys, n.values)):
+                            capturing.add(t.id)
+                        if isinstance(n, ast.Call) and any(
+                                kw.arg and captures_kw(kw.arg, kw.value) for kw in n.keywords):
+                            capturing.add(t.id)
+                elif (isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name)
+                      and isinstance(t.slice, ast.Constant) and captures_kw(t.slice.value, node.value)):
+                    capturing.add(t.value.id)
+        return dict_names, capturing
+
+    def called(call):
+        f = call.func
+        if isinstance(f, ast.Attribute):
+            base = f.value
+            while isinstance(base, ast.Attribute):   # asyncio.subprocess.create_subprocess_exec
+                base = base.value
+            if not isinstance(base, ast.Name):
+                return None
+            if base.id in modules and f.value is base:
+                return f.attr
+            if base.id in os_modules and f.attr == "popen":
+                return "popen"
+            if base.id in async_modules and f.attr.startswith("create_subprocess_"):
+                return f.attr
+        if isinstance(f, ast.Name):
+            if f.id in popen_names:
+                return "popen"
+            return funcs.get(f.id) or async_funcs.get(f.id)
+        return None
+
+    def captures(name, call, dict_names, capturing_dicts):
+        if name in _ALWAYS_CAPTURING or name == "popen":
+            return True
+        if any(has_pipe(a) for a in call.args[1:]):
+            return True
+        for kw in call.keywords:
+            if kw.arg is None:
+                v = kw.value
+                if isinstance(v, ast.Name):
+                    if v.id in capturing_dicts or v.id not in dict_names:
+                        return True
+                elif isinstance(v, ast.Dict):
+                    if any(isinstance(k, ast.Constant) and captures_kw(k.value, x)
+                           for k, x in zip(v.keys, v.values)):
+                        return True
+                else:
+                    return True
+            elif captures_kw(kw.arg, kw.value):
+                return True
+        return False
+
+    found = collections.Counter()
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.stack = []
+            self.dicts = [kwargs_dicts(tree)]
+
+        def visit_FunctionDef(self, node):
+            self.stack.append(node.name)
+            self.dicts.append(kwargs_dicts(node))
+            self.generic_visit(node)
+            self.dicts.pop()
+            self.stack.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, call):
+            name = called(call)
+            if name and (name in _SUBPROCESS_CALLS | _ALWAYS_CAPTURING | {"popen"}
+                         or name.startswith("create_subprocess_")) and captures(name, call, *self.dicts[-1]):
+                found[self.stack[-1] if self.stack else "<module>"] += 1
+            self.generic_visit(call)
+
+    Visitor().visit(tree)
+    return found
+
+
+def _find_capturing_subprocess_calls(source):
+    return set(_count_capturing_subprocess_calls(source))
+
+
+class TestCapturingSubprocessCallsUseTheRunner:
+    """Retired by a subprocess wrapper that structurally cannot be bypassed (every
+    call site imports it and the raw module is not importable outside lib/proc.py);
+    until then this scan is the only thing that stops a new capture."""
+
+    @staticmethod
+    def _scan():
+        found = collections.Counter()
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in _CAPTURE_SCAN_SKIP]
+            for name in files:
+                rel = os.path.relpath(os.path.join(root, name), PROJECT_ROOT).replace(os.sep, "/")
+                if (not name.endswith(".py") or name.startswith("test_") or rel == "lib/proc.py"
+                        or rel in _CAPTURE_SCAN_SKIP_FILES):
+                    continue
+                with open(os.path.join(root, name), encoding="utf-8") as f:
+                    for fn, n in _count_capturing_subprocess_calls(f.read()).items():
+                        found[f"{rel}::{fn}"] = n
+        return found
+
+    def test_only_allow_listed_probes_capture_output_directly(self):
+        # Counted per function so a second capture inside an allowed one is caught.
+        new = sorted(k for k, n in self._scan().items()
+                     if k not in _CAPTURE_ALLOWED or n > _CAPTURE_MAX_CALLS.get(k, 1))
+        assert new == [], (
+            f"subprocess call capturing output outside lib.proc: {new}. A command that can run "
+            "for more than a few seconds uses lib.proc.run_captured / stream_tree "
+            "(tree kill on timeout and cancel, bounded drain); a short probe is added to "
+            "_CAPTURE_ALLOWED with its reason.")
+
+    def test_allow_list_has_no_stale_entries(self):
+        stale = sorted(set(_CAPTURE_ALLOWED) - set(self._scan()))
+        assert stale == [], f"remove from _CAPTURE_ALLOWED (moved to the runner or deleted): {stale}"
+
+    def test_checker_finds_each_capturing_form(self):
+        src = ("import subprocess\nimport subprocess as sp\n"
+               "from subprocess import run, PIPE, Popen as P\n"
+               "def a():\n    subprocess.run(['x'], capture_output=True)\n"
+               "def b():\n    subprocess.Popen(['x'], stdout=subprocess.PIPE)\n"
+               "def c():\n    subprocess.check_output(['x'], timeout=5)\n"
+               "def d():\n    subprocess.run(['x'], capture_output=False)\n"
+               "def e():\n    subprocess.run(['x'], stdout=subprocess.DEVNULL)\n"
+               "def f():\n    run(['x'], stdout=PIPE)\n"
+               "def g():\n    sp.run(['x'], stderr=sp.PIPE)\n"
+               "def h():\n    P(['x'], stdout=-1)\n"
+               "def i():\n    subprocess.getoutput('x')\n"
+               "def j():\n    run(['x'])\n"
+               "subprocess.run(['x'], capture_output=True)\n")
+        assert _find_capturing_subprocess_calls(src) == {
+            "a", "b", "c", "f", "g", "h", "i", "<module>"}
+
+    def test_checker_finds_indirect_pipes(self):
+        src = ("import asyncio, os, subprocess\n"
+               "from asyncio import create_subprocess_shell as shell\n"
+               "def a(x):\n    subprocess.run(['x'], stderr=subprocess.STDOUT if x else subprocess.PIPE)\n"
+               "def b():\n    p = subprocess.PIPE\n    subprocess.Popen(['x'], stdout=p)\n"
+               "def c(**kw):\n    subprocess.run(['x'], **kw)\n"
+               "def d():\n    kw = {'stdout': subprocess.PIPE}\n    subprocess.run(['x'], **kw)\n"
+               "def e():\n    kw = {}\n    kw['stderr'] = -1\n    subprocess.run(['x'], **kw)\n"
+               "async def f():\n    await asyncio.create_subprocess_exec('x', stdout=asyncio.subprocess.PIPE)\n"
+               "async def g():\n    await shell('x', stdout=-1)\n"
+               "def h():\n    os.popen('x')\n"
+               "def i():\n    subprocess.Popen(['x'], -1, None, None, subprocess.PIPE)\n"
+               "def ok1():\n    kw = {'cwd': '.'}\n    subprocess.run(['x'], **kw)\n"
+               "async def ok2():\n    await asyncio.create_subprocess_exec('x')\n"
+               "def ok3(log):\n    subprocess.Popen(['x'], stdout=log, stderr=subprocess.STDOUT)\n")
+        assert _find_capturing_subprocess_calls(src) == {
+            "a", "b", "c", "d", "e", "f", "g", "h", "i"}

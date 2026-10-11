@@ -15,6 +15,8 @@ import numpy as np
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 
 import scanlate
+import scanlate_detect
+import scanlate_inpaint
 
 
 @pytest.fixture
@@ -42,11 +44,11 @@ def synthetic_page(temp_dir):
 
 class TestDetectBubblesCv:
     def test_detects_the_synthetic_bubble(self, synthetic_page):
-        boxes = scanlate.detect_bubbles_cv(synthetic_page)
+        boxes = scanlate_detect.detect_bubbles_cv(synthetic_page)
         assert len(boxes) >= 1
 
     def test_detected_box_roughly_matches_drawn_bubble(self, synthetic_page):
-        boxes = scanlate.detect_bubbles_cv(synthetic_page)
+        boxes = scanlate_detect.detect_bubbles_cv(synthetic_page)
         box = boxes[0]
         # bubble was drawn at (100,80)-(400,220): 300 wide, 140 tall
         assert 250 < box["w"] < 320
@@ -56,12 +58,12 @@ class TestDetectBubblesCv:
         blank = np.full((200, 200, 3), 128, dtype=np.uint8)
         path = os.path.join(temp_dir, "blank.png")
         cv2.imwrite(path, blank)
-        boxes = scanlate.detect_bubbles_cv(path)
+        boxes = scanlate_detect.detect_bubbles_cv(path)
         assert boxes == []
 
     def test_missing_file_raises_clear_error(self):
         with pytest.raises(ValueError):
-            scanlate.detect_bubbles_cv("/nonexistent/path/does_not_exist.png")
+            scanlate_detect.detect_bubbles_cv("/nonexistent/path/does_not_exist.png")
 
 
 class TestInsetBoxForOcr:
@@ -74,7 +76,7 @@ class TestInsetBoxForOcr:
 
     def test_shrinks_a_typical_box_on_all_sides(self):
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
-        inset = scanlate.inset_box_for_ocr(box)
+        inset = scanlate_detect.inset_box_for_ocr(box)
         assert inset["x"] > box["x"]
         assert inset["y"] > box["y"]
         assert inset["x"] + inset["w"] < box["x"] + box["w"]
@@ -82,13 +84,13 @@ class TestInsetBoxForOcr:
 
     def test_never_collapses_a_small_box_to_zero_or_negative_size(self):
         box = {"x": 10, "y": 10, "w": 6, "h": 6}
-        inset = scanlate.inset_box_for_ocr(box)
+        inset = scanlate_detect.inset_box_for_ocr(box)
         assert inset["w"] > 0
         assert inset["h"] > 0
 
     def test_inset_is_capped_so_a_huge_box_still_loses_only_a_border(self):
         box = {"x": 0, "y": 0, "w": 2000, "h": 2000}
-        inset = scanlate.inset_box_for_ocr(box)
+        inset = scanlate_detect.inset_box_for_ocr(box)
         # Losing a fixed max, not a fraction, of a very large box.
         assert box["w"] - inset["w"] <= 30
         assert box["h"] - inset["h"] <= 30
@@ -98,7 +100,7 @@ class TestInpaintRegion:
     def test_inpaint_produces_valid_image(self, synthetic_page, temp_dir):
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         out_path = os.path.join(temp_dir, "cleaned.png")
-        result_path = scanlate.inpaint_region(synthetic_page, box, out_path=out_path)
+        result_path = scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=out_path)
         assert os.path.exists(result_path)
         result_img = cv2.imread(result_path)
         assert result_img is not None
@@ -106,7 +108,7 @@ class TestInpaintRegion:
 
     def test_inpaint_without_out_path_returns_array(self, synthetic_page):
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
-        result = scanlate.inpaint_region(synthetic_page, box, out_path=None)
+        result = scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=None)
         assert isinstance(result, np.ndarray)
 
 
@@ -337,19 +339,6 @@ class TestProcessPage:
         assert os.path.exists(result)
 
 
-class TestTranslatePageWithContext:
-    def test_pure_mt_engine_falls_back_without_context(self):
-        class PureMT:
-            supports_reference = False
-            def translate_batch(self, texts, context):
-                return [f"MT:{t}" for t in texts]
-
-        translations, new_context = scanlate.translate_page_with_context(
-            ["你好"], PureMT(), {}, previous_context="")
-        assert translations == ["MT:你好"]
-        assert new_context == ""  # unchanged, since pure MT can't summarize
-
-
 class TestBulkRenderPages:
     # bulk_render_pages returns (zip_path, errors, blank_text_report) --
     # blank_text_report maps filename -> count of bubbles left untouched
@@ -420,25 +409,25 @@ class TestRealisticPageDetection:
         return p
 
     def test_finds_bubbles_on_a_white_background_page(self, temp_dir):
-        boxes = scanlate.detect_bubbles_cv(self._realistic_page(temp_dir))
+        boxes = scanlate_detect.detect_bubbles_cv(self._realistic_page(temp_dir))
         assert len(boxes) == 2, f"expected 2 bubbles, got {len(boxes)}"
 
     def test_page_background_is_not_returned_as_a_bubble(self, temp_dir):
-        for b in scanlate.detect_bubbles_cv(self._realistic_page(temp_dir)):
+        for b in scanlate_detect.detect_bubbles_cv(self._realistic_page(temp_dir)):
             assert b["x"] > 1 and b["y"] > 1        # never the page itself
             assert b["w"] < 850 and b["h"] < 1200
 
     def test_still_works_on_dark_background_pages(self, synthetic_page):
-        assert len(scanlate.detect_bubbles_cv(synthetic_page)) >= 1
+        assert len(scanlate_detect.detect_bubbles_cv(synthetic_page)) >= 1
 
     def test_blank_page_finds_nothing(self, temp_dir):
         import numpy as np, cv2, os
         p = os.path.join(temp_dir, "blank.png")
         cv2.imwrite(p, np.full((400, 400, 3), 250, dtype=np.uint8))
-        assert scanlate.detect_bubbles_cv(p) == []
+        assert scanlate_detect.detect_bubbles_cv(p) == []
 
     def test_debug_mode_returns_rejection_reasons(self, temp_dir):
-        boxes, rejected = scanlate.detect_bubbles_cv(
+        boxes, rejected = scanlate_detect.detect_bubbles_cv(
             self._realistic_page(temp_dir), debug=True)
         assert isinstance(boxes, list) and isinstance(rejected, list)
         for r in rejected:
@@ -447,14 +436,14 @@ class TestRealisticPageDetection:
 
 class TestMlBackendFallback:
     def test_unavailable_model_raises_typed_error(self):
-        assert issubclass(scanlate.BubbleModelUnavailable, RuntimeError)
+        assert issubclass(scanlate_detect.BubbleModelUnavailable, RuntimeError)
 
     def test_error_records_that_fallback_happened(self):
-        exc = scanlate.BubbleModelUnavailable("nope")
+        exc = scanlate_detect.BubbleModelUnavailable("nope")
         assert exc.fell_back_to_cv is True
 
     def test_cv_backend_never_raises_model_error(self, synthetic_page):
-        assert isinstance(scanlate.detect_bubbles(synthetic_page, backend="cv"), list)
+        assert isinstance(scanlate_detect.detect_bubbles(synthetic_page, backend="cv"), list)
 
     def test_ml_backend_falls_back_cleanly_when_the_model_isnt_installed(self, synthetic_page):
         # No mocking here -- exercises the real code path with whatever's
@@ -484,8 +473,8 @@ class TestMlBackendFallback:
         if installed("torch") and installed("transformers"):
             pytest.skip("torch and transformers are both installed -- see the mocked "
                         "TestHfTokenInScanlateMlDetector tests for the loads-and-runs path")
-        with pytest.raises(scanlate.BubbleModelUnavailable) as exc_info:
-            scanlate.detect_bubbles(synthetic_page, backend="ml")
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable) as exc_info:
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
         assert exc_info.value.fell_back_to_cv is True
 
 
@@ -500,13 +489,13 @@ class TestAutoBackendSelection:
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename: str(cached_file))
-        assert scanlate.bubble_ml_weights_cached() is True
+        assert scanlate_detect.bubble_ml_weights_cached() is True
 
     def test_bubble_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
         huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename: None)
-        assert scanlate.bubble_ml_weights_cached() is False
+        assert scanlate_detect.bubble_ml_weights_cached() is False
 
     def test_lama_ml_weights_cached_true_when_cache_hit(self, monkeypatch, tmp_path):
         huggingface_hub = pytest.importorskip("huggingface_hub")
@@ -514,63 +503,63 @@ class TestAutoBackendSelection:
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename: str(cached_file))
-        assert scanlate.lama_ml_weights_cached() is True
+        assert scanlate_inpaint.lama_ml_weights_cached() is True
 
     def test_lama_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
         huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename: None)
-        assert scanlate.lama_ml_weights_cached() is False
+        assert scanlate_inpaint.lama_ml_weights_cached() is False
 
     def test_detect_bubbles_auto_never_calls_ml_when_not_cached(self, monkeypatch, synthetic_page):
-        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: False)
+        monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: False)
         called = {}
-        monkeypatch.setattr(scanlate, "detect_bubbles_ml",
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml",
                              lambda *a, **k: called.setdefault("ml", True) or [])
-        boxes = scanlate.detect_bubbles(synthetic_page, backend="auto")
+        boxes = scanlate_detect.detect_bubbles(synthetic_page, backend="auto")
         assert "ml" not in called
         assert isinstance(boxes, list)
 
     def test_detect_bubbles_auto_uses_ml_when_cached(self, monkeypatch, synthetic_page):
-        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: True)
+        monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: True)
         fake_boxes = [{"x": 1, "y": 1, "w": 2, "h": 2, "confidence": 0.9}]
-        monkeypatch.setattr(scanlate, "detect_bubbles_ml", lambda *a, **k: fake_boxes)
-        assert scanlate.detect_bubbles(synthetic_page, backend="auto") == fake_boxes
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", lambda *a, **k: fake_boxes)
+        assert scanlate_detect.detect_bubbles(synthetic_page, backend="auto") == fake_boxes
 
     def test_inpaint_region_auto_uses_cv_when_lama_not_cached(self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: False)
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: False)
         called = {}
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
                              lambda *a, **k: called.setdefault("ml", True))
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         out_path = os.path.join(temp_dir, "auto_cv.png")
-        result = scanlate.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
+        result = scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
         assert "ml" not in called
         assert os.path.exists(result)
 
     def test_inpaint_region_auto_uses_ml_when_cached(self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: True)
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
         called = {}
 
         def fake_ml_inpaint(roi, mask, hf_token=None):
             called["used"] = True
             return roi  # identity -- still a valid image array
 
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint", fake_ml_inpaint)
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", fake_ml_inpaint)
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         out_path = os.path.join(temp_dir, "auto_ml.png")
-        result = scanlate.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
+        result = scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
         assert called.get("used") is True
         assert os.path.exists(result)
 
     def test_inpaint_region_ml_unavailable_falls_back_to_cv_and_raises(
             self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
                              lambda *a, **k: (_ for _ in ()).throw(ImportError("no torch")))
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         out_path = os.path.join(temp_dir, "fallback.png")
-        with pytest.raises(scanlate.InpaintModelUnavailable) as exc_info:
-            scanlate.inpaint_region(synthetic_page, box, out_path=out_path, backend="ml")
+        with pytest.raises(scanlate_inpaint.InpaintModelUnavailable) as exc_info:
+            scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=out_path, backend="ml")
         assert exc_info.value.fell_back_to_cv is True
         # The CV-inpainted result was still produced and written, not lost.
         assert os.path.exists(out_path)
@@ -588,9 +577,9 @@ class TestDedupeOverlappingBoxes:
             {"x": 100, "y": 80, "w": 300, "h": 140, "confidence": 0.9, "label": "bubble"},
             {"x": 102, "y": 82, "w": 296, "h": 136, "confidence": 0.95, "label": "text_bubble"},
         ]
-        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: True)
-        monkeypatch.setattr(scanlate, "detect_bubbles_ml", lambda *a, **k: pair)
-        boxes = scanlate.detect_bubbles(synthetic_page, backend="ml")
+        monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: True)
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", lambda *a, **k: pair)
+        boxes = scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
         assert len(boxes) == 1
         # Keeps the box literally labeled "bubble" for the cleaner crop
         # boundary, even though the other box had higher confidence.
@@ -601,9 +590,9 @@ class TestDedupeOverlappingBoxes:
             {"x": 10, "y": 10, "w": 50, "h": 50, "confidence": 0.9, "label": "bubble"},
             {"x": 400, "y": 300, "w": 60, "h": 40, "confidence": 0.8, "label": "bubble"},
         ]
-        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: True)
-        monkeypatch.setattr(scanlate, "detect_bubbles_ml", lambda *a, **k: distinct)
-        boxes = scanlate.detect_bubbles(synthetic_page, backend="ml")
+        monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: True)
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", lambda *a, **k: distinct)
+        boxes = scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
         assert len(boxes) == 2
 
     def test_three_overlapping_classes_for_one_balloon_still_merge_to_one(self):
@@ -612,7 +601,7 @@ class TestDedupeOverlappingBoxes:
             {"x": 51, "y": 51, "w": 198, "h": 98, "confidence": 0.99, "label": "text_bubble"},
             {"x": 49, "y": 49, "w": 202, "h": 101, "confidence": 0.7, "label": "bubble"},
         ]
-        merged = scanlate.dedupe_overlapping_boxes(triple)
+        merged = scanlate_detect.dedupe_overlapping_boxes(triple)
         assert len(merged) == 1
         assert merged[0]["label"] == "bubble"
 
@@ -623,7 +612,7 @@ class TestDedupeOverlappingBoxes:
             {"x": 10, "y": 10, "w": 50, "h": 50, "confidence": 0.4},
             {"x": 11, "y": 11, "w": 49, "h": 49, "confidence": 0.8},
         ]
-        merged = scanlate.dedupe_overlapping_boxes(pair)
+        merged = scanlate_detect.dedupe_overlapping_boxes(pair)
         assert len(merged) == 1
         assert merged[0]["confidence"] == 0.8
 
@@ -634,10 +623,10 @@ class TestDedupeOverlappingBoxes:
             {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble"},
             {"x": 90, "y": 90, "w": 100, "h": 100, "label": "bubble"},
         ]
-        assert len(scanlate.dedupe_overlapping_boxes(barely_touching)) == 2
+        assert len(scanlate_detect.dedupe_overlapping_boxes(barely_touching)) == 2
 
     def test_empty_list_returns_empty_list(self):
-        assert scanlate.dedupe_overlapping_boxes([]) == []
+        assert scanlate_detect.dedupe_overlapping_boxes([]) == []
 
 
 class TestInpaintMaskRegion:
@@ -648,7 +637,7 @@ class TestInpaintMaskRegion:
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
         out_path = os.path.join(temp_dir, "brush.png")
-        result_path = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
+        result_path = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
         assert os.path.exists(result_path)
         img = cv2.imread(result_path)
         assert img.shape == (400, 600, 3)
@@ -656,7 +645,7 @@ class TestInpaintMaskRegion:
     def test_empty_mask_leaves_the_image_unchanged(self, synthetic_page, temp_dir):
         mask = np.zeros((400, 600), dtype=np.uint8)
         out_path = os.path.join(temp_dir, "brush_empty.png")
-        result_path = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
+        result_path = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
         original = cv2.imread(synthetic_page)
         result = cv2.imread(result_path)
         assert (original == result).all()
@@ -664,53 +653,53 @@ class TestInpaintMaskRegion:
     def test_mismatched_mask_shape_raises(self, synthetic_page):
         mask = np.zeros((10, 10), dtype=np.uint8)
         with pytest.raises(ValueError):
-            scanlate.inpaint_mask_region(synthetic_page, mask)
+            scanlate_inpaint.inpaint_mask_region(synthetic_page, mask)
 
     def test_without_out_path_returns_array(self, synthetic_page):
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
-        result = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=None)
+        result = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=None)
         assert isinstance(result, np.ndarray)
 
     def test_ml_backend_unavailable_falls_back_and_attaches_result(
             self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
                              lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
         out_path = os.path.join(temp_dir, "brush_fallback.png")
-        with pytest.raises(scanlate.InpaintModelUnavailable) as exc_info:
-            scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="ml")
+        with pytest.raises(scanlate_inpaint.InpaintModelUnavailable) as exc_info:
+            scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="ml")
         assert exc_info.value.fell_back_to_cv is True
         assert os.path.exists(out_path)
 
     def test_auto_uses_cv_when_lama_not_cached(self, monkeypatch, synthetic_page, temp_dir):
         # Same shared auto-select as inpaint_region() (Step 11 item 5) --
         # the brush uses the exact same backend logic, not a separate copy.
-        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: False)
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: False)
         called = {}
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
                              lambda *a, **k: called.setdefault("ml", True))
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
         out_path = os.path.join(temp_dir, "brush_auto_cv.png")
-        result = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
+        result = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
         assert "ml" not in called
         assert os.path.exists(result)
 
     def test_auto_uses_ml_when_cached(self, monkeypatch, synthetic_page, temp_dir):
-        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: True)
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
         called = {}
 
         def fake_ml_inpaint(roi, mask, hf_token=None):
             called["used"] = True
             return roi
 
-        monkeypatch.setattr(scanlate, "_run_ml_inpaint", fake_ml_inpaint)
+        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", fake_ml_inpaint)
         mask = np.zeros((400, 600), dtype=np.uint8)
         mask[100:150, 150:250] = 1
         out_path = os.path.join(temp_dir, "brush_auto_ml.png")
-        result = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
+        result = scanlate_inpaint.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
         assert called.get("used") is True
         assert os.path.exists(result)
 
@@ -869,3 +858,190 @@ class TestBulkFindReplacePreview:
         matches = scanlate.bulk_find_replace_preview(bubbles, "Bob", "Alice")
         assert matches[0]["page_idx"] == 0
         assert matches[0]["translated_text"] == "Hello Bob"  # original field untouched
+
+
+@pytest.fixture
+def ten_bubble_page(temp_dir):
+    """Dark page with a 5x2 grid of white bubbles, each with scribble 'text'."""
+    img = np.full((900, 1000, 3), 50, dtype=np.uint8)
+    boxes = []
+    for row in range(5):
+        for col in range(2):
+            x, y = 80 + col * 480, 40 + row * 170
+            cv2.rectangle(img, (x, y), (x + 360, y + 120), (255, 255, 255), -1)
+            cv2.rectangle(img, (x, y), (x + 360, y + 120), (0, 0, 0), 3)
+            for i in range(4):
+                cv2.line(img, (x + 30, y + 30 + i * 20), (x + 300, y + 30 + i * 20), (10, 10, 10), 4)
+            boxes.append({"x": x, "y": y, "w": 360, "h": 120})
+    path = os.path.join(temp_dir, "ten.png")
+    cv2.imwrite(path, img)
+    return path, boxes
+
+
+def _count_page_decodes(monkeypatch, page_path):
+    from PIL import Image
+    decodes = []
+    real_imread, real_open = cv2.imread, Image.open
+
+    def imread(path, *a, **kw):
+        if os.path.abspath(str(path)) == os.path.abspath(page_path):
+            decodes.append(("cv2.imread", a))
+        return real_imread(path, *a, **kw)
+
+    def pil_open(fp, *a, **kw):
+        if isinstance(fp, (str, os.PathLike)) and os.path.abspath(str(fp)) == os.path.abspath(page_path):
+            decodes.append(("Image.open", a))
+        return real_open(fp, *a, **kw)
+
+    monkeypatch.setattr(cv2, "imread", imread)
+    monkeypatch.setattr(Image, "open", pil_open)
+    return decodes
+
+
+class TestPageIsDecodedOnce:
+    def test_detect_decodes_the_page_once(self, ten_bubble_page, monkeypatch):
+        import ocr
+        page, _ = ten_bubble_page
+        monkeypatch.setattr(ocr, "extract_text_from_images", lambda paths, **kw: "テキスト")
+        decodes = _count_page_decodes(monkeypatch, page)
+        bubbles, notes = scanlate.detect_and_ocr_page(page, "ja", detect_backend="cv")
+        assert len(bubbles) == 10, notes
+        assert all(b["source_text"] == "テキスト" for b in bubbles)
+        assert len(decodes) <= 1, decodes
+
+    def test_render_decodes_the_page_once_and_writes_once(self, ten_bubble_page, temp_dir,
+                                                         monkeypatch):
+        from PIL import Image
+        page, boxes = ten_bubble_page
+        bubbles = [dict(b, translated_text=f"Line {i}", font_size=16, kind="bubble")
+                   for i, b in enumerate(boxes)]
+        decodes = _count_page_decodes(monkeypatch, page)
+        writes = []
+        real_save, real_imwrite = Image.Image.save, cv2.imwrite
+        monkeypatch.setattr(Image.Image, "save",
+                            lambda self, fp, *a, **kw: writes.append(fp) or real_save(self, fp, *a, **kw))
+        monkeypatch.setattr(cv2, "imwrite",
+                            lambda path, img, *a: writes.append(path) or real_imwrite(path, img, *a))
+        out = os.path.join(temp_dir, "out.png")
+        scanlate.process_page(page, bubbles, out)
+        assert len(decodes) <= 1, decodes
+        assert len(writes) == 1
+        # The scribbles were erased in memory: the band they sat in is light
+        # now except where the new text was drawn.
+        result = cv2.cvtColor(np.array(Image.open(out).convert("RGB")), cv2.COLOR_RGB2GRAY)
+        x, y = boxes[0]["x"], boxes[0]["y"]
+        assert (result[y + 28:y + 92, x + 300:x + 302] > 200).all()
+
+    def test_render_output_matches_inpainting_each_box_from_the_file(self, synthetic_page,
+                                                                    temp_dir):
+        # Erasing in memory must give the same pixels the file round trip did.
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        expected = scanlate_inpaint.inpaint_region(synthetic_page, box, backend="cv")
+        page = cv2.imread(synthetic_page)
+        got = scanlate_inpaint.inpaint_region(synthetic_page, box, backend="cv", image=page)
+        assert got is page
+        assert np.array_equal(got, expected)
+
+
+class TestHfTokenIsNotWrittenToTheEnvironment:
+    def test_bubble_detector_load_leaves_the_environment_alone(self, monkeypatch, temp_dir):
+        import contextlib
+        import types
+        from PIL import Image
+        seen = {}
+        fake_torch = types.ModuleType("torch")
+        fake_torch.no_grad = lambda: contextlib.nullcontext()
+        fake_torch.tensor = lambda x: x
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+        class FakeProcessor:
+            def __call__(self, images, return_tensors):
+                return {}
+
+            def post_process_object_detection(self, outputs, threshold, target_sizes):
+                return [{"scores": [], "labels": [], "boxes": []}]
+
+        class FakeModel:
+            config = types.SimpleNamespace(id2label={})
+
+            def eval(self):
+                pass
+
+            def __call__(self, **kwargs):
+                return None
+
+        def loader(result):
+            def from_pretrained(repo_id, token=None):
+                seen.setdefault("tokens", []).append(token)
+                return result
+            return types.SimpleNamespace(from_pretrained=from_pretrained)
+
+        fake_transformers = types.ModuleType("transformers")
+        fake_transformers.AutoImageProcessor = loader(FakeProcessor())
+        fake_transformers.AutoModelForObjectDetection = loader(FakeModel())
+        monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
+        monkeypatch.delitem(scanlate_detect.__dict__, "_bubble_ml_model", raising=False)
+        monkeypatch.delitem(scanlate_detect.__dict__, "_bubble_ml_processor", raising=False)
+        img_path = os.path.join(temp_dir, "tiny.png")
+        Image.new("RGB", (10, 10)).save(img_path)
+        try:
+            scanlate_detect.detect_bubbles_ml(img_path, hf_token="secret-token")
+        finally:
+            scanlate_detect.__dict__.pop("_bubble_ml_model", None)
+            scanlate_detect.__dict__.pop("_bubble_ml_processor", None)
+        assert seen["tokens"] == ["secret-token", "secret-token"]
+        assert "HF_TOKEN" not in os.environ
+
+    def test_lama_load_leaves_the_environment_alone(self, monkeypatch):
+        import types
+        seen = {}
+
+        def hf_hub_download(repo_id, filename, token=None):
+            seen["token"] = token
+            return "/fake/model.safetensors"
+
+        class FakeGenerator:
+            def state_dict(self):
+                return {"w": 0}
+
+            def load_state_dict(self, state, strict=False):
+                return [], []
+
+            def eval(self):
+                pass
+
+        monkeypatch.setitem(sys.modules, "huggingface_hub",
+                            types.SimpleNamespace(hf_hub_download=hf_hub_download))
+        monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
+        monkeypatch.setitem(sys.modules, "safetensors.torch",
+                            types.SimpleNamespace(load_file=lambda path: {"w": 0}))
+        monkeypatch.setattr(scanlate_inpaint, "_build_lama_generator", FakeGenerator)
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
+        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        try:
+            scanlate_inpaint._load_lama_generator(hf_token="secret-token")
+        finally:
+            scanlate_inpaint.__dict__.pop("_lama_model", None)
+        assert seen["token"] == "secret-token"
+        assert "HF_TOKEN" not in os.environ
+
+
+class TestWebtoonSliceCap:
+    def _strip(self, temp_dir, height):
+        path = os.path.join(temp_dir, f"strip_{height}.png")
+        cv2.imwrite(path, np.full((height, 8, 3), 255, dtype=np.uint8))
+        return path
+
+    def test_a_strip_needing_more_than_200_slices_raises(self, temp_dir):
+        with pytest.raises(ValueError, match="200"):
+            scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2010), target_height=10,
+                                                overlap=0)
+
+    def test_two_hundred_slices_still_cover_the_whole_strip(self, temp_dir):
+        slices = scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2000), target_height=10,
+                                                     overlap=0)
+        assert len(slices) == 200
+        assert slices[-1]["y_end"] == 2000

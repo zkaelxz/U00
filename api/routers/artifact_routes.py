@@ -3,6 +3,7 @@ api/routers/artifact_routes.py -- download a job's output file. Addressed by dra
 kind's folder is streamed. No client path is ever accepted.
 """
 
+import os
 import re
 
 from fastapi import APIRouter, Path
@@ -10,7 +11,7 @@ from api.auth import require_permission
 from fastapi.responses import FileResponse
 
 from api.schemas import ArtifactInfo, ErrorResponse
-from services import artifact_service
+from services import artifact_service, export_service
 
 router = APIRouter(prefix="/api/artifacts", tags=["artifacts"])
 
@@ -32,6 +33,11 @@ def get_artifact_info(drama_id: int = Path(ge=1), kind: str = Path(max_length=40
             summary="Download the newest artifact of one kind for a drama", responses=_ERRORS)
 def download_artifact(drama_id: int = Path(ge=1), kind: str = Path(max_length=40)):
     art = artifact_service.get_artifact(drama_id, kind)
-    return FileResponse(
-        art["path"], media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{_safe_name(art["name"])}"'})
+    what = export_service.ARTIFACT_WHAT.get(kind)
+    if what:
+        header = export_service.content_disposition(export_service.download_filename(
+            drama_id, what, art["language"], os.path.splitext(art["name"])[1]))
+    else:
+        header = f'attachment; filename="{_safe_name(art["name"])}"'
+    return FileResponse(art["path"], media_type="application/octet-stream",
+                        headers={"Content-Disposition": header})

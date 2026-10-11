@@ -19,7 +19,7 @@ const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library'
 const shotDir = path.join(repoRoot, 'frontend', 'test-results', 'review-line-tools')
 
 function python(code: string): string {
-  return execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot }).toString()
+  return execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot, env: { ...process.env, PYTHONIOENCODING: 'utf-8' }, encoding: 'utf8' })
 }
 
 const LONG = 'this translation has far too many words to be said in a second and a half of time at all'

@@ -68,8 +68,8 @@ export function JobPill({ dramaId, onFinished }: { dramaId: number; onFinished: 
         {text}
       </button>
       {open && (
-        <div className="job-pill-panel" id={panelId} role="region" aria-label="Running on this drama">
-          <p className="job-pill-title">Running on this drama</p>
+        <div className="job-pill-panel" id={panelId} role="region" aria-label="Running on this title">
+          <p className="job-pill-title">Running on this title</p>
           {active.map((j: JobRecord) => (
             <JobPanel key={j.job_id} job={j} pollError={null} canCancel={offersCancel(j, remoteAdmin)} onCancelled={reload} />
           ))}

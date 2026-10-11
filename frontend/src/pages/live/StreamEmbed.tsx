@@ -6,25 +6,35 @@
  * message listener, the timers) goes away when this unmounts, and the parent
  * mounts it only while the session runs.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   AUTOPLAY_WAIT_S, DVR_WAIT_S, MUTED_NOTE, NO_DELAY_NOTE, WAITING_NOTE, YT_ORIGIN, canDelay, delayNote, delayReached, embedSrc,
-  notStarted, parseYouTubeInfo, planDelay, ytCommand, ytListenMessage, ytSeekMessage, type PlayerInfo, type StreamRef,
+  UNREACHABLE_NOTE, captionDelay, notStarted, parseYouTubeInfo, planDelay, probeOffset, ytCommand, ytListenMessage, ytSeekMessage, type PlayerInfo, type StreamRef,
 } from './embedLogic'
 
 /** Seconds to wait for the player to confirm a seek before sending it again. */
 const SEEK_CONFIRM_S = 4
 const SEEK_TRIES = 3
+/** Seconds a probe seek to the live edge gets before the player's clock is read. */
+const PROBE_SETTLE_S = 4
+/** Seconds the probe first steps back, so a playhead already at the edge still shows that seeks are obeyed. */
+const PROBE_BACK_S = 30
+/** Below this a step back is too small to tell an obeyed seek from playback drift. */
+const PROBE_MIN_STEP_S = 5
 
-export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: number }) {
+export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; delay: number; captions?: (effectiveDelay: number) => ReactNode }) {
   const frame = useRef<HTMLIFrameElement>(null)
+  const box = useRef<HTMLDivElement>(null)
   const delayRef = useRef(delay)
   const [muted, setMuted] = useState(false)
   const unmuteRef = useRef<() => void>(() => {})
   const [note, setNote] = useState(canDelay(stream) ? WAITING_NOTE : NO_DELAY_NOTE)
   // Set by the effect below; re-applies the delay (seek) from the last report.
   const applyRef = useRef<() => void>(() => {})
+  // Seconds the picture really plays behind live; the captions wait that long, not the slider's figure.
+  const [pictureDelay, setPictureDelay] = useState(0)
+  const captionNode = captions?.(pictureDelay)
   const key = stream.kind === 'twitch-channel' ? stream.name : stream.id
 
   useEffect(() => {
@@ -38,13 +48,28 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
     let sinceSeek = 0
     let tries = 0
     let unsupported = false
+    // Set when the seeks never brought the player to the wanted delay, so no figure is shown for it.
+    let unreachable = false
+    // How far `duration` sits past the playhead's clock; found once by a probe seek to the live edge.
+    let offset = 0
+    let probed = false
+    // 0: not probing, 1: stepping back, 2: seeking to the live edge.
+    let probing = 0
+    let probeFrom: number | undefined
+    let probeStep = PROBE_BACK_S
+    let sinceProbe = 0
     let playAsked = false
     let unstartedS = 0
     let alive = true
     setNote(WAITING_NOTE)
+    setPictureDelay(0)
     setMuted(false)
     const send = (msg: string) => frame.current?.contentWindow?.postMessage(msg, YT_ORIGIN)
-    const show = () => setNote(delayNote(info, delayRef.current, { unsupported, moving }))
+    const show = () => {
+      setPictureDelay(captionDelay(info, delayRef.current, { unsupported, moving, unreachable, offset }))
+      if (unreachable && !moving && !delayReached(info, delayRef.current, offset)) setNote(UNREACHABLE_NOTE)
+      else setNote(delayNote(info, delayRef.current, { unsupported, moving, offset }))
+    }
     const apply = () => {
       if (!alive) return
       // An unstarted player drops seeks and reports no window, so wait for it to play.
@@ -52,11 +77,16 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
         show()
         return
       }
-      const plan = planDelay(info, delayRef.current, waited)
+      if (probing) {
+        show()
+        return
+      }
+      const plan = planDelay(info, delayRef.current, waited, offset)
       unsupported = plan.kind === 'unsupported'
       if (plan.kind === 'seek') {
         if (appliedFor !== delayRef.current) {
           appliedFor = delayRef.current
+          unreachable = false
           moving = true
           sinceSeek = 0
           send(ytSeekMessage(plan.to))
@@ -79,7 +109,7 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
       if (!got) return
       heard = true
       info = { ...info, ...got }
-      if (moving && delayReached(info, delayRef.current)) moving = false
+      if (moving && !probing && delayReached(info, delayRef.current, offset)) moving = false
       apply()
     }
     window.addEventListener('message', onMessage)
@@ -100,12 +130,55 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
       }
       // The wait for a seekable window only runs while the player is playing.
       if (!notStarted(info)) waited += 1
-      if (moving && ++sinceSeek >= SEEK_CONFIRM_S) {
+      if (moving && !probing && ++sinceSeek >= SEEK_CONFIRM_S) {
         // A seek sent before the player was ready is silently dropped, so ask again a few times.
         if (tries < SEEK_TRIES) {
           tries += 1
           appliedFor = null
-        } else moving = false
+        } else if (!probed && info?.duration !== undefined && info.currentTime !== undefined) {
+          // The seeks were heard but the playhead is not where duration says: ask for the live edge itself and read the player's own clock there.
+          probed = true
+          probeFrom = info.currentTime
+          // -1 because this same tick's check below counts once already; the settle is a full PROBE_SETTLE_S.
+          sinceProbe = -1
+          probeStep = Math.min(PROBE_BACK_S, probeFrom)
+          if (probeStep < PROBE_MIN_STEP_S) {
+            // A playhead this close to 0 cannot show a step back; judge the edge seek alone.
+            probing = 2
+            send(ytSeekMessage(info.duration))
+          } else {
+            probing = 1
+            send(ytSeekMessage(probeFrom - probeStep))
+          }
+        } else {
+          moving = false
+          unreachable = !delayReached(info, delayRef.current, offset)
+        }
+      }
+      if (probing === 1 && ++sinceProbe >= PROBE_SETTLE_S) {
+        // Only an obeyed step back proves the later jump to the edge is a real measurement.
+        const t = info?.currentTime
+        if (probeFrom !== undefined && t !== undefined && probeFrom - t >= probeStep / 2 && info?.duration !== undefined) {
+          probing = 2
+          sinceProbe = 0
+          probeFrom = t
+          send(ytSeekMessage(info.duration))
+        } else {
+          probing = 0
+          moving = false
+          unreachable = true
+        }
+      } else if (probing === 2 && ++sinceProbe >= PROBE_SETTLE_S) {
+        probing = 0
+        const found = probeOffset(probeFrom, info)
+        if (found === null) {
+          moving = false
+          unreachable = true
+        } else {
+          offset = found
+          appliedFor = null
+          tries = 1
+        }
       }
       if (waited <= DVR_WAIT_S + 1 || heard) apply()
     }, 1000)
@@ -124,7 +197,7 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
 
   return (
     <>
-      <div className="live-video-frame">
+      <div className="live-video-frame" ref={box}>
         <iframe
           ref={frame}
           src={embedSrc(stream, window.location.hostname)}
@@ -136,7 +209,15 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
           loading="eager"
           onLoad={() => stream.kind === 'youtube' && frame.current?.contentWindow?.postMessage(ytListenMessage(), YT_ORIGIN)}
         />
+        {captionNode}
       </div>
+      {captionNode && document.fullscreenEnabled && (
+        // The picture and its captions go full screen together; the player's own
+        // full-screen button would leave the captions behind.
+        <p className="muted live-video-note">
+          <button type="button" onClick={() => void box.current?.requestFullscreen().catch(() => {})}>Full screen with captions</button>
+        </p>
+      )}
       <p className="muted live-video-note" data-testid="live-video-note" aria-live="polite">{note}</p>
       {muted && (
         <p className="muted live-video-note" data-testid="live-video-muted">

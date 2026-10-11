@@ -233,7 +233,7 @@ test('a running job and a start error show above the AI review section', async (
   let refuse = false
   await page.route('**/api/review-jobs/dramas/3/consistency', (route) =>
     refuse
-      ? route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'Another job is running for this drama.' } } })
+      ? route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'Another job is running for this title.' } } })
       : route.fulfill({ json: { job_id: 'cj', drama_id: 3, kind: 'consistency', engine: 'gemini', model: null, line_count: 4 } }))
   await page.route('**/api/jobs/cj', (route) => route.fulfill({ json: job('cj', 'running') }))
   await page.goto('/#/drama/3/review')

@@ -10,6 +10,7 @@ import type { RetimeProposal, RetimeResult } from '../../../../types/workspace'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { formatTime } from './reviewLogic'
 import { retimeOutcome, retimeSelectedProblem, startShift } from './retimeLogic'
+import { buttonClass } from '../../../../components/uiClasses'
 
 // Lets the Qwen3 forced aligner propose new start/end times for the ticked
 // lines, keeping their words. Nothing is written until "Use this" / "Use all
@@ -124,7 +125,7 @@ export function RetimeLines({
             <button type="button" onClick={start} disabled={busy || applying || !!blocked}>
               {busy ? 'Re-timing…' : 'Re-time ticked lines'}
             </button>
-            {active && job && <button type="button" onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
+            {active && job && <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
           </div>
           {blocked && !busy && <p className="muted" data-testid="retime-blocked">{blocked}</p>}
           <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />

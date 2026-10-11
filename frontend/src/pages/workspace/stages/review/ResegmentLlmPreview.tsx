@@ -4,7 +4,7 @@ import { TypedConfirm } from '../../../../components/TypedConfirm'
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import type { ResegmentLlmPreview as Preview } from '../../../../types/restructure'
-import { RESEGMENT_COST_RECORDED, droppedText, llmPreviewSummary } from './reviewLogic'
+import { RESEGMENT_COST_RECORDED, droppedText, llmPreviewSummary } from './reviewResegment'
 import './resegment.css'
 
 const SHOWN_CHANGES = 8

@@ -2,7 +2,6 @@
 import { useEffect, useState } from 'react'
 
 import { getAssistantTools } from '../../api/assistant'
-import { Card } from '../../components/Card'
 import { Section } from '../../components/Section'
 import type { AssistantToolList } from '../../types/assistant'
 import { READ_ONLY_NOTE, assistantErrorText, plural } from './assistantFormat'
@@ -23,17 +22,17 @@ export function ToolsCard() {
   }, [])
 
   return (
-    <Card title="Tools" meta={tools ? `${plural(tools.tools.length, 'read-only tool')}` : undefined} aria-label="Tools">
-      <p className="muted" data-testid="read-only-note">
-        {READ_ONLY_NOTE}
-      </p>
+    <section aria-label="Tools">
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
+      <Section title="Tools" summary={tools ? plural(tools.tools.length, 'read-only tool') : 'What it can read'} storageKey="assistant.tools">
+      <p className="muted" data-testid="read-only-note">
+        {READ_ONLY_NOTE}
+      </p>
       {tools && tools.tools.length > 0 && (
-        <Section title="What it can read" storageKey="assistant.tools">
           <ul className="assistant-tools" aria-label="Assistant tools">
             {tools.tools.map((t) => (
               <li key={t.name}>
@@ -42,8 +41,8 @@ export function ToolsCard() {
               </li>
             ))}
           </ul>
-        </Section>
       )}
-    </Card>
+      </Section>
+    </section>
   )
 }

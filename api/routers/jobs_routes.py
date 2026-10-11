@@ -3,7 +3,8 @@ api/routers/jobs_routes.py -- read-only job-list endpoints, reading
 `db.job_records` (the cross-process mirror) through `services.jobs_service`.
 
 Also POST /{job_id}/cancel (cross-process: flags the DB row, the
-owning process notices via a throttled check).
+owning process notices via a throttled check) and POST /{job_id}/force-stop
+(closes the record of a thread job that ignored Cancel for a minute).
 
 POST /clear-finished and POST /{job_id}/delete permanently erase finished
 jobs' history: `local_only()` plus `confirm=true`, so a remote or household
@@ -12,8 +13,8 @@ user can never erase it.
 
 from fastapi import APIRouter, Path, Request
 from api.auth import local_only, require_permission
-from api.schemas import (DeleteConfirm, ErrorResponse, JobCancelResult, JobDeleteResult, JobListResponse,
-                         JobRecord, JobsClearFinishedResult)
+from api.schemas import (DeleteConfirm, ErrorResponse, JobCancelResult, JobDeleteResult, JobForceStopResult,
+                         JobListResponse, JobRecord, JobsClearFinishedResult)
 from services import jobs_service
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -37,6 +38,13 @@ def get_job(request: Request, job_id: str = Path(min_length=1)):
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
 def cancel_job(request: Request, job_id: str = Path(min_length=1)):
     return JobCancelResult(**jobs_service.cancel_job(job_id, principal=request.state.principal))
+
+
+@router.post("/{job_id}/force-stop", dependencies=[require_permission("jobs.cancel")], response_model=JobForceStopResult,
+             summary="Close the record of a thread job that ignored Cancel for over a minute",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
+def force_stop_job(request: Request, job_id: str = Path(min_length=1)):
+    return JobForceStopResult(**jobs_service.force_stop_job(job_id, principal=request.state.principal))
 
 
 @router.post("/clear-finished", dependencies=[local_only()], response_model=JobsClearFinishedResult,

@@ -11,6 +11,7 @@ import type {
   DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
+import type { DiagnosticsJobState } from '../../types/diagnosticsInstalls'
 import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import type { LibraryDashboard } from '../../types/library'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
@@ -28,28 +29,30 @@ export const installConfirmLabel = (name: string): string | undefined =>
 // ---- page-wide busy state ----
 
 export type AdminAction = 'install' | 'upgrade' | 'reset'
-export type AdminBusy = { kind: AdminAction; name: string } | null
+// `job`: the install job's latest state (progress and message), once it reports one.
+export type AdminBusy = { kind: AdminAction; name: string; job?: DiagnosticsJobState | null } | null
 
 /** Why Install/Update can't run now, or null. */
 export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
   if (busy?.kind === 'reset') return 'Wait for the reset to finish.'
   if (busy) return 'Wait for the install to finish.'
-  if (jobsActive) return 'Wait for running jobs to finish before installing.'
+  if (jobsActive) return 'Wait for running jobs to finish.'
   return null
 }
 
 /** Why Reset library can't run now, or null. */
 export function resetBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
   if (busy && busy.kind !== 'reset') return 'Wait for the install to finish.'
-  if (jobsActive) return 'Stop running jobs first (see Jobs above).'
+  if (jobsActive) return 'Stop running jobs first.'
   return null
 }
 
 /** The aria-live line while an install or upgrade runs. */
 export function busyLine(busy: AdminBusy): string | null {
   if (!busy || busy.kind === 'reset') return null
-  const verb = busy.kind === 'install' ? 'Installing' : 'Updating'
-  return `${verb} ${busy.name}… this can take several minutes. Keep this tab open.`
+  // An install is a server job: it carries on if the tab closes, and can be cancelled.
+  if (busy.kind === 'install') return `Installing ${busy.name}… this can take several minutes. Cancel it below if needed.`
+  return `Updating ${busy.name}… this can take several minutes. Keep this tab open.`
 }
 
 export function installResultText(kind: 'install' | 'upgrade', name: string, ok: boolean): string {
@@ -89,6 +92,10 @@ function ffmpegProblem(c: DiagnosticsSetupChecks): string {
   return 'FFmpeg has no libass (burned-in subtitles and the styled preview need it)'
 }
 
+const BROWSER_NAMES: Record<string, string> = {
+  Chrome: 'Google Chrome', Edge: 'Microsoft Edge', custom: 'the browser named by BAIHE_BROWSER_PATH',
+}
+
 /** The Setup rows ("Label: value", or "Problem: …") from setup-checks plus the overview's GPU. */
 export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): SetupRow[] {
   const rows: SetupRow[] = []
@@ -102,12 +109,18 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
   if (c.browser) {
+    // null/undefined means the server couldn't tell; only a definite false is a problem.
+    if (typeof c.browser.package === 'boolean') {
+      add('playwright', 'Playwright package', c.browser.package, 'installed',
+        'Playwright package not installed (add it from Diagnostics > Packages, the playwright row, or run pip install playwright; no browser download is needed when Chrome or Edge is installed)')
+    }
     add('browser', 'Browser for JavaScript-only sites', c.browser.found,
-      `found (${c.browser.name ?? 'browser'})`, 'not found (install Chrome or Edge)')
+      `Using ${BROWSER_NAMES[c.browser.name ?? ''] ?? c.browser.name ?? 'a browser'}`,
+      'None found: install Chrome or Edge, or use Install browser support (Diagnostics > Setup)')
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
-  const missing = c.files.missing_top_level.length + c.files.missing_tabs.length
+  const missing = c.files.missing_top_level.length
   add('files', 'App files', missing === 0, 'all present', `${missing} missing`)
   add('library', 'Library folder', c.library_writable, 'writable', "can't be written to")
   return rows
@@ -242,7 +255,7 @@ export const COPIED_MS = 2000
 export function libraryStatsLine(s: Pick<LibraryDashboard, 'total_dramas' | 'total_lines'>): string | null {
   if (s.total_dramas <= 0) return null
   const n = s.total_dramas
-  return `Currently ${n.toLocaleString('en-US')} ${n === 1 ? 'drama' : 'dramas'}, ` +
+  return `Currently ${n.toLocaleString('en-US')} ${n === 1 ? 'title' : 'titles'}, ` +
     `${s.total_lines.toLocaleString('en-US')} ${s.total_lines === 1 ? 'line' : 'lines'}.`
 }
 

@@ -13,11 +13,10 @@ async function noSideways(page: import('@playwright/test').Page) {
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
 }
 
-test('list, folder card and reader fit a phone', async ({ page }) => {
+test('list and reader fit a phone', async ({ page }) => {
   const s = await mockManga(page)
   await page.goto('/#/manga')
   await expect(page.getByRole('list', { name: 'Saved series' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Save folder' }).getByTestId('save-folder')).toBeVisible()
   await noSideways(page)
 
   await page.goto('/#/manga/MangaK/Test%20Camp/0001%20Chapter%201')

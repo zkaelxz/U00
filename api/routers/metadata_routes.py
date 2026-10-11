@@ -1,7 +1,8 @@
 """
 api/routers/metadata_routes.py -- Media analysis and metadata auto-fill.
 See services/metadata_service.py: autofill returns a
-suggestion only; apply writes whitelisted fields. Romanize credits
+suggestion only; apply writes whitelisted fields. Autofill fetches a page
+and calls an LLM, so it takes a slot from the shared LLM cap. Romanize credits
 writes only the *_romanized fields; it is admin.library plus
 engines.paid for a paid engine, and takes a slot from the shared LLM cap
 (api/llm_slots.py; 429 when busy).
@@ -10,8 +11,10 @@ engines.paid for a paid engine, and takes a slot from the shared LLM cap
 from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
-from api.schemas import (AutofillApply, AutofillRequest, AutofillSuggestion, ErrorResponse,
-                         MediaAnalysis, RomanizeCreditsRequest, RomanizeCreditsResult)
+from api.routers.library_routes import to_detail
+from api.schemas import (AutofillApply, AutofillRequest, AutofillSuggestion, DramaDetail,
+                         ErrorResponse, MediaAnalysis, RomanizeCreditsRequest,
+                         RomanizeCreditsResult)
 from services import metadata_service
 
 router = APIRouter(prefix="/api/metadata", tags=["metadata"])
@@ -29,11 +32,12 @@ def analyze_media(drama_id: int = Path(ge=1)):
 
 @router.post("/dramas/{drama_id}/autofill", dependencies=[require_permission("media.import_url")], response_model=AutofillSuggestion,
              summary="Suggest metadata from a public page or pasted text (writes nothing)",
-             responses=_ERRS)
+             responses={**_ERRS, 429: {"model": ErrorResponse}})
 def autofill(payload: AutofillRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, payload.engine)
-    return metadata_service.autofill_suggestion(
-        drama_id, url=payload.url, page_text=payload.page_text, engine_name=payload.engine)
+    with llm_slot(request):
+        return metadata_service.autofill_suggestion(
+            drama_id, url=payload.url, page_text=payload.page_text, engine_name=payload.engine)
 
 
 @router.post("/dramas/{drama_id}/romanize-credits", dependencies=[require_permission("admin.library")],
@@ -51,7 +55,8 @@ def romanize_credits(payload: RomanizeCreditsRequest, request: Request, drama_id
 
 
 @router.post("/dramas/{drama_id}/autofill/apply", dependencies=[require_permission("admin.library")],
+             response_model=DramaDetail,
              summary="Write chosen autofill fields to the drama; returns drama detail",
              responses=_ERRS)
 def apply_autofill(payload: AutofillApply, drama_id: int = Path(ge=1)):
-    return metadata_service.apply_autofill(drama_id, payload.model_dump(exclude_none=True))
+    return to_detail(metadata_service.apply_autofill(drama_id, payload.model_dump(exclude_none=True)))

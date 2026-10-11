@@ -1,12 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openTranscribeOptions } from './sourceHelpers'
+import { nextFrames, openTranscribeOptions } from './sourceHelpers'
 
 // Real touch taps (touch events, then the emulated mouse, focus and click).
 // The focus()-based specs never exercise that sequence.
 async function openAdvanced(page: Page) {
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
 }
 
 test('a tap opens the (i), keeps it open, and a second tap closes it', async ({ page }) => {
@@ -14,11 +14,13 @@ test('a tap opens the (i), keeps it open, and a second tap closes it', async ({ 
   const button = page.getByRole('button', { name: 'Help: ASR backend' })
   const text = page.getByRole('tooltip').filter({ hasText: 'Whisper:' })
 
+  // The emulated click arrives after focus and is what could wrongly close it: wait for that click itself.
+  const clicked = button.evaluate((el) => new Promise<void>((done) => el.addEventListener('click', () => done(), { once: true })))
   await button.tap()
   await expect(text).toBeVisible()
   await expect(button).toHaveAttribute('aria-expanded', 'true')
-  // The emulated click arrives after focus; give a wrongful close time to land.
-  await page.waitForTimeout(300)
+  await clicked
+  await nextFrames(page)
   await expect(text).toBeVisible()
 
   await button.tap()
@@ -33,7 +35,7 @@ test('tapping outside closes the (i)', async ({ page }) => {
   await button.tap()
   await expect(text).toBeVisible()
 
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).tap()
+  await page.locator('.section-title', { hasText: /^More options$/ }).tap()
   await expect(text).toBeHidden()
 })
 

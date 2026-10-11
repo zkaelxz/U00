@@ -15,6 +15,7 @@ import { getGlossaryTerms } from '../api/translateStage'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
+import { SourceLink } from './discover/ExternalLink'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
@@ -169,7 +170,7 @@ function NotesSection({ dramaId }: { dramaId: number }) {
   return (
     <Section title="My notes" storageKey="reader.notes" summary={saved ? 'Has notes' : 'Empty'}>
       <ErrorBanner error={loadError} />
-      <Field label="Notes" help="Notes for this drama. Anyone with access to this library can see them. Saved when you press Save.">
+      <Field label="Notes" help="Notes for this title. Anyone with access to this library can see them. Saved when you press Save.">
         <textarea
           rows={5}
           maxLength={100_000}
@@ -198,11 +199,15 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const appLook = resolveTheme(useThemePref(), useMediaQuery('(prefers-color-scheme: dark)'))
   const [prefs, setPrefsState] = useState<ReaderPrefs>(() => loadPrefs(browserStorage()))
   const [title, setTitle] = useState<string | null>(null)
+  const [titleFailed, setTitleFailed] = useState(false)
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [sourceLanguage, setSourceLanguage] = useState('und')
   const [mediaType, setMediaType] = useState<string | null>(null)
   const [overview, setOverview] = useState<ReaderOverview | null>(null)
   const [data, setData] = useState<ReaderPageData | null>(null)
   const [error, setError] = useState<unknown>(null)
+  // A failed page fetch belongs to the page it was for, so moving on drops it.
+  const [pageFailure, setPageFailure] = useState<{ page: number; error: unknown } | null>(null)
   const [resumed, setResumed] = useState<number | null>(null)
   const [lastIdx, setLastIdx] = useState<{ page: number; size: number; idx: number } | null>(null)
   const [media, setMedia] = useState<ReaderMediaAvailability | null>(null)
@@ -217,13 +222,23 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
 
   // One-off loads for this drama.
   useEffect(() => {
+    // Title A's link must not show on title B while B loads, or if B's load fails.
+    setSourceUrl(null)
+    setTitleFailed(false)
+    let cancelled = false
     api.getDrama(id).then(
       (d) => {
-        setTitle(d.title_en || d.title_zh || `Drama #${d.id}`)
+        if (cancelled) return
+        setTitle(d.title_en || d.title_zh || `Title #${d.id}`)
+        setSourceUrl(d.source_url ?? null)
         if (d.source_language) setSourceLanguage(d.source_language)
         setMediaType(d.media_type)
       },
-      setError,
+      (e) => {
+        if (cancelled) return
+        setTitleFailed(true)
+        setError(e)
+      },
     )
     readerApi.overview(id).then((ov) => {
       setOverview(ov)
@@ -236,6 +251,9 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     readerApi.media(id).then(setMedia, () => setMedia(null))
     getGlossaryTerms(id).then(setTerms, () => setTerms([]))
     translateApi.engines().then((all) => setEngines(readerEngines(all)), () => setEngines([]))
+    return () => {
+      cancelled = true
+    }
   }, [id, initialPage, initialSize])
 
   useEffect(() => {
@@ -271,12 +289,13 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         if (!live) return
         setData(d)
         setError(null)
+        setPageFailure(null)
       },
       (e: unknown) => {
         if (!live) return
         const pc = (e instanceof ApiError && (e.details as { page_count?: number } | undefined)?.page_count) || null
         if (pc && params.page > pc) goToPage(id, pc, true)
-        else setError(e)
+        else setPageFailure({ page: params.page, error: e })
       },
     )
     return () => {
@@ -325,7 +344,11 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     : spoilerBoundary(prefs.spoilerFree, known, page, prefs.chapterSize, overview.line_count)
 
   // The label and frame show the move to another page until its HTML arrives.
-  const pageLoading = page !== null && !error && data?.page !== page
+  const pageError = page !== null && pageFailure?.page === page ? pageFailure.error : null
+  // After a failed fetch `data` is still the previous page's text: it must not
+  // sit under the new page number as if it were that page.
+  const stale = page !== null && data !== null && data.page !== page
+  const pageLoading = page !== null && !error && !pageError && data?.page !== page
 
   const onGo = (n: number) => {
     setResumed(null)
@@ -350,12 +373,14 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       {phone ? (
         <header className="reader-phone-head">
           <a href={routeHref({ name: 'library' })} className="reader-back" aria-label="Back to Library">‹</a>
-          <span className="reader-title">{title ?? 'Loading…'}</span>
+          <span className="reader-title">{title ?? (titleFailed ? `Title #${id}` : 'Loading…')}</span>
+          <SourceLink href={sourceUrl} dramaId={id} />
           {aa}
         </header>
       ) : (
         <div className="reader-top">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'read', id, page: null }, { title })} />
+          <SourceLink href={sourceUrl} dramaId={id} />
           {aa}
         </div>
       )}
@@ -366,12 +391,25 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           <button type="button" className="link" onClick={() => setResumed(null)}>Dismiss</button>
         </div>
       )}
-      <ErrorBanner error={error} />
+      <ErrorBanner error={error ?? pageError} />
+      {pageError !== null && (
+        <div className="reader-error">
+          <button
+            type="button"
+            onClick={() => {
+              setPageFailure(null)
+              setPageTick((n) => n + 1)
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {empty ? (
         <section className="panel">
           <p>No lines to read yet.</p>
-          <a href={workspaceHref}>Add lines on Source</a>
+          <a href={workspaceHref}>Add lines on Media</a>
         </section>
       ) : (
         <>
@@ -382,7 +420,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               {metrics && <span className="muted" data-testid="reader-metrics">{metrics}</span>}
             </div>
           )}
-          {data && (
+          {data && !(stale && pageError !== null) && (
             <iframe
               className={pageLoading ? 'reader-frame reader-frame-loading' : 'reader-frame'}
               title={`Page ${data.page} text`}
@@ -392,7 +430,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               aria-busy={pageLoading}
             />
           )}
-          {!data && !error && <p className="muted">Loading…</p>}
+          {!data && !error && !pageError && <p className="muted">Loading…</p>}
           {/* After the page text, so the Sections don't jump down when it arrives. */}
           {page !== null && overview && data && (
             <div className="reader-sections">

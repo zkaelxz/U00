@@ -17,6 +17,8 @@ import type {
   GlossaryImportResult,
   GlossaryTerm,
   GlossaryTermUpsert,
+  SourceChangedRunBody,
+  SourceChangedRunStarted,
   TranslateErrorsDismissed,
   TranslatePresetBody,
   TranslatePresetSaved,
@@ -39,6 +41,7 @@ export function buildEstimateQuery(p: EstimateParams): string {
   if (p.force_retranslate) q.set('force_retranslate', 'true')
   if (p.reflect) q.set('reflect', 'true')
   if (p.bulk) q.set('bulk', 'true')
+  if (p.thinking !== undefined) q.set('thinking', String(p.thinking))
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
   const s = q.toString()
   return s ? `?${s}` : ''
@@ -66,6 +69,9 @@ export const getGlossaryAffected = (id: number, p: GlossaryAffectedParams, f?: F
 /** 409 when the lines or glossary changed since the preview. */
 export const startGlossaryAffectedRun = (id: number, body: GlossaryAffectedRunBody, f?: Fetch) =>
   postJson<GlossaryAffectedRunStarted>(`/api/translate-run/dramas/${id}/glossary-affected/run`, body, f)
+/** Translates the given lines still flagged source_changed; 409 when none is. */
+export const startSourceChangedRun = (id: number, body: SourceChangedRunBody, f?: Fetch) =>
+  postJson<SourceChangedRunStarted>(`/api/translate-run/dramas/${id}/source-changed/run`, body, f)
 export const applyWorkflowTier = (id: number, tier: string, f?: Fetch) =>
   postJson<WorkflowTierApplied>(`/api/translate-run/dramas/${id}/workflow-tier`, { tier }, f)
 export const applyTranslatePreset = (id: number, presetId: number, f?: Fetch) =>

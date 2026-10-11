@@ -13,7 +13,7 @@ You keep Baihe's docs matched to the code on the branch the lead names.
 
 **Check:**
 1. **`FILE_ORGANIZATION.md`:**
-   - every top-level `*.py`, `tabs/*.py`, `services/*.py`, `api/*.py` and `api/routers/*.py` is listed in the right group, with a one-line description;
+   - every top-level `*.py`, `services/*.py`, `api/*.py` and `api/routers/*.py` is listed in the right group, with a one-line description;
    - no listed file is gone;
    - tree connectors are correct.
    - Compare against `git ls-files`.

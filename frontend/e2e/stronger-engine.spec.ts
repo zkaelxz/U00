@@ -37,7 +37,7 @@ print(json.dumps([r['id'] for r in db.load_lines(3)]))
   expect((await request.post(CAPABILITY, { data: { engine: 'deepseek' } })).ok()).toBe(true)
 })
 
-test.afterAll(async ({ request }) => {
+test.afterEach(async ({ request }) => {
   await request.post(CAPABILITY, { data: { engine: null } })
   python('db.save_lines(3, [])')
 })
@@ -127,7 +127,7 @@ test('the monthly cap refusal shows the server message', async ({ page }) => {
   await expect(offer.getByRole('button', { name: /^Try with DeepSeek/ })).toBeEnabled()
 })
 
-test('no offer when the stronger engine is the one the drama uses', async ({ page, request }) => {
+test('no offer when the stronger engine is the one the title uses', async ({ page, request }) => {
   expect((await request.post(CAPABILITY, { data: { engine: 'claude' } })).ok()).toBe(true)
   await openReview(page)
   await expect(row(page, 0).getByTestId('line-flag')).toBeVisible()

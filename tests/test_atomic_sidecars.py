@@ -1,4 +1,5 @@
 """Sidecar files (diarization turns, audio tags, CEDICT) are written atomically."""
+from lib import http
 import gzip
 import io
 import os
@@ -53,14 +54,15 @@ def test_cedict_write_failure_leaves_no_partial_file(tmp_path, monkeypatch):
     monkeypatch.setattr(dictionary, "CEDICT_PATH", path)
 
     class Resp(io.BytesIO):
-        def __enter__(self):
-            return self
+        status_code = 200
+        headers = {}
+        encoding = None
 
-        def __exit__(self, *a):
-            return False
+        def iter_content(self, size):
+            while chunk := self.read(size):
+                yield chunk
 
-    monkeypatch.setattr(dictionary.urllib.request, "urlopen",
-                        lambda *a, **k: Resp(gzip.compress(b"# x\n")))
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Resp(gzip.compress(b"# x\n")))
     monkeypatch.setattr(core.os, "replace", _fail_replace)
     with pytest.raises(OSError):
         dictionary._ensure_cedict()

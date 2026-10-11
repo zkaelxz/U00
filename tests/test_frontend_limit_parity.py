@@ -33,11 +33,11 @@ def test_min_silence_bounds_match_core():
 
 
 def test_min_pause_bounds_and_default_match_core():
-    import core
+    import segment_splitting
     ts = "pages/workspace/sourceForm.ts"
-    assert _ts_number(ts, "MIN_PAUSE_SEC_MIN") == core.MIN_WORD_GAP_SECONDS_MIN
-    assert _ts_number(ts, "MIN_PAUSE_SEC_MAX") == core.MIN_WORD_GAP_SECONDS_MAX
-    assert _ts_number(ts, "MIN_PAUSE_SEC_DEFAULT") == core.MIN_WORD_GAP_SECONDS
+    assert _ts_number(ts, "MIN_PAUSE_SEC_MIN") == segment_splitting.MIN_WORD_GAP_SECONDS_MIN
+    assert _ts_number(ts, "MIN_PAUSE_SEC_MAX") == segment_splitting.MIN_WORD_GAP_SECONDS_MAX
+    assert _ts_number(ts, "MIN_PAUSE_SEC_DEFAULT") == segment_splitting.MIN_WORD_GAP_SECONDS
 
 
 def test_novel_epub_cap_matches_the_attach_service():

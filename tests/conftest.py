@@ -6,6 +6,7 @@ temp directory for each test, so running the test suite never reads,
 writes, or deletes anything in your actual library.
 """
 
+import contextlib
 import sys
 import os
 import shutil
@@ -164,6 +165,36 @@ def _fake_engine_installed():
 
 
 @pytest.fixture(autouse=True)
+def _echo_engine_off_after_each_test():
+    """Turning Developer Mode on registers the Echo engine in the process-wide
+    engine tables; a test that does so (assistant, source-domain and role tests)
+    would otherwise leave it there for whichever test the worker runs next, such
+    as the free-engine labelling tests."""
+    yield
+    echo = sys.modules.get("engine_backends.echo")
+    if echo is not None:
+        echo.set_enabled(False)
+
+
+@pytest.fixture(autouse=True)
+def _live_whisper_not_loaded():
+    """A Live job loads Whisper before it captures; no test may load a real
+    model. The real function stays on `warm_up.real` for its own tests.
+    Restores by hand, like the fixture below."""
+    import live_whisper
+    saved = live_whisper.warm_up
+
+    def stub(*args, **kwargs):
+        return None
+    stub.real = saved
+    live_whisper.warm_up = stub
+    try:
+        yield
+    finally:
+        live_whisper.warm_up = saved
+
+
+@pytest.fixture(autouse=True)
 def _private_separator_model_dir(tmp_path_factory):
     """The vocal-separator model folder defaults to ~/.cache; the startup
     sweep and the download guard list and delete files there, so no test
@@ -188,8 +219,28 @@ def _keep_real_torch_importable():
     restore_real_modules()
 
 
+@pytest.fixture(scope="session")
+def _template_library(tmp_path_factory):
+    """A library with the schema already created, built once per xdist
+    worker. Running init_db() for every test was the single largest fixed
+    cost in the suite; copying this folder and re-running the (cheap,
+    nothing-to-create) init is not."""
+    previous = db.LIBRARY_DIR
+    template = str(tmp_path_factory.mktemp("template_library") / "library")
+    os.makedirs(template)
+    db.configure_library_dir(template)
+    try:
+        db.init_db()
+        with contextlib.closing(db.get_conn()) as conn:
+            # WAL mode: fold the log into library.db so copying the one file is enough.
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        db.configure_library_dir(previous)
+    return template
+
+
 @pytest.fixture
-def isolated_db():
+def isolated_db(_template_library):
     """Redirects db.py to a fresh temp directory for the duration of
     one test, then cleans up afterward. Use this fixture in any test
     that touches the database.
@@ -211,11 +262,15 @@ def isolated_db():
     folder ("<library>.pre_restore_*") *next to* the library, so with the
     library sitting straight in /tmp every pytest-xdist worker's restore
     scratch landed in one shared folder, and a test asserting "restore
-    left nothing behind" saw another worker's in-flight staging dir."""
+    left nothing behind" saw another worker's in-flight staging dir.
+
+    The library starts as a copy of the per-worker template, so the
+    upgrade tests in test_db.py, which need a schema older than init_db's,
+    build their own folders and never use this fixture's starting state."""
     previous = db.LIBRARY_DIR
     parent_dir = tempfile.mkdtemp(prefix="baihe_test_")
     temp_dir = os.path.join(parent_dir, "library")
-    os.makedirs(temp_dir)
+    shutil.copytree(_template_library, temp_dir, ignore=shutil.ignore_patterns("*-wal", "*-shm"))
     db.configure_library_dir(temp_dir)
     db.init_db()
     yield db
@@ -229,11 +284,15 @@ def _reset_background_jobs_memory():
     the maintenance count and the per-job cancel-check cache. In memory only -- clear_all_jobs() would
     also wipe job_records in whatever library db.LIBRARY_DIR points at."""
     import background_jobs as bg
+    from jobs import job_store
     with bg._lock:
         bg._jobs.clear()
         bg._gpu_queue.clear()
         bg._last_db_cancel_check.clear()
         bg._db_cancel_check_failed.clear()
+        bg.job_force_stop._abandoned.clear()
+        job_store._pending.clear()
+        job_store._last_write.clear()
     bg.release_exclusive()
     bg._stopping = False
     while bg._maintenance_count:
@@ -331,6 +390,26 @@ def _testclient_defaults_to_loopback():
 
 
 @pytest.fixture(autouse=True)
+def _workers_do_not_leave_the_test_session(request):
+    """Process-job workers call background_jobs.start_own_process_group()
+    first. Tests that run one in the pytest process would otherwise start a
+    new session for it and a watchdog that can end it; only
+    test_background_jobs.py, which exercises that function in real child
+    processes, keeps the real one.
+
+    Patched and restored by hand for the reason given on
+    _testclient_defaults_to_loopback."""
+    import background_jobs
+    original = background_jobs.start_own_process_group
+    if not request.module.__name__.endswith("test_background_jobs"):
+        background_jobs.start_own_process_group = lambda: None
+    try:
+        yield
+    finally:
+        background_jobs.start_own_process_group = original
+
+
+@pytest.fixture(autouse=True)
 def _no_ollama_unload_requests(request):
     """A GPU model load asks a local Ollama to free its memory; no test but
     test_ollama_unload.py (which fakes the HTTP calls) may reach one.
@@ -340,7 +419,10 @@ def _no_ollama_unload_requests(request):
     import ollama_unload
     original = ollama_unload.prepare_gpu_for_transcription
     if not request.module.__name__.endswith("test_ollama_unload"):
-        ollama_unload.prepare_gpu_for_transcription = lambda use_gpu: None
+        def stub(use_gpu):
+            return None
+        stub.real = original   # for tests of a caller's own unload policy
+        ollama_unload.prepare_gpu_for_transcription = stub
     try:
         yield
     finally:

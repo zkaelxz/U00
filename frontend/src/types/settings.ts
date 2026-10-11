@@ -18,6 +18,8 @@ export interface SettingsPreferences {
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies
   max_upload_mb: number // media/backup upload cap; BAIHE_MAX_UPLOAD_MB wins when set
   ollama_num_ctx_override: number // 0: sized from the prompt
+  keep_free_vram_gb: number // 0: off
+  keep_free_ram_gb: number // 0: off
   whisper_model_path: string
   ocr_backend: string
   ocr_prefer_paddle_vl_manga: boolean
@@ -89,4 +91,33 @@ export interface MonthSpendStatus {
 export interface MonthCounterResetResult {
   before: MonthSpendStatus
   after: MonthSpendStatus
+}
+
+// GET /api/settings/schema: the declared settings the page builds forms from.
+// Metadata only; values come from the overview.
+export type SettingsSchemaType = 'bool' | 'int' | 'float' | 'text' | 'choice' | 'path' | 'json'
+
+export interface SettingsSchemaChoice {
+  value: string
+  label: string
+}
+
+export interface SettingsSchemaRow {
+  key: string
+  type: SettingsSchemaType
+  default: unknown
+  scope: string
+  label: string
+  help: string
+  unit: string
+  placeholder: string
+  tab: string
+  section: string
+  custom: boolean // a hand-written card owns this key's field
+  dev_only: boolean
+  choices: SettingsSchemaChoice[] | null
+  min: number | null
+  max: number | null
+  max_len: number | null
+  multiline: boolean
 }

@@ -77,7 +77,7 @@ describe('resolveLineNumber', () => {
   })
   it('rejects junk and unknown numbers', () => {
     expect(resolveLineNumber(lines, 'abc')).toHaveProperty('error')
-    expect(resolveLineNumber(lines, '3')).toEqual({ error: 'No line #3 in this drama.' })
+    expect(resolveLineNumber(lines, '3')).toEqual({ error: 'No line #3 in this title.' })
     expect(resolveLineNumber(lines, '0')).toHaveProperty('error')
   })
 })

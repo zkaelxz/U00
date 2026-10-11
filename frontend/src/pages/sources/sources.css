@@ -254,3 +254,6 @@ ul.source-cards > li {
 @media (max-width: 640px) {
   ul.source-results { gap: var(--space-3); }
 }
+
+.source-pace { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; min-width: 0; }
+.source-pace select { max-width: 100%; }

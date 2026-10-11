@@ -3,11 +3,13 @@ no ffmpeg, yt-dlp, Whisper or network."""
 import os
 import re
 import socket
+import threading
 import time
 
 import pytest
 
 import background_jobs
+import live_pipeline
 import live_translate
 from services import live_service, translate_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
@@ -45,7 +47,7 @@ def live(monkeypatch, isolated_db):
         return p
 
     monkeypatch.setattr(live_translate, "start_segment_capture", fake_capture)
-    monkeypatch.setattr(live_translate, "stop_capture", lambda proc: setattr(proc, "stopped", True))
+    monkeypatch.setattr(live_translate, "stop_capture", lambda proc, **kw: setattr(proc, "stopped", True))
     yield calls
     for sid in list(live_service._sessions):
         live_translate.bump_generation(sid)
@@ -205,15 +207,59 @@ def test_clean_message_keeps_words_containing_the_os_username(monkeypatch):
     assert "sk-ant" not in shown and "/home" not in shown and "chunk_00001" not in shown
 
 
-def test_dir_removed_on_cancel_while_running(live):
+def test_dir_removed_when_stop_finishes_a_running_session(live):
     sid = _start()
     assert _wait(lambda: "out_dir" in live)
     out_dir = live["out_dir"]
     assert os.path.isdir(out_dir)
+    assert live_service.stop_session(sid)["finishing"] is True
+    assert _terminal(sid)
+    assert live_service.get_session(sid)["status"] == "done"
+    assert not os.path.exists(out_dir)
+
+
+def test_dir_removed_on_stop_now_while_running(live):
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    out_dir = live["out_dir"]
     live_service.stop_session(sid)
+    assert live_service.stop_session(sid)["finishing"] is False   # Stop now
     assert _terminal(sid)
     assert live_service.get_session(sid)["status"] == "cancelled"
     assert not os.path.exists(out_dir)
+
+
+def test_status_names_the_stage_and_what_a_stop_does(live, monkeypatch):
+    release = threading.Event()
+    inside = threading.Event()
+
+    def blocked_chunk(path, idx, seg, lang, size, engine, on_stage=None, **k):
+        on_stage("transcribing")
+        inside.set()
+        release.wait(10)
+        return []
+
+    monkeypatch.setattr(live_translate, "process_chunk", blocked_chunk)
+    sid = _start(overlap_seconds=0)
+    assert _wait(lambda: "out_dir" in live)
+    for i in range(2):
+        open(os.path.join(live["out_dir"], f"chunk_{i:05d}.wav"), "wb").close()
+    assert inside.wait(8)
+    assert "Chunk 0: transcribing 0 s of audio with Whisper small" in \
+        live_service.get_session(sid)["message"]
+
+    # The first Stop lets chunk 0 finish and says how to stop at once.
+    assert live_service.stop_session(sid)["finishing"] is True
+    status = live_service.get_session(sid)
+    assert "Chunk 0: transcribing" in status["message"]
+    assert any("Press Stop now" in n for n in status["notes"]), status["notes"]
+    live_service.stop_session(sid)
+    message = live_service.get_session(sid)["message"]
+    assert "stopping Whisper on chunk 0" in message
+    assert "cannot be interrupted" not in message
+    assert "finishes the current step first" not in message
+    release.set()
+    assert _terminal(sid)
 
 
 def test_dir_removed_on_cancel_while_queued(live, monkeypatch):
@@ -286,11 +332,11 @@ def test_max_minutes_stops_job(live, monkeypatch):
     assert live["procs"][0].stopped
 
 
-def test_stop_bumps_generation_before_cancel(live, monkeypatch):
+def test_stop_now_bumps_generation_before_cancel(live, monkeypatch):
     sid = _start()
     # run_live_job bumps first thing in its worker thread; let that land so
     # only stop_session's bump is recorded.
-    assert _wait(lambda: live_service.get_session(sid)["message"] != "Starting...")
+    assert _wait(lambda: sid in live_pipeline._controls)
     order = []
     real_bump = live_translate.bump_generation
     monkeypatch.setattr(live_translate, "bump_generation",
@@ -301,7 +347,57 @@ def test_stop_bumps_generation_before_cancel(live, monkeypatch):
     monkeypatch.setattr(background_jobs, "cancel_queued",
                         lambda j: order.append("cancel_queued") or False)
     live_service.stop_session(sid)
+    assert order == []   # the first Stop only asks the loop to finish
+    live_service.stop_session(sid)
     assert order == ["bump", "cancel_queued", "cancel"]
+
+
+def test_stop_before_capture_starts_is_stop_now(live, monkeypatch):
+    release = threading.Event()
+    monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: release.wait(5) and "http://media")
+    sid = _start()
+    assert _wait(lambda: background_jobs.is_running(sid))
+    assert live_service.stop_session(sid)["finishing"] is False
+    release.set()
+    assert _terminal(sid)
+    assert live_service.get_session(sid)["status"] == "cancelled"
+
+
+def test_whisper_large_v3_turbo_is_offered_and_small_stays_the_default(live, monkeypatch):
+    import inspect
+    seen = []
+    monkeypatch.setattr(live_translate, "run_live_job",
+                        lambda job_id, url, out_dir, seg, lang, size, *a, **k: seen.append(size))
+    sid = _start(whisper_size="large-v3-turbo")
+    assert _terminal(sid)
+    assert seen == ["large-v3-turbo"]
+    assert "large-v3-turbo" in live_service.WHISPER_SIZES and "medium" in live_service.WHISPER_SIZES
+    assert inspect.signature(live_service.start_session).parameters["whisper_size"].default == "small"
+
+
+def test_lag_figures_reach_the_status_as_numbers_only(live, monkeypatch):
+    dirs = []
+
+    def fake_run(job_id, url, out_dir, *a, report_stats=None, **k):
+        dirs.append(out_dir)
+        report_stats({"lag_seconds": 27.5, "processing_seconds": 7.25, "translations_skipped": 3,
+                      "translate_queue": 1, "chunks_measured": 4, "path": out_dir})
+    monkeypatch.setattr(live_translate, "run_live_job", fake_run)
+    sid = _start(segment_seconds=12)
+    assert _terminal(sid)
+    s = live_service.get_session(sid)
+    assert (s["lag_seconds"], s["processing_seconds"], s["translations_skipped"],
+            s["translate_queue"], s["chunks_measured"], s["segment_seconds"]) == (27.5, 7.25, 3, 1, 4, 12)
+    assert "path" not in s and dirs and dirs[0] not in repr(s)
+
+
+def test_a_new_session_starts_with_zero_figures(live, monkeypatch):
+    monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: None)
+    sid = _start()
+    assert _terminal(sid)
+    s = live_service.get_session(sid)
+    assert (s["lag_seconds"], s["processing_seconds"], s["translations_skipped"],
+            s["chunks_measured"]) == (0.0, 0.0, 0, 0)
 
 
 # --- get / list ----------------------------------------------------------------
@@ -318,6 +414,18 @@ def test_cue_slicing(live, monkeypatch):
     assert live_service.get_session(sid, after=9)["cues"] == []
     with pytest.raises(InvalidInputError):
         live_service.get_session(sid, after="x")
+
+
+def test_cues_carry_id_and_translation_state(live, monkeypatch):
+    cues = [{"id": 0, "start": 0, "end": 1, "text": "a", "translated": "A", "translation": "done"},
+            {"id": 1, "start": 1, "end": 2, "text": "b", "translated": "", "translation": "pending"},
+            {"start": 2, "end": 3, "text": "c", "translated": "[translation failed: x]"}]
+    monkeypatch.setattr(live_translate, "run_live_job",
+                        lambda job_id, *a, **k: background_jobs.set_result(job_id, cues))
+    sid = _start()
+    assert _terminal(sid)
+    got = live_service.get_session(sid, after=1)["cues"]
+    assert [(c["id"], c["translation"]) for c in got] == [(1, "pending"), (2, "failed")]
 
 
 def test_translation_failure_cue_is_cleaned(live, monkeypatch):
@@ -352,8 +460,8 @@ def test_list_sessions(live, monkeypatch):
 
 def test_url_guard_is_the_one_policy(live, monkeypatch):
     """Both the typed URL and the resolved stream URL go through
-    services.url_guard.resolve_public (the B-25 policy)."""
-    from services import url_guard
+    lib.url_guard.resolve_public (the B-25 policy)."""
+    from lib import url_guard
     called = []
     monkeypatch.setattr(url_guard, "resolve_public", lambda u: called.append(u) or "93.184.216.34")
     sid = _start()
@@ -376,6 +484,30 @@ def test_reap_keeps_a_session_that_is_still_starting(live, monkeypatch):
     sid = _start()
     assert seen["dir"] and _wait(lambda: "out_dir" in live)
     assert "starting" not in live_service._sessions[sid]
+
+
+def test_work_dir_lives_in_library_tmp_owned_by_the_session(live):
+    import storage
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    out_dir = live["out_dir"]
+    assert os.path.dirname(out_dir) == storage.temp_root()
+    assert os.path.basename(out_dir).startswith(sid + "~")
+    live_service.stop_session(sid)
+    assert _terminal(sid)
+    assert not os.path.exists(out_dir)
+
+
+def test_running_session_dir_survives_the_sweep(live):
+    import storage
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    out_dir = live["out_dir"]
+    os.utime(out_dir, (0, 0))
+    assert storage.sweep_library_temp(max_age=0)["removed"] == 0
+    assert os.path.isdir(out_dir)
+    live_service.stop_session(sid)
+    assert _terminal(sid)
 
 
 def _capture_engine(live, monkeypatch):
@@ -434,10 +566,11 @@ def test_ollama_default_model_is_checked_and_used(live, monkeypatch):
 
 
 def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
-    import json, requests
+    import json
     from engine_backends import local
+    from lib import http
 
-    def fake_get(url, **k):
+    def fake_get(url, ip, headers, timeout, method="GET", **k):
         return _TagsResp(json.dumps({"models": [{"name": "qwen3:8b"}, {"name": "tiny:latest"}]}).encode())
 
     class _TagsResp:
@@ -448,9 +581,24 @@ def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
         def close(self): pass
         headers = {}
 
-    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(http, "pinned_get", fake_get)
     local.check_ollama_model_installed("http://x", "qwen3:8b")
     local.check_ollama_model_installed("http://x", "tiny")
     with pytest.raises(local.OllamaUnavailableError) as exc:
         local.check_ollama_model_installed("http://x", "gemma4:12b")
     assert exc.value.reason == "ollama_model_missing" and 'ollama pull gemma4:12b' in exc.value.message
+
+
+def test_session_folder_is_held_until_the_job_is_registered(live, monkeypatch):
+    import storage
+    real_start = background_jobs.start_job
+    swept = {}
+
+    def start_after_a_clean_now(*a, **kw):
+        swept["removed"] = storage.sweep_library_temp(max_age=0)["removed"]
+        return real_start(*a, **kw)
+
+    monkeypatch.setattr(background_jobs, "start_job", start_after_a_clean_now)
+    sid = _start()
+    assert swept["removed"] == 0
+    assert os.path.isdir(live_service._sessions[sid]["dir"])

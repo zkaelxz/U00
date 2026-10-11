@@ -11,18 +11,21 @@ export const SOURCES = [
     supports: { search: true, get_series: true, get_chapters: true, get_pages: true, download_page: true, get_chapter_text: false, get_audio_url: false, login: false },
     import_supported: true, auth_supported: false, supports_adult_toggle: true, enabled: true, adult_enabled: false,
     health: 'green', has_saved_signin: false,
+    pace: 'normal', fast_allowed: false, slowed_down: false,
   },
   {
     name: 'beta', display_name: 'Beta Novels', content_types: ['novel'], languages: ['zh'],
     supports: { search: true, get_series: true, get_chapters: true, get_pages: false, download_page: false, get_chapter_text: true, get_audio_url: false, login: false },
     import_supported: true, auth_supported: true, supports_adult_toggle: false, enabled: true, adult_enabled: false,
     health: 'yellow', has_saved_signin: true,
+    pace: 'normal', fast_allowed: true, slowed_down: false,
   },
   {
     name: 'gamma', display_name: 'Gamma Video', content_types: ['video'], languages: ['zh'],
     supports: { search: false, get_series: false, get_chapters: false, get_pages: false, download_page: false, get_chapter_text: false, get_audio_url: false, login: false },
     import_supported: false, auth_supported: false, supports_adult_toggle: false, enabled: true, adult_enabled: false,
     health: 'red', has_saved_signin: false,
+    pace: 'normal', fast_allowed: false, slowed_down: false,
   },
 ]
 

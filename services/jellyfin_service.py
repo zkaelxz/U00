@@ -44,7 +44,8 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import db
-from services import (artifact_service, capped_body, drama_service, export_service,
+from lib import http
+from services import (artifact_service, drama_service, export_service,
                       settings_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -108,7 +109,7 @@ def _check_library_dir(value) -> str:
     if len(value) > MAX_LIBRARY_DIR_LEN or any(ord(c) < 32 for c in value):
         raise InvalidInputError("That folder path is not valid.")
     if not os.path.isabs(value):
-        raise InvalidInputError("Use a full folder path (for example D:\\Media\\Dramas).")
+        raise InvalidInputError("Use a full folder path (for example D:\\Media\\Titles).")
     if not os.path.isdir(value):
         raise InvalidInputError("That folder does not exist on this PC.")
     return os.path.realpath(value)
@@ -181,36 +182,29 @@ def _server() -> tuple:
 
 def _request(method: str, path: str, params: Optional[dict] = None,
              url: Optional[str] = None, key: Optional[str] = None):
-    import requests
     if url is None:
         url, key = _server()
     _check_target(url)
-    session = requests.Session()
-    session.trust_env = False  # a proxy would reach the LAN server on our behalf
     try:
-        resp = session.request(method, url + path, params=params,
-                               headers={"Authorization": f'MediaBrowser Token="{key}"',
-                                        "Accept": "application/json"},
-                               timeout=HTTP_TIMEOUT, allow_redirects=False, stream=True)
-        try:
-            if resp.status_code in (401, 403):
-                raise DependencyUnavailableError(_BAD_KEY)
-            if resp.status_code >= 300:
-                log.info("Jellyfin answered HTTP %s", resp.status_code)
-                raise DependencyUnavailableError(_UNREACHABLE)
-            return _read_capped(resp)
-        finally:
-            resp.close()
-    except requests.RequestException:
+        # guard=None: the address is one the owner set through a local_only route
+        # and may be on the LAN, which the public-address guard would refuse; no
+        # redirects, and the key header never leaves the origin it was set for.
+        resp = http.request(method, url + path, params=params,
+                            headers={"Authorization": f'MediaBrowser Token="{key}"',
+                                     "Accept": "application/json"},
+                            timeout=HTTP_TIMEOUT, deadline=READ_DEADLINE,
+                            max_bytes=MAX_RESPONSE_BYTES, max_error_bytes=1,
+                            guard=None, trust_env=False)  # a proxy would reach the LAN server
+    except (http.ResponseTooLarge, http.ResponseTooSlow):
+        raise DependencyUnavailableError(_BAD_REPLY) from None
+    except http.FetchError:
         raise DependencyUnavailableError(_UNREACHABLE) from None
-    finally:
-        session.close()
-
-
-def _read_capped(resp) -> bytes:
-    """The body, at most MAX_RESPONSE_BYTES and READ_DEADLINE seconds in all."""
-    return capped_body.read_capped(resp, MAX_RESPONSE_BYTES, READ_DEADLINE,
-                                   lambda: DependencyUnavailableError(_BAD_REPLY))
+    if resp.status in (401, 403):
+        raise DependencyUnavailableError(_BAD_KEY)
+    if resp.status >= 300:
+        log.info("Jellyfin answered HTTP %s", resp.status)
+        raise DependencyUnavailableError(_UNREACHABLE)
+    return resp.body
 
 
 def _json(body: bytes) -> dict:
@@ -347,7 +341,7 @@ def _source_media(drama_id: int, drama: dict, media: str) -> Optional[str]:
     name = drama.get("source_video_filename") or ""
     path = os.path.join(db.drama_dir(drama_id), name) if name else ""
     if not name or name != os.path.basename(name) or not os.path.isfile(path):
-        raise InvalidInputError("This drama has no source video.")
+        raise InvalidInputError("This title has no source video.")
     return path
 
 
@@ -400,7 +394,7 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
     "refresh": "done" | "failed" | "skipped"}."""
     drama = db.get_drama(drama_id) if isinstance(drama_id, int) and drama_id > 0 else None
     if drama is None:
-        raise NotFoundError("No drama with that id.")
+        raise NotFoundError("No title with that id.")
     if fmt not in FORMATS:
         raise InvalidInputError("Format must be srt or ass.", details={"allowed": list(FORMATS)})
     if field not in FIELDS:
@@ -421,7 +415,7 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
     if item_id and media != "none":
         raise InvalidInputError("Media is only copied when adding a new title folder.")
     if drama_service.job_running_for_drama(drama_id):  # e.g. a dubbed video still being written
-        raise ConflictError("A background job is still running for this drama. Wait for it to "
+        raise ConflictError("A background job is still running for this title. Wait for it to "
                             "finish, then send it to Jellyfin.", details={"reason": "job_running"})
 
     text = _subtitle_text(drama_id, fmt, field)

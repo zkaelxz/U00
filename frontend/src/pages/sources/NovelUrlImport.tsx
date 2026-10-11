@@ -33,7 +33,7 @@ import { describeSourceError, percent } from './sourcesFormat'
 import { useAiEngines } from './useAiEngines'
 import { useDramaList } from './useDramaList'
 import { useSourcesJob } from './useSourcesJob'
-import { chapterImportDramas, urlImportText } from './urlImportFormat'
+import { chapterImportDramas, hiddenDramaCount, urlImportText } from './urlImportFormat'
 
 type Props = { url: string; html?: string | null; title: string; language: string | null }
 
@@ -79,7 +79,8 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
         disabled={running}
         newDrama={{ title, language, comic: false }}
         onCreated={dramas.add}
-        help="The chapter text is added to the end of the drama’s novel text."
+        hiddenCount={dramas.items ? hiddenDramaCount(dramas.items, false) : 0}
+        help="The chapter text is added to the end of the title’s novel text."
       />
       <ErrorBanner error={dramas.error} />
       {!html && (
@@ -117,7 +118,7 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
             Cancel
           </button>
         )}
-        {!dramaId && !running && <span className="muted">Still needed: a drama to import into.</span>}
+        {!dramaId && !running && <span className="muted">Still needed: a title to import into.</span>}
       </div>
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
       <div aria-live="polite">

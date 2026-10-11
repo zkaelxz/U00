@@ -2,6 +2,7 @@
 
 import re
 from core import LANGUAGE_NAMES
+from .llm_tasks import call_batch_bounded
 
 
 class UnsupportedDirectionError(Exception):
@@ -99,5 +100,6 @@ def standalone_translate(text: str, engine, source_language: str, target_languag
     translated_chunks = []
     for start in range(0, len(chunks), batch_size):
         batch = chunks[start:start + batch_size]
-        translated_chunks.extend(engine.translate_batch(batch, context))
+        translated_chunks.extend(call_batch_bounded(
+            engine, lambda: engine.translate_batch(batch, context)))
     return "\n\n".join(t or "" for t in translated_chunks)

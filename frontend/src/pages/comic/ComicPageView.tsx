@@ -3,7 +3,7 @@
  * while it loads), the optional text boxes, and a plain message in place of
  * the image when it cannot load. Server text is only ever rendered as text.
  */
-import { useEffect, useState, type CSSProperties, type Ref } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type Ref } from 'react'
 
 import { probeImage, type ImageProblem } from '../../api/comic'
 import type { ComicPageInfo, ComicRegionsResponse } from '../../types/comic'
@@ -24,6 +24,8 @@ type Props = {
   src: string
   fit: ComicFit
   eager: boolean
+  // False: only the sized box is drawn, so the browser can free the decoded image.
+  mounted?: boolean
   // Text boxes to draw (null: text off, or not loaded yet).
   regions: ComicRegionsResponse | null
   // Phone: numbered boxes only (the lines are in the sheet). Desktop: the text too.
@@ -32,7 +34,7 @@ type Props = {
   figureRef?: Ref<HTMLElement>
 }
 
-export function ComicPageView({ page, number, count, src, fit, eager, regions, boxText, onProblem, figureRef }: Props) {
+export function ComicPageView({ page, number, count, src, fit, eager, mounted = true, regions, boxText, onProblem, figureRef }: Props) {
   const [problem, setProblem] = useState<{ src: string; kind: ImageProblem } | null>(null)
   const shownProblem = problem && problem.src === src ? problem.kind : null
   const w = page.width && page.width > 0 ? page.width : null
@@ -42,11 +44,36 @@ export function ComicPageView({ page, number, count, src, fit, eager, regions, b
     if (shownProblem) onProblem(shownProblem)
   }, [shownProblem, onProblem])
 
+  // A page without stored dimensions is a placeholder until its image loads.
+  // Browsers anchor the scroll differently (the stylesheet turns native
+  // anchoring off), so when one above the reader changes size, scroll by the
+  // difference to keep what they are looking at in place.
+  const innerRef = useRef<HTMLDivElement>(null)
+  const sized = !!(w && h)
+  // An unsized page keeps its loaded height while its image is released, so
+  // the pages below don't move.
+  const [measured, setMeasured] = useState<number | null>(null)
+  useEffect(() => {
+    const el = innerRef.current
+    if (sized || !el || typeof ResizeObserver === 'undefined') return
+    let last = el.getBoundingClientRect().height
+    const ro = new ResizeObserver(() => {
+      const box = el.getBoundingClientRect()
+      const delta = box.height - last
+      last = box.height
+      setMeasured(box.height)
+      if (delta !== 0 && box.bottom - delta <= 0) window.scrollBy(0, delta)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [sized, src])
+
   const onError = () => {
     probeImage(src).then((kind) => setProblem({ src, kind }))
   }
 
   const inner: CSSProperties = {}
+  if (!mounted && !sized && measured) inner.minHeight = `${measured}px`
   if (w && h) {
     inner.aspectRatio = `${w} / ${h}`
     if (fit === 'height') inner.width = `min(100%, calc(var(--comic-avail-h) * ${w / h}))`
@@ -67,13 +94,13 @@ export function ComicPageView({ page, number, count, src, fit, eager, regions, b
       data-testid="comic-page"
       aria-label={`Page ${number} of ${count}`}
     >
-      <div className={shownProblem ? 'comic-page-inner comic-page-broken' : 'comic-page-inner'} style={inner}>
+      <div ref={innerRef} className={shownProblem ? 'comic-page-inner comic-page-broken' : 'comic-page-inner'} style={inner}>
         {shownProblem ? (
           <p className="comic-page-problem" role="note">
             <span>Page {number}</span>
             <span>{PROBLEM_TEXT[shownProblem]}</span>
           </p>
-        ) : (
+        ) : mounted ? (
           <img
             src={src}
             alt={`Page ${number}`}
@@ -84,8 +111,8 @@ export function ComicPageView({ page, number, count, src, fit, eager, regions, b
             draggable={false}
             onError={onError}
           />
-        )}
-        {!shownProblem && lines.length > 0 && (
+        ) : null}
+        {!shownProblem && mounted && lines.length > 0 && (
           <div className="comic-boxes" data-testid="comic-boxes">
             {lines.map((l, i) => {
               const r = byIdx.get(l.idx)

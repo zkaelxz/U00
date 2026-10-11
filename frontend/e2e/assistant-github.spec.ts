@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { ANSWER, mockAssistant } from './assistantMocks'
+import { ANSWER, mockAssistant, openSection } from './assistantMocks'
 
 // Deliver a proposed fix as a GitHub pull request. Every /api/assistant call is mocked.
 
@@ -47,6 +47,7 @@ test('preview shows the exact diff, then one confirm opens a draft PR', async ({
 test('settings: turn on, set the repo, save a token (never shown back), test', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true, github: { ...READY, enabled: false, repo: null, token_configured: false } })
   await page.goto('/#/assistant')
+  await openSection(page, 'GitHub pull requests')
   const card = page.getByRole('region', { name: 'GitHub pull requests' })
   await card.getByRole('switch', { name: 'Deliver fixes as pull requests' }).click()
   await card.getByLabel('Repository', { exact: true }).fill('me/app')
@@ -66,6 +67,7 @@ test('settings: turn on, set the repo, save a token (never shown back), test', a
 test('a token write refused by the key-write gate says how to turn it on', async ({ page }) => {
   await mockAssistant(page, { developerMode: true, github: READY, tokenStatus: 403 })
   await page.goto('/#/assistant')
+  await openSection(page, 'GitHub pull requests')
   const card = page.getByRole('region', { name: 'GitHub pull requests' })
   await card.getByLabel('Token', { exact: true }).fill('ghp_x')
   await card.getByRole('button', { name: /Save token/ }).click()
@@ -80,6 +82,7 @@ test('changing the base branch after a preview drops that preview', async ({ pag
   await fix.getByRole('button', { name: 'Deliver as GitHub PR…' }).click()
   await fix.getByRole('button', { name: 'Preview pull request' }).click()
   await expect(fix.getByTestId('github-preview')).toBeVisible()
+  await openSection(page, 'GitHub pull requests')
   const card = page.getByRole('region', { name: 'GitHub pull requests' })
   await card.getByLabel('Base branch', { exact: true }).fill('main')
   await card.getByRole('button', { name: 'Save repository' }).click()

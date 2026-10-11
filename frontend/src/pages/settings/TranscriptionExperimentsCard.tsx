@@ -89,7 +89,7 @@ function Controls() {
       <div className="settings-form">
         <Field
           label="Qwen3-ASR batch size"
-          help="Lines sent to Qwen3-ASR at once when a drama uses the Qwen3 ASR backend. 1 sends one at a time (the tested way). Higher can be faster on a GPU but is not yet checked against real audio; compare the text before relying on it."
+          help="Lines sent to Qwen3-ASR at once (Qwen3 ASR backend). 1 sends one at a time (the tested way). Higher can be faster on a GPU but is not checked against real audio, so compare the text before relying on it."
           error={batchError}
         >
           <input
@@ -129,7 +129,7 @@ function Controls() {
           </Field>
           <Field
             label="Mixed languages"
-            help="For a video where people speak more than one language (say Korean, Chinese and Japanese). The language is detected for each stretch of speech, and a line whose language differs from the title's is marked in Review. Runs with the Whisper and Qwen3 ASR with speech detection backends; the speech detection backend has Qwen3-ASR detect the language itself (Chinese, Japanese, Korean or English). Slower: one language detection per stretch of speech. With the speech detection backend, refining line timing is skipped. Off transcribes everything in the title's language."
+            help="For a video where people speak more than one language (say Korean, Chinese and Japanese). Detects the language of each stretch of speech and marks lines that differ from the title's language in Review. Works with the Whisper and Qwen3 ASR with speech detection backends; the latter has Qwen3-ASR detect the language itself (Chinese, Japanese, Korean or English) and skips timing refinement. Slower: one detection per stretch. Off transcribes everything in the title's language."
           >
             <Toggle
               checked={opts.mixed_languages}

@@ -5,6 +5,7 @@ import type {
   MonthCounterResetResult,
   SettingsOverview,
   SettingsPreferences,
+  SettingsSchemaRow,
   SettingsToggleKey,
   SettingsUpdate,
 } from '../types/settings'
@@ -26,6 +27,9 @@ export function buildUpdate(key: SettingsToggleKey, value: boolean): SettingsUpd
   return { [key]: value === true }
 }
 
+export const fetchSettingsSchema = (f?: Fetch) =>
+  getJson<{ settings: SettingsSchemaRow[] }>('/api/settings/schema', f).then((r) => r.settings)
+
 export const getSettings = (f?: Fetch) => getJson<SettingsOverview>('/api/settings', f)
 export const updateSetting = (key: SettingsToggleKey, value: boolean, f?: Fetch) =>
   postJson<SettingsOverview>('/api/settings', buildUpdate(key, value), f)
@@ -40,7 +44,7 @@ export const updateGpuMaxParallel = (n: number, f?: Fetch) =>
 
 export function gpuMaxParallelHelp(n: number): string {
   const base =
-    'How many GPU jobs may run together. A job only joins a running one when the graphics card has at least 2 GB of memory free; without nvidia-smi they run one at a time.'
+    'How many GPU jobs run together. A job joins a running one only if the GPU has 2 GB free; without nvidia-smi they run one at a time.'
   return n > 1
     ? `${base} Ollama only runs requests in parallel if the OLLAMA_NUM_PARALLEL environment variable is set, and each parallel slot uses more graphics memory.`
     : base

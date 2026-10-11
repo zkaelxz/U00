@@ -93,8 +93,8 @@ export function kindHelp(item: Pick<ModelStatusItem, 'kind' | 'can_switch' | 're
   if (item.kind === 'extension') return 'Change it in Settings, under the browser extension.'
   if (item.kind === 'preset' && !item.can_switch) {
     return item.replacement
-      ? `${item.replacement} isn't offered for this engine in this app yet. To pick a different model, change the preset in a drama's Translate step.`
-      : "To pick a different model, change the preset in a drama's Translate step."
+      ? `${item.replacement} isn't offered for this engine yet. To pick another model, change the preset in a title's Translate step.`
+      : "To pick another model, change the preset in a title's Translate step."
   }
   return null
 }
@@ -127,7 +127,7 @@ export function lastCheckedLine(checkedAt: string | null | undefined): string {
 
 export const OFFER_MODELS_LABEL = "Also offer models Claude, Gemini and DeepSeek list that this app doesn't know yet"
 export const OFFER_MODELS_HELP =
-  "Their cost is estimated at the highest rate for that provider until the app is updated. Uses the list from your last Check now."
+  'Their cost is estimated at the provider\'s highest rate until the app is updated. Uses the list from your last "Check providers now".'
 
 /** The line under the opt-in: what it adds now, or what to do first. */
 export function offerModelsNote(status: Pick<ModelStatus, 'checked_at' | 'offer_provider_models' | 'extra_models'>): string | null {

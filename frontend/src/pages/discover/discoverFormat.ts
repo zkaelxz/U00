@@ -7,6 +7,9 @@ import type { TranslateEngine } from '../../types/translate'
 import type { BulkEntry, KnownTitle, KnownTitleCreate } from '../../types/discover'
 
 export const MAX_BULK_URLS = 10 // discover_lookup_service.MAX_BULK_URLS
+// Owner decision: the Catalogue tab is hidden while unused. Data and API routes stay; set true to bring it back.
+export const CATALOGUE_TAB_ENABLED = false
+
 export const MAX_PAGINATE_PAGES = 50 // bulk_import.MAX_PAGINATE_PAGES
 const MAX_COMMIT_ENTRIES = 500
 

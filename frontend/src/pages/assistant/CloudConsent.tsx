@@ -18,7 +18,7 @@ type Props = {
 }
 
 const CONSENT_HELP =
-  'The assistant reads this app’s source code and its (redacted) logs to answer. With this on, that text is sent to this provider. Ollama keeps everything on this PC.'
+  'The assistant reads Baihe’s source code and redacted logs. With this on, they are sent to this provider. Ollama keeps everything on this PC.'
 
 export function CloudConsent({ settings, onSettings, only }: Props) {
   const [busy, setBusy] = useState(false)

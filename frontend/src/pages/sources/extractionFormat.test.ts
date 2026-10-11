@@ -48,8 +48,8 @@ describe('comic import result', () => {
   const base = { kind: 'comic_import' as const, needs_review: false, pages_added: 12, skipped: [], skipped_count: 0 }
 
   it('says how many pages were added, or that nothing was', () => {
-    expect(comicImportText(base)).toBe('Added 12 pages to the drama.')
-    expect(comicImportText({ ...base, pages_added: 1 })).toBe('Added 1 page to the drama.')
+    expect(comicImportText(base)).toBe('Added 12 pages to the title.')
+    expect(comicImportText({ ...base, pages_added: 1 })).toBe('Added 1 page to the title.')
     expect(comicImportText({ ...base, needs_review: true, pages_added: 0 })).toMatch(/nothing was added/)
   })
 
@@ -143,11 +143,11 @@ describe('review: import and messages', () => {
 
   it('reports the import and a saved profile', () => {
     expect(reviewImportText({ kind: 'review_import', content_type: 'novel', char_count: 1200 })).toBe(
-      'Added 1,200 characters to the drama’s novel text.',
+      'Added 1,200 characters to the title’s novel text.',
     )
-    expect(reviewImportText({ kind: 'review_import', content_type: 'comic', pages_added: 1 })).toBe('Added 1 page to the drama.')
+    expect(reviewImportText({ kind: 'review_import', content_type: 'comic', pages_added: 1 })).toBe('Added 1 page to the title.')
     expect(reviewImportText({ kind: 'review_import', content_type: 'comic', pages_added: 3, skipped: [], skipped_count: 2 })).toBe(
-      'Added 3 pages to the drama. 2 images skipped (over a size limit or not PNG, JPEG or WebP).',
+      'Added 3 pages to the title. 2 images skipped (over a size limit or not PNG, JPEG or WebP).',
     )
     expect(profileSavedText({ domain: 'a.example', kind: 'novel', version: 2, replaces: 1 })).toMatch(/v2 for a\.example.*v1 is kept/)
     expect(profileSavedText({ domain: 'a.example', kind: 'novel', version: 1, replaces: null })).toMatch(/uses it\.$/)
@@ -210,10 +210,10 @@ describe('following next chapters', () => {
 
   it('reports several imported pages', () => {
     expect(reviewImportText({ kind: 'review_import', content_type: 'novel', char_count: 2000, pages_imported: 3 })).toBe(
-      'Added 3 pages (2,000 characters) to the drama’s novel text.',
+      'Added 3 pages (2,000 characters) to the title’s novel text.',
     )
     expect(reviewImportText({ kind: 'review_import', content_type: 'novel', char_count: 20, pages_imported: 1 })).toBe(
-      'Added 20 characters to the drama’s novel text.',
+      'Added 20 characters to the title’s novel text.',
     )
   })
 })

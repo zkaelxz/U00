@@ -89,7 +89,7 @@ test('EPUB chapter range and chapters from Sources', async ({ page }) => {
   expect(fromSources).toEqual([{ mode: 'replace' }])
 })
 
-test('Edit details can take a drama out of its series (series_id 0)', async ({ page }) => {
+test('Edit details can take a title out of its series (series_id 0)', async ({ page }) => {
   // The real drama, read once up front; the stubs below serve copies of it
   // (in series 7 until the save, then in none) rather than proxying a live
   // fetch per request, which broke once a handler ran again after its

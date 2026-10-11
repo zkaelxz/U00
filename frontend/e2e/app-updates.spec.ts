@@ -51,7 +51,7 @@ async function mockUpdates(page: Page, initial: Record<string, unknown> = {}) {
 test('check, download and verify, then open Setup behind a confirm', async ({ page }) => {
   const calls = await mockUpdates(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const c = card(page)
   await expect(c.locator('.card-meta')).toHaveText('Version 0.1.0')
   await expect(c.getByTestId('update-check-line')).toHaveText('Not checked yet.')
@@ -83,7 +83,7 @@ test('check, download and verify, then open Setup behind a confirm', async ({ pa
 test('the daily check is a switch, off by default', async ({ page }) => {
   const calls = await mockUpdates(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const toggle = card(page).getByRole('switch', { name: 'Check once a day' })
   await toggle.click()
   await expect(toggle).toBeChecked()
@@ -94,9 +94,9 @@ test('the daily check is a switch, off by default', async ({ page }) => {
 test('a custom update source is named on the card', async ({ page }) => {
   await mockUpdates(page, { custom_source: true })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   await expect(card(page).getByTestId('update-custom-source')).toHaveText(
-    'Custom update source: this PC checks a different repository than the default.',
+    'Custom update source: this PC checks a different repository.',
   )
 })
 
@@ -106,7 +106,7 @@ test('away from the PC the card says so and asks nothing', async ({ page }) => {
     json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false }),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const c = card(page)
   await expect(c).toContainText('Run this on the main PC.')
   await expect(c.getByRole('button', { name: 'Check for updates' })).toHaveCount(0)

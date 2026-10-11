@@ -57,7 +57,7 @@ test('retired and older rows come first with their notes; the rest fold away', a
   await expect(rows.nth(1)).toContainText('Press "Check providers now" first to load the models your provider lists.')
   await expect(rows.nth(1).getByRole('button')).toHaveCount(0)
   await expect(rows.nth(2)).toContainText('Older model')
-  await expect(rows.nth(2).getByRole('button', { name: 'Switch Preset: Drama A to claude-sonnet-5' })).toBeVisible()
+  await expect(rows.nth(2).getByRole('button', { name: 'Switch Preset: Title A to claude-sonnet-5' })).toBeVisible()
 
   // Current / not-checked rows are folded.
   const fold = c.locator('details', { has: page.locator('summary', { hasText: 'Other configured models' }) })
@@ -134,12 +134,12 @@ test('switching a preset takes a second press, sends the model seen, then refres
   })
   await page.goto('/#/diagnostics')
   const c = card(page)
-  const row = c.getByRole('list', { name: 'Models that need attention' }).locator(':scope > li', { hasText: 'Preset: Drama A' })
+  const row = c.getByRole('list', { name: 'Models that need attention' }).locator(':scope > li', { hasText: 'Preset: Title A' })
 
-  await row.getByRole('button', { name: 'Switch Preset: Drama A to claude-sonnet-5' }).click()
+  await row.getByRole('button', { name: 'Switch Preset: Title A to claude-sonnet-5' }).click()
   expect(bodies).toEqual([])
   await row.getByRole('button', { name: 'Confirm switch to claude-sonnet-5' }).click()
-  await expect(c.getByTestId('model-health-notice')).toHaveText('Preset: Drama A now uses claude-sonnet-5.')
+  await expect(c.getByTestId('model-health-notice')).toHaveText('Preset: Title A now uses claude-sonnet-5.')
   expect(bodies).toEqual([{ url: '/api/models/presets/7/switch', body: { from_model: 'claude-sonnet-4-6', to_model: 'claude-sonnet-5', confirm: true } }])
   // Refreshed: the preset is current now, so only the retired row needs attention.
   await expect(c.getByRole('list', { name: 'Models that need attention' }).locator(':scope > li')).toHaveCount(1)
@@ -170,7 +170,7 @@ test('Compare in Benchmark Lab sets up both models in the run form', async ({ pa
   const unmocked = await guardWrites(page)
   await page.route('**/api/models/status', (r) => r.fulfill({ json: status() }))
   await page.goto('/#/diagnostics')
-  const row = card(page).getByRole('list', { name: 'Models that need attention' }).locator(':scope > li', { hasText: 'Preset: Drama A' })
+  const row = card(page).getByRole('list', { name: 'Models that need attention' }).locator(':scope > li', { hasText: 'Preset: Title A' })
   const link = row.getByRole('link', { name: 'Compare claude-sonnet-4-6 with claude-sonnet-5 in Benchmark Lab' })
   await expect(link).toHaveAttribute('href', '#/benchmark?compare=claude:claude-sonnet-4-6,claude:claude-sonnet-5')
   await link.click()

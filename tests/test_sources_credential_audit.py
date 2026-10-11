@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from services import url_guard
+from lib import url_guard
 from sources import chapter_check, detect, health, http, ladder, registry, store
 from sources.base import SourceAdapter
 from sources.cache import RawCache
@@ -66,8 +66,7 @@ PROFILE_PATHS = {"profile_dir", "browser_profile_dir", "browser_profiles_root"}
 
 
 # The API/service consumers of the yt-dlp cookie setting, besides the sources
-# layer. The Streamlit ones (tabs/) are not scanned: Streamlit is frozen and
-# being deleted by 2026-10-30.
+# layer.
 YTDLP_COOKIE_FILES = ("video_download.py", "live_translate.py", "services/url_media_service.py",
                       "services/live_service.py", "services/settings_service.py",
                       "api/routers/settings_routes.py", "api/routers/live_routes.py",

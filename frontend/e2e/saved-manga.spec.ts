@@ -12,8 +12,8 @@ const label = (page: Page) => page.getByTestId('comic-page-label')
 test('lists saved series, reads a chapter, continues where it left off', async ({ page }) => {
   const s = await mockManga(page)
   await page.goto('/#/manga')
-  // The left rail has its own Saved manga item; Library is no longer current here.
-  await expect(page.getByRole('link', { name: 'Saved manga', exact: true })).toHaveAttribute('aria-current', 'page')
+  // No rail item of its own: Library tools is current here.
+  await expect(page.getByRole('link', { name: 'Library tools', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: 'Saved manga' })).toBeVisible()
   const list = page.getByRole('list', { name: 'Saved series' })
   await expect(list).toContainText('MangaK · 2 chapters · last saved 2 min ago')
@@ -54,8 +54,51 @@ test('lists saved series, reads a chapter, continues where it left off', async (
   // The view setting is kept for the series.
   await expect(page.getByTestId('comic-page')).toHaveCount(1)
 
+  // Chapter 2 was only opened, not read: Continue stays where the reader left chapter 1.
   await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: SERIES }).click()
-  await expect(page.getByRole('list', { name: 'Chapters' })).toContainText('Chapter 2 · reading, page 1')
+  await expect(page.getByRole('list', { name: 'Chapters' })).toContainText('Chapter 1 · reading, page 4')
+  expect(s.unmocked).toEqual([])
+})
+
+const continueLink = (page: Page) => page.getByRole('list', { name: 'Saved series' }).getByRole('link', { name: 'Continue' })
+
+test('opening a chapter without moving leaves Continue where it was', async ({ page }) => {
+  const s = await mockManga(page)
+  await page.goto('/#/manga/MangaK/Test%20Camp/0001%20Chapter%201?page=2')
+  await expect(label(page)).toHaveText('Page 2 of 4')
+  await page.keyboard.press('ArrowRight')
+  await expect(label(page)).toHaveText('Page 3 of 4')
+
+  // Peek at the start of chapter 1 and at chapter 2, touching nothing.
+  await page.goto('/#/manga/MangaK/Test%20Camp/0002%20Chapter%202?page=1')
+  await expect(label(page)).toHaveText('Page 1 of 3')
+  await page.goto('/#/manga/MangaK/Test%20Camp/0001%20Chapter%201?page=1')
+  await expect(label(page)).toHaveText('Page 1 of 4')
+  await page.goto('/#/manga')
+  await expect(continueLink(page)).toHaveAttribute('href', /0001%20Chapter%201\?page=3$/)
+  expect(s.unmocked).toEqual([])
+})
+
+test('pages without dimensions: Continue follows a wheel scroll, not the placeholder layout', async ({ page }) => {
+  const s = await mockManga(page)
+  await page.route(/\/api\/saved-comics\/pages\?/, (route) => route.fulfill({
+    json: {
+      chapter: '0001 Chapter 1', title: 'Chapter 1', number: 1, source: 'MangaK', series: 'Test Camp',
+      pages: [1, 2, 3, 4].map((n) => ({ page: n, width: null, height: null })),
+      prev_chapter: null, next_chapter: null,
+    },
+  }))
+  await page.goto('/#/manga/MangaK/Test%20Camp/0001%20Chapter%201?page=1')
+  await expect(page.getByTestId('comic-page')).toHaveCount(4)
+  await expect(page.getByTestId('comic-page').first().locator('img')).not.toHaveAttribute('width', /.+/)
+  await expect(page.getByTestId('comic-page').first()).toBeVisible()
+  // Before any scroll nothing is saved, whatever the layout puts mid-screen.
+  const saved = () => page.evaluate(() => Object.keys(localStorage).filter((k) => k.includes('manga.last.')).length)
+  expect(await saved()).toBe(0)
+
+  await page.mouse.move(200, 300)
+  await page.mouse.wheel(0, 1500)
+  await expect.poll(saved).toBe(1)
   expect(s.unmocked).toEqual([])
 })
 
@@ -87,41 +130,11 @@ test('leaving the reader mid-scroll stays on the list', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('save folder: pick one, go back to the default, open it', async ({ page }) => {
+test('the empty list points to Sources', async ({ page }) => {
   const s = await mockManga(page, { empty: true })
   await page.goto('/#/manga')
   await expect(page.getByTestId('manga-empty')).toContainText('No saved chapters yet')
-  const card = page.getByRole('region', { name: 'Save folder' })
-  await expect(card.getByTestId('save-folder')).toHaveText('C:\\Baihe\\data\\saved_comics')
-  await expect(card).toContainText('Default')
-
-  const input = card.getByLabel('Save to another folder', { exact: true })
-  await input.fill('relative')
-  await card.getByRole('button', { name: 'Use this folder' }).click()
-  await expect(card.getByRole('alert')).toContainText('starting with its drive')
-
-  await input.fill('D:\\Manga')
-  await card.getByRole('button', { name: 'Use this folder' }).click()
-  await expect(card.getByTestId('save-folder')).toHaveText('D:\\Manga')
-  await expect(card).toContainText('Picked on this PC')
-  await expect(input).toHaveValue('')
-
-  await card.getByRole('button', { name: 'Use the default' }).click()
-  await expect(card.getByTestId('save-folder')).toHaveText('C:\\Baihe\\data\\saved_comics')
-  expect(s.folderPosts).toEqual([{ folder: 'relative' }, { folder: 'D:\\Manga' }, { folder: '' }])
-
-  await card.getByRole('button', { name: 'Open folder' }).click()
-  await expect.poll(() => s.opened).toBe(1)
-  expect(s.unmocked).toEqual([])
-})
-
-test('from another device the save folder card is not shown', async ({ page }) => {
-  const s = await mockManga(page, { local: false })
-  await page.goto('/#/manga')
-  await expect(page.getByRole('list', { name: 'Saved series' })).toBeVisible()
+  await expect(page.getByTestId('manga-empty').getByRole('link', { name: 'Sources' })).toHaveAttribute('href', '#/sources')
   await expect(page.getByRole('region', { name: 'Save folder' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Open folder' })).toHaveCount(0)
-  // Asked at most once before /api/meta answered (refused, so the card stays hidden); never opened or changed.
-  expect(s.calls.filter((c) => c !== 'GET /api/saved-comics/folder')).toEqual([])
   expect(s.unmocked).toEqual([])
 })

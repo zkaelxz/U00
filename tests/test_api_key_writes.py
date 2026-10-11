@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
+from lib.errors import InvalidInputError
 from services import settings_service
 
 SECRET = "sk-ant-TESTSECRET1234567890abcdef"
@@ -51,6 +52,7 @@ def test_config_flag_default_off_and_parse():
 def test_disabled_by_default_403(env_file):
     r = _set(_client(enabled=False))
     assert r.status_code == 403
+    assert r.json()["error"]["code"] == "forbidden"
     assert not env_file.exists()
     assert _client(enabled=False).post("/api/settings/keys/claude/clear",
                                        json={"confirm": True}).status_code == 403
@@ -169,7 +171,7 @@ def test_secret_never_in_logs_or_errors(env_file, caplog):
 
 
 def test_service_error_does_not_echo_value():
-    with pytest.raises(Exception) as ei:
+    with pytest.raises(InvalidInputError) as ei:
         settings_service._validate_key_value(SECRET + "\nX")
     assert SECRET not in str(ei.value)
 

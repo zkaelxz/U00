@@ -7,7 +7,7 @@ export const STAGE_IDS = ['source', 'translate', 'review', 'dub', 'export'] as c
 export type StageId = (typeof STAGE_IDS)[number]
 
 export const STAGE_LABELS: Record<StageId, string> = {
-  source: 'Source',
+  source: 'Media',
   translate: 'Translate',
   review: 'Review',
   dub: 'Dub',

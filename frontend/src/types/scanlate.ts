@@ -69,6 +69,8 @@ export type ScanlateRunMode = 'missing' | 'page' | 'all'
 export interface ScanlateRunRequest {
   mode: ScanlateRunMode
   page_id?: number
+  // Limits 'missing' / 'all' to one chapter (hidden pages are always skipped).
+  chapter_id?: string
   confirm?: boolean
   engine?: string
   detect_backend?: ScanlateDetectBackend

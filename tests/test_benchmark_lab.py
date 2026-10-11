@@ -20,6 +20,7 @@ from services import benchmark_lab_service as svc
 from services import settings_service, translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
+from tests.saved_settings import patch_setting
 
 
 def _wait(job_id=svc.JOB_ID, timeout=15):
@@ -134,7 +135,7 @@ class TestScorerChoice:
 
     def test_run_records_builtin_scorer_without_jiwer(self, isolated_db, monkeypatch):
         _hide_jiwer(monkeypatch)
-        monkeypatch.setattr(svc, "_run_file_case", lambda stage, cfg, case, use_gpu: {
+        monkeypatch.setattr(svc, "_run_file_case", lambda *args: {
             "output_text": "你好世", "duration_seconds": 0.1})
         case = db.create_benchmark_case("c", "ocr", "image", "zh", input_filename="img.png",
                                         reference_text="你好世界")
@@ -409,6 +410,84 @@ class TestFileStages:
         assert (res["metric"], res["score"]) == ("cer", 1.0)
 
 
+class TestOfflineModelFolderArm:
+    @pytest.fixture
+    def folder(self, tmp_path, monkeypatch):
+        d = tmp_path / "secret-ja-finetune"
+        d.mkdir()
+        patch_setting(monkeypatch, "whisper_model_path", str(d))
+        return d
+
+    def _case(self):
+        db.create_benchmark_case("clip", "transcription", "audio_drama", input_filename="c.wav",
+                                 reference_text="こんにちは")
+
+    def test_reserved_name_passes_the_saved_folder_through(self, isolated_db, monkeypatch, folder):
+        self._case()
+        seen = {}
+
+        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None):
+            seen["path"] = local_model_path
+            return {"output_text": "こんにちは", "duration_seconds": 0.1, "error": None, "score": None}
+        monkeypatch.setattr(benchmark, "run_transcription_case", fake)
+        (sid,) = _run(stage="transcription",
+                      configs=[{"engine": "whisper", "model": benchmark.LOCAL_FOLDER_MODEL}])["session_ids"]
+        assert seen["path"] == str(folder)
+        detail = svc.get_run(sid)
+        assert detail["run"]["model"] == "offline model folder"
+        assert "secret-ja-finetune" not in repr(detail)
+
+    def test_the_folder_is_resolved_once_per_run(self, isolated_db, monkeypatch, folder, tmp_path):
+        for name in ("a", "b"):
+            db.create_benchmark_case(name, "transcription", "audio_drama", input_filename=f"{name}.wav",
+                                     reference_text="こんにちは")
+        other = tmp_path / "other-model"
+        other.mkdir()
+        used = []
+
+        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None):
+            used.append(local_model_path)
+            # Settings are edited while the run is going.
+            patch_setting(monkeypatch, "whisper_model_path", str(other))
+            return {"output_text": "こんにちは", "duration_seconds": 0.1, "error": None, "score": None}
+        monkeypatch.setattr(benchmark, "run_transcription_case", fake)
+        _run(stage="transcription", configs=[{"engine": "whisper", "model": benchmark.LOCAL_FOLDER_MODEL}])
+        assert used == [str(folder), str(folder)]
+
+    def test_a_failed_model_load_does_not_leak_the_folder_path(self, isolated_db, monkeypatch, folder):
+        self._case()
+        monkeypatch.setattr(benchmark, "run_transcription_case", lambda *a, **k: {
+            "output_text": "", "duration_seconds": 0.0, "score": None,
+            "error": f"Unable to load model from {folder}: missing model.bin"})
+        (sid,) = _run(stage="transcription",
+                      configs=[{"engine": "whisper", "model": benchmark.LOCAL_FOLDER_MODEL}])["session_ids"]
+        (res,) = svc.get_run(sid)["results"]
+        assert "missing model.bin" in res["error"]
+        # Only the last segment survives redaction.
+        assert str(folder) not in repr(svc.get_run(sid))
+        assert str(folder.parent) not in repr(svc.get_run(sid))
+
+    @pytest.mark.parametrize("setting", ["", "/no/such/folder"])
+    def test_unset_or_missing_folder_is_a_plain_error(self, isolated_db, monkeypatch, setting):
+        patch_setting(monkeypatch, "whisper_model_path", setting)
+        with pytest.raises(InvalidInputError, match="Offline Whisper model folder"):
+            svc.check_config("transcription", {"engine": "whisper", "model": benchmark.LOCAL_FOLDER_MODEL})
+
+    def test_folder_removed_after_start_fails_the_case_not_the_run(self, monkeypatch):
+        patch_setting(monkeypatch, "whisper_model_path", "/gone")
+        monkeypatch.setattr(benchmark, "run_transcription_case",
+                            lambda *a, **k: pytest.fail("must not load a model"))
+        r = svc._run_file_case("transcription", {"model": benchmark.LOCAL_FOLDER_MODEL},
+                               {"input_filename": "c.wav"}, False)
+        assert "Offline Whisper model folder" in r["error"]
+        assert "/gone" not in r["error"]
+
+    @pytest.mark.parametrize("model", ["/models/ja", "C:\\models\\ja", "../ja", "kotoba-tech/kotoba-whisper-v2.0"])
+    def test_path_or_repo_id_is_still_rejected(self, isolated_db, folder, model):
+        with pytest.raises(InvalidInputError, match="Unknown Whisper size"):
+            svc.check_config("transcription", {"engine": "whisper", "model": model})
+
+
 class TestReviewFixes:
     def test_source_language_reaches_engine(self, isolated_db, paid_engine, monkeypatch):
         seen = []
@@ -456,7 +535,7 @@ class TestReviewFixes:
         assert 0 < len(detail["results"]) < 5
 
     def test_gemini_free_tier_not_capped(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: True)
+        patch_setting(monkeypatch, "gemini_free_tier", True)
         assert svc._cap_applies("gemini") is False
         assert svc._cap_applies("claude") is True
 

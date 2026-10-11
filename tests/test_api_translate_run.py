@@ -32,7 +32,7 @@ def test_config_audio_and_novel(client):
     a = client.get(f"{BASE}/{_seed()}/config")
     assert a.status_code == 200
     body = a.json()
-    assert body["defaults"] == {"context_window": 6, "context_window_ahead": 3, "batch_size": 20}
+    assert body["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 30}
     assert body["line_count"] == 2 and body["untranslated_count"] == 1
     assert body["engines"] and body["workflow_tiers"] and body["style_presets"]
     assert isinstance(body["cap_applies_by_engine"]["claude"], bool)
@@ -108,14 +108,14 @@ def test_bulk_list_and_cancel(client, monkeypatch):
 
 
 def _provider_env(monkeypatch, provider):
-    import bulk_translate
+    import bulk_providers
     import translate_engines
     from services import translate_service
     seen = {}
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: seen.setdefault("key_for", name) and "k")
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
-    monkeypatch.setattr(bulk_translate, "make_provider", lambda name, engine: provider)
+    monkeypatch.setattr(bulk_providers, "make_provider", lambda name, engine: provider)
     return seen
 
 

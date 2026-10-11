@@ -7,22 +7,22 @@ test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
 
-// Phone: the not-installed note and the Diagnostics block fit (no sideways scroll, 44 px targets).
+// Phone: the preflight card and the Diagnostics block fit (no sideways scroll, 44 px targets).
 
 const noSideScroll = () => document.documentElement.scrollWidth <= window.innerWidth
 
-test('phone: transcription note and install block fit the screen', async ({ page }) => {
+test('phone: the preflight card stacks and its install button fits the screen', async ({ page }) => {
   await mockTranscription(page, false)
   await page.goto('/#/drama/1/source')
-  const link = page.locator('#transcribe-not-installed').getByRole('link', { name: 'Install transcription' })
-  await expect(link).toBeVisible()
+  const install = page.locator('#transcribe-not-installed').getByRole('button', { name: /Install \(about 80 MB\)/ })
+  await expect(install).toBeVisible()
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeDisabled()
-  expect((await hitHeight(link))).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(install))).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(noSideScroll)).toBe(true)
 
-  await link.click()
-  const install = page.getByTestId('transcription-missing').getByRole('button', { name: 'Install for Transcribe speech (Whisper)' })
-  await expect(install).toBeVisible()
-  expect((await hitHeight(install))).toBeGreaterThanOrEqual(44)
+  await page.goto('/#/diagnostics?install=transcription')
+  const block = page.getByTestId('transcription-missing').getByRole('button', { name: 'Install for Transcribe speech (Whisper)' })
+  await expect(block).toBeVisible()
+  expect((await hitHeight(block))).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(noSideScroll)).toBe(true)
 })

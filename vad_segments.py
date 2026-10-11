@@ -26,6 +26,10 @@ class VadNotInstalledError(ImportError):
     """faster-whisper (which bundles the Silero VAD) is not installed."""
 
 
+class VadFnFailed(Exception):
+    """An injected vad_fn broke while scoring; speech_spans uses Silero instead."""
+
+
 def _silero_spans(audio, sr, threshold, min_silence_ms, min_speech_ms):
     try:
         from faster_whisper.vad import VadOptions, get_speech_timestamps
@@ -61,7 +65,7 @@ def speech_spans(audio, sr: int, *, threshold: float = 0.5, min_silence_ms: int 
     """Sorted, non-overlapping speech spans in seconds, clamped to the audio.
 
     vad_fn(audio, sr) -> iterable of (start_s, end_s) replaces Silero (tests,
-    other detectors). Spans shorter than min_speech_ms are dropped, then each
+    other detectors); it raises VadFnFailed to ask for Silero after all. Spans shorter than min_speech_ms are dropped, then each
     is widened by pad_ms per side so word edges survive; spans the padding
     makes touch are merged."""
     audio = np.asarray(audio)
@@ -71,7 +75,10 @@ def speech_spans(audio, sr: int, *, threshold: float = 0.5, min_silence_ms: int 
     if vad_fn is None:
         raw = _silero_spans(audio, sr, threshold, min_silence_ms, min_speech_ms)
     else:
-        raw = vad_fn(audio, sr)
+        try:
+            raw = vad_fn(audio, sr)
+        except VadFnFailed:
+            raw = _silero_spans(audio, sr, threshold, min_silence_ms, min_speech_ms)
     pad = pad_ms / 1000.0
     kept = [(s - pad, e + pad) for s, e in raw if (e - s) * 1000.0 >= min_speech_ms]
     return _normalize(kept, duration)

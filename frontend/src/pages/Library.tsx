@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { createDrama, getContinueReading, getPresets, getRecent, getSeries, getStats } from '../api/library'
@@ -14,10 +14,11 @@ import { LibraryList } from '../components/LibraryList'
 import { Section } from '../components/Section'
 import { Sheet } from '../components/Sheet'
 import {
-  continueItems, countDramas, dramaName, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
+  continueItems, dramaName, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
 } from '../components/libraryView'
 import { buttonClass } from '../components/uiClasses'
 import { useLoad, type Loaded } from '../hooks/useLoad'
+import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
@@ -26,15 +27,16 @@ import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { SelectionBar } from './libraryAdmin/SelectionBar'
 import { pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
-import type { DramaCreateRequest, LibraryDashboard } from '../types/library'
+import type { DramaCreateRequest } from '../types/library'
 import {
   MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice,
   validateCreate, type CreateExtras,
 } from './libraryForm'
 import { GetStarted } from './libraryParity/GetStarted'
+import { MakeSubtitles } from './makeSubtitles/MakeSubtitles'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
-  autofillHref, usageLine,
+  autofillHref, libraryHeadline, usageLine, usageSpent,
 } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
@@ -42,8 +44,7 @@ import { SERIES_HELP } from '../helpText'
 
 
 
-const statsLine = (s: LibraryDashboard) =>
-  `${countDramas(s.total_dramas)} · ${s.translated_lines} of ${s.total_lines} lines translated · $${s.usage.estimated_cost_usd.toFixed(2)} spent · ${usageLine(s.usage)}`
+const CONTINUE_SEEN_PREF = 'library.continue.hadItems'
 
 // "Continue": reading and workspace activity, one Resume tap each. Rendered
 // only when there is something to resume.
@@ -55,7 +56,18 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
 }) {
   const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
-  if (!items.length) return <ErrorBanner error={recent.error} />
+  const errors = <><ErrorBanner error={continuing.error} /><ErrorBanner error={recent.error} /></>
+  // The shelf is the tallest thing above the list; holding its place until the
+  // two requests settle keeps the list from jumping down when they land.
+  const loading = !continuing.error && !recent.error && (continuing.data === null || recent.data === null)
+  // Only reserve the space for a viewer who had something to continue last
+  // time; otherwise an empty shelf would leave a 140 px gap that then collapses.
+  const [hadItems, setHadItems] = usePersistedState(CONTINUE_SEEN_PREF, false)
+  useEffect(() => {
+    if (!loading) setHadItems(items.length > 0)
+  }, [loading, items.length, setHadItems])
+  if (loading) return hadItems ? <div className="continue-skeleton skeleton-block" aria-hidden="true" /> : null
+  if (!items.length) return errors
   const limit = phone ? 1 : 4
   const shown = all ? items : items.slice(0, limit)
   const href = (x: ContinueItem) =>
@@ -64,7 +76,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
       : workspaceHref(x.dramaId)
   return (
     <Card title={phone ? undefined : 'Continue'} className="continue-card" aria-label="Continue">
-      <ErrorBanner error={recent.error} />
+      {errors}
       <ul className="continue-list">
         {shown.map((x) => (
           <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
@@ -104,6 +116,37 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
 
 
 const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: '' }
+
+const MAKE_SUBTITLES_PREF = 'library.makeSubtitles.open'
+
+// The Make subtitles card is the first-run action; once there are titles,
+// "New title" is the page's one primary, so the card folds to one line. It
+// stays mounted while folded so a run in progress isn't lost.
+function MakeSubtitlesPanel({ hasTitles }: { hasTitles: boolean | null }) {
+  const [pref, setPref] = usePersistedState(MAKE_SUBTITLES_PREF, '')
+  // Until the title count is known neither state is right: folded would flash
+  // before an empty library's card expands.
+  if (hasTitles === null) return null
+  const open = !hasTitles || pref === 'open'
+  return (
+    <div className="make-subtitles-panel">
+      {hasTitles && (
+        <button
+          type="button"
+          className={`${buttonClass('ghost')} disclosure-toggle`}
+          aria-expanded={open}
+          aria-controls="make-subtitles-body"
+          onClick={() => setPref(open ? 'closed' : 'open')}
+        >
+          <span aria-hidden="true">{open ? '▾' : '▸'}</span> Make subtitles
+        </button>
+      )}
+      <div id="make-subtitles-body" hidden={!open}>
+        <MakeSubtitles />
+      </div>
+    </div>
+  )
+}
 
 // What has been typed into "New drama". The page keeps it, so closing the
 // Sheet (Esc, backdrop, ×) and reopening it doesn't lose the input; only a
@@ -158,7 +201,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   }
 
   return (
-    <form onSubmit={submit} className="stack create-form" aria-label="New drama">
+    <form onSubmit={submit} className="stack create-form" aria-label="New title">
       <Field label="English title">
         {/* The attribute (not React's autoFocus) so the dialog's own focusing picks it. */}
         <input value={form.title_en} onChange={set('title_en')} ref={(el) => el?.setAttribute('autofocus', '')} />
@@ -179,6 +222,8 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         </Field>
       </div>
       <Section title="Credits, summary, series and preset" summary="Author, studio, director, voice actors, summary, series, preset">
+        <ErrorBanner error={series.error} />
+        <ErrorBanner error={presets.error} />
         <div className="field-row">
           <Field label="Author">
             <input value={form.author} onChange={set('author')} />
@@ -212,7 +257,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
             </Field>
           )}
           {!!presets.data?.items.length && (
-            <Field label="Preset" help="Saves the preset's translation engine on the new drama, and starts its Translate stage with the preset's style and English variant.">
+            <Field label="Preset" help="Saves the preset's translation engine on the new title, and starts its Translate stage with the preset's style and English variant.">
               <select value={extras.preset} onChange={setExtra('preset')}>
                 <option value="">No preset</option>
                 {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
@@ -224,7 +269,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
       {invalid && <p className="error" role="alert">{invalid}</p>}
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
-        <button type="submit" className={buttonClass('primary')} disabled={busy}>Create drama</button>
+        <button type="submit" className={buttonClass('primary')} disabled={busy}>Create title</button>
         <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create and auto-fill</button>
         <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
@@ -242,6 +287,9 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
+  // POST /api/dramas needs admin.library, which household members lack. It only hides the
+  // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
+  const canCreate = useHolds('admin.library')
   const [startedDismissed, setStartedDismissed] = usePersistedState(GET_STARTED_PREF, false)
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
@@ -265,7 +313,7 @@ export default function LibraryPage() {
 
   const openDetails = (id: number) => {
     const d = items.find((x) => x.id === id)
-    setSelected({ id, title: d ? dramaName(d) : 'Drama details' })
+    setSelected({ id, title: d ? dramaName(d) : 'Title details' })
   }
   const mediaTypes = new Map(items.map((d) => [d.id, d.media_type]))
 
@@ -307,11 +355,21 @@ export default function LibraryPage() {
         <div className="page-head-text">
           <h2 className="page-title">Library</h2>
           <ErrorBanner error={stats.error} />
-          {stats.data && <p className="page-meta" data-testid="stats">{statsLine(stats.data)}</p>}
+          {stats.data
+            ? <p className="page-meta" data-testid="stats">{libraryHeadline(stats.data)}</p>
+            : !stats.error && <p className="page-meta stats-placeholder" aria-hidden="true" />}
+          {stats.data && usageSpent(stats.data.usage) && (
+            <details className="stats-usage">
+              <summary>{usageSpent(stats.data.usage)}</summary>
+              <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
+            </details>
+          )}
         </div>
-        <div className="actions">
-          <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>
-        </div>
+        {canCreate && (
+          <div className="actions">
+            <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
+          </div>
+        )}
       </header>
 
       {notice && (
@@ -321,8 +379,14 @@ export default function LibraryPage() {
         </p>
       )}
 
-      {showGetStarted(stats.data?.total_dramas, startedDismissed) && (
-        <GetStarted pc={pc} onNew={() => setCreating(true)} onDismiss={() => setStartedDismissed(true)} />
+      {showGetStarted(stats.data?.total_dramas, startedDismissed)
+        ? <GetStarted onDismiss={() => setStartedDismissed(true)} />
+        : <MakeSubtitlesPanel hasTitles={stats.data ? stats.data.total_dramas !== 0 : stats.error ? true : null} />}
+
+      {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
+        <p className="muted" data-testid="member-empty-note">
+          No titles yet. Add some from <a href="#/sources">Sources</a> or <a href="#/discover">Discover</a>.
+        </p>
       )}
 
       <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
@@ -338,11 +402,11 @@ export default function LibraryPage() {
         selectMode={selectMode}
         onSelectModeChange={setSelectMode}
         onItems={onItems}
-        onCreate={() => setCreating(true)}
+        onCreate={canCreate ? () => setCreating(true) : undefined}
       />
       {phone && bar}
 
-      <Sheet open={creating} title="New drama" onClose={() => setCreating(false)}>
+      <Sheet open={creating} title="New title" onClose={() => setCreating(false)}>
         <CreateForm
           series={series}
           presets={presets}

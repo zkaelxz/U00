@@ -4,14 +4,15 @@ import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
   CLIP_BATCH_SIZE, clipBatches, clipsDoneBeforeError, describeClipsStopped, sumClipResults,
-  clipLine, clipTitle, clipsInUseText, describeClipsMoved, filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
+  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, keptTitlesLine, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, titleSizesText, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
   name: 'tmp', path: 'library/tmp', kind: 'folder', size_bytes: 1_500_000, file_count: 12,
-  percent_of_parent: 40, modified_at: null, is_link: false, contains_link: false, complete: true, protected: false,
+  percent_of_parent: 40, modified_at: null, is_link: false, contains_link: false, linked_bytes: null, linked_files: null, linked_complete: null,
+  complete: true, protected: false,
   protected_reason: null, regenerable: null, irreplaceable: false, irreplaceable_note: null,
-  movable: { supported: false, reason: 'Fixed place.', what: null }, ...over,
+  movable: { supported: false, reason: 'Fixed place.', what: null }, title_sizes: null, ...over,
 })
 const scan = { busy_reason: null }
 
@@ -40,6 +41,33 @@ describe('size formatting', () => {
     expect(diskLine({ disk_free_bytes: 2_800_000_000, disk_total_bytes: 252_000_000_000 })).toBe(
       '2.8 GB free of 252.0 GB on this drive')
     expect(diskLine({ disk_free_bytes: null, disk_total_bytes: null })).toBe('')
+  })
+})
+
+describe('linked folders', () => {
+  const linked = { linked_bytes: 7_200_000_000, linked_files: 2, linked_complete: true }
+  it('labels a link with its target size and never calls it counted', () => {
+    expect(linkedText(item({ is_link: true, ...linked }))).toBe(
+      'Linked folder, stored elsewhere: 7.2 GB · 2 files')
+    expect(linkedText(item({ is_link: true, ...linked, linked_complete: false }))).toBe(
+      'Linked folder, stored elsewhere: at least 7.2 GB · 2 files')
+  })
+  it('tells a folder holding a link that the linked size is extra', () => {
+    expect(linkedText(item({ contains_link: true, ...linked }))).toBe(
+      'Plus 7.2 GB · 2 files in linked folders stored elsewhere, not counted in the size above.')
+  })
+  it('says nothing when no linked folder was measured, and never names a place', () => {
+    expect(linkedText(item({ is_link: true }))).toBeNull()
+    expect(linkedText(item({ is_link: true, ...linked }))).not.toMatch(/[\\/]/)
+  })
+  it('adds the folder total line', () => {
+    expect(scanLinkedText({ linked_bytes: 7_200_000_000, linked_complete: true })).toBe('plus 7.2 GB in linked folders')
+    expect(scanLinkedText({ linked_bytes: 7_200_000_000, linked_complete: false })).toBe('plus at least 7.2 GB in linked folders')
+    expect(scanLinkedText({ linked_bytes: 0, linked_complete: true })).toBe('')
+  })
+  it('keeps a link or a folder holding one blocked from Trash', () => {
+    expect(clearBlock(item({ is_link: true, protected: true, protected_reason: 'A link.', ...linked }), scan)).toBe('A link.')
+    expect(clearBlock(item({ contains_link: true, ...linked }), scan)).toMatch(/link or junction/)
   })
 })
 
@@ -101,6 +129,14 @@ describe('what can be done', () => {
   })
 })
 
+describe('temp cleanup text', () => {
+  it('says what was removed, or that nothing was left', () => {
+    expect(describeTempCleaned({ removed: 0, freed_mb: 0 })).toBe('No leftover temp files.')
+    expect(describeTempCleaned({ removed: 1, freed_mb: 0.5 })).toBe('Removed 1 temp item and freed 0.5 MB.')
+    expect(describeTempCleaned({ removed: 3, freed_mb: 1200.5 })).toBe('Removed 3 temp items and freed 1,200.5 MB.')
+  })
+})
+
 describe('unused voice clips text', () => {
   it('describes a clip by type, size and date only', () => {
     expect(clipLine({ file_type: 'wav', size_bytes: 1_500_000, modified_at: '2026-09-30T08:00:00+00:00' })).toBe('WAV clip · 1.5 MB · 2026-09-30')
@@ -146,5 +182,28 @@ describe('clip batches and partial failures', () => {
   it('says "Moved N of M" and why it stopped', () => {
     expect(describeClipsStopped({ moved_count: 502, moved_bytes: 2000, skipped: [{ id: 'a', reason: 'changed' }] }, 1001, 'A job is running.'))
       .toBe('Moved 502 of 1,001 clips (2.0 KB) to Trash; stopped because A job is running. 1 clip skipped. You can restore them from Trash.')
+  })
+})
+
+describe('title size by kind', () => {
+  const sizes = { originals_bytes: 20_000_000_000, raw_transcript_bytes: 3_100_000, history_bytes: 420_000, regenerable_bytes: 800_000_000, complete: true }
+  it('lists originals, raw transcripts, line history and rebuildable files', () => {
+    expect(titleSizesText(sizes)).toBe(
+      'Originals 20.0 GB · raw transcripts 3.1 MB · line history 420.0 KB (in the database) · rebuildable files 800.0 MB')
+  })
+  it('marks the file sizes as lower bounds when the walk was cut short', () => {
+    expect(titleSizesText({ ...sizes, complete: false })).toBe(
+      'Originals at least 20.0 GB · raw transcripts at least 3.1 MB · line history 420.0 KB (in the database) · rebuildable files at least 800.0 MB')
+  })
+  it('says nothing for an item that is not a title', () => {
+    expect(titleSizesText(null)).toBeNull()
+  })
+})
+
+describe('keptTitlesLine', () => {
+  it('names the "Keep original files" pin only when an item came from a pinned title', () => {
+    expect(keptTitlesLine([{ from_kept_title: false }, {}])).toBeNull()
+    expect(keptTitlesLine([{ from_kept_title: true }, {}])).toContain('1 item came from titles with "Keep original files" on')
+    expect(keptTitlesLine([{ from_kept_title: true }, { from_kept_title: true }])).toMatch(/^2 items came from/)
   })
 })

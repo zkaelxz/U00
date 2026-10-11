@@ -66,6 +66,8 @@ describe('resolveAssStyle', () => {
 describe('exportFilename', () => {
   it('defaults to the API name shape', () => {
     expect(exportFilename('  ', 7, 'zh', 'srt')).toBe('drama_7_zh.srt')
+    expect(exportFilename('  ', 7, 'zh', 'srt', 'Show - Ep 1 - subtitles (zh).srt')).toBe('Show - Ep 1 - subtitles (zh).srt')
+    expect(exportFilename('mine', 7, 'zh', 'srt', 'Show - Ep 1 - subtitles (zh).srt')).toBe('mine.srt')
   })
   it('keeps a custom base and replaces unsafe characters', () => {
     expect(exportFilename('My Show: ep 1/2', 7, 'en', 'ass')).toBe('My Show_ ep 1_2.ass')

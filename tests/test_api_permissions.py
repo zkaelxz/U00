@@ -32,8 +32,8 @@ from services.service_errors import RateLimitedError
 HOW_TO_DECLARE = (
     "Every route needs exactly one of dependencies=[require_permission(\"x.y\")], "
     "[public_route()], [local_only()] or (own-session routes under /api/auth/ only) "
-    "[authenticated()] from api/auth.py on its decorator, and a row in "
-    "the route table in docs/route-permissions.md.")
+    "[authenticated()] from api/auth.py on its decorator, and its row in "
+    "docs/route-permissions.md, regenerated with `python tools/route_table.py --write`.")
 
 # Starlette routes FastAPI itself adds for the interactive docs. Only served
 # with auth off (loopback-only); create_app drops them when auth is on.
@@ -41,13 +41,17 @@ DOCS_PATHS = {"/api/openapi.json", "/api/docs", "/docs/oauth2-redirect"}
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture
-def dist(tmp_path):
-    d = tmp_path / "dist"
+def make_fake_dist(d):
+    """A minimal built frontend; tools/route_table.py builds the same app with it."""
     (d / "assets").mkdir(parents=True)
     (d / "index.html").write_text("<html>FAKE-INDEX</html>")
     (d / "assets" / "app.js").write_text("console.log(1)")
     return d
+
+
+@pytest.fixture
+def dist(tmp_path):
+    return make_fake_dist(tmp_path / "dist")
 
 
 def _app(auth="on", dist_dir=None, **kw):
@@ -92,6 +96,23 @@ def _h(session, csrf=True, **extra):
 
 # --- the static test ---------------------------------------------------------
 
+def declaration_label(decls):
+    kind, perm = decls[0]
+    return {"public": "public()", "local_only": "local_only()",
+            "authenticated": "authenticated()"}.get(kind, perm)
+
+
+def route_declarations(app):
+    """{"METHOD /path": declaration} for the app, as the doc table lists it."""
+    actual = {}
+    for _r, path, methods, decls in api_auth.iter_route_declarations(app):
+        if path in DOCS_PATHS:
+            continue
+        for m in methods:
+            actual[f"{m} {path}"] = declaration_label(decls)
+    return actual
+
+
 def _undeclared(app):
     bad = []
     for route, path, methods, decls in api_auth.iter_route_declarations(app):
@@ -126,52 +147,59 @@ class TestEveryRouteDeclared:
 
     def test_doc_route_table_matches_the_app(self, dist):
         """Every row of the route table in docs/route-permissions.md
-        (declaration, count, listed METHOD /path) equals what the app declares."""
+        (one `METHOD /path` and its declaration per row) equals what the app
+        declares, and the rows are sorted with one route per line. The table is
+        generated: regenerate with `python tools/route_table.py --write`."""
         import pathlib
         import re
         doc = (pathlib.Path(__file__).resolve().parent.parent / "docs"
                / "route-permissions.md").read_text(encoding="utf-8")
-        header = doc.index("| Declaration | Routes | Paths |")
-        documented, counts = {}, {}
+        header = doc.index("| Route | Declaration |")
+        documented, order, problems = {}, [], []
         for line in doc[header:].splitlines()[2:]:
             if not line.startswith("|"):
                 break
-            cells = [c.strip() for c in line.strip().strip("|").split("|", 2)]
-            name = cells[0]
-            documented[name] = set(re.findall(r"`([A-Z]+ /[^`]*)`", cells[2]))
-            counts[name] = int(cells[1])
-
-        def label(decls):
-            kind, perm = decls[0]
-            return {"public": "public()", "local_only": "local_only()",
-                    "authenticated": "authenticated()"}.get(kind, perm)
-
-        actual = {}
-        for _r, path, methods, decls in api_auth.iter_route_declarations(_app("on", dist)):
-            if path in DOCS_PATHS:
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            routes = re.findall(r"`([A-Z]+ /[^`]*)`", cells[0])
+            if len(routes) != 1 or len(cells) != 2:
+                problems.append(f"not exactly one route per row: {line}")
                 continue
-            for m in methods:
-                actual.setdefault(label(decls), set()).add(f"{m} {path}")
+            if routes[0] in documented:
+                problems.append(f"{routes[0]}: listed twice")
+            documented[routes[0]] = cells[1]
+            method, path = routes[0].split(" ", 1)
+            order.append((path, method))
+        if order != sorted(order):
+            problems.append("rows are not sorted by path, then method")
 
-        problems = []
-        for name in sorted(set(documented) | set(actual)):
-            doc_routes, app_routes = documented.get(name, set()), actual.get(name, set())
-            if name not in documented:
-                problems.append(f"{name}: no row in the doc (app has {len(app_routes)} routes)")
-                continue
-            if name not in actual:
-                problems.append(f"{name}: row in the doc but the app declares no such routes")
-                continue
-            if counts[name] != len(doc_routes):
-                problems.append(f"{name}: Routes column says {counts[name]} but the row lists {len(doc_routes)}")
-            if counts[name] != len(app_routes):
-                problems.append(f"{name}: Routes column says {counts[name]} but the app has {len(app_routes)}")
-            for r in sorted(app_routes - doc_routes):
-                problems.append(f"{name}: missing from the doc: {r}")
-            for r in sorted(doc_routes - app_routes):
-                problems.append(f"{name}: in the doc but not declared in the app: {r}")
-        assert not problems, ("docs/route-permissions.md route table is out of date:\n  "
+        actual = route_declarations(_app("on", dist))
+
+        for r in sorted(set(actual) - set(documented)):
+            problems.append(f"missing from the doc: {r} ({actual[r]})")
+        for r in sorted(set(documented) - set(actual)):
+            problems.append(f"in the doc but not declared in the app: {r}")
+        for r in sorted(set(actual) & set(documented)):
+            if actual[r] != documented[r]:
+                problems.append(f"{r}: doc says {documented[r]} but the app declares {actual[r]}")
+        assert not problems, ("docs/route-permissions.md route table is out of date "
+                              "(regenerate with `python tools/route_table.py --write`):\n  "
                               + "\n  ".join(problems))
+
+    def test_generator_output_equals_the_doc_table_and_write_is_idempotent(self):
+        import importlib.util
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        spec = importlib.util.spec_from_file_location("route_table", root / "tools" / "route_table.py")
+        rt = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rt)
+        doc = (root / "docs" / "route-permissions.md").read_text(encoding="utf-8")
+        table = rt.build_table()
+        assert table in doc, "run `python tools/route_table.py --write`"
+        once = rt.replace_table(doc, table)
+        assert once == doc
+        assert rt.replace_table(once, table) == once
+        stale = doc.replace("| public() |", "| local_only() |", 1)
+        assert rt.replace_table(stale, table) == doc
 
     def test_walker_sees_every_route(self, dist):
         app = _app("off", dist)
@@ -222,12 +250,14 @@ class TestEveryRouteDeclared:
 
     def test_authenticated_only_on_own_session_routes(self):
         """authenticated() (signed in, no permission) is the fourth declaration
-        kind; it is only for routes on the caller's own session, so it may not
-        spread to routes that touch shared data."""
+        kind; it is only for routes on the caller's own sessions and extension
+        device tokens, so it may not spread to routes that touch shared data."""
         app = _app("on")
         uses = sorted(f"{sorted(m)} {p}" for _r, p, m, d in api_auth.iter_route_declarations(app)
                       if ("authenticated", None) in d)
-        assert uses == ["['GET'] /api/auth/sessions", "['POST'] /api/auth/logout",
+        assert uses == ["['GET'] /api/auth/device-tokens", "['GET'] /api/auth/sessions",
+                        "['POST'] /api/auth/device-tokens/{device_token_id}/revoke",
+                        "['POST'] /api/auth/logout",
                         "['POST'] /api/auth/sessions/revoke-others",
                         "['POST'] /api/auth/sessions/{auth_session_id}/revoke"]
         kinds = {d[0] for _r, _p, _m, decls in api_auth.iter_route_declarations(app)
@@ -716,6 +746,63 @@ class TestPaidEngines:
         _u, s = _user("engines.paid")
         r = c.post("/api/translate-run/dramas/999/run", json={"engine": "claude"}, headers=_h(s))
         assert r.status_code not in (401, 403)
+
+
+class TestJobQueue:
+    """/api/queue: jobs.start on every route; titles must be the caller's, a
+    paid Translate item needs engines.paid, and only the PC owner runs it."""
+
+    def test_needs_jobs_start(self, isolated_db):
+        c = _remote(_app())
+        u, s = _user_named("viewer@example.com")
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        assert c.get("/api/queue", headers=_h(s)).status_code == 403
+        did = db.create_drama(title_en="T", source_language="zh")
+        assert c.post("/api/queue/items", json={"drama_id": did, "step": "export"},
+                      headers=_h(s)).status_code == 403
+        assert c.post("/api/queue/start", json={}, headers=_h(s)).status_code == 403
+
+    def test_members_queue_their_own_titles_only_and_cannot_run_it(self, isolated_db):
+        c = _remote(_app())
+        a, sa = _user_named("a@example.com", "jobs.start")
+        b, sb = _user_named("b@example.com", "jobs.start")
+        mine = db.create_drama(title_en="Mine", owner_user_id=a["id"], is_private=1)
+        theirs = db.create_drama(title_en="Theirs", owner_user_id=b["id"], is_private=1)
+        shared = db.create_drama(title_en="Shared", owner_user_id=b["id"], is_private=0)
+        add = "/api/queue/items"
+        for did in (theirs, shared, 999999):
+            assert c.post(add, json={"drama_id": did, "step": "export"},
+                          headers=_h(sa)).status_code == 404
+        assert c.post(add, json={"drama_id": mine, "step": "dub"}, headers=_h(sa)).status_code == 422
+        r = c.post(add, json={"drama_id": mine, "step": "export"}, headers=_h(sa))
+        assert r.status_code == 200 and [i["title"] for i in r.json()["items"]] == ["Mine"]
+        c.post(add, json={"drama_id": theirs, "step": "export"}, headers=_h(sb))
+        assert [i["title"] for i in c.get("/api/queue", headers=_h(sb)).json()["items"]] == ["Theirs"]
+        item = r.json()["items"][0]["id"]
+        assert c.post(f"/api/queue/items/{item}/remove", json={}, headers=_h(sb)).status_code == 404
+        for path, body in (("/api/queue/start", {}), ("/api/queue/pause", {}),
+                           ("/api/queue/schedule", {"time": "02:00"}),
+                           ("/api/queue/policy", {"stop_on_failure": True})):
+            assert c.post(path, json=body, headers=_h(sa)).status_code == 403, path
+
+    def test_paid_translate_item_needs_engines_paid(self, isolated_db):
+        c = _remote(_app())
+        a, sa = _user_named("a@example.com", "jobs.start")
+        did = db.create_drama(title_en="T", owner_user_id=a["id"], is_private=1,
+                              translation_engine="claude")
+        body = {"drama_id": did, "step": "translate"}
+        assert c.post("/api/queue/items", json=body, headers=_h(sa)).status_code == 403
+        auth_service.grant_permission(a["id"], "engines.paid")
+        r = c.post("/api/queue/items", json=body, headers=_h(sa))
+        assert r.status_code == 200 and r.json()["items"][0]["paid"] is True
+
+    def test_the_pc_owner_runs_the_queue(self, isolated_db):
+        c = _local(_app("off"))
+        assert c.post("/api/queue/schedule", json={"time": "25:00"}).status_code == 422
+        r = c.post("/api/queue/schedule", json={"time": "02:00"})
+        assert r.status_code == 200 and r.json()["schedule"]["time"] == "02:00"
+        assert c.post("/api/queue/pause", json={}).status_code == 200
+        assert c.get("/api/queue").json()["can_control"] is True
 
 
 # --- tokens, cookies, rate limit, CLI ------------------------------------------

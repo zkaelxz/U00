@@ -18,7 +18,7 @@ import background_jobs
 import db
 from translate_engines import redact_for_storage
 
-from . import http, ladder, registry, store
+from . import extension_marker, http, ladder, registry, store
 from .models import SourceError
 
 CHECK_JOB_ID = "sources_chapter_check"
@@ -132,6 +132,7 @@ def _link_owner_can_edit(row) -> bool:
 def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> dict:
     factory = adapter_factory or (lambda name: registry.get_adapter(name))
     rows = store.list_tracked_series()
+    extension_only = extension_marker.marked_sources()
     summary = {"checked": 0, "new": 0, "errors": {}, "queued": [], "saved": []}
     auto_queue = bool(store.get_setting("auto_queue_new_chapters"))
     for i, row in enumerate(rows, start=1):
@@ -145,6 +146,10 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
             store.mark_checked(row["source"], row["series_id"], error=registry.SOURCE_REMOVED)
             continue
         if not registry.is_enabled(row["source"]):
+            continue
+        if row["source"] in extension_only:
+            # Not a failure and not a check: the person reads these through the extension.
+            summary.setdefault("extension_only", []).append(row["title"])
             continue
         try:
             adapter = factory(row["source"])
@@ -168,7 +173,8 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
                 summary["errors"][row["title"]] = LINK_UNAVAILABLE
                 store.mark_checked(row["source"], row["series_id"], error=LINK_UNAVAILABLE)
                 continue
-            if start_import(row["source"], row["series_id"], new, row["drama_id"]):
+            if start_import(row["source"], row["series_id"], new, row["drama_id"],
+                            series_url=row.get("url") or ""):
                 summary["queued"].append(row["title"])
     store.set_setting("last_check_cycle", time.time())
     if job_id:

@@ -21,11 +21,14 @@ interface Props {
   busy: boolean
   blocked: string | null
   onAdd: (line: NewLine) => void
+  // Adds the line with a blank source and transcribes its audio window at once;
+  // omitted when the title has no audio to hear.
+  onAddAndTranscribe?: (line: NewLine) => void
   onCancel?: () => void
 }
 
 // Insert a new line. Start/End come pre-filled from the gap after `after`.
-export function AddLineForm({ after, next, busy, blocked, onAdd, onCancel }: Props) {
+export function AddLineForm({ after, next, busy, blocked, onAdd, onAddAndTranscribe, onCancel }: Props) {
   const gap = gapForNewLine(after, next)
   const [start, setStart] = useState(String(gap.start))
   const [end, setEnd] = useState(String(gap.end))
@@ -73,6 +76,17 @@ export function AddLineForm({ after, next, busy, blocked, onAdd, onCancel }: Pro
         <button type="submit" className={buttonClass('primary')} disabled={!!problem || busy || !!blocked}>
           {busy ? 'Adding…' : after ? `Add after #${lineNumber(after.idx)}` : 'Add first line'}
         </button>
+        {onAddAndTranscribe && (
+          <button
+            type="button"
+            className={buttonClass('secondary')}
+            disabled={!!problem || busy || !!blocked || zh.trim() !== ''}
+            title={zh.trim() !== '' ? 'Leave the source empty to have it transcribed from the audio.' : undefined}
+            onClick={() => onAddAndTranscribe({ start: s, end: e, zh: '', en, speaker: speaker.trim() || null })}
+          >
+            Add and transcribe
+          </button>
+        )}
         {onCancel && <button type="button" className={buttonClass('ghost')} onClick={onCancel}>Back</button>}
       </div>
     </form>

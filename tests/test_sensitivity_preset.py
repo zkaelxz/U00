@@ -16,6 +16,7 @@ import pytest
 import background_jobs
 import cli
 import core
+import whisper_models
 import raw_transcript
 import sensitivity_preset as presets
 from services import transcribe_service
@@ -75,7 +76,7 @@ def _fake_whisper(monkeypatch, texts, seen):
     fake = types.ModuleType("faster_whisper")
     fake.WhisperModel = lambda *a, **k: Model()
     monkeypatch.setitem(sys.modules, "faster_whisper", fake)
-    core._whisper_model_cache.clear()
+    whisper_models._whisper_model_cache.clear()
 
 
 class TestDecode:

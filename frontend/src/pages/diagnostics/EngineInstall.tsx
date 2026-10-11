@@ -5,6 +5,8 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { capFirst } from '../../labels'
 import type { DiagnosticsPackageInfo, ModelEngineVersion } from '../../types/diagnostics'
 import { busyLine, installBlockedReason, installConfirmLabel, type AdminBusy } from './diagnosticsAdmin'
+import { InstallProgress } from './InstallProgress'
+import { cancelledText, runInstallJob } from './installJob'
 import { packageSizeText } from './installPresets'
 import { OutcomeBlock, type Outcome } from './PackagesSection'
 
@@ -33,8 +35,9 @@ export function EngineInstall({ engine, info, torchInstalled, jobsActive, busy, 
     onBusy({ kind: 'install', name })
     setOutcome(null)
     try {
-      const r = await installDependency(name)
-      setOutcome({ kind: 'install', name, ok: r.ok, output: r.output_tail, hint: r.hint })
+      const r = await runInstallJob(() => installDependency(name), (job) => onBusy({ kind: 'install', name, job }), name)
+      setOutcome({ kind: 'install', name, ok: r.ok, output: r.output_tail, hint: r.hint,
+        text: r.cancelled ? cancelledText(name) : undefined })
       if (r.ok) onInstalled()
     } catch (e) {
       setOutcome({ kind: 'install', name, error: e })
@@ -64,6 +67,7 @@ export function EngineInstall({ engine, info, torchInstalled, jobsActive, busy, 
         />
       </div>
       )}
+      {busy?.kind === 'install' && busy.name === name && <InstallProgress job={busy.job} name={name} />}
       {outcome && <OutcomeBlock outcome={outcome} onRecheck={onInstalled} />}
     </>
   )

@@ -141,7 +141,7 @@ test('a partial run shows failed and not attempted, then Retry sends exactly tho
   expect(s.unmocked).toEqual([])
 })
 
-test('more than 200 to retry: sends the first 200 and says so; no drama, no state call', async ({ page }) => {
+test('more than 200 to retry: sends the first 200 and says so; no title, no state call', async ({ page }) => {
   const s = await mockSources(page, { series: 'done' })
   const retry = Array.from({ length: 230 }, (_, i) => ({ chapter_id: `x${i + 1}`, title: '', status: 'failed', error: 'Import failed.' }))
   await mockImports(page, s, { importHold: true, importState: { imported_chapter_ids: [], retry } })

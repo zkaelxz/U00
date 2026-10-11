@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
+import { clearDrama3Lines, clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 
 // "Re-transcribe this line" in the Review line editor's details (parity
 // audit B1, R23). Drama 3 has no audio in the seeded library, so the control
@@ -9,7 +9,11 @@ import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 // needs a finished job in the API process; pytest covers the real routes).
 
 test.beforeEach(() => seedReviewResults())
-test.afterAll(() => clearReviewResults())
+// The apply test rewrites a line's text; restore after every test, not just at the end of the file.
+test.afterEach(() => {
+  clearReviewResults()
+  clearDrama3Lines()
+})
 
 const SHOTS = process.env.REVIEW_SHOTS
 
@@ -46,7 +50,7 @@ async function mockRun(page: Page, proposal: { proposed_zh: string; base_zh: str
   })
 }
 
-test('hidden when the drama has no audio', async ({ page }) => {
+test('hidden when the title has no audio', async ({ page }) => {
   await page.goto('/#/drama/3/review')
   await expect(rows(page)).toHaveCount(4)
   // wait for the config fetch to settle before asserting absence
@@ -184,7 +188,7 @@ test('a 409 on start is shown', async ({ page }) => {
   await page.route('**/api/transcribe/dramas/3/config', (route) =>
     route.fulfill({ json: { drama_id: 3, has_audio_pipeline: true, audio_available: true } }))
   await page.route('**/api/transcribe/dramas/3/lines/*/retranscribe', (route) =>
-    route.fulfill({ status: 409, json: { error: { code: 'conflict', message: "Another job is changing this drama's lines. Try again when it finishes." } } }))
+    route.fulfill({ status: 409, json: { error: { code: 'conflict', message: "Another job is changing this title's lines. Try again when it finishes." } } }))
 
   await page.goto('/#/drama/3/review')
   const row = await openDetails(page, 0)

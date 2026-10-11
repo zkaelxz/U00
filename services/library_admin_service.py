@@ -50,8 +50,11 @@ import storage
 import subtitle_formats
 import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import (drama_service, ownership_service, settings_service,
+from engine_backends import echo
+from services import (auth_service, drama_service, keep_original_service,
+                      maintenance_assistant_service, ownership_service, settings_service,
                       translate_run_service, translate_service)
+from services import library_translated_guard
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -96,14 +99,14 @@ def require_confirm(confirm, confirm_text, word: str, action: str):
 
 def _check_ids(drama_ids) -> list:
     if not isinstance(drama_ids, (list, tuple)) or not drama_ids:
-        raise InvalidInputError("Pick at least one drama.")
+        raise InvalidInputError("Pick at least one title.")
     if len(drama_ids) > MAX_BULK_IDS:
-        raise InvalidInputError(f"At most {MAX_BULK_IDS} dramas per request.")
+        raise InvalidInputError(f"At most {MAX_BULK_IDS} titles per request.")
     out = []
     for did in drama_ids:
         if (isinstance(did, bool) or not isinstance(did, int)
                 or not 1 <= did <= drama_service.MAX_ID):
-            raise InvalidInputError("A drama id is a positive whole number.")
+            raise InvalidInputError("A title id is a positive whole number.")
         if did not in out:
             out.append(did)
     return out
@@ -167,7 +170,7 @@ def refuse_during_maintenance(label: str):
     """A backup/export must not read the library while a bulk delete or
     storage cleanup is changing it (_maintenance refuses the reverse)."""
     if background_jobs.maintenance_active():
-        raise ConflictError(f"Dramas are being deleted or storage cleaned; the {label} "
+        raise ConflictError(f"Titles are being deleted or storage cleaned; the {label} "
                             f"can start when that finishes.")
 
 
@@ -230,7 +233,7 @@ def bulk_set_status(drama_ids, status: str) -> dict:
     """Sets only `status` on each drama. Per-id results."""
     if status not in STATUSES:
         raise InvalidInputError("Unknown status.", details={"allowed": list(STATUSES)})
-    return _bulk_apply(drama_ids, lambda did: db.update_drama(did, status=status))
+    return library_translated_guard.set_status(_bulk_apply, drama_ids, status)
 
 
 def bulk_set_tags(drama_ids, tag: str, present: bool) -> dict:
@@ -249,8 +252,8 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     single-drama delete uses); checked before anything is touched. A drama
     with a running/queued job is skipped with error "job_running"."""
     ids = _check_ids(drama_ids)
-    require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting dramas")
-    with maintenance("deleting dramas"):
+    require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting titles")
+    with maintenance("deleting titles"):
         results = []
         for did in ids:
             if db.get_drama(did) is None:
@@ -289,7 +292,7 @@ def _bulk_translate_plan(ids, principal=None):
             skipped.append({"drama_id": did, "reason": "job_running"})
         else:
             queued.append(did)
-            engines[did] = drama.get("translation_engine") or settings_service.get_default_engine()
+            engines[did] = drama.get("translation_engine") or settings_service.get("default_engine")
     return queued, skipped, engines
 
 
@@ -305,15 +308,15 @@ def bulk_translate_engines(drama_ids, principal=None) -> dict:
 
 def _check_expected_engines(expected) -> dict:
     if not isinstance(expected, dict) or len(expected) > MAX_BULK_IDS:
-        raise InvalidInputError("expected_engines maps drama ids to engine names.")
+        raise InvalidInputError("expected_engines maps title ids to engine names.")
     out = {}
     for k, v in expected.items():
         try:
             did = int(k)
         except (TypeError, ValueError):
-            raise InvalidInputError("expected_engines maps drama ids to engine names.") from None
+            raise InvalidInputError("expected_engines maps title ids to engine names.") from None
         if not isinstance(v, str):
-            raise InvalidInputError("expected_engines maps drama ids to engine names.")
+            raise InvalidInputError("expected_engines maps title ids to engine names.")
         out[did] = v
     return out
 
@@ -335,7 +338,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
     ids = _check_ids(drama_ids)
     if default_locale is None:
-        default_locale = settings_service.get_preference("default_locale")
+        default_locale = settings_service.get("default_locale")
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")
@@ -349,7 +352,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                 skipped.append({"drama_id": did, "reason": "engine_changed"})
         expected_engines = {did: expected[did] for did in queued}
     if not queued:
-        raise InvalidInputError("None of the picked dramas are untranslated (status 'aligned').")
+        raise InvalidInputError("None of the picked titles are untranslated (status 'aligned').")
     api_keys = {}
     for engine in translate_engines.ENGINES:
         try:
@@ -362,7 +365,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,
         default_locale=default_locale,
         ollama_base_url=settings_service.resolve_key("ollama_url") or None,
-        gemini_free_tier=settings_service.get_gemini_free_tier(),
+        gemini_free_tier=settings_service.get("gemini_free_tier"),
         models={}, monthly_cap=cap, expected_engines=expected_engines,
         allow_paid_summary=allow_paid_summary,
         include_genre_notes=include_genre_notes,
@@ -425,9 +428,7 @@ def _export_job(job_id, drama_ids):
                 zf.writestr(f"{folder}/english.srt", lines_to_srt(lns, "en"))
                 zf.writestr(f"{folder}/chinese.srt", lines_to_srt(lns, "zh"))
                 zf.writestr(f"{folder}/bilingual.srt", lines_to_bilingual_srt(lns))
-                dub_path = os.path.join(db.DRAMAS_DIR, str(did), "dub_track.wav")
-                if os.path.isfile(dub_path) and not os.path.islink(dub_path):
-                    zf.write(dub_path, f"{folder}/dub_track.wav")
+                keep_original_service.export_title_files(zf, did, d, folder)
                 exported += 1
 
     name, _ = _write_artifact("export", ".zip", "The export could not be written.", write)
@@ -436,26 +437,14 @@ def _export_job(job_id, drama_ids):
 
 
 def start_export_zip(drama_ids=None) -> dict:
-    """Job: zips english/chinese/bilingual SRT (+ dub track) for each
+    """Job: zips english/chinese/bilingual SRT (+ dub track, + a pinned
+    title's originals: keep_original_service) for each
     translated/dubbed/exported drama -- the picked ones, or all of them.
     Returns {job_id, drama_ids}; with explicit ids also `results`, one per
-    requested id ({drama_id, ok, error: not_found|not_translated})."""
-    results = None
-    if drama_ids is None:
-        ids = [d["id"] for d in db.list_dramas() if d.get("status") in _EXPORTABLE_STATUSES]
-    else:
-        ids, results = [], []
-        for did in _check_ids(drama_ids):
-            drama = db.get_drama(did)
-            if drama is None:
-                results.append({"drama_id": did, "ok": False, "error": "not_found"})
-            elif drama.get("status") not in _EXPORTABLE_STATUSES:
-                results.append({"drama_id": did, "ok": False, "error": "not_translated"})
-            else:
-                ids.append(did)
-                results.append({"drama_id": did, "ok": True})
+    requested id ({drama_id, ok, error: not_found|not_translated|no_translated_lines})."""
+    ids, results = library_translated_guard.pick_exportable(drama_ids, _check_ids, _EXPORTABLE_STATUSES)
     if not ids:
-        raise InvalidInputError("No translated dramas to export.",
+        raise InvalidInputError("No translated titles to export.",
                                 details={"results": results} if results is not None else None)
     refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
@@ -469,8 +458,8 @@ def start_export_zip(drama_ids=None) -> dict:
 
 
 def _sanitized_snapshot(dest: str):
-    """A consistent database snapshot with every auth session removed
-    (secure_delete, so the session hashes aren't left in free pages) and
+    """A consistent database snapshot with every session and device token
+    removed (secure_delete, so the hashes aren't left in free pages) and
     folded out of WAL mode, so dest is one self-contained file."""
     import sqlite3
     db.snapshot_database(dest)
@@ -478,9 +467,10 @@ def _sanitized_snapshot(dest: str):
         conn = sqlite3.connect(dest, isolation_level=None)
         try:
             conn.execute("PRAGMA secure_delete = ON")
-            if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                            "AND name = 'auth_sessions'").fetchone():
-                conn.execute("DELETE FROM auth_sessions")
+            have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+            for table in ("auth_sessions", "extension_device_tokens"):
+                if table in have:
+                    conn.execute(f"DELETE FROM {table}")
             conn.execute("PRAGMA journal_mode = DELETE")
         finally:
             conn.close()
@@ -543,7 +533,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         if should_cancel is not None and should_cancel():
             raise background_jobs.JobCancelled()
 
-    with tempfile.TemporaryDirectory() as snapdir:
+    with storage.job_workdir("snapshot") as snapdir:
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
         _sanitized_snapshot(snap)
@@ -632,7 +622,7 @@ def start_database_backup() -> dict:
 #   keep: household-wide, nothing personal
 #   empty: every row dropped
 USER_BACKUP_TABLES = {
-    "dramas": ("owned_dramas", "the owner's dramas"),
+    "dramas": ("owned_dramas", "the owner's titles"),
     "series": ("owned_series", "the owner's series"),
     "lines": ("drama", ""), "characters": ("drama", ""), "pages": ("drama", ""),
     "translation_notes": ("drama", ""), "line_emotions": ("drama", ""),
@@ -654,8 +644,7 @@ USER_BACKUP_TABLES = {
     "style_profile": ("style_scope", "the global profile is learned from everyone's edits"),
     "known_titles": ("keep", "the household's title catalogue"),
     "presets": ("keep", "household workspace presets"),
-    "users": ("empty", "auth"), "user_permissions": ("empty", "auth"),
-    "auth_sessions": ("empty", "auth"), "audit_log": ("empty", "auth"),
+    **{t: ("empty", "auth") for t in auth_service.RESTORE_KEPT_TABLES},
     "bulk_jobs": ("empty", "provider batch ids of this PC's API accounts; a restored "
                            "in-flight batch could be polled again"),
     "bulk_job_lines": ("empty", "belongs to bulk_jobs"),
@@ -669,7 +658,7 @@ USER_BACKUP_TABLES = {
     "metadata_research_cache": ("empty", "lookups from every user"),
     "app_settings": ("empty", "this PC's settings"),
     "assistant_backlog": ("empty", "this PC's maintenance notes"),
-    "benchmark_cases": ("empty", "this PC's test set, may quote any drama"),
+    "benchmark_cases": ("empty", "this PC's test set, may quote any title"),
     "benchmark_runs": ("empty", "belongs to benchmark_cases"),
     "benchmark_sessions": ("empty", "this PC's benchmark runs"),
     "benchmark_results": ("empty", "belongs to benchmark_sessions"),
@@ -826,7 +815,7 @@ def write_user_backup_zip(dest: str, owner_id=None, cancelled=None):
         if cancelled is not None and cancelled():
             raise background_jobs.JobCancelled()
 
-    with tempfile.TemporaryDirectory() as snapdir:
+    with storage.job_workdir("snapshot") as snapdir:
         snap = os.path.join(snapdir, "library.db")
         _sanitized_snapshot(snap)
         kept = _user_backup_filter(snap, owner_id)
@@ -1073,6 +1062,8 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
             log.exception("Library restore failed")
             raise ServiceError("The restore could not be completed; the current library was "
                                "left in place.") from e
+        # The restored database decides Developer Mode, which the echo engine follows.
+        echo.set_enabled(maintenance_assistant_service.developer_mode_enabled())
         auth_service.write_audit(actor_id, "library.restore",
                                  f"library restored from backup; sessions revoked: {revoked}")
     finally:
@@ -1095,7 +1086,7 @@ def storage_scan(preset: str = "balanced") -> dict:
     """Dry run: what `storage_cleanup(preset, ...)` would remove, with
     sizes, per category and per drama (no paths, nothing removed)."""
     cats = _check_preset(preset)
-    scan = storage.scan_library_storage(db.LIBRARY_DIR, [d["id"] for d in db.list_dramas()])
+    scan = keep_original_service.scan_library()
     per_drama = []
     for d in scan["per_drama"]:
         would = sum(d["categories"].get(k, 0) for k in cats)
@@ -1126,7 +1117,7 @@ def storage_cleanup(preset: str, confirm=False, confirm_text="") -> dict:
             if drama_service.job_running_for_drama(did):
                 results.append({"drama_id": did, "ok": False, "error": "job_running"})
                 continue
-            r = storage.clean_drama_storage(os.path.join(db.DRAMAS_DIR, str(did)), cats)
+            r = keep_original_service.clean_title_storage(did, cats)
             freed += r["freed_bytes"]
             results.append({"drama_id": did, "ok": True, "freed_bytes": r["freed_bytes"]})
         return {"preset": preset, "freed_bytes": freed, "results": results}

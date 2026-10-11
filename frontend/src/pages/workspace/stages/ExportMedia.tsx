@@ -105,7 +105,9 @@ function MediaJobSection({ title, label, kind, start, blockedReason, startError,
       getArtifactInfo(dramaId, kind).then(setArtifact, (e) => onStartError({ kind: testId ?? kind, error: e }))
     },
   })
-  const busy = jobId !== null && !done && !pollError
+  // Covers the gap between the click and the job id arriving, when a second click would start a second export.
+  const [starting, setStarting] = useState(false)
+  const busy = starting || (jobId !== null && !done && !pollError)
   const busyId = `export-busy-${testId ?? kind}`
   const blockedId = `export-blocked-${testId ?? kind}`
   const blocked = blockedReason ?? null
@@ -117,6 +119,7 @@ function MediaJobSection({ title, label, kind, start, blockedReason, startError,
   }
 
   const run = () => {
+    if (busy) return
     const p = start()
     setArtifact(null)
     if (typeof p === 'string') {
@@ -124,12 +127,17 @@ function MediaJobSection({ title, label, kind, start, blockedReason, startError,
       return
     }
     setProblem(null)
+    setStarting(true)
     p.then(
       (r) => {
         onStartError(null)
         setJobId(r.job_id)
+        setStarting(false)
       },
-      (e) => onStartError({ kind: testId ?? kind, error: e }),
+      (e) => {
+        onStartError({ kind: testId ?? kind, error: e })
+        setStarting(false)
+      },
     )
   }
 
@@ -160,7 +168,7 @@ function MediaJobSection({ title, label, kind, start, blockedReason, startError,
       {startError?.kind === (testId ?? kind) && (
         <ErrorBanner error={startError.error} describe={{ reasonAsTitle: true }} onDismiss={() => onStartError(null)} />
       )}
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel jobId={jobId} job={job} pollError={pollError} lastRun={{ dramaId, ids: [mediaExportJobId(dramaId, kind)], retryFor: () => run }} />
       {artifact && (jobId === null || jobSucceeded(job)) && (
         <p data-testid={`artifact-${testId ?? kind}`}>
           <a href={artifactUrl(dramaId, kind)} download>Download {artifact.name}</a>{' '}
@@ -294,7 +302,7 @@ export function MarkExported() {
   return (
     <div className="export-actions" data-testid="mark-exported">
       {exported ? (
-        <span className="muted" role="status">This drama is marked as exported.</span>
+        <span className="muted" role="status">This title is marked as exported.</span>
       ) : (
         <>
           <button type="button" className={buttonClass('secondary')} disabled={pending} onClick={mark}>

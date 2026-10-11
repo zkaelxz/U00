@@ -25,7 +25,7 @@ import { describeSourceError, percent } from './sourcesFormat'
 import { useAiEngines } from './useAiEngines'
 import { useDramaList } from './useDramaList'
 import { useSourcesJob } from './useSourcesJob'
-import { chapterImportDramas } from './urlImportFormat'
+import { chapterImportDramas, hiddenDramaCount } from './urlImportFormat'
 import './extraction.css'
 
 type Props = { url: string; title: string; language: string | null }
@@ -62,7 +62,8 @@ export function ComicUrlImport({ url, title, language }: Props) {
         disabled={running}
         newDrama={{ title, language, comic: true }}
         onCreated={dramas.add}
-        help="The pages are added after the drama’s existing pages."
+        hiddenCount={dramas.items ? hiddenDramaCount(dramas.items, true) : 0}
+        help="The pages are added after the title’s existing pages."
       />
       <ErrorBanner error={dramas.error} />
       <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} />
@@ -80,7 +81,7 @@ export function ComicUrlImport({ url, title, language }: Props) {
             Cancel
           </button>
         )}
-        {!dramaId && !running && <span className="muted">Still needed: a drama to import into.</span>}
+        {!dramaId && !running && <span className="muted">Still needed: a title to import into.</span>}
       </div>
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
       <div aria-live="polite">

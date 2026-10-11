@@ -14,16 +14,20 @@ type Props = {
   onChange: (model: string) => void
   disabled?: boolean
   help?: string
+  // A model the caller starts on: it replaces "Engine default" and is marked "(default)".
+  defaultModel?: string
 }
 
-export function ModelSelect({ engine, value, onChange, disabled, help }: Props) {
+export function ModelSelect({ engine, value, onChange, disabled, help, defaultModel }: Props) {
   const models = engine?.models ?? []
   if (models.length === 0) return null
   return (
     <Field label="Model" help={help}>
       <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Engine default</option>
-        {models.map((m) => <option key={m} value={m}>{modelOptionLabel(engine, m)}</option>)}
+        {!defaultModel && <option value="">Engine default</option>}
+        {models.map((m) => (
+          <option key={m} value={m}>{modelOptionLabel(engine, m)}{m === defaultModel ? ' (default)' : ''}</option>
+        ))}
       </select>
     </Field>
   )

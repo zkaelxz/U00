@@ -1,6 +1,7 @@
 // Pure form logic for the Translate stage (no React), so it can be unit
 // tested. Ranges mirror api/schemas/translate.py TranslateRunStart.
 
+import { THINKING_SWITCH_ENGINES } from '../../api/live'
 import type {
   EstimateParams,
   FallbackEngine,
@@ -28,6 +29,7 @@ export interface RunForm {
   forceConfirmed: boolean
   reflect: boolean
   bulk: boolean
+  thinking: boolean // "Think harder on tricky text"; only DeepSeek and Ollama can follow it
   female_pronouns: boolean // she/her default for ambiguous pronouns
   genre_notes: boolean // baihe/GL genre guidance in the prompt
 }
@@ -43,6 +45,35 @@ export function isTranslationOnly(engine: string): boolean {
 
 export function reflectAvailable(engine: string): boolean {
   return !isTranslationOnly(engine)
+}
+
+// Whether the "think harder" choice does anything for this run: some engine in
+// the chain needs a request switch (a fallback is sent the same context as the
+// main engine, so it thinks too), and Reflect's passes and a Claude/Gemini
+// batch have none (services/translate_thinking_service.py).
+export function thinkingEngines(engine: string, fallbacks: string[], reflect: boolean, switchEngines?: string[]): string[] {
+  if (reflect) return []
+  const withSwitch = switchEngines ?? THINKING_SWITCH_ENGINES
+  return [engine, ...fallbacks].filter((e) => e && withSwitch.includes(e))
+}
+
+export function thinkingApplies(engine: string, reflect: boolean, switchEngines?: string[], fallbacks: string[] = []): boolean {
+  return thinkingEngines(engine, fallbacks, reflect, switchEngines).length > 0
+}
+
+export function thinkingHelp(engine: string, reflect: boolean, switchEngines?: string[], fallbacks: string[] = []): string {
+  const thinkers = thinkingEngines(engine, fallbacks, reflect, switchEngines)
+  if (thinkers.length) {
+    const where = fallbacks.some((e) => e) ? ` It applies to ${thinkers.join(' and ')}, not to the other engines in the chain.` : ''
+    // The estimate prices the main engine, so it only undercounts when that engine is the one that thinks.
+    const estimate = thinkers.includes(engine)
+      ? 'so the cost estimate is a lower bound'
+      : 'and the cost estimate, which prices the main engine, does not include it'
+    return `Off by default. Turn it on for ambiguous or idiomatic text, such as novels and video subtitles: the model reasons before it answers. Slower and costs more; the hidden reasoning is billed as output, ${estimate}.${where}`
+  }
+  const chain = [engine, ...fallbacks.filter((e) => e)]
+  const why = reflect ? 'Reflect mode has no thinking switch' : chain.length > 1 ? `${chain.join(' and ')} have no thinking switch` : `${engine} has no thinking switch`
+  return `${why}, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.`
 }
 
 // A fallback chain can't mix AI (instruction-following) engines with
@@ -133,6 +164,99 @@ export function loadPresetStart(dramaId: number): PresetStart {
   }
 }
 
+// With "Review glossary before translating" on, the button first scans.
+export function translateButtonLabel(scanFirst: boolean, lineCount: number): string {
+  return scanFirst ? 'Scan glossary, then translate' : `Translate ${lineCount} line${lineCount === 1 ? '' : 's'}`
+}
+
+// The run options the owner last chose for a title, kept in the per-drama
+// draft store (hooks/useStageDraft, stage "translate") so a discarded or
+// reloaded tab doesn't reset them. Only plain choices are stored (never keys),
+// and the transient ones (re-translate existing and its confirmation) are
+// left out so a reload can't arm a destructive run.
+export const TRANSLATE_DRAFT_STAGE = 'translate'
+
+type SavedForm = Omit<RunForm, 'force' | 'forceConfirmed' | 'female_pronouns' | 'genre_notes'>
+
+export interface RunOptions {
+  form: SavedForm
+  // The title's saved engine when this was written: if the server's has
+  // changed since (tier or preset applied elsewhere), the engine choices are stale.
+  baseEngine: string
+  reviewFirst: boolean
+  tier: string
+}
+
+/** What the draft keeps of the form: the plain choices, never the destructive switches. */
+export function runOptionsDraft(o: { form: RunForm; baseEngine: string; reviewFirst: boolean; tier: string }): RunOptions {
+  const { force: _force, forceConfirmed: _confirmed, female_pronouns: _fp, genre_notes: _gn, ...form } = o.form
+  return { form, baseEngine: o.baseEngine, reviewFirst: o.reviewFirst, tier: o.tier }
+}
+
+const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+const bool = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : undefined)
+
+// An integer string within [min, max]: a stored number out of range is
+// clamped, anything that isn't a whole number falls back.
+function clampInt(raw: unknown, min: number, max: number, fallback: string): string {
+  const t = typeof raw === 'string' || typeof raw === 'number' ? String(raw).trim() : ''
+  if (!/^\d+$/.test(t)) return fallback
+  return String(Math.min(max, Math.max(min, Number(t))))
+}
+
+// Overlay the draft's options (`o`, the stored record or null) on `base` (the
+// form initialForm built), keeping only values this server still offers. The
+// toggles the title saves on the server (she/her, genre notes) always come
+// from `base`.
+export function restoreRunOptions(
+  o: Record<string, unknown> | null,
+  base: RunForm,
+  c: TranslateRunConfig,
+): { form: RunForm; reviewFirst: boolean; tier: string | null } {
+  const none = { form: base, reviewFirst: false, tier: null }
+  if (!o || !('form' in o)) return none
+  const s = (o.form && typeof o.form === 'object' ? o.form : {}) as Record<string, unknown>
+  const f: RunForm = { ...base }
+  const engines = c.engines ?? []
+  const supported = c.bulk_supported_engines ?? []
+
+  const engineFresh = o.baseEngine === c.translation_engine
+  const savedEngine = str(s.engine)
+  if (engineFresh && savedEngine !== undefined && (savedEngine === '' || engines.some((e) => e.name === savedEngine))) {
+    f.engine = savedEngine
+    const models = engines.find((e) => e.name === (savedEngine || c.translation_engine))?.models ?? []
+    const m = str(s.model)
+    f.model = m && models.includes(m) ? m : base.engine === savedEngine ? base.model : ''
+    const eff = savedEngine || c.translation_engine
+    const reflect = s.reflect === true && reflectAvailable(eff)
+    const bulk = !reflect && s.bulk === true && bulkAvailable(eff, supported)
+    f.reflect = reflect
+    f.bulk = bulk
+    if (!reflect && !bulk && Array.isArray(s.fallbacks)) {
+      const fb: string[] = []
+      for (const e of s.fallbacks) {
+        if (typeof e === 'string' && engines.some((x) => x.name === e) && e !== eff && !fb.includes(e) && sameEngineKind(e, eff)) fb.push(e)
+      }
+      f.fallbacks = fb.slice(0, MAX_FALLBACKS)
+    }
+    f.thinking = bool(s.thinking) ?? base.thinking
+  }
+
+  const style = str(s.style_preset)
+  if (style && c.style_presets.some((p) => p.key === style)) f.style_preset = style
+  const locale = str(s.locale)
+  if (locale && c.locales.includes(locale)) f.locale = locale
+  const note = str(s.style_note)
+  if (note !== undefined && note.length <= 4000) f.style_note = note
+  f.batch_size = clampInt(s.batch_size, 1, 60, base.batch_size)
+  f.context_window = clampInt(s.context_window, 0, 100, base.context_window)
+  f.context_window_ahead = clampInt(s.context_window_ahead, 0, 100, base.context_window_ahead)
+  const cap = str(s.cost_cap)
+  if (cap !== undefined && (cap.trim() === '' || parseCap(cap) !== null)) f.cost_cap = cap
+
+  return { form: f, reviewFirst: o.reviewFirst === true, tier: str(o.tier) ?? null }
+}
+
 // A preset value only applies when this server still offers it. Without a
 // preset the toggles start as the Workspace checkboxes did: she/her off,
 // genre notes on (also the API's default when they are omitted).
@@ -162,6 +286,7 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     forceConfirmed: false,
     reflect: false,
     bulk: false,
+    thinking: c.title_thinking ?? false,
     // The title's saved choice first (what every run, retry and AI action
     // uses), then a preset's value, then the API defaults.
     female_pronouns: c.default_female_pronouns ?? preset.default_female_pronouns ?? false,
@@ -227,6 +352,7 @@ export function buildRunBody(f: RunForm): TranslateRunStartBody {
     ...(chain.length ? { fallback_chain: chain } : {}),
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
+    thinking: f.thinking,
     default_female_pronouns: f.female_pronouns,
     include_genre_notes: f.genre_notes,
   }
@@ -243,6 +369,7 @@ export function buildEstimateParams(f: RunForm): EstimateParams | null {
     job_cost_cap_usd: cap,
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
+    thinking: f.thinking,
   }
 }
 
@@ -324,6 +451,18 @@ export function withPresetEngine(c: TranslateRunConfig, p: TranslatePresetApplie
 // A warning only: Translate stays enabled, so the server's own error is the final word.
 export function ollamaWarning(effEngine: string, reachable: boolean | null | undefined): boolean {
   return effEngine === 'ollama' && reachable === false
+}
+
+// Plain-language privacy/limit notice for a hosted model; null for anything
+// that runs on this PC. The default model is never a cloud one, so an empty
+// model never triggers it.
+export function cloudModelNotice(
+  engine: { cloud_models?: string[] } | null | undefined,
+  model: string,
+): string | null {
+  if (!model || !engine?.cloud_models?.includes(model)) return null
+  return 'This is a cloud model: the subtitle text is sent off this PC to Ollama\'s servers. '
+    + 'Free use has limits; if you hit them, Ollama\'s message is shown and the run can be resumed later.'
 }
 
 // The guidance text for a style key ('' when the server sent none).

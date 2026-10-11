@@ -50,7 +50,7 @@ export function autotuneEta(elapsedSeconds: number, message: string): string | n
 
 export function autotuneBlocker(hasAudio: boolean, busy: boolean): string | null {
   if (busy) return 'Wait for the running job to finish.'
-  if (!hasAudio) return 'Still needed: audio on this drama.'
+  if (!hasAudio) return 'Still needed: audio on this title.'
   return null
 }
 
@@ -77,8 +77,8 @@ export function novelGlossaryBlocker(
   hasNovel: boolean,
 ): Blocker | null {
   const href = `#/drama/${dramaId}/source`
-  if (!seriesId) return { text: 'Still needed: a series for this drama', link: 'set it in Details', href }
-  if (!hasNovel) return { text: 'Still needed: novel text', link: 'attach it on Source', href }
+  if (!seriesId) return { text: 'Still needed: a series for this title', link: 'set it in Details', href }
+  if (!hasNovel) return { text: 'Still needed: novel text', link: 'attach it on Media', href }
   return null
 }
 
@@ -87,7 +87,7 @@ export function novelGlossaryProgressText(status: string, progress: number | nul
 }
 
 export const PAID_ENGINE_TEXT = "This engine is paid and this account can't use it."
-export const ENGINE_CHANGED_TEXT = "The drama's engine changed; start again."
+export const ENGINE_CHANGED_TEXT = "The title's engine changed; start again."
 
 export function novelGlossaryStartErrorText(err: unknown): string | null {
   const e = err as { status?: number } | null
@@ -147,3 +147,8 @@ export function applySummary(r: NovelGlossaryApplyResult): string {
   if (r.unknown.length) parts.push(`${r.unknown.length} no longer proposed.`)
   return parts.join(' ')
 }
+
+// A held scan worth reopening on return: running, failed, or finished with
+// proposals not yet applied. Finished-empty and cancelled need no review.
+export const isResumableScan = (s: { status: string; proposals?: unknown[] | null }): boolean =>
+  isActiveStatus(s.status) || s.status === 'error' || (s.status === 'done' && (s.proposals?.length ?? 0) > 0)

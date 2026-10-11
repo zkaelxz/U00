@@ -195,7 +195,7 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
     }
     if (m.importJob === 'running') {
       return json(route, {
-        error: { code: 'conflict', message: 'An import is already running for this drama.', details: { job_id: `sourceimport_${body.drama_id}` } },
+        error: { code: 'conflict', message: 'An import is already running for this title.', details: { job_id: `sourceimport_${body.drama_id}` } },
       }, 409)
     }
     m.importJob = 'running'

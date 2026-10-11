@@ -1,7 +1,7 @@
 """The streaming surface of a requests response (ok, headers, iter_content,
 close) for a test's hand-written fake, built from its own status_code /
 raise_for_status / json() / text, so bodies read with `stream=True`
-through services.capped_body see the same reply the fake describes."""
+through lib.capped_body see the same reply the fake describes."""
 import json as _json
 
 
@@ -27,6 +27,19 @@ class StreamedBody:
     def ok(self, value):
         self._ok = value
 
+    def __getattr__(self, name):
+        # lib.http reads the status; a fake that only defines raise_for_status
+        # gets 200, or 500 when that raises.
+        if name == "status_code":
+            if "_ok" in self.__dict__:
+                return 200 if self._ok else 500
+            try:
+                self.raise_for_status()
+            except Exception:
+                return 500
+            return 200
+        raise AttributeError(name)
+
     def raise_for_status(self):
         pass
 
@@ -46,3 +59,34 @@ class StreamedBody:
 
     def close(self):
         self.closed = True
+
+
+def patch_post(monkeypatch, fake_post):
+    """Route a test's `requests.post`-style fake (url, headers=, json=, timeout=,
+    stream=) through lib.http's one connection call, and keep `requests.post`
+    patched too for engines that still call it directly."""
+    import inspect
+    import re
+    from lib import http
+    seen = []
+    accepted = inspect.signature(fake_post).parameters
+    takes_any = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in accepted.values())
+
+    def fake(url, ip, headers, timeout=None, method="GET", **kw):
+        # What lib.http really passed; the fake_post signature stays the legacy one.
+        seen.append({"url": url, "method": method, "timeout": timeout, **kw})
+        # Every caller of this helper is a POST; a GET here would drop the body.
+        assert method == "POST", f"{url} was sent with {method}, not POST"
+        # A key in the query string ends up in logs and proxies; keys go in headers.
+        params = kw.get("params") or {}
+        assert not [k for k in params if re.search(r"key|token|secret|auth", str(k), re.I)], \
+            f"{url} sent a key-shaped query parameter"
+        # Only what the fake declares, so hand-written fakes with the legacy
+        # (url, headers, json, timeout, stream) signature keep working.
+        extra = {k: v for k, v in {"method": method, **kw}.items()
+                 if k not in ("json", "headers", "timeout", "stream") and (takes_any or k in accepted)}
+        return fake_post(url, headers=headers, json=kw.get("json"), timeout=timeout,
+                         stream=True, **extra)
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(http, "pinned_get", fake)
+    return seen

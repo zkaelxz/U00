@@ -15,7 +15,7 @@ export function toggleId(list: readonly BackupFileDrama[], chosen: ReadonlySet<n
 /** The notes shown before the RESTORE confirm. */
 export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFileDrama[], today: string = isoDay()): string[] {
   const notes = [
-    'Each drama is added as a new drama; nothing you have is replaced or merged.',
+    'Each title is added as a new title; nothing you have is replaced or merged.',
     `If a title is already in your library, '(restored ${today})' is added to the new one.`,
     'They belong to you and follow your sharing setting (private unless you share new items).',
     `A series comes back as a new series named '… (imported ${today})', with its glossary and characters.`,
@@ -24,9 +24,9 @@ export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFi
   if (list.kind === 'database' || !list.media_available) {
     notes.push('Files (audio/video/pages) are not in this file; only the text and settings come in.')
   } else if (chosen.some((d) => d.has_media)) {
-    notes.push('Files come in for the dramas marked "with files".')
+    notes.push('Files come in for the titles marked "with files".')
   } else {
-    notes.push('None of the chosen dramas has files in this file.')
+    notes.push('None of the chosen titles has files in this file.')
   }
   if (list.schema_differs) {
     notes.push('The file is from a different version; anything this version does not know is left out.')
@@ -36,10 +36,10 @@ export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFi
 
 /** The result line after an import. */
 export function describeImport(r: ImportDramasDone): string {
-  const parts = [`Imported ${plural(r.imported.length, 'drama')}.`]
+  const parts = [`Imported ${plural(r.imported.length, 'title')}.`]
   const lines = r.counts?.lines
   if (typeof lines === 'number') parts.push(`${plural(lines, 'line')}.`)
   if (r.series_created) parts.push(`${r.series_created} new series.`)
-  parts.push(r.media_imported ? `Files for ${plural(r.media_imported, 'drama')}.` : 'No files were imported.')
+  parts.push(r.media_imported ? `Files for ${plural(r.media_imported, 'title')}.` : 'No files were imported.')
   return parts.join(' ')
 }

@@ -32,7 +32,7 @@ describe('engine display helpers', () => {
   })
 
   it('summarises a long label as its first sentence', () => {
-    const long = 'Paid, cloud, very cheap -- roughly 5-10 cents per drama. Strong on Chinese.'
+    const long = 'Paid, cloud, very cheap -- roughly 5-10 cents per title. Strong on Chinese.'
     expect(engineSummary(long)).toBe('Paid, cloud, very cheap')
     expect(engineSummary('Paid, cloud. Best for tone.')).toBe('Paid, cloud.')
     expect(engineSummary('Paid, cloud, very cheap; strong on Chinese.')).toBe(
@@ -112,6 +112,11 @@ describe('modelOptionLabel', () => {
   const engine = { model_labels: { 'claude-new': 'claude-new -- newly listed (cost estimated at highest Claude rate)' } }
   it('uses the server label for an offered extra model', () => {
     expect(modelOptionLabel(engine, 'claude-new')).toContain('newly listed')
+  })
+  it('labels any server-flagged cloud model, even without a server label', () => {
+    const cloud = { cloud_models: ['gpt-oss:120b-cloud'] }
+    expect(modelOptionLabel(cloud, 'gpt-oss:120b-cloud')).toMatch(/CLOUD: sends text off this PC/)
+    expect(modelOptionLabel(cloud, 'gemma4:12b')).toBe('gemma4:12b')
   })
   it('falls back to the id', () => {
     expect(modelOptionLabel(engine, 'claude-sonnet-5')).toBe('claude-sonnet-5')

@@ -10,7 +10,7 @@ from .shared import (
     _cancellable_sleep,
     _empty_usage,
     gemini_usage,
-    read_json_capped,
+    post_json,
     request_translations_with_retry,
 )
 
@@ -175,21 +175,19 @@ class GeminiEngine:
         }
 
     def translate_batch(self, zh_lines, context: dict):
-        import requests
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{self.model}:generateContent")
         self.last_usage = _empty_usage()
 
         def call_model(numbered):
             self._throttle_for_free_tier()
-            resp = requests.post(url, headers={"x-goog-api-key": self.api_key},
-                                 json=self.build_request_body(context, numbered), timeout=120,
-                                 stream=True)
-            data = read_json_capped(resp, 120)
+            data, resp_headers = post_json(url, self.build_request_body(context, numbered),
+                                           timeout=120, headers={"x-goog-api-key": self.api_key},
+                                           label="Gemini")
             usage = gemini_usage(data.get("usageMetadata"))
             _add_usage(self.last_usage, usage)
             if self.free_tier:
-                self._update_rate_status(resp.headers, usage)
+                self._update_rate_status(resp_headers, usage)
             # A real safety block returns either no candidates at
             # all (blocked before generation even started -- the reason is
             # in promptFeedback.blockReason) or a candidate whose
@@ -209,7 +207,8 @@ class GeminiEngine:
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="gemini",
-                                                line_languages=context.get("line_languages"))
+                                                line_languages=context.get("line_languages"),
+                                                sentence_groups=context.get("sentence_groups"))
 
 
 # Free-tier limits, confirmed against ai.google.dev/gemini-api/docs/rate-limits

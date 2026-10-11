@@ -208,7 +208,18 @@ body {
 .app-main[data-width='wide'] :is(.jobs-page, .sources-page, .discover-page, .page-narrow) { max-width: none; }
 
 /* ---- header + top nav ---- */
+/* --app-header-h is the header's measured height (nav/useHeaderHeight); --bar-h is what other sticky pieces offset
+   from, and a page with its own sticky strip (Workspace) redefines it as header + strip. */
+:root { --bar-h: calc(env(safe-area-inset-top, 0px) + var(--app-header-h, 0px)); }
 .app-header {
+  /* Above the page's own sticky bars (z 3-5); its menus keep their z-index inside this context. Modals are top-layer dialogs. */
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 6;
+  /* Pinned at the viewport edge the bar's padding, not the page gutter, sits above its buttons; the margin cancels it in flow. */
+  margin-top: calc(-1 * var(--space-2));
+  padding-top: var(--space-2);
+  background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -401,7 +412,11 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-label-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
 .field-label-row label { font-weight: 600; }
 .field-control { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+/* A small button's hit area reaches 6px above it; 4px would put it under the label row's help button. */
+.field-item:has(> .field-control > .btn-sm) { gap: var(--space-2); }
 .field-control > :first-child { flex: 1 1 auto; min-width: 0; }
+/* Outranks the stretch rule above: the thumb only travels a fixed 20px, so a stretched switch track leaves the knob mid-bar. */
+.field-control > button.toggle:first-child { flex: 0 0 auto; }
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
 .field-help-btn { width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 999px; font-size: var(--text-xs); line-height: 1; font-style: italic; color: var(--muted); }
@@ -486,6 +501,9 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .deletable-list { list-style: none; padding: 0 !important; }
 .deletable-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .deletable-list .row-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Inline buttons that wrap onto a second line stack their 44px hit areas on top of each other at 360px; a wrapping flex row with a gap keeps them apart. Block children (preview, confirm) take a full row. */
+.records-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.records-list > li > :is(div, p, form, fieldset, section, pre) { flex: 1 1 100%; min-width: 0; }
 .rename-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); width: 100%; min-width: 0; }
 .rename-form .field-item { flex: 1 1 12rem; min-width: 0; }
 .rename-form .error { flex-basis: 100%; margin: 0; }
@@ -693,11 +711,20 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .page-head-text { display: grid; gap: var(--space-1); min-width: 0; }
 .page-title { margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
 .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.stats-usage > summary { color: var(--muted); font-size: var(--text-sm); cursor: pointer; width: fit-content; }
+.stats-usage > p { margin-top: var(--space-1); }
+@media (max-width: 640px) {
+  .page-head-text { flex: 1 1 0; }
+  .page-head > .actions { flex: none; }
+}
 .num { font-variant-numeric: tabular-nums; }
 .status-line { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .status-line > span { flex: 1 1 12rem; min-width: 0; }
 
 /* Continue shelf */
+.stats-placeholder { min-height: 1.5em; }
+.continue-skeleton { min-height: 140px; }
+.disclosure-toggle { min-height: 44px; }
 .continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: var(--space-3); }
 .continue-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); }
@@ -733,15 +760,16 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .empty-note p { margin: 0; }
 
 /* Drama grid: cover-style cards; the title link covers the card. */
-.drama-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-5); }
-.drama-card { position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-1); transition: border-color var(--dur-2) var(--ease); }
+.drama-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
+.drama-card { position: relative; display: flex; flex-direction: row; align-items: flex-start; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-1); transition: border-color var(--dur-2) var(--ease); }
 .drama-card:hover, .drama-card:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .drama-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-1); }
-.drama-tile { display: grid; place-items: center; aspect-ratio: 3 / 4; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1; color: var(--text); background: var(--surface-2); user-select: none; }
+.drama-tile { display: grid; place-items: center; flex: 0 0 56px; width: 56px; height: 75px; aspect-ratio: auto; margin: var(--space-3) 0 var(--space-3) var(--space-3); border-radius: var(--radius-md); font-size: var(--text-xl); font-weight: var(--weight-bold); line-height: 1; color: var(--text); background: var(--surface-2); user-select: none; }
 .tile-h0 { --tile: #7c5cbf; } .tile-h1 { --tile: #3f7fbf; } .tile-h2 { --tile: #2f9a86; }
 .tile-h3 { --tile: #c0714f; } .tile-h4 { --tile: #b0558a; } .tile-h5 { --tile: #8a8a3a; }
 .drama-tile[class*='tile-h'], .continue-tile[class*='tile-h'] { background: linear-gradient(160deg, color-mix(in srgb, var(--tile) 34%, var(--surface-2)), color-mix(in srgb, var(--tile) 12%, var(--surface-2))); }
-.drama-card-main { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 auto; min-width: 0; padding: var(--space-3) var(--space-4) var(--space-2); }
+.drama-card-main { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 auto; min-width: 0; padding: var(--space-3) var(--space-4) var(--space-2) var(--space-3); }
+@media (min-width: 1024px) { .drama-tile { flex-basis: 64px; width: 64px; height: 86px; } }
 .drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-weight: var(--weight-bold); line-height: 1.35; text-decoration: none; }
 /* Stretched link: the title link's ::after covers the whole card (.drama-card is position: relative), so the card is
    one hit area; the foot controls sit above it at z-index 1. The link's own focus outline is hidden and the card
@@ -814,8 +842,6 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   .toolbar-row { flex-basis: 100%; }
   .segmented span { min-height: 40px; padding-inline: var(--space-4); }
   .drama-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
-  .drama-card { flex-direction: row; align-items: flex-start; }
-  .drama-tile { flex: 0 0 56px; width: 56px; height: 75px; aspect-ratio: auto; margin: var(--space-3) 0 var(--space-3) var(--space-3); border-radius: var(--radius-md); font-size: var(--text-xl); }
   .drama-card-main { padding: var(--space-3); }
   .drama-card-foot { gap: var(--space-3); }
   .drama-grid .card-check { top: var(--space-3); left: var(--space-3); width: 56px; height: 56px; }
@@ -841,4 +867,11 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   .source-panel > h3:first-child { margin: 0 0 calc(-1 * var(--space-1)); }
   /* Panels without a table don't clip: the 4px focus glow of a button at the panel edge stays whole. */
   .panel:not(:has(.table-scroll, table)) { overflow-x: visible; }
+}
+
+.source-link { font-size: 0.9em; white-space: nowrap; }
+/* Same trick as .btn-sm: the box stays inline-sized, the ::after extends the tap area to 44px. */
+@media (pointer: coarse), (max-width: 640px) {
+  .source-link { position: relative; }
+  .source-link::after { content: ''; position: absolute; inset: -12px -6px; }
 }

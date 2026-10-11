@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import core
 import dub
+import dub_narration
 from core import Line
 
 
@@ -268,7 +269,7 @@ class TestEngineSelectionFollowsTheClonePattern:
     @pytest.mark.parametrize("clone,expected", CASES)
     def test_narration_track(self, clone, expected, calls, fake_pydub, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="x", en="Hello", speaker="A")]
-        _, errors = dub.build_narration_track(lines, str(tmp_path), {"A": clone})
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"A": clone})
         assert errors == []
         assert [c[0] for c in calls] == [expected]
 
@@ -277,7 +278,7 @@ class TestEngineSelectionFollowsTheClonePattern:
                      "Aunt": {"engine": "omnivoice", "instruct": "female, elderly"}}
         lines = [Line(idx=0, start=0, end=0, zh="x", en="I'm off.", speaker="Hero"),
                  Line(idx=1, start=0, end=0, zh="y", en="Take care.", speaker="Aunt")]
-        dub.build_narration_track(lines, str(tmp_path), clone_map)
+        dub_narration.build_narration_track(lines, str(tmp_path), clone_map)
         assert [(c[1][0], c[2]["instruct"]) for c in calls] == [
             ("I'm off.", "male, low pitch"), ("Take care.", "female, elderly")]
         assert all(c[2].get("ref_audio_path") is None for c in calls)
@@ -301,7 +302,7 @@ class TestNarrationTTSUnits:
         lines = [Line(idx=0, start=0, end=0, zh="一", en="She opened the door.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="二", en="Rain.", speaker="N"),
                  Line(idx=2, start=0, end=0, zh="三", en="Nothing but rain, all night.", speaker="N")]
-        dub.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
 
         assert synth_calls == ["She opened the door. Rain. Nothing but rain, all night."]
         # the audio unit is longer than every exported cue for the same passage
@@ -318,28 +319,28 @@ class TestNarrationTTSUnits:
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="B"),
                  Line(idx=2, start=0, end=0, zh="c", en="Three.", speaker="B")]
-        dub.build_narration_track(lines, str(tmp_path), NARRATORS)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert synth_calls == ["One.", "Two. Three."]
 
     def test_unit_stays_inside_the_character_budget(self, synth_calls, fake_pydub, tmp_path, monkeypatch):
-        monkeypatch.setattr(dub, "NARRATION_TTS_MAX_CHARS", 12)
+        monkeypatch.setattr(dub_narration, "NARRATION_TTS_MAX_CHARS", 12)
         lines = [Line(idx=i, start=0, end=0, zh=str(i), en=f"Line {i}.", speaker="N") for i in range(3)]
-        dub.build_narration_track(lines, str(tmp_path), NARRATORS)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert synth_calls == ["Line 0.", "Line 1.", "Line 2."]  # "Line 0. Line 1." is 15 chars
 
     def test_never_crosses_a_paragraph_of_the_source_text(self, synth_calls, fake_pydub, tmp_path):
-        (tmp_path / dub.NOVEL_SOURCE_FILENAME).write_text("第一段。第一段后半。\n\n第二段。", encoding="utf-8")
+        (tmp_path / dub_narration.NOVEL_SOURCE_FILENAME).write_text("第一段。第一段后半。\n\n第二段。", encoding="utf-8")
         lines = [Line(idx=0, start=0, end=0, zh="第一段。", en="Para one.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="第一段后半。", en="Still para one.", speaker="N"),
                  Line(idx=2, start=0, end=0, zh="第二段。", en="Para two.", speaker="N")]
-        dub.build_narration_track(lines, str(tmp_path), NARRATORS)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert synth_calls == ["Para one. Still para one.", "Para two."]
 
     def test_a_chapter_heading_is_always_its_own_unit(self, synth_calls, fake_pydub, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="前文。", en="Before.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="第二章 雨夜", en="Chapter 2: A Rainy Night", speaker="N"),
                  Line(idx=2, start=0, end=0, zh="正文。", en="After.", speaker="N")]
-        dub.build_narration_track(lines, str(tmp_path), NARRATORS)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert synth_calls == ["Before.", "Chapter 2: A Rainy Night", "After."]
 
     def test_a_failed_unit_leaves_each_of_its_lines_a_silent_gap(self, monkeypatch, fake_pydub, tmp_path):
@@ -347,7 +348,7 @@ class TestNarrationTTSUnits:
                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="N")]
-        _, errors = dub.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
         assert [e["line_idx"] for e in errors] == [0, 1]
         assert lines[1].end == pytest.approx(0.7)
         assert not any(f.endswith(".partial.wav") for f in os.listdir(tmp_path / "dub_clips"))
@@ -378,7 +379,7 @@ class TestSequentialNarration:
         (tmp_path / "dub_clips" / previous).write_text("from a previous run")
 
         lines = self._alternating(8)
-        _, errors = dub.build_narration_track(lines, str(tmp_path), NARRATORS)
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
 
         assert errors == []
         assert spoken == [f"Line {i}." for i in range(8) if i != 1]  # reused, not regenerated
@@ -391,7 +392,7 @@ class TestSequentialNarration:
                             lambda text, out_path, **kw: spoken.append(text) or open(out_path, "w").close())
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="B")]
-        _, errors = dub.build_narration_track(lines, str(tmp_path), {"A": dict(VOICE)}, gap_ms=350)
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"A": dict(VOICE)}, gap_ms=350)
         assert spoken == ["One."]
         assert errors == [{"line_idx": 1, "error": dub.NO_VOICE_ERROR}]
         assert lines[1].end == pytest.approx(lines[1].start + 0.35)
@@ -428,25 +429,25 @@ class TestNarrationChapters:
     def test_the_novels_own_chapter_headings_win(self):
         lines = self._timed([("第一章 开始", "Chapter 1: The Start"), ("正文。", "Body."),
                              ("第二章 雨", "Chapter 2: Rain"), ("正文。", "More.")])
-        assert dub.narration_chapters(lines, paragraph_ends={0, 1, 2, 3}) == [
+        assert dub_narration.narration_chapters(lines, paragraph_ends={0, 1, 2, 3}) == [
             (0.0, "Chapter 1: The Start"), (2.0, "Chapter 2: Rain")]
 
     def test_text_before_the_first_heading_gets_its_own_chapter(self):
         lines = self._timed([("楔子前的话。", "A note first."), ("第一章", "Chapter 1")])
-        assert [s for s, _ in dub.narration_chapters(lines)] == [0.0, 1.0]
+        assert [s for s, _ in dub_narration.narration_chapters(lines)] == [0.0, 1.0]
 
     def test_otherwise_one_chapter_per_paragraph(self):
         lines = self._timed([("甲。", "A."), ("乙。", "B."), ("丙。", "C.")])
-        assert [s for s, _ in dub.narration_chapters(lines, paragraph_ends={1, 2})] == [0.0, 2.0]
+        assert [s for s, _ in dub_narration.narration_chapters(lines, paragraph_ends={1, 2})] == [0.0, 2.0]
 
     def test_without_paragraph_info_one_per_generated_clip(self):
         lines = self._timed([("甲。", "A."), ("乙。", "B."), ("丙。", "C.")])
         lines[1].dub_filename = lines[0].dub_filename  # lines 0-1 shared one clip
-        assert [s for s, _ in dub.narration_chapters(lines)] == [0.0, 2.0]
+        assert [s for s, _ in dub_narration.narration_chapters(lines)] == [0.0, 2.0]
 
     def test_long_titles_are_trimmed(self):
         lines = self._timed([("甲。", "word " * 40)])
-        assert len(dub.narration_chapters(lines)[0][1]) == 60
+        assert len(dub_narration.narration_chapters(lines)[0][1]) == 60
 
     @pytest.mark.parametrize("zh,en", [
         ("第一章", ""), ("第十二章 雨夜", ""), ("第3回：重逢", ""), ("第二卷", ""), ("楔子", ""),
@@ -454,7 +455,7 @@ class TestNarrationChapters:
         ("", "CHAPTER 3"),
     ])
     def test_real_headings(self, zh, en):
-        assert dub.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))
+        assert dub_narration.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))
 
     @pytest.mark.parametrize("zh,en", [
         ("第一次见面的时候，她笑得很开心，" * 3, "The first time..."),
@@ -464,23 +465,23 @@ class TestNarrationChapters:
         ("", "Prologue to a disaster, really."),
     ])
     def test_ordinary_sentences_are_not_headings(self, zh, en):
-        assert not dub.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))
+        assert not dub_narration.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))
 
 
 class TestFfmetadata:
     def test_chapters_run_back_to_back_to_the_end(self):
-        meta = dub.narration_ffmetadata([(0.0, "One"), (2.5, "Two")], 6000, title="My Novel")
+        meta = dub_narration.narration_ffmetadata([(0.0, "One"), (2.5, "Two")], 6000, title="My Novel")
         assert meta.splitlines() == [
             ";FFMETADATA1", "title=My Novel",
             "[CHAPTER]", "TIMEBASE=1/1000", "START=0", "END=2500", "title=One",
             "[CHAPTER]", "TIMEBASE=1/1000", "START=2500", "END=6000", "title=Two"]
 
     def test_special_characters_are_escaped(self):
-        meta = dub.narration_ffmetadata([(0.0, "a=b; #c \\ d")], 1000)
+        meta = dub_narration.narration_ffmetadata([(0.0, "a=b; #c \\ d")], 1000)
         assert "title=a\\=b\\; \\#c \\\\ d" in meta
 
     def test_same_instant_markers_are_collapsed(self):
-        meta = dub.narration_ffmetadata([(0.0, "A"), (0.0, "B"), (1.0, "C")], 2000)
+        meta = dub_narration.narration_ffmetadata([(0.0, "A"), (0.0, "B"), (1.0, "C")], 2000)
         assert meta.count("[CHAPTER]") == 2
 
 
@@ -498,16 +499,16 @@ class TestExportM4b:
         first line of each paragraph, at the timing narration gave it."""
         monkeypatch.setattr(dub, "synthesize_line_omnivoice",
                             lambda text, out_path, **kw: open(out_path, "w").close())
-        (tmp_path / dub.NOVEL_SOURCE_FILENAME).write_text("一。二。\n三。", encoding="utf-8")
+        (tmp_path / dub_narration.NOVEL_SOURCE_FILENAME).write_text("一。二。\n三。", encoding="utf-8")
         lines = [Line(idx=0, start=0, end=0, zh="一。", en="One."),
                  Line(idx=1, start=0, end=0, zh="二。", en="Two."),
                  Line(idx=2, start=0, end=0, zh="三。", en="Three.")]
-        dub.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
         _write_wav(tmp_path / "narration_track.wav", 3.0)
 
         ran = []
         monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: ran.append(cmd))
-        out = dub.export_narration_m4b(lines, str(tmp_path), title="Story")
+        out = dub_narration.export_narration_m4b(lines, str(tmp_path), title="Story")
 
         assert out == str(tmp_path / "narration.m4b")
         cmd = ran[0]
@@ -521,7 +522,7 @@ class TestExportM4b:
 
     def test_needs_the_narration_first(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="generate the narration"):
-            dub.export_narration_m4b([], str(tmp_path))
+            dub_narration.export_narration_m4b([], str(tmp_path))
 
     @pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")),
                         reason="needs real ffmpeg/ffprobe")
@@ -530,7 +531,7 @@ class TestExportM4b:
         _write_wav(tmp_path / "narration_track.wav", 4.0)
         lines = [Line(idx=0, start=0.0, end=1.5, zh="第一章", en="Chapter 1", dub_filename="a"),
                  Line(idx=1, start=2.0, end=3.5, zh="第二章", en="Chapter 2", dub_filename="b")]
-        out = dub.export_narration_m4b(lines, str(tmp_path), title="T")
+        out = dub_narration.export_narration_m4b(lines, str(tmp_path), title="T")
         probe = subprocess.run(["ffprobe", "-v", "error", "-show_chapters", "-print_format", "json", out],
                                capture_output=True, text=True, check=True)
         chapters = json.loads(probe.stdout)["chapters"]

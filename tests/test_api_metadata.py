@@ -2,6 +2,7 @@
 Tests for media analysis and metadata auto-fill (Migration Slice 37).
 Fully mocked: no ffprobe, network, DNS or LLM.
 """
+from lib import http
 import os
 
 import pytest
@@ -169,10 +170,10 @@ def test_redirect_to_private_blocked(monkeypatch):
         headers = {"Location": "http://127.0.0.1/admin"}
         def close(self): pass
 
-    def fake_get(url, ip, headers):
+    def fake_get(url, ip, headers, *a, **kw):
         calls.append((url, ip))
         return Resp()
-    monkeypatch.setattr(metadata_service, "pinned_get", fake_get)
+    monkeypatch.setattr(http, "pinned_get", fake_get)
     # second hop resolves to loopback
     monkeypatch.setattr(metadata_service.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", (
@@ -199,7 +200,7 @@ def test_connection_pinned_to_validated_ip(monkeypatch):
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", fake_send)
     ip = metadata_service.check_public_url("https://ok.example:8443/p?q=1")
     assert ip == "93.184.216.34"
-    metadata_service.pinned_get("https://ok.example:8443/p?q=1", ip, {})
+    http.pinned_get("https://ok.example:8443/p?q=1", ip, {})
     url, host, kw = sent[0]
     assert url == "https://93.184.216.34:8443/p?q=1"
     assert host == "ok.example:8443"
@@ -217,7 +218,7 @@ def test_pinned_adapter_keeps_hostname_for_tls(monkeypatch):
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "init_poolmanager", spy)
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "send",
                         lambda self, r, **kw: requests.Response())
-    metadata_service.pinned_get("https://ok.example/", "2606:4700::1", {})
+    http.pinned_get("https://ok.example/", "2606:4700::1", {})
     assert seen["server_hostname"] == "ok.example" == seen["assert_hostname"]
 
 

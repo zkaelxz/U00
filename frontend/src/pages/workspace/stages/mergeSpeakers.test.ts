@@ -80,6 +80,7 @@ describe('undoIdSurvives', () => {
   it('keeps the id on a job-running 409 and on a network failure', () => {
     expect(undoIdSurvives(err(409, { reason: 'job_running' }))).toBe(true)
     expect(undoIdSurvives(new TypeError('Failed to fetch'))).toBe(true)
+    expect(undoIdSurvives(err(0))).toBe(true)
   })
 
   it('forgets it on not found and on a stale 409', () => {

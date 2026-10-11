@@ -38,6 +38,9 @@ __all__ = [
     "LinesFindReplaceApplyResult",
     "LinesSetLangRequest",
     "LinesSetLangResult",
+    "LinesKeepEnglishRequest",
+    "LinesKeepEnglishResult",
+    "ReviewSourceChanged",
     "LinesAcceptTmRequest",
     "LinesNoteCreate",
     "LinesNote",
@@ -177,6 +180,7 @@ class ReviewLinesPacingFlag(BaseModel):
     id: Optional[int] = None
     idx: int
     issue: str
+    severity: Optional[float] = None
     detail: Optional[str] = None
 
 
@@ -406,6 +410,24 @@ class LinesSetLangResult(BaseModel):
     skipped_ids: List[int] = Field(description="Requested ids that are not lines of this drama.")
 
 
+class LinesKeepEnglishRequest(BaseModel):
+    """The source_changed lines whose English the user keeps as it is."""
+    model_config = ConfigDict(extra="forbid")
+    line_ids: List[int] = Field(min_length=1, max_length=10000)
+
+
+class LinesKeepEnglishResult(BaseModel):
+    cleared: int
+    line_ids: List[int] = Field(description="Lines whose source_changed flag was cleared.")
+    skipped_ids: List[int] = Field(description="Requested ids not flagged source_changed (any more).")
+
+
+class ReviewSourceChanged(BaseModel):
+    """Lines whose source text changed after they were translated, in line order."""
+    count: int
+    line_ids: List[int]
+
+
 class LinesAcceptTmRequest(BaseModel):
     """expected_en: the line's English the client saw (409 if it changed)."""
     model_config = ConfigDict(extra="forbid")
@@ -528,6 +550,8 @@ class ResegmentPreview(BaseModel):
     flagged: int
     notes: int
     needs_confirm: bool
+    # Why nothing would change, in plain words; empty when something would.
+    reason: str = ""
 
 
 class ResegmentStart(_RestructureBase):

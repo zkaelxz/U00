@@ -207,7 +207,7 @@ function AutoBackupControls() {
             </div>
             <Field
               label="Include media (audio, video, pages)"
-              help="Off: database only (small, fast): the text, translations and settings. On: also every drama's audio, video and page images, which can be large."
+              help="Off: text, translations and settings only (small, fast). On: also all audio, video and page images (can be large)."
             >
               <Toggle checked={settings.include_media} onChange={(v) => save({ include_media: v })} />
             </Field>
@@ -222,7 +222,7 @@ function AutoBackupControls() {
           >
             <Field
               label="Backup folder"
-              help="Leave empty for the library's own backups folder. Otherwise a full folder path that already exists, outside the library."
+              help="Empty uses the library's backups folder. Otherwise a full path to an existing folder outside the library."
               error={folderError}
             >
               <input

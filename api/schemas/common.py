@@ -37,6 +37,7 @@ class TranslateEngine(BaseModel):
     models: Optional[List[str]] = None
     # Label for an offered model that has no built-in entry (id -> text).
     model_labels: Dict[str, str] = Field(default_factory=dict)
+    cloud_models: List[str] = Field(default_factory=list)
     key_configured: bool
 
 

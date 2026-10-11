@@ -2,7 +2,7 @@
 diarization, autotune, re-transcribe and live sessions.
 """
 
-from typing import Annotated, Dict, List, Optional
+from typing import Annotated, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
@@ -11,6 +11,7 @@ __all__ = [
     "SpeakerTimeSummary",
     "DiarizationConfig",
     "DiarizationRunResult",
+    "GpuRuntimeStatus",
     "SourceConfig",
     "SourceConfigUpdate",
     "TranscribeConfig",
@@ -23,6 +24,7 @@ __all__ = [
     "LiveSessionStatus",
     "LiveSessionSummary",
     "LiveSessionStopped",
+    "LiveOllamaCheck",
     "AutotuneCandidateMs",
     "AutotuneRunRequest",
     "AutotuneRunResult",
@@ -123,6 +125,11 @@ class SourceConfigUpdate(BaseModel):
     transcript_mode: Optional[str] = None
 
 
+class GpuRuntimeStatus(BaseModel):
+    status: Literal["ok", "missing", "unknown"]
+    reason: Optional[str] = None
+
+
 class TranscribeConfig(BaseModel):
     """Read-only Transcript-stage summary for one drama -- which action the
     transcribe button would run (from the source config's transcript_mode)
@@ -149,6 +156,8 @@ class TranscribeConfig(BaseModel):
     measured_diarize_runs: int = 0
     # False when faster-whisper isn't installed, so a run can't start.
     whisper_installed: bool = True
+    # CUDA runtime DLLs Whisper needs on the GPU: status ok / missing / unknown, with fixed-text reason.
+    gpu_runtime: GpuRuntimeStatus = Field(default_factory=lambda: GpuRuntimeStatus(status="unknown"))
     beam_size: int
     min_silence_ms: int
     vad_threshold: float
@@ -232,7 +241,7 @@ class TranscribeRunResult(BaseModel):
 # ---------------------------------------------------------------------------
 class LiveSessionStart(BaseModel):
     """Keys are resolved server-side; no browser cookies over the API.
-    Numbers are clamped to the service's ranges (segment 10-60 s, overlap
+    Numbers are clamped to the service's ranges (segment 3-60 s, overlap
     0-8 s and at most half the segment, max_minutes 1-240)."""
     model_config = ConfigDict(extra="forbid")
     url: str = Field(min_length=1, max_length=2000)
@@ -241,10 +250,18 @@ class LiveSessionStart(BaseModel):
     segment_seconds: float = 20
     overlap_seconds: float = 3
     engine: Optional[str] = Field(None, max_length=40,
-                                  description="None = the Settings default engine (checked as paid).")
+                                  description="None = Ollama on this PC, never the Settings default engine.")
     model: Optional[str] = Field(None, max_length=100)
     max_minutes: float = 60
     use_gpu: StrictBool = False
+    reply_without_thinking: StrictBool = Field(
+        True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
+
+
+class LiveOllamaCheck(BaseModel):
+    ok: bool
+    model: str
+    message: Optional[str] = None
 
 
 class LiveSessionStarted(BaseModel):
@@ -252,10 +269,12 @@ class LiveSessionStarted(BaseModel):
 
 
 class LiveCue(BaseModel):
+    id: int
     start: float
     end: float
     text: str
     translated: str
+    translation: str   # pending | done | failed | cancelled
 
 
 class LiveSessionStatus(BaseModel):
@@ -265,6 +284,15 @@ class LiveSessionStatus(BaseModel):
     engine: Optional[str] = None
     model: Optional[str] = None
     progress: float
+    notes: List[str] = []   # newest last: skipped chunks, catching up
+    segment_seconds: int = 0
+    # Seconds from the first word of the newest captioned chunk to its translation.
+    lag_seconds: float = 0.0
+    # Rolling median of a chunk's wait + Whisper + translate-queue wait + translate.
+    processing_seconds: float = 0.0
+    translations_skipped: int = 0   # lines shown untranslated to keep up
+    translate_queue: int = 0
+    chunks_measured: int = 0
     cues: List[LiveCue]
     next_index: int
 
@@ -280,6 +308,8 @@ class LiveSessionSummary(BaseModel):
 class LiveSessionStopped(BaseModel):
     session_id: str
     stopping: bool
+    # True: the session captions what it already captured, then ends; Stop again ends it at once.
+    finishing: bool = False
 
 
 # ---------------------------------------------------------------------------

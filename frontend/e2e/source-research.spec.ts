@@ -21,7 +21,7 @@ const result = {
   ],
   sources: [{ title: 'example.org', url: 'https://example.org/a' }],
   related: [{ title: 'Baihe (manga)', relation: 'manga adaptation' }],
-  search_queries: ['白河 drama cast'],
+  search_queries: ['白河 title cast'],
   budget: { ...budget, used_today: 3, free_remaining: 497 },
 }
 
@@ -44,7 +44,7 @@ test('research shows per-field sources, never pre-chooses an overwrite, applies 
   await expect(list.getByRole('link', { name: 'example.org' })).toHaveAttribute('href', 'https://example.org/a')
   await expect(list).toContainText('No source cited for this value.')
   await expect(page.getByRole('list', { name: 'Related works' })).toContainText('Baihe (manga)')
-  await expect(page.getByRole('link', { name: '白河 drama cast' })).toHaveAttribute('href', /google\.com\/search\?q=/)
+  await expect(page.getByRole('link', { name: '白河 title cast' })).toHaveAttribute('href', /google\.com\/search\?q=/)
   const title = page.getByRole('group', { name: 'English title: what to do' })
   await expect(title.getByRole('radio', { name: 'Keep existing' })).toBeChecked()
   const apply = page.getByRole('button', { name: 'Apply choices' })

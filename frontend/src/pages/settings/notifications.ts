@@ -42,19 +42,19 @@ export const CATEGORIES: { field: CategoryField; body: keyof NotificationCategor
     field: 'send_jobs',
     body: 'jobs',
     label: 'Jobs finished or failed',
-    help: 'A message when a background job (transcribe, translate, dub, export and so on) finishes or fails.',
+    help: 'A message when a job (transcribe, translate, dub, export and so on) finishes or fails.',
   },
   {
     field: 'send_chapters',
     body: 'chapters',
     label: 'New chapters found',
-    help: 'A message when a check of your tracked sources finds new chapters.',
+    help: 'A message when tracked sources have new chapters.',
   },
   {
     field: 'send_remote',
     body: 'remote',
     label: 'Remote access problems',
-    help: 'A message when access from other devices stops working or its certificate is not renewed in time, and again when it is fixed.',
+    help: 'A message when remote access stops working or its certificate is not renewed in time, and again when it is fixed.',
   },
 ]
 

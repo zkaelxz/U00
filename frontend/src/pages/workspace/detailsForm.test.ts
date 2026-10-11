@@ -51,7 +51,7 @@ describe('buildDetailsPayload', () => {
     expect(p.metadata).toEqual({ studio: 'X', custom_tags: 'bl, fav, new', series_id: 5 })
     expect(p.sourceLanguage).toBe('ja')
   })
-  it('sends series_id 0 to take the drama out of its series', () => {
+  it('sends series_id 0 to take the title out of its series', () => {
     expect(buildDetailsPayload({ ...init, series_id: '' }, init).metadata).toEqual({ series_id: 0 })
     const none = { ...init, series_id: '' }
     expect(isEmptyPayload(buildDetailsPayload(none, none))).toBe(true)
@@ -91,7 +91,7 @@ describe('P10 fields (genre, status, counts, source URL, episode summary)', () =
     source_url: 'https://example.com/d/1', episode_number: 3, episode_summary: 'Before.',
   } as unknown as DramaDetail
   const init = formFromDrama(full)
-  it('seeds from the drama, counts as text and nulls as empty', () => {
+  it('seeds from the title, counts as text and nulls as empty', () => {
     expect(init).toMatchObject({
       genre: 'xianxia', publication_status: 'ongoing', chapter_count: '120', source_url: 'https://example.com/d/1',
       episode_number: '3', episode_summary: 'Before.',
@@ -172,7 +172,7 @@ describe('P11/X09 series choice', () => {
   })
 })
 
-describe('reseedForm (the drama changed under unsaved edits)', () => {
+describe('reseedForm (the title changed under unsaved edits)', () => {
   const init = formFromDrama(drama)
   it('keeps only the edited fields and takes the new value for the rest', () => {
     const edited = { ...init, genre: 'romance' }

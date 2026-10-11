@@ -1,6 +1,6 @@
 """
 services/scanlate_render_service.py -- Scanlate typeset rendering and bulk
-export for the API (docs/specs/scanlate-api-spec.md S6 and S8).
+export for the API (docs/archive/scanlate-api-spec.md S6 and S8).
 
 - render_page: typesets one page from its regions IN THE DATABASE (never
   from a request body) with scanlate.process_page: regions with blank text
@@ -27,6 +27,7 @@ import zipfile
 import background_jobs
 import db
 import storage
+from lib import cancellable_lock
 from services import artifact_service, comic_view_service
 from services import scanlate_pages_service as pages_svc
 from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
@@ -48,7 +49,7 @@ def _pages_dir(drama_id: int) -> str:
     path = os.path.join(base, "pages")
     os.makedirs(path, exist_ok=True)
     if os.path.islink(path) or os.path.realpath(path) != path:
-        raise NotFoundError("This drama's pages folder is not usable.")
+        raise NotFoundError("This title's pages folder is not usable.")
     return path
 
 
@@ -61,12 +62,13 @@ def _custom_fonts(drama_id: int) -> dict:
             and not os.path.islink(os.path.join(folder, f"{cat}.ttf"))}
 
 
-def render_page(drama_id: int, page_id: int, notes: list = None) -> dict:
+def render_page(drama_id: int, page_id: int, notes: list = None, cancel_check=None) -> dict:
     """Typesets one page now (call from a job). Returns {rendered, blank}:
     rendered False when the page has no region with text to place (nothing
     is written then); blank counts regions left as the original for having
     no translation. Warnings (blank regions, an inpaint fallback) are
-    appended to `notes` as (level, message)."""
+    appended to `notes` as (level, message). `cancel_check` lets a cancel end the
+    wait for the pipeline lock."""
     import scanlate
     notes = notes if notes is not None else []
     page = pages_svc.require_page(drama_id, page_id)
@@ -79,7 +81,8 @@ def render_page(drama_id: int, page_id: int, notes: list = None) -> dict:
     name = f"typeset_id{page_id}.png"
     out = os.path.join(_pages_dir(drama_id), name)
     render_notes = []
-    with pages_svc.pipeline_lock():
+    # A direct call outside a job has no cancel to honour, so the wait is unbounded as before.
+    with cancellable_lock.hold(pages_svc.pipeline_lock(), cancel_check or (lambda: None)):
         _path, skipped_blank = scanlate.process_page(
             src, bubbles, out, custom_fonts=_custom_fonts(drama_id), notes=render_notes)
     for n in render_notes:
@@ -118,9 +121,11 @@ def _render_job(jid: str, drama_id: int, page_ids: list):
         background_jobs.update_progress(jid, (n - 1) / total, f"Rendering page {n} of {total}")
         notes = []
         try:
-            if render_page(drama_id, pid, notes)["rendered"]:
+            if render_page(drama_id, pid, notes, lambda: check_cancel(jid))["rendered"]:
                 done += 1
             append_notes(pid, notes)
+        except background_jobs.JobCancelled:
+            raise                                # a cancel is not a page failure
         except (NotFoundError, InvalidInputError) as exc:
             failed += 1
             append_notes(pid, [("error", f"Render failed: {exc}")])
@@ -144,7 +149,7 @@ def start_render(drama_id: int, page_id: int = None) -> dict:
         if not ids:
             raise UnsupportedOperationError("No page has text regions yet. Translate first.")
     return pages_svc.start_drama_job(drama_id, _render_job, pages_svc.job_id(drama_id),
-                                     drama_id, ids, description=f"Scanlate render (drama {drama_id})")
+                                     drama_id, ids, description=f"Scanlate render (title {drama_id})")
 
 
 # --- S8: export -------------------------------------------------------------
@@ -209,13 +214,15 @@ def _export_job(jid: str, drama_id: int, formats: list):
             path = _rendered_path(drama_id, page)
             if path is None and page["id"] in with_regions:
                 notes = []
-                if render_page(drama_id, page["id"], notes)["rendered"]:
+                if render_page(drama_id, page["id"], notes, lambda: check_cancel(jid))["rendered"]:
                     path = _rendered_path(drama_id, db.get_page(page["id"]))
                 append_notes(page["id"], notes)
             if path is None:
                 path = original_path(drama_id, page)
                 originals += 1
             files.append((n, path))
+        except background_jobs.JobCancelled:
+            raise                                # a cancel is not a skipped page
         except Exception as exc:
             failed += 1
             append_notes(page["id"], [("error", f"Export skipped this page: "
@@ -227,6 +234,7 @@ def _export_job(jid: str, drama_id: int, formats: list):
         background_jobs.update_progress(jid, 0.9, f"Writing the {fmt.upper()}")
         dest = artifact_service.output_path(drama_id, _KIND[fmt], _FILENAME[fmt])
         (_write_zip if fmt == "zip" else _write_pdf)(dest, files)
+        artifact_service.set_download_language(drama_id, _KIND[fmt], _FILENAME[fmt], "translated en")
     msg = f"Exported {len(files)} page(s)"
     if originals:
         msg += f" ({originals} without typeset text, as the original)"
@@ -243,9 +251,9 @@ def start_export(drama_id: int, formats=EXPORT_FORMATS) -> dict:
         raise InvalidInputError("formats must be 'zip' and/or 'pdf'.")
     page_count = len(db.list_pages(drama_id))
     if not page_count:
-        raise UnsupportedOperationError("This drama has no pages to export.")
+        raise UnsupportedOperationError("This title has no pages to export.")
     if "pdf" in formats and page_count > MAX_PDF_EXPORT_PAGES:
         raise InvalidInputError(_PDF_TOO_MANY)
     return pages_svc.start_drama_job(drama_id, _export_job, pages_svc.job_id(drama_id),
                                      drama_id, formats,
-                                     description=f"Scanlate export (drama {drama_id})")
+                                     description=f"Scanlate export (title {drama_id})")

@@ -211,6 +211,6 @@ export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {})
 export const posts = (s: DiscoverMock, suffix: string) =>
   s.calls.filter((c) => c.method === 'POST' && c.path.endsWith(suffix))
 
-// The Discover page's task tabs: Catalogue (default), Find a title, Add titles.
+// The Discover page's task tabs: Catalogue (default while enabled), Find a title, Add titles.
 export const openTab = (page: Page, name: 'Catalogue' | 'Find a title' | 'Add titles') =>
   page.getByRole('tab', { name, exact: true }).click()

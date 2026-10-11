@@ -90,7 +90,7 @@ test('a spent monthly cap is shown before starting', async ({ page }) => {
 })
 
 test('sends the hint and names, prefilled from the saved names, and shows what was used', async ({ page }) => {
-  await page.addInitScript(() => sessionStorage.setItem('baihe.sourceForm.3', JSON.stringify({ extraNames: '沈清疑' })))
+  await page.addInitScript(() => localStorage.setItem('baihe.draft.3.transcribe', JSON.stringify({ v: 1, values: { extraNames: '沈清疑' } })))
   const seen = await mockCompare(page)
   const box = await open(page)
   await box.getByLabel('Which lines').selectOption('range')

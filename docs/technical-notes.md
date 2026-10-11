@@ -7,6 +7,8 @@ Nothing here is required reading to use Baihe Studio; it exists for
 whoever is extending or debugging the codebase (including a future
 session picking this project back up).
 
+React + FastAPI replaced Streamlit; the Streamlit-era entries below are history, and the removed code is in `docs/archive/`.
+
 ## Why translation used to stop when switching tabs
 
 Every tab's content renders in the same script execution regardless of
@@ -48,7 +50,7 @@ app. Would need a real job queue for anything multi-user.
 ## GPU transcription failures ("cublas64_12.dll is not found")
 
 A real bug in the GPU fallback itself, not a driver problem to fix on
-your end -- though see the README's Troubleshooting section for what to
+your end -- though see the Troubleshooting section of `docs/user-guide.md` for what to
 check if it keeps happening.
 
 `faster-whisper` (via ctranslate2) defers ALL CUDA initialization until
@@ -221,8 +223,20 @@ This was verified directly, not assumed. It matters because the earlier
 implementation handed that empty shell to the extractor, which found
 nothing and reported "couldn't extract metadata" -- indistinguishable
 from a page that genuinely had no metadata. A silent failure. See the
-README's "Fetching from JS-heavy sites" section for the three-layer fix
+`docs/user-guide.md`'s "Fetching from JS-heavy sites" section for the three-layer fix
 that's in place now.
+
+## Guarded fetches ignore environment proxies
+
+`lib.http.get/post` with the default `guard=check_public` (metadata research,
+source adapters, `safe_fetch`) validate the name with `url_guard.resolve_public`
+and connect to that exact address. A proxy would resolve the name again on its
+own, so the check would no longer describe where the request goes (DNS
+rebinding); these fetches therefore set `trust_env=False` and never use
+`HTTP_PROXY`/`HTTPS_PROXY`. On a PC that reaches the internet only through such
+a proxy they fail with "could not be fetched". Fetches with `guard=None` (vendor
+APIs whose URL the code fixes, the Ollama address set in Settings) still honour
+environment proxies, as do engine SDK calls.
 
 ## Migrating off components.html
 

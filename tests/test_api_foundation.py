@@ -23,6 +23,7 @@ import background_jobs
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
 import core
+import whisper_models
 from core import Line
 
 
@@ -412,7 +413,7 @@ class TestTranslateEndpoints:
     def test_engines_name_settings_default_engine(self, client, isolated_db):
         from services import settings_service
         body = client.get("/api/translate/engines").json()
-        assert body["default_engine"] == settings_service.get_default_engine()
+        assert body["default_engine"] == settings_service.get("default_engine")
         assert body["default_engine"] in {e["name"] for e in body["items"]}
 
     def test_engines_never_leak_a_key_value(self, client, isolated_db, monkeypatch):
@@ -684,7 +685,7 @@ class TestDiarizationEndpoints:
         open(os.path.join(ddir, "audio.wav"), "wb").close()
 
         def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
-                                   on_done=None):
+                                   on_done=None, run_settings=None, **launch):
             isolated_db.save_job_record(job_id, status="running", description=description)
             return True
 
@@ -842,10 +843,10 @@ class TestTranscribeConfigEndpoints:
             "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
             "audio_available": False, "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper", "asr_backend_notice": None,
-            "whisper_size": core.DEFAULT_WHISPER_SIZE,
+            "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
             "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
-            "whisper_installed": body["whisper_installed"],
+            "whisper_installed": body["whisper_installed"], "gpu_runtime": body["gpu_runtime"],
             "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5, "sensitivity_preset": "normal", "effective_vad_threshold": 0.5,
             "hallucination_silence_sec": 0.0, "min_pause_sec": 0.35,
             "separate_vocals_first": False, "separation_backend": "auto",
@@ -892,8 +893,8 @@ class TestTranscribeConfigEndpoints:
         # Mocked so the real background thread never touches a real model
         # or the network -- this test only checks the job is registered
         # and pollable through the existing jobs API.
-        import services.transcribe_service as transcribe_service_module
-        monkeypatch.setattr(transcribe_service_module, "transcribe_for_timing",
+        import services.transcribe_pipeline as transcribe_pipeline_module
+        monkeypatch.setattr(transcribe_pipeline_module, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
 
         resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})

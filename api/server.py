@@ -49,11 +49,16 @@ from api.routers import (
     characters_routes,
     comic_routes,
     delete_routes,
+    device_token_routes,
+    diagnostics_browser_routes,
     diagnostics_gaps_routes,
     disk_usage_routes,
     diagnostics_installs_routes,
+    pending_install_routes,
     diagnostics_routes,
+    real_model_check_routes,
     diarization_routes,
+    timing_check_routes,
     discover_lookup_routes,
     discover_routes,
     drama_routes,
@@ -64,9 +69,11 @@ from api.routers import (
     export_routes,
     extension_routes,
     glossary_routes,
+    language_pack_routes,
     job_stage_routes,
     jellyfin_routes,
     jobs_routes,
+    queue_routes,
     library_admin_routes,
     library_routes,
     line_ai_routes,
@@ -80,7 +87,6 @@ from api.routers import (
     narration_routes,
     notification_center_routes,
     notification_routes,
-    notion_routes,
     novel_files_routes,
     novel_routes,
     reader_routes,
@@ -103,11 +109,13 @@ from api.routers import (
     sources_local_routes,
     sources_search_routes,
     sources_tools_routes,
+    subtitle_import_routes,
     system_routes,
     transcribe_routes,
     translate_routes,
     translate_run_routes,
     translation_version_routes,
+    spend_history_routes,
     update_routes,
     usage_recost_routes,
     voice_bank_audio_routes,
@@ -128,24 +136,35 @@ async def _lifespan(app: FastAPI):
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,
     and job records left running by a dead process are closed, as
-    are stale sign-in sessions (expired, idle or of a deactivated user).
+    are stale sign-in sessions (expired, idle or of a deactivated user);
+    the exit flush of this server's own job rows is registered here, not
+    at import, so tests, cli.py and GPU workers never run it.
     The household listener's app does none of this, at start or stop: it
     shares the process with the admin listener, whose lifespan owns it."""
     if getattr(app.state.settings, "is_household", False):
         yield
         return
-    from services import lncrawl_service
+    from engine_backends import echo
+    from services import lncrawl_service, maintenance_assistant_service
+    echo.set_enabled(maintenance_assistant_service.developer_mode_enabled())
     if not getattr(app.state.settings, "background_services", False):
         try:
             yield
         finally:
             lncrawl_service.shutdown()
         return
+    from jobs import job_store
     from services import jobs_service
+    job_store.register_exit_flush()
     try:
         jobs_service.sweep_stale_job_records()
     except Exception:
         logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
+    from jobs import gpu_slots
+    try:
+        gpu_slots.reap()
+    except Exception:
+        logging.getLogger(__name__).warning("Orphaned GPU slot release failed", exc_info=True)
     from services import auth_service
     try:
         auth_service.sweep_stale_sessions()
@@ -159,9 +178,12 @@ async def _lifespan(app: FastAPI):
     start_gpu_queue_poller()
     start_reeval_scheduler()
     start_remote_health_monitor(app.state.settings)
+    from services import queue_service
+    queue_service.start_runner()
     try:
         yield
     finally:
+        queue_service.stop_runner()
         stop_gpu_queue_poller()
         lncrawl_service.shutdown()
 
@@ -237,6 +259,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(reader_routes.router)
     app.include_router(diagnostics_routes.router)
     app.include_router(jobs_routes.router)
+    app.include_router(queue_routes.router)
     app.include_router(events_routes.router)
     app.include_router(job_stage_routes.router)
     app.include_router(loaded_models_routes.router)
@@ -244,13 +267,16 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(translate_routes.router)
     app.include_router(export_routes.router)
     app.include_router(diarization_routes.router)
+    app.include_router(timing_check_routes.router)
     app.include_router(source_routes.router)
     app.include_router(transcribe_routes.router)
+    app.include_router(subtitle_import_routes.router)
     app.include_router(dub_routes.router)
     app.include_router(drama_routes.router)
     app.include_router(translate_run_routes.router)
     app.include_router(characters_routes.router)
     app.include_router(glossary_routes.router)
+    app.include_router(language_pack_routes.router)
     app.include_router(review_lines_routes.router)
     app.include_router(review_records_routes.router)
     app.include_router(lines_routes.router)
@@ -260,7 +286,6 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(metadata_routes.router)
     app.include_router(metadata_research_routes.router)
     app.include_router(jellyfin_routes.router)
-    app.include_router(notion_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
     app.include_router(review_extras_routes.router)
@@ -290,6 +315,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(notification_center_routes.router)
     app.include_router(asr_options_routes.router)
     app.include_router(usage_recost_routes.router)
+    app.include_router(spend_history_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(scanlate_routes.router)
     app.include_router(engine_routing_routes.router)
@@ -297,6 +323,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(series_people_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(admin_users_routes.router)
+    app.include_router(device_token_routes.router)
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
@@ -305,6 +332,9 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(model_reeval_routes.router)
 
     app.include_router(diagnostics_installs_routes.router)
+    app.include_router(pending_install_routes.router)
+    app.include_router(diagnostics_browser_routes.router)
+    app.include_router(real_model_check_routes.router)
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)
     app.include_router(assistant_routes.router)

@@ -3,9 +3,11 @@ Tests for grounded metadata research (roadmap Step 37,
 services/metadata_research_service.py and its routes). Fully mocked: no
 network, no real key.
 """
+from lib import http
 import os
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -58,7 +60,7 @@ def setup(isolated_db, monkeypatch):
     db.update_drama(drama, author="Someone")
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda name, *a, **kw: KEY if name == "gemini" else None)
-    monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: False)
+    patch_setting(monkeypatch, "gemini_free_tier", False)
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **kw: 0.0)
     data = _response(
         {"title_en": {"value": "New Title", "confidence": "low"},
@@ -256,7 +258,7 @@ def test_refresh_spends_a_new_search(setup):
 
 def test_paid_search_refused_on_free_tier_key(setup, monkeypatch):
     drama, fake = setup
-    monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: True)
+    patch_setting(monkeypatch, "gemini_free_tier", True)
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD})
     with pytest.raises(ConflictError):
         mrs.research(drama, allow_paid=True)
@@ -427,9 +429,8 @@ def test_call_sends_key_as_header_with_timeout(monkeypatch):
     seen = {}
 
     class Resp:
-        def raise_for_status(self):
-            pass
-
+        status_code = 200
+        encoding = None
         headers = {}
 
         def iter_content(self, size):
@@ -438,11 +439,10 @@ def test_call_sends_key_as_header_with_timeout(monkeypatch):
         def close(self):
             pass
 
-    def post(url, **kw):
-        seen.update(kw, url=url)
+    def post(url, ip, headers, timeout, method="GET", **kw):
+        seen.update(kw, url=url, headers=headers, timeout=timeout)
         return Resp()
-    import requests
-    monkeypatch.setattr(requests, "post", post)
+    monkeypatch.setattr(http, "pinned_get", post)
     mrs._call_gemini(KEY, "gemini-flash-lite-latest", "p")
     assert KEY not in seen["url"] and seen["headers"] == {"x-goog-api-key": KEY}
     assert seen["timeout"] and seen["json"]["tools"] == [{"google_search": {}}]
@@ -512,6 +512,8 @@ def test_an_oversized_gemini_response_is_refused(monkeypatch):
     import requests
 
     class Endless:
+        status_code = 200
+        encoding = None
         headers = {}
         closed = False
 
@@ -525,7 +527,7 @@ def test_an_oversized_gemini_response_is_refused(monkeypatch):
         def close(self):
             Endless.closed = True
     monkeypatch.setattr(mrs, "MAX_RESPONSE_BYTES", 1000)
-    monkeypatch.setattr(requests, "post", lambda *a, **k: Endless())
-    with pytest.raises(ValueError, match="too large"):
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Endless())
+    with pytest.raises(http.ResponseTooLarge, match="larger than expected"):
         mrs._call_gemini(KEY, "gemini-flash-lite-latest", "p")
     assert Endless.closed

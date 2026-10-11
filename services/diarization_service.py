@@ -17,7 +17,8 @@ from typing import Optional
 import background_jobs
 import db
 import diarize
-from services import drama_service, settings_service
+from services import (drama_service, ownership_service, run_settings_service, settings_service,
+                      transcribe_pipeline)
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
@@ -42,7 +43,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
     length is unknown. Raises NotFoundError for an unknown drama."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     turns = diarize.load_turns(db.drama_dir(drama_id))
     if not turns:
         return None
@@ -73,8 +74,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
     uncovered = None
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path:
-        from services import transcribe_service  # imports this module, so not at the top
-        duration = transcribe_service._audio_duration_seconds(audio_path)
+        duration = transcribe_pipeline._audio_duration_seconds(audio_path)
         if duration:
             uncovered = round(max(0.0, duration - covered), 1)
     speakers = [{"label": k, "seconds": round(v["seconds"], 1),
@@ -92,7 +92,7 @@ def get_diarization_config(drama_id: int) -> dict:
     drama id."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     ddir = db.drama_dir(drama_id)
     audio_path = _drama_audio_path(drama_id, drama)
@@ -158,9 +158,9 @@ def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
     for the drama. The saved turns are tied to whatever audio detection last
     ran on, so this is only ever done on request, never after a transcription."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError("A background job is still running for this drama -- wait for it "
+        raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before re-assigning speakers.")
     return relabel_from_saved_turns(drama_id)
 
@@ -171,7 +171,7 @@ def relabel_from_saved_turns(drama_id: int, only_ids=None) -> dict:
     only_ids: relabel just these lines; every other line keeps its speaker."""
     turns = diarize.load_turns(db.drama_dir(drama_id))
     if turns is None:
-        raise ConflictError("No saved speaker detection for this drama; run Detect speakers first.")
+        raise ConflictError("No saved speaker detection for this title; run Detect speakers first.")
     lines = db.load_line_objects(drama_id)
     if only_ids is not None:
         keep = set(only_ids)
@@ -196,7 +196,7 @@ def _record_run_speed(drama_id: int, result) -> None:
             return
         from services import transcribe_service  # imports this module, so not at the top
         transcribe_service.record_diarize_speed(
-            result.get("device") == "cuda", transcribe_service._audio_duration_seconds(audio_path),
+            result.get("device") == "cuda", transcribe_pipeline._audio_duration_seconds(audio_path),
             seconds)
     except Exception:
         pass
@@ -220,11 +220,24 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
     return _on_done
 
 
+def speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None):
+    """(min_speakers, max_speakers) for the chained speaker
+    detection, each None when unset. Raises InvalidInputError for a bad
+    range, or a range combined with an exact count (diarize.validate_speaker_hints)."""
+    import diarize as diarize_module
+    try:
+        _num, lo, hi = diarize_module.validate_speaker_hints(
+            expected_speakers, min_speakers, max_speakers)
+    except ValueError as exc:
+        raise InvalidInputError(str(exc)) from exc
+    return lo, hi
+
+
 def worker_options(min_speakers: Optional[int] = None,
                    max_speakers: Optional[int] = None) -> dict:
     """The options dict diarize.diarize_subprocess_worker takes: the
     persisted use_gpu setting and the speaker range."""
-    return {"use_gpu": settings_service.get_use_gpu(),
+    return {"use_gpu": settings_service.get("use_gpu"),
             "min_speakers": min_speakers or None, "max_speakers": max_speakers or None}
 
 
@@ -249,11 +262,13 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     {job_id}."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     if overwrite_manual and confirm is not True:
         raise InvalidInputError("overwrite_manual=true replaces speakers you corrected by hand "
                                 "and needs confirm=true as well.")
+    if overwrite_manual:
+        ownership_service.require_acting_lines_edit()
     try:
         expected_speakers, min_speakers, max_speakers = diarize.validate_speaker_hints(
             expected_speakers, min_speakers, max_speakers)
@@ -270,7 +285,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         # The drama itself exists (checked above) -- it just has no audio
         # yet, which is a well-formed request this record can't currently
         # satisfy (HTTP 400), not "the drama doesn't exist" (404).
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
 
     job_id = f"diarize_{drama_id}"
     # start_process_job returns False without starting anything if this job
@@ -279,11 +294,15 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         job_id, diarize.diarize_subprocess_worker,
         args=(audio_path, hf_token, expected_speakers or None,
               worker_options(min_speakers, max_speakers)),
-        gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+        gpu_touching=True, description=f"Diarization (title #{drama_id})",
+        kill_whole_tree=True, start_method="spawn",
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
-                                   min_speakers, max_speakers))
+                                   min_speakers, max_speakers),
+        run_settings=run_settings_service.for_diarize(
+            expected_speakers, min_speakers, max_speakers, settings_service.get("use_gpu"),
+            overwrite_manual=overwrite_manual))
     if not started:
-        raise ConflictError(f"A diarization job is already running for drama {drama_id}.")
+        raise ConflictError(f"A diarization job is already running for title {drama_id}.")
     return {"job_id": job_id}
 
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
 import {
-  upsertJob, isFinished, jobsSummary, orderJobs,
+  upsertJob, isFinished, orderJobs,
   describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobDetail, splitDependencies,
 } from './diagnosticsFormat'
 
@@ -66,11 +66,6 @@ describe('upsertJob', () => {
   it('orders active jobs first, keeping the order within each group', () => {
     const jobs = [job({ job_id: 'a' }), job({ job_id: 'b', status: 'running' }), job({ job_id: 'c', status: 'error' }), job({ job_id: 'd', status: 'queued' })]
     expect(orderJobs(jobs).map((j) => j.job_id)).toEqual(['b', 'd', 'a', 'c'])
-  })
-  it('summarises counts', () => {
-    expect(jobsSummary([job({}), job({ status: 'cancelled' })])).toBe('None running')
-    expect(jobsSummary([job({ status: 'running' }), job({ status: 'running' }), job({ status: 'error' })])).toBe('2 running, 1 failed')
-    expect(jobsSummary([job({ status: 'queued' })])).toBe('None running, 1 queued')
   })
   it('knows finished statuses', () => {
     expect(['done', 'error', 'cancelled'].every(isFinished)).toBe(true)

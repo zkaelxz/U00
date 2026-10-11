@@ -7,9 +7,6 @@ import {
   checkEndpointUrl,
   checkPath,
   cookiesSummary,
-  parseCap,
-  parseNumCtx,
-  parseUploadMb,
 } from './preferences'
 
 const saved: SettingsPreferences = {
@@ -21,6 +18,8 @@ const saved: SettingsPreferences = {
   max_upload_mb: 20480,
   monthly_cap_usd: null,
   ollama_num_ctx_override: 0,
+  keep_free_vram_gb: 0,
+  keep_free_ram_gb: 0,
   whisper_model_path: '',
   ocr_backend: 'auto',
   ocr_prefer_paddle_vl_manga: false,
@@ -41,32 +40,6 @@ describe('settings preferences', () => {
     })
     expect(changedPreferences(saved, { monthly_cap_usd: null, cookies_browser: null })).toEqual({})
     expect(changedPreferences(saved, { monthly_cap_usd: 0 })).toEqual({ monthly_cap_usd: 0 })
-  })
-
-  it('parses the monthly cap: blank is .env, 0 is no cap', () => {
-    expect(parseCap('')).toEqual({ ok: true, value: null })
-    expect(parseCap(' 12.50 ')).toEqual({ ok: true, value: 12.5 })
-    expect(parseCap('0')).toEqual({ ok: true, value: 0 })
-    expect(parseCap('-1').ok).toBe(false)
-    expect(parseCap('1e3').ok).toBe(false)
-    expect(parseCap('2000000').ok).toBe(false)
-  })
-
-  it('parses num_ctx: blank is automatic, whole numbers only', () => {
-    expect(parseNumCtx('')).toEqual({ ok: true, value: 0 })
-    expect(parseNumCtx('16384')).toEqual({ ok: true, value: 16384 })
-    expect(parseNumCtx('1.5').ok).toBe(false)
-    expect(parseNumCtx('99999999').ok).toBe(false)
-  })
-
-  it('parses the upload limit: 100 to 1,048,576 MB, blank is the default', () => {
-    expect(parseUploadMb('', 20480)).toEqual({ ok: true, value: 20480 })
-    expect(parseUploadMb(' 4096 ', 20480)).toEqual({ ok: true, value: 4096 })
-    expect(parseUploadMb('100', 20480).ok).toBe(true)
-    expect(parseUploadMb('1048576', 20480).ok).toBe(true)
-    for (const bad of ['99', '0', '-5', '1048577', '1.5', '2 GB', '1e3']) {
-      expect(parseUploadMb(bad, 20480).ok).toBe(false)
-    }
   })
 
   it('checks paths for control characters and length', () => {

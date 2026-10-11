@@ -253,3 +253,9 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
   })
   return s
 }
+
+// The Assistant blocks are folds that start closed (except Ask); open one by its region name.
+export async function openSection(page: Page, region: string) {
+  const fold = page.getByRole('region', { name: region }).locator('details.section').first()
+  if (!(await fold.evaluate((e) => (e as HTMLDetailsElement).open))) await fold.locator('summary').first().click()
+}

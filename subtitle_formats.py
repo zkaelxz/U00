@@ -21,6 +21,7 @@ import copy
 import html
 import re
 
+import review_thresholds
 from core import notes_suffix, sfx_cue_text
 
 # ---------------------------------------------------------------- wrapping
@@ -145,6 +146,12 @@ READING_SPEED_MODES = ("normal", "relaxed", "off")
 DEFAULT_READING_SPEED_MODE = "normal"
 RELAXED_CPS_LIMITS = {"cjk": 9.0, "abugida_rtl": 10.0, "latin": 12.0}
 RELAXED_DEFAULT_CPS_LIMIT = 10.5
+# Streamer speech runs near 17 characters/second in English, above even the
+# relaxed table, and cues can't be lengthened past the audio. Flags only the
+# extremes: the relaxed limits raised by another 50%.
+STREAMER_MODE = "streamer"
+STREAMER_CPS_LIMITS = {k: v * 1.5 for k, v in RELAXED_CPS_LIMITS.items()}
+STREAMER_DEFAULT_CPS_LIMIT = RELAXED_DEFAULT_CPS_LIMIT * 1.5
 
 # A cue shorter than this, or with less text than this, is never flagged: a
 # few words are read almost at a glance whatever the ratio says, and such a
@@ -179,14 +186,27 @@ def reading_speed_mode_of(drama) -> str:
     return mode if mode in READING_SPEED_MODES else DEFAULT_READING_SPEED_MODE
 
 
+def flagging_mode_of(drama) -> str:
+    """The mode the checks run at. A streamer title saved at "normal" (the
+    column's default, so it can't be told from a deliberate choice) runs at
+    STREAMER_MODE; an explicit Relaxed or Off is honoured as saved. Not
+    offered in READING_SPEED_MODES: it is never stored or sent by the API."""
+    mode = reading_speed_mode_of(drama)
+    if mode == "normal" and review_thresholds.profile_of(drama) == review_thresholds.PROFILE_STREAMER:
+        return STREAMER_MODE
+    return mode
+
+
 def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE) -> list:
     """[(line, chars_per_second, limit)] for every line whose `field` text
     is too dense to read in the time it's on screen. Cues under the
     MIN_DENSE_* floor are skipped; mode "off" finds nothing."""
     if mode == "off":
         return []
-    limits, fallback = ((RELAXED_CPS_LIMITS, RELAXED_DEFAULT_CPS_LIMIT) if mode == "relaxed"
-                        else (CPS_LIMITS, DEFAULT_CPS_LIMIT))
+    limits, fallback = {
+        "relaxed": (RELAXED_CPS_LIMITS, RELAXED_DEFAULT_CPS_LIMIT),
+        STREAMER_MODE: (STREAMER_CPS_LIMITS, STREAMER_DEFAULT_CPS_LIMIT),
+    }.get(mode, (CPS_LIMITS, DEFAULT_CPS_LIMIT))
     out = []
     for ln in lines:
         text = getattr(ln, field, "") or ""
@@ -271,6 +291,41 @@ def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars
         text = "\n".join(part for part in re.split(r"\r\n|\r|\n", text) if part.strip())
         cues.append(f"{i}\n{_vtt_ts(ln.start)} --> {_vtt_ts(ln.end)}\n{text}\n")
     return "\n".join(cues)
+
+
+# ------------------------------------------------------------------- LRC
+
+def _lrc_ts(seconds: float) -> str:
+    # LRC stamps are centiseconds; rounding a whole minute up must carry.
+    cs = int(round(max(seconds, 0) * 100))
+    m, cs = divmod(cs, 6000)
+    return f"[{m:02d}:{cs // 100:02d}.{cs % 100:02d}]"
+
+
+def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None) -> str:
+    """Lyrics-style timed text: one stamp per cue, where a cue starts. A cue
+    that ends before the next one starts also gets an empty stamp at its end,
+    so a player doesn't keep showing it through the gap (LRC has no end
+    times). Multi-line cue text is joined on one line with a space, since a
+    line break would start a new, unstamped line. field: "en", "zh" or
+    "bilingual" (both texts under one stamp, each on its own stamped line)."""
+    out = []
+    for i, ln in enumerate(lines):
+        # Each language is flattened on its own, so a two-line translation
+        # still leaves exactly one source row under the stamp.
+        texts = ([_cue_text(ln, "en", notes_by_idx, wrap_chars, italic_tags=False),
+                  _cue_text(ln, "zh", None, wrap_chars, italic_tags=False)]
+                 if field == "bilingual" else [_cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=False)])
+        parts = [" ".join(t.split()) for t in texts]
+        parts = [p for p in parts if p]
+        if not parts:
+            continue
+        stamp = _lrc_ts(ln.start)
+        out.extend(f"{stamp}{p}" for p in parts)
+        nxt = lines[i + 1].start if i + 1 < len(lines) else None
+        if nxt is None or ln.end < nxt:
+            out.append(_lrc_ts(ln.end))
+    return "\n".join(out) + ("\n" if out else "")
 
 
 # ------------------------------------------------------------------- ASS

@@ -37,7 +37,7 @@ The owner's brief refers to an earlier "all-tabs" information-architecture (IA) 
 | Source | What it settles |
 |---|---|
 | `docs/react-ui-guidelines.md` rules 1-22, `docs/design/ui-refresh-spec.md` | The UI rules this proposal follows (single primary, `ButtonLink` for navigation, humanized labels, disabled primary names its fix). |
-| `docs/specs/ux-workspace-shell-and-review.md`, "Decisions (user, 2026-09-29)" | Three owner decisions: the API badge only shows when the API is down (built); delete is two-step; stage progress comes from `GET /api/workflow/dramas/{id}/progress`, with no interim mapping (built). |
+| `docs/archive/ux-workspace-shell-and-review.md`, "Decisions (user, 2026-09-29)" | Three owner decisions: the API badge only shows when the API is down (built); delete is two-step; stage progress comes from `GET /api/workflow/dramas/{id}/progress`, with no interim mapping (built). |
 | #150 (`docs/archive/ux-click-through-audit.md`) | The 8 questions asked of every workflow: where am I, what's next, is the primary obvious, anything unnecessary, scrolling, related controls together, can I get back, is the current project obvious. I reuse them as the test for each PR in section 4. |
 | #690 `ui-shell-sticky-next` | Sticky title and stage strip (`--bar-h`), a `Next:` button, creating a drama opens its workspace. |
 | #696 `ia-review-folds` and #715 `ia-source-stage` | Two IA clean-ups already merged: Review's lower tools became four folds and flag tools moved from Export to Review; Source got one "Fill in details" fold. Both branches are named `ia-*`, so they were probably part of the lost series. That is my inference, not a recorded fact. |
@@ -264,7 +264,7 @@ Items 1 and 2 touch `api/schemas/system.py`, `services/jobs_service.py` and `fro
 
 ## 4. PR breakdown
 
-Each PR is small, merges on its own and leaves the app working. One task per branch off the latest `baihe-subtitler` (`step-<id>-<short-name>` if the owner assigns step ids). Screenshots go on the PR as attachments. Structural PRs (the shell and the Jobs page) need before and after screenshots at 390×844 and 1280×800, light and dark. Each exit condition ends with the six #150 questions that apply; a PR is not done until each is a yes. Run `cd frontend && npx tsc --noEmit && npx vitest run` and the named Playwright specs for desktop and the `phone` project; for the two with backend work, also `python -m pytest -q tests/test_api_permissions.py tests/test_jobs_service.py tests/test_api_job_cancel.py`.
+Each PR is small, merges on its own and leaves the app working. One task per branch off the latest `baihe-subtitler` (`step-<id>-<short-name>` if the owner assigns step ids). Screenshots go on the PR as attachments. Structural PRs (the shell and the Jobs page) need before and after screenshots at 390×844 and 1280×800, light and dark. Each exit condition ends with the six #150 questions that apply; a PR is not done until each is a yes. Run `cd frontend && npx tsc -b && npx vitest run` and the named Playwright specs for desktop and the `phone` project; for the two with backend work, also `python -m pytest -q tests/test_api_permissions.py tests/test_jobs_service.py tests/test_api_job_cancel.py`.
 
 | # | PR | Scope | Exit conditions | Tests | Owner checks (phone / PC) |
 |---|---|---|---|---|---|

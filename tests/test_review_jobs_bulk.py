@@ -12,6 +12,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+import bulk_providers
 import bulk_translate
 import db
 import translate_engines
@@ -66,7 +67,7 @@ def _env(isolated_db, monkeypatch):
 
 def _provider(monkeypatch, reply):
     prov = FakeProvider(reply)
-    monkeypatch.setattr(bulk_translate, "make_provider", lambda choice, engine: prov)
+    monkeypatch.setattr(bulk_providers, "make_provider", lambda choice, engine: prov)
     return prov
 
 
@@ -112,6 +113,16 @@ def test_bulk_flag_applies_by_line_id_with_field_scoped_write(monkeypatch):
 
 
 _real_flag = bulk_translate.submit_bulk_flag
+
+
+@pytest.mark.parametrize("starter", ["start_flag_review", "start_consistency_check"])
+def test_bulk_review_prompts_name_the_titles_source_language(monkeypatch, starter):
+    did = _seed()
+    db.update_drama(did, source_language="ko")
+    prov = _provider(monkeypatch, lambda r: "[]")
+    out = getattr(svc, starter)(did, engine_name="claude", bulk=True)
+    _wait(out["job_id"])
+    assert prov.requests and "Korean source lines" in prov.requests[0]["prompt"]
 
 
 def test_bulk_notes_and_consistency_and_emotion_submit_their_kind(monkeypatch):
