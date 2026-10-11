@@ -141,7 +141,13 @@ def _ensure_ready():
         return
     _db_ready = True
     os.makedirs(DRAMAS_DIR, exist_ok=True)
-    init_db()
+    try:
+        init_db()
+    except BaseException:
+        # Left set, a refused (newer) database would be used unmigrated by
+        # the next caller instead of being refused again.
+        _db_ready = False
+        raise
 
 
 def get_conn():
@@ -226,8 +232,53 @@ def _safe_alter(conn, sql: str):
             raise
 
 
+APP_VERSION_SETTING = "app_version_last_opened"
+
+
+_VERSION_RE = re.compile(r"^v?(\d{1,6})\.(\d{1,6})(?:\.(\d{1,6}))?")
+
+
+def _version_tuple(text):
+    """Numeric (major, minor, patch), or None for anything that isn't a
+    version (a dev build, a damaged value), which is never "newer"."""
+    m = _VERSION_RE.match(text.strip()) if isinstance(text, str) else None
+    return tuple(int(g or 0) for g in m.groups()) if m else None
+
+
+def _running_app_version():
+    """None for a source checkout, which has no version and so is neither
+    checked nor recorded."""
+    return portable.installed_app_version()
+
+
+def _refuse_newer_database(conn, running):
+    """An older build would silently misread columns a newer one added, so
+    it must not open the database at all."""
+    from lib.errors import NewerDatabaseError
+    try:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?",
+                           (APP_VERSION_SETTING,)).fetchone()
+    except sqlite3.OperationalError:
+        return   # a brand-new database has no app_settings yet
+    if row is None:
+        return
+    try:
+        stored = json.loads(row[0])
+    except ValueError:
+        return
+    stored_v, running_v = _version_tuple(stored), _version_tuple(running)
+    if stored_v and running_v and stored_v > running_v:
+        raise NewerDatabaseError(
+            f"This library was last opened by Baihe {stored}, but this is Baihe {running}. "
+            "Upgrade Baihe, or restore a backup from the backups folder "
+            "(the backups folder inside your Baihe data folder).")
+
+
 def init_db():
+    running = _running_app_version()
     with contextlib.closing(get_conn()) as conn:
+        if running:
+            _refuse_newer_database(conn, running)
         # Order matters: later steps read tables and columns that earlier
         # ones create (the ownership step needs users and app_settings).
         _create_library_tables(conn)
@@ -254,6 +305,11 @@ def init_db():
         import device_tokens   # owns its table; imports db, so not at the top
         device_tokens.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
+        if running:
+            conn.execute("""
+                INSERT INTO app_settings (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """, (APP_VERSION_SETTING, json.dumps(running)))
         conn.commit()
     _init_benchmark_lab_schema()
     _migrate_gpu_lock_slots()
