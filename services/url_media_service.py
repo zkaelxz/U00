@@ -50,6 +50,7 @@ import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
+import applog
 import background_jobs
 import db
 import storage
@@ -283,6 +284,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
     watch = _SpaceWatch(tmp)
     result, end = {}, {}
     out_of_space = False
+    path_ignored_logged = False
     events = ytdlp_child.run_download(
         tmp, spec, MAX_WALL_SECONDS, lambda: background_jobs.is_cancel_requested(job_id))
     try:
@@ -297,6 +299,10 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
                 if watch.nearly_full():
                     out_of_space = True
                     break
+            elif "path" in event and "path" in result:
+                if not path_ignored_logged:
+                    path_ignored_logged = True
+                    applog.get_logger().warning("The download child reported a second file; keeping the first.")
             else:
                 result.update(event)
     finally:

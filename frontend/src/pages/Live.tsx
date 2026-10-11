@@ -3,8 +3,9 @@
  * resolve), pick the language and engine, Start; the transcript and its
  * translation arrive chunk by chunk (pushed over GET /api/events: a status
  * event says new lines exist and the page reads them from its own cursor;
- * polled every POLL_MS only while that stream is down). Stop ends it
- * and discards a chunk still in flight. Talks to /api/live
+ * polled every POLL_MS only while that stream is down). Stop captions the
+ * audio already captured and then ends; Stop now ends at once and discards a
+ * chunk still in flight. Talks to /api/live
  * (services/live_service.py): each session has its own temp
  * folder, Use GPU reaches Whisper, and "Stop after" is a hard cap.
  *
@@ -19,8 +20,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_SIZES,
-  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, hasPending, isActive,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
+  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, hasPending, isActive, lagLine,
   listLive, mergeCues, readFrom, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
@@ -33,7 +34,7 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { LiveCaptions } from './live/LiveCaptions'
 import { StreamEmbed } from './live/StreamEmbed'
-import { DEFAULT_DELAY, DELAY_RANGE, canDelay, parseStreamUrl } from './live/embedLogic'
+import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, steadyDelay } from './live/embedLogic'
 import type { LiveCue, LiveSessionStatus } from '../types/live'
 import type { TranslateEngine } from '../types/translate'
 import './live.css'
@@ -52,6 +53,9 @@ function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
   if (cue.translation === 'pending' && waiting) {
     return <span className="live-en muted" data-testid="live-translating">translating…</span>
   }
+  if (cue.translation === 'skipped') {
+    return <span className="live-en muted" data-testid="live-untranslated">Not translated: skipped to keep up with the stream.</span>
+  }
   if (cue.translation === 'pending' || cue.translation === 'cancelled') {
     return <span className="live-en muted" data-testid="live-untranslated">Not translated: the session stopped first.</span>
   }
@@ -66,6 +70,7 @@ export default function LivePage() {
   const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
   const [theater, setTheater] = usePersistedState<boolean>('live.theater', false)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
+  const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
   const form: LiveForm = { ...DEFAULT_FORM, ...prefs, url }
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
 
@@ -74,7 +79,9 @@ export default function LivePage() {
   const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [stopping, setStopping] = useState(false)
+  // 'finishing': the first Stop was taken and the session captions what it
+  // already captured; the button then offers Stop now.
+  const [stopping, setStopping] = useState<false | 'finishing' | 'now'>(false)
   const sessionRef = useRef<Session | null>(null)
   const pollFailures = useRef(0)
   const pollErrorShown = useRef(false)
@@ -223,10 +230,12 @@ export default function LivePage() {
 
   async function stop() {
     if (!session) return
-    setStopping(true)
+    const again = stopping === 'finishing'
+    setStopping('now')
     setError(null)
     try {
-      await stopLive(session.id)
+      const r = await stopLive(session.id)
+      if (r.finishing && !again) setStopping('finishing')
       await poll(session.id)
     } catch (err) {
       setStopping(false)
@@ -240,6 +249,16 @@ export default function LivePage() {
   const streamRef = videoLive ? parseStreamUrl(url) : null
   const feed = session ? feedCues(session.cues) : []
   const total = session?.next ?? 0
+  const lag = session?.status ? lagLine(session.status) : null
+
+  // Held steady between small changes of the estimate: each change seeks the picture.
+  const estimate = autoDelay(session?.status?.segment_seconds || form.segment_seconds,
+    session?.status?.processing_seconds ?? 0, (session?.status?.chunks_measured ?? 0) > 0)
+  const [autoValue, setAutoValue] = useState<number | null>(null)
+  useEffect(() => {
+    setAutoValue((cur) => steadyDelay(cur, estimate))
+  }, [estimate])
+  const delay = delayAuto ? (autoValue ?? estimate) : videoDelay
 
   return (
     <section className={videoLive ? 'panel live-page live-wide' : 'panel page-narrow live-page'} aria-label="Live">
@@ -302,7 +321,7 @@ export default function LivePage() {
             <p className="muted">Chunk 4 s, overlap 1 s, Whisper small, no thinking: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).</p>
           </div>
           <div className="field-row">
-            <Field label="Whisper model" help="Smaller is faster per chunk, closer to real time; medium is usually too slow for short chunks.">
+            <Field label="Whisper model" help={WHISPER_HELP}>
               <select value={form.whisper_size} disabled={active} onChange={(e) => setOpt('whisper_size', e.target.value)}>
                 {WHISPER_SIZES.map((w) => (
                   <option key={w} value={w}>
@@ -342,8 +361,8 @@ export default function LivePage() {
         </Section>
         <div className="actions">
           {active ? (
-            <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping}>
-              {stopping ? 'Stopping…' : status === 'queued' ? 'Cancel' : 'Stop'}
+            <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping === 'now'}>
+              {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : status === 'queued' ? 'Cancel' : 'Stop'}
             </button>
           ) : (
             <button type="submit" className="primary" disabled={!!blocker || busy}>
@@ -383,13 +402,24 @@ export default function LivePage() {
             {!streamRef && <p className="muted">This site can't be shown here; the lines still work.</p>}
             {streamRef && showVideo && (
               <>
-                <StreamEmbed stream={streamRef} delay={videoDelay}
+                <StreamEmbed stream={streamRef} delay={delay}
                   captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
                 {canDelay(streamRef) && (
-                  <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up.">
-                    <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={videoDelay}
-                      onChange={(e) => setVideoDelay(e.target.valueAsNumber)} />
-                  </Field>
+                  <>
+                    <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up. Moving the slider sets it by hand.">
+                      <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={delay}
+                        onChange={(e) => {
+                          setDelayAuto(false)
+                          setVideoDelay(e.target.valueAsNumber)
+                        }} />
+                    </Field>
+                    <Field label="Automatic video delay" help="Sets the delay from the chunk length and how long the last chunks took to caption.">
+                      <Toggle checked={delayAuto} onChange={setDelayAuto} />
+                    </Field>
+                    <p className="muted" data-testid="live-delay-mode">
+                      {delayAuto ? `Video delay: auto (about ${delay} s)` : `Video delay: ${videoDelay} s, set by hand`}
+                    </p>
+                  </>
                 )}
               </>
             )}
@@ -399,6 +429,7 @@ export default function LivePage() {
           <p className={status === 'error' ? 'error' : 'muted'} data-testid="live-status">
             {session.status ? statusLine(session.status, total) : 'Connecting…'}
           </p>
+          {lag && <p className="muted" data-testid="live-lag">{lag}</p>}
           {!!session.status?.notes?.length && (
             <ul className="muted live-notes" data-testid="live-notes" aria-label="Live events">
               {session.status.notes.map((n, i) => <li key={`${i}-${n}`}>{n}</li>)}

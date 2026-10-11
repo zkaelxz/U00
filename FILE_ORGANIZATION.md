@@ -95,8 +95,9 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
 - `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
-- `live_cue_translation.py` (the per-cue context and error note for Live)
+- `live_cue_translation.py` (Live's translation context, one request per chunk with a per-cue retry, and the error note)
 - `live_fetch.py`
+- `live_pipeline.py` (what runs beside Live's capture loop: the translation worker and its bounded queue, the shared cue list and status line, Stop-then-finish, the lag figures)
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
