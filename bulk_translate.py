@@ -273,7 +273,7 @@ def _log_generic_usage(job: dict, usage: dict, usage_kind: str):
 
 
 def submit_bulk_flag(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
-                     batch_size: int = 30) -> int:
+                     batch_size: int = 30, source_language=None) -> int:
     """The review-queue pass (translate_engines.flag_uncertain_lines),
     bulk. state_fn captures each line's own current .flag/.flag_note, so
     a flag the user set or cleared by hand while the batch was pending is
@@ -281,11 +281,11 @@ def submit_bulk_flag(drama_id: int, lines: list, engine, engine_choice: str, pro
     provider = provider or make_provider(engine_choice, engine)
     if provider is None:
         raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
-    eligible = [ln for ln in lines if (ln.en or "").strip()]
+    eligible = translate_engines.flaggable_lines(lines)
     batches = []
     for start in range(0, len(eligible), batch_size):
         batch = eligible[start:start + batch_size]
-        prompt = translate_engines.build_flag_prompt(batch, id_fn=lambda ln: ln.id)
+        prompt = translate_engines.build_flag_prompt(batch, lambda ln: ln.id, source_language)
         batches.append(([ln.id for ln in batch], prompt, batch))
     return submit_generic_bulk_job(
         drama_id, "flag", provider, batches, engine_choice, getattr(engine, "model", ""),
@@ -293,7 +293,7 @@ def submit_bulk_flag(drama_id: int, lines: list, engine, engine_choice: str, pro
 
 
 def submit_bulk_consistency(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
-                            batch_size: int = 60) -> int:
+                            batch_size: int = 60, source_language=None) -> int:
     """The consistency check (translate_engines.check_consistency_llm),
     bulk. No state_fn -- an issue names a term, not a line, so there's no
     per-line "did the user already change this" to guard against; the
@@ -306,7 +306,7 @@ def submit_bulk_consistency(drama_id: int, lines: list, engine, engine_choice: s
     batches = []
     for start in range(0, len(eligible), batch_size):
         batch = eligible[start:start + batch_size]
-        prompt = translate_engines.build_consistency_prompt(batch)
+        prompt = translate_engines.build_consistency_prompt(batch, source_language)
         batches.append(([ln.id for ln in batch], prompt, batch))
     return submit_generic_bulk_job(drama_id, "consistency", provider, batches, engine_choice,
                                    getattr(engine, "model", ""), max_tokens=2000)
@@ -944,7 +944,8 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
     current = db.load_line_objects(job["drama_id"])
     cur_by_id = {ln.id: ln for ln in current}
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
-              "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0}
+              "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0,
+              "unparsable_entries": 0}
 
     for key, text, usage, error in results:
         _log_generic_usage(job, usage, "flag_review_bulk")
@@ -955,14 +956,8 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
             counts["failed_requests"] += 1
             continue
         flagged = translate_engines.parse_json_array(text, 0)
-        by_id = {}
-        if isinstance(flagged, list):
-            for f in flagged:
-                if isinstance(f, dict) and f.get("line_idx") is not None:
-                    try:
-                        by_id[int(f["line_idx"])] = f
-                    except (TypeError, ValueError):
-                        continue
+        by_id, bad = translate_engines.parse_flag_entries(flagged)
+        counts["unparsable_entries"] += bad
         for lid in ids_by_key[key]:
             row = row_by_id[lid]
             ln = cur_by_id.get(lid)
@@ -980,7 +975,7 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
                 counts["kept_your_edit"] += 1
                 continue
             f = by_id.get(lid)
-            if f is None:
+            if f is None or ln.flag in translate_engines.SYSTEM_FLAG_REASONS:
                 continue  # the model didn't flag this line -- nothing to apply, not an error
             reason = (f.get("reason") if f.get("reason") in translate_engines.FLAG_REASONS
                      else "uncertain_translation")

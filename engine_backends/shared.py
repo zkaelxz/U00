@@ -490,6 +490,28 @@ def extract_first_json_value(text: str):
     return None
 
 
+def parse_line_id(value):
+    """2, 2.0, "2", " 2 " and "[2]" (the prompt's own format) all give 2; else None."""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    m = re.fullmatch(r"\s*\[?\s*(-?\d+)\s*\]?\s*", value) if isinstance(value, str) else None
+    return int(m.group(1)) if m else None
+
+
+def parse_flag_entries(entries):
+    """({line id: entry}, count of entries whose line_idx could not be read)."""
+    by_id, unreadable = {}, 0
+    for f in entries if isinstance(entries, list) else []:
+        fid = parse_line_id(f.get("line_idx") if isinstance(f, dict) else None)
+        if fid is None:
+            unreadable += 1
+        else:
+            by_id[fid] = f
+    return by_id, unreadable
+
+
 def parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     """
     Parses a response expected to be a JSON object mapping each line's
