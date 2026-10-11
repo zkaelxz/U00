@@ -17,7 +17,7 @@ class _FakeEngine:
 def test_explain_translation_surfaces_a_term_matched_only_by_alias(monkeypatch):
     captured = {}
 
-    def _fake_call_llm_json(engine, prompt, max_tokens=800, fallback=""):
+    def _fake_call_llm_json(engine, prompt, max_tokens=800, fallback="", **_kw):
         captured["prompt"] = prompt
         return "explanation"
 
@@ -36,7 +36,7 @@ def test_explain_translation_surfaces_a_term_matched_only_by_alias(monkeypatch):
 def test_explain_translation_skips_terms_with_no_match_at_all(monkeypatch):
     captured = {}
 
-    def _fake_call_llm_json(engine, prompt, max_tokens=800, fallback=""):
+    def _fake_call_llm_json(engine, prompt, max_tokens=800, fallback="", **_kw):
         captured["prompt"] = prompt
         return "explanation"
 

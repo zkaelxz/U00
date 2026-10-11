@@ -27,15 +27,32 @@ from .thinking import ollama_chat_with_think, thinking_choice
 # while asking for too little does so silently.
 OLLAMA_MIN_NUM_CTX = 16384
 
+# The window is rounded up to one of these and never shrinks during a run:
+# a different num_ctx can make Ollama reload the model, which costs a model
+# load per request when every request is sized to the token.
+OLLAMA_NUM_CTX_STEPS = (16384, 32768, 65536)
+# Beyond this the KV cache of a 26-31B model no longer fits one 32 GB card.
+# The Settings override may go higher; it is the owner's explicit choice.
+OLLAMA_MAX_NUM_CTX = 65536
+# Ollama's default is no limit at all, so a model stuck repeating itself
+# generates until the request times out.
+OLLAMA_MAX_NUM_PREDICT = 8192
+
+_CJK_CHAR = re.compile("[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff00-\uffef]")
+
+
+def estimate_ollama_prompt_tokens(*texts: str) -> int:
+    """Rough token count -- not precise, so it errs generous: Gemma/Qwen
+    tokenizers spend about one token per CJK character but one per ~4
+    characters of English, so the two are counted apart (1 and 1/3), then
+    +20% headroom. Underestimating is what causes silent truncation."""
+    text = "".join(texts)
+    cjk = len(_CJK_CHAR.findall(text))
+    return int((cjk + (len(text) - cjk) / 3) * 1.2)
+
 
 def estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAMA_MIN_NUM_CTX) -> int:
-    """Rough token-count estimate for sizing num_ctx -- not precise (CJK
-    and English tokenize very differently), so it deliberately errs
-    generous (~1 token per 3 characters, then +20% headroom) rather than
-    precise, since underestimating is what causes silent truncation."""
-    total_chars = len(system_text) + len(numbered)
-    estimated_tokens = int((total_chars / 3) * 1.2)
-    return max(floor, estimated_tokens)
+    return max(floor, estimate_ollama_prompt_tokens(system_text, numbered))
 
 
 # A flat {"<id>": "<text>"} object, matching exactly what
@@ -100,28 +117,159 @@ class OllamaUnavailableError(Exception):
 OLLAMA_CHAT_TIMEOUT = 300
 
 # With "stream": False Ollama sends nothing until the whole reply is done,
-# so this is also the wait for the first byte. Models too big for a 12 GB
-# card split across GPU and CPU and can need far longer than 300 s for a
-# long batch; the cap stays finite so a hung server still fails.
+# so this is also the wait for the first byte. Models of 20B parameters and
+# up split across GPU and CPU on most cards and can need far longer than
+# 300 s for a long batch; the cap stays finite so a hung server still fails.
 OLLAMA_SLOW_MODEL_CHAT_TIMEOUT = 900
-_OLLAMA_SLOW_MODELS = frozenset({"gemma4:26b", "gemma4:31b"})
+OLLAMA_SLOW_MODEL_MIN_BILLIONS = 20
+# "26b", "32B", "30b-a3b" (MoE: the first number is the total size); not
+# the "4" of "e4b" or "a3b", which are effective/active sizes.
+_MODEL_BILLIONS_RE = re.compile(r"(?<![a-z0-9.])(\d+(?:\.\d+)?)b(?![a-z0-9])", re.IGNORECASE)
+
+# Loading a model from disk happens inside the first request and can take
+# minutes on a slow disk; it must not use up the time meant for generating.
+OLLAMA_COLD_LOAD_SECONDS = 300
+# Under Ollama's default 5-minute keep_alive: after this long without a reply
+# the model may have been unloaded, so the next request may load it again.
+OLLAMA_WARM_SECONDS = 240
+# {(base_url, model, num_ctx): monotonic time until which it counts as loaded}
+_warm_until = {}
 
 
 def ollama_chat_timeout(model: str) -> int:
-    return OLLAMA_SLOW_MODEL_CHAT_TIMEOUT if model in _OLLAMA_SLOW_MODELS else OLLAMA_CHAT_TIMEOUT
+    """Generation time allowed for one request, from the parameter count in
+    the tag; a tag without one is treated as a small model."""
+    if is_ollama_cloud_model(model):
+        return OLLAMA_CHAT_TIMEOUT
+    sizes = [float(m) for m in _MODEL_BILLIONS_RE.findall(model or "")]
+    if sizes and max(sizes) >= OLLAMA_SLOW_MODEL_MIN_BILLIONS:
+        return OLLAMA_SLOW_MODEL_CHAT_TIMEOUT
+    return OLLAMA_CHAT_TIMEOUT
+
+
+def ollama_max_request_seconds(model: str) -> int:
+    """The longest one request to this model may be allowed: generation
+    plus a cold load. Deadlines around a request must be at least this."""
+    cold = 0 if is_ollama_cloud_model(model) else OLLAMA_COLD_LOAD_SECONDS
+    return ollama_chat_timeout(model) + cold
+
+
+def _warm_key(base_url: str, payload: dict):
+    return (base_url, str(payload.get("model") or ""),
+            (payload.get("options") or {}).get("num_ctx"))
+
+
+def _request_timeout(base_url: str, payload: dict) -> int:
+    import time
+    model = str(payload.get("model") or "")
+    if _warm_until.get(_warm_key(base_url, payload), 0) > time.monotonic():
+        return ollama_chat_timeout(model)
+    return ollama_max_request_seconds(model)
+
+
+def _mark_warm(base_url: str, payload: dict) -> None:
+    import time
+    _warm_until[_warm_key(base_url, payload)] = time.monotonic() + OLLAMA_WARM_SECONDS
 
 
 # Thinking-capable models (Qwen3, Gemma 4) may put reasoning inline in
-# `content` as <think>...</think> instead of the separate `thinking` field.
-# Braces inside it would otherwise be picked up by the first-JSON-value scan.
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-_THINK_OPEN_RE = re.compile(r"<think>.*\Z", re.DOTALL | re.IGNORECASE)
+# `content` instead of the separate `thinking` field: <think>-style tags, or
+# channel tokens (harmony's <|channel|>analysis ... <|channel|>final<|message|>,
+# Gemma's <|channel>thought ... <channel|>). Braces inside it would otherwise
+# be picked up as the answer by the JSON scan.
+_THINK_BLOCK_RE = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.DOTALL | re.IGNORECASE)
+_THINK_OPEN_RE = re.compile(r"<(?:think|thinking|reasoning)>.*\Z", re.DOTALL | re.IGNORECASE)
+_FINAL_CHANNEL_RE = re.compile(r"<\|channel\|>\s*final\s*<\|message\|>", re.IGNORECASE)
+_CHANNEL_BLOCK_RE = re.compile(
+    r"<\|channel\|?>\s*(?:thought|analysis|commentary)\b.*?(?:<\|?channel\|>|<\|end\|>|\Z)",
+    re.DOTALL | re.IGNORECASE)
+_SPECIAL_TOKEN_RE = re.compile(r"<\|[a-z_]+\|?>|<[a-z_]+\|>", re.IGNORECASE)
 
 
 def strip_ollama_thinking(content: str) -> str:
     content = _THINK_BLOCK_RE.sub("", content)
     # An unterminated block means the reply was cut off mid-reasoning: no answer.
-    return _THINK_OPEN_RE.sub("", content).strip()
+    content = _THINK_OPEN_RE.sub("", content)
+    finals = list(_FINAL_CHANNEL_RE.finditer(content))
+    if finals:
+        content = content[finals[-1].end():]
+    content = _CHANNEL_BLOCK_RE.sub("", content)
+    return _SPECIAL_TOKEN_RE.sub("", content).strip()
+
+
+class OllamaReplyError(RuntimeError):
+    """Ollama answered, but the reply can't be used: cut off, built from a
+    truncated prompt, or not the shape the caller asked for. The message is
+    plain text for the owner."""
+
+
+CONTEXT_TOO_SMALL = ("The model's context window was too small for this request: the start of "
+                     "the prompt (its instructions) was cut off. Use smaller batches, or raise "
+                     "the Ollama num_ctx in Settings, Offline and performance.")
+REPLY_CUT_OFF = ("The model's reply was cut off before it finished. Try again with less text, "
+                 "or pick a bigger model.")
+# A prompt that fills the window to within this many tokens left no room for
+# a reply, and is what Ollama's front truncation leaves behind.
+OLLAMA_FULL_WINDOW_MARGIN = 256
+
+
+def check_ollama_reply(data: dict, num_ctx: int, estimated_prompt: int) -> None:
+    """Raises OllamaReplyError when the prompt was evidently truncated.
+    Ollama counts only the prompt tokens it actually evaluated: a window
+    that came back full, or a count far below an estimate that never fit,
+    means the front of the prompt was dropped. A cached prefix also lowers
+    the count, so a low count alone is not trusted while the estimate fits."""
+    evaluated = data.get("prompt_eval_count") or 0
+    if not evaluated:
+        return
+    if evaluated >= num_ctx - OLLAMA_FULL_WINDOW_MARGIN or (
+            estimated_prompt > num_ctx and evaluated < estimated_prompt / 2):
+        raise OllamaReplyError(CONTEXT_TOO_SMALL)
+
+
+def ollama_usage(data: dict) -> dict:
+    return {"input_tokens": data.get("prompt_eval_count") or 0,
+            "output_tokens": data.get("eval_count") or 0}
+
+
+def ollama_task_reply(chat, engine, messages: list, max_tokens: int, expect: str,
+                      usage_cb=None, translation_of: str = None) -> str:
+    """One non-translation request (call_llm_json's Ollama branch). chat is
+    the _ollama_chat to use. expect: "json_object" (Ollama's JSON mode),
+    "json_array" or "text" -- JSON mode can only produce an object, so an
+    array or prose prompt gets no `format`. Thinking is switched off: these
+    callers size max_tokens for the visible answer.
+
+    A cut-off reply or a truncated prompt raises OllamaReplyError instead of
+    being parsed. A "text" reply must be prose: empty or JSON raises, and
+    with translation_of (the source line it renders) so does a reply that
+    isn't a usable English line for it."""
+    from .shared import unusable_line_reply
+    estimated = estimate_ollama_prompt_tokens(*(m["content"] for m in messages))
+    num_predict = max(1, min(int(max_tokens), OLLAMA_MAX_NUM_PREDICT))
+    num_ctx = engine.num_ctx_for(estimated + num_predict)
+    payload = {"model": engine.model, "messages": messages, "stream": False,
+               "options": {"num_ctx": num_ctx, "num_predict": num_predict}}
+    if expect == "json_object":
+        payload["format"] = "json"
+    data = ollama_chat_with_think(chat, engine.base_url, payload, False)
+    if usage_cb:
+        usage = ollama_usage(data)
+        usage_cb(usage["input_tokens"], usage["output_tokens"])
+    check_ollama_reply(data, num_ctx, estimated)
+    if data.get("done_reason") == "length":
+        raise OllamaReplyError(REPLY_CUT_OFF)
+    text = strip_ollama_thinking(data["message"]["content"])
+    if expect != "text":
+        return text
+    if not text:
+        raise OllamaReplyError("The model returned an empty reply.")
+    if text.startswith("{"):
+        raise OllamaReplyError("The model answered in JSON instead of plain text.")
+    reason = unusable_line_reply(translation_of, text) if translation_of else None
+    if reason:
+        raise OllamaReplyError(f"The model's reply wasn't a usable English line ({reason}).")
+    return text
 
 
 _ABORT_POLL_SECONDS = 0.25
@@ -142,8 +290,11 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
     import requests
     check = abort_check_var.get()
     if check is None:
-        return _ollama_chat_request(requests.post, base_url, payload)
-    return _ollama_chat_abortable(base_url, payload, check)
+        reply = _ollama_chat_request(requests.post, base_url, payload)
+    else:
+        reply = _ollama_chat_abortable(base_url, payload, check)
+    _mark_warm(base_url, payload)
+    return reply
 
 
 def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
@@ -157,6 +308,7 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
     # still in its TLS handshake or awaiting headers) reachable for shutdown.
     from live_fetch import _TrackingAdapter, _shutdown
 
+    timeout = _request_timeout(base_url, payload)
     lock = threading.Lock()
     sockets = weakref.WeakSet()
     state = {"aborted": False}
@@ -173,7 +325,7 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
             sock.close()
 
     # guard=None: the address is the one the PC owner set in Settings.
-    session = http.session(timeout=ollama_chat_timeout(str(payload.get("model") or "")),
+    session = http.session(timeout=timeout,
                            guard=None,
                            # only a backstop: read_json_capped refuses at the exact cap
                            max_bytes=PROVIDER_RESPONSE_MAX_BYTES + capped_body.DEFAULT_CHUNK,
@@ -182,7 +334,7 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
 
     def work():
         try:
-            box["value"] = _ollama_chat_request(session.post, base_url, payload)
+            box["value"] = _ollama_chat_request(session.post, base_url, payload, timeout)
         except BaseException as exc:
             box["error"] = exc
 
@@ -226,9 +378,33 @@ def _error_body_text(resp) -> str:
         return ""
 
 
-def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
+def _ollama_server_error(exc, status, body: str):
+    """The HTTPError to raise for an Ollama error answer: Ollama's own
+    explanation (e.g. CUDA out of memory, "model requires more system
+    memory"), redacted and without the request URL that requests' own
+    message carries. Still an HTTPError with the response, so the thinking
+    retry and the backoff read the status as before."""
     import requests
-    timeout = ollama_chat_timeout(str(payload.get("model") or ""))
+    detail = body
+    try:
+        parsed = json.loads(body)
+        if isinstance(parsed, dict) and isinstance(parsed.get("error"), str):
+            detail = parsed["error"]
+    except ValueError:
+        pass
+    detail = _URL_RE.sub("[url]", redact_secrets(detail or "")).strip()[:300]
+    message = f"Ollama answered with an error (HTTP {status})" + (f": {detail}" if detail else ".")
+    err = requests.HTTPError(message, response=exc.response, request=getattr(exc, "request", None))
+    err.body_text = body
+    return err
+
+
+_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s\"'<>]+", re.IGNORECASE)
+
+
+def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int = None) -> dict:
+    import requests
+    timeout = timeout or _request_timeout(base_url, payload)
     try:
         resp = post(f"{base_url}/api/chat", json=payload, stream=True,
                     timeout=timeout)
@@ -258,8 +434,7 @@ def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
         if status != 404:
             # Closing a streamed response discards its body, and the caller
             # needs the server's wording to tell "can't think" from other 400s.
-            exc.body_text = _error_body_text(resp)
-            raise
+            raise _ollama_server_error(exc, status, _error_body_text(resp)) from None
         resp.close()
         raise OllamaUnavailableError(
             "ollama_model_missing",
@@ -327,6 +502,21 @@ class OllamaEngine:
         self.model = model
         self.base_url = base_url.rstrip("/")
         self._headroom_checked = False
+        self._num_ctx = None
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+    def num_ctx_for(self, needed_tokens: int, override: int = None) -> int:
+        """The context window for a request needing about needed_tokens: the
+        owner's override when it is big enough, else the next coarse step;
+        never smaller than this engine has already used, never past the
+        ceiling (which an override can lift)."""
+        if override and override >= needed_tokens:
+            wanted = override
+        else:
+            wanted = next((s for s in OLLAMA_NUM_CTX_STEPS if s >= needed_tokens), needed_tokens)
+        ceiling = max(OLLAMA_MAX_NUM_CTX, override or 0)
+        self._num_ctx = min(max(wanted, self._num_ctx or 0), ceiling)
+        return self._num_ctx
 
     def translate_batch(self, zh_lines, context: dict):
         if not self._headroom_checked:
@@ -336,20 +526,23 @@ class OllamaEngine:
             self._headroom_checked = True
         system_text = build_stable_system_text(context)
         num_ctx_override = context.get("ollama_num_ctx_override")
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
 
         def call_model(numbered):
             user_text = build_batch_user_message(context, numbered)
-            estimated = estimate_ollama_num_ctx(system_text, user_text)
+            estimated = estimate_ollama_prompt_tokens(system_text, user_text)
+            # The reply is about as long as the lines it translates.
+            needed = estimated + estimate_ollama_prompt_tokens(numbered)
             # The override can only raise the window, never lower it below
             # what's actually needed -- a manual value smaller than the
             # estimate would silently reintroduce the exact truncation bug
             # this exists to prevent, so the larger of the two always wins.
-            num_ctx = max(estimated, num_ctx_override) if num_ctx_override else estimated
-            if num_ctx_override and num_ctx_override < estimated:
+            num_ctx = self.num_ctx_for(needed, num_ctx_override)
+            if num_ctx_override and num_ctx_override < needed:
                 import applog
                 applog.get_logger().warning(
                     f"Ollama num_ctx override ({num_ctx_override}) is smaller than the "
-                    f"estimated prompt size ({estimated}) -- using {estimated} instead to "
+                    f"estimated prompt size ({needed}) -- using {num_ctx} instead to "
                     "avoid silently truncating the prompt.")
             payload = {
                 "model": self.model,
@@ -359,13 +552,17 @@ class OllamaEngine:
                 ],
                 "stream": False,
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
-                "options": {"num_ctx": num_ctx},
+                "options": {"num_ctx": num_ctx, "num_predict": OLLAMA_MAX_NUM_PREDICT},
             }
             choice = thinking_choice(context)
             if choice is None:
                 resp = _ollama_chat(self.base_url, payload)
             else:
                 resp = ollama_chat_with_think(_ollama_chat, self.base_url, payload, choice)
+            usage = ollama_usage(resp)
+            for key, value in usage.items():
+                self.last_usage[key] += value
+            check_ollama_reply(resp, num_ctx, estimated)
             return strip_ollama_thinking(resp["message"]["content"])
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,

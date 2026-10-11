@@ -12,6 +12,8 @@ from lib import capped_body, http
 from memory_headroom import HeadroomError
 from sentence_groups import render_grouped
 
+from .translation_guard import unusable_reply
+
 
 def _empty_usage() -> dict:
     return {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
@@ -705,6 +707,13 @@ def _detect_soft_refusal_text(text: str):
         if lowered.startswith(opener):
             return stripped[:200]
     return None
+
+
+def unusable_line_reply(source: str, reply: str, allowed_runs=()):
+    """unusable_reply plus a refusal sentence written as the line."""
+    if _detect_soft_refusal_text(reply):
+        return "a refusal"
+    return unusable_reply(source, reply, allowed_runs)
 
 
 # Per-request timeout (seconds) for the Anthropic/OpenAI SDK clients, so a
