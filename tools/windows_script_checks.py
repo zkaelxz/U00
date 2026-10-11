@@ -57,20 +57,28 @@ class Result:
 
 
 def run_bat(stage, bat, args=(), answers="", env=None, timeout=SHORT):
-    """Runs one script from `stage` with `answers` on stdin; on a timeout the whole process tree is killed."""
-    proc = subprocess.Popen(
-        ["cmd", "/d", "/c", bat, *args], cwd=stage, env=env, stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
-    timed_out = False
-    try:
-        out, _ = proc.communicate(answers, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, timeout=30)
-        try:
-            out, _ = proc.communicate(timeout=30)
-        except subprocess.TimeoutExpired:
-            out = ""
+    """Runs one script from `stage` with `answers` on stdin; on a timeout the whole process tree is killed.
+
+    The answers go through a file, not a pipe: cmd.exe drops whatever is left in a pipe after the first
+    `set /p`, so only the first prompt would ever see its answer."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
+        answers_file = os.path.join(scratch, "answers.txt")
+        with open(answers_file, "w", encoding="utf-8", newline="\r\n") as f:
+            f.write(answers)
+        with open(answers_file, "rb") as stdin:
+            proc = subprocess.Popen(
+                ["cmd", "/d", "/c", bat, *args], cwd=stage, env=env, stdin=stdin,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+            timed_out = False
+            try:
+                out, _ = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, timeout=30)
+                try:
+                    out, _ = proc.communicate(timeout=30)
+                except subprocess.TimeoutExpired:
+                    out = ""
     print(out, flush=True)
     print(f"  [{bat} {' '.join(args)}] exit code {proc.returncode}{' (TIMED OUT, killed)' if timed_out else ''}",
           flush=True)
