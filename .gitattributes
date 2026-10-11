@@ -5,3 +5,5 @@ installer/caddy/* text eol=lf
 # label falls in the file.
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+.test_durations -diff

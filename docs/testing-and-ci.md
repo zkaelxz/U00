@@ -7,7 +7,7 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
 2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
-3. **Before pushing:** the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`; for the frontend also `npx tsc --noEmit` and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the jobs the change needs (see "Which jobs a change runs"; the full suite is `python run_tests.py -q -n auto`) on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
+3. **Before pushing:** the area's tests plus the guard set ("Guard set and lean output" below; `python tools/check_change.py` prints both for your diff); for the frontend also `npx tsc -b` (`tsc --noEmit` checks nothing here: the root tsconfig only has project references) and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the jobs the change needs (see "Which jobs a change runs"; the full suite is `python run_tests.py -q -n auto`) on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
    `npm run e2e` runs three Playwright projects: `desktop` (every spec except files matching `mobile.spec.ts` and the tests tagged `@catalogue`), `catalogue` (only the `@catalogue` tests in `e2e/discover.spec.ts`, against a second build with the Discover Catalogue tab switched on: that flag is compiled into the bundle, so the default build cannot show the tab; `E2E_CATALOGUE_PORT` moves its server off 4175) and `phone` (390x844, touch, every `e2e/*mobile.spec.ts` match, such as `mobile.spec.ts`, `settings.mobile.spec.ts` and `review-results-mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
 5. A failure is not "environmental" or "flaky" until the mechanism is confirmed (a real background thread left running by an earlier test was the cause of the "database is locked" errors fixed in PR #259).
@@ -105,6 +105,29 @@ a real GPU or driver, winget actually installing Git, Python, ffmpeg or Node.js 
 shortcut icon from `make_shortcut.bat` / `start.bat` without `--ci`, `uninstall_path_cleanup.ps1` (the PATH editing is not run),
 and the Inno Setup installer and its uninstaller (`installer/baihe.iss`, which needs ISCC): `windows-installer.yml` builds and
 smoke-tests that on demand, so it is not repeated here. Add a case to the script when one of these scripts gets a new prompt or branch.
+
+## Guard set and lean output
+
+The guard set is what to run before pushing, next to the area's tests. CI's `guards` job runs the first five; the rest are
+tests that CI's shards run and that a short list tends to miss (`tests/test_diagnostics_and_export.py` is the only test of
+`expected_files.py`, so a new top-level `.py` fails there; `tests/test_db.py` holds `_INIT_DB_MIGRATED_COLUMNS`):
+
+    tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py
+    tests/test_agent_docs.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py
+    tests/test_db.py tests/test_diagnostics_and_export.py
+
+`pytest.ini` sets `-v`, so a passing run prints hundreds of lines. The lean form prints a few hundred bytes and is what
+`tools/start-local-coder.ps1` exports as `PYTEST_ADDOPTS` for the local model:
+
+    python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short <files>
+
+Keep a single `-q` (`-q -q` drops the "N passed" line). Never use a blanket `-W ignore` or `-p no:warnings`: they also switch off
+`pytest.ini`'s `error::PytestUnhandledThreadExceptionWarning`, and a test with a crashing thread then passes
+(`tests/test_local_coder_tools.py` shows both). `-v` stays in `pytest.ini` so CI logs show each test name.
+
+Output flooding to avoid: `python tools/route_table.py` with no flag prints the whole 36 KB table (use `--write`, then
+`git diff`), bare `npx oxlint` prints about 32 KB (pass one file), and `.test_durations` is marked `-diff` in `.gitattributes`
+so `git grep` shows one "Binary file" line for it.
 
 ## Focused checks per area
 
@@ -261,4 +284,5 @@ The real-model check in Diagnostics ships two samples in `assets/smoke/`: `clip.
 A `while pgrep -f "<pattern>"; do sleep N; done` loop matches its own command line and never ends.
 
 - Save the PID (`$!`) and poll that exact PID: `while kill -0 "$PID" 2>/dev/null; do sleep N; done`.
+  PowerShell: `$p = Start-Process ... -PassThru`, then `while (Get-Process -Id $p.Id -ErrorAction SilentlyContinue) { Start-Sleep N }`.
 - Don't stack a second monitor for the same wait, and stop (`TaskStop`) any background task running far longer than its work should take.

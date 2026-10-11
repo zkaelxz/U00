@@ -204,3 +204,13 @@ def test_real_repo_smoke_every_listing_fits_the_budget(monkeypatch):
     assert too_big == {}
     assert all(str(ROOT) not in v for v in outputs.values())
     assert "filter_hallucinated_segments" in _run("--find", "hallucinat")
+
+
+def test_callers_prints_a_bounded_list():
+    out = _run("--callers", "save_lines").splitlines()
+    assert 1 < len(out) <= rm.CALLERS_MAX_LINES + 1
+    assert any(line.startswith("services/") for line in out)
+
+
+def test_part_works_on_a_package_with_an_oversized_init():
+    assert _run("db", "--part", "1").startswith("## db/__init__.py")

@@ -5,6 +5,7 @@
     python tools/repo_map.py db --part 4     # one part of an oversized module
     python tools/repo_map.py services        # a package: each module's symbol names
     python tools/repo_map.py --find "repeat" # search names, signatures and docstrings
+    python tools/repo_map.py --callers save_lines  # where a name is called or referenced (max 30 lines)
 
 Output is generated on demand and never committed: a committed listing would
 conflict whenever two branches change a signature. Stdlib only, so it runs
@@ -18,7 +19,9 @@ import fnmatch
 import functools
 import os
 import re
+import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -375,9 +378,7 @@ def _chunks(blocks):
     return parts + ([current] if current else [])
 
 
-def print_package(folder: str, files, part=None):
-    """The modules directly in `folder` with their top-level names; subfolders
-    are listed by name so each one is its own read."""
+def _package_blocks(folder: str, files):
     depth = folder.count("/") + 1
     direct = [r for r in files if r.startswith(folder + "/") and r.count("/") == depth]
     subdirs = sorted({r.split("/")[depth] for r in files if r.startswith(folder + "/") and r.count("/") > depth})
@@ -386,6 +387,17 @@ def print_package(folder: str, files, part=None):
         mod = load_module(rel)
         names = [s.qualname for s in mod.symbols if s.depth == 0]
         blocks.append(module_header(mod) + ("\n  " + _clip(", ".join(names), 400) if names else ""))
+    return direct, subdirs, blocks
+
+
+def _package_parts(folder: str, files):
+    return _chunks(_package_blocks(folder, files)[2])
+
+
+def print_package(folder: str, files, part=None):
+    """The modules directly in `folder` with their top-level names; subfolders
+    are listed by name so each one is its own read."""
+    direct, subdirs, blocks = _package_blocks(folder, files)
     parts = _chunks(blocks)
     print(f"# {folder}/ -- {len(direct)} modules. Signatures: python tools/repo_map.py <module>")
     if subdirs:
@@ -495,6 +507,51 @@ def find(text: str, files, limit: int):
         print("no match; try a shorter word, or git grep for text inside function bodies")
 
 
+CALLERS_MAX_LINES = 30
+
+
+def _tracked_python():
+    out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "*.py"],
+                         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout
+    return sorted(p for p in out.split("\0") if p)
+
+
+def callers(name: str, limit: int = CALLERS_MAX_LINES):
+    """Lines that call or reference `name`, one per line, tests last.
+
+    Tests are included because a signature change breaks them too, but they sort
+    after product code so the cap cuts the less useful rows first.
+    """
+    hits = []
+    for rel in _tracked_python():
+        try:
+            source = (ROOT / rel).read_text(encoding="utf-8", errors="replace")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # old regex literals warn on parse; not this tool's business
+                tree = ast.parse(source)
+        except (SyntaxError, OSError, ValueError):
+            continue
+        lines = source.splitlines()
+        seen = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == name:
+                line = node.lineno
+            elif isinstance(node, ast.Attribute) and node.attr == name:
+                line = node.lineno
+            else:
+                continue
+            if line not in seen:
+                seen.add(line)
+                hits.append((rel.startswith("tests/"), rel, line, redact(_clip(lines[line - 1].strip(), 110))))
+    hits.sort()
+    for _, rel, line, text in hits[:limit]:
+        print(f"{rel}:{line} {text}")
+    if len(hits) > limit:
+        print(f"... {len(hits) - limit} more; narrow with git grep -n -m 3 -w {name} -- '<folder>/*.py'")
+    if not hits:
+        print("no caller found; the name may be used as text only (git grep -n -w NAME)")
+
+
 # --------------------------------------------------------------------------
 
 def resolve(target: str, files):
@@ -523,15 +580,21 @@ def main(argv=None):
     parser.add_argument("target", nargs="?", help="module or package, e.g. db, services/drama_service, api/routers")
     parser.add_argument("--part", type=int, help="part number of an oversized module or package")
     parser.add_argument("--find", metavar="TEXT", help="words that must all appear in a name, signature or docstring")
+    parser.add_argument("--callers", metavar="NAME", help="lines that call or reference NAME (max 30)")
     parser.add_argument("--limit", type=int, default=40, help="max --find results (default 40)")
     args = parser.parse_args(argv)
     files = source_files()
     if args.find:
         find(args.find, files, args.limit)
+    elif args.callers:
+        callers(args.callers)
     elif args.target:
         kind, rel = resolve(args.target, files)
         if kind == "module":
             print_module(load_module(rel), args.part)
+        elif args.part and f"{rel}/__init__.py" in files and len(_package_parts(rel, files)) == 1:
+            # `db --part N` means the package's own __init__, which is the oversized file.
+            print_module(load_module(f"{rel}/__init__.py"), args.part)
         else:
             print_package(rel, files, args.part)
     else:

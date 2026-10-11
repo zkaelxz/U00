@@ -1,7 +1,8 @@
 # Task checklist for small-context models
 
 Context target: 64K tokens. The Qwen3.6-35B-A3B runs at 64K on the current 12 GB card (`opencode.json` context
-65536 and `tools/start-local-coder.ps1` `-c 65536`), and the owner's target for the future 32 GB card is also 64K.
+65536 and `tools/start-local-coder.ps1` `-c 65536`), and the owner's target for the future 32 GB card is also 64K
+(`-GpuProfile 32gb`, untested).
 Search first, read little, change little. Module files stay under 40 KB (`MAX_MODULE_BYTES` in
 `tests/test_static_analysis.py`; about 10K tokens), so one file fits a single read; the files over it are listed
 there and shrink only.
@@ -10,12 +11,13 @@ there and shrink only.
 2. Search before opening anything:
    - `git grep -n "<exact UI text or setting name>"`
    - `python tools/repo_map.py --find "<word>"` (names, signatures, docstrings)
-   - `python tools/repo_map.py` for the layer map (~3.5k tokens).
+   - `git grep -n -m 3 -w <name> -- '*.py'` (bounded), `python tools/repo_map.py --callers <name>` (max 30 lines).
+   - `python tools/repo_map.py` for the layer map (about 21 KB, 5-6k tokens: read it once, not every task).
 3. Follow the layers down: `frontend/src/api` -> `api/routers` -> `services` ->
    root module -> `db/`. Write the candidate file list.
 4. Open the top two files only. List one first: `python tools/repo_map.py <module>`.
    Read only the needed functions by line range. Never open `db/__init__.py` whole (about 220 KB):
-   `python tools/repo_map.py db`, then `--part N`.
+   `python tools/repo_map.py db`, then `python tools/repo_map.py db --part N`.
 5. Read the package `README.md`. Find the tests:
    - `tests/test_<area>.py` for the area.
    - Guards: `tests/test_api_permissions.py` (one permission per route, route table),
@@ -24,9 +26,9 @@ there and shrink only.
      CLI/app parity: a setting changed in the app must match `cli.py`.
 6. More than about four files to change? Stop. Split the task and say so.
 7. Make the smallest change. Run the matching test file first:
-   `python -m pytest -q tests/test_<area>.py`. Then the quick guards:
-   `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`.
-   CI runs the full suite; don't run it locally.
+   `python -m pytest -q tests/test_<area>.py`. Then the guard set; `python tools/check_change.py` prints the lean pytest
+   command for your diff (mapped tests plus the guards, under 2 KB; `--run` runs it). The set, with the hidden guards:
+   `docs/testing-and-ci.md`, section "Guard set and lean output". CI runs the full suite; don't run it locally.
 8. Rules that bite most:
    - Match LLM results to lines by id, never by position.
    - Pass error text through `translate_engines.redact_secrets`; keys in headers only.
@@ -44,12 +46,22 @@ waits for `/health`, and opens OpenCode's web UI in the browser (add `-Terminal`
 the terminal UI; the web UI needs the repo added once via Add project). It reads `opencode.json` and
 `AGENTS.md`. The first start downloads the model.
 
+The script also exports `PYTEST_ADDOPTS` for the model's shell, so a bare `python -m pytest <files>` prints a few
+hundred bytes (the lean command in `docs/testing-and-ci.md`). `-GpuProfile 32gb` is a second profile for a 32 GB card
+(Tesla V100): same model and 65536 context, experts on the GPU instead of `--n-cpu-moe 99`. It is untested; the default
+12 GB profile is unchanged.
+
+`opencode.json` also loads `CLAUDE.md` as instructions, asks before destructive git (`push`, `reset`, `clean`, `rebase`,
+`restore`, `branch -D`) and `rm -rf`, and denies reads of the skip-list files in `AGENTS.md`. The `permission` and
+`instructions` keys were checked against opencode.ai/docs/permissions and /docs/config on 2026-10-11 (last matching
+rule wins, so `*` comes first); not run against a live OpenCode.
+
 ## Task brief (paste into a local-model session)
 Objective: <one line: symptom, or what moves where>
 Allowed files: <paths; anything else means stop and ask>
 Must not change: <behaviour, public names, API shapes, schema>
 Callers: <from `git grep -nw <name>`>
-Tests: `python -m pytest -q <files>`, then the quick guards (CI runs the full suite)
+Tests: `python -m pytest -q <files>`, then the guard set (CI runs the full suite)
 Done when: <tests pass with counts; for a split, AGENTS.md "Splitting files">
 
 ## Using a local coding agent (Ollama + OpenCode or Aider)
@@ -68,7 +80,7 @@ Tests are mocked, so no GPU, models or keys are needed. Optional libraries missi
 
 Test commands (run from the repo root unless noted):
 - One area: `python -m pytest -q tests/test_<area>.py` (areas: `docs/testing-and-ci.md`).
-- Quick guards before pushing: `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`. CI runs the full suite.
+- The guard set before pushing: `docs/testing-and-ci.md`, "Guard set and lean output". CI runs the full suite.
 - Frontend, from `frontend/`: `npx tsc -b && npx vitest run`.
 - Playwright (`frontend/e2e/`) only for a UI flow, with the Chromium already on the machine
   (`docs/testing-and-ci.md`). Never run `playwright install`.
@@ -77,7 +89,7 @@ Ollama's default context is small and it silently drops what doesn't fit (4k bel
 recommend at least 64k for coding tools). The agent's rules and tool output are lost without an error, so
 raise it first:
 ```
-OLLAMA_CONTEXT_LENGTH=65536 ollama serve     # Windows PowerShell: $env:OLLAMA_CONTEXT_LENGTH=65536; ollama serve
+OLLAMA_CONTEXT_LENGTH=65536 ollama serve     # PowerShell (no VAR=x prefix syntax): $env:OLLAMA_CONTEXT_LENGTH=65536; ollama serve
 ollama pull <coder model>                    # e.g. a Qwen3-Coder 30B-A3B tag; check the tag on ollama.com
 ollama ps                                    # CONTEXT must read 65536; PROCESSOR should say 100% GPU
 ```
@@ -103,7 +115,7 @@ Aider (does not read `AGENTS.md`; give it the rules explicitly). `.aider.conf.ym
 model: ollama_chat/<tag>
 read: [CLAUDE.md, AGENTS.md, docs/small-model-checklist.md]
 auto-commits: false
-test-cmd: python -m pytest -q -p no:cacheprovider -o addopts="" tests/test_<area>.py
+test-cmd: python -m pytest -q -p no:cacheprovider -o addopts= -W ignore::DeprecationWarning --no-header -x --tb=short tests/test_<area>.py
 ```
 and `.aider.model.settings.yml` (aider otherwise sizes `num_ctx` per request):
 ```yaml
@@ -111,14 +123,18 @@ and `.aider.model.settings.yml` (aider otherwise sizes `num_ctx` per request):
   extra_params:
     num_ctx: 65536
 ```
-Set `OLLAMA_API_BASE=http://127.0.0.1:11434` if Ollama isn't on the default address. The three `read` files (about 33 KB) cost
-about 8k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
+Set `OLLAMA_API_BASE=http://127.0.0.1:11434` if Ollama isn't on the default address. The three `read` files (about 35 KB) cost
+about 9-10k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
 
 Branch and PR flow: one task per branch off the latest `baihe-subtitler`
 (`git fetch origin && git checkout -b <task-name> origin/baihe-subtitler`; roadmap steps use `step-<id>-<short-name>`).
-Run the area test, then the quick guards, and the frontend commands if you touched `frontend/`. Push and open a
+Run the area test, then the guard set, and the frontend commands if you touched `frontend/`. Push and open a
 draft PR into `baihe-subtitler`; the lead session merges when CI is green. Finish with a short summary: what
 changed, commands run with pass counts, what you're unsure about.
+
+Clone in a folder of its own. The repo root has `__init__.py`, so pytest puts the clone's parent folder on `sys.path`: a
+stray `cli.py` or `core.py` next to the clone (in its parent) shadows the real module and tests fail oddly
+(`tests/test_local_coder_tools.py` catches it for `core`).
 
 Stop and ask the owner before touching:
 - auth, sessions, permissions policy or remote access (`api/auth.py`, `action_tiers.py`, `docs/route-permissions.md`
@@ -137,7 +153,7 @@ given model follows tool calls; if tool calls fail, raise the context first.
 
 ## Prompting a 64k local model
 
-A 64k window holds the rules (about 5k tokens), the task and a few files; long sessions fill it with old tool output
+A 64k window holds the rules (AGENTS.md alone is about 4k tokens; with `CLAUDE.md` and this file about 10k), the task and a few files; long sessions fill it with old tool output
 and the model starts forgetting the rules. These habits keep it fresh.
 
 - **One task per session, fresh context.** Finish, commit, start a new session for the next task. Don't "continue"
@@ -153,7 +169,7 @@ and the model starts forgetting the rules. These habits keep it fresh.
 - **Find code, don't browse.** `git grep -n "<exact UI text>"`, `python tools/repo_map.py --find "<word>"`, then read
   by line range (`Read file offset=120 limit=60`), never a whole file over a few hundred lines.
 - **Test-first loop.** Write the failing test, run it, make the smallest change, run again. When pasting a failure
-  back, paste only the last 30 lines (`... 2>&1 | tail -30`), not the whole run.
+  back, paste only the last 30 lines (`... 2>&1 | tail -30`; PowerShell: `... 2>&1 | Select-Object -Last 30`), not the whole run.
 - **Edit blocks, not rewrites.** Ask for search/replace edits (OpenCode's edit tool, Aider's `diff` format) with
   enough surrounding lines to be unique. A whole-file rewrite burns context and silently drops code.
 - **Thinking off for edits.** Reasoning tokens eat the window and add nothing to a one-function change. Leave
