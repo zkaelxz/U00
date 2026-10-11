@@ -1,5 +1,20 @@
 # Releases
 
+## Beta until the stable gate is met (owner decision, 2026-10-11)
+
+Baihe is in beta. Tag versions `0.x.y-beta.N` (for example `v0.1.0-beta.1`): a
+version with a `-` is published as a GitHub pre-release and sorts below the
+final release. Settings → App updates ignores pre-releases, so a beta install
+is updated by running the newer Setup `.exe` by hand and checking it against
+its `.sha256`.
+
+Stable (a plain `v0.x.y` tag) waits for all of these:
+- The jobs and settings work in `docs/STATUS.md` ("Next") is merged.
+- The owner's hardware and PC checks pass (real GPU Whisper, TTS, ffmpeg/libass, paid LLM keys, real OCR/EPUBs, pyannote, Qwen3, the dub listening check, phone checks).
+- A clean install, then an upgrade over a library with data, then an uninstall all work.
+
+Beta limits, not promised for stable: the browser-tier sources listed under "Known limits" in `docs/STATUS.md` are unverified against the live sites, and word timings are not restored by undo.
+
 ## Windows installer (end users)
 
 Installed users get the React screens inside the installer, so they don't
