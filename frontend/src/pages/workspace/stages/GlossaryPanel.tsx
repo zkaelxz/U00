@@ -18,6 +18,7 @@ import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
+import { PossibleNames, SimilarSpellings } from './GlossaryVariants'
 import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
@@ -175,6 +176,7 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
   const [pick, setPick] = useState<GlossarySource | null>(null)
   const [suggestRequested, setSuggestRequested] = useState(false)
   const [importSignal, setImportSignal] = useState(0)
+  const [similarFor, setSimilarFor] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -332,12 +334,21 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
                 <td role="cell" data-label="Aliases" className="card-meta">{t.aliases.join(', ')}</td>
                 <td role="cell" data-label="Banned" className="card-meta">{t.banned_translations.join(', ')}</td>
                 <td role="cell" data-label="Exact" className="card-meta">{t.enforce_exact ? 'Yes' : 'No'}</td>
-                <td role="cell" className="card-action"><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button></td>
+                <td role="cell" className="card-action"><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} title="Look in the source lines for other ways this name was written" onClick={() => setSimilarFor(similarFor === t.id ? null : t.id)}>Find similar</button></td>
               </tr>
             ))}
           </tbody>
         </table></div>
       )}
+      {terms?.map((t) => t.id === similarFor && (
+        <SimilarSpellings
+          key={`similar-${t.id}-${termsVersion}`}
+          term={t}
+          onAdded={() => setReloads((n) => n + 1)}
+          onClose={() => setSimilarFor(null)}
+        />
+      ))}
       {terms && terms.length > 0 && (
         <div className="glossary-bulk">
           {!confirming ? (
@@ -386,6 +397,7 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
         </div>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
+      <PossibleNames hasSeries={seriesId != null} onCreated={() => setReloads((n) => n + 1)} />
       <GlossaryImport openSignal={importSignal} hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />
       <LanguagePacks
         glossarySources={(terms ?? []).map((t) => t.term_original)}

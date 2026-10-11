@@ -31,11 +31,12 @@ from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkD
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
+                         GlossaryNameClusters, GlossaryVariants,
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
                          LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
                          NovelGlossaryStatus)
-from services import export_service, glossary_service
+from services import export_service, glossary_service, glossary_variants_service
 from services.service_errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/glossary", tags=["glossary"])
@@ -97,6 +98,26 @@ def get_glossary_csv(drama_id: int = Path(ge=1)):
                     media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": export_service.drama_disposition(
                         drama_id, "glossary", "en", "csv")})
+
+
+# lines.read, not library.read: the examples are source line text.
+@router.get("/dramas/{drama_id}/variants", dependencies=[require_permission("lines.read")],
+            response_model=GlossaryVariants,
+            summary="Spellings in the source lines that sound like a term (read-only, offline)",
+            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def get_term_variants(drama_id: int = Path(ge=1),
+                      term: str = Query(..., min_length=1, max_length=200, description=(
+                          "The term, or any name being worked out; its aliases are included "
+                          "when it is a glossary term"))):
+    return glossary_variants_service.find_variants(drama_id, term)
+
+
+@router.get("/dramas/{drama_id}/name-clusters", dependencies=[require_permission("lines.read")],
+            response_model=GlossaryNameClusters,
+            summary="Names that recur under several sound-alike spellings (read-only, offline)",
+            responses={404: {"model": ErrorResponse}})
+def get_name_clusters(drama_id: int = Path(ge=1)):
+    return glossary_variants_service.discover_names(drama_id)
 
 
 @router.get("/dramas/{drama_id}/instructions", dependencies=[require_permission("library.read")], response_model=GlossaryInstructions,
