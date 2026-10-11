@@ -4,6 +4,7 @@ parent-side deadline for a child that never starts its own timer. The
 retranscribe_timeout_s formula is pinned here too."""
 import os
 import queue
+import tempfile
 import threading
 import time
 
@@ -25,6 +26,11 @@ def big_body(size, scratch_dir, result_queue):
     result_queue.put(("ok", {"blob": "x" * size}))
 
 
+def huge_item_body(size, scratch_dir, result_queue):
+    result_queue.put(("item", {"blob": "x" * size}))
+    result_queue.put(("ok", {}))
+
+
 def raising_body(secret, scratch_dir, result_queue):
     raise ValueError(f"boom token={secret}")
 
@@ -33,6 +39,12 @@ def items_then_hang_body(marker, scratch_dir, result_queue):
     result_queue.put(("item", {"n": 1}))
     result_queue.put(("item", {"n": 2}))
     hang_body(marker, scratch_dir, result_queue)
+
+
+def stuck_entry(body, timeout_s, scratch_dir, *args_and_queue):
+    """A worker stuck before its watchdog starts (a hung import)."""
+    *args, _queue = args_and_queue
+    body(*args, scratch_dir, _queue)
 
 
 def wait_until(predicate, what, timeout=60):
@@ -94,6 +106,30 @@ def test_the_parent_deadline_frees_a_child_that_never_starts_its_timer(
     wait_until(lambda: pid_gone(int(open(marker).read())), "the worker outlived the run", 10)
 
 
+def test_past_its_budget_the_job_says_it_is_waiting_for_the_worker(
+        isolated_db, tmp_path, monkeypatch):
+    # The worker's watchdog never gets to fire; the parent's backstop does.
+    monkeypatch.setattr(gpu_process_job, "PARENT_GRACE_S", 3)
+    monkeypatch.setattr(gpu_process_job, "process_entry", stuck_entry)
+    marker = str(tmp_path / "started")
+    messages, outcome = [], []
+    real = background_jobs.update_progress
+    monkeypatch.setattr(background_jobs, "update_progress",
+                        lambda job_id, frac, message="": (messages.append(message),
+                                                          real(job_id, frac, message)))
+
+    def job():
+        try:
+            gpu_process_job.run_in_child("gpujob_stop", hang_body, (marker,), timeout_s=1)
+        except gpu_process_job.ChildFailed as exc:
+            outcome.append(str(exc))
+    assert background_jobs.start_job("gpujob_stop", job, description="Stuck")
+    assert background_jobs.wait_for_job_threads(60)
+    assert outcome == [gpu_process_job.TIMEOUT_MESSAGE]
+    assert messages == [gpu_process_job.STOPPING_MESSAGE]
+    background_jobs.clear_job("gpujob_stop")
+
+
 def test_cancel_kills_the_worker_and_keeps_the_items_already_sent(isolated_db, tmp_path):
     marker = str(tmp_path / "started")
     items, outcome = [], []
@@ -141,7 +177,7 @@ def test_a_result_landing_after_the_child_exits_is_not_lost(isolated_db):
     now = time.monotonic()
     result = gpu_process_job._await_child(
         "gpujob_late", _FakeProc(now), _LateChannel(("ok", {"n": 1}), now + 0.6),
-        0.1, now + 30, None)
+        0.1, now + 30, now + 30, None)
     assert result == {"n": 1}
 
 
@@ -150,8 +186,9 @@ def test_a_child_that_exits_with_nothing_is_lost_after_the_grace(isolated_db, mo
     now = time.monotonic()
     with pytest.raises(gpu_process_job.ChildFailed) as err:
         gpu_process_job._await_child(
-            "gpujob_lost", _FakeProc(now), _LateChannel(None, 0), 0.1, now + 30, None)
+            "gpujob_lost", _FakeProc(now), _LateChannel(None, 0), 0.1, now + 30, now + 30, None)
     assert str(err.value) == background_jobs.WORKER_LOST_MESSAGE
+    assert time.monotonic() - now >= 0.3
 
 
 def test_a_raising_on_item_becomes_a_plain_redacted_child_failed(isolated_db):
@@ -164,8 +201,26 @@ def test_a_raising_on_item_becomes_a_plain_redacted_child_failed(isolated_db):
     channel = _LateChannel(("item", {"n": 1}), now)
     with pytest.raises(gpu_process_job.ChildFailed) as err:
         gpu_process_job._await_child(
-            "gpujob_onitem", _FakeProc(now + 30), channel, 0.01, now + 30, on_item)
+            "gpujob_onitem", _FakeProc(now + 30), channel, 0.01, now + 30, now + 30, on_item)
     assert "db write failed" in str(err.value) and secret not in str(err.value)
+
+
+def test_a_cancelling_on_item_surfaces_as_a_cancel(isolated_db):
+    def on_item(_item):
+        raise background_jobs.JobCancelled("gpujob_oncancel")
+
+    now = time.monotonic()
+    channel = _LateChannel(("item", {"n": 1}), now)
+    with pytest.raises(background_jobs.JobCancelled):
+        gpu_process_job._await_child(
+            "gpujob_oncancel", _FakeProc(now + 30), channel, 0.01, now + 30, now + 30, on_item)
+
+
+def test_a_huge_item_from_a_real_child_arrives_whole(isolated_db):
+    items = []
+    gpu_process_job.run_in_child(
+        "gpujob_hugeitem", huge_item_body, (50_000,), timeout_s=60, on_item=items.append)
+    assert len(items[0]["blob"]) == 50_000
 
 
 def test_give_up_ends_the_process_even_if_the_queue_flush_blocks(monkeypatch, tmp_path):
@@ -182,6 +237,8 @@ def test_give_up_ends_the_process_even_if_the_queue_flush_blocks(monkeypatch, tm
         def join_thread(self):
             release.wait(30)
 
+    # run_worker points tempfile at the job's scratch folder for good.
+    monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     monkeypatch.setattr(gpu_process_job, "FLUSH_TIMEOUT_S", 0.2)
     monkeypatch.setattr(gpu_process_job.background_jobs, "start_own_process_group", lambda: None)
     monkeypatch.setattr(gpu_process_job.os, "_exit", lambda code: exited.append(code))
@@ -194,9 +251,10 @@ def test_give_up_ends_the_process_even_if_the_queue_flush_blocks(monkeypatch, tm
 
     try:
         gpu_process_job.run_worker(body, 0.05, str(tmp_path / "scratch"), BlockedQueue())
+        # Before release: only the bounded flush can have let the exit happen.
+        assert exited == [0]
     finally:
         release.set()
-    assert exited == [0]
 
 
 def test_timeout_formula_has_a_per_line_term_and_scales_with_audio():

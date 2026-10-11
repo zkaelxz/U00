@@ -127,7 +127,9 @@ def test_track_download(client, isolated_db, tmp_path):
         f.write(b"RIFFdata")
     r = client.get(f"/api/dub/dramas/{did}/track")
     assert r.status_code == 200 and r.content == b"RIFFdata"
-    assert r.headers["content-disposition"] == f'attachment; filename="drama_{did}_dub_track.wav"'
+    assert r.headers["content-disposition"] == (
+        'attachment; filename="D - dub track (en).wav"; '
+        "filename*=UTF-8''D%20-%20dub%20track%20%28en%29.wav")
 
 
 def test_track_symlink_is_404(client, isolated_db, tmp_path):

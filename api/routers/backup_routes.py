@@ -37,6 +37,7 @@ from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.schemas import ErrorResponse
 from services import auto_backup_service as abs_
 from services import backup_import_service as bis
+from services import drama_restore_service as drs
 from services import media_upload_service
 from services.service_errors import InvalidInputError
 
@@ -91,7 +92,7 @@ def get_snapshot_dramas(snapshot: Optional[str] = Query(None, min_length=1, max_
                      "409 choose_copy when no copy is named and none is the clear default)")
 def post_restore_drama(body: RestoreDramaRequest, request: Request):
     principal = getattr(request.state, "principal", None) or {}
-    return abs_.restore_drama(body.drama_id, confirm=body.confirm,
+    return drs.restore_drama(body.drama_id, confirm=body.confirm,
                               confirm_text=body.confirm_text,
                               actor_id=principal.get("user_id"), snapshot=body.snapshot)
 
@@ -154,7 +155,7 @@ def _drama_ids(form) -> list:
     out = []
     for raw in form.getlist("drama_ids"):
         if not isinstance(raw, str) or not (raw.isascii() and raw.isdigit()) or len(raw) > 10:
-            raise InvalidInputError("A drama id is a positive whole number.")
+            raise InvalidInputError("A title id is a positive whole number.")
         out.append(int(raw))
     return out
 
@@ -185,7 +186,7 @@ async def post_import(request: Request):
         # Checked before the uploaded file is opened or the library is locked.
         if (form.get("confirm") != "true"
                 or form.get("confirm_text") != bis.RESTORE_CONFIRM_TEXT):
-            raise InvalidInputError(f"Importing dramas needs confirm=true and confirm_text set "
+            raise InvalidInputError(f"Importing titles needs confirm=true and confirm_text set "
                                     f"to the word {bis.RESTORE_CONFIRM_TEXT}, in capitals.")
         upload, drama_ids = _upload(form), _drama_ids(form)
         principal = getattr(request.state, "principal", None)

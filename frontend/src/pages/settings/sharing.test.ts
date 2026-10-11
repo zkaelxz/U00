@@ -40,9 +40,9 @@ const me = (permissions: string[]): AuthMe => ({
 })
 
 describe('sharing helpers', () => {
-  it('shows every item only to admins (or an unknown session, which the server checks)', () => {
+  it('shows every item only to admins; an unknown session gets the least-privilege view', () => {
     expect(canSeeAllItems({ status: 'loading' })).toBeNull()
-    expect(canSeeAllItems({ status: 'unavailable' })).toBe(true)
+    expect(canSeeAllItems({ status: 'unavailable' })).toBe(false)
     expect(canSeeAllItems({ status: 'ready', me: me(['library.read', 'admin.library']) })).toBe(true)
     expect(canSeeAllItems({ status: 'ready', me: me(['library.read', 'lines.edit']) })).toBe(false)
   })

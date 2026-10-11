@@ -16,6 +16,7 @@ import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { SplitDialog, type SplitChoice } from './SplitDialog'
 import { lineNumber } from '../../../../lineNumber'
 import { retranscribeMenuState } from './retranscribeLogic'
+import { isSourceChanged } from '../sourceChanged'
 
 export type SheetView = 'menu' | 'split' | 'merge' | 'add' | 'language'
 
@@ -278,7 +279,7 @@ export function LineActionsSheet(p: Props) {
                 />
               </li>
               {line.flag && (
-                <li><button type="button" onClick={p.onDismissFlag}>Dismiss flag</button></li>
+                <li><button type="button" onClick={p.onDismissFlag}>{isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}</button></li>
               )}
               <li><button type="button" onClick={p.onAddNote}>Add note</button></li>
               <li><button type="button" onClick={() => p.onView('language')}>Set language…</button></li>

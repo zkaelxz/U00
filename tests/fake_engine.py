@@ -1,32 +1,27 @@
 """A deterministic, key-free translation engine for tests and the e2e server.
 
-It is not part of the app: install() registers it under the id "fake"
+The class is engine_backends.echo.EchoEngine with the "[TEST]" prefix and token
+counts. It is not part of the app: install() registers it under the id "fake"
 in translate_engines' tables, uninstall() puts them back. Output is
 "[TEST] <text>" and costs nothing, so whole pipelines (align, translate,
 review, export, dub) run with no network, key or model.
 """
 import translate_engines as te
+from engine_backends.echo import EchoEngine
 
 ENGINE_ID = "fake"
 
 
-class FakeEngine:
+class FakeEngine(EchoEngine):
     __test__ = False  # not a pytest class
     name = ENGINE_ID
-    supports_reference = True
+    prefix = "[TEST]"
 
     def __init__(self, api_key: str = None, model: str = "test-offline"):
-        self.model = model
-        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
-        self.client = None  # no LLM client: free-form LLM features decline cleanly
+        super().__init__(api_key, model)
 
     def translate_batch(self, zh_lines, context: dict):
-        out = []
-        for line in zh_lines:
-            preview = (line or "").strip()
-            if len(preview) > 40:
-                preview = preview[:40] + "…"
-            out.append(f"[TEST] {preview}")
+        out = super().translate_batch(zh_lines, context)
         self.last_usage = {
             "input_tokens": sum(len(l) for l in zh_lines),
             "output_tokens": sum(len(o) for o in out),

@@ -5,6 +5,7 @@ import type { SessionState } from '../../hooks/useSession'
 import type { DeviceToken } from '../../types/extensionDevices'
 import {
   ADMIN_TOKENS_PC_ONLY,
+  DEVICES_NOTE,
   activeCount,
   adminTokensBlock,
   extensionDevicesView,
@@ -75,5 +76,10 @@ describe('extension devices helpers', () => {
 
   it('counts active devices only', () => {
     expect(activeCount([tok({}), tok({ id: 2, status: 'revoked' }), tok({ id: 3, status: 'expired' })])).toBe(1)
+  })
+
+  it('does not promise that revoking a device cuts it off', () => {
+    expect(DEVICES_NOTE).toMatch(/does not check them yet/)
+    expect(DEVICES_NOTE).not.toMatch(/cut .* off/i)
   })
 })

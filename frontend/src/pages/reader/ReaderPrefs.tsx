@@ -7,6 +7,7 @@
 import type { ReactNode } from 'react'
 
 import { Field } from '../../components/Field'
+import { Toggle } from '../../components/Toggle'
 import { AaControl } from '../../components/AaControl'
 import {
   CHAPTER_SIZE,
@@ -103,7 +104,7 @@ function PrefsForm({ prefs, onChange, phone }: Omit<Props, 'children'>) {
           label="Spoiler-free"
           help="Who is, Explain, relationships and the wiki only use lines up to the end of this page. Recap covers the lines before it. Q&A always uses the whole title."
         >
-          <input type="checkbox" checked={prefs.spoilerFree} onChange={(e) => set('spoilerFree', e.target.checked)} />
+          <Toggle checked={prefs.spoilerFree} onChange={(on) => set('spoilerFree', on)} />
         </Field>
       </div>
     </div>

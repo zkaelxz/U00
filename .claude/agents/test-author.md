@@ -28,7 +28,7 @@ Read only the files the task names.
 
 **Run:**
 - your files, plus `tests/test_static_analysis.py` for Python;
-- `npx tsc --noEmit && npx vitest run` for the frontend.
+- `npx tsc -b && npx vitest run` for the frontend.
 - Put anything over about 100 s in the background, polled with `kill -0 <pid>`.
 
 Commit on the branch the lead names, with trailers naming the model you ran on, and push only if the lead said to.

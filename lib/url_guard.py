@@ -15,6 +15,9 @@ Callers: `lib.http` (and through it `services.safe_fetch`,
 make during live capture. Error
 messages are fixed strings with no URL, host or IP in them.
 
+`cross_origin_headers` and `referer_origin` limit what a request tells
+another host about the page it came from.
+
 Standard library only, so `sources/` can import it without pulling in the
 service layer.
 """
@@ -72,3 +75,38 @@ def resolve_public(url: str) -> str:
         if pinned is None:
             pinned = raw_ip
     return pinned
+
+
+def referer_origin(url: str) -> str:
+    """`url` cut to scheme, host and port (no credentials, path, query or
+    fragment), or "" when it has no http(s) host."""
+    parts = urlsplit(url or "")
+    try:
+        port = parts.port
+    except ValueError:                              # a malformed port
+        port = None
+    host = parts.hostname or ""
+    if not host or parts.scheme not in ("http", "https"):
+        return ""
+    if ":" in host:
+        host = f"[{host}]"
+    return f"{parts.scheme}://{host}{f':{port}' if port else ''}/"
+
+
+def cross_origin_headers(headers: dict) -> dict:
+    """`headers` for a redirect to another origin: no Authorization or
+    Cookie, and a Referer cut to its origin (dropped when it has none). The
+    Referer was chosen for the first URL's host -- often a whole chapter
+    URL whose query carries a token -- and a same-site link can redirect to
+    a third party."""
+    out = {}
+    for k, v in headers.items():
+        low = k.lower()
+        if low in ("authorization", "cookie"):
+            continue
+        if low == "referer":
+            v = referer_origin(v)
+            if not v:
+                continue
+        out[k] = v
+    return out

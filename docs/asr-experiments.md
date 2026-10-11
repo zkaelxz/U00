@@ -127,6 +127,70 @@ turbo too. Details by language (numbers in the snapshot):
 Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB
 (`transcribe_service._MODEL_DOWNLOAD_SIZES`).
 
+### Benchmarking a model that is not in the list
+
+A candidate such as a Japanese fine-tune can be tried in the Benchmark Lab without
+changing the model of any title:
+
+1. On the PC, set Settings > Offline Whisper model folder to the downloaded
+   faster-whisper (CTranslate2) model folder.
+2. In the Lab, pick the Transcription stage and add an arm with the model
+   `local-folder`. It is listed in the Whisper sizes and shows as "offline model
+   folder" in results; the path is never sent in the request or stored.
+3. Clear the setting afterwards, or every title keeps using that folder.
+
+If the setting is empty or the folder is missing, the arm is refused with a message
+pointing at the setting. Only runs started on the PC can use it. The memory-headroom
+check is skipped for a folder, as it is for any local path.
+
+#### Trying a Japanese fine-tune
+
+`tools/ja_whisper_models.py` prepares the folder (run on the PC, in Baihe's Python; it
+adds no dependency, and each subcommand imports only the libraries it needs):
+
+```
+venv\Scripts\python.exe tools\ja_whisper_models.py fetch ja-1.5b --out D:\models\ja-1.5b
+venv\Scripts\python.exe tools\ja_whisper_models.py fetch kotoba --out D:\models\kotoba
+venv\Scripts\python.exe tools\ja_whisper_models.py convert-anime-whisper --out D:\models\anime [--quant float16|int8]
+venv\Scripts\python.exe tools\ja_whisper_models.py check D:\models\kotoba [--wav clip.wav]
+```
+
+- `fetch` downloads a pinned CTranslate2 build (`TransWithAI/whisper-ja-1.5B-ct2`,
+  `kotoba-tech/kotoba-whisper-v2.0-faster`). For kotoba it saves `config.json.orig` and
+  sets `alignment_heads` to layer 1, heads 0-19: the stock config points at decoder
+  layers a 2-layer decoder does not have and crashes with word timestamps (kotoba-whisper
+  issue 2; the workaround is the community's, not the vendor's).
+- `convert-anime-whisper` downloads `litagin/anime-whisper` (safetensors only), converts it
+  with CTranslate2 without `trust_remote_code`, writes `tokenizer.json`, copies
+  `preprocessor_config.json`, sets the same heads, and writes `baihe-manifest.json`
+  (source, revision, library versions, quantization, `model.bin` sha256; no paths).
+- `check` verifies the files, that `alignment_heads` fit the decoder (read from the
+  layer names in `model.bin`), then loads the folder with faster-whisper and transcribes a
+  clip with word timestamps. It reports segments, words, bad word timings and the
+  language token, and exits non-zero on any problem. Without `--wav` it uses a synthetic
+  clip, which only proves the model does not crash.
+
+Safety rules the tool enforces:
+
+- Only CTranslate2 or safetensors files. It lists the repository first and refuses, naming
+  the file, if anything is outside the allowlist; `.py`, `.pt`, `.pth`, `.pkl`, `.ckpt` and
+  any `.bin` other than `model.bin` are never downloaded or loaded.
+- Every download is at a pinned full commit sha, never a branch. A new revision means a
+  reviewed change to the constants in the tool.
+- No initial prompt for anime-whisper: its card says a prompt degrades the output.
+
+Licence notes (personal local benchmarking only; none of this is legal advice):
+
+- whisper-ja-1.5B declares no licence, and its training data terms are mixed.
+- anime-whisper's card says MIT, but its training dataset forbids commercial use of
+  models trained on it.
+- kotoba-whisper is Apache-2.0; its ReazonSpeech data is offered under Japanese Copyright
+  Act Article 30-4 terms.
+
+Test a new folder in the Workspace on one 30 second clip before any Lab run: a crash
+there only kills the worker, and `check` should pass first. Then set the folder, run a
+`local-folder` arm, and clear the setting.
+
 ## Guidance from the benchmarks
 
 Each row rests on the snapshot below (read speech, 60 clips per cell, CPU; the noisy-audio rows use 20 per language), so

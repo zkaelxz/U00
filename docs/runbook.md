@@ -16,7 +16,7 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 ## 2. Run the local test suite
 - One area: `python -m pytest -q tests/test_<area>.py`
 - Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (takes 10+ minutes)
-- Frontend: `cd frontend && npx tsc --noEmit && npx vitest run`
+- Frontend: `cd frontend && npx tsc -b && npx vitest run`
 - Browser tests (`frontend/e2e/`) use the Chromium already installed. Never run `playwright install`.
 - GitHub CI is the merge gate while the repo is public. If the repo becomes private or Actions minutes run out, the full local suite plus the frontend commands above is the gate.
 
@@ -84,6 +84,12 @@ For an installed copy (Setup .exe) that serves household users. "Data folder" is
 4. Press "Estimate cost" first. Paid engines are capped by the monthly cap and stop at it.
 5. Press "Start arena". When done, tick the runs in the recent-runs list and press "Compare" to see scores side by side (Model Arena).
 6. Use the winner: pick that engine on the drama's Translate page. (Not verified: whether the drama remembers it as its own setting.)
+
+## Branches to keep
+Never delete these when cleaning up branches; they are the only record of the work they hold.
+- `legacy/streamlit` (and the `pre-streamlit-removal` tag): the removed Streamlit app.
+- `claude/baihe-subtitle-planning-95qyvq`: the earlier planning steps, which exist nowhere else.
+- `main`: the original default branch.
 
 ## Logs, support report, locked-out admin
 - Log: `logs/app.log` in the library folder (installed default: `%LOCALAPPDATA%\Baihe Studio\library\logs`). Diagnostics -> "Log" shows recent lines.

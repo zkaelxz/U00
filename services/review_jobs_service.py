@@ -37,8 +37,8 @@ import bulk_translate
 import core
 import db
 import translate_engines
-from services import (settings_service, transcribe_service, translate_run_service,
-                      translate_service, workspace_job_service)
+from services import (ownership_service, settings_service, transcribe_service,
+                      translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -93,16 +93,16 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
     if background_jobs.is_running(job_id) or any(
             (j.get("kind") or "translate") == bulk_kind
             for j in db.list_bulk_jobs(drama_id, statuses=pending)):
-        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this drama.")
+        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this title.")
 
     def submit():
         return submit_bulk_review(bulk_kind, drama_id, engine, engine_name, **submit_kwargs)[0]
     started = background_jobs.start_job(
         job_id, translate_run_service.run_bulk_translate_job, job_id, engine, engine_name, submit,
         translate_run_service.month_cap_usd() or None,
-        description=f"Bulk {_KINDS[kind][1]} (drama #{drama_id})")
+        description=f"Bulk {_KINDS[kind][1]} (title #{drama_id})")
     if not started:
-        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this drama.")
+        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "kind": kind, "engine": engine_name,
             "model": getattr(engine, "model", None), "line_count": line_count, "bulk": True}
 
@@ -118,10 +118,10 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     drama = translate_run_service.require_drama(drama_id)
     lines = core.lines_from_rows(db.load_lines(drama_id))
     if not lines:
-        raise UnsupportedOperationError("This drama has no lines yet.")
+        raise UnsupportedOperationError("This title has no lines yet.")
     if precheck:
         precheck(lines)
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if not allow_translation_only and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
@@ -143,7 +143,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
                            bulk_kwargs(drama) if bulk_kwargs else {})
     job_id = f"{prefix}{drama_id}"
     if background_jobs.is_running(job_id):
-        raise ConflictError(f"A {label} is already running for this drama.")
+        raise ConflictError(f"A {label} is already running for this title.")
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
@@ -153,11 +153,19 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     kwargs.setdefault("gpu_touching", translate_engines.ollama_touches_local_gpu(engine_name, model))
     started = background_jobs.start_job(
         job_id, runner, job_id, drama_id, *args,
-        description=f"{label.capitalize()} (drama #{drama_id})", **kwargs)
+        description=f"{label.capitalize()} (title #{drama_id})", **kwargs)
     if not started:
-        raise ConflictError(f"A {label} is already running for this drama.")
+        raise ConflictError(f"A {label} is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "kind": kind, "engine": engine_name,
             "model": getattr(engine, "model", model), "line_count": len(lines), "bulk": False}
+
+
+def _language_kwargs(drama) -> dict:
+    return {"source_language": drama.get("source_language")}
+
+
+def _job_language(drama) -> dict:
+    return {"lang": drama.get("source_language")}
 
 
 def start_consistency_check(drama_id: int, engine_name: str = None, model: str = None,
@@ -165,7 +173,8 @@ def start_consistency_check(drama_id: int, engine_name: str = None, model: str =
     """Same-term-translated-differently check; saves the consistency issues."""
     return _start("consistency", drama_id, engine_name, model, gemini_free_tier,
                   workspace_job_service.run_consistency_job,
-                  lambda d, lines, eng, name: ((lines, eng, name), {}), bulk=bulk)
+                  lambda d, lines, eng, name: ((lines, eng, name), _job_language(d)), bulk=bulk,
+                  bulk_kwargs=_language_kwargs)
 
 
 def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = None,
@@ -199,8 +208,8 @@ def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
             raise UnsupportedOperationError("There are no translated lines to review yet.")
     return _start("flag", drama_id, engine_name, model, gemini_free_tier,
                   workspace_job_service.run_flag_job,
-                  lambda d, lines, eng, name: ((lines, eng, name), {}), precheck=precheck,
-                  bulk=bulk)
+                  lambda d, lines, eng, name: ((lines, eng, name), _job_language(d)),
+                  precheck=precheck, bulk=bulk, bulk_kwargs=_language_kwargs)
 
 
 def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
@@ -210,6 +219,8 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
     """Re-transcribes (when the drama has audio) and re-translates every
     currently flagged line, clearing the flag on lines it changed. Stops at
     the spending cap, keeping what was fixed."""
+    # Fixing a flagged line rewrites its zh/en in place.
+    ownership_service.require_acting_lines_edit()
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
@@ -229,11 +240,11 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
         audio = drama.get("audio_filename")
         audio_path = os.path.join(db.drama_dir(drama["id"]), audio) if audio else None
         args = (lines, audio_path, transcribe_service.stored_whisper_size(drama),
-                settings_service.get_use_gpu(), drama.get("source_language") or "zh", eng, name)
+                settings_service.get("use_gpu"), drama.get("source_language") or "zh", eng, name)
         # Settings' defaults, as `cli.py translate` resolves them.
         return args, {"cost_cap_usd": cap,
-                      "locale": settings_service.get_preference("default_locale"),
-                      "style_note": settings_service.get_preference("default_style_note") or "",
+                      "locale": settings_service.get("default_locale"),
+                      "style_note": settings_service.get("default_style_note") or "",
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
                       "gpu_touching": bool(audio_path) or translate_engines.ollama_touches_local_gpu(name, model)}

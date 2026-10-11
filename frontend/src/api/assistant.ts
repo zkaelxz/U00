@@ -19,7 +19,7 @@ import type {
   ReportRequest,
   ReportResponse,
 } from '../types/assistant'
-import { getJson, postJson } from './client'
+import { getJson, postJson, withSignal } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
@@ -65,6 +65,7 @@ export function askAssistant(
   model?: string | null,
   f?: Fetch,
   escalation?: Escalation,
+  signal?: AbortSignal,
 ): Promise<AskResponse> {
   const body: AskRequest = { question, chat_history: trimHistory(history), ...engineFields(engine, model) }
   if (escalation) {
@@ -72,7 +73,7 @@ export function askAssistant(
     body.consent = escalation.consent
     if (escalation.evidence) body.evidence = escalation.evidence.slice(0, MAX_EVIDENCE)
   }
-  return postJson<AskResponse>(`${BASE}/ask`, body, pcOnlyFetch(f))
+  return postJson<AskResponse>(`${BASE}/ask`, body, pcOnlyFetch(signal ? withSignal(signal, f) : f))
 }
 
 /** The redacted problem report for a developer; built on the PC, never uploaded. */

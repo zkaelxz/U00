@@ -9,6 +9,7 @@ from core import Line
 from services import settings_service, translate_run_service as svc
 from services.service_errors import (InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
+from tests.saved_settings import patch_setting
 
 
 def _drama(**fields):
@@ -203,10 +204,10 @@ def test_config_probes_ollama_only_for_an_ollama_drama(isolated_db, monkeypatch)
     monkeypatch.setattr(translate_engines, "check_ollama_reachable",
                         lambda url: seen.append(url) or True)
     assert svc.get_translate_config(_drama(translation_engine="claude"))["ollama_reachable"] is None
-    monkeypatch.setattr(settings_service, "get_default_engine", lambda: "gemini")
+    patch_setting(monkeypatch, "default_engine", "gemini")
     assert svc.get_translate_config(_drama(translation_engine=None))["ollama_reachable"] is None
     assert seen == []
-    monkeypatch.setattr(settings_service, "get_default_engine", lambda: "ollama")
+    patch_setting(monkeypatch, "default_engine", "ollama")
     assert svc.get_translate_config(_drama(translation_engine=None))["ollama_reachable"] is True
     assert len(seen) == 1
 
@@ -235,7 +236,7 @@ def test_summary_engine_build_failure_is_logged_without_key(isolated_db, monkeyp
         def warning(self, msg, *args):
             seen.append(msg % args)
     monkeypatch.setattr(applog, "get_logger", lambda: Log())
-    monkeypatch.setattr(settings_service, "get_preference", lambda k: "claude")
+    patch_setting(monkeypatch, "episode_summary_engine", "claude")
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda c: "k")
 
     def boom(*a, **k):
@@ -287,7 +288,7 @@ def _started_run_sizes(monkeypatch, did, **sizes):
         return True
     monkeypatch.setattr(svc.background_jobs, "start_job", fake_start_job)
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
-    monkeypatch.setattr(svc.settings_service, "get_ollama_num_ctx_override", lambda: 0)
+    patch_setting(monkeypatch, "ollama_num_ctx_override", 0)
     svc.start_translate_run(did, engine_name="ollama", **sizes)
     return seen["args"][13], seen["kwargs"]["context_window_ahead"], seen["kwargs"]["batch_size"]
 

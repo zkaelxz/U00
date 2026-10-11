@@ -181,8 +181,6 @@ def _load_lama_generator(hf_token: str = None):
     from safetensors.torch import load_file as _load_safetensors
 
     _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
-    if _tok:
-        _os.environ.setdefault("HF_TOKEN", _tok)
 
     ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename="model.safetensors", token=_tok)
     state_dict = _load_safetensors(ckpt_path)
@@ -245,7 +243,7 @@ def _resolve_inpaint_backend(backend: str) -> str:
 
 
 def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: int = 4,
-                    backend: str = "auto", hf_token: str = None):
+                    backend: str = "auto", hf_token: str = None, image=None):
     """Removes text within `box` so the translated text has a clean
     background. Returns the path to the (possibly newly-created) cleaned
     image; if out_path is None, overwrites nothing and returns an image
@@ -258,9 +256,13 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
     picked (explicitly or via auto) but can't actually run, this falls
     back to OpenCV inpainting and raises InpaintModelUnavailable with
     the cleaned image still attached, same fallback shape as
-    detect_bubbles()."""
+    detect_bubbles().
+
+    image: the page already decoded as a BGR array. It is erased in place
+    (image_path isn't read), so a render can clean every bubble on one
+    decoded page and encode the result once."""
     import cv2
-    img = cv2.imread(image_path)
+    img = image if image is not None else cv2.imread(image_path)
     h, w = img.shape[:2]
     x = max(0, box["x"] - padding)
     y = max(0, box["y"] - padding)

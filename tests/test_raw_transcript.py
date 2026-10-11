@@ -291,3 +291,38 @@ class TestRetention:
         os.utime(stale, (1, 1))
         rt.apply_retention(ddir)
         assert not os.path.exists(stale) and os.path.exists(fresh)
+
+
+class TestRetentionRespectsKeepOriginal:
+    """A title pinned with "Keep original files" keeps every raw transcript
+    exactly as written: retention compresses nothing in its folder."""
+
+    def test_a_pinned_title_keeps_every_run_plain(self, isolated_db):
+        did = isolated_db.create_drama(title_en="P", keep_original=1)
+        ddir = isolated_db.drama_dir(did)
+        paths = _runs(ddir, 9)
+        assert len(paths) == 9 and all(p.endswith(".json") for p in paths)
+
+    def test_unpinning_lets_the_next_run_compress(self, isolated_db):
+        did = isolated_db.create_drama(title_en="P", keep_original=1)
+        ddir = isolated_db.drama_dir(did)
+        _runs(ddir, 8)
+        isolated_db.update_drama(did, keep_original=0)
+        _runs(ddir, 1)
+        assert len([p for p in rt.list_raw_transcripts(ddir) if p.endswith(".gz")]) == 3
+
+    def test_an_unpinned_title_is_compressed(self, isolated_db):
+        did = isolated_db.create_drama(title_en="U")
+        ddir = isolated_db.drama_dir(did)
+        _runs(ddir, 9)
+        assert len([p for p in rt.list_raw_transcripts(ddir) if p.endswith(".gz")]) == 3
+
+    def test_when_the_pin_cant_be_read_nothing_is_compressed(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="U")
+        ddir = isolated_db.drama_dir(did)
+
+        def broken(_id):
+            raise RuntimeError("database is locked")
+        monkeypatch.setattr(isolated_db, "get_drama", broken)
+        paths = _runs(ddir, 9)
+        assert all(p.endswith(".json") for p in paths)

@@ -7,10 +7,6 @@ import {
   checkEndpointUrl,
   checkPath,
   cookiesSummary,
-  parseCap,
-  parseKeepFreeGb,
-  parseNumCtx,
-  parseUploadMb,
 } from './preferences'
 
 const saved: SettingsPreferences = {
@@ -46,32 +42,6 @@ describe('settings preferences', () => {
     expect(changedPreferences(saved, { monthly_cap_usd: 0 })).toEqual({ monthly_cap_usd: 0 })
   })
 
-  it('parses the monthly cap: blank is .env, 0 is no cap', () => {
-    expect(parseCap('')).toEqual({ ok: true, value: null })
-    expect(parseCap(' 12.50 ')).toEqual({ ok: true, value: 12.5 })
-    expect(parseCap('0')).toEqual({ ok: true, value: 0 })
-    expect(parseCap('-1').ok).toBe(false)
-    expect(parseCap('1e3').ok).toBe(false)
-    expect(parseCap('2000000').ok).toBe(false)
-  })
-
-  it('parses num_ctx: blank is automatic, whole numbers only', () => {
-    expect(parseNumCtx('')).toEqual({ ok: true, value: 0 })
-    expect(parseNumCtx('16384')).toEqual({ ok: true, value: 16384 })
-    expect(parseNumCtx('1.5').ok).toBe(false)
-    expect(parseNumCtx('99999999').ok).toBe(false)
-  })
-
-  it('parses the upload limit: 100 to 1,048,576 MB, blank is the default', () => {
-    expect(parseUploadMb('', 20480)).toEqual({ ok: true, value: 20480 })
-    expect(parseUploadMb(' 4096 ', 20480)).toEqual({ ok: true, value: 4096 })
-    expect(parseUploadMb('100', 20480).ok).toBe(true)
-    expect(parseUploadMb('1048576', 20480).ok).toBe(true)
-    for (const bad of ['99', '0', '-5', '1048577', '1.5', '2 GB', '1e3']) {
-      expect(parseUploadMb(bad, 20480).ok).toBe(false)
-    }
-  })
-
   it('checks paths for control characters and length', () => {
     expect(checkPath('C:\\Program Files\\Tesseract-OCR\\tesseract.exe')).toBeNull()
     expect(checkPath('a\nb')).toMatch(/not allowed/)
@@ -97,17 +67,5 @@ describe('settings preferences', () => {
     expect(cookiesSummary(null, '')).toBe('none')
     expect(cookiesSummary('firefox', '')).toBe('from firefox')
     expect(cookiesSummary('firefox', '/c.txt')).toBe('cookies.txt file')
-  })
-})
-
-describe('parseKeepFreeGb', () => {
-  it('treats blank as off and accepts one decimal', () => {
-    expect(parseKeepFreeGb('')).toEqual({ ok: true, value: 0 })
-    expect(parseKeepFreeGb(' 4 ')).toEqual({ ok: true, value: 4 })
-    expect(parseKeepFreeGb('2.5')).toEqual({ ok: true, value: 2.5 })
-  })
-
-  it('refuses text, negatives, extra decimals and absurd sizes', () => {
-    for (const bad of ['abc', '-1', '1.25', '5000']) expect(parseKeepFreeGb(bad).ok).toBe(false)
   })
 })

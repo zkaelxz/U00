@@ -11,6 +11,7 @@ import difflib
 import tempfile
 from dataclasses import dataclass, field, replace
 
+import source_change
 import whisper_models
 from segment_splitting import _word_dicts, tighten_to_words, words_for_text
 
@@ -219,7 +220,13 @@ def restore_saved_lines(rows, current, translation_only: bool = False) -> list:
         en_by_id = {r["id"]: r.get("en") or "" for r in rows}
         return [replace(ln, en=en_by_id[ln.id]) for ln in current]
     recorded = {f for f in SAVED_MARK_FIELDS if rows and all(f in r for r in rows)}
-    return adopt_ids(lines_from_saved(rows), current, recorded)
+    restored = adopt_ids(lines_from_saved(rows), current, recorded)
+    if "flag" not in recorded:
+        # adopt_ids carried today's flags over, but the source and English
+        # come back together, so a source change no longer applies.
+        for ln in restored:
+            source_change.clear_for_new_english(ln)
+    return restored
 
 
 def fmt_ts(seconds: float) -> str:
@@ -630,6 +637,8 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     from lib import http
 
     too_big = "Groq's reply was too large or too slow to read."
+    unreachable = "Couldn't reach Groq's API."
+    not_json = "Groq's reply wasn't valid JSON."
     try:
         with open(audio_path, "rb") as f:
             resp = http.post(
@@ -641,8 +650,9 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
                       "response_format": "verbose_json", "timestamp_granularities[]": "segment"})
     except (http.ResponseTooLarge, http.ResponseTooSlow):
         raise GroqTranscriptionError(too_big) from None
-    except http.FetchError as exc:
-        raise GroqTranscriptionError(exc.message) from None
+    except http.FetchError:
+        # lib.http's own text says "the page", which misleads for an API call.
+        raise GroqTranscriptionError(unreachable) from None
     if resp.status != 200:
         raise GroqTranscriptionError(translate_engines.redact_secrets(
             f"Groq API returned {resp.status}: "
@@ -650,9 +660,9 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     try:
         data = json.loads(resp.body)
     except ValueError:
-        raise GroqTranscriptionError(too_big) from None
+        raise GroqTranscriptionError(not_json) from None
     if not isinstance(data, dict):
-        raise GroqTranscriptionError(too_big)
+        raise GroqTranscriptionError(not_json)
     result = [{"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
               for seg in data.get("segments", []) if seg.get("text", "").strip()]
     if progress_cb:

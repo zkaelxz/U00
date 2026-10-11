@@ -52,7 +52,7 @@ def _read_drama_file(drama_id: int, filename: Optional[str]) -> str:
 
 def _default_engine() -> str:
     from services import settings_service
-    return settings_service.get_default_engine()
+    return settings_service.get("default_engine")
 
 
 def novel_glossary_engine(drama_id: int) -> str:
@@ -237,19 +237,19 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
     ConflictError if the stored engine changed since."""
     from services import settings_service, translate_service
 
-    stored_engine = drama.get("translation_engine") or settings_service.get_default_engine()
+    stored_engine = drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name is not None and engine_name != stored_engine:
-        raise ConflictError("This drama's engine changed; check it and start again.")
+        raise ConflictError("This title's engine changed; check it and start again.")
     engine_name = stored_engine
     cls = translate_engines.ENGINES.get(engine_name)
     if cls is None or not getattr(cls, "supports_reference", False):
-        raise UnsupportedOperationError("This drama's engine can't extract a glossary.")
+        raise UnsupportedOperationError("This title's engine can't extract a glossary.")
     api_key = translate_service.resolve_api_key(engine_name)
     if not api_key:
         raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key,
-        free_tier=engine_name == "gemini" and settings_service.get_gemini_free_tier(),
+        free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
     return engine_name, engine
@@ -284,22 +284,22 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME)
     novel = _read_drama_file(drama_id, drama.get("novel_reference_filename"))
     if not (orig.strip() or novel.strip()):
-        raise UnsupportedOperationError("Attach a novel to this drama first.")
+        raise UnsupportedOperationError("Attach a novel to this title first.")
     src_text = orig if orig.strip() else novel
     en_text = novel if orig.strip() else ""
 
     engine_name, engine = _glossary_engine(drama, engine_name)
     from services import settings_service, translate_run_service
     translate_run_service.refuse_when_cap_spent(engine_name,
-                                                settings_service.get_gemini_free_tier())
+                                                settings_service.get("gemini_free_tier"))
     job_id = novel_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
         en_text, drama.get("source_language") or "zh", db.list_glossary_terms(sid),
         gpu_touching=engine_name == "ollama",
-        description=f"Glossary from novel (drama #{drama_id})", fresh=bool(fresh))
+        description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh))
     if not started:
-        raise ConflictError("A glossary extraction is already running for this drama.")
+        raise ConflictError("A glossary extraction is already running for this title.")
     return {"job_id": job_id, "engine": engine_name, "paired": bool(en_text)}
 
 
@@ -407,7 +407,7 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
     if run_id is not None and _current_run_id(job_id, job) != run_id:
         raise ConflictError(PROPOSALS_CHANGED)
     if not job or job.get("status") != "done":
-        raise UnsupportedOperationError("No finished glossary extraction for this drama.")
+        raise UnsupportedOperationError("No finished glossary extraction for this title.")
     by_term = {p["term"]: p for p in (job.get("result") or {}).get("proposals") or []}
     existing = {r["term_original"]: r for r in db.list_glossary_terms(sid)}
 
@@ -550,19 +550,19 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     source_lines = [r["zh"] for r in db.load_lines(drama_id) if (r.get("zh") or "").strip()]
     if not source_lines:
         raise UnsupportedOperationError(
-            "This drama has no source lines yet; transcribe or import them first.")
+            "This title has no source lines yet; transcribe or import them first.")
     engine_name, engine = _glossary_engine(drama, engine_name)
     translate_run_service.refuse_when_cap_spent(engine_name,
-                                                settings_service.get_gemini_free_tier())
+                                                settings_service.get("gemini_free_tier"))
 
     job_id = lines_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_lines_glossary_job, drama_id, engine, engine_name, source_lines,
         drama.get("source_language") or "zh", db.list_glossary_terms(sid),
         gpu_touching=engine_name == "ollama",
-        description=f"Glossary from lines (drama #{drama_id})")
+        description=f"Glossary from lines (title #{drama_id})")
     if not started:
-        raise ConflictError("A glossary extraction is already running for this drama.")
+        raise ConflictError("A glossary extraction is already running for this title.")
     return {"job_id": job_id, "engine": engine_name, "line_count": len(source_lines)}
 
 

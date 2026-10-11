@@ -24,6 +24,7 @@ from .shared import (
     redact_secrets,
     TranslationCancelled,
 )
+import source_change
 from memory_headroom import HeadroomError
 
 
@@ -231,7 +232,9 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
                               locale: str = "en-US", glossary_terms=None, style_guidelines: str = "",
                               ollama_num_ctx_override: int = None, thinking: bool = None) -> dict:
     """The per-job context every engine's prompt is built from -- shared by
-    live translation and bulk submission so both send the same prompt.
+    the batch paths (runs, bulk submission, Compare, stronger engine, Manhua)
+    so they send the same prompt. Live builds its own per-chunk context
+    (live_cue_translation.build_live_context).
 
     thinking: let a model that can reason do so. None means the title's
     remembered choice, else off, so a run is fast and cheap by default;
@@ -487,6 +490,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     english = [ln for ln in target_lines if is_english_line(ln)]
     for ln in english:
         ln.en = ln.zh
+        source_change.clear_for_new_english(ln)
     target_lines = [ln for ln in target_lines if not is_english_line(ln)]
     if not target_lines:
         if english and save_cb:
@@ -647,6 +651,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 for ln, tr in zip(chunk, translations):
                     if (tr or "").strip():
                         ln.en = tr
+                        source_change.clear_for_new_english(ln)
                         translated.append(ln)
                     else:
                         empty.append(ln)

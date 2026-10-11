@@ -9,6 +9,8 @@ export interface NovelFileStatus {
 
 export interface NovelFileUploadResult extends NovelFileStatus {
   replaced: boolean
+  // Set when the file wasn't UTF-8 and its encoding was guessed.
+  warning?: string | null
 }
 
 export interface NovelReferenceRemoveResult {

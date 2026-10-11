@@ -131,7 +131,7 @@ or `series` go when the parent goes.
 | `bulk_jobs`, `bulk_job_lines` | Provider batch-API translations in flight | `bulk_translate.py` | `create_bulk_job`, `update_bulk_job`, `set_bulk_job_line_result_texts` |
 | `voice_bank` | Reusable voice clips; the file lives in `library/voice_bank/` | `voice_clone_service` | `save_voice_bank_entry` copies the clip first, then inserts |
 | `job_records` | Mirror of `background_jobs` job status for other processes | `background_jobs.py` | `save_job_record` (upsert); see section 5 |
-| `gpu_lock` | Cross-process GPU slots with heartbeat and stale cutoff | `background_jobs.py`, `cli.py` | `try_acquire_gpu_lock`, `heartbeat_gpu_lock`, `release_gpu_lock` |
+| `gpu_lock` | Cross-process GPU slots with owner pid/instance, heartbeat and stale cutoff | `jobs/gpu_slots.py` only | `acquire`, `heartbeat`, `release`, `reap` |
 | `job_checkpoints`, `result_cache`, `job_stage_timings`, `line_provenance` | Resume points, cached model output, timings, per-line origin (engine, model, hashes). No foreign key to `dramas` | `job_checkpoint_service`, `job_timing_service`, `review_lines_service` | `delete_drama` removes `line_provenance` and checkpoints explicitly |
 | `app_settings` | JSON key/value store for runtime toggles; also backup settings and identity | `settings_service`, `auto_backup_service`, others | `get_app_setting`, `set_app_setting` |
 | `assistant_backlog` | Maintenance assistant notes | `maintenance_assistant_service` | service-level |
@@ -260,7 +260,7 @@ last known state.
 | Database-only backup | `start_database_backup` | same snapshot | no |
 | Automatic backup | `auto_backup_service` (settings in `app_settings`) | same writer | `include_media`, off by default |
 | My-items backup | `write_user_backup_zip`, per `USER_BACKUP_TABLES` | filtered copy: owner's rows only, auth and machine-local tables emptied | owner's drama media |
-| Single-drama restore / import | `auto_backup_service.restore_drama`, `backup_import_service.import_dramas` | `copy_drama` copies rows with new ids | staged, then moved in |
+| Single-drama restore / import | `drama_restore_service.restore_drama`, `backup_import_service.import_dramas` | `copy_drama` copies rows with new ids | staged, then moved in |
 | Full restore | `library_admin_service.restore_backup` -> `workspace_job_service.restore_library_backup` | staged, rebuilt from the app's own schema, current auth tables kept | staged, rename-aside, rename-in |
 
 What they skip or keep:

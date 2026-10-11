@@ -23,6 +23,7 @@ import live_audio
 import live_translate as lt
 import live_whisper
 import ollama_unload
+from jobs import gpu_slots
 from services import live_service
 
 RATE = 8000
@@ -277,22 +278,32 @@ class TestWhisperThatNeverReturns:
         assert _wait(lambda: _texts("live_shape") == ["t1", "t3"])
         assert len(freed) == 1
 
-    def test_a_failing_or_slow_translator_never_blocks_the_next_chunks_whisper(
+    def test_whisper_starts_the_next_chunk_while_a_translation_is_held_then_it_fails(
             self, job, monkeypatch):
         stream, start, notes = job
-        seen = []
+        seen, next_whisper = [], threading.Event()
+        translating, release = threading.Event(), threading.Event()
 
         def whisper(path, **kw):
             seen.append(os.path.basename(path))
+            if len(seen) == 2:
+                next_whisper.set()
             return [{"start": 0.5, "end": 1.0, "text": f"t{len(seen)}"}]
+
+        class Held(Engine):
+            def translate_batch(self, lines, context):
+                translating.set()
+                release.wait(20)
+                return super().translate_batch(lines, context)
         monkeypatch.setattr(core, "transcribe_for_timing", whisper)
-        stream.add(2)
-        assert start("live_badtr", Engine(delay=0.05, fail=True))
-        for want in (1, 2, 3):
-            assert _wait(lambda: len(seen) >= want)
-            stream.add(1)
-        states = {c["translation"] for c in background_jobs.get_status("live_badtr")["result"]}
-        assert "failed" in states and states <= {"failed", "pending"}
+        stream.add(3)
+        assert start("live_badtr", Held(fail=True))
+        assert translating.wait(PROMPT)
+        assert next_whisper.wait(PROMPT) and not release.is_set()
+        release.set()
+        assert _wait(lambda: [c["translation"] for c in
+                                 background_jobs.get_status("live_badtr")["result"] or []]
+                     == ["failed", "failed"])
 
 
 class TestStopIsPrompt:
@@ -427,17 +438,17 @@ class TestWhisperRunner:
         release = threading.Event()
         promoted = []
         monkeypatch.setattr(background_jobs, "_promote_next_queued_gpu_job",
-                            lambda: promoted.append(db.gpu_lock_status()[0]))
+                            lambda: promoted.append(gpu_slots.status()[0]))
         runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
                                             clock=TickingClock(), poll=0.005, grace=0.05, gpu=True)
         with pytest.raises(live_whisper.ChunkTimeout):
             runner.run(lambda cb: release.wait(20), 3, "chunk 4")
-        assert db.gpu_lock_status()[0] == live_whisper.CLAIM_HOLDER
+        assert gpu_slots.status()[0] == live_whisper.CLAIM_HOLDER
         # The Live job's own slot is released after this; a queued job still waits.
-        assert not db.try_acquire_gpu_lock("ui:queued", max_holders=1)
+        assert not gpu_slots.take("ui:queued", max_holders=1)
         release.set()
         assert _wait(lambda: promoted)
-        assert promoted == [None] and db.gpu_lock_status()[0] is None
+        assert promoted == [None] and gpu_slots.status()[0] is None
 
     def test_a_call_that_ends_within_the_grace_leaves_no_claim(self, isolated_db):
         import db
@@ -450,14 +461,14 @@ class TestWhisperRunner:
         with pytest.raises(live_whisper.ChunkTimeout):
             runner.run(decode, 3, "chunk 0")
         assert _wait(lambda: runner.busy_with() is None)
-        assert db.gpu_lock_status()[0] is None
+        assert gpu_slots.status()[0] is None
 
     def test_a_cpu_call_never_claims_the_gpu(self):
         release = threading.Event()
         with pytest.raises(live_whisper.ChunkTimeout):
             self._runner(clock=TickingClock()).run(lambda cb: release.wait(20), 3, "chunk 4")
         import db
-        assert db.gpu_lock_status()[0] is None
+        assert gpu_slots.status()[0] is None
         release.set()
 
     def test_per_segment_abort_reaches_the_real_decode_loop(self, monkeypatch, tmp_path):
@@ -518,28 +529,6 @@ class TestAbandonedWorkerBlocksAdminActions:
         assert not background_jobs.wait_for_job_threads(0.05)
         release.set()
         assert background_jobs.wait_for_job_threads(5.0)
-
-    def test_startup_clears_only_live_whisper_claims(self, isolated_db):
-        import db
-        assert db.try_acquire_gpu_lock(live_whisper.CLAIM_HOLDER, "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
-        assert db.try_acquire_gpu_lock("cli:123", "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
-        assert live_whisper.release_stale_claims() == 1
-        import contextlib
-        with contextlib.closing(db.get_conn()) as conn:
-            holders = [r["holder"] for r in conn.execute("SELECT holder FROM gpu_lock")]
-        assert holders == ["cli:123"]
-
-    def test_startup_keeps_a_live_process_claim_and_drops_a_dead_one(self, isolated_db, monkeypatch):
-        import contextlib
-        import db
-        alive, dead = f"{live_whisper.CLAIM_PREFIX}4242", f"{live_whisper.CLAIM_PREFIX}4343"
-        for holder in (alive, dead):
-            assert db.try_acquire_gpu_lock(holder, "x", max_holders=db.GPU_LOCK_MAX_SLOTS)
-        monkeypatch.setattr(background_jobs, "owner_process_alive", lambda pid: pid == 4242)
-        assert live_whisper.release_stale_claims() == 1
-        with contextlib.closing(db.get_conn()) as conn:
-            holders = [r["holder"] for r in conn.execute("SELECT holder FROM gpu_lock")]
-        assert holders == [alive]
 
     def test_a_failed_thread_start_leaves_nothing_outstanding(self, isolated_db, monkeypatch):
         def refuse(self):

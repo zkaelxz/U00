@@ -123,10 +123,14 @@ def main(argv=None) -> int:
     return 0
 
 
+_EVENT_KEYS = frozenset({"progress", "path", "title", "error", "missing", "rejected"})
+
+
 def _valid_event(event) -> bool:
     """Shape check on a nonce-authenticated event, so a malformed one is
     dropped instead of reaching code that would raise with its content."""
-    if not isinstance(event, dict):
+    # Unknown keys mean the line was not written by emit_line.
+    if not isinstance(event, dict) or not event or not set(event) <= _EVENT_KEYS:
         return False
     progress, path = event.get("progress"), event.get("path")
     if "progress" in event and (isinstance(progress, bool)
@@ -154,19 +158,27 @@ def run_download(tmp_dir: str, spec: dict, timeout: float, cancel):
     with open(spec_path, "w", encoding="utf-8") as f:
         json.dump(dict(spec, tmp=tmp_dir, nonce=nonce), f)
     cmd = [sys.executable, "-m", "services.ytdlp_child", spec_path]
-    for item in proc.stream_tree(cmd, timeout, cwd=_ROOT, cancel=cancel):
-        line = item.get("line")
-        if line is None:
-            yield dict(item, dropped=dropped)
-        elif line.startswith(prefix):
-            try:
-                event = json.loads(line[len(prefix):])
-            except ValueError:
-                event = None
-            if _valid_event(event):
-                yield {"event": event}
-            else:
-                dropped += 1
+    try:
+        for item in proc.stream_tree(cmd, timeout, cwd=_ROOT, cancel=cancel):
+            line = item.get("line")
+            if line is None:
+                yield dict(item, dropped=dropped)
+            elif line.startswith(prefix):
+                try:
+                    event = json.loads(line[len(prefix):])
+                except ValueError:
+                    event = None
+                if _valid_event(event):
+                    yield {"event": event}
+                else:
+                    dropped += 1
+    finally:
+        # The spec holds the link and any cookie path; it must go on a cancel or
+        # kill too, which end this generator through close() rather than falling off.
+        try:
+            os.remove(spec_path)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

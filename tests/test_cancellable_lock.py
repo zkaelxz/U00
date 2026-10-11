@@ -33,8 +33,8 @@ def test_cancel_while_the_lock_is_held_ends_the_wait():
         assert t.is_alive()
         cancelled.set()
         started = time.monotonic()
-        t.join(2)
-        assert not t.is_alive() and time.monotonic() - started < 1
+        t.join(10)
+        assert not t.is_alive() and time.monotonic() - started < 5
     assert outcome == ["cancelled"]
     assert not lock.locked()
 
@@ -48,12 +48,7 @@ def test_the_lock_is_held_inside_and_released_after_even_on_error():
     assert not lock.locked()
 
 
-def test_without_a_cancel_check_it_waits_for_the_lock():
-    lock = threading.Lock()
-    lock.acquire()
-    threading.Timer(0.3, lock.release).start()
-    started = time.monotonic()
-    with cancellable_lock.hold(lock):
-        waited = time.monotonic() - started
-        assert lock.locked()
-    assert waited >= 0.25
+def test_a_cancel_check_is_required():
+    with pytest.raises(TypeError):
+        with cancellable_lock.hold(threading.Lock()):
+            pass

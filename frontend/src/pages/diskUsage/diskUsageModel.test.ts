@@ -4,7 +4,7 @@ import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
   CLIP_BATCH_SIZE, clipBatches, clipsDoneBeforeError, describeClipsStopped, sumClipResults,
-  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, titleSizesText, trashItemName, trashLine, trashSizeLine, trashedOn,
+  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, keptTitlesLine, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, titleSizesText, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
@@ -197,5 +197,13 @@ describe('title size by kind', () => {
   })
   it('says nothing for an item that is not a title', () => {
     expect(titleSizesText(null)).toBeNull()
+  })
+})
+
+describe('keptTitlesLine', () => {
+  it('names the "Keep original files" pin only when an item came from a pinned title', () => {
+    expect(keptTitlesLine([{ from_kept_title: false }, {}])).toBeNull()
+    expect(keptTitlesLine([{ from_kept_title: true }, {}])).toContain('1 item came from titles with "Keep original files" on')
+    expect(keptTitlesLine([{ from_kept_title: true }, { from_kept_title: true }])).toMatch(/^2 items came from/)
   })
 })

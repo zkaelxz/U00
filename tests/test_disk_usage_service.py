@@ -12,6 +12,7 @@ import pytest
 
 import background_jobs
 import db
+from jobs import gpu_slots
 from services import auto_backup_service as abs_
 from services import disk_usage_service as dus
 from services import disk_usage_trash_service as dts
@@ -472,7 +473,7 @@ class TestExclusiveHold:                                   # M1
         from services import library_admin_service
         monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
         assert dus._busy_under_hold() is False
-        assert db.try_acquire_gpu_lock("cli-test-holder", "CLI transcribe")
+        assert gpu_slots.take("cli-test-holder", "CLI transcribe")
         try:
             assert dus._busy_under_hold() is True
             with pytest.raises(ConflictError):
@@ -480,7 +481,7 @@ class TestExclusiveHold:                                   # M1
             with pytest.raises(ConflictError):
                 dus.move("library/backups/auto", str(tree), confirm=True)
         finally:
-            db.release_gpu_lock("cli-test-holder")
+            gpu_slots.release("cli-test-holder")
         assert renames == [] and background_jobs.exclusive_active() is False
         assert dus._busy_under_hold() is False
 
@@ -490,7 +491,7 @@ class TestExclusiveHold:                                   # M1
 
         def boom():
             raise RuntimeError("locked")
-        monkeypatch.setattr(db, "gpu_lock_status", boom)
+        monkeypatch.setattr(gpu_slots, "status", boom)
         assert dus._busy_under_hold() is True
 
     def test_a_job_that_appears_after_the_look_stops_the_move(self, tree, renames, monkeypatch):
@@ -845,7 +846,7 @@ class TestSecondReview:
         assert renames == []
 
     def test_installer_entries_are_in_the_allow_list(self):
-        from installer import service as installer_service
+        from installer import service_layout as installer_service
         assert installer_service.DATA_FOLDER_ENTRIES <= dus._baihe_top_level_names()
         assert "saved_comics" in dus._baihe_top_level_names()
 
@@ -945,7 +946,7 @@ class TestTrashProtection:
         assert dus.TRASH_DIRNAME in dus._baihe_top_level_names()
 
     def test_installer_allows_the_trash_folder(self):
-        from installer import service as installer_service
+        from installer import service_layout as installer_service
         assert dus.TRASH_DIRNAME in installer_service.DATA_FOLDER_ENTRIES
 
     def test_trash_root_and_everything_in_it_is_protected_and_cannot_be_cleared_or_moved(
@@ -1593,3 +1594,27 @@ class TestTitleSizes:
         monkeypatch.setattr(dts_, "MAX_ENTRIES", 3)
         sizes = _item(dus.scan("library/dramas"), str(did))["title_sizes"]
         assert sizes["complete"] is False
+
+
+class TestTitleSizesKeepOriginal:
+    """A pinned title's originals are never removed by the storage presets,
+    so one whose name matches a cleanup pattern counts as an original."""
+
+    def _title(self, pinned):
+        did = db.create_drama(title_en="K", keep_original=int(pinned))
+        d = os.path.join(db.DRAMAS_DIR, str(did))
+        shutil.rmtree(d, ignore_errors=True)
+        _write(os.path.join(d, "ocr_scan.png"), 70)       # a page scan named like OCR scratch
+        _write(os.path.join(d, "ocr_temp.png"), 5)        # real scratch, not a page
+        db.create_page(did, 0, "ocr_scan.png", 10, 10)
+        return did
+
+    def test_a_pinned_titles_page_scan_is_an_original(self, tree):
+        did = self._title(pinned=True)
+        sizes = _item(dus.scan("library/dramas"), str(did))["title_sizes"]
+        assert (sizes["originals_bytes"], sizes["regenerable_bytes"]) == (70, 5)
+
+    def test_unpinned_it_is_what_the_presets_may_remove(self, tree):
+        did = self._title(pinned=False)
+        sizes = _item(dus.scan("library/dramas"), str(did))["title_sizes"]
+        assert (sizes["originals_bytes"], sizes["regenerable_bytes"]) == (0, 75)

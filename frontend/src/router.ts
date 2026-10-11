@@ -4,7 +4,8 @@ export type Route =
   | { name: 'library' }
   | { name: 'library-tools' }
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
-  // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it.
+  // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
+  // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
   | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
@@ -26,7 +27,7 @@ export type Route =
   | { name: 'manga-series'; source: string; series: string }
   | { name: 'manga-read'; source: string; series: string; chapter: string; page: number | null }
 
-export type DramaFocus = 'glossary' | 'characters'
+export type DramaFocus = 'glossary' | 'characters' | 'flagged'
 
 export const DEFAULT_STAGE = 'source'
 
@@ -90,7 +91,7 @@ export function parseRoute(hash: string): Route {
       }
     }
     const focus = new URLSearchParams(qs).get('focus')
-    return focus === 'glossary' || focus === 'characters'
+    return focus === 'glossary' || focus === 'characters' || focus === 'flagged'
       ? { name: 'drama', id: Number(a), stage, focus }
       : { name: 'drama', id: Number(a), stage }
   }

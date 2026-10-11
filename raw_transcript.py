@@ -17,7 +17,9 @@ run is compressed into a hidden temp file, renamed to its .gz name and read
 back; only when it matches the plain file byte for byte is the plain file
 removed. Writing, retention and the readers here take the title's lock, so
 nothing is compressed while this process reads it; a plain file another
-process still has open is simply removed at a later run.
+process still has open is simply removed at a later run. A title pinned
+with "Keep original files" (dramas.keep_original) counts its raw
+transcripts as originals, so retention leaves its folder alone.
 
 Each file also carries a "settings" object (build_run_settings): what the
 run was configured with, so two runs can be compared later. Files written
@@ -38,6 +40,7 @@ import threading
 import time
 import uuid
 
+import db
 import sensitivity_preset as presets
 from lib import gzip_text
 
@@ -317,9 +320,27 @@ def _remove_stale_temp(drama_dir: str) -> None:
                 os.remove(path)
 
 
+def _keeps_originals(drama_dir: str) -> bool:
+    """True for a title folder whose title is pinned, or whose pin can't be
+    read: compressing is never worth guessing about an original."""
+    folder = os.path.abspath(drama_dir)
+    name = os.path.basename(folder)
+    if not (name.isdecimal() and name.isascii()) or (
+            os.path.normcase(os.path.dirname(folder))
+            != os.path.normcase(os.path.abspath(db.DRAMAS_DIR))):
+        return False
+    try:
+        return bool((db.get_drama(int(name)) or {}).get("keep_original"))
+    except Exception:
+        return True
+
+
 def apply_retention(drama_dir: str) -> None:
-    """Compresses every run but the first and the newest KEEP_NEWEST_PLAIN.
-    Deletes no run. Takes the title's lock."""
+    """Compresses every run but the first and the newest KEEP_NEWEST_PLAIN,
+    unless the title keeps its originals. Deletes no run. Takes the title's
+    lock."""
+    if _keeps_originals(drama_dir):
+        return
     with title_lock(drama_dir):
         _remove_stale_temp(drama_dir)
         paths = list_raw_transcripts(drama_dir)

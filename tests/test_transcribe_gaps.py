@@ -271,12 +271,27 @@ class TestAddGapLines:
         assert len(isolated_db.load_line_objects(did)) == 4
         assert isolated_db.list_line_history(did) == []
 
-    def test_the_wrong_neighbour_is_refused(self, isolated_db):
+    def test_an_unknown_neighbour_is_refused(self, isolated_db):
         did, ids = _drama(isolated_db)
-        with pytest.raises(ConflictError):
-            svc.add_gap_lines(did, ids, start=7.0, end=19.0, after_line_id=ids[0])
         with pytest.raises(NotFoundError):
             svc.add_gap_lines(did, ids, start=7.0, end=19.0, after_line_id=999999)
+
+    def test_a_gap_beside_a_nested_interjection_is_added(self, isolated_db):
+        did, ids = _drama(isolated_db, spans=((0, 10), (1, 2), (15, 20)))
+        out = svc.add_gap_lines(did, ids, start=10.0, end=15.0, after_line_id=ids[0])
+        lines = isolated_db.load_line_objects(did)
+        assert [ln.id for ln in lines] == [ids[0], ids[1], out["new_line_ids"][0], ids[2]]
+
+    def test_a_zero_length_line_after_the_gap_does_not_block_it(self, isolated_db):
+        did, ids = _drama(isolated_db, spans=((0, 10), (15, 20), (4, 4)))
+        out = svc.add_gap_lines(did, ids, start=10.0, end=15.0, after_line_id=ids[0])
+        assert len(out["new_line_ids"]) == 1
+
+    def test_new_lines_go_in_by_time_not_by_neighbour_position(self, isolated_db):
+        did, ids = _drama(isolated_db, spans=((0, 10), (1, 2), (30, 30), (15, 20)))
+        out = svc.add_gap_lines(did, ids, start=10.0, end=15.0, after_line_id=ids[0])
+        lines = isolated_db.load_line_objects(did)
+        assert [ln.id for ln in lines] == [ids[0], ids[1], out["new_line_ids"][0], ids[2], ids[3]]
 
     def test_stale_line_list_is_refused(self, isolated_db):
         did, ids = _drama(isolated_db)

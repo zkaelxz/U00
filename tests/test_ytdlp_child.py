@@ -1,6 +1,7 @@
 """services/ytdlp_child.py with a real child process. The child imports a fake
 `yt_dlp` module from a temp folder put first on PYTHONPATH, so nothing is
 downloaded and the real yt-dlp is never loaded."""
+import json
 import os
 import sys
 import time
@@ -204,3 +205,60 @@ def test_dropped_events_are_counted(child_env):
     items = list(ytdlp_child.run_download(
         child_env.work, {"url": URL, "audio_only": True}, 60, lambda: False))
     assert items[-1]["dropped"] == 3
+
+
+def test_the_spec_file_is_removed_when_the_run_is_cancelled(child_env, isolated_db):
+    child_env.mode("hang")
+    job_id = _run_job("urlmedia_spec_cancel", child_env.work)
+    spec = os.path.join(child_env.work, ytdlp_child._SPEC_NAME)
+    try:
+        assert _wait_for(lambda: child_env.pidfile.exists()
+                         and len(child_env.pidfile.read_text().split()) == 2)
+        assert os.path.exists(spec)
+        background_jobs.request_cancel(job_id)
+        assert _finish(job_id, 15)["status"] == "cancelled"
+        assert not os.path.exists(spec)
+    finally:
+        background_jobs.clear_job(job_id)
+
+
+def test_a_second_path_event_is_ignored_and_logged_once(child_env, monkeypatch):
+    first, second = "/work/downloaded_a.m4a", "/work/downloaded_b.m4a"
+    events = [{"event": {"path": first}}, {"event": {"path": second}},
+              {"event": {"path": second}}, {"returncode": 0}]
+    monkeypatch.setattr(ytdlp_child, "run_download", lambda *a, **k: (e for e in events))
+    warnings = []
+
+    class _Log:
+        def warning(self, msg, *args):
+            warnings.append(msg % args)
+    monkeypatch.setattr(svc.applog, "get_logger", lambda: _Log())
+    monkeypatch.setattr(svc.os.path, "realpath", lambda p: p)
+    monkeypatch.setattr(svc.os.path, "isfile", lambda p: True)
+    path, _ = svc._download("urlmedia_two", URL, "/work", True)
+    assert path == first
+    assert len(warnings) == 1 and "downloaded_" not in warnings[0]
+
+
+def test_nonce_in_other_lines_and_wrong_nonce_events_are_ignored(tmp_path, monkeypatch):
+    media = str(tmp_path / "downloaded_a.m4a")
+
+    def fake_stream(cmd, timeout, cwd=None, cancel=None):
+        nonce = json.load(open(cmd[-1]))["nonce"]
+        good = f"@@ytdlp-{nonce} " + json.dumps({"path": media})
+        yield {"line": f"WARNING: reading {cmd[-1]} nonce {nonce}"}  # echoed, not an event
+        yield {"line": f" {good}"}  # not at column 0
+        yield {"line": f"x{good}"}
+        yield {"line": good + " trailing"}  # not one JSON object
+        yield {"line": f"@@ytdlp-{nonce} " + json.dumps({"path": media, "extra": 1})}
+        yield {"line": f"@@ytdlp-{nonce} " + json.dumps([1])}
+        yield {"line": f"@@ytdlp-{nonce} {{}}"}
+        yield {"line": "@@ytdlp-" + "0" * 32 + " " + json.dumps({"path": media})}  # forged
+        yield {"line": good}
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+
+    monkeypatch.setattr(ytdlp_child.proc, "stream_tree", fake_stream)
+    items = list(ytdlp_child.run_download(str(tmp_path), {"url": URL}, 60, lambda: False))
+    assert [i["event"] for i in items if "event" in i] == [{"path": media}]
+    # Only right-nonce lines with a bad body count; the rest are not events at all.
+    assert items[-1]["dropped"] == 4
