@@ -71,6 +71,9 @@ def _backend_problem(choice: str, language: str):
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
         elif choice == "anime_whisper":
             transcribe_service._require_vad_packages()
+            problem = transcribe_service.anime_whisper_package_problem()
+            if problem:
+                return problem
         elif choice in _VAD_BACKENDS:
             transcribe_service.require_vad_backend_packages(choice, language)
             transcribe_service._require_vad_packages()

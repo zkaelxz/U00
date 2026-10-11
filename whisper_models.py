@@ -459,34 +459,52 @@ def _fetch_anime_whisper(token) -> str:
 
     Same safety rules as _fetch_pinned_model, plus: real files in Baihe's own model
     folder (config.json is edited, which must not write through a cache link), a
-    checksum on the weights, and a download that is built in a side folder and moved
-    into place only after every check passed."""
+    checksum on the weights, and a download that is built in a folder of its own and
+    moved into place only after every check passed. A file lock covers check, download
+    and install, so a second process waits and then finds the finished install instead
+    of touching the first one's files."""
     folder = anime_whisper_folder()
     if _anime_whisper_ready(folder):
         return folder
     import shutil
+    import tempfile
+    from lib import file_lock
     from lib.ct2_repo import RepoFilesRefused, select_ct2_files
     import huggingface_hub
     repo, revision = ANIME_WHISPER_PIN["repo"], ANIME_WHISPER_PIN["revision"]
-    partial = folder + ".partial"
+    parent = os.path.dirname(folder)
+    os.makedirs(parent, exist_ok=True)
+    partial = None
     try:
-        info = huggingface_hub.HfApi().model_info(repo, revision=revision, token=token, timeout=30)
-        if getattr(info, "sha", revision) != revision:
-            raise ModelDownloadError("Not downloading anime-whisper: the repository did not "
-                                     "return the pinned revision. Nothing was downloaded.")
-        try:
-            wanted = select_ct2_files(s.rfilename for s in info.siblings)
-        except RepoFilesRefused as exc:
-            raise ModelDownloadError(
-                f"Not downloading anime-whisper: {exc}. Nothing was downloaded.") from exc
-        shutil.rmtree(partial, ignore_errors=True)
-        huggingface_hub.snapshot_download(
-            repo, revision=revision, token=token, allow_patterns=wanted, local_dir=partial,
-            etag_timeout=30)
-        _finish_anime_whisper(partial)
-        shutil.rmtree(folder, ignore_errors=True)
-        os.replace(partial, folder)
-        return folder
+        with file_lock.hold(folder + ".lock"):
+            if _anime_whisper_ready(folder):
+                return folder
+            info = huggingface_hub.HfApi().model_info(repo, revision=revision, token=token, timeout=30)
+            if getattr(info, "sha", revision) != revision:
+                raise ModelDownloadError("Not downloading anime-whisper: the repository did not "
+                                         "return the pinned revision. Nothing was downloaded.")
+            try:
+                wanted = select_ct2_files(s.rfilename for s in info.siblings)
+            except RepoFilesRefused as exc:
+                raise ModelDownloadError(
+                    f"Not downloading anime-whisper: {exc}. Nothing was downloaded.") from exc
+            # Holding the lock, nobody else is downloading: a folder left here is from a dead run.
+            for name in os.listdir(parent):
+                if name.startswith("anime_whisper.") and name.endswith((".partial", ".old")):
+                    shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
+            partial = tempfile.mkdtemp(prefix="anime_whisper.", suffix=".partial", dir=parent)
+            huggingface_hub.snapshot_download(
+                repo, revision=revision, token=token, allow_patterns=wanted, local_dir=partial,
+                etag_timeout=30)
+            _finish_anime_whisper(partial)
+            if os.path.lexists(folder):
+                # Present but not ready (a broken or older install): set it aside rather than
+                # delete files a running process might have open.
+                os.replace(folder, tempfile.mkdtemp(prefix="anime_whisper.", suffix=".old", dir=parent))
+            os.replace(partial, folder)
+            if not _anime_whisper_ready(folder):
+                raise ModelDownloadError("The anime-whisper install did not pass its own check.")
+            return folder
     except ModelDownloadError:
         raise
     except Exception as exc:
@@ -496,7 +514,9 @@ def _fetch_anime_whisper(token) -> str:
         raise ModelDownloadError(
             f"Couldn't download the anime-whisper model ({type(exc).__name__}).") from exc
     finally:
-        shutil.rmtree(partial, ignore_errors=True)
+        # Only this call's own folder; the install folder is never removed here.
+        if partial:
+            shutil.rmtree(partial, ignore_errors=True)
 
 
 _CUBLAS_DLL = "cublas64_12.dll"

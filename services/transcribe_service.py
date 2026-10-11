@@ -442,11 +442,34 @@ def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, la
             require_qwen3_packages("Qwen3-ASR")
         elif asr_backend_choice == "anime_whisper":
             _require_vad_packages()
+            problem = anime_whisper_package_problem()
+            if problem:
+                raise DependencyUnavailableError(problem)
         elif asr_backend_choice in transcribe_pipeline.VAD_BACKENDS:
             require_vad_backend_packages(asr_backend_choice, language)
             _require_vad_packages()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
         require_qwen3_packages("Qwen3 forced alignment", language)
+
+
+# What anime-whisper needs beyond the speech-detection backends: huggingface_hub before 0.23
+# downloads through links, which the file check refuses; faster-whisper before 1.1 has an
+# older find_alignment, so every window would come back as one untimed line.
+_ANIME_WHISPER_MINIMUMS = (("faster-whisper", "1.1"), ("huggingface-hub", "0.23"))
+
+
+def anime_whisper_package_problem():
+    """A plain sentence naming a package too old for anime-whisper, else None."""
+    import importlib.metadata
+    for package, minimum in _ANIME_WHISPER_MINIMUMS:
+        try:
+            installed = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            continue  # a missing package has its own message
+        if diagnostics.below_min_version(installed, minimum):
+            return (f"anime-whisper needs {package} {minimum} or newer, but {installed} is "
+                    "installed. Update it in Diagnostics.")
+    return None
 
 
 def _require_vad_packages() -> None:
