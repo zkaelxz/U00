@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { hitHeight, installHitArea } from './hitArea'
 import { mockDub, mockProgress } from './plainErrorsMocks'
-import { openExportBlocks } from './exportBlocks'
+import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -18,10 +18,10 @@ const noSideScroll = () => document.documentElement.scrollWidth <= window.innerW
 
 test('phone: Export buttons are disabled with their reason and nothing scrolls sideways', async ({ page }) => {
   await mockProgress(page)
+  await mockExportReady(page)
   await page.goto('/#/drama/1/export')
-  await page.getByText('Video and audio', { exact: true }).click()
-  await openExportBlocks(page)
-  const audiobook = page.getByRole('group', { name: 'Audiobook' })
+  await openExportBlock(page, 'Audiobook')
+  const audiobook = exportBlock(page, 'Audiobook')
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toBeDisabled()
   await expect(audiobook).toContainText('There is no narration yet. Create it in Dub first.')
   await expect(page.getByRole('group', { name: 'Video with the dub audio' })).toContainText('There is no dub yet.')

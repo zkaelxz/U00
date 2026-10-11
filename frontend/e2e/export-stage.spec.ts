@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { openExportBlocks } from './exportBlocks'
-import { DEFAULT_OPEN, expectExpanded, mockSoftsubRun, toggle } from './exportBlocksCases'
+import { asMediaType, exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
+import { FIRST_OPEN, expectOpen, mockSoftsubRun, summaryOf } from './exportBlocksCases'
 import { withExportLines } from './stageLineMocks'
 
 // Reads, the ASS/subtitle text and the flag actions hit the real seeded API
@@ -20,11 +20,14 @@ const withTracks = (page: Page) =>
     await route.fulfill({ response: resp, json: { ...(await resp.json()), has_dub_track: true, has_narration_track: true } })
   })
 
-const openGroup = (page: Page, name: string) => page.getByText(name, { exact: true }).click()
-const openMedia = async (page: Page) => {
-  await openGroup(page, 'Video and audio')
-  await openExportBlocks(page)
-}
+// The seeded title has no source video and ffmpeg may be missing here; most specs need the exports enabled.
+test.beforeEach(async ({ page }) => {
+  await mockExportReady(page)
+})
+
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})
 
 async function mockJob(page: Page, startPath: string, finalStatus: 'done' | 'cancelled') {
   const bodies: unknown[] = []
@@ -45,6 +48,7 @@ async function mockJob(page: Page, startPath: string, finalStatus: 'done' | 'can
 
 test('with no lines, Export is disabled and links to Source (rule 22)', async ({ page }) => {
   await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
   await expect(page.getByTestId('readiness')).toContainText('0 lines')
   await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeDisabled()
   const blocker = page.getByTestId('export-blocker')
@@ -58,6 +62,7 @@ test('shows readiness and generates subtitle and ASS text', async ({ page }) => 
   // (the real subtitle text is still empty).
   await withExportLines(page)
   await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
   await expect(page.getByTestId('readiness')).toContainText('3 lines')
 
   const srt = page.waitForResponse((r) => r.url().includes('/subtitle?') && r.status() === 200)
@@ -74,6 +79,7 @@ test('shows readiness and generates subtitle and ASS text', async ({ page }) => 
 test('bad ASS settings are explained before any request', async ({ page }) => {
   await withExportLines(page)
   await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
   await page.getByText('ASS style', { exact: true }).click()
   await page.getByLabel(/^Text colour/).fill('red')
@@ -93,23 +99,26 @@ test('the readiness warning links to Review checks instead of hosting flag butto
 
 test('the ASS style shows at the top only when ASS is chosen', async ({ page }) => {
   await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
   await page.getByLabel('Format', { exact: true }).selectOption('srt')
   await expect(page.getByText('ASS style', { exact: true })).toBeHidden()
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
   await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
 })
 
-test('a title that is not novel narration has no EPUB section', async ({ page }) => {
+test('a title that is not novel narration has EPUB disabled with its reason', async ({ page }) => {
   await page.goto('/#/drama/1/export')
-  await expect(page.getByTestId('readiness')).toBeVisible()
-  await expect(page.getByRole('group', { name: 'EPUB' })).toHaveCount(0)
+  const epub = exportBlock(page, 'EPUB')
+  await expect(summaryOf(page, 'EPUB')).toContainText('Only for titles in novel-narration mode.')
+  await openExportBlock(page, 'EPUB')
+  await expect(epub.getByRole('button', { name: 'Download EPUB' })).toBeDisabled()
 })
 
 test('audiobook job can be cancelled', async ({ page }) => {
   await withTracks(page)
   await mockJob(page, '/api/export/dramas/1/audiobook', 'cancelled')
   await page.goto('/#/drama/1/export')
-  await openMedia(page)
+  await openExportBlock(page, 'Audiobook')
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
   await page.getByRole('button', { name: /^Cancel / }).click()
@@ -122,8 +131,8 @@ test('burned-in video sends the style and offers the artifact on done', async ({
     route.fulfill({ json: { name: 'burned_video_1.mp4', size: 3 * 1024 * 1024, kind: 'video' } }),
   )
   await page.goto('/#/drama/1/export')
-  // With SRT chosen, the ASS style sits under Video and audio, beside the burned-in video.
-  await openMedia(page)
+  // With SRT chosen, the ASS style sits in the burned-in video block.
+  await openExportBlock(page, 'Burned-in video')
   await page.getByText('ASS style', { exact: true }).click()
   await page.getByLabel(/^Font size/).fill('48')
   await page.getByRole('button', { name: 'Start burned-in video export' }).click()
@@ -144,7 +153,7 @@ test('a 422 from a job start is shown as a banner', async ({ page }) => {
     route.fulfill({ status: 422, json: { error: { code: 'invalid_input', message: 'No narration audio yet.' } } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMedia(page)
+  await openExportBlock(page, 'Audiobook')
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'No narration audio yet.' })).toBeVisible()
 })
@@ -155,7 +164,7 @@ test('subtitle-track video sends the chosen subtitles and offers the artifact', 
     route.fulfill({ json: { name: 'softsub_video_1.mkv', size: 1024, kind: 'softsub_video' } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMedia(page)
+  await openExportBlock(page, 'Video with a subtitle track')
   const group = page.getByRole('group', { name: 'Video with a subtitle track' })
   await group.getByLabel('Subtitles').selectOption('bilingual')
   await group.getByRole('button', { name: 'Start subtitle-track video export' }).click()
@@ -174,7 +183,7 @@ test('dubbed video sends the mix choice and offers its own artifact', async ({ p
     route.fulfill({ json: { name: 'dubbed_video_1.mp4', size: 2048, kind: 'dubbed_video' } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMedia(page)
+  await openExportBlock(page, 'Video with the dub audio')
   const group = page.getByRole('group', { name: 'Video with the dub audio' })
   await group.getByRole('switch', { name: 'Mix the original audio in quietly underneath' }).click()
   await group.getByRole('button', { name: 'Start dubbed video export' }).click()
@@ -206,6 +215,7 @@ async function exportAss(page: Page, noCopy: boolean) {
   }, noCopy)
   await withExportLines(page)
   await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
   // The style options arrive after the page paints; Export before then is refused.
   await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
@@ -235,50 +245,95 @@ test('when nothing can copy, Copy selects the text and says so', async ({ page }
   expect(errors).toEqual([])
 })
 
-test.describe('media export blocks fold under their headings', () => {
-  test('only the subtitle-track video starts open, and the toggle is a real button', async ({ page }) => {
+test.describe('export blocks fold under their headings', () => {
+  test('the title kind decides which block leads and starts open', async ({ page }) => {
     await page.goto('/#/drama/1/export')
-    await openGroup(page, 'Video and audio')
-    await expectExpanded(page, DEFAULT_OPEN)
+    await expect(page.getByText('Audio title')).toBeVisible()
+    await expectOpen(page, { [FIRST_OPEN.audio]: true, 'Video with a subtitle track': false, 'Subtitle file': false, EPUB: false })
+    await page.goto('/#/drama/3/export')
+    await expect(page.getByText('Video title')).toBeVisible()
+    await expectOpen(page, { [FIRST_OPEN.video]: true, 'Burned-in video': false, Audiobook: false, 'Subtitle file': false })
     await expect(page.getByRole('button', { name: 'Start subtitle-track video export' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Start audiobook export' })).toBeHidden()
-    // The explanatory text lives in the folded content.
-    await expect(page.getByText('Encodes the narration audio')).toBeHidden()
+  })
+
+  test('novel and subtitle-only titles lead with their own block', async ({ page }) => {
+    await page.goto('/#/drama/2/export')
+    await expect(page.getByRole('region', { name: 'Export' }).getByText('Novel', { exact: true })).toBeVisible()
+    await expectOpen(page, { [FIRST_OPEN.novel]: true, 'Subtitle file': false, Audiobook: false })
+    await asMediaType(page, 'other')
+    await page.goto('/#/drama/1/export')
+    await expect(page.getByText('Subtitle-only title')).toBeVisible()
+    await expectOpen(page, { [FIRST_OPEN.subtitle]: true, Audiobook: false })
+  })
+
+  test('every export is reachable for every kind, collapsed rather than removed', async ({ page }) => {
+    await page.goto('/#/drama/3/export')
+    for (const title of ['Video with a subtitle track', 'Burned-in video', 'Video with the dub audio', 'Audiobook', 'Subtitle file', 'EPUB']) {
+      await expect(exportBlock(page, title)).toHaveCount(1)
+    }
   })
 
   test('Enter and Space on the focused heading fold and unfold it', async ({ page }) => {
     await page.goto('/#/drama/1/export')
-    await openGroup(page, 'Video and audio')
-    const audiobook = toggle(page, 'Audiobook')
-    await audiobook.focus()
+    const summary = summaryOf(page, 'Video with the dub audio')
+    await summary.focus()
     await page.keyboard.press('Enter')
-    await expect(audiobook).toHaveAttribute('aria-expanded', 'true')
-    await expect(page.getByText('Encodes the narration audio')).toBeVisible()
+    await expectOpen(page, { 'Video with the dub audio': true })
+    await expect(page.getByText('Replaces the video\'s sound')).toBeVisible()
     await page.keyboard.press('Space')
-    await expect(audiobook).toHaveAttribute('aria-expanded', 'false')
+    await expectOpen(page, { 'Video with the dub audio': false })
   })
 
-  test('each choice survives a reload', async ({ page }) => {
-    await page.goto('/#/drama/1/export')
-    await openGroup(page, 'Video and audio')
-    await toggle(page, 'Video with a subtitle track').click()
-    await toggle(page, 'Burned-in video').click()
+  test('the last block opened is remembered per title kind', async ({ page }) => {
+    await page.goto('/#/drama/3/export')
+    await openExportBlock(page, 'Burned-in video')
+    await expectOpen(page, { 'Burned-in video': true, 'Video with a subtitle track': false })
     await page.reload()
-    await expectExpanded(page, { ...DEFAULT_OPEN, 'Video with a subtitle track': false, 'Burned-in video': true })
+    await expectOpen(page, { 'Burned-in video': true, 'Video with a subtitle track': false })
+    // Another kind keeps its own default.
+    await page.goto('/#/drama/1/export')
+    await expectOpen(page, { Audiobook: true, 'Burned-in video': false })
+  })
+
+  test('works with storage blocked: the defaults still hold', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'localStorage', { get: () => { throw new Error('blocked') } })
+    })
+    await page.goto('/#/drama/3/export')
+    await expectOpen(page, { 'Video with a subtitle track': true })
+    await openExportBlock(page, 'Audiobook')
+    await expectOpen(page, { Audiobook: true, 'Video with a subtitle track': false })
   })
 
   test('a running job and its download link stay visible while the block is folded', async ({ page }) => {
-    const { finish } = await mockSoftsubRun(page)
-    await page.goto('/#/drama/1/export')
-    await openGroup(page, 'Video and audio')
-    const group = page.getByRole('group', { name: 'Video with a subtitle track' })
+    const { finish } = await mockSoftsubRun(page, 3)
+    await page.goto('/#/drama/3/export')
+    const group = exportBlock(page, 'Video with a subtitle track')
     await group.getByRole('button', { name: 'Start subtitle-track video export' }).click()
     await expect(group.getByTestId('job-status')).toContainText('Running')
-    await toggle(page, 'Video with a subtitle track').click()
+    await summaryOf(page, 'Video with a subtitle track').click()
+    await expectOpen(page, { 'Video with a subtitle track': false })
     await expect(group.getByRole('button', { name: 'Start subtitle-track video export' })).toBeHidden()
     await expect(group.getByTestId('job-status')).toContainText('Running')
     finish()
     await expect(page.getByTestId('artifact-softsub').getByRole('link')).toHaveText('Download softsub_video_1.mkv')
+  })
+
+  test('an unavailable export is disabled with a one-line reason, also while folded', async ({ page }) => {
+    await mockExportReady(page, { hasSourceVideo: false, ffmpeg: false })
+    await page.goto('/#/drama/3/export')
+    await expect(summaryOf(page, 'Burned-in video')).toContainText('No source video yet. Add one in Media.')
+    await openExportBlock(page, 'Burned-in video')
+    await expect(exportBlock(page, 'Burned-in video').getByRole('button', { name: 'Start burned-in video export' })).toBeDisabled()
+    // ffmpeg missing: the one Install action is offered beside the reasons.
+    await expect(page.getByText('Not found. Baihe needs it to read audio and video.')).toBeVisible()
+    await mockExportReady(page, { hasSourceVideo: true, ffmpeg: false })
+    await page.reload()
+    await expect(summaryOf(page, 'Video with a subtitle track')).toBeVisible()
+    await openExportBlock(page, 'Video with a subtitle track')
+    await expect(exportBlock(page, 'Video with a subtitle track')).toContainText('ffmpeg is not installed.')
+    await expect(exportBlock(page, 'Video with a subtitle track').getByRole('button', { name: 'Start subtitle-track video export' })).toBeDisabled()
   })
 })
 
@@ -291,6 +346,7 @@ test('a double-clicked Export asks the server once, and a response for the old f
     await route.fulfill({ json: { text: '1\n00:00:01,000 --> 00:00:02,000\nhi\n', filename: 'x.srt' } })
   })
   await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
   await expect(page.getByTestId('readiness')).toContainText('3 lines')
   const button = page.getByRole('button', { name: 'Export', exact: true })
   await button.dblclick()
@@ -306,6 +362,7 @@ test('switching format while an export is in flight drops the old response', asy
     await route.fulfill({ json: { text: '1\n00:00:01,000 --> 00:00:02,000\nhi\n', filename: 'x.srt' } })
   })
   await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
   await expect(page.getByTestId('readiness')).toContainText('3 lines')
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Exporting...' })).toBeDisabled()

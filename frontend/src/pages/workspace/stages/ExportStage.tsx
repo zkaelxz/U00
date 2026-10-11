@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import { getAssStyleOptions, getReadiness } from '../../../api/export'
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { Section } from '../../../components/Section'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
 import { routeHref } from '../../../router'
 import { buttonClass } from '../../../components/uiClasses'
@@ -13,7 +12,12 @@ import { assFormFromDraft, buildAssRequest, emptyAssForm, EXPORT_DRAFT_STAGE, ty
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
 import { ExportJellyfin } from './ExportJellyfin'
-import { ExportEpub, ExportMediaJobs, MarkExported } from './ExportMedia'
+import { PreflightCard } from '../../preflight/PreflightCard'
+import { exportBlockOrder, exportBlockReason, type ExportBlockId } from '../exportBlocks'
+import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
+import { useExportInputs } from '../useExportInputs'
+import { AudiobookBlock, BurnedVideoBlock, DubbedVideoBlock, ExportEpub, MarkExported, SoftsubVideoBlock, type StartError } from './ExportMedia'
+import { ExportBlock } from './ExportBlock'
 import { ExportSubtitles, type ExportFormat } from './ExportSubtitles'
 import { SourceChangedWarning } from './SourceChangedWarning'
 import './export.css'
@@ -33,6 +37,9 @@ export default function ExportStage() {
   const [readinessError, setReadinessError] = useState<unknown>(null)
   const [options, setOptions] = useState<AssStyleOptions | null>(null)
   const [optionsError, setOptionsError] = useState<unknown>(null)
+  const [startError, setStartError] = useState<StartError | null>(null)
+  const kind = titleKind(drama.media_type, drama.content_mode)
+  const inputs = useExportInputs(dramaId, drama.content_mode === 'novel_narration')
   const { draft, raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, EXPORT_DRAFT_STAGE, EXPORT_DRAFT_SHAPE)
   const [form, setForm] = useState<AssForm>(() => {
     const kept = assFormFromDraft(rawDraft)
@@ -89,10 +96,42 @@ export default function ExportStage() {
   }
   const untranslated = r !== null && r.total_lines > 0 && !r.fully_translated
   const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />
+  const mediaRequest = () =>
+    options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
+  const share = (id: ExportBlockId) => ({ startError, onStartError: setStartError, reason: exportBlockReason(id, inputs) })
+  const blocks: Record<ExportBlockId, ReactNode> = {
+    subtitles: (
+      <ExportBlock key="subtitles" id="subtitles" hint="SRT, VTT, LRC or ASS">
+        <ExportSubtitles
+          fmt={fmt}
+          setFmt={setFmt}
+          form={form}
+          setForm={setForm}
+          options={options}
+          totalLines={r ? r.total_lines : null}
+        />
+        {fmt === 'ass' && assStyle}
+        <div className="actions">
+          <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
+        </div>
+      </ExportBlock>
+    ),
+    softsub_video: <SoftsubVideoBlock key="softsub_video" {...share('softsub_video')} />,
+    burned_video: (
+      <BurnedVideoBlock key="burned_video" request={mediaRequest} {...share('burned_video')}>
+        {/* The ASS style is one form for the subtitle file and this video; it renders once, in the subtitle file block when ASS is chosen there. */}
+        {fmt === 'ass' ? <p className="muted">Uses the ASS style set in Subtitle file.</p> : assStyle}
+      </BurnedVideoBlock>
+    ),
+    dubbed_video: <DubbedVideoBlock key="dubbed_video" {...share('dubbed_video')} />,
+    audiobook: <AudiobookBlock key="audiobook" {...share('audiobook')} />,
+    epub: <ExportEpub key="epub" reason={exportBlockReason('epub', inputs)} />,
+  }
   return (
     <div className="stage-export">
       <section className="panel" aria-label="Export">
         <h3>Export</h3>
+        <p className="export-line"><Badge>{TITLE_KIND_LABEL[kind]}</Badge></p>
         <ErrorBanner error={readinessError} />
         {!r && !readinessError && <div className="skeleton-block export-readiness-skeleton" aria-hidden="true" />}
         {r && (
@@ -114,34 +153,10 @@ export default function ExportStage() {
           </>
         )}
         <SourceChangedWarning dramaId={dramaId} />
-        <ExportSubtitles
-          fmt={fmt}
-          setFmt={setFmt}
-          form={form}
-          setForm={setForm}
-          options={options}
-          totalLines={r ? r.total_lines : null}
-        />
-        <div className="actions">
-          <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
-        </div>
+        {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
         <MarkExported />
       </section>
-      {fmt === 'ass' && assStyle}
-      <Section storageKey="export.media" title="Video and audio" summary="Burned-in video, audiobook">
-        {/* The burned-in video uses the ASS style too; with ASS chosen it sits above instead. */}
-        {fmt !== 'ass' && assStyle}
-        <ExportMediaJobs
-          request={() =>
-            options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
-          }
-        />
-      </Section>
-      {drama.content_mode === 'novel_narration' && (
-        <Section storageKey="export.epub" title="EPUB" summary="Novel narration">
-          <ExportEpub />
-        </Section>
-      )}
+      {exportBlockOrder(kind).map((id) => blocks[id])}
       {/* keyed by the text choice, so a video list found for one language is not reused for another */}
       <ExportJellyfin key={form.field} field={form.field} />
     </div>

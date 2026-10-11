@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { withExportLines, withTranslateLines } from './stageLineMocks'
-import { openExportBlocks } from './exportBlocks'
+import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 
 // Leaving a stage while its job runs and coming back picks the job up again
 // (useReattachJob). Job starts and job reads are mocked; nothing runs.
@@ -142,15 +142,14 @@ test('Export media shows the earlier export and a running export on revisit', as
 
   await page.goto('/#/drama/1/translate')
   await goToStage(page, /^Export/)
-  await page.getByText('Video and audio', { exact: true }).click()
-  await openExportBlocks(page)
-
+  // The finished file and the running job show without opening their blocks.
   const link = page.getByTestId('artifact-video').getByRole('link')
   await expect(link).toHaveText('Download burned_video_1.mp4')
   await expect(link).toHaveAttribute('href', /\/api\/artifacts\/dramas\/1\/video$/)
 
-  const audiobook = page.getByRole('group', { name: 'Audiobook' })
+  const audiobook = exportBlock(page, 'Audiobook')
   await expect(audiobook.getByTestId('job-status')).toContainText('Running')
+  await openExportBlock(page, 'Audiobook')
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toBeDisabled()
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toHaveAccessibleDescription(/This export is running/)
 })

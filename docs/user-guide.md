@@ -188,7 +188,7 @@ With no source audio, line timings come from each generated TTS clip, so downloa
 - **Removed engines**: Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick OmniVoice; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand (Library tools > Disk usage lists it as "Old voices").
 - **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable (`--max-speedup` / `--max-slowdown` on `cli.py dub`). Editing a line and generating again re-voices only that line.
 - **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its own cue.
-- **Audiobook export**: Export > "Video and audio" > Audiobook > "Start audiobook export" builds an M4B with chapter markers from the novel's headings (or one per paragraph); CLI: `python cli.py dub --id N --m4b`.
+- **Audiobook export**: Export > Audiobook > "Start audiobook export" builds an M4B with chapter markers from the novel's headings (or one per paragraph); CLI: `python cli.py dub --id N --m4b`.
 
 Cloning real people's voices, even for personal fan translation, is a legal and ethical gray area; think it through before sharing dubbed files.
 

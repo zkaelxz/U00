@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { openExportBlocks } from './exportBlocks'
+import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 import { mockDub, mockProgress } from './plainErrorsMocks'
 
 // Plain reasons instead of generic or raw errors: Export and Dub buttons that
@@ -10,19 +10,19 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-const openMedia = async (page: import('@playwright/test').Page) => {
-  await page.getByText('Video and audio', { exact: true }).click()
-  await openExportBlocks(page)
-}
+test.beforeEach(async ({ page }) => {
+  await mockExportReady(page)
+})
 
 test('audiobook and dubbed video are disabled with the reason when there is no narration or dub', async ({ page }) => {
   await mockProgress(page)
   await page.goto('/#/drama/1/export')
-  await openMedia(page)
-  const audiobook = page.getByRole('group', { name: 'Audiobook' })
+  await openExportBlock(page, 'Audiobook')
+  const audiobook = exportBlock(page, 'Audiobook')
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toBeDisabled()
   await expect(audiobook).toContainText('There is no narration yet. Create it in Dub first.')
-  const dubbed = page.getByRole('group', { name: 'Video with the dub audio' })
+  await openExportBlock(page, 'Video with the dub audio')
+  const dubbed = exportBlock(page, 'Video with the dub audio')
   await expect(dubbed.getByRole('button', { name: 'Start dubbed video export' })).toBeDisabled()
   await expect(dubbed).toContainText('There is no dub yet. Create it in Dub first.')
 })
@@ -30,8 +30,9 @@ test('audiobook and dubbed video are disabled with the reason when there is no n
 test('with a narration and a dub the buttons are enabled', async ({ page }) => {
   await mockProgress(page, { has_dub_track: true, has_narration_track: true })
   await page.goto('/#/drama/1/export')
-  await openMedia(page)
+  await openExportBlock(page, 'Audiobook')
   await expect(page.getByRole('button', { name: 'Start audiobook export' })).toBeEnabled()
+  await openExportBlock(page, 'Video with the dub audio')
   await expect(page.getByRole('button', { name: 'Start dubbed video export' })).toBeEnabled()
 })
 
@@ -41,7 +42,7 @@ test('a refused start shows the server sentence once, not the generic text', asy
     route.fulfill({ status: 422, json: { error: { code: 'validation_error', message: 'There is no narration yet. Create it in Dub first.' } } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMedia(page)
+  await openExportBlock(page, 'Audiobook')
   const start = page.getByRole('button', { name: 'Start audiobook export' })
   await start.click()
   await start.click()
@@ -53,8 +54,8 @@ test('a refused start shows the server sentence once, not the generic text', asy
 test('the soft-subtitle help says anything else becomes MKV', async ({ page }) => {
   await mockProgress(page)
   await page.goto('/#/drama/1/export')
-  await openMedia(page)
-  const group = page.getByRole('group', { name: 'Video with a subtitle track' })
+  await openExportBlock(page, 'Video with a subtitle track')
+  const group = exportBlock(page, 'Video with a subtitle track')
   await expect(group).toContainText('MP4 and MKV keep their format, anything else becomes MKV.')
 })
 
