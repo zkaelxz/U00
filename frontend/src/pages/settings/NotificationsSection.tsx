@@ -1,16 +1,16 @@
 /*
- * Settings > Notifications: push a short message to Discord and/or
+ * Settings > Notifications and backups > Notifications: push a short message to Discord and/or
  * ntfy when a background job finishes or fails, or new chapters are found.
  * "What to send" switches pick which of those events are pushed. PC only. The saved
  * addresses are secrets: the inputs are never pre-filled and the page only
  * ever learns "configured: yes/no". A typed address lives in this
  * component's state until it is sent, then is dropped.
  *
- * Layout (UI refresh §3.12): an always-open Card with one row per channel
+ * Layout (UI refresh §3.12): a Card with the notify switch on top, then one row per channel
  * (name, Set/Missing badge, "Set up"/"Replace" opening its form in place).
  * There is no separate on/off: a channel is on once its address is saved.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import {
   clearNotificationChannel,
@@ -44,19 +44,22 @@ import {
 
 const TITLE = 'Notifications'
 
-export function NotificationsSection() {
+// `notifyToggle` is the "notify me when a job finishes" switch, which belongs with the channels it
+// notifies through. It is not PC only, so it shows away from the PC too.
+export function NotificationsSection({ notifyToggle }: { notifyToggle: ReactNode }) {
   const pc = usePcOnly()
   if (pc === 'remote') {
     return (
       <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
+        {notifyToggle}
         <p className="muted">{PC_ONLY_BODY}</p>
       </Card>
     )
   }
-  return <NotificationControls />
+  return <NotificationControls notifyToggle={notifyToggle} />
 }
 
-function NotificationControls() {
+function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
   const [status, setStatus] = useState<NotificationStatus | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [testing, setTesting] = useState(false)
@@ -129,6 +132,7 @@ function NotificationControls() {
         )
       }
     >
+      {notifyToggle}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
       <p className="settings-note">
         Sends a short message (job type, title name) when a job finishes or fails, or when tracked

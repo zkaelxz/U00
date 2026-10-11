@@ -68,7 +68,7 @@ export function DeveloperModeCard() {
   }
 
   return (
-    <Card title={TITLE} aria-label={TITLE}>
+    <Card title={TITLE} aria-label={TITLE} meta={typeof on === 'boolean' ? (on ? 'On' : 'Off') : undefined}>
       {on === null ? (
         !error && <p className="muted">Loading…</p>
       ) : (
