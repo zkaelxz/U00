@@ -89,6 +89,13 @@ class TestRunTranscriptionCase:
         assert captured["model_size"] == "large-v3"
         assert captured["language"] == "ja"
 
+    def test_local_model_path_reaches_transcribe(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(core, "transcribe_for_timing",
+                             lambda path, **kw: captured.update(kw) or [])
+        benchmark.run_transcription_case({"input_path": "/fake/a.wav"}, local_model_path="/models/ja")
+        assert captured["local_model_path"] == "/models/ja"
+
 
 class TestRunTranslationCase:
     class FakeEngine:
