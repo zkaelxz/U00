@@ -127,7 +127,7 @@ test('the English name check lists lines that render the name differently', asyn
     json: {
       term: 'ヤロ', english: 'Yalo', available: true, reason: '', lines_with_name: 4, untranslated: 1, consistent: 1,
       differing: [{ line_idx: 2, source: 'ヤロが来た', english: 'Yaloch came' }, { line_idx: 3, source: 'ヤロも来た', english: 'Yalou came too' }],
-      other_words: ['Yaloch', 'Yalou'], truncated: false,
+      other_words: ['Yaloch', 'Yalou'], lines_scanned: 4, truncated: true, more_rows: false,
     },
   }))
   await page.route(BASE, (route) => route.fulfill({ json: { job_id: '', status: 'idle', progress: 0, message: '', run_id: null, result: null } }))
@@ -136,5 +136,6 @@ test('the English name check lists lines that render the name differently', asyn
   const check = panel.getByRole('region', { name: 'English name check' })
   await expect(check).toContainText('2 of 4 lines do not use “Yalo”')
   await expect(check).toContainText('Yaloch came')
+  await expect(check).toContainText('Only the first 4 lines were checked.')
   await expect(check).toContainText('Other capitalised words in those lines: Yaloch, Yalou.')
 })

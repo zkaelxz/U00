@@ -452,5 +452,9 @@ export interface NameConsistency {
   consistent: number
   differing: NameConsistencyRow[]
   other_words: string[]
+  lines_scanned: number
+  /** The scan stopped at its budget; the counts cover only `lines_scanned` lines. */
   truncated: boolean
+  /** More differing lines exist than are listed. */
+  more_rows: boolean
 }

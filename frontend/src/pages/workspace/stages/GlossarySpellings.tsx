@@ -159,7 +159,8 @@ export function SuggestSpellings({ term, onAdded, onClose }: {
           {check.available && check.other_words.length > 0 && (
             <p className="muted">Other capitalised words in those lines: {check.other_words.join(', ')}.</p>
           )}
-          {check.truncated && <p className="muted">Only the first {check.differing.length} lines are shown.</p>}
+          {check.truncated && <p className="muted">Only the first {check.lines_scanned} lines were checked.</p>}
+          {check.more_rows && <p className="muted">Only the first {check.differing.length} differing lines are shown.</p>}
           {check.differing.length > 0 && (
             <ul className="glossary-variants-list" aria-label="Lines that differ">
               {check.differing.map((r) => (

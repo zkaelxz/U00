@@ -33,7 +33,7 @@ describe('statusForTerm', () => {
 describe('consistencySummary', () => {
   const base: NameConsistency = {
     term: 'ヤロ', english: 'Yalo', available: true, reason: '', lines_with_name: 4, untranslated: 1,
-    consistent: 3, differing: [], other_words: [], truncated: false,
+    consistent: 3, differing: [], other_words: [], lines_scanned: 4, truncated: false, more_rows: false,
   }
   it('covers each state', () => {
     expect(consistencySummary({ ...base, available: false, reason: 'Type the English name first.' })).toBe('Type the English name first.')

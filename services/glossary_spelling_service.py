@@ -28,7 +28,8 @@ from engine_backends.shared import TranslationCancelled, language_name
 from services import glossary_extract_service as extract
 from services import glossary_service
 from services.glossary_common import MAX_TERM_LEN, _drama, _text
-from services.glossary_variants_service import _LATIN_STOPWORDS, _norm, _snippet, _source_lines
+from services.glossary_variants_service import (_LATIN_STOPWORDS, SCAN_MAX_CHARS, SCAN_MAX_LINES, _norm,
+                                                _snippet, _source_lines)
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 # Functions that call an LLM engine (and so may spend on a paid one).
@@ -111,10 +112,11 @@ def parse_spellings(reply) -> Optional[List[str]]:
     return out[:MAX_MODEL_SPELLINGS]
 
 
-def _pattern(spelling: str) -> re.Pattern:
-    escaped = re.escape(unicodedata.normalize("NFKC", spelling))
+def _pattern(key: str) -> re.Pattern:
+    """`key` is already NFKC-normalised: it is searched in NFKC-normalised lines."""
+    escaped = re.escape(key)
     # A Latin spelling must not count inside a longer word (Yalo inside Yaloch).
-    if re.fullmatch(r"[A-Za-z' -]+", spelling):
+    if re.fullmatch(r"[A-Za-z' -]+", key):
         escaped = rf"(?<![A-Za-z]){escaped}(?![A-Za-z])"
     return re.compile(escaped, re.IGNORECASE)
 
@@ -122,24 +124,36 @@ def _pattern(spelling: str) -> re.Pattern:
 def verify_spellings(spellings: List[str], lines, term_text: str, aliases: List[str],
                      other_terms: set) -> List[dict]:
     """The spellings that occur in `lines` ([(idx, text)]), most frequent first, each with
-    its count and example lines. The term itself is never offered."""
+    its count and example lines. The term itself is never offered.
+
+    Every check runs on the NFKC-normalised guess, the string that is actually searched: a
+    half-width ｶﾞ is two code points but one character after normalising, and would
+    match nearly every line. The text offered is the form the transcript uses (the most
+    common one), not the model's: alias matching in translation is a literal, case-sensitive
+    substring, so "yalo" saved as an alias would not match "YALO"."""
     alias_set = {_norm(a) for a in aliases}
+    term_key = _norm(term_text)
     normalized = [(idx, unicodedata.normalize("NFKC", text)) for idx, text in lines]
-    found = []
+    found, seen = [], set()
     for spelling in spellings:
-        if len(spelling) < MIN_SPELLING_LEN or len(spelling) > MAX_TERM_LEN or _norm(spelling) == _norm(term_text):
+        key = unicodedata.normalize("NFKC", spelling).strip()
+        folded = key.casefold()
+        if len(key) < MIN_SPELLING_LEN or len(key) > MAX_TERM_LEN or folded == term_key or folded in seen:
             continue
-        pattern = _pattern(spelling)
-        count, examples = 0, []
+        seen.add(folded)
+        pattern = _pattern(key)
+        forms: Counter = Counter()
+        examples = []
         for idx, text in normalized:
             for m in pattern.finditer(text):
-                count += 1
+                forms[m.group()] += 1
                 if len(examples) < MAX_EXAMPLES:
                     examples.append({"line_idx": idx, "snippet": _snippet(text, m.start(), m.end())})
-        if count:
-            found.append({"text": spelling, "count": count,
-                          "is_alias": _norm(spelling) in alias_set,
-                          "is_term": _norm(spelling) in other_terms, "examples": examples})
+        if forms:
+            shown = min(forms, key=lambda f: (-forms[f], f))
+            found.append({"text": shown, "count": sum(forms.values()),
+                          "is_alias": _norm(shown) in alias_set,
+                          "is_term": _norm(shown) in other_terms, "examples": examples})
     found.sort(key=lambda c: (-c["count"], c["text"]))
     return found[:MAX_SHOWN]
 
@@ -253,17 +267,23 @@ def check_name_consistency(drama_id: int, term_id: int, english: Optional[str] =
         return {**base, "available": False,
                 "reason": "Type the English name first (this term has no translation saved).",
                 "lines_with_name": 0, "untranslated": 0, "consistent": 0, "differing": [],
-                "other_words": [], "truncated": False}
+                "other_words": [], "lines_scanned": 0, "truncated": False, "more_rows": False}
     forms = [_norm(f) for f in [term["term_original"], *term["aliases"]] if f]
     pattern = _english_pattern(expected)
-    mentions = untranslated = consistent = 0
+    mentions = untranslated = consistent = scanned = chars = 0
+    truncated = False
     rows, others = [], Counter()
     for ln in db.load_line_objects(drama_id):
         if ln.sfx or not (ln.zh or "").strip():
             continue
+        if scanned >= SCAN_MAX_LINES or chars + len(ln.zh) > SCAN_MAX_CHARS:
+            truncated = True
+            break
+        scanned += 1
+        chars += len(ln.zh)
         source = unicodedata.normalize("NFKC", ln.zh)
-        hit = next((f for f in forms if f in _norm(source)), None)
-        if hit is None:
+        folded = _norm(source)
+        if not any(f in folded for f in forms):
             continue
         mentions += 1
         en = (ln.en or "").strip()
@@ -280,5 +300,5 @@ def check_name_consistency(drama_id: int, term_id: int, english: Optional[str] =
             "untranslated": untranslated, "consistent": consistent,
             "differing": rows[:MAX_CONSISTENCY_ROWS],
             "other_words": [w for w, _ in others.most_common(MAX_OTHER_WORDS)],
-            "truncated": len(rows) > MAX_CONSISTENCY_ROWS}
-
+            "lines_scanned": scanned, "truncated": truncated,
+            "more_rows": len(rows) > MAX_CONSISTENCY_ROWS}

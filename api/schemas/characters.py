@@ -578,4 +578,7 @@ class NameConsistency(BaseModel):
     consistent: int
     differing: List[NameConsistencyRow] = Field(default_factory=list)
     other_words: List[str] = Field(default_factory=list)
+    lines_scanned: int = 0
+    # The scan stopped at its line/character budget; more_rows: more differing lines than are listed.
     truncated: bool
+    more_rows: bool = False

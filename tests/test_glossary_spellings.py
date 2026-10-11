@@ -165,6 +165,31 @@ class TestSuggest:
         got = {p["text"]: p["count"] for p in _run(did, tid)["result"]["proposals"]}
         assert got == {"Yalo": 2, "Yaloch": 1}
 
+    def test_half_width_guess_cannot_collapse_to_one_character(self, isolated_db, engine, reply):
+        # NFKC turns half-width ｶﾞ (two code points) into the single ガ, which would match nearly every line
+        did, _, tid = _title(isolated_db, lines=["ガガ", "ガ来た", "ヤロチが来た", "ヤロチも来た"])
+        reply["text"] = '["ｶﾞ", "ヤロチ"]'
+        assert [p["text"] for p in _run(did, tid)["result"]["proposals"]] == ["ヤロチ"]
+
+    def test_full_width_latin_keeps_the_word_boundary(self, isolated_db, engine, reply):
+        did, _, tid = _title(isolated_db, lines=["Yaloch said hi", "then Yalo left"], language="zh")
+        reply["text"] = '["Ｙａｌｏ"]'
+        got = {p["text"]: p["count"] for p in _run(did, tid)["result"]["proposals"]}
+        assert got == {"Yalo": 1}
+
+    def test_full_width_spelling_equal_to_the_term_is_not_offered(self, isolated_db, engine, reply):
+        did, _, tid = _title(isolated_db, lines=["Ｙａｌｏ", "Yalo"], language="zh")
+        glossary_service.upsert_glossary_term(did, {"id": tid, "term_original": "Yalo"})
+        reply["text"] = '["Ｙａｌｏ"]'
+        assert _run(did, tid)["result"]["proposals"] == []
+
+    def test_offered_text_is_the_form_the_transcript_uses(self, isolated_db, engine, reply):
+        # Alias matching in translation is a literal substring, so the model's "yalo" must not be returned
+        did, _, tid = _title(isolated_db, lines=["YALO said", "YALO again", "Yalo left"], language="zh")
+        reply["text"] = '["yalo", "Yalo"]'
+        got = _run(did, tid)["result"]["proposals"]
+        assert [(p["text"], p["count"]) for p in got] == [("YALO", 3)]
+
     def test_usage_is_logged(self, isolated_db, engine, reply, monkeypatch):
         did, _, tid = _title(isolated_db)
         logged = []
@@ -249,6 +274,23 @@ class TestConsistency:
         did, _, tid = _title(isolated_db, ens=self.ENS, translation="")
         out = sp.check_name_consistency(did, tid)
         assert out["available"] is False and "English" in out["reason"] and out["differing"] == []
+
+    def test_scan_stops_at_the_line_budget_and_says_so(self, isolated_db, monkeypatch):
+        did, _, tid = _title(isolated_db, ens=self.ENS)
+        monkeypatch.setattr(sp, "SCAN_MAX_LINES", 2)
+        out = sp.check_name_consistency(did, tid)
+        assert out["truncated"] is True and out["lines_scanned"] == 2
+        assert out["lines_with_name"] == 1   # only line 0 mentions ヤロー within the first two lines
+
+    def test_scan_stops_at_the_character_budget(self, isolated_db, monkeypatch):
+        did, _, tid = _title(isolated_db, ens=self.ENS)
+        monkeypatch.setattr(sp, "SCAN_MAX_CHARS", 12)
+        assert sp.check_name_consistency(did, tid)["truncated"] is True
+
+    def test_small_title_is_not_truncated(self, isolated_db):
+        did, _, tid = _title(isolated_db, ens=self.ENS)
+        out = sp.check_name_consistency(did, tid)
+        assert out["truncated"] is False and out["lines_scanned"] == 5
 
     def test_untranslated_lines_are_counted_not_listed(self, isolated_db):
         did, _, tid = _title(isolated_db, ens=["", "", "", "", ""], aliases="ヤロチ")
@@ -353,7 +395,8 @@ class TestRoutes:
         r = local.get(f"/api/glossary/dramas/{did}/name-consistency?term_id={tid}&english=Yaro")
         assert r.status_code == 200
         assert set(r.json()) == {"term", "english", "available", "reason", "lines_with_name",
-                                 "untranslated", "consistent", "differing", "other_words", "truncated"}
+                                 "untranslated", "consistent", "differing", "other_words", "truncated",
+                                 "lines_scanned", "more_rows"}
         assert local.get(f"/api/glossary/dramas/{did}/name-consistency?term_id={tid + 9}").status_code == 404
         assert local.get(f"/api/glossary/dramas/{did}/name-consistency").status_code == 422
         assert local.get(f"/api/glossary/dramas/9999/name-consistency?term_id=1").status_code == 404

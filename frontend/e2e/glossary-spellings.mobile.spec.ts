@@ -28,7 +28,7 @@ test('suggest spellings and the English check fit a phone', async ({ page }) => 
     json: {
       term: 'ヤロ', english: 'Yalo', available: true, reason: '', lines_with_name: 3, untranslated: 0, consistent: 2,
       differing: [{ line_idx: 2, source: 'ヤロが来たよ、今すぐここに来て', english: 'Yaloch came, come here right now' }],
-      other_words: ['Yaloch'], truncated: false,
+      other_words: ['Yaloch'], lines_scanned: 3, truncated: false, more_rows: false,
     },
   }))
   await page.goto('/#/drama/1/translate')
