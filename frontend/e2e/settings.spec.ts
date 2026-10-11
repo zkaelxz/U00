@@ -3,7 +3,7 @@ import { openSettingsGroups } from './settingsNav'
 
 test('settings toggles round-trip and keys are yes/no only', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Preferences')
+  await openSettingsGroups(page, 'Notifications and backups')
   const box = page.getByRole('switch', { name: /Notify when a job finishes/ })
   await expect(box).toBeVisible()
   const before = await box.isChecked()
@@ -14,7 +14,7 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   await Promise.all([saved(), box.click()])
   await expect(box).toBeChecked({ checked: !before })
   await page.reload()
-  await openSettingsGroups(page, 'Preferences')
+  await openSettingsGroups(page, 'Notifications and backups')
   await expect(box).toBeChecked({ checked: !before })
 
   await Promise.all([saved(), box.click()]) // restore
@@ -87,10 +87,10 @@ test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'System')
   const system = page.locator('#settings-panel-system')
-  for (const name of [/Limit GPU jobs/, /Use the GPU/, /Free Ollama/, /Resume batches on start/])
+  for (const name of [/Limit GPU jobs/, /Use the GPU/, /Free local-model memory/, /Resume translation batches on start/])
     await expect(system.getByRole('switch', { name })).toBeVisible()
   await expect(page.getByRole('checkbox')).toHaveCount(0)
-  await openSettingsGroups(page, 'Preferences')
+  await openSettingsGroups(page, 'Integrations')
   await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible()
   await openSettingsGroups(page, 'Translation and keys')
   // Keys live in the one engine list, with the .env explanation.
@@ -136,12 +136,15 @@ test('a collapsible section shows a summary and starts closed on every visit', a
 test('no two cards across the settings tabs share a title', async ({ page }) => {
   await page.goto('/#/settings')
   const titles: string[] = []
-  for (const tab of ['Translation and keys', 'Preferences', 'System'] as const) {
+  for (const tab of [
+    'Translation and keys', 'Costs', 'Notifications and backups', 'Sharing and devices', 'Integrations', 'System',
+  ] as const) {
     await openSettingsGroups(page, tab)
-    titles.push(...(await page.locator('.settings-panel:not([hidden]) .card-title').allTextContents()))
+    titles.push(...(await page.locator('.settings-panel:not([hidden]) .card-fold > details > summary > .section-title').allTextContents()))
   }
-  expect(titles).toContain('Notify me')
-  expect(titles).toContain('Batch resume')
+  expect(titles).toContain('Notifications')
+  expect(titles).toContain('Jobs and GPU')
+  for (const gone of ['Notify me', 'Batch resume', 'Performance', 'Ports', 'Loaded now']) expect(titles).not.toContain(gone)
   const dupes = titles.filter((t, i) => titles.indexOf(t) !== i)
   expect(dupes).toEqual([])
 })

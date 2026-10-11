@@ -19,6 +19,7 @@ import { DenoInstall } from './diagnostics/DenoInstall'
 import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
 import { ModelsList } from './diagnostics/ModelsList'
+import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
@@ -235,6 +236,7 @@ function DiagnosticsContent() {
             <ModelsList engines={overview?.model_engine_versions ?? []} cache={cache} pc={pc}
               onChanged={refreshCache} onGoTo={goTo} openSignal={signal('models')} />
           ))}
+          {card('loaded-models', <LoadedModelsCard />)}
           {card('test-models', <RealModelCheck pc={pc} jobsActive={active} openSignal={signal('test-models')} />)}
           <p className="muted diag-lab-link">
             Compare engines and prompts on your own test sets.{' '}

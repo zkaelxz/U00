@@ -15,6 +15,10 @@
  *                "baihe.section.<storageKey>"; omit to not remember
  *   openSignal   optional number; each time it changes the section opens (lets a
  *                button elsewhere reveal it), without taking control of the state
+ *   expandSignal / closeSignal
+ *                optional numbers for "Expand all" / "Collapse all" buttons: each time one changes
+ *                the section opens / closes, and unlike openSignal the new state is remembered
+ *                (storageKey) as if the viewer had toggled it
  *   group        optional accordion id: sections on a page sharing a group are
  *                exclusive. Opening one (by hand, openSignal or defaultOpen after
  *                mount) closes the others in the group; closing is always allowed.
@@ -49,11 +53,13 @@ type SectionProps = {
   storageKey?: string
   onToggle?: (open: boolean) => void
   openSignal?: number
+  expandSignal?: number
+  closeSignal?: number
   group?: string
   children: ReactNode
 }
 
-export function Section({ title, summary, count, defaultOpen = false, storageKey, onToggle, openSignal, group, children }: SectionProps) {
+export function Section({ title, summary, count, defaultOpen = false, storageKey, onToggle, openSignal, expandSignal, closeSignal, group, children }: SectionProps) {
   const [open, setOpen] = useState(() =>
     storageKey ? readSectionOpen(browserStorage(), storageKey, defaultOpen) : defaultOpen,
   )
@@ -87,6 +93,23 @@ export function Section({ title, summary, count, defaultOpen = false, storageKey
   if (seenSignal !== openSignal) {
     setSeenSignal(openSignal)
     if (!open) setOpen(true)
+  }
+
+  const [seenExpand, setSeenExpand] = useState(expandSignal)
+  if (seenExpand !== expandSignal) {
+    setSeenExpand(expandSignal)
+    if (!open) {
+      setOpen(true)
+      if (storageKey) writeSectionOpen(browserStorage(), storageKey, true)
+    }
+  }
+  const [seenClose, setSeenClose] = useState(closeSignal)
+  if (seenClose !== closeSignal) {
+    setSeenClose(closeSignal)
+    if (open) {
+      setOpen(false)
+      if (storageKey) writeSectionOpen(browserStorage(), storageKey, false)
+    }
   }
 
   return (

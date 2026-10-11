@@ -135,7 +135,7 @@ def test_setting_off_with_a_model_loaded_warns_and_does_not_unload(isolated_db, 
     assert fake.posts == []
     notice = ollama_unload.take_notice_result()["ollama_notice"]
     assert "gemma4:26b" in notice and "ollama stop gemma4:26b" in notice
-    assert "Settings > Free Ollama's GPU memory before transcribing" in notice
+    assert "Settings > Free local-model memory before transcribing" in notice
     assert "127.0.0.1" not in notice and "http" not in notice
 
 

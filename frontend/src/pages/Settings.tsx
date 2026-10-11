@@ -10,13 +10,12 @@ import {
   updateGpuMaxParallel,
   updateSetting,
 } from '../api/settings'
-import { ButtonLink } from '../components/Button'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { routeHref, useRoute } from '../router'
+import { useRoute } from '../router'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
@@ -25,32 +24,32 @@ import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionDevicesCard } from './settings/ExtensionDevicesCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { LanguagePacksCard } from './settings/LanguagePacksCard'
-import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { PastCostsCard } from './settings/PastCostsCard'
 import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
-import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
+import { AdvancedCard, DefaultsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
-import { filterSettings, SETTINGS_INDEX, SETTINGS_TABS, type SettingsTab } from './settings/settingsIndex'
-import { SettingsCard, SettingsSearch, VisibleCardsProvider } from './settings/SettingsSearch'
+import { filterSettings, SETTINGS_INDEX, SETTINGS_TABS, tabOfCard, type SettingsTab } from './settings/settingsIndex'
+import { FoldControls, FoldSignalsProvider, SettingsCard, SettingsSearch, VisibleCardsProvider, type FoldSignals } from './settings/SettingsSearch'
 import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import './settings/settings.css'
 
-// Members who get 403 on the settings call see only these.
-const MEMBER_CARDS = ['sharing', 'customize-menu', 'devices', 'extension-devices']
+// Members who get 403 on the settings call see only the cards of this tab.
+const MEMBER_TAB: SettingsTab = 'sharing'
+const MEMBER_CARDS = new Set(SETTINGS_TABS.find((t) => t.id === MEMBER_TAB)!.cards.map((c) => c.id))
 const ALL_CARDS = new Set(SETTINGS_INDEX.map((entry) => entry.cardId))
 
 const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   gpu_limit_enabled:
-    'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory. To keep graphics memory or RAM free for other programs, see Advanced › Offline and performance.',
+    'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory. To keep graphics memory or RAM free for other programs, see Keep free memory below.',
   notify_on_completion: 'Shows a notification when a job finishes.',
   use_gpu: 'Transcribe on the GPU when there is one (faster).',
   unload_ollama_before_transcribe:
@@ -68,6 +67,16 @@ export default function SettingsPage() {
   const [routingToken, setRoutingToken] = useState(0)
   const bumpRouting = () => setRoutingToken((t) => t + 1)
   const [storedTab, setStoredTab] = usePersistedState<SettingsTab>('settings.tab', 'translation')
+  // A search hit or a link opens its card, and Expand all / Collapse all act on the tab on screen: see FoldSignals.
+  const [opens, setOpens] = useState<Record<string, number>>({})
+  const [bulk, setBulk] = useState<FoldSignals['bulk']>(() =>
+    Object.fromEntries(SETTINGS_TABS.map((t) => [t.id, { expand: 0, collapse: 0 }])) as FoldSignals['bulk'])
+  const openCards = (ids: Iterable<string>) =>
+    setOpens((cur) => {
+      const next = { ...cur }
+      for (const id of ids) next[id] = (next[id] ?? 0) + 1
+      return next
+    })
   const [query, setQuery] = useState('')
   // Bumped to open the Advanced card's Sections: on a search hit, and for the uploads deep link.
   const [advancedSignal, setAdvancedSignal] = useState(0)
@@ -77,12 +86,14 @@ export default function SettingsPage() {
   const wantsDeveloperMode = route.name === 'settings' && route.section === 'developer-mode'
   const wantsUploads = route.name === 'settings' && route.section === 'uploads'
   const loaded = settings !== null
-  // Both targets sit on the System tab, which only exists once the settings load.
+  // Both targets are cards of the System tab, which only exists once the settings load.
   useEffect(() => {
     if (!loaded || (!wantsDeveloperMode && !wantsUploads)) return
-    setStoredTab('system')
+    const id = wantsUploads ? 'advanced' : 'developer-mode'
+    setStoredTab(tabOfCard(id)!)
     if (wantsUploads) setUploadsSignal((n) => n + 1)
-    setJumpTo((cur) => ({ id: wantsUploads ? 'advanced' : 'developer-mode', n: (cur?.n ?? 0) + 1 }))
+    setOpens((cur) => ({ ...cur, [id]: (cur[id] ?? 0) + 1 }))
+    setJumpTo((cur) => ({ id, n: (cur?.n ?? 0) + 1 }))
   }, [wantsDeveloperMode, wantsUploads, loaded, setStoredTab])
   useEffect(() => {
     if (!jumpTo) return
@@ -144,7 +155,6 @@ export default function SettingsPage() {
     }
   }
 
-  // No aria-label on the three Jobs cards: the card names below stay distinct from the Preferences and Translation cards.
   const toggleField = (key: SettingsToggleKey) => {
     const label = TOGGLES.find((t) => t.key === key)!.label
     return (
@@ -165,10 +175,10 @@ export default function SettingsPage() {
       }
     : null
 
-  const available: ReadonlySet<string> = useMemo(() => (loaded ? ALL_CARDS : new Set(MEMBER_CARDS)), [loaded])
+  const available: ReadonlySet<string> = useMemo(() => (loaded ? ALL_CARDS : MEMBER_CARDS), [loaded])
   const searching = query.trim() !== ''
   const match = useMemo(() => filterSettings(query, available), [query, available])
-  const visibleTabs = SETTINGS_TABS.filter((t) => loaded || t.id === 'preferences')
+  const visibleTabs = SETTINGS_TABS.filter((t) => loaded || t.id === MEMBER_TAB)
   const stored = visibleTabs.some((t) => t.id === storedTab) ? storedTab : visibleTabs[0].id
   // A search shows its hits even when they are on another tab; the saved tab is left alone.
   const active = searching && match.counts[stored] === 0
@@ -178,28 +188,43 @@ export default function SettingsPage() {
   useEffect(() => {
     if (searchHitsAdvanced) setAdvancedSignal((n) => n + 1)
   }, [searchHitsAdvanced, query])
+  // A hit opens its card, even one the person closed before.
+  useEffect(() => {
+    if (searching) openCards(match.cardIds)
+  }, [match, searching])
+  const foldAll = (what: 'expand' | 'collapse') =>
+    setBulk((cur) => ({ ...cur, [active]: { ...cur[active], [what]: cur[active][what] + 1 } }))
+  const signals = useMemo(() => ({ opens, bulk }), [opens, bulk])
 
   const panel = (id: SettingsTab, children: ReactNode) => (
     <div key={id} id={tabPanelId('settings', id)} role="tabpanel" aria-labelledby={tabButtonId('settings', id)} className="settings-panel" hidden={active !== id}>
       {children}
     </div>
   )
+  const notifySummary = settings ? `Notify when a job finishes: ${settings.notify_on_completion ? 'On' : 'Off'}` : undefined
+  const jobsSummary = settings
+    ? `${settings.use_gpu ? 'GPU on' : 'GPU off'} · ${
+        settings.gpu_limit_enabled ? `${settings.gpu_max_parallel} GPU job${settings.gpu_max_parallel === 1 ? '' : 's'} at once` : 'no GPU job limit'
+      }`
+    : undefined
   // Remote access and the household's accounts live on the Admin page.
   return (
     <section className="panel page-narrow settings-page" aria-label="Settings">
       <h2>Settings</h2>
-      <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />
+      {loaded && <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />}
       {visibleTabs.length > 1 && (
         <Tabs
           label="Settings"
           idPrefix="settings"
-          tabs={visibleTabs.map((t) => ({ ...t, count: searching ? match.counts[t.id] : undefined }))}
+          tabs={visibleTabs.map((t) => ({ id: t.id, label: t.label, count: searching ? match.counts[t.id] : undefined }))}
           active={active}
           onSelect={setStoredTab}
         />
       )}
+      <FoldControls onExpand={() => foldAll('expand')} onCollapse={() => foldAll('collapse')} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {searching && match.total === 0 && <p className="settings-note">No settings match “{query.trim()}”.</p>}
+      <FoldSignalsProvider value={signals}>
       <VisibleCardsProvider value={searching ? match.cardIds : null}>
         {settings && prefProps && panel('translation', (
           <>
@@ -219,49 +244,49 @@ export default function SettingsPage() {
             </SettingsCard>
             <SettingsCard id="defaults"><DefaultsCard {...prefProps} /></SettingsCard>
             <SettingsCard id="language-packs"><LanguagePacksCard /></SettingsCard>
-            <SettingsCard id="spending"><SpendingCard {...prefProps} /></SettingsCard>
-            <SettingsCard id="past-costs"><PastCostsCard /></SettingsCard>
-            <SettingsCard id="spend-history"><SpendHistoryCard /></SettingsCard>
           </>
         ))}
-        {panel('preferences', (
+        {settings && prefProps && panel('costs', (
           <>
-            {settings && prefProps && (
-              <>
-                <SettingsCard id="notify-toggle">
-                  <Card title="Notify me">
-                    <div className="setting-list">{toggleField('notify_on_completion')}</div>
-                  </Card>
-                </SettingsCard>
-                <SettingsCard id="notifications"><NotificationsSection /></SettingsCard>
-                <SettingsCard id="auto-backup"><AutoBackupCard /></SettingsCard>
-                <SettingsCard id="save-folder"><SaveFolderCard /></SettingsCard>
-                <SettingsCard id="app-updates"><AppUpdatesCard /></SettingsCard>
-              </>
-            )}
-            {/* Outside the settings gate: every signed-in person has a share-new-items choice
-                and manages their own devices and extension devices. */}
+            <SettingsCard id="spending"><SpendingCard {...prefProps} /></SettingsCard>
+            <SettingsCard id="spend-history"><SpendHistoryCard /></SettingsCard>
+            <SettingsCard id="past-costs"><PastCostsCard /></SettingsCard>
+          </>
+        ))}
+        {settings && prefProps && panel('notifications', (
+          <>
+            <SettingsCard id="notifications" summary={notifySummary}>
+              <NotificationsSection notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
+            </SettingsCard>
+            <SettingsCard id="auto-backup"><AutoBackupCard /></SettingsCard>
+            <SettingsCard id="save-folder"><SaveFolderCard /></SettingsCard>
+            <SettingsCard id="app-updates"><AppUpdatesCard /></SettingsCard>
+          </>
+        ))}
+        {/* Outside the settings gate: every signed-in person has a share-new-items choice
+            and manages their own devices and extension tokens. */}
+        {panel('sharing', (
+          <>
             <SettingsCard id="sharing"><SharingCard /></SettingsCard>
             <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
             <SettingsCard id="devices"><DevicesCard /></SettingsCard>
             <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
-            {settings && prefProps && (
-              <>
-                <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>
-                <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>
-                <SettingsCard id="extension"><ExtensionSection /></SettingsCard>
-              </>
-            )}
+          </>
+        ))}
+        {settings && prefProps && panel('integrations', (
+          <>
+            <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>
+            <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>
+            <SettingsCard id="extension"><ExtensionSection /></SettingsCard>
           </>
         ))}
         {settings && prefProps && panel('system', (
           <>
-            <SettingsCard id="performance">
-              <Card title="Performance">
+            <SettingsCard id="performance" summary={jobsSummary}>
+              <Card title="Jobs and GPU" aria-label="Jobs and GPU">
                 <div className="setting-list">
-                  {toggleField('gpu_limit_enabled')}
                   {toggleField('use_gpu')}
-                  {toggleField('unload_ollama_before_transcribe')}
+                  {toggleField('gpu_limit_enabled')}
                   <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
                     <input
                       type="number"
@@ -273,13 +298,10 @@ export default function SettingsPage() {
                       onChange={(e) => setGpuMaxParallel(e.target.valueAsNumber)}
                     />
                   </Field>
+                  {toggleField('unload_ollama_before_transcribe')}
+                  {toggleField('bulk_auto_resume')}
                 </div>
-              </Card>
-            </SettingsCard>
-            <SettingsCard id="loaded-models"><LoadedModelsCard /></SettingsCard>
-            <SettingsCard id="auto-resume">
-              <Card title="Batch resume">
-                <div className="setting-list">{toggleField('bulk_auto_resume')}</div>
+                <KeepFreeMemory {...prefProps} />
               </Card>
             </SettingsCard>
             <SettingsCard id="advanced">
@@ -288,16 +310,10 @@ export default function SettingsPage() {
             <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>
             <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>
             <SettingsCard id="developer-mode"><DeveloperModeCard /></SettingsCard>
-            <SettingsCard id="ports">
-              <Card title="Ports" meta="Which ports Baihe listens on">
-                <div className="settings-actions">
-                  <ButtonLink href={routeHref({ name: 'diagnostics', card: 'ports' })} variant="ghost">Open Ports on Diagnostics</ButtonLink>
-                </div>
-              </Card>
-            </SettingsCard>
           </>
         ))}
       </VisibleCardsProvider>
+      </FoldSignalsProvider>
     </section>
   )
 }
