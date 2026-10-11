@@ -9,7 +9,9 @@ import time
 import benchmark
 import db
 import translate_engines
+import whisper_models
 from core import SOURCE_LANGUAGES
+from lib.errors import InvalidInputError
 
 
 def redact(text, key=None):
@@ -24,6 +26,13 @@ def redact(text, key=None):
         text = text.replace(key, "[redacted]")
     from services import jobs_service
     return jobs_service.redact_text(text)
+
+
+def require_whisper_fits_cases(stage, configs, cases):
+    """A Japanese-only Whisper model runs only on Japanese cases."""
+    if stage == "transcription" and not all(whisper_models.whisper_model_fits_language(
+            c["model"], k.get("source_language") or "zh") for c in configs for k in cases):
+        raise InvalidInputError("That Whisper model is only for Japanese cases.")
 
 
 def _translation_context(case: dict) -> dict:

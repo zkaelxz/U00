@@ -157,6 +157,22 @@ export function runProblemFromError(err: unknown): RunFieldProblem | null {
   return null
 }
 
+export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
+// Offered only for a Japanese title (the server refuses it for any other language) and
+// never the default: it needs a GPU in practice and its licence is not declared.
+export const JA_ONLY_WHISPER_SIZES = ['ja-1.5b']
+export const DEFAULT_WHISPER_SIZE = 'large-v3-turbo'
+
+export function isJaOnlyWhisperSize(size: string): boolean {
+  return JA_ONLY_WHISPER_SIZES.includes(size)
+}
+
+/** The Whisper models the picker lists for a language; a saved one that is not offered is kept so it stays visible. */
+export function whisperSizeChoices(language: string, current: string): string[] {
+  const offered = language === 'ja' ? [...WHISPER_SIZES, ...JA_ONLY_WHISPER_SIZES] : WHISPER_SIZES
+  return offered.includes(current) || isJaOnlyWhisperSize(current) ? offered : [current, ...offered]
+}
+
 // What our benchmarks showed for turbo vs large-v3 (docs/asr-experiments.md):
 // Korean slightly favoured large-v3, Chinese was mixed, Japanese was a tie.
 export function whisperModelWarning(size: string, language: string): string {

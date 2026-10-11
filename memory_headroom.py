@@ -38,6 +38,8 @@ _WHISPER_MB = {
     "large-v1": (4800, 3800), "large-v2": (4800, 3800), "large-v3": (4800, 3800),
     "large": (4800, 3800), "turbo": (2600, 2000), "large-v3-turbo": (2600, 2000),
     "distil-large-v3": (3200, 2500),
+    # An estimate from the 3.1 GB model.bin plus decoding overhead, not a measurement.
+    "ja-1.5b": (4200, 3300),
 }
 _QWEN_ASR_MB = {"0.6B": (2500, 2500), "1.7B": (5200, 5200)}
 _ESTIMATES_MB = {
