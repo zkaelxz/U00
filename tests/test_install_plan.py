@@ -157,6 +157,28 @@ def fake_runner(doc=None, rc=0, text=""):
     return run
 
 
+def test_an_unparsable_version_is_neither_an_upgrade_nor_a_downgrade():
+    # pip's report lists only what it will install, so a differing version
+    # it can't order is still a replacement.
+    for new, have in (("weird!!", "1.0"), ("1.0", "weird!!")):
+        assert plan_mod._classify([("pkg", new)], {"pkg": have}) == [
+            {"name": "pkg", "from": have, "to": new, "kind": "change"}]
+    assert plan_mod._classify([("pkg", "weird!!")], {"pkg": "weird!!"}) == []
+    assert plan_mod._classify([("pkg", "weird!!")], {})[0]["kind"] == "install"
+    p = build(report(("cv2legacy", "4.0")), {"cv2legacy": "4.0-legacy!!"},
+              in_use=lambda name: name == "cv2legacy", required={"cv2legacy"})
+    assert p["loaded"] == ["cv2legacy"] and p["mode"] == "restart"
+    assert p["before"] == {"cv2legacy": "4.0-legacy!!"} and p["needs_confirm"] == []
+    assert p["summary"] == ["Change cv2legacy 4.0-legacy!! -> 4.0."]
+
+
+def test_a_pip_that_could_not_be_reaped_gets_its_own_message():
+    def unreaped(argv, timeout):
+        return SimpleNamespace(returncode=None, stdout="", stderr="", timed_out=False)
+    why = plan_mod.run_dry_run(["paddleocr"], runner=unreaped)[1]
+    assert "did not stop in time" in why and "online" not in why
+
+
 def test_dry_run_runs_the_registry_argv_with_dry_run_and_report():
     run = fake_runner(report(("paddleocr", "3.2.0")))
     doc, why = plan_mod.run_dry_run(["paddleocr", "paddlepaddle"], runner=run)

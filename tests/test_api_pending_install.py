@@ -227,12 +227,40 @@ def test_a_preview_is_refused_while_the_install_hold_is_taken(client, env):
     assert r.status_code == 409 and env["calls"] == 0
 
 
+def test_queueing_is_refused_while_the_install_hold_is_taken(client, env, tmp_path):
+    import background_jobs
+    assert background_jobs.acquire_exclusive("Dependency install")
+    try:
+        r = queue(client)
+    finally:
+        background_jobs.release_exclusive()
+    assert r.status_code == 409 and env["calls"] == 0
+    assert not (tmp_path / "pending_install" / "pending.json").exists()
+
+
 def test_a_second_preview_is_refused_while_one_runs(client, env):
     assert svc._PREVIEW_LOCK.acquire(blocking=False)
     try:
         assert client.post(f"{BASE}/plan", json={"packages": ["paddleocr"]}).status_code == 409
     finally:
         svc._PREVIEW_LOCK.release()
+
+
+def test_queueing_is_refused_while_a_preview_runs(client, env, tmp_path):
+    assert svc._PREVIEW_LOCK.acquire(blocking=False)
+    try:
+        assert queue(client).status_code == 409
+    finally:
+        svc._PREVIEW_LOCK.release()
+    assert env["calls"] == 0 and not (tmp_path / "pending_install" / "pending.json").exists()
+
+
+def test_queueing_rechecks_the_install_hold_once_it_has_the_preview_lock(client, env, monkeypatch,
+                                                                       tmp_path):
+    held = iter([False, True])
+    monkeypatch.setattr(svc.background_jobs, "exclusive_held", lambda: next(held, True))
+    assert queue(client).status_code == 409
+    assert env["calls"] == 0 and not (tmp_path / "pending_install" / "pending.json").exists()
 
 
 @pytest.mark.parametrize("bad", ["--pre", "a b", "x" * 81, ""])
