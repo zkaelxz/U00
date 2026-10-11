@@ -251,7 +251,8 @@ def _ollama_json(url: str) -> dict:
     # engine_backends.shared imports this module, so it can only be imported late.
     from engine_backends.shared import PROVIDER_RESPONSE_MAX_BYTES
     # guard=None: base_url is the Ollama address the user configured (loopback here).
-    resp = http.get(url, timeout=3, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None)
+    resp = http.get(url, timeout=3, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None,
+                    trust_env=False)  # loopback only: an HTTP_PROXY must not carry it
     if resp.status >= 400:
         raise ValueError(f"HTTP {resp.status}")
     return json.loads(resp.body)

@@ -26,6 +26,28 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 - `python scripts/source_probe.py` does one polite GET of each site's root (sequential, 2 s apart, no cookies) and prints reachable / challenge-page / http-error / dns-failure / timeout. `--json` for machine output; `--include-set-aside` also lists set-aside sites that answered again. It never edits a file and does nothing when `CI` is set. In a cloud sandbox, whose only way out is a proxy, add `--use-env-proxy` (honours `HTTPS_PROXY` and `REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE`, TLS verification stays on); it checks reachability only, a 200 can be a challenge page, so real adapter checks still need the owner's PC.
 - After re-vetting a site by hand, update its row in `docs/source-status.json` and run `python scripts/source_status.py` (`--check` verifies).
 
+## 2c. Run the hardware self-test
+
+On the PC: `python -m tools.self_test`. It prints PASS / FAIL / SKIPPED per check and writes `self-test-report.txt` in the data folder (`--out FILE` to choose another). The report holds no key values, paths or URLs; paste it to the assistant. SKIPPED means the hardware or an optional engine is absent; only FAIL makes the exit code 1. `--model NAME` picks the Whisper model for the GPU check; it must already be downloaded, since the test never downloads.
+
+The 13 owner checks (`docs/session-harvest/triage-2026-10-10.md`, "Owner checks", items 6-18; no separate checklist file is in the repo) map to it like this. Anything marked "listening/looking only" needs a person with real audio, a stream, a site or a Windows install.
+
+| # | Check | Self-test line |
+|---|---|---|
+| 6 | Gemma 4 on real Ollama | "Ollama": reachable only; listening/looking only for output quality |
+| 7 | OmniVoice (transformers 5.3+) | "TTS engines" |
+| 8 | PaddleOCR-VL-For-Manga | "OCR engines" and "torch / CUDA": installed only; page quality, speed and VRAM are looking only |
+| 9 | Disk usage on UNC / linked folders | listening/looking only |
+| 10 | Live delay on a YouTube stream | listening/looking only |
+| 11 | Runbook 3b steps 7, 11, 13 | listening/looking only |
+| 12 | Live with a real stream, Ollama `think`, DeepSeek | "Ollama" and "API key presence": setup only; the stream is looking only |
+| 13 | twmanga tainted-canvas fallback | listening/looking only |
+| 14 | Live chunk-1 stall (VRAM) | "GPU faster-whisper" and "VRAM / RAM headroom": the GPU loads and how much is free; the live run is looking only |
+| 15 | Title #25 Qwen-only "Check timing" | "torch / CUDA": setup only; thresholds on real audio are listening only |
+| 16 | Cancel mid-batch with a real engine | "API key presence": setup only; listening/looking only |
+| 17 | Recalibrate `CHRF_PASS_THRESHOLD` | listening/looking only |
+| 18 | OCR defaults and offline model paths | "OCR engines": installed only; real-page reading is looking only |
+
 ## 3. Restore a backup
 Close other work first: a restore is refused while any job runs. Restores are PC-only.
 **Automatic backups (Settings -> "Automatic backups")**
