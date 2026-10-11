@@ -330,7 +330,7 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
     drama = _require_drama(drama_id)
     _check_mode(mode)
     language = drama.get("source_language") or "zh"
-    tesseract_cmd = tesseract_cmd or settings_service.get_tesseract_cmd()
+    tesseract_cmd = tesseract_cmd or settings_service.get("tesseract_cmd") or None
     if backend not in _BACKENDS.get(language, ("tesseract",)):
         raise InvalidInputError(f"OCR backend {backend!r} is not available for {language}.")
     if not images:

@@ -282,7 +282,7 @@ def get_style(drama_id: int) -> dict:
 
 def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
@@ -428,7 +428,7 @@ def start_sensevoice(drama_id: int) -> dict:
     job_id = f"{SENSEVOICE_JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
         job_id, workspace_job_service.run_sensevoice_job, job_id, drama_id, lines, audio,
-        db.drama_dir(drama_id), settings_service.get_use_gpu(), gpu_touching=True,
+        db.drama_dir(drama_id), settings_service.get("use_gpu"), gpu_touching=True,
         description=f"SenseVoice audio tagging (drama #{drama_id})")
     if not started:
         raise ConflictError("Already tagging this drama's audio.")

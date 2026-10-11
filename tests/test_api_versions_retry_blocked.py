@@ -8,6 +8,7 @@ import os
 import threading
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -261,8 +262,7 @@ class TestRetryService:
 
     def test_uses_saved_free_tier_and_default_model(self, isolated_db, monkeypatch):
         did, ids = _blocked()
-        monkeypatch.setattr(blocked_retry_service.settings_service, "get_gemini_free_tier",
-                            lambda: True)
+        patch_setting(monkeypatch, "gemini_free_tier", True)
         seen = _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Goodbye"]))
         blocked_retry_service.retry_blocked_line(did, ids[1], "gemini")
         assert seen["model"] is None and seen["free_tier"] is True

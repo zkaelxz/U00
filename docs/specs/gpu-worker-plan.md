@@ -33,7 +33,7 @@ Remote access must be in place first: `docs/STATUS.md` says the API must not be 
 ### Transcription (`services/transcribe_service.py`)
 
 - `_transcribe_worker` (901-937) writes nothing to the database. `_transcribe_pipeline` (981-1337) touches no database row. `_apply_transcription` (1340-1425) does every library write: history snapshot (1370), full-sync `db.save_lines` (1373), raw transcript and status, chained diarization (1388), speed record (1397-1405).
-- Server-local values mixed into the args: `settings_service.get_whisper_model_path()` (650), `scratch_dir` (640), `use_gpu` (621). The outcome carries `"audio_path"` (1332) and `Line` objects, so it is not JSON as it stands.
+- Server-local values mixed into the args: `settings_service.get("whisper_model_path")` (650), `scratch_dir` (640), `use_gpu` (621). The outcome carries `"audio_path"` (1332) and `Line` objects, so it is not JSON as it stands.
 - Vocal separation moves `vocals.wav` next to the title's audio (1046, 1082-1084). Besides that stage, `workspace_job_service.py:249` (the standalone separation job) and `cli.py` (`cmd_align`) write it, and nothing under `services/` reads it back. Unknown: whether anything outside `services/` does.
 - Inputs built from library state on the server at start: the initial prompt from series glossary names (`build_auto_initial_prompt` 302-316), transcript text, title tuning (613-619). Keys: `hf_token` (607) and the Groq key are read on the server.
 - Speed records are keyed `model|gpu|cpu` only (`_speed_key` 166; 245-268), with no machine dimension.

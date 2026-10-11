@@ -435,7 +435,7 @@ def _make_on_done(drama_id, source_ids, engine_name, engine):
 
 
 def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str]):
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
@@ -446,7 +446,7 @@ def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str])
         raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get_gemini_free_tier(),
+        free_tier=settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
     return engine_name, engine
@@ -569,7 +569,7 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
     language, script, segments, min_pause = _reseg_inputs(drama_id, drama)
     engine_name, eng = _build_engine(drama, engine, model)
     translate_run_service.refuse_when_cap_spent(engine_name,
-                                                settings_service.get_gemini_free_tier())
+                                                settings_service.get("gemini_free_tier"))
     lines = db.load_line_objects(drama_id, with_words=True)
     job_id = f"{RESEGMENT_PREVIEW_JOB_PREFIX}{drama_id}"
     if background_jobs.is_running(job_id):
@@ -1008,7 +1008,7 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     job_id = f"{RESPLIT_JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
         job_id, _run_resplit_job, job_id, drama_id, expected_line_ids, confirm, audio_path,
-        cfg.language, settings_service.get_use_gpu(), cfg,
+        cfg.language, settings_service.get("use_gpu"), cfg,
         gpu_touching=True, description=f"Re-splitting lines (drama #{drama_id})")
     if not started:
         raise ConflictError("Lines are already being re-split for this drama.")

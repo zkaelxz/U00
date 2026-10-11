@@ -159,7 +159,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     else:
         # Settings > Defaults for new dramas (the column's own default is
         # claude, so an unstamped drama would never see the setting).
-        fields["translation_engine"] = settings_service.get_default_engine()
+        fields["translation_engine"] = settings_service.get("default_engine")
     try:
         new_id = db.create_drama(**fields)
     except db.DramaFolderConflict as exc:

@@ -3,6 +3,7 @@ value on every server-side run path; an explicit false stays false. Also:
 POST /api/translate never fetches a client-supplied Ollama URL, and
 fix-flagged gets the same default cap as a translate run. Fully mocked."""
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -35,7 +36,7 @@ class FakeEngine:
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
     seen = []
-    monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: True)
+    patch_setting(monkeypatch, "gemini_free_tier", True)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
 
     def fake_get_engine(name, key, model=None, **kw):
@@ -56,7 +57,7 @@ def _seed(flag=None):
 def test_resolve_helper(monkeypatch):
     assert settings_service.resolve_gemini_free_tier(None) is True
     assert settings_service.resolve_gemini_free_tier(False) is False
-    monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: False)
+    patch_setting(monkeypatch, "gemini_free_tier", False)
     assert settings_service.resolve_gemini_free_tier(None) is False
     assert settings_service.resolve_gemini_free_tier(True) is True
 
@@ -128,7 +129,7 @@ def test_config_follows_saved_setting(monkeypatch):
     assert "gemini" not in cfg["bulk_supported_engines"]
     assert cfg["cap_applies_by_engine"]["gemini"] is False
     assert cfg["cap_applies_by_engine"]["claude"] is True
-    monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: False)
+    patch_setting(monkeypatch, "gemini_free_tier", False)
     cfg = translate_run_service.get_translate_config(did)
     assert "gemini" in cfg["bulk_supported_engines"]
     assert cfg["cap_applies_by_engine"]["gemini"] is True

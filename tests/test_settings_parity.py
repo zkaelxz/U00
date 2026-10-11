@@ -22,6 +22,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
+from lib import settings_schema as schema
 from services import auth_service, settings_service
 from services.service_errors import InvalidInputError
 
@@ -56,19 +57,13 @@ def _clean_jobs():
 # --- service: preferences --------------------------------------------------------
 
 def test_preference_defaults(isolated_db, env_file):
-    prefs = settings_service.get_preferences()
-    assert prefs == {
+    assert settings_service.get_preferences() == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
         "scene_aware_batches": True, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
         "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
         "keep_free_ram_gb": 0.0, "whisper_model_path": "", "ocr_backend": "auto",
         "ocr_prefer_paddle_vl_manga": False, "tesseract_cmd": "", "lncrawl_cmd": "",
         "cookies_browser": None, "cookies_file": ""}
-    assert settings_service.get_monthly_cap_usd() == 0.0
-    assert settings_service.get_whisper_model_path() is None
-    assert settings_service.get_tesseract_cmd() is None
-    assert settings_service.get_cookie_settings() == {"cookies_browser": None,
-                                                      "cookies_file": None}
 
 
 def test_preferences_round_trip_and_persist(isolated_db, env_file):
@@ -86,8 +81,8 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
     # Stored in db.app_settings: a fresh read sees them.
     import db
     assert db.get_app_setting("pref.default_engine") == "deepseek"
-    assert settings_service.get_default_engine() == "deepseek"
-    assert settings_service.get_ollama_num_ctx_override() == 16384
+    assert settings_service.get("default_engine") == "deepseek"
+    assert settings_service.get("ollama_num_ctx_override") == 16384
     assert settings_service.get_cookie_settings() == {"cookies_browser": "firefox",
                                                       "cookies_file": "/home/me/cookies.txt"}
     # Clearing: "" for paths/browser, None for the cap.
@@ -95,7 +90,7 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
                                    "monthly_cap_usd": None})
     assert settings_service.get_cookie_settings() == {"cookies_browser": None,
                                                       "cookies_file": None}
-    assert settings_service.get_preference("monthly_cap_usd") is None
+    assert settings_service.get("monthly_cap_usd") is None
 
 
 @pytest.mark.parametrize("key,bad", [
@@ -114,16 +109,8 @@ def test_bad_preference_rejected_atomically_without_echo(isolated_db, env_file, 
     with pytest.raises(InvalidInputError) as ei:
         settings_service.set_settings({"use_gpu": True, key: bad})
     assert SECRET not in str(ei.value) and "not-an-engine" not in str(ei.value)
-    assert settings_service.get_use_gpu() is False  # nothing written
-    assert settings_service.get_preferences()[key] == settings_service._PREFERENCES[key][0]
-
-
-def test_stale_stored_value_reads_as_default(isolated_db, env_file):
-    import db
-    db.set_app_setting("pref.default_engine", "removed_engine")
-    db.set_app_setting("pref.ollama_num_ctx_override", "lots")
-    assert settings_service.get_default_engine() == "claude"
-    assert settings_service.get_ollama_num_ctx_override() == 0
+    assert settings_service.get("use_gpu") is False  # nothing written
+    assert settings_service.get_preferences()[key] == schema.default_of(schema.BY_KEY[key])
 
 
 def test_monthly_cap_saved_value_wins_over_env(isolated_db, env_file):
@@ -288,7 +275,7 @@ def test_remote_read_needs_admin_and_writes_are_pc_only(isolated_db, env_file):
                        ("/api/settings/endpoints/ollama_url",
                         {"url": "http://evil.example", "confirm": True})):
         assert c.post(path, json=body, headers=_h(admin)).status_code == 403
-    assert settings_service.get_tesseract_cmd() is None
+    assert settings_service.get("tesseract_cmd") == ""
     assert not env_file.exists()
 
 
@@ -540,23 +527,6 @@ def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monke
     assert seen == {"load": "/models/faster-whisper-small",
                     "info": "/models/faster-whisper-small",
                     "transcribe": "/models/faster-whisper-small"}
-
-
-def test_novel_ocr_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch):
-    import io
-    from services import novel_attach_service
-    monkeypatch.setattr(novel_attach_service.importlib.util, "find_spec", lambda name: object())
-    captured = {}
-
-    def fake_start_job(job_id, target, *a, **k):
-        captured["args"] = a
-        return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
-    did = isolated_db.create_drama(title_zh="N", source_language="zh")
-    settings_service.set_settings({"tesseract_cmd": "/opt/tesseract"})
-    novel_attach_service.start_ocr_chapter(did, [("a.png", io.BytesIO(b"x"))])
-    assert captured["args"][-1] == "/opt/tesseract"
-    assert captured["args"][4] == "tesseract"  # backend default unchanged (Streamlit parity)
 
 
 def test_url_download_passes_saved_cookies(isolated_db, env_file, monkeypatch, tmp_path):

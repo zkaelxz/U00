@@ -111,7 +111,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     started = background_jobs.start_process_job(
         job_id, _autotune_all_worker,
         args=(audio_path, stored_whisper_size(drama),
-              drama.get("source_language") or "zh", settings_service.get_use_gpu(),
+              drama.get("source_language") or "zh", settings_service.get("use_gpu"),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
               drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
               presets.stored_vad_threshold(drama),

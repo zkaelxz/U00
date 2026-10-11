@@ -8,6 +8,7 @@ import threading
 
 import pytest
 import requests
+from tests.saved_settings import patch_setting
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -266,7 +267,7 @@ class TestLiveServiceWiring:
 
     def test_a_start_without_an_engine_is_ollama_never_the_settings_default(self, isolated_db, monkeypatch):
         from services import settings_service, translate_service
-        monkeypatch.setattr(settings_service, "get_default_engine", lambda: "deepseek")
+        patch_setting(monkeypatch, "default_engine", "deepseek")
         built = []
         monkeypatch.setattr(te, "get_engine", lambda name, *a, **k: built.append(name) or type(
             "E", (), {"base_url": "http://x", "model": "gemma4:12b"})())

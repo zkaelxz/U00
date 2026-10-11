@@ -200,7 +200,7 @@ def get_config(drama_id: int) -> dict:
         "engines": [{"name": e["name"], "label": e["label"], "free": e["free"],
                      "key_configured": e["key_configured"]}
                     for e in translate_service.list_engines()],
-        "default_engine": settings_service.get_default_engine(),
+        "default_engine": settings_service.get("default_engine"),
         "detect_backends": list(DETECT_BACKENDS),
         "ml_weights_cached": ml_cached,
         "lama_weights_cached": lama_cached,

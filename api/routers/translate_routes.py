@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/translate", tags=["translate"])
             summary="Available translate engines and whether each has a key configured")
 def get_engines():
     return {"items": translate_service.list_engines(),
-            "default_engine": settings_service.get_default_engine()}
+            "default_engine": settings_service.get("default_engine")}
 
 
 @router.get("/history", dependencies=[require_permission("library.read")], response_model=TranslateHistoryResponse,
