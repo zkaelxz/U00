@@ -19,9 +19,18 @@ table) is in `archive/asr-experiments-history.md`.
 | Qwen3-ASR batch size | Settings > Transcription experiments (PC only) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
 | Mixed languages | same card | off | |
+| Voice detector | Settings > Transcription experiments (PC only) | `auto` | Choices come from `settings_service._voice_detector_choices`. Used by the speech-detection backends. |
 | Separate vocals first | per title | off | |
+| Sensitivity | per title | `normal` | `sensitive` lowers the VAD threshold to 0.35 (`sensitivity_preset.py`). |
+| Min silence, VAD threshold, Beam size | per title (Developer Mode) | 300 ms, 0.5, 5 | Whisper's own pass. Min silence is not used when "Split lines by sentences" is on. |
+| Hallucination guard | per title (Developer Mode) | 0 (off) | Local Whisper only. Ignored by Fast mode, Groq, Mixed languages and the Qwen3-ASR backends. |
+| Pause that can split a long line | per title | 0.35 s | `segment_splitting.MIN_WORD_GAP_SECONDS`. |
+| Whisper fast mode, Repeat guard, Realign long segments | per title | off | Fast mode batches VAD chunks; Repeat guard bans repeated 3-token sequences (`core.WHISPER_REPEAT_GUARD_KWARGS`). |
+| Split lines by sentences | per title | off | Whisper and `qwen3_asr` only. Uses `asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS` (2000 ms) instead of Min silence. |
+| Name hint for Qwen3 ASR | per title | off | Sends character names and glossary terms as the model's vocabulary hint. |
+| Groq | per title | off | Hosted Whisper; needs a Groq key. Whisper-only settings above do not apply. |
 
-Saving the three experiment settings is PC-only (`local_only()`); another device
+Saving the four experiment settings (batch size, forced-aligner refine, Mixed languages, Voice detector) is PC-only (`local_only()`); another device
 sees "PC only". They are stored in `app_settings` (`services/asr_options_service.py`).
 
 ### Which backend a title gets
@@ -238,7 +247,7 @@ differences under about 1 point are noise.
 
 | Topic | Guidance | Current default |
 |---|---|---|
-| Speech-detection settings | Keep 300 ms and threshold 0.5. Silence 100/1000 ms changed nothing; threshold 0.7 was 3.2 points worse. Tested on single sentences only. | 300 ms, 0.5 |
+| Speech-detection settings | Keep 300 ms and threshold 0.5. Silence 100/1000 ms changed nothing; threshold 0.7 was 3.2 points worse. Tested on single sentences only. | 300 ms, 0.5 for Whisper with "Split lines by sentences" off; with it on, silence is 2000 ms |
 | Beam size | 1 saved 7-35% of time with no clear accuracy cost in most cells. Exceptions: medium Korean +0.5, large-v3 Japanese +1.5 points (borderline). | 5 |
 | Initial prompt | Use only names that occur in the series and keep it short. A prompt of the utterance's own names (a ceiling, not a glossary) gave -0.7 points on clean audio and -3.8 on very bad audio; a shared glossary was not distinguishable from no prompt; unrelated names did nothing on clean audio and added 4.6 points on very bad audio. | glossary feeds it |
 | Mixed audio | Do not use one fixed language or whole-file auto-detect on a mixed file; use Mixed languages. | off |
