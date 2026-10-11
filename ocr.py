@@ -222,6 +222,7 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
     if problem:
         from lib.errors import DependencyUnavailableError
         raise DependencyUnavailableError(problem)
+    import qwen3_native
     from PIL import Image
     import torch
     from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -237,7 +238,7 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
                 _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False)
             model = AutoModelForImageTextToText.from_pretrained(
                 _PADDLE_VL_MANGA_REPO, trust_remote_code=False,
-                dtype=torch.bfloat16 if cuda else torch.float32)
+                dtype=qwen3_native.pick_dtype(torch, True) if cuda else torch.float32)
             if cuda:
                 model = model.to("cuda")
             model.eval()

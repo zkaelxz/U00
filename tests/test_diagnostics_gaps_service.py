@@ -334,6 +334,20 @@ def test_torchaudio_is_a_plain_install(monkeypatch):
     assert timeout == svc.PIP_TIMEOUT_SECONDS
 
 
+@pytest.mark.parametrize("compute", [7.0, 8.6])
+def test_plain_torch_family_installs_are_refused_on_an_nvidia_pc_whatever_the_card(
+        monkeypatch, compute):
+    # A Packages row or task preset for torch/torchaudio must never pip a CUDA
+    # triple of its own (a cu128 one has no Volta kernels); GPU PyTorch picks the build.
+    import install_registry
+    monkeypatch.setattr(install_registry.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+    monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: compute)
+    for name in ("torch", "torchaudio"):
+        assert "GPU PyTorch" in install_registry.unqueueable_reason([name])
+    ((cmd, _),) = svc._install_commands("torchaudio")
+    assert "--index-url" not in cmd and not any("+cu1" in a for a in cmd)
+
+
 def test_pip_holds_the_library_exclusively(monkeypatch):
     """L7: no job, restore, reset or second install can start mid-upgrade."""
     _no_jobs(monkeypatch)

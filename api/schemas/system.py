@@ -687,6 +687,8 @@ class DiagnosticsGpuTorchStatus(BaseModel):
     state: str
     python_supported: bool
     recommended: DiagnosticsTorchVariant
+    # Why that variant, in plain words, when it isn't the default; else None.
+    recommended_reason: Optional[str] = None
     variants: List[DiagnosticsTorchVariant]
     probe: Optional[DiagnosticsTorchVerify] = None
 
@@ -697,7 +699,7 @@ class DiagnosticsGpuTorchSetupRequest(BaseModel):
     accepted from the client."""
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
-    variant: Optional[Literal["cu128", "cpu"]] = None
+    variant: Optional[Literal["cu128", "cu126", "cpu"]] = None
 
 
 class DiagnosticsDependencyInstallRequest(BaseModel):

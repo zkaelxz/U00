@@ -844,6 +844,7 @@ class TestTranscribeConfigEndpoints:
             "audio_available": False, "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper", "asr_backend_notice": None,
             "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
+            "whisper_size_notice": None, "whisper_exclusions": whisper_models.whisper_language_exclusions(),
             "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": body["whisper_installed"], "gpu_runtime": body["gpu_runtime"],

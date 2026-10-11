@@ -8,6 +8,7 @@ export const OPTIONS = {
   has_audio: true, no_audio_reason: null, max_lines: 200,
   saved_whisper_size: 'small', saved_asr_backend: 'whisper', saved_alignment_method: 'whisper_diff',
   whisper_sizes: ['base', 'large-v3', 'medium', 'small', 'tiny'],
+  source_language: 'zh', whisper_exclusions: { medium: { ja: 'Whisper medium isn’t recommended for Japanese.' } },
   backends: [
     { id: 'whisper', label: 'Whisper', available: true, reason: null },
     { id: 'qwen3_asr', label: 'Qwen3 ASR', available: false, reason: 'Qwen3-ASR needs torch, which isn’t installed yet. Open Diagnostics to install it.' },
