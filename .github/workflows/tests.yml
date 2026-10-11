@@ -290,6 +290,10 @@ jobs:
             requirements-core.txt
             constraints.txt
 
+      - name: TEMP stdin probe
+        if: always()
+        run: python tools/stdin_probe.py
+
       - name: setup.bat reports and installs nothing
         run: python tools/windows_script_checks.py setup
 
