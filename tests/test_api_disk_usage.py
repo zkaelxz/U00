@@ -88,6 +88,20 @@ def test_scan_clear_flow_and_no_absolute_paths(tree, renames):
         assert tree not in text and db.LIBRARY_DIR not in text
 
 
+def test_title_folders_carry_their_size_split_as_numbers_only(tree):
+    did = db.create_drama(title_en="T", audio_filename="audio.mp3")
+    d = os.path.join(db.DRAMAS_DIR, str(did))
+    _write(os.path.join(d, "audio.mp3"), 1000)
+    _write(os.path.join(d, "raw_transcript.json"), 30)
+    r = _local(_app()).get(BASE, params={"path": "library/dramas"})
+    assert r.status_code == 200, r.text
+    item = next(i for i in r.json()["items"] if i["name"] == str(did))
+    sizes = item["title_sizes"]
+    assert sizes == {"originals_bytes": 1000, "raw_transcript_bytes": 30, "history_bytes": 0,
+                     "regenerable_bytes": 0, "complete": True}
+    assert tree not in r.text and "audio.mp3" not in r.text
+
+
 @pytest.mark.parametrize("path", ["..", "/etc", "C:\\Windows", "library/../.."])
 def test_bad_paths_are_422(tree, renames, path):
     c = _local(_app())

@@ -17,6 +17,7 @@ interface Node {
   hasLink?: boolean
   movable?: boolean
   incomplete?: boolean
+  kinds?: { originals_bytes: number; raw_transcript_bytes: number; history_bytes: number; regenerable_bytes: number; complete: boolean }
 }
 
 export const TREE: Record<string, Node[]> = {
@@ -32,7 +33,8 @@ export const TREE: Record<string, Node[]> = {
     { name: 'library.db', kind: 'file', size: 1_600_000_000, files: 1, protected: 'The Baihe database.' },
   ],
   'library/dramas': [
-    { name: '12', kind: 'folder', size: 21_000_000_000, files: 400, irreplaceable: true },
+    { name: '12', kind: 'folder', size: 21_000_000_000, files: 400, irreplaceable: true,
+      kinds: { originals_bytes: 20_000_000_000, raw_transcript_bytes: 3_100_000, history_bytes: 420_000, regenerable_bytes: 800_000_000, complete: true } },
     { name: '7', kind: 'folder', size: 20_000_000_000, files: 120, irreplaceable: true },
   ],
   'library/backups': [
@@ -209,6 +211,7 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
         movable: n.movable
           ? { supported: true, reason: null, what: 'backups' }
           : { supported: false, reason: n.protected ? 'Protected items can\'t be moved.' : 'Baihe has no setting for this location, so it can\'t be moved safely.', what: null },
+        title_sizes: n.kinds ?? null,
       })),
       partial: state.partial, partial_reason: state.partial ? 'time' : null, not_shown: opts.notShown ?? 0, scanned_entries: 1234,
       busy_reason: state.busy,

@@ -24,6 +24,7 @@ import segment_splitting
 import sensitivity_preset
 import storage
 from db import fsync_dir as _fsync_dir
+from lib import gzip_text
 from services import delete_service
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
@@ -63,6 +64,7 @@ _SKIPPED_TABLES = {
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
+_MAX_LINES_JSON = 64 * 1024 ** 2    # older line_history values are gzip (db.PLAIN_SNAPSHOTS)
 SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
                    "glossary_dismissals")
 # Columns naming a file in the drama folder, with the one subfolder the app
@@ -145,7 +147,7 @@ def _remap_json_lines(value, line_map, import_as=None):
     (restoring the version writes it back into lines), and a value that
     isn't a list of lines becomes an empty list."""
     try:
-        items = json.loads(value) if value else None
+        items = json.loads(gzip_text.unpack(value, _MAX_LINES_JSON)) if value else None
     except (ValueError, RecursionError):
         return value if import_as is None else "[]"
     if not isinstance(items, list):

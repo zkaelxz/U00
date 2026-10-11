@@ -70,6 +70,7 @@ import storage
 from jobs import gpu_slots
 from services import auto_backup_service as abs_
 from services import disk_usage_links
+from services import disk_usage_title_sizes
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
@@ -626,6 +627,7 @@ def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx, measured=
         "irreplaceable": bool(note and not protected),
         "irreplaceable_note": note if note and not protected else None,
         "movable": _movable(parts, real, protected, ctx),
+        "title_sizes": None,
         "_deepest_path": deepest,
     }
 
@@ -702,6 +704,7 @@ def _scan(path) -> dict:
         known = (trash_measured if not parts and entry.name == TRASH_DIRNAME
                  and not _is_link_stat(st) else None)
         items.append(_describe(child_parts, entry.path, st, budget, ctx, known))
+    disk_usage_title_sizes.annotate(parts, folder, items)
     not_shown = len(entries) - listed + overflow
     total = sum(i["size_bytes"] for i in items)
     for i in items:

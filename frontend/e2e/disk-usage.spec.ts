@@ -51,6 +51,17 @@ test('drill down with the breadcrumb, protected items are disabled with their re
   await expect(sec.locator('.du-crumbs [aria-current="page"]')).toHaveText('library')
 })
 
+test('each title shows its size by kind: originals, raw transcripts, line history and rebuildable files', async ({ page }) => {
+  await mockDiskUsage(page)
+  const sec = await openSection(page)
+  await sec.getByRole('button', { name: 'Open library' }).click()
+  await sec.getByRole('button', { name: 'Open dramas' }).click()
+  await expect(row(page, '12').locator('.du-kinds')).toHaveText(
+    'Originals 20.0 GB · raw transcripts 3.1 MB · line history 420.0 KB (in the database) · rebuildable files 800.0 MB')
+  await expect(row(page, '7').locator('.du-kinds')).toHaveCount(0)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-title-kinds-desktop.png`, fullPage: true })
+})
+
 test('move to Trash is two steps, names the size, says nothing is freed, and the item shows up in Trash', async ({ page }) => {
   const mock = await mockDiskUsage(page)
   const sec = await openSection(page)
