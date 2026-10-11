@@ -63,7 +63,8 @@ def read_env_file(env_path: str = None) -> dict:
         env_path = default_env_path()
     if os.path.exists(env_path):
         try:
-            with open(env_path, encoding="utf-8-sig") as fh:
+            # A stray non-UTF-8 byte (a GBK comment) must not discard the keys after it.
+            with open(env_path, encoding="utf-8-sig", errors="replace") as fh:
                 for line in fh:
                     line = line.strip()
                     if not line or line.startswith("#") or "=" not in line:
@@ -586,13 +587,14 @@ def _rewrite_env_locked(env_path: str, transform):
     mode = 0o600
     if os.path.exists(env_path):
         mode = os.stat(env_path).st_mode & 0o777
-        with open(env_path, encoding="utf-8-sig") as fh:
+        # surrogateescape round-trips bytes we cannot decode, so saving a key never rewrites them.
+        with open(env_path, encoding="utf-8-sig", errors="surrogateescape") as fh:
             lines = fh.readlines()
     new_lines = transform(lines)
     folder = os.path.dirname(os.path.abspath(env_path))
     fd, tmp = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=folder)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as fh:
             fh.writelines(new_lines)
             fh.flush()
             try:
