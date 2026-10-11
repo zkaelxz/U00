@@ -26,8 +26,7 @@ def get_gpu_status() -> dict:
     torch-visible CUDA device: torch not installed, torch installed but
     can't see a GPU with no NVIDIA GPU on the machine, and torch installed
     but CPU-only despite a real NVIDIA GPU being present (the same
-    footgun gpu_torch_mismatch() already detects, worded here as a plain
-    status message rather than a warning+action). "torch_cuda_version"
+    footgun, worded as a plain status message rather than a warning+action). "torch_cuda_version"
     (torch.version.cuda -- what torch was built against, distinct from
     whether a GPU is actually available right now) is included whenever
     torch is installed, even when no GPU is available, since it's useful
@@ -156,21 +155,6 @@ def check_cuda_isolated() -> dict:
             "cuda_available": False if "torch_cuda_version" in gpu else None}
 
 
-def gpu_torch_mismatch() -> bool:
-    """True only when a real NVIDIA GPU is on this machine (nvidia-smi on
-    PATH) but the installed torch build can't see it -- the exact
-    CPU-only-wheel footgun traced to a bare `pip install
-    torch` always resolving to PyPI's default (non-CUDA) wheel. A
-    minimal, self-contained version of the same nvidia-smi-on-PATH
-    detection a fuller GPU/VRAM display will also use --
-    that display doesn't exist yet, but this button needs the
-    same signal regardless of which of the two lands first."""
-    if not shutil.which("nvidia-smi"):
-        return False
-    cuda = diagnostics.check_cuda()
-    return bool(cuda["torch_installed"]) and cuda["cuda_available"] is False
-
-
 # How busy the GPU actually is, straight from the driver --
 # independent of anything Baihe itself is tracking. background_jobs.py's
 # in-process guard and db.py's cross-process gpu_lock both only
@@ -196,7 +180,7 @@ def external_gpu_load() -> dict | None:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, errors="replace", timeout=5, check=True)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True)
         line = result.stdout.strip().splitlines()[0]
         util_percent, used_mb, total_mb = (float(x.strip()) for x in line.split(","))
         return {"utilization_percent": util_percent, "memory_used_mb": used_mb,
@@ -302,7 +286,7 @@ def nvidia_driver_info():
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, errors="replace", timeout=5, check=True)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True)
         name, driver = (x.strip() for x in result.stdout.strip().splitlines()[0].rsplit(",", 1))
         return {"gpu_name": name[:120], "driver_version": driver[:40]}
     except Exception:
