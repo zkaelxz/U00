@@ -126,11 +126,11 @@ def check_tts():
 
 def check_ocr():
     import diagnostics
-    import hardsub_ocr
     found = []
     if diagnostics.check_dependency("pytesseract") and shutil.which("tesseract"):
         found.append("Tesseract")
-    if hardsub_ocr.paddle_installed():
+    # Both packages, as hardsub_ocr.paddle_installed requires; that module itself needs cv2 to import.
+    if diagnostics.check_dependency("paddleocr") and diagnostics.check_dependency("paddle"):
         found.append("PaddleOCR")
     if diagnostics.check_dependency("manga_ocr"):
         found.append("manga-ocr")
