@@ -6,8 +6,8 @@ services/language_pack_service.py.
   the packs, and one pack's entries.
 - `GET|POST .../dramas/{drama_id}` (`library.read` / `lines.edit`): which packs
   a title uses.
-- `POST .../defaults/{language}` (`admin.settings`): the choice titles of that
-  source language follow until they get their own.
+- `POST .../defaults/{language}` (`local_only()`, an app-wide setting): the
+  choice titles of that source language follow until they get their own.
 """
 
 from typing import List

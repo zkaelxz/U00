@@ -267,11 +267,15 @@ class TestProbedFrameRate:
             assert export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)["fps"] == 25.0
         assert len(calls) == 1
 
-    def test_failed_probe_is_remembered_too(self, isolated_db, monkeypatch):
+    def test_failed_probe_is_not_remembered(self, isolated_db, monkeypatch):
+        """A timeout or a missing ffprobe is transient: it must not pin 24 fps
+        for the file once ffprobe works again."""
         calls = self._probe(monkeypatch, error=export_service.media_inspect.ProbeError("slow"))
         did = self._title(isolated_db)
-        for _ in range(2):
-            assert export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)["fps"] == 24.0
+        assert export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)["fps"] == 24.0
+        assert export_service._fps_cache == {}
+        self._probe(monkeypatch, "25/1")
+        assert export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)["fps"] == 25.0
         assert len(calls) == 1
 
     def test_changed_media_file_is_probed_again(self, isolated_db, monkeypatch):

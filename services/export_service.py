@@ -349,9 +349,10 @@ _MAX_PLAUSIBLE_FPS = 240
 
 
 # Any caller with lines.read can ask for a tidied export, and each probe can
-# hold a worker thread for the whole timeout, so a file's answer (fallback
-# included) is kept until the file changes. Bounded so it can't grow with
-# the library.
+# hold a worker thread for the whole timeout, so a file's answer is kept until
+# the file changes. A failed probe is not kept: a timeout or a missing ffprobe
+# is transient and must not pin 24 fps. Bounded so it can't grow with the
+# library.
 _FPS_CACHE_MAX = 256
 _fps_cache: "OrderedDict[tuple, float]" = OrderedDict()
 _fps_cache_lock = threading.Lock()
@@ -378,7 +379,7 @@ def _probe_title_fps(drama_id: int, drama: dict) -> float:
             media_inspect.run_ffprobe(path, timeout=_FPS_PROBE_TIMEOUT_S),
             os.path.basename(path)).fps
     except (media_inspect.ProbeError, ValueError, TypeError, OSError):
-        fps = None
+        return subtitle_formats.DEFAULT_FPS
     if not (fps and 0 < fps <= _MAX_PLAUSIBLE_FPS):
         fps = subtitle_formats.DEFAULT_FPS
     with _fps_cache_lock:

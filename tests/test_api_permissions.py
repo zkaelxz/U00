@@ -482,6 +482,20 @@ class TestLineTextNeedsLinesRead:
         for url in urls:
             assert c.get(url, headers=_h(s)).status_code == 403, url
 
+    def test_stronger_engine_try_and_speech_coverage_need_lines_read(self, isolated_db):
+        """The stronger-engine try returns the line's English (based_on_en), and
+        the speech-coverage gaps carry raw transcript text."""
+        did = db.create_drama(title_en="Show")
+        c = _remote(_app())
+        u, s = _user("engines.paid")
+        try_url = f"/api/stronger-engine/dramas/{did}/lines/1/try"
+        coverage_url = f"/api/transcribe/dramas/{did}/speech-coverage"
+        assert c.get(coverage_url, headers=_h(s)).status_code == 200
+        assert c.post(try_url, json={}, headers=_h(s)).status_code != 403
+        auth_service.revoke_permission(u["id"], "lines.read")
+        assert c.get(coverage_url, headers=_h(s)).status_code == 403
+        assert c.post(try_url, json={}, headers=_h(s)).status_code == 403
+
     def test_household_default_role_reads_line_text(self, isolated_db):
         """A new household member keeps every permission these routes need."""
         u = auth_service.add_user("new@example.com")
@@ -494,8 +508,21 @@ class TestLineTextNeedsLinesRead:
         assert table["GET /api/library/search"] == "library.read + lines.read"
         assert table["GET /api/review/dramas/{drama_id}/tm-suggestions"] == \
             "review.use + lines.read"
+        assert table["POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try"] == \
+            "review.use + lines.read"
+        assert table["GET /api/transcribe/dramas/{drama_id}/speech-coverage"] == \
+            "library.read + lines.read"
         with pytest.raises(ValueError):
             api_auth.require_permission("lines.read", "library.raed")
+
+    @pytest.mark.parametrize("perms", [("lines.read", "admin.settings"),
+                                       ("admin.users.read", "library.read"),
+                                       ("admin.settings", "admin.library")])
+    def test_admin_permission_is_never_combined(self, perms):
+        """Guard tests and the household listener classify a route by its one
+        admin.* label; a compound one would slip past them."""
+        with pytest.raises(ValueError):
+            api_auth.require_permission(*perms)
 
 
 class TestCsrf:

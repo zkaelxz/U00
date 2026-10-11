@@ -528,7 +528,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/sources/{name}/signin/open` | local_only() |
 | `POST /api/sources/{name}/tier-test` | local_only() |
 | `GET /api/stronger-engine/dramas/{drama_id}` | lines.read |
-| `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use |
+| `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use + lines.read |
 | `POST /api/subtitle-import/dramas/{drama_id}/apply` | local_only() |
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | local_only() |
 | `POST /api/subtitle-import/dramas/{drama_id}/sidecars` | lines.edit |
@@ -563,7 +563,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/transcribe/dramas/{drama_id}/retranscribe-lines` | jobs.start |
 | `POST /api/transcribe/dramas/{drama_id}/retranscribe-lines/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/run` | jobs.start |
-| `GET /api/transcribe/dramas/{drama_id}/speech-coverage` | library.read |
+| `GET /api/transcribe/dramas/{drama_id}/speech-coverage` | library.read + lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/speech-coverage` | jobs.start |
 | `POST /api/translate` | engines.paid |
 | `POST /api/translate-run/dramas/{drama_id}/apply-preset` | lines.edit |

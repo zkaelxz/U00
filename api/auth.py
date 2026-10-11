@@ -163,6 +163,10 @@ def require_permission(*permissions: str):
         if permission not in auth_service.PERMISSIONS:
             raise ValueError(f"unknown permission {permission!r}; add it to "
                              "services/auth_service.py PERMISSIONS first")
+    # The household listener, the Caddy template and the guard tests sort
+    # routes by a lone admin.* label; a compound label would slip past them.
+    if len(permissions) > 1 and any(p.startswith("admin.") for p in permissions):
+        raise ValueError("an admin.* permission is always declared on its own")
 
     def dependency(request: Request):
         if not is_auth_enabled(request.app):
