@@ -11,8 +11,8 @@ export interface AsrOptions {
   qwen_asr_batch_size: number
   qwen_asr_batch_min: number
   qwen_asr_batch_max: number
-  // Installed qwen-asr version (null if not installed); batching only runs
-  // with the tested version, any other sends one line at a time.
+  // Installed transformers version (null if not installed); Qwen3-ASR, and so
+  // batching, needs 5.15 or newer. The field names predate the move off the qwen-asr package.
   qwen_asr_version: string | null
   qwen_asr_batching_available: boolean
   // Qwen3 ASR with speech detection: also refine line times with the forced aligner.
@@ -80,9 +80,9 @@ export function asrBackendOptions(): string[] {
 
 // The muted line under the batch-size field.
 export function batchingNote(o: Pick<AsrOptions, 'qwen_asr_version' | 'qwen_asr_batching_available'>): string {
-  if (o.qwen_asr_batching_available) return `Batching can run with the installed qwen-asr ${o.qwen_asr_version}.`
-  if (!o.qwen_asr_version) return 'qwen-asr is not installed, so nothing is batched.'
-  return `Batching is tested with qwen-asr 0.0.6 only; with ${o.qwen_asr_version} installed, lines are sent one at a time.`
+  if (o.qwen_asr_batching_available) return `Batching can run with the installed transformers ${o.qwen_asr_version}.`
+  if (!o.qwen_asr_version) return 'transformers is not installed, so Qwen3 ASR cannot run.'
+  return `Qwen3 ASR needs transformers 5.15 or newer; ${o.qwen_asr_version} is installed. Update it in Diagnostics.`
 }
 
 export const VOICE_DETECTOR_LABELS: Record<VoiceDetector, string> = {

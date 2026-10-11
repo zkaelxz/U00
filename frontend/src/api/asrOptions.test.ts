@@ -13,7 +13,7 @@ const OPTS = {
   qwen_asr_batch_size: 1,
   qwen_asr_batch_min: 1,
   qwen_asr_batch_max: 16,
-  qwen_asr_version: '0.0.6',
+  qwen_asr_version: '5.19.0',
   qwen_asr_batching_available: true,
   qwen_vad_refine_timing: false,
   mixed_languages: false,
@@ -76,8 +76,8 @@ describe('asrBackendOptions', () => {
 
 describe('batchingNote (Step 103)', () => {
   it('says when batching can and cannot run', () => {
-    expect(batchingNote({ qwen_asr_version: '0.0.6', qwen_asr_batching_available: true })).toMatch(/can run/)
-    expect(batchingNote({ qwen_asr_version: '0.0.9', qwen_asr_batching_available: false })).toMatch(/one at a time/)
+    expect(batchingNote({ qwen_asr_version: '5.19.0', qwen_asr_batching_available: true })).toMatch(/can run with the installed transformers 5.19.0/)
+    expect(batchingNote({ qwen_asr_version: '4.57.6', qwen_asr_batching_available: false })).toMatch(/needs transformers 5.15 or newer; 4.57.6 is installed/)
     expect(batchingNote({ qwen_asr_version: null, qwen_asr_batching_available: false })).toMatch(/not installed/)
   })
 })

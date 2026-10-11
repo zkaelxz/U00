@@ -12,8 +12,8 @@ class AsrOptions(BaseModel):
     qwen_asr_batch_size: int
     qwen_asr_batch_min: int
     qwen_asr_batch_max: int
-    # The installed qwen-asr version (None if not installed) and whether
-    # batching can run with it (only the tested version batches).
+    # The installed transformers version (None if not installed) and whether
+    # Qwen3-ASR (and so batching) can run with it: transformers 5.15 or newer.
     qwen_asr_version: Optional[str] = None
     qwen_asr_batching_available: bool = False
     qwen_vad_refine_timing: bool = False
