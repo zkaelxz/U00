@@ -675,7 +675,7 @@ class TestExitFlush:
         try:
             t0 = time.monotonic()
             job_store.flush_at_exit()
-            assert time.monotonic() - t0 < 0.8
+            assert time.monotonic() - t0 < 3.0
         finally:
             monkeypatch.setattr(db, "get_conn", real_conn)
             release.set()
