@@ -2338,6 +2338,45 @@ def test_snapshot_waits_for_a_concurrent_writer_instead_of_failing(isolated_db):
     assert errors == []
 
 
+class TestJobRecordCancelAcrossRuns:
+    """A cancel aimed at one run must not carry into the run that replaces it."""
+
+    def _cancel(self, job_id):
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("UPDATE job_records SET cancel_requested = 1, cancel_requested_at = 5.0 "
+                         "WHERE job_id = ?", (job_id,))
+            conn.commit()
+
+    def test_a_new_run_over_a_still_active_row_clears_the_old_cancel(self, isolated_db):
+        db.save_job_record("job1", status="running", started_at=100.0)
+        self._cancel("job1")
+        db.save_job_record("job1", status="running", started_at=200.0)
+        rec = db.get_job_record("job1")
+        assert not rec["cancel_requested"] and rec["cancel_requested_at"] is None
+
+    def test_the_same_run_keeps_its_cancel_across_its_own_writes(self, isolated_db):
+        db.save_job_record("job1", status="running", started_at=100.0)
+        self._cancel("job1")
+        db.save_job_record("job1", status="running", progress=0.5, started_at=100.0)
+        rec = db.get_job_record("job1")
+        assert rec["cancel_requested"] and rec["cancel_requested_at"] == 5.0
+
+    def test_a_queued_job_keeps_its_cancel_when_its_owner_starts_it(self, isolated_db):
+        from jobs import job_store
+        db.save_job_record("job1", status="queued", started_at=100.0, owner_pid=42)
+        assert job_store.request_cancel("job1")
+        db.save_job_record("job1", status="running", started_at=200.0, owner_pid=42)
+        rec = db.get_job_record("job1")
+        assert rec["cancel_requested"] and rec["cancel_requested_at"] is not None
+
+    def test_a_queued_row_from_another_process_does_not_pass_its_cancel_on(self, isolated_db):
+        db.save_job_record("job1", status="queued", started_at=100.0, owner_pid=42)
+        self._cancel("job1")
+        db.save_job_record("job1", status="running", started_at=200.0, owner_pid=43)
+        rec = db.get_job_record("job1")
+        assert not rec["cancel_requested"] and rec["cancel_requested_at"] is None
+
+
 class TestSearchWildcards:
     def test_percent_and_underscore_in_a_search_are_literal(self, isolated_db):
         from core import Line

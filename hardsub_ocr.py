@@ -195,9 +195,11 @@ def resolve_backend(requested: str, language: str):
     return "tesseract", PADDLE_MISSING_NOTE
 
 
-def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str = None) -> str:
+def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str = None,
+                      on_timeout=None) -> str:
     """lang is in the chosen engine's own code: a Tesseract pack name, or a
-    PaddleOCR language for backend "paddle"."""
+    PaddleOCR language for backend "paddle". on_timeout is called when
+    Tesseract timed out on the frame (only Tesseract has a per-frame timeout)."""
     img = cv2.imread(path)
     h, _w = img.shape[:2]
     y0, y1 = int(region[0] * h), int(region[1] * h)
@@ -209,7 +211,7 @@ def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd:
         if backend == "paddle":
             return ocr_module.extract_text_paddle(crop_path, lang=lang).strip()
         return ocr_module.extract_text_tesseract(
-            crop_path, lang=lang, tesseract_cmd=tesseract_cmd).strip()
+            crop_path, lang=lang, tesseract_cmd=tesseract_cmd, on_timeout=on_timeout).strip()
     finally:
         os.unlink(crop_path)
 
@@ -312,11 +314,13 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
 
     ocr_backend is "tesseract", "paddle" or "auto" (see resolve_backend).
     info, when given, is filled with {"backend": the engine that ran,
-    "note": a fallback note or None} for the caller to record and show.
+    "note": a fallback note or None, "dropped_frames": how many sampled
+    frames Tesseract timed out on and so read as blank} for the caller to
+    record and show.
     """
     ocr_backend, note = resolve_backend(ocr_backend, language)
     if info is not None:
-        info.update(backend=ocr_backend, note=note)
+        info.update(backend=ocr_backend, note=note, dropped_frames=0)
     if ocr_backend == "paddle":
         lang = _HARDSUB_PADDLE_LANG.get(language, "ch")
     else:
@@ -332,10 +336,16 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
 
         timed_texts = []
         total = len(frames)
+
+        def _frame_dropped():
+            if info is not None:
+                info["dropped_frames"] += 1
+
         for i, (ts, path) in enumerate(frames):
             if cancel_check:
                 cancel_check()
-            text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd)
+            text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd,
+                                     on_timeout=_frame_dropped)
             timed_texts.append((ts, text))
             if progress_cb:
                 progress_cb((i + 1) / total)

@@ -5134,8 +5134,21 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
                          AND excluded.started_at IS NOT job_records.started_at
                     THEN excluded.owner_user_id
                     ELSE COALESCE(job_records.owner_user_id, excluded.owner_user_id) END,
+                -- A new run must not inherit a cancel aimed at the run it
+                -- replaced, or it would end cancelled at once and be
+                -- Force-stoppable straight away. Promotion from the queue
+                -- restamps started_at, but it is the same run: a cancel sent
+                -- to the queued row (by the CLI or another server) must hold.
                 cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
-                    THEN job_records.cancel_requested ELSE 0 END
+                    AND (excluded.started_at IS job_records.started_at
+                         OR (job_records.status = 'queued'
+                             AND excluded.owner_pid IS job_records.owner_pid))
+                    THEN job_records.cancel_requested ELSE 0 END,
+                cancel_requested_at = CASE WHEN excluded.status IN ('queued', 'running')
+                    AND (excluded.started_at IS job_records.started_at
+                         OR (job_records.status = 'queued'
+                             AND excluded.owner_pid IS job_records.owner_pid))
+                    THEN job_records.cancel_requested_at ELSE NULL END
         """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
               started_at, finished_at, time.time(), result_json, owner_user_id, owner_pid))
         if own:

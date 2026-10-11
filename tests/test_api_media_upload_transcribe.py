@@ -386,3 +386,28 @@ def test_follow_deadline_has_a_floor_and_grows_with_the_media():
     from services import media_upload_service as mus
     assert mus.follow_deadline_seconds(None) == mus.follow_deadline_seconds(60) == 2 * 60 * 60
     assert mus.follow_deadline_seconds(10 * 3600) == 50 * 3600
+
+
+def _follow_stubs(monkeypatch, mus, status, forwarded):
+    monkeypatch.setattr(mus.background_jobs, "get_status", lambda cid: status)
+    monkeypatch.setattr(mus.background_jobs, "is_cancel_requested", lambda jid: False)
+    monkeypatch.setattr(mus.background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(mus.background_jobs, "cancel_queued", lambda cid: False)
+    monkeypatch.setattr(mus.background_jobs, "request_cancel", forwarded.append)
+    monkeypatch.setattr(mus, "_FOLLOW_POLL_SECONDS", 0.01)
+
+
+def test_follow_job_reports_a_child_that_finished_past_the_deadline_as_done(isolated_db, monkeypatch):
+    from services import media_upload_service as mus
+    results, forwarded = [], []
+    _follow_stubs(monkeypatch, mus, {"status": "done", "result": {"ok": 1}}, forwarded)
+    monkeypatch.setattr(mus.background_jobs, "set_result", lambda jid, r: results.append(r))
+    mus._follow_job("extract_audio_1", "transcribe_1", 0)  # the deadline has already passed
+    assert results == [{"ok": 1}] and forwarded == []
+
+
+def test_follow_job_reports_a_cancelled_child_past_the_deadline_as_cancelled(isolated_db, monkeypatch):
+    from services import media_upload_service as mus
+    _follow_stubs(monkeypatch, mus, {"status": "cancelled"}, [])
+    with pytest.raises(mus.background_jobs.JobCancelled):
+        mus._follow_job("extract_audio_1", "transcribe_1", 0)

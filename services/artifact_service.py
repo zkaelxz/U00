@@ -66,10 +66,14 @@ def output_path(drama_id: int, kind: str, filename: str) -> str:
 _LABEL_FILE = ".download.json"
 
 
-def set_download_language(drama_id: int, kind: str, filename: str, language: str) -> None:
-    """Remembers the content language of the file a job just wrote, because
-    the stored name stays ID-only and the download name needs the language
-    chosen at export time. Best-effort: a failure leaves the plain name."""
+def set_download_language(drama_id: int, kind: str, filename: str, language: str,
+                          source: str = None) -> None:
+    """Remembers the content language of the file a job writes, because the
+    stored name stays ID-only and the download name needs the language chosen
+    at export time. The label carries the file's size and mtime so it only
+    describes that exact file; `source` is the finished file before it is
+    moved into place (a move keeps size and mtime), so the label can exist
+    before the new file does. Best-effort: a failure leaves the plain name."""
     tmp = None
     try:
         base = os.path.dirname(output_path(drama_id, kind, filename))
@@ -77,11 +81,13 @@ def set_download_language(drama_id: int, kind: str, filename: str, language: str
         # Opening a planted symlink for writing would follow it out of the folder.
         if os.path.islink(path):
             return
+        st = os.stat(source or os.path.join(base, filename))
         # mkstemp creates its file exclusively, and the replace swaps the
         # label in whole so a reader never sees half of it.
         fd, tmp = tempfile.mkstemp(prefix=".download-", suffix=".tmp", dir=base)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"file": filename, "language": language}, f)
+            json.dump({"file": filename, "language": language,
+                       "size": st.st_size, "mtime_ns": st.st_mtime_ns}, f)
         os.replace(tmp, path)
         tmp = None
     except (OSError, ServiceError):
@@ -94,22 +100,45 @@ def set_download_language(drama_id: int, kind: str, filename: str, language: str
                 pass
 
 
+def clear_download_language(drama_id: int, kind: str, filename: str) -> None:
+    """Drops the label written ahead of a move that then failed."""
+    try:
+        base = os.path.dirname(output_path(drama_id, kind, filename))
+        path = os.path.join(base, _LABEL_FILE)
+        if os.path.islink(path):
+            return
+        if _read_label(path).get("file") == filename:
+            os.remove(path)
+    except (OSError, ServiceError):
+        pass
+
+
 # A label is a few dozen bytes; the cap keeps a planted huge file from filling memory.
 _LABEL_MAX_BYTES = 4096
 
 
-def _download_language(base: str, name: str) -> str:
-    path = os.path.join(base, _LABEL_FILE)
+def _read_label(path: str) -> dict:
     try:
         # lstat first: opening a FIFO blocks and a symlink can point at /dev/zero.
         if not stat.S_ISREG(os.lstat(path).st_mode):
-            return ""
+            return {}
         with open(path, encoding="utf-8") as f:
             data = json.loads(f.read(_LABEL_MAX_BYTES))
     except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _download_language(base: str, name: str) -> str:
+    data = _read_label(os.path.join(base, _LABEL_FILE))
+    try:
+        st = os.stat(os.path.join(base, name))
+    except OSError:
         return ""
-    # Matching on the name keeps a stale label from describing a newer file.
-    if isinstance(data, dict) and data.get("file") == name and isinstance(data.get("language"), str):
+    # A re-export reuses the file name, so the name alone would let a stale
+    # label describe the newer file; size and mtime pin it to one file.
+    if (data.get("file") == name and isinstance(data.get("language"), str)
+            and data.get("size") == st.st_size and data.get("mtime_ns") == st.st_mtime_ns):
         return data["language"]
     return ""
 
