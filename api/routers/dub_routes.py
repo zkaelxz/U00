@@ -9,7 +9,7 @@ from api.auth import require_permission
 from fastapi.responses import FileResponse
 
 from api.schemas import DubConfig, DubPacing, DubRunRequest, DubRunStarted, ErrorResponse
-from services import dub_service
+from services import dub_service, export_service
 
 router = APIRouter(prefix="/api/dub", tags=["dub"])
 
@@ -46,4 +46,4 @@ def download_dub_track(drama_id: int = Path(ge=1)):
     track = dub_service.get_dub_track(drama_id)
     return FileResponse(
         track["path"], media_type="audio/wav",
-        headers={"Content-Disposition": f'attachment; filename="drama_{drama_id}_{track["name"]}"'})
+        headers={"Content-Disposition": export_service.dub_track_disposition(drama_id, track["name"])})

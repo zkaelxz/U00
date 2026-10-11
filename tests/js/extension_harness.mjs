@@ -26,6 +26,12 @@ function fakeCanvas(width = 0, height = 0) {
   };
 }
 
+function placed(el, top) {
+  const { width, height } = el.tagName === "CANVAS" ? el : { width: el.naturalWidth, height: el.naturalHeight };
+  el.getBoundingClientRect = () => ({ top, left: 0, width, height });
+  return el;
+}
+
 function fakeImg(src, w = 800, h = 1200) {
   return {
     tagName: "IMG", naturalWidth: w, naturalHeight: h, width: w, height: h,
@@ -36,7 +42,10 @@ function fakeImg(src, w = 800, h = 1200) {
 }
 
 function container(children) {
-  const parent = { getAttribute: () => null, parentElement: null, querySelectorAll: () => children };
+  const parent = {
+    getAttribute: () => null, parentElement: null,
+    querySelectorAll: (sel) => children.filter((c) => (sel === "canvas") === (c.tagName === "CANVAS")),
+  };
   for (const c of children) c.parentElement = parent;
   return parent;
 }
@@ -96,6 +105,10 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
 const okImage = (bytes = JPEG, type = "image/jpeg") => async () => ({
   ok: true, data: { data: Buffer.from(bytes).toString("base64"), content_type: type, url: "https://s1.bzcdn.net/p/1.jpg" },
 });
+const IMG_URL_2 = "https://s1.bzcdn.net/p/2.jpg";
+const byUrl = async ({ url }) => ({
+  ok: true, data: { data: Buffer.from(url === IMG_URL ? JPEG : PNG).toString("base64"), content_type: "image/jpeg", url },
+});
 const needsPermission = async () => ({
   ok: false, code: "NEEDS_PERMISSION", origin: "https://s1.bzcdn.net", error: "needs the site",
 });
@@ -108,6 +121,7 @@ async function content(scenario) {
   const img = () => fakeImg(IMG_URL);
   const summary = (h, result) => ({
     ok: result.ok, code: result.code, origins: result.origins, error: result.error,
+    partialOrigins: result.data && result.data.origins, unverified: result.data && result.data.unverified,
     fetched: h.fetched,
     sent: h.sent.flatMap((m) => m.images.map((i) => ({ content_type: i.content_type, url: i.url, bytes: Buffer.from(i.data, "base64").length }))),
   });
@@ -127,7 +141,7 @@ async function content(scenario) {
       return run(visible, { images: [img()], fetchImage: async () => ({ ok: false, error: "the address returned something that isn't a PNG, JPEG or WebP image" }) });
     case "canvas_tainted_url_from_sibling_img": {
       const canvas = fakeCanvas(800, 1200);
-      container([canvas, { tagName: "IMG", currentSrc: "", src: IMG_URL, getAttribute: () => null }]);
+      container([canvas, fakeImg(IMG_URL)]);
       return run(visible, { canvases: [canvas], fetchImage: okImage(PNG, "image/png") });
     }
     case "canvas_tainted_url_from_data_attribute": {
@@ -145,6 +159,33 @@ async function content(scenario) {
       canvas.getAttribute = (a) => (a === "data-src" ? IMG_URL : null);
       return run(visible, { canvases: [canvas], fetchImage: okImage(), bitmap: { width: 800, height: 400 } });
     }
+    case "two_canvases_map_to_their_own_images": {
+      const [c1, c2] = [placed(fakeCanvas(800, 1200), 0), placed(fakeCanvas(800, 1200), 1200)];
+      container([c1, placed(fakeImg(IMG_URL), 0), c2, placed(fakeImg(IMG_URL_2), 1200)]);
+      return run({ ...visible, all: true }, { canvases: [c1, c2], fetchImage: byUrl });
+    }
+    case "ambiguous_images_map_to_no_canvas": {
+      const [c1, c2] = [placed(fakeCanvas(800, 1200), 0), placed(fakeCanvas(800, 1200), 1200)];
+      container([c1, placed(fakeImg(IMG_URL), 0), placed(fakeImg(IMG_URL_2), 0), c2]);
+      return run({ ...visible, all: true }, { canvases: [c1, c2], fetchImage: byUrl });
+    }
+    case "an_image_elsewhere_is_not_the_canvas_image": {
+      const canvas = placed(fakeCanvas(800, 1200), 0);
+      container([canvas, placed(fakeImg(IMG_URL), 5000)]);
+      return run(visible, { canvases: [canvas], fetchImage: okImage() });
+    }
+    case "partial_read_still_asks_for_the_site": {
+      const [c1, c2] = [placed(fakeCanvas(800, 1200), 0), placed(fakeCanvas(800, 1200), 1200)];
+      c1.getAttribute = (a) => (a === "data-src" ? IMG_URL : null);
+      c2.getAttribute = (a) => (a === "data-src" ? IMG_URL_2 : null);
+      const fetchImage = async (m) => (m.url === IMG_URL ? byUrl(m) : needsPermission());
+      return run({ ...visible, all: true }, { canvases: [c1, c2], fetchImage });
+    }
+    case "capture_fetches_a_tainted_canvas_once": {
+      const canvas = fakeCanvas(800, 1200);
+      canvas.getAttribute = (a) => (a === "data-src" ? IMG_URL : null);
+      return run(capture, { canvases: [canvas], fetchImage: byUrl });
+    }
     case "capture_tainted_img_fetches_in_worker":
       return run(capture, { images: [img()], fetchImage: okImage() });
     case "capture_tainted_img_needs_permission":
@@ -158,7 +199,7 @@ async function content(scenario) {
   throw new Error(`unknown scenario ${scenario}`);
 }
 
-function loadBackground({ granted, response, fetchImpl }) {
+function loadBackground({ granted, response, fetchImpl, stored = {} }) {
   let listener = null;
   const fetchCalls = [];
   const sandbox = {
@@ -170,7 +211,7 @@ function loadBackground({ granted, response, fetchImpl }) {
     },
     chrome: {
       runtime: { onInstalled: { addListener() {} }, onMessage: { addListener: (fn) => { listener = fn; } } },
-      storage: { local: { remove() {}, get: async () => ({}), set: async () => {} } },
+      storage: { local: { remove() {}, get: async () => stored, set: async () => {} } },
       permissions: { contains: async ({ origins }) => granted(origins) },
     },
   };
@@ -178,7 +219,7 @@ function loadBackground({ granted, response, fetchImpl }) {
   vm.createContext(sandbox);
   vm.runInContext(read("background.js"), sandbox);
   const ask = (message, sender = {}) => new Promise((resolve) => { listener(message, sender, resolve); });
-  return { ask, fetchCalls };
+  return { ask, fetchCalls, sandbox };
 }
 
 // The shared origin check, as the popup loads it (a plain script, no worker).
@@ -243,6 +284,16 @@ async function background(scenario) {
     return { ...r, fetchCalls: h.fetchCalls.length, options: h.fetchCalls[0] && h.fetchCalls[0].options };
   };
   switch (scenario) {
+    case "base64_matches_btoa": {
+      const { base64Of } = loadBackground({ granted: () => true }).sandbox;
+      const out = {};
+      // 0x8000 is the chunk size; one byte over it exercises the join across chunks.
+      for (const size of [0, 1, 5, 0x8000, 0x8001, 3 * 0x8000 + 7]) {
+        const bytes = Uint8Array.from({ length: size }, (_, i) => (i * 31 + 7) & 0xff);
+        out[size] = base64Of(bytes) === Buffer.from(bytes).toString("base64");
+      }
+      return out;
+    }
     case "valid_jpeg": {
       const r = await go({ response: image(JPEG) });
       return { ok: r.ok, content_type: r.data && r.data.content_type, credentials: r.options.credentials,
@@ -327,8 +378,118 @@ async function background(scenario) {
   throw new Error(`unknown scenario ${scenario}`);
 }
 
+// A novel reader: paragraphs under one container, an optional selection, no page images
+// unless given. Returns the content script's API and what it asked the worker to send.
+function loadNovelPage({ paragraphs = [], selection = "", images = [], heading = "第三章 夜雨" }) {
+  const sent = [];
+  const box = { tagName: "DIV", parentElement: null };
+  const ps = paragraphs.map((text, i) => ({
+    tagName: "P", textContent: text, parentElement: box, index: i,
+    getBoundingClientRect: () => ({ top: i * 20, left: 0, width: 600, height: 20 }),
+    compareDocumentPosition(other) { return other.index > this.index ? 4 : 2; },
+  }));
+  const h1 = { textContent: `  ${heading}  ` };
+  const document = {
+    title: `${heading}_书名_小说网`, body: { innerText: "", appendChild() {} },
+    documentElement: { appendChild() {} }, images, head: { appendChild() {} },
+    querySelectorAll: (sel) => (sel === "p" ? ps : []),
+    querySelector: (sel) => (sel === "h1" ? h1 : null),
+    createElement: () => ({ style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
+    getElementById: () => null, addEventListener() {},
+  };
+  const sandbox = {
+    document, console, URL, setTimeout, clearTimeout, Promise, Map, Set, WeakMap, WeakSet, Math, Number,
+    String, Array, Error, Date, Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
+    getSelection: () => ({ toString: () => selection }),
+    getComputedStyle: () => ({ visibility: "visible", display: "block", opacity: "1" }),
+    MutationObserver: class { observe() {} disconnect() {} },
+    ResizeObserver: class { observe() {} disconnect() {} },
+    location: { href: "https://novel.example/ch/3", host: "novel.example" },
+    chrome: { runtime: { onMessage: { addListener() {} },
+      sendMessage: async (message) => { sent.push(message); return { ok: true, data: { saved: true } }; } } },
+  };
+  sandbox.window = sandbox;
+  sandbox.addEventListener = () => {};
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(read("content.js"), sandbox);
+  return { api: sandbox.__baihe, sent };
+}
+
+function loadPopupScript() {
+  const el = () => ({ addEventListener() {}, classList: { toggle() {} }, appendChild() {},
+    options: [], value: "", checked: true, textContent: "", hidden: false });
+  const sandbox = {
+    document: { getElementById: () => el(), querySelectorAll: () => [] },
+    chrome: { runtime: { sendMessage: async () => ({ ok: false, error: "x" }), onMessage: { addListener() {} } },
+              tabs: { query: async () => [] } },
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${read("site_access.js")}\n${read("popup.js")}\n;this.__popup = { novelButtonLabel, describeNovelSave, dramaTitles };`, sandbox);
+  return sandbox.__popup;
+}
+
+async function novel(scenario) {
+  const prose = ["雨下了一整夜。".repeat(20), "他推开门，看见院子里的灯还亮着。".repeat(10), "她没有回头。".repeat(20)];
+  switch (scenario) {
+    case "classify":
+      return {
+        prose: loadNovelPage({ paragraphs: prose }).api.isTextPage(),
+        comic: loadNovelPage({ paragraphs: prose, images: [fakeImg(IMG_URL)] }).api.isTextPage(),
+        short: loadNovelPage({ paragraphs: ["一句很短的话，只有这一点点而已，不到三百个字符的样子。"] }).api.isTextPage(),
+      };
+    case "selection_wins": {
+      const h = loadNovelPage({ paragraphs: prose, selection: "只要这一段。" });
+      const r = await h.api.saveNovelText({ dramaId: 4 });
+      return { sent: h.sent[0], fromSelection: r.data.fromSelection };
+    }
+    case "main_text": {
+      const h = loadNovelPage({ paragraphs: prose });
+      const r = await h.api.saveNovelText({ dramaId: 4 });
+      return { sent: h.sent[0], fromSelection: r.data.fromSelection };
+    }
+    case "long_heading": {
+      const h = loadNovelPage({ paragraphs: prose, heading: "a".repeat(199) + "😀" });
+      await h.api.saveNovelText({ dramaId: 4 });
+      return { heading: h.sent[0].heading };
+    }
+    case "over_cap": {
+      const h = loadNovelPage({ paragraphs: prose, selection: "字".repeat(200001) });
+      const r = await h.api.saveNovelText({ dramaId: 4 });
+      return { ok: r.ok, sentCount: h.sent.length };
+    }
+    case "worker": {
+      const post = async (url) => {
+        const calls = [];
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t" },
+          fetchImpl: async (target, options) => {
+            calls.push({ path: new URL(target).pathname, body: JSON.parse(options.body) });
+            return new Response(JSON.stringify({ saved: true }), { status: 200 });
+          },
+        });
+        await h.ask({ type: "saveNovelText", dramaId: 4, heading: "h", text: "正文", source: "s", url });
+        return calls[0];
+      };
+      return { public: await post("https://novel.example/ch/3"), private: await post("http://192.168.1.5/ch/3") };
+    }
+    case "popup_labels": {
+      const p = loadPopupScript();
+      p.dramaTitles.set("4", "书");
+      return {
+        none: p.novelButtonLabel("", ""), novel: p.novelButtonLabel("书", "novel"),
+        comic: p.novelButtonLabel("漫", "comic"),
+        saved: p.describeNovelSave({ saved: true, drama_id: 4, chars: 120, fromSelection: true }),
+        repeat: p.describeNovelSave({ saved: false, drama_id: 4 }),
+      };
+    }
+  }
+  throw new Error(`unknown scenario ${scenario}`);
+}
+
 const [kind, scenario] = process.argv.slice(2);
-const handlers = { content, background, popup };
+const handlers = { content, background, popup, novel };
 const result = await handlers[kind](scenario);
 process.stdout.write(JSON.stringify(result));
 process.exit(0);

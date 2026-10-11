@@ -339,6 +339,18 @@ class TestRenameSpeaker:
         assert self._rename(client, did, "Speaker 1", "Mei").status_code == 409
         assert isolated_db.load_line_objects(did)[0].speaker == "Speaker 1"
 
+    def test_undo_refused_while_a_job_runs_says_so_and_works_later(self, client, isolated_db, monkeypatch):
+        did = _drama(isolated_db, speakers=("Speaker 1",))
+        undo = self._rename(client, did, "Speaker 1", "Mei").json()["undo"]
+        from services import drama_service
+        monkeypatch.setattr(drama_service, "job_running_for_drama", lambda *_a, **_k: True)
+        r = client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
+        assert r.status_code == 409 and r.json()["error"]["details"] == {"reason": "job_running"}
+        monkeypatch.undo()
+        r = client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
+        assert r.status_code == 200
+        assert isolated_db.load_line_objects(did)[0].speaker == "Speaker 1"
+
     def test_undo_with_a_foreign_line_id_touches_nothing(self, client, isolated_db):
         did = _drama(isolated_db, speakers=("Speaker 1",))
         other = _drama(isolated_db, speakers=("Mei",))

@@ -108,6 +108,7 @@ class ManhuakuSource(SourceAdapter):
         # follows, the same pattern bilibili_manga.py already uses for its
         # own short-lived signed image tokens.
         self._blob_page_bytes = {}
+        self._skipped = {}
 
     def _get(self, path: str, action: str) -> str:
         resp = self.client.get(urljoin(self.base_url, path), action=action)
@@ -218,15 +219,9 @@ class ManhuakuSource(SourceAdapter):
             if c.url.startswith("blob:"):
                 c.content = blob_bytes[c.url]
                 generic_import.measure(c)
-                continue
-            try:
-                resp = self.client.get(c.url, classify_body=False, headers={"Referer": chapter.url},
-                                       action=f"Checking image {c.order + 1}/{len(candidates)}")
-                c.content = resp.content
-                generic_import.measure(c)
-            except SourceError as e:
-                c.reject_reason = f"couldn't download ({e.reason.value})"
-        kept, _rejected = generic_import.filter_page_images(candidates, chapter.url)
+        generic_import.download_candidates(candidates, chapter.url, self.client)
+        kept, rejected = generic_import.filter_page_images(candidates, chapter.url)
+        self._skipped[chapter.chapter_id] = [c.reject_reason or "not a page" for c in rejected]
         if not kept:
             raise LayoutChanged("any real page images among the rendered page's image candidates")
         refs = []
@@ -248,6 +243,9 @@ class ManhuakuSource(SourceAdapter):
         name = page.url.split("?", 1)[0]
         ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
         return resp.content, ext
+
+    def skipped_pages(self, chapter) -> list:
+        return self._skipped.pop(chapter.chapter_id, [])
 
     def parse_url(self, url: str):
         m = re.search(r"manhuaku\.net/chapter/([^/?#]+)\.html", url or "")

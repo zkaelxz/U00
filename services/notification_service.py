@@ -264,7 +264,7 @@ def clear_channel(channel, env_path=None) -> dict:
 
 # --- message content -------------------------------------------------------
 
-_DRAMA_REF = re.compile(r"\(drama #?(\d+)\)")
+_DRAMA_REF = re.compile(r"\((?:title|drama) #?(\d+)\)")
 _SPACES = re.compile(r"\s+")
 
 

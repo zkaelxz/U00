@@ -2,7 +2,8 @@
 api/routers/review_lines_routes.py -- the Review stage's READ-ONLY line
 views for one drama: paginated/filtered line list,
 transcript search, find-and-replace PREVIEW, coverage check, pacing check,
-per-line provenance and original-transcript text.
+lines whose source changed after translation, per-line provenance and
+original-transcript text.
 
 Every route here only reads. The find-and-replace preview is a POST solely
 because it takes a request body; it writes nothing. Lines are addressed by
@@ -16,8 +17,8 @@ from api.auth import require_permission
 from api.schemas import (ErrorResponse, ReviewLinesCoverage, ReviewLinesFindReplaceRequest,
                          ReviewLinesLine, ReviewLinesMatch, ReviewLinesOriginalText,
                          ReviewLinesPacing, ReviewLinesPage, ReviewLinesProvenance,
-                         ReviewLinePosition)
-from services import review_lines_service
+                         ReviewLinePosition, ReviewSourceChanged)
+from services import review_lines_service, source_change_service
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
@@ -50,6 +51,14 @@ def post_find_replace_preview(body: ReviewLinesFindReplaceRequest, drama_id: int
     return review_lines_service.preview_find_replace(
         drama_id, body.find, body.replace, case_sensitive=body.case_sensitive,
         use_regex=body.use_regex)
+
+
+@router.get("/dramas/{drama_id}/source-changed", dependencies=[require_permission("lines.read")],
+            response_model=ReviewSourceChanged,
+            summary="Lines whose source text changed after they were translated",
+            responses=_404)
+def get_review_source_changed(drama_id: int = Path(ge=1)):
+    return source_change_service.get_source_changed(drama_id)
 
 
 @router.get("/dramas/{drama_id}/coverage", dependencies=[require_permission("lines.read")], response_model=ReviewLinesCoverage,

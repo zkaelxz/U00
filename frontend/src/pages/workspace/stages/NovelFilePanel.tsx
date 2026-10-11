@@ -124,7 +124,7 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
     const req = source === 'file' && file ? api.upload(dramaId, file) : api.paste(dramaId, text)
     req.then((r) => {
       if (source === 'paste') setText('')
-      done(`${r.replaced ? 'Replaced' : 'Saved'}: ${r.char_count.toLocaleString()} characters.`)
+      done(`${r.replaced ? 'Replaced' : 'Saved'}: ${r.char_count.toLocaleString()} characters.${r.warning ? ` ${r.warning}` : ''}`)
     }, fail)
   }
   const remove = () => {

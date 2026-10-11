@@ -14,10 +14,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getRawChapterText, getRawChapters } from '../../../api/novelChapters'
+import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
 import { SourceLink } from '../../discover/ExternalLink'
 import { copyText } from '../../../components/clipboard'
+import { buttonClass } from '../../../components/uiClasses'
+import { routeHref } from '../../../router'
 import type { NovelChapterList, NovelChapterRow, NovelChapterText } from '../../../types/novelChapters'
 import { useStage } from '../StageContext'
 import { chaptersHeadline, chaptersSummary, loadedLabel, neighbour, optionLabel, rowMeta, rowTitle, translationLine } from './novelChapters'
@@ -140,6 +143,11 @@ export function NovelChaptersPanel() {
     <section className="panel" aria-label="Saved chapters">
       <Section storageKey="source.novel.chapters" defaultOpen title="Saved chapters" summary={chaptersSummary(list)}>
         <p className="muted" data-testid="chapters-headline">{chaptersHeadline(list)}</p>
+        {list && !hasText && (
+          <div className="actions">
+            <ButtonLink href={routeHref({ name: 'sources' })}>Import from Sources</ButtonLink>
+          </div>
+        )}
         {hasText && translation && <p className="muted" data-testid="chapters-translation">{translation}</p>}
         {hasText && !list.split && (
           <p className="muted">
@@ -148,7 +156,7 @@ export function NovelChaptersPanel() {
         )}
         {hasText && list.split && list.total > 1 && (
           <div className="chapters-nav" role="group" aria-label="Chapter selector">
-            <button type="button" aria-label="Previous chapter" disabled={loading || prev === null} onClick={() => prev !== null && open(prev)}>‹</button>
+            <button type="button" className={buttonClass('secondary')} aria-label="Previous chapter" disabled={loading || prev === null} onClick={() => prev !== null && open(prev)}>‹</button>
             <select
               aria-label="Chapter"
               value={preview?.number ?? ''}
@@ -162,13 +170,13 @@ export function NovelChaptersPanel() {
                 <option key={r.number} value={r.number}>{optionLabel(r)}</option>
               ))}
             </select>
-            <button type="button" aria-label="Next chapter" disabled={loading || following === null} onClick={() => following !== null && open(following)}>›</button>
+            <button type="button" className={buttonClass('secondary')} aria-label="Next chapter" disabled={loading || following === null} onClick={() => following !== null && open(following)}>›</button>
           </div>
         )}
         {hasText && (
           <ul className="chapters-list" aria-label="Saved chapters">
             {rows.map((r) => (
-              <li key={r.number}>
+              <li key={r.number} className="chapters-item">
                 <button
                   type="button"
                   className="chapters-row"
@@ -186,7 +194,7 @@ export function NovelChaptersPanel() {
                     </span>
                   )}
                 </button>
-                <SourceLink href={r.url}>Open chapter page</SourceLink>
+                <SourceLink href={r.url} aria-label={`Open chapter page: ${optionLabel(r)}`}>Open chapter page</SourceLink>
               </li>
             ))}
           </ul>
@@ -218,7 +226,7 @@ export function NovelChaptersPanel() {
         {loading && !preview && <p className="muted" role="status">Loading…</p>}
         {notice && <p role="status">{notice}</p>}
         <div className="actions">
-          <button type="button" onClick={() => setReloads((n) => n + 1)}>Refresh</button>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setReloads((n) => n + 1)}>Refresh</button>
         </div>
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
       </Section>

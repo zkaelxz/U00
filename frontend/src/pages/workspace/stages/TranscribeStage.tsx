@@ -597,6 +597,11 @@ export default function TranscribeStage({
           <Toggle checked={runDiarize} onChange={setRunDiarize} />
         </Field>
       </div>
+      {notInstalled && (
+        <div id="transcribe-not-installed">
+          <PreflightCard needs={['whisper', 'ffmpeg', 'gpu']} whisperInstalled={false} onReady={reloadConfigWhenReady} />
+        </div>
+      )}
       <div className="actions">
         <button
           type="button"
@@ -612,11 +617,6 @@ export default function TranscribeStage({
           <span className="muted" role="note" data-testid="separation-note">Vocal separation adds time, a lot on CPU.</span>
         )}
       </div>
-      {notInstalled && (
-        <div id="transcribe-not-installed">
-          <PreflightCard needs={['whisper', 'ffmpeg', 'gpu']} whisperInstalled={false} onReady={reloadConfigWhenReady} />
-        </div>
-      )}
       {file && replaceUnconfirmed && !busy && (
         <p className="muted" role="note" data-testid="transcribe-staged-unused">
           The chosen file is not used for this run. Transcribe uses the current audio/video; tick "Replace the current
@@ -746,7 +746,7 @@ export default function TranscribeStage({
             />
           </Field>
           <details>
-            <summary>Advanced: replace the automatic prompt</summary>
+            <summary>More: replace the automatic prompt</summary>
             <Field
               label="Replacement prompt"
               help="Used instead of the automatic prompt and extra names. Leave empty to keep the automatic one."

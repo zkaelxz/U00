@@ -11,13 +11,17 @@
 import { useEffect, useState } from 'react'
 
 import { getShareByDefault, listSharing, setItemPrivate, setShareByDefault } from '../../api/sharing'
+import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { badgeClass, buttonClass } from '../../components/uiClasses'
-import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../../hooks/useSession'
+import { REMOTE_ADMIN_NOTE, isRemoteAdmin, recheckSession, useSession } from '../../hooks/useSession'
+import { routeHref } from '../../router'
 import type { SharingItem } from '../../types/sharing'
 import {
+  ACCOUNT_UNAVAILABLE_NOTE,
+  CHECKING_ACCOUNT_NOTE,
   PC_ITEMS_NOTE,
   SHARE_DEFAULT_LABEL,
   applyFlip,
@@ -69,6 +73,23 @@ export function SharingCard() {
         setError(sharingErrorText(e))
         setBusy(false)
       },
+    )
+  }
+
+  if (session.status !== 'ready') {
+    return (
+      <Card title={TITLE} aria-label={TITLE} className="sharing-card">
+        {session.status === 'loading' ? (
+          <p className="muted" role="status">{CHECKING_ACCOUNT_NOTE}</p>
+        ) : (
+          <div className="settings-actions">
+            <p className="muted" role="status">{ACCOUNT_UNAVAILABLE_NOTE}</p>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => void recheckSession()}>
+              Retry
+            </button>
+          </div>
+        )}
+      </Card>
     )
   }
 
@@ -187,7 +208,10 @@ function SharingItems() {
       {items === null ? (
         !listError && <p className="muted">Loading…</p>
       ) : items.length === 0 ? (
-        <p className="muted">There are no titles or series yet.</p>
+        <div className="settings-actions">
+          <span className="muted">There are no titles or series yet.</span>
+          <ButtonLink size="sm" href={routeHref({ name: 'library' })}>Go to Library</ButtonLink>
+        </div>
       ) : pcOnly && filterPcPrivate(items).length === 0 ? (
         <p className="muted">No private items created at the PC{items.length < total ? ' in the items shown so far' : ''}.</p>
       ) : (

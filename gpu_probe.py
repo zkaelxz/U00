@@ -21,8 +21,11 @@ def prefetch() -> None:
     """Never raises; a failed reading is simply not cached."""
     import diagnostics_torch
     try:
-        at = time.monotonic()
         load = diagnostics_torch.external_gpu_load()
+        # Stamped after the probe: a nvidia-smi that hangs to its timeout
+        # returns None, and that "unknown" must still count as fresh or the
+        # locked path would re-run the slow probe under the lock.
+        at = time.monotonic()
         _local.readings = {"busy": diagnostics_torch.external_gpu_is_busy(load), "load": load, "at": at}
     except Exception:
         _local.readings = None

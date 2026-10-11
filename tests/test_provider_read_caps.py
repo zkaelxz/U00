@@ -6,7 +6,7 @@ import pytest
 import requests
 import urllib3
 
-import bulk_translate
+import bulk_providers
 import core
 import qa
 from engine_backends import gemini, llm_tasks, local, openai_compat, shared
@@ -50,7 +50,7 @@ def posts(monkeypatch):
         def fake(*args, **kwargs):
             calls.append(kwargs)
             return resp
-        patch_post(monkeypatch, fake)
+        install.seen = patch_post(monkeypatch, fake)
         monkeypatch.setattr(requests, "get", fake)
         return resp
     install.calls = calls
@@ -90,7 +90,7 @@ class TestEngines:
             engine.translate_batch(["你好"], {})
         assert SECRET not in str(exc.value)
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True and posts.calls[0]["timeout"]
+        assert posts.seen[0]["method"] == "POST" and posts.seen[0]["timeout"]
 
     def test_openai_chat(self, posts):
         r = posts(_oversized())
@@ -98,7 +98,7 @@ class TestEngines:
         with pytest.raises(shared.ProviderResponseTooLarge):
             engine.chat([{"role": "user", "content": "hi"}])
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True
+        assert posts.seen[0]["method"] == "POST"
 
     def test_openai_error_detail_is_capped_too(self, posts):
         r = posts(StreamResp(b"x" * (openai_compat.ERROR_BODY_MAX_BYTES + 1), status=400))
@@ -144,11 +144,13 @@ class TestEngines:
         assert local.check_ollama_reachable("http://cap-test:11434") is True
         assert r.chunks_read <= 1 and r.closed  # lib.http reads one byte of a truncated body
 
-    def test_call_llm_json_gemini(self, posts):
+    def test_call_llm_json_gemini(self, posts, monkeypatch):
+        monkeypatch.setattr(shared, "_cancellable_sleep", lambda s: pytest.fail("retry slept"))
         r = posts(_oversized())
         with pytest.raises(shared.ProviderResponseTooLarge):
             llm_tasks.call_llm_json(gemini.GeminiEngine(SECRET), "prompt")
         assert r.chunks_read == 0 and r.closed
+        assert len(posts.seen) == 1  # a too-large reply is not billed a second time
 
 
 class TestQa:
@@ -157,7 +159,7 @@ class TestQa:
         with pytest.raises(shared.ProviderResponseTooLarge):
             qa.dispatch_chat("sys", [{"role": "user", "content": "q"}], gemini.GeminiEngine(SECRET))
         assert r.chunks_read == 0 and r.closed
-        assert posts.calls[0]["stream"] is True
+        assert posts.seen[0]["method"] == "POST"
 
     def test_ollama(self, posts):
         r = posts(_oversized())
@@ -186,11 +188,11 @@ class TestBulkGemini:
         return install
 
     def _provider(self):
-        return bulk_translate.GeminiBatchProvider(gemini.GeminiEngine(SECRET))
+        return bulk_providers.GeminiBatchProvider(gemini.GeminiEngine(SECRET))
 
     def test_poll_reply_over_cap(self, posts):
         r = posts(StreamResp(headers={
-            "Content-Length": str(bulk_translate.BATCH_RESPONSE_MAX_BYTES + 1)}))
+            "Content-Length": str(bulk_providers.BATCH_RESPONSE_MAX_BYTES + 1)}))
         with pytest.raises(RuntimeError, match="Gemini batch request failed: The response is larger"):
             self._provider().poll("batches/1")
         assert r.chunks_read == 0 and r.closed
@@ -199,7 +201,7 @@ class TestBulkGemini:
 
     def test_auth_error_reads_only_a_small_error_body(self, posts):
         r = posts(StreamResp(b"x" * 100_000, status=401))
-        with pytest.raises(bulk_translate.BulkAuthError) as exc:
+        with pytest.raises(bulk_providers.BulkAuthError) as exc:
             self._provider().poll("batches/1")
         assert r.chunks_read <= 1 and r.closed
         assert SECRET not in str(exc.value)
@@ -367,3 +369,31 @@ class TestGroqErrorWording:
         with pytest.raises(core.GroqTranscriptionError) as exc:
             core.transcribe_with_groq(str(audio), "zh", SECRET)
         assert str(exc.value) == "Groq's reply wasn't valid JSON."
+
+
+class TestLocalChatSessionCap:
+    def test_an_oversized_ollama_reply_is_the_provider_refusal_not_the_session_cap(self, monkeypatch):
+        import io
+        from urllib3.response import HTTPResponse
+
+        class Adapter:
+            def send(self, request, **kw):
+                resp = requests.Response()
+                resp.status_code, resp.url, resp.request = 200, request.url, request
+                body = b"x" * (shared.PROVIDER_RESPONSE_MAX_BYTES + 1)
+                resp.raw = HTTPResponse(body=io.BytesIO(body), preload_content=False, status=200)
+                return resp
+
+            def close(self):
+                pass
+
+        real = http.session
+
+        def session(**kw):
+            s = real(**kw)
+            s.mount("http://", Adapter())
+            return s
+
+        monkeypatch.setattr(local.http, "session", session)
+        with pytest.raises(shared.ProviderResponseTooLarge):
+            local._ollama_chat_abortable("http://127.0.0.1:11434", {"model": "m"}, lambda: False)

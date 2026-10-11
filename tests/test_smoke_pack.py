@@ -7,6 +7,7 @@ import os
 import sys
 
 import pytest
+from tests.saved_settings import patch_setting
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -266,7 +267,7 @@ def test_stage_recorder_durations():
 def test_run_clip_passes_the_offline_whisper_folder(tmp_path, monkeypatch, configured):
     from services import settings_service
     from services import transcribe_pipeline as ts
-    monkeypatch.setattr(settings_service, "get_whisper_model_path", lambda: configured)
+    patch_setting(monkeypatch, "whisper_model_path", configured)
     seen = {}
 
     def fake_pipeline(rep, *args, **kwargs):

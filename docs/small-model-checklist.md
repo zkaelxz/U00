@@ -111,13 +111,13 @@ and `.aider.model.settings.yml` (aider otherwise sizes `num_ctx` per request):
   extra_params:
     num_ctx: 65536
 ```
-Set `OLLAMA_API_BASE=http://127.0.0.1:11434` if Ollama isn't on the default address. The three `read` files cost
-about 5.5k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
+Set `OLLAMA_API_BASE=http://127.0.0.1:11434` if Ollama isn't on the default address. The three `read` files (about 33 KB) cost
+about 8k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
 
 Branch and PR flow: one task per branch off the latest `baihe-subtitler`
 (`git fetch origin && git checkout -b <task-name> origin/baihe-subtitler`; roadmap steps use `step-<id>-<short-name>`).
 Run the area test, then the quick guards, and the frontend commands if you touched `frontend/`. Push and open a
-draft PR into `baihe-subtitler`; the owner merges when CI is green. Finish with a short summary: what
+draft PR into `baihe-subtitler`; the lead session merges when CI is green. Finish with a short summary: what
 changed, commands run with pass counts, what you're unsure about.
 
 Stop and ask the owner before touching:

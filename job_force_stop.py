@@ -68,7 +68,7 @@ def abandoned_gpu_count_locked(exclude_job_id=None) -> int:
 
 def refresh_abandoned_gpu_rows() -> None:
     """The abandoned worker no longer reports progress, so without this its
-    `ui:<id>` row would age past db.GPU_LOCK_STALE_SECONDS and another
+    `ui:<id>` row would age past gpu_slots.GPU_LOCK_STALE_SECONDS and another
     process could take the card beside it. Best-effort."""
     import background_jobs as bj
     with bj._lock:
@@ -78,9 +78,8 @@ def refresh_abandoned_gpu_rows() -> None:
     if not ids:
         return
     try:
-        import db
-        for jid in ids:
-            db.heartbeat_gpu_lock(f"ui:{jid}")
+        from jobs import gpu_slots
+        gpu_slots.heartbeat(f"ui:{jid}" for jid in ids)
     except Exception:
         pass
 
