@@ -30,6 +30,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "db/auth.py",
     "db/benchmark.py",
     "db/job_records.py",
+    "db/speakers.py",
     "db/usage.py",
     "debug_view.py",
     "device_tokens.py",
