@@ -3,7 +3,7 @@
 An adapter teaches the app one site. Everything else is handled for you:
 pacing, retries, challenge hand-off, health tracking, caching, the Sources
 tab UI, multi-source search, chapter tracking and import into Scanlate or
-Workspace. You never touch the translation engine, `db.py`, or any tab.
+Workspace. You never touch the translation engine, the `db` package, or any tab.
 
 ## 1. Check the site first
 

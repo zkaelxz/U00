@@ -14,7 +14,7 @@ frontend/ (React)
   -> api/routers/*_routes.py       thin: parse, declare permission, call a service
   -> services/*_service.py         UI-free logic; raises lib/errors.py errors
   -> root domain modules           core, translate_engines, scanlate, ...
-  -> db.py                         plain sqlite3
+  -> db/ (package)                 plain sqlite3
   lib/                             shared helpers (errors, url_guard, capped_body, http, proc, proc_kill,
                                    cancellable_lock, settings_schema, link_new); every layer may import it, it imports none
 ```

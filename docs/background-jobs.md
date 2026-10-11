@@ -6,8 +6,8 @@ CLI fit around it. The code is the authority: this page cites modules and functi
 so re-check against them before relying on a detail.
 
 Modules: `background_jobs.py` (the runner), `services/jobs_service.py` (what a client
-sees), `jobs/job_store.py` (every write and close of a `job_records` row), `db.py`
-(`job_records`, `gpu_lock`), `services/shutdown_service.py`,
+sees), `jobs/job_store.py` (every write and close of a `job_records` row), `db/job_records.py`
+(`job_records`) and `db/__init__.py` (`gpu_lock`), `services/shutdown_service.py`,
 `api/background.py`, `services/job_timing_service.py`, `cli.py`.
 
 One machine, one process owning each job. This is not a distributed queue.
@@ -260,7 +260,7 @@ A GPU job's worker is started through `services/gpu_process_job.py`: `run_in_chi
 
 Every process-job worker hands its result back through `job_process_result.py`: small items go on the queue, a large final result is written to a file and only a short marker is queued, so a child killed mid-write cannot leave the parent blocked on a half-written message. A done job has already removed its result file. A thread job that waits for the pipeline lock takes it with `lib/cancellable_lock.hold(lock, cancel_check)`, which polls the cancel check between acquire attempts so Cancel works while it waits. A URL-media download runs yt-dlp in a killable child (`services/ytdlp_child.py`, started through `lib/proc.stream_tree`), so Cancel and the time cap kill extraction, challenge solving and ffmpeg post-processing together.
 
-The job store in `jobs/job_store.py` (library.db as the authority instead of the in-memory dict) is an open PR (#1058), not merged: today the in-memory dict is still the authority.
+The job store in `jobs/job_store.py` (#1058, merged) is the only writer of `job_records` rows; the in-memory dict still decides what a job this process runs does next.
 
 A worker whose server dies is not left running: a process job started with
 `start_own_process_group()` ends itself when its parent is gone

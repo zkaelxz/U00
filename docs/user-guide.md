@@ -78,6 +78,10 @@ Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration
 
 **Context from recent lines.** Translate > More options has "Context before" and "Context ahead" (number fields; the defaults are 10 before and 6 ahead, for novels too; 0 turns it off). They show LLM engines how the preceding lines were already translated, so pronouns and relation-only references stay consistent across batches. Consistency across separate VODs of one streamer comes from assigning them to the same series.
 
+**Reply check.** After each batch on an AI engine, Baihe checks replies that carry every id but look wrong: two lines merged into one, text shifted onto a neighbouring line, a duplicate, or source-language script left in the English (script from glossary terms and quotes is allowed). Those lines are asked again once, in at most two extra requests per batch, and a reply is replaced only if the new one fails fewer checks. A line that still looks wrong is kept and flagged "check: may be merged or shifted". The extra requests are billed like any other and count toward the spending cap. It does not run in Reflect mode or Translate by sentence.
+
+**Reflect** (the Translate stage's Reflect toggle) sends its fixed instructions once as a system block instead of repeating them in each prompt; on Claude that block is cached, so the three passes and later batches re-read it at the cached price.
+
 ### Translation guide (style, terms, and notes)
 
 Configured per drama in the Workspace's Translate stage.
@@ -88,6 +92,8 @@ Configured per drama in the Workspace's Translate stage.
 - **Import / export glossaries** as CSV, TSV or JSON (a two-column term/translation sheet works; category, policy, enforce_exact and notes columns are picked up when present).
 - **Enforce exact** (the glossary's "Exact" column) does a hard find-and-replace after translation for names where drift is unacceptable.
 - **Translation notes** flag what didn't survive the crossing (set phrases, puns, allusions, honorifics); they are stored per line and export as a Markdown appendix.
+- **Language packs** (Glossary > Language packs) are built-in lists of honorifics, address terms, family words and set phrases for Chinese, Japanese and Korean, plus shared drama terms. Each title turns packs on or off; "View entries" lists a pack and can add one entry to the title's glossary. Settings > Language packs shows every pack with its entries and notes, which are on by default, and lets you open a pack to read it; a title follows the defaults until it gets its own choice, and the title's own glossary always beats a pack entry. Only the entries whose source text occurs in a run go into the prompt, at most 60, the ones used most first. Four VTuber packs (`ja-vtuber-core`, `ja-vtuber-names`, `zh-vtuber-core`, `zh-vtuber-names`) are off by default.
+- **Find similar** (a glossary row's button) looks through the title's source lines for other spellings that sound like that term. Nothing is added until you confirm "Add as alias". **Find possible names** (under the glossary table) looks for names written several slightly different ways and offers to make a term from them. Both are free and offline, and change nothing until you confirm.
 - **Genre guidance** (toggleable): pronoun clarity, kinship terms as intimate address, no softening of romantic content.
 
 ### Adaptive translation style
@@ -164,7 +170,8 @@ The Live page pulls a running stream, cuts it into short chunks (your choice of 
 - Whisper loads before capture starts, so the first chunk is not behind the stream. The status names each step and how fast the last chunk was (audio seconds, time taken, times real time).
 - If Whisper is slower than the stream, the oldest waiting audio is skipped ("Skipped N s to catch up") instead of falling further behind. A chunk Whisper cannot finish in max(30 s, 6 x chunk length) is skipped ("Skipped chunk N") and the run goes on; while an abandoned Whisper call is still running, further chunks are skipped ("Whisper is still busy") instead of starting a second one. Skips are counted in one line per reason and stay listed under the status.
 - **Stop** captions what was already captured (the chunks still waiting and the last partial chunk), lets their translations finish, then ends; the button then reads **Stop now**, which ends at once, within a couple of seconds even in the middle of a Whisper call. An error ends the session without captioning what was waiting.
-- Accuracy is lower than the normal pipeline: each chunk is transcribed alone with a few seconds of overlap and no glossary priming.
+- **Use glossary and packs from title** (optional; None by default) picks one of your titles. The names and terms of that title's glossary and its language packs that occur in a chunk are sent with that chunk's translation request. Nothing is written to the title.
+- Accuracy is lower than the normal pipeline: each chunk is transcribed alone with a few seconds of overlap, and Whisper gets no glossary priming.
 - The feed is not saved to the Library; copy what you want before you stop.
 - A resolved stream URL can expire after a few hours; stop and start again.
 - Tested against a continuous ffmpeg capture, not a real live broadcast.
@@ -333,6 +340,10 @@ The list of every background job (translate, transcribe, dub, diarize, Live capt
 The redacted support report (strips API keys, paths and user names) is in the header's "Report a problem" dialog ("Copy a report for a bug"). The App Assistant (Developer Mode, PC only) is its own page.
 
 Run Diagnostics first whenever something isn't working.
+
+### Costs
+
+Costs are estimates from the app's price table. Settings > Spending sets the caps. Settings > Past costs ("Check past costs") previews entries that were priced at a higher model's rate; nothing changes until you press Apply, and "Undo re-cost" puts the old figures back. Settings > Spend history lists spend and calls by month for the last months, with By operation, By engine and model, and By title breakdowns for a chosen month and a Download CSV. Past costs and Spend history are PC only; the Library tools page also lists estimated cost per title.
 
 ### Benchmark Lab
 
