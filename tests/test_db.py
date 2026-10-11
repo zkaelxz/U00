@@ -1515,6 +1515,8 @@ class TestImportTimeSafety:
                 names.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 names.add(node.module.split(".")[0])
+                # `from lib import gzip_text` needs the submodule too.
+                names.update(f"{node.module}.{alias.name}" for alias in node.names)
         return names
 
     @classmethod
@@ -1532,7 +1534,8 @@ class TestImportTimeSafety:
 
         def local_source(name):
             for base in (project_root, os.path.join(project_root, "lib")):
-                for rel in (name + ".py", os.path.join(name, "__init__.py")):
+                path = name.replace(".", os.sep)
+                for rel in (path + ".py", os.path.join(path, "__init__.py")):
                     if os.path.isfile(os.path.join(base, rel)):
                         return base, rel
             return None
@@ -2336,6 +2339,48 @@ def test_snapshot_waits_for_a_concurrent_writer_instead_of_failing(isolated_db):
         stop.set()
         t.join()
     assert errors == []
+
+
+class TestLineHistoryCompression:
+    def _snapshots(self, did, n):
+        ids = []
+        for i in range(n):
+            lines = [Line(idx=0, start=0.0, end=1.0, zh=f"第{i}版", en=f"take {i}")]
+            ids.append(db.save_line_history_snapshot(did, lines, f"s{i}"))
+        return ids
+
+    def _stored(self, did):
+        with contextlib.closing(db.get_conn()) as conn:
+            return {r[0]: (r[1], r[2]) for r in conn.execute(
+                "SELECT id, typeof(snapshot_json), snapshot_json FROM line_history "
+                "WHERE drama_id = ?", (did,))}
+
+    def test_newest_three_stay_text_and_older_ones_are_gzip(self, isolated_db):
+        did = db.create_drama(title_zh="D")
+        ids = self._snapshots(did, 6)
+        stored = self._stored(did)
+        assert [stored[i][0] for i in ids] == ["blob"] * 3 + ["text"] * 3
+        assert all(stored[i][1][:2] == b"\x1f\x8b" for i in ids[:3])
+
+    def test_every_kept_snapshot_reads_back_whatever_its_form(self, isolated_db):
+        did = db.create_drama(title_zh="D")
+        ids = self._snapshots(did, 12)
+        kept = [h["id"] for h in db.list_line_history(did)]
+        assert sorted(kept) == ids[2:]          # still the last 10: the count is unchanged
+        for n, hid in enumerate(ids[2:], start=2):
+            rows = db.get_line_history_snapshot(hid)
+            assert rows[0]["zh"] == f"第{n}版" and rows[0]["en"] == f"take {n}"
+
+    def test_a_plain_snapshot_from_before_compression_still_reads(self, isolated_db):
+        did = db.create_drama(title_zh="D")
+        with contextlib.closing(db.get_conn()) as conn:
+            hid = conn.execute(
+                "INSERT INTO line_history (drama_id, label, snapshot_json, created_at) "
+                "VALUES (?, 'old', ?, '2000-01-01')", (did, '[{"zh": "旧"}]')).lastrowid
+            conn.commit()
+        self._snapshots(did, 4)
+        assert self._stored(did)[hid][0] == "blob"
+        assert db.get_line_history_snapshot(hid) == [{"zh": "旧"}]
 
 
 class TestJobRecordCancelAcrossRuns:
