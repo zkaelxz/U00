@@ -6,6 +6,7 @@ import datetime
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
 from types import SimpleNamespace as NS
@@ -15,6 +16,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
+import bulk_providers as bp
 import bulk_translate as bt
 import translate_engines as te
 from core import Line
@@ -175,7 +177,7 @@ class TestApplyResults:
         _answer_every_request(batches)
         batches.status = "ended"
 
-        assert bt.check_once(bulk_id, bt.make_provider("claude", engine)) == "applied"
+        assert bt.check_once(bulk_id, bp.make_provider("claude", engine)) == "applied"
         for r in isolated_db.load_lines(did):
             assert r["en"] == f"EN[{r['zh']}]"
         summary = isolated_db.get_bulk_job(bulk_id)["result_summary"]
@@ -195,7 +197,7 @@ class TestApplyResults:
         batches = engine.client.messages.batches
         _answer_every_request(batches)
         batches.status = "ended"
-        bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
 
         rows = isolated_db.load_lines(did)
         assert len(rows) == 6
@@ -225,7 +227,7 @@ class TestApplyResults:
         batches = engine.client.messages.batches
         _answer_every_request(batches)
         batches.status = "ended"
-        bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
 
         rows = isolated_db.load_lines(did)
         assert rows[0]["en"] == "" and rows[0]["flag"] == "bulk_source_changed"
@@ -242,7 +244,7 @@ class TestApplyResults:
         batches = engine.client.messages.batches
         _answer_every_request(batches)
         batches.status = "ended"
-        bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
 
         rows = isolated_db.load_lines(did)
         assert rows[2]["en"] == "My own wording."
@@ -262,7 +264,7 @@ class TestApplyResults:
             _succeeded(f"d{did}_b1", {str(ids[4]): "E", str(ids[5]): "F"}),
         ]
         batches.status = "ended"
-        bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
         assert [r["en"] for r in isolated_db.load_lines(did)] == ["A", "B", "C", "", "E", "F"]
         assert isolated_db.get_bulk_job(bulk_id)["result_summary"]["missing"] == 1
 
@@ -276,7 +278,7 @@ class TestApplyResults:
                           cache_creation_input_tokens=0))
         batches.results_list = [NS(custom_id=f"d{did}_b0", result=NS(type="succeeded", message=msg))]
         batches.status = "ended"
-        bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
         assert [r["en"] for r in isolated_db.load_lines(did)] == ["", ""]
 
     def test_errored_and_expired_requests_leave_lines_untranslated(self, isolated_db):
@@ -289,7 +291,7 @@ class TestApplyResults:
             r if r.custom_id != f"d{did}_b0" else NS(custom_id=r.custom_id, result=NS(type="expired"))
             for r in batches.results_list]
         batches.status = "ended"
-        bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
         rows = isolated_db.load_lines(did)
         assert [r["en"] for r in rows[:3]] == ["", "", ""]
         assert all(r["en"] for r in rows[3:])
@@ -302,7 +304,7 @@ class TestApplyResults:
         batches = engine.client.messages.batches
         _answer_every_request(batches)
         batches.status = "ended"
-        bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
         full = te.estimate_cost("claude-sonnet-5", 1000, 100)
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(full * 0.5)
 
@@ -317,14 +319,14 @@ class TestApplyResults:
         batches = engine.client.messages.batches
         _answer_every_request(batches, fn=lambda zh: "Su Xian smiled.")
         batches.status = "ended"
-        bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        bt.check_once(bulk_id, bp.make_provider("claude", engine))
         assert isolated_db.load_lines(did)[0]["en"] == "Su Shan smiled."
 
     def test_still_pending_changes_nothing(self, isolated_db):
         engine = _claude_engine()
         did = _drama(isolated_db, n=2)
         bulk_id = _submit(isolated_db, did, engine)
-        assert bt.check_once(bulk_id, bt.make_provider("claude", engine)) == "submitted"
+        assert bt.check_once(bulk_id, bp.make_provider("claude", engine)) == "submitted"
         assert all(r["en"] == "" for r in isolated_db.load_lines(did))
 
 
@@ -383,7 +385,7 @@ class TestRestartCancelAuth:
         engine = _claude_engine()
         did = _drama(isolated_db, n=3)
         bulk_id = _submit(isolated_db, did, engine)
-        provider = bt.make_provider("claude", engine)
+        provider = bp.make_provider("claude", engine)
         bt.start_poller(bulk_id, provider=provider)
         time.sleep(0.05)
         note = bt.cancel_bulk_job(bulk_id, provider)
@@ -410,8 +412,8 @@ class TestRestartCancelAuth:
         engine.client.messages.batches.raise_on_retrieve = anthropic.AuthenticationError(
             "invalid x-api-key sk-ant-api03-SECRETSECRETSECRET", response=httpx2.Response(401, request=req),
             body=None)
-        with pytest.raises(bt.BulkAuthError):
-            bt.check_once(bulk_id, bt.make_provider("claude", engine))
+        with pytest.raises(bp.BulkAuthError):
+            bt.check_once(bulk_id, bp.make_provider("claude", engine))
         job = isolated_db.get_bulk_job(bulk_id)
         assert job["status"] == "auth_error"
         assert "SECRETSECRET" not in job["last_error"]
@@ -426,7 +428,7 @@ class TestRestartCancelAuth:
 
             def poll(self, batch_id):
                 RefusingProvider.calls += 1
-                raise bt.BulkAuthError("Gemini refused the API key (HTTP 403).")
+                raise bp.BulkAuthError("Gemini refused the API key (HTTP 403).")
         bt.run_bulk_poller("t_auth", bulk_id, provider=RefusingProvider(), sleep=lambda s: None)
         assert RefusingProvider.calls == 1
         assert isolated_db.get_bulk_job(bulk_id)["status"] == "auth_error"
@@ -436,7 +438,7 @@ class TestRestartCancelAuth:
         did = _drama(isolated_db, n=2)
         bulk_id = _submit(isolated_db, did, engine)
         isolated_db.update_bulk_job(bulk_id, status="auth_error", last_error="refused")
-        assert bt.check_once(bulk_id, bt.make_provider("claude", engine)) == "submitted"
+        assert bt.check_once(bulk_id, bp.make_provider("claude", engine)) == "submitted"
         job = isolated_db.get_bulk_job(bulk_id)
         assert job["status"] == "submitted" and job["last_error"] is None
 
@@ -514,7 +516,7 @@ class TestGeminiProvider:
                 "metadata": {"state": "BATCH_STATE_SUCCEEDED"},
                 "response": {"inlinedResponses": {"inlinedResponses": list(reversed(responses))}}}
         _patch_http(monkeypatch, get=lambda url, headers=None, timeout=None, stream=None: _Resp(done))
-        assert bt.check_once(bulk_id, bt.make_provider("gemini", self._engine())) == "applied"
+        assert bt.check_once(bulk_id, bp.make_provider("gemini", self._engine())) == "applied"
         assert all(r["en"] == f"G[{r['zh']}]" for r in isolated_db.load_lines(did))
 
     def test_a_response_without_its_key_is_never_attributed(self, isolated_db, monkeypatch):
@@ -527,7 +529,7 @@ class TestGeminiProvider:
             "inlinedResponses": [{"response": {"candidates": [{"content": {"parts": [
                 {"text": json.dumps({str(lid): "orphan"})}]}}]}}]}}
         _patch_http(monkeypatch, get=lambda *a, **k: _Resp(done))
-        bt.check_once(bulk_id, bt.make_provider("gemini", self._engine()))
+        bt.check_once(bulk_id, bp.make_provider("gemini", self._engine()))
         assert isolated_db.load_lines(did)[0]["en"] == ""
 
     def test_a_401_while_polling_becomes_an_auth_error_on_the_job(self, isolated_db, monkeypatch):
@@ -536,8 +538,8 @@ class TestGeminiProvider:
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),
                                              "gemini", {"drama_meta": {}})
         _patch_http(monkeypatch, get=lambda *a, **k: _Resp({}, status=401))
-        with pytest.raises(bt.BulkAuthError):
-            bt.check_once(bulk_id, bt.make_provider("gemini", self._engine()))
+        with pytest.raises(bp.BulkAuthError):
+            bt.check_once(bulk_id, bp.make_provider("gemini", self._engine()))
         assert isolated_db.get_bulk_job(bulk_id)["status"] == "auth_error"
 
     def test_a_failed_batch_is_marked_failed(self, isolated_db, monkeypatch):
@@ -547,7 +549,7 @@ class TestGeminiProvider:
                                              "gemini", {"drama_meta": {}})
         _patch_http(monkeypatch, get=lambda *a, **k: _Resp(
             {"done": True, "metadata": {"state": "BATCH_STATE_EXPIRED"}}))
-        assert bt.check_once(bulk_id, bt.make_provider("gemini", self._engine())) == "failed"
+        assert bt.check_once(bulk_id, bp.make_provider("gemini", self._engine())) == "failed"
         assert "EXPIRED" in isolated_db.get_bulk_job(bulk_id)["last_error"]
 
     def test_cancel_posts_to_the_cancel_endpoint(self, isolated_db, monkeypatch):
@@ -557,7 +559,7 @@ class TestGeminiProvider:
         did = _drama(isolated_db, n=1)
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),
                                              "gemini", {"drama_meta": {}})
-        bt.cancel_bulk_job(bulk_id, bt.make_provider("gemini", self._engine()))
+        bt.cancel_bulk_job(bulk_id, bp.make_provider("gemini", self._engine()))
         assert calls[-1].endswith("/batches/abc:cancel")
         assert isolated_db.get_bulk_job(bulk_id)["status"] == "cancelled"
 
@@ -665,7 +667,7 @@ class TestBulkFlag:
         payload = [{"line_idx": lid, "reason": "uncertain_translation", "note": "auto"} for lid in ids]
         batches.results_list = [_succeeded(key, payload)]
         batches.status = "ended"
-        status = bt.check_once(jid, bt.ClaudeBatchProvider(engine))
+        status = bt.check_once(jid, bp.ClaudeBatchProvider(engine))
 
         assert status == "applied"
         summary = isolated_db.get_bulk_job(jid)["result_summary"]
@@ -833,7 +835,7 @@ class TestBulkReflectPipeline:
         payload = {str(lid): payload_by_id_fn(lid) for lid in ids}
         batches.results_list = [_succeeded(key, payload)]
         batches.status = "ended"
-        return bt.check_once(job_id, bt.ClaudeBatchProvider(engine), engine=engine)
+        return bt.check_once(job_id, bp.ClaudeBatchProvider(engine), engine=engine)
 
     def test_three_sequential_batches_each_keyed_off_the_previous_stage(self, isolated_db):
         engine = _claude_engine()
@@ -901,6 +903,21 @@ class TestBulkReflectPipeline:
         self._drive_stage(isolated_db, engine, stage3["id"], lambda i: "FINAL")
         assert isolated_db.get_bulk_job(stage3["id"])["result_summary"]["kept_your_edit"] == 1
         assert isolated_db.load_line_objects(did)[0].en == "my own edit"
+
+    def test_a_failed_faithful_job_still_feeds_its_drafts_to_the_expressive_stage(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=1)
+        jid1 = bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude",
+                                          {"locale": "en-US"})
+        lid = isolated_db.list_bulk_job_lines(jid1)[0]["line_id"]
+        self._drive_stage(isolated_db, engine, jid1, lambda i: "the-draft")
+        isolated_db.update_bulk_job(jid1, status="failed")
+        stage2 = bt.sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "reflect")
+
+        assert self._drive_stage(isolated_db, engine, stage2["id"], lambda i: "polish") == "applied"
+        stage3_prompt = engine.client.messages.batches.created[0]["params"]["messages"][0]["content"]
+        assert "the-draft" in stage3_prompt and lid in [
+            r["line_id"] for r in isolated_db.list_bulk_job_lines(stage2["id"])]
 
     def test_engines_without_a_batch_api_are_rejected(self, isolated_db):
         did = _drama(isolated_db, n=1)
@@ -1201,7 +1218,7 @@ class TestSpokenLanguage:
         ids = [r["line_id"] for r in isolated_db.list_bulk_job_lines(jid)]
         batches.results_list = [_succeeded(key, {str(i): f"draft-{i}" for i in ids})]
         batches.status = "ended"
-        assert bt.check_once(jid, bt.ClaudeBatchProvider(engine), engine=engine) == "applied"
+        assert bt.check_once(jid, bp.ClaudeBatchProvider(engine), engine=engine) == "applied"
         second = batches.created[-1]["params"]["messages"][0]["content"]
         assert "(spoken in Korean) 안녕" in second
 
@@ -1245,3 +1262,337 @@ class TestSpokenLanguage:
         assert seen == [(["こんにちは", "안녕"], [None, "ko"])]
         rows = {r["zh"]: r["en"] for r in isolated_db.load_lines(did)}
         assert rows["hello there"] == "hello there" and rows["안녕"] == "EN:안녕"
+
+
+# ---------------------------------------------------------------------------
+# Paid results are applied exactly once; a failed stage submit, a short
+# result stream and a cancelled off-peak run are all visible, never silent.
+# ---------------------------------------------------------------------------
+
+def _usage_ops(isolated_db, did):
+    import contextlib
+    with contextlib.closing(isolated_db.get_conn()) as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT operation FROM usage_log WHERE drama_id = ? ORDER BY id", (did,)).fetchall()]
+
+
+def _fail_first(monkeypatch, module, name, when=lambda *a, **k: True):
+    real = getattr(module, name)
+    state = {"failed": False}
+
+    def wrapper(*a, **k):
+        if not state["failed"] and when(*a, **k):
+            state["failed"] = True
+            raise sqlite3.OperationalError("database is locked")
+        return real(*a, **k)
+    monkeypatch.setattr(module, name, wrapper)
+
+
+class TestApplyOnce:
+    def test_an_apply_that_raises_is_not_applied_and_billed_again(self, isolated_db, monkeypatch):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=4)
+        bulk_id = _submit(isolated_db, did, engine)
+        batches = engine.client.messages.batches
+        _answer_every_request(batches)
+        batches.status = "ended"
+        _fail_first(monkeypatch, isolated_db, "save_translation_version")
+
+        bt.run_bulk_poller("t_once", bulk_id, provider=bp.make_provider("claude", engine),
+                           sleep=lambda s: None, interval=0.01)
+
+        assert _usage_ops(isolated_db, did) == ["translate_bulk", "translate_bulk"]
+        job = isolated_db.get_bulk_job(bulk_id)
+        assert job["status"] == "failed" and "locked" in job["last_error"]
+        background_jobs.clear_job("t_once")
+
+    def test_a_reflect_stage_whose_status_write_fails_submits_the_next_stage_once(
+            self, isolated_db, monkeypatch):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2)
+        jid = bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude",
+                                         {"locale": "en-US"})
+        batches = engine.client.messages.batches
+        ids = [r["line_id"] for r in isolated_db.list_bulk_job_lines(jid)]
+        batches.results_list = [_succeeded(batches.created[0]["custom_id"],
+                                           {str(i): f"draft-{i}" for i in ids})]
+        batches.status = "ended"
+        _fail_first(monkeypatch, isolated_db, "update_bulk_job",
+                    when=lambda job_id, **k: job_id == jid and k.get("status") == "applied")
+
+        bt.run_bulk_poller("t_once_r", jid, provider=bp.ClaudeBatchProvider(engine), engine=engine,
+                           sleep=lambda s: None, interval=0.01)
+
+        pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        stages = [j["stage"] for j in isolated_db.list_bulk_jobs(pipeline_id=pipeline)]
+        assert stages.count("reflect") == 1
+        assert _usage_ops(isolated_db, did) == ["reflect_faithful_bulk"]
+        background_jobs.clear_job("t_once_r")
+
+    def test_a_job_left_applying_by_a_crash_is_not_applied_again_on_resume(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2)
+        bulk_id = _submit(isolated_db, did, engine)
+        isolated_db.update_bulk_job(bulk_id, status="applying")
+        background_jobs.clear_all_jobs()
+
+        out = bt.resume_pending(did, lambda e, m: engine)
+
+        assert bulk_id not in out
+        assert not background_jobs.is_running(bt.poll_job_id(bulk_id))
+        job = isolated_db.get_bulk_job(bulk_id)
+        assert job["status"] == "failed" and job["last_error"]
+
+
+    def test_resume_does_not_fail_an_apply_that_finished_meanwhile(self, isolated_db, monkeypatch):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2)
+        bulk_id = _submit(isolated_db, did, engine)
+        isolated_db.update_bulk_job(bulk_id, status="applying")
+        background_jobs.clear_all_jobs()
+
+        class FinishesInTheGap:
+            def locked(self):
+                isolated_db.update_bulk_job(bulk_id, status="applied")
+                return False
+        monkeypatch.setattr(bt, "_check_lock", lambda _id: FinishesInTheGap())
+
+        bt.resume_pending(did, lambda e, m: engine)
+
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "applied"
+
+class TestUnreturnedRequests:
+    def test_a_request_with_no_result_counts_as_failed_and_missing(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=4)
+        bulk_id = _submit(isolated_db, did, engine)  # requests of 3 and 1 lines
+        batches = engine.client.messages.batches
+        _answer_every_request(batches)
+        batches.results_list = [r for r in batches.results_list if r.custom_id.endswith("_b0")]
+        batches.status = "ended"
+
+        assert bt.check_once(bulk_id, bp.make_provider("claude", engine)) == "applied"
+        summary = isolated_db.get_bulk_job(bulk_id)["result_summary"]
+        assert (summary["applied"], summary["missing"], summary["failed_requests"]) == (3, 1, 1)
+
+    def test_a_batch_that_returns_nothing_fails(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=4)
+        bulk_id = _submit(isolated_db, did, engine)
+        engine.client.messages.batches.results_list = []
+        engine.client.messages.batches.status = "ended"
+
+        assert bt.check_once(bulk_id, bp.make_provider("claude", engine)) == "failed"
+        job = isolated_db.get_bulk_job(bulk_id)
+        assert job["last_error"] and job["result_summary"]["missing"] == 4
+
+    def test_a_flag_request_with_no_result_counts_as_failed(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=4, en="x")
+        jid = bt.submit_bulk_flag(did, isolated_db.load_line_objects(did), engine, "claude",
+                                  batch_size=2)
+        counts = bt.apply_results_for_job(jid, [(bt.request_key(did, 0), "[]", None, None)])
+        assert counts["failed_requests"] == 1
+
+
+class TestReflectStageSubmitFailure:
+    def _faithful_results(self, isolated_db, engine, jid):
+        batches = engine.client.messages.batches
+        ids = [r["line_id"] for r in isolated_db.list_bulk_job_lines(jid)]
+        batches.results_list = [_succeeded(batches.created[0]["custom_id"],
+                                           {str(i): f"draft-{i}" for i in ids})]
+        batches.status = "ended"
+        return ids
+
+    def _pipeline(self, isolated_db, n=2):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=n)
+        jid = bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude",
+                                         {"locale": "en-US"})
+        return engine, did, jid
+
+    def _break_submit(self, monkeypatch, engine, times):
+        batches = engine.client.messages.batches
+        real, left = batches.create, {"n": times}
+
+        def create(requests):
+            if left["n"]:
+                left["n"] -= 1
+                raise ConnectionError("provider unreachable")
+            return real(requests)
+        monkeypatch.setattr(batches, "create", create)
+
+    def test_a_transient_submit_failure_is_retried_on_the_next_check(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        self._break_submit(monkeypatch, engine, times=1)
+        provider = bp.ClaudeBatchProvider(engine)
+
+        assert bt.check_once(jid, provider, engine=engine) == "needs_resubmit"
+        pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        assert bt.sibling_stage_job(pipeline, "reflect", skip_failed=True) is None
+
+        assert bt.check_once(jid, provider, engine=engine) == "applied"
+        stage2 = bt.sibling_stage_job(pipeline, "reflect")
+        assert stage2 is not None and stage2["status"] == "submitted"
+        assert _usage_ops(isolated_db, did) == ["reflect_faithful_bulk"]
+
+    def test_a_cancel_during_a_resubmit_is_not_overwritten(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        self._break_submit(monkeypatch, engine, times=1)
+        provider = bp.ClaudeBatchProvider(engine)
+        assert bt.check_once(jid, provider, engine=engine) == "needs_resubmit"
+        batches = engine.client.messages.batches
+        real = batches.create
+
+        def create(requests):
+            bt.cancel_bulk_job(jid)
+            return real(requests)
+        monkeypatch.setattr(batches, "create", create)
+
+        assert bt.check_once(jid, provider, engine=engine) == "cancelled"
+        assert bt.check_once(jid, provider, engine=engine) == "cancelled"
+        assert isolated_db.get_bulk_job(jid)["status"] == "cancelled"
+        pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        assert sorted(j["status"] for j in isolated_db.list_bulk_jobs(pipeline_id=pipeline)
+                      if j["stage"] == "reflect") == ["failed", "submitted"]
+
+    def test_the_drafts_are_kept_when_the_next_stage_never_gets_submitted(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        ids = self._faithful_results(isolated_db, engine, jid)
+        self._break_submit(monkeypatch, engine, times=100)
+        provider = bp.ClaudeBatchProvider(engine)
+
+        statuses = [bt.check_once(jid, provider, engine=engine)
+                    for _ in range(bt.STAGE_SUBMIT_ATTEMPTS)]
+
+        assert statuses[-1] == "applied" and set(statuses[:-1]) == {"needs_resubmit"}
+        assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)} == {
+            i: f"draft-{i}" for i in ids}
+        job = isolated_db.get_bulk_job(jid)
+        assert job["result_summary"]["drafts_applied"] == 2 and "unreachable" in job["last_error"]
+
+    def test_the_monthly_cap_is_checked_before_the_next_stage_is_submitted(self, isolated_db):
+        engine, did, jid = self._pipeline(isolated_db)
+        ids = self._faithful_results(isolated_db, engine, jid)
+        isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 50.0)
+
+        status = bt.check_once(jid, bp.ClaudeBatchProvider(engine), engine=engine,
+                               monthly_cap_usd=10.0)
+
+        assert status == "applied"
+        assert len(engine.client.messages.batches.created) == 1  # only the faithful stage
+        assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)} == {
+            i: f"draft-{i}" for i in ids}
+        assert "cap" in isolated_db.get_bulk_job(jid)["last_error"]
+
+
+class TestBulkReflectMatchesLiveReflect:
+    _guidelines = "Pronoun default: she/her unless a character is known to be male."
+    _novel = "林走进了房间。他来了。"
+
+    def _setup(self, isolated_db):
+        did = isolated_db.create_drama(title_en="R", status="aligned", translation_engine="claude",
+                                       source_language="zh")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="他来了", speaker="SPEAKER_00")])
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Lin")
+        drama = isolated_db.get_drama(did)
+        args = {"style_note": "", "drama_meta": drama, "novel_reference": self._novel,
+                "locale": "en-US", "glossary_terms": [], "style_guidelines": self._guidelines}
+        return did, drama, args
+
+    def test_the_faithful_prompt_is_the_live_pass_one_prompt(self, isolated_db, monkeypatch):
+        from engine_backends import translate_pipeline
+        import translation_guide
+        did, drama, args = self._setup(isolated_db)
+        engine = _claude_engine()
+        lines = isolated_db.load_line_objects(did)
+        bt.submit_reflect_pipeline(did, lines, engine, "claude", args)
+        bulk_prompt = _request_text(engine)
+
+        seen = []
+        monkeypatch.setattr(translate_pipeline, "call_llm_json",
+                            lambda eng, prompt, **k: seen.append(prompt) or "{}")
+        names = translation_guide.build_speaker_labels(
+            isolated_db.list_characters_with_series_names(did), [])
+        ctx = te.build_translation_context(engine, drama, novel_reference=self._novel,
+                                           glossary_terms=[], style_guidelines=self._guidelines)
+        ctx.update(speaker_labels=[names.get(ln.speaker) for ln in lines],
+                   line_ids=[ln.id for ln in lines], batch_source_lines=[ln.zh for ln in lines],
+                   line_languages=None)
+        te.reflect_translate_batch(engine, te.pronoun_neutral_texts(ctx, [ln.zh for ln in lines]), ctx)
+
+        assert bulk_prompt == seen[0]
+        assert self._novel in bulk_prompt and "[Lin" in bulk_prompt
+        assert "TA来了" in bulk_prompt.split("Lines:\n", 1)[1]
+
+    def test_later_stages_keep_the_novel_block_and_pronoun_handling(self, isolated_db):
+        did, _drama_row, args = self._setup(isolated_db)
+        engine = _claude_engine()
+        jid = bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude", args)
+        batches = engine.client.messages.batches
+        lid = isolated_db.list_bulk_job_lines(jid)[0]["line_id"]
+        batches.results_list = [_succeeded(batches.created[0]["custom_id"], {str(lid): "She came."})]
+        batches.status = "ended"
+        assert bt.check_once(jid, bp.ClaudeBatchProvider(engine), engine=engine) == "applied"
+
+        second = _request_text(engine)
+        assert self._novel in second and "TA来了" in second.split("Lines:\n", 1)[1]
+        assert te.pronoun_batch_note(self._guidelines).strip() in second
+
+
+class TestOffPeakRunFinishes:
+    _saturday = datetime.datetime(2026, 9, 26, 12, 0)
+
+    def _engine(self, on_call=None, block=None):
+        class Engine:
+            name = "deepseek"
+            supports_reference = True
+            model = "deepseek-v4-flash"
+
+            def __init__(self):
+                self.last_usage, self.seen = {}, []
+
+            def translate_batch(self, zh_lines, context):
+                self.seen.append(list(zh_lines))
+                if on_call:
+                    on_call()
+                if block and block in zh_lines:
+                    raise te.ContentModerationBlocked("deepseek", "Content Exists Risk")
+                return [f"Xiaoming says {z}" for z in zh_lines]
+        return Engine()
+
+    def _schedule(self, isolated_db, did, args):
+        return bt.schedule_offpeak_translation(did, isolated_db.load_line_objects(did), "deepseek",
+                                               "deepseek-v4-flash", args, now=self._saturday)
+
+    def test_cancel_stops_a_running_offpeak_job_and_it_stays_cancelled(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(bt, "_utcnow", lambda: self._saturday)
+        did = _drama(isolated_db, n=3)
+        bulk_id = self._schedule(isolated_db, did, {"batch_size": 1})
+        engine = self._engine(on_call=lambda: bt.cancel_bulk_job(bulk_id))
+
+        bt.start_poller(bulk_id, engine=engine)
+        _wait_for(bt.poll_job_id(bulk_id))
+
+        assert engine.seen == [["第0句"]]
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "cancelled"
+        background_jobs.clear_job(bt.poll_job_id(bulk_id))
+
+    def test_the_run_finishes_like_a_normal_translation(self, isolated_db):
+        did = _drama(isolated_db, n=3)
+        term = {"term_translation": "Xiao Ming", "notes": "Xiaoming", "enforce_exact": True}
+        bulk_id = self._schedule(isolated_db, did, {"batch_size": 1, "glossary_terms": [term],
+                                                    "style_preset": "audio_drama"})
+
+        bt.run_bulk_poller("t_ds_finish", bulk_id, engine=self._engine(block="第1句"),
+                           sleep=lambda s: None, now_fn=lambda: self._saturday)
+
+        rows = isolated_db.load_lines(did)
+        assert rows[0]["en"] == "Xiao Ming says 第0句"
+        assert rows[1]["flag"] == "content_blocked"
+        assert isolated_db.list_translation_versions(did)
+        assert json.loads(isolated_db.get_drama(did)["last_translate_errors"])
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "applied"
+        background_jobs.clear_job("t_ds_finish")

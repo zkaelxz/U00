@@ -1198,6 +1198,47 @@ class TestWhisperDeviceReporting:
         assert status["errors"] and "boom" in status["errors"][0]
 
 
+class TestWhisperGpuRuntime:
+    @staticmethod
+    def _windows_with_gpu(monkeypatch, devices=1):
+        import sys, types
+        monkeypatch.setattr(whisper_models.sys, "platform", "win32")
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_cuda_device_count = lambda: devices
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+
+    def test_present(self, monkeypatch):
+        self._windows_with_gpu(monkeypatch)
+        loaded = []
+        assert whisper_models.whisper_gpu_runtime(loader=loaded.append) == {"status": "ok", "reason": None}
+        assert loaded == ["cublas64_12.dll"]
+
+    def test_missing_reason_has_no_path_or_raw_error(self, monkeypatch):
+        self._windows_with_gpu(monkeypatch)
+
+        def loader(name):
+            raise OSError(r"[WinError 126] C:\Users\me\AppData\cublas64_12.dll not found")
+
+        result = whisper_models.whisper_gpu_runtime(loader=loader)
+        assert result["status"] == "missing"
+        assert result["reason"] == whisper_models.GPU_RUNTIME_MISSING_REASON
+        assert "\\" not in result["reason"] and ":" not in result["reason"] and "WinError" not in result["reason"]
+
+    def test_unknown_off_windows(self, monkeypatch):
+        monkeypatch.setattr(whisper_models.sys, "platform", "linux")
+        assert whisper_models.whisper_gpu_runtime(loader=lambda n: 1 / 0) == {"status": "unknown", "reason": None}
+
+    def test_unknown_without_ctranslate2(self, monkeypatch):
+        import sys
+        monkeypatch.setattr(whisper_models.sys, "platform", "win32")
+        monkeypatch.setitem(sys.modules, "ctranslate2", None)
+        assert whisper_models.whisper_gpu_runtime(loader=lambda n: 1 / 0)["status"] == "unknown"
+
+    def test_unknown_without_cuda_device(self, monkeypatch):
+        self._windows_with_gpu(monkeypatch, devices=0)
+        assert whisper_models.whisper_gpu_runtime(loader=lambda n: 1 / 0)["status"] == "unknown"
+
+
 class TestSplitLongSegments:
     @staticmethod
     def _seg(text, start=10.0, end=40.0, **extra):

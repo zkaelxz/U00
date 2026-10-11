@@ -301,6 +301,7 @@ def init_db():
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
         _migrate_auth_session_columns(conn)
+        _grant_lines_read_for_reader_page(conn)
         import device_tokens   # owns its table; imports db, so not at the top
         device_tokens.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
@@ -621,7 +622,7 @@ def _create_bulk_job_tables(conn):
             engine TEXT NOT NULL,
             model TEXT,
             provider_batch_id TEXT,   -- Anthropic msgbatch_..., Gemini batches/...; NULL for DeepSeek
-            status TEXT NOT NULL,     -- submitted | scheduled | applied | cancelled | failed | auth_error
+            status TEXT NOT NULL,     -- submitted | scheduled | running | applying | needs_resubmit | applied | cancelled | failed | auth_error
             scheduled_for TEXT,       -- DeepSeek: UTC start of the off-peak window it waits for
             translate_args TEXT,      -- JSON: what a scheduled run needs to build its prompt
             last_error TEXT,
@@ -905,7 +906,7 @@ def _create_job_tables(conn):
         -- process -- this table is the shared coordination point so cli.py's
         -- GPU-touching commands and the live UI can't hold more GPU slots than
         -- the "GPU jobs at once" setting allows. One row per holder; id is the
-        -- slot, and the CHECK is the hard cap. See try_acquire_gpu_lock below.
+        -- slot, and the CHECK is the hard cap. See jobs/gpu_slots.py.
         CREATE TABLE IF NOT EXISTS gpu_lock (
             id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 4),
             holder TEXT NOT NULL,
@@ -1102,6 +1103,11 @@ def _migrate_job_records_columns(conn):
                       ("detail_state", "TEXT"), ("sync_error", "TEXT")):
         if col not in jr_cols:
             _safe_alter(conn, f"ALTER TABLE job_records ADD COLUMN {col} {kind}")
+    # The holder's process and instance (jobs/gpu_slots.py decides liveness from them).
+    gl_cols = {r[1] for r in conn.execute("PRAGMA table_info(gpu_lock)").fetchall()}
+    for col, kind in (("owner_pid", "INTEGER"), ("owner_instance", "TEXT"), ("job_id", "TEXT")):
+        if col not in gl_cols:
+            _safe_alter(conn, f"ALTER TABLE gpu_lock ADD COLUMN {col} {kind}")
 
 
 def _create_auth_tables(conn):
@@ -1422,6 +1428,21 @@ def _migrate_ownership_columns(conn):
     if str(user_cols.get("share_by_default")) == "1" and conn.execute(
             "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
         conn.execute("UPDATE users SET share_by_default = 0")
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+
+
+def _grant_lines_read_for_reader_page(conn):
+    # The Reader page moved from library.read to lines.read (owner decision
+    # 2026-10-10): grant it once to everyone who could read the page before,
+    # so nobody loses the Reader on upgrade. The marker keeps a later revoke.
+    # A database with no accounts (a fresh install, a restored user backup)
+    # has nothing to grant and gets no marker: new accounts hold lines.read.
+    marker = "migrations.reader_page_lines_read"
+    if conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None and conn.execute(
+            "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+        conn.execute("INSERT OR IGNORE INTO user_permissions (user_id, permission) "
+                     "SELECT user_id, 'lines.read' FROM user_permissions "
+                     "WHERE permission = 'library.read'")
         conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
 
 
@@ -4931,16 +4952,6 @@ def undo_usage_recost() -> int:
     return n
 
 
-# How long a held gpu_lock row is trusted before it's treated as
-# abandoned (its holder process crashed or was killed without releasing
-# it) and given to whoever asks next. Comfortably longer than
-# background_jobs.py's own progress-poll cadence, so a live job's regular
-# heartbeat_gpu_lock() calls always land well inside this window.
-GPU_LOCK_STALE_SECONDS = 600
-# Matches the gpu_lock table's CHECK: no caller can hold more slots.
-GPU_LOCK_MAX_SLOTS = 4
-
-
 def _migrate_gpu_lock_slots():
     """gpu_lock used to allow a single row (CHECK (id = 1)); it now has one
     row per holder. A CHECK can't be changed with ALTER TABLE, so the table
@@ -4966,10 +4977,11 @@ def _migrate_gpu_lock_slots():
                 holder TEXT NOT NULL,
                 description TEXT,
                 acquired_at REAL NOT NULL,
-                heartbeat_at REAL NOT NULL
+                heartbeat_at REAL NOT NULL,
+                owner_pid INTEGER, owner_instance TEXT, job_id TEXT
             )""")
-        conn.execute("INSERT INTO gpu_lock_new SELECT id, holder, description, acquired_at, heartbeat_at "
-                     "FROM gpu_lock")
+        conn.execute("INSERT INTO gpu_lock_new (id, holder, description, acquired_at, heartbeat_at) "
+                     "SELECT id, holder, description, acquired_at, heartbeat_at FROM gpu_lock")
         conn.execute("DROP TABLE gpu_lock")
         conn.execute("ALTER TABLE gpu_lock_new RENAME TO gpu_lock")
         conn.execute("COMMIT")
@@ -4979,100 +4991,6 @@ def _migrate_gpu_lock_slots():
         raise
     finally:
         conn.close()
-
-
-def try_acquire_gpu_lock(holder: str, description: str = None, max_holders: int = 1,
-                         settle_seconds: float = 0) -> bool:
-    """Cross-process GPU guard. background_jobs.py's own guard
-    is plain in-process module state -- invisible to a separate OS
-    process, so a `cli.py` run and the live UI could each start their own
-    GPU-touching job with neither ever seeing the other. The gpu_lock
-    table in the shared library.db is the coordination point instead
-    (BEGIN IMMEDIATE makes the read-then-write below atomic across
-    processes).
-
-    Returns True if `holder` already holds a slot (refreshed), or fewer
-    than `max_holders` (at most GPU_LOCK_MAX_SLOTS) other live holders
-    exist -- a holder whose last heartbeat is older than
-    GPU_LOCK_STALE_SECONDS is abandoned and doesn't count -- and is now
-    holding a slot. With `settle_seconds`, joining other holders is also
-    refused until the newest of them has held its slot that long, so a
-    free-VRAM reading taken before this call already includes that
-    holder's model; checked here so two processes reading the same free
-    VRAM can't both join on it. Returns False otherwise."""
-    now = time.time()
-    max_holders = max(1, min(int(max_holders), GPU_LOCK_MAX_SLOTS))
-    conn = get_conn()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        rows = conn.execute("SELECT id, holder, acquired_at, heartbeat_at FROM gpu_lock").fetchall()
-        mine = next((r for r in rows if r["holder"] == holder), None)
-        if mine is not None:
-            slot = mine["id"]
-        else:
-            live = [r for r in rows if (now - r["heartbeat_at"]) < GPU_LOCK_STALE_SECONDS]
-            if len(live) >= max_holders or (
-                    live and settle_seconds
-                    and now - max(r["acquired_at"] for r in live) < settle_seconds):
-                # Refused, nothing to write: end the IMMEDIATE transaction
-                # here so the write lock other processes wait on is released
-                # explicitly rather than left to close().
-                conn.execute("ROLLBACK")
-                return False
-            taken = {r["id"] for r in live}
-            slot = next(i for i in range(1, GPU_LOCK_MAX_SLOTS + 1) if i not in taken)
-        conn.execute("""
-            INSERT INTO gpu_lock (id, holder, description, acquired_at, heartbeat_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET holder = excluded.holder,
-                description = excluded.description, acquired_at = excluded.acquired_at,
-                heartbeat_at = excluded.heartbeat_at
-        """, (slot, holder, description, now, now))
-        conn.commit()
-        return True
-    finally:
-        conn.close()
-
-
-def heartbeat_gpu_lock(holder: str):
-    """Refreshes a held lock's heartbeat so a still-running job doesn't
-    look abandoned to another process partway through a long run."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE gpu_lock SET heartbeat_at = ? WHERE holder = ?",
-                     (time.time(), holder))
-        conn.commit()
-
-
-def release_gpu_lock(holder: str):
-    """No-ops if `holder` holds no slot -- e.g. it already went stale and
-    was taken over by someone else, so releasing it now would release the
-    new holder's slot instead of this one's."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM gpu_lock WHERE holder = ?", (holder,))
-        conn.commit()
-
-
-def gpu_lock_holder_count(exclude_holder: str = None) -> int:
-    """How many live (not stale) holders the GPU lock has, not counting
-    `exclude_holder`."""
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM gpu_lock WHERE heartbeat_at > ? AND holder IS NOT ?",
-            (time.time() - GPU_LOCK_STALE_SECONDS, exclude_holder)).fetchone()
-    return int(row[0])
-
-
-def gpu_lock_status():
-    """(holder, description) of a live holder of the cross-process GPU
-    lock (the lowest slot), or (None, None) if none holds it or every
-    holder went stale."""
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT holder, description FROM gpu_lock WHERE heartbeat_at > ? "
-                           "ORDER BY id LIMIT 1",
-                           (time.time() - GPU_LOCK_STALE_SECONDS,)).fetchone()
-    if not row:
-        return None, None
-    return row["holder"], row["description"]
 
 
 def get_app_setting(key: str, default=None):
@@ -5463,7 +5381,7 @@ def delete_voice_bank_entry(entry_id: int):
 # Bulk (batch-API / off-peak) translation jobs
 # ---------------------------------------------------------------------------
 
-BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error")
+BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error", "needs_resubmit")
 
 
 def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
@@ -5558,6 +5476,19 @@ def update_bulk_job(bulk_job_id: int, **fields):
         conn.execute(f"UPDATE bulk_jobs SET {', '.join(k + ' = ?' for k in fields)} WHERE id = ?",
                      list(fields.values()) + [bulk_job_id])
         conn.commit()
+
+
+def set_bulk_job_status_if(bulk_job_id: int, expected, new: str) -> bool:
+    """Changes the status only while it is one of `expected`, in one
+    statement, so two appliers of the same paid results can't both win."""
+    expected = list(expected)
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            f"UPDATE bulk_jobs SET status = ?, updated_at = ? WHERE id = ? "
+            f"AND status IN ({','.join('?' * len(expected))})",
+            [new, datetime.datetime.utcnow().isoformat(), bulk_job_id] + expected)
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def count_bulk_job_lines(bulk_job_id: int) -> int:

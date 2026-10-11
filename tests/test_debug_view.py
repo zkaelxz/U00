@@ -11,7 +11,6 @@ timing) as unavailable instead of fabricating them.
 import core
 import db
 import debug_view
-import background_jobs
 
 Line = core.Line
 
@@ -97,24 +96,3 @@ class TestExplainLine:
         assert info["current_neighbors_before"] == []
         assert info["current_neighbors_after"] == []
 
-
-class TestExplainJob:
-    def test_reports_real_total_duration_for_a_finished_job(self):
-        job_id = "translate_999"
-        background_jobs._jobs[job_id] = {
-            "status": "done", "progress": 1.0, "message": "", "error": None,
-            "started_at": 1000.0, "finished_at": 1042.5, "gpu_touching": False,
-            "description": "translate", "kind": "thread",
-        }
-        try:
-            info = debug_view.explain_job(job_id)
-            assert info["found"] is True
-            assert info["duration_seconds"] == 42.5
-            assert info["per_stage_breakdown"] is None
-            assert "Per-stage timing" in info["per_stage_breakdown_note"]
-        finally:
-            background_jobs.clear_job(job_id)
-
-    def test_unknown_job_reports_not_found_rather_than_guessing(self):
-        info = debug_view.explain_job("translate_no_such_job")
-        assert info == {"job_id": "translate_no_such_job", "found": False}

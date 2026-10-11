@@ -4,11 +4,10 @@
  * desktop, a bottom Sheet on phones (where it also holds "Go to" and the
  * reading metrics, passed in as children).
  */
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { Field } from '../../components/Field'
-import { Sheet } from '../../components/Sheet'
-import { usePopoverDismiss } from '../../hooks/usePopoverDismiss'
+import { AaControl } from '../../components/AaControl'
 import {
   CHAPTER_SIZE,
   FONT_OPTIONS,
@@ -112,45 +111,9 @@ function PrefsForm({ prefs, onChange, phone }: Omit<Props, 'children'>) {
 }
 
 export function ReaderPrefsControl({ prefs, onChange, phone, children }: Props) {
-  const [open, setOpen] = useState(false)
-  const wrap = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-
-  const close = useCallback(() => setOpen(false), [])
-  usePopoverDismiss(open && !phone, wrap, buttonRef, close, true)
-
-  const button = (
-    <button
-      ref={buttonRef}
-      type="button"
-      className="reader-aa"
-      aria-label="Reading settings"
-      aria-expanded={open}
-      onClick={() => setOpen((v) => !v)}
-    >
-      Aa
-    </button>
-  )
-
-  if (phone) {
-    return (
-      <>
-        {button}
-        <Sheet open={open} title="Reading settings" onClose={() => setOpen(false)}>
-          {children}
-          <PrefsForm prefs={prefs} onChange={onChange} phone />
-        </Sheet>
-      </>
-    )
-  }
   return (
-    <div className="reader-aa-wrap" ref={wrap}>
-      {button}
-      {open && (
-        <div className="reader-popover" role="dialog" aria-label="Reading settings">
-          <PrefsForm prefs={prefs} onChange={onChange} phone={false} />
-        </div>
-      )}
-    </div>
+    <AaControl label="Reading settings" phone={phone} sheetExtra={children} closeOnWindowBlur>
+      <PrefsForm prefs={prefs} onChange={onChange} phone={phone} />
+    </AaControl>
   )
 }

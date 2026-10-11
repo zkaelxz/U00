@@ -269,6 +269,10 @@ def coerce(key: str, raw, choices=None):
             # Not stripped: " claude" is not an engine, as in the old validators.
             if not isinstance(raw, str) or (choices is not None and raw not in choices):
                 raise ValueError("not an allowed choice")
+            # "" is a deliberate pick only when the list offers it; otherwise it
+            # means unset.
+            if raw == "" and choices is not None and "" in choices:
+                return raw
             return raw or default_of(s)
         if s.type in ("text", "path"):
             value = _check_text(s, raw)
