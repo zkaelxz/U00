@@ -283,8 +283,7 @@ function ConfigRow({ stage, options, config, index, onChange }: {
     const whisperGroups = whisperChoiceGroups(options)
     const limitedPick = whisperGroups.limited.find((m) => m.size === config.model)
     return (
-      <Field label={`Whisper model ${n}`}>
-        <>
+      <Field label={`Whisper model ${n}`} help={limitedPick ? `${limitedPick.reasons.join(' ')} The run is refused on a case in a language this does not fit.` : undefined}>
         <select value={config.model ?? ''} onChange={(e) => onChange({ engine: 'whisper', model: e.target.value })}>
           {whisperGroups.everywhere.map((s) => (
             <option key={s} value={s}>{s}</option>
@@ -297,8 +296,6 @@ function ConfigRow({ stage, options, config, index, onChange }: {
             </optgroup>
           )}
         </select>
-        {limitedPick && <p className="muted" role="note">{limitedPick.reasons.join(' ')} The run is refused on a case in a language this does not fit.</p>}
-        </>
       </Field>
     )
   }

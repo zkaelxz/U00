@@ -188,6 +188,12 @@ export function CompareTranscription({
   const active = !!job && !TERMINAL_STATUSES.includes(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
   const tooMany = estimate ? capProblem(estimate.line_count, options.max_lines) : null
+  const whisperReasons = options.whisper_sizes
+    .flatMap((s) => {
+      const reason = whisperExclusionReason(options.whisper_exclusions, s, options.source_language)
+      return reason ? [`${s}: ${reason}`] : []
+    })
+    .join(' ')
   const blockedMessage = !options.has_audio
     ? options.no_audio_reason
     : jobRunning && !busy
@@ -307,8 +313,7 @@ export function CompareTranscription({
           </div>
         )}
         <div className="compare-pair">
-          <Field label="Whisper model">
-            <>
+          <Field label="Whisper model" help={whisperReasons || undefined}>
             <select value={size} onChange={(e) => setSize(e.target.value)} disabled={busy}>
               {options.whisper_sizes.map((s) => {
                 const reason = whisperExclusionReason(options.whisper_exclusions, s, options.source_language)
@@ -319,11 +324,6 @@ export function CompareTranscription({
                 )
               })}
             </select>
-            {options.whisper_sizes.map((s) => {
-              const reason = whisperExclusionReason(options.whisper_exclusions, s, options.source_language)
-              return reason ? <p key={s} className="muted" role="note">{s}: {reason}</p> : null
-            })}
-            </>
           </Field>
           <Field label="ASR backend">
             <select value={backend} onChange={(e) => setBackend(e.target.value)} disabled={busy}>
