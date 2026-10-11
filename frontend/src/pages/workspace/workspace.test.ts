@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { DramaDetail } from '../../api/types'
+import { draftKey, DRAFT_VERSION, pickDraft, readDraft, writeDraft } from '../../hooks/useStageDraft'
 import {
   checkUploadFile,
   isUploadLimitProblem,
-  loadSourceForm,
   parseExpectedSpeakers,
   parseSpeakerHints,
-  saveSourceForm,
   sourceJobIds,
+  SOURCE_DRAFT_SHAPE,
+  TRANSCRIBE_DRAFT_SHAPE,
+  TRANSCRIBE_DRAFT_STAGE,
+  transcribeExtraNames,
+  URL_DRAFT_SHAPE,
   validateConfig,
   whisperModelWarning,
 } from './sourceForm'
@@ -52,8 +56,8 @@ describe('stage states (P16)', () => {
   })
 })
 
-describe('drama switch state reset', () => {
-  it('never returns state fetched for another drama', () => {
+describe('title switch state reset', () => {
+  it('never returns state fetched for another title', () => {
     const state = { id: 1, drama: { id: 1 } as DramaDetail }
     expect(pickForId(state, 1)).toBe(state)
     expect(pickForId(state, 2)).toBeNull()
@@ -125,29 +129,42 @@ describe('whisper model warning', () => {
   })
 })
 
-describe('source form persistence', () => {
+describe('source stage drafts', () => {
   afterEach(() => vi.unstubAllGlobals())
   const memory = () => {
     const m = new Map<string, string>()
-    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }
   }
-  const state = { language: 'ja', script: '', transcriptText: 'x', runDiarize: true, speakers: '2', extraNames: 'p' }
+  const state = {
+    language: 'ja', script: '', transcriptText: 'x', runDiarize: true, speakers: '2', minSpeakers: '', maxSpeakers: '',
+    extraNames: 'p', override: 'full prompt',
+  }
 
-  it('round-trips per drama without leaking across dramas', () => {
-    vi.stubGlobal('sessionStorage', memory())
-    saveSourceForm(1, state)
-    expect(loadSourceForm(1)).toEqual(state)
-    expect(loadSourceForm(2)).toEqual({})
+  it('the Transcribe draft round-trips per title, with the prompt override and the changed Advanced values', () => {
+    const s = memory()
+    writeDraft(s, 1, TRANSCRIBE_DRAFT_STAGE, { ...state, advanced: { beam_size: '8' } })
+    const raw = readDraft(s, 1, TRANSCRIBE_DRAFT_STAGE)
+    expect(pickDraft(raw, TRANSCRIBE_DRAFT_SHAPE)).toEqual(state)
+    expect(raw?.advanced).toEqual({ beam_size: '8' })
+    expect(pickDraft(readDraft(s, 2, TRANSCRIBE_DRAFT_STAGE), TRANSCRIBE_DRAFT_SHAPE)).toEqual({})
   })
-  it('ignores corrupt data and survives throwing storage', () => {
-    vi.stubGlobal('sessionStorage', { getItem: () => '{"language":5,"extraNames":"ok"}', setItem: () => undefined })
-    expect(loadSourceForm(1)).toEqual({ extraNames: 'ok' })
+  it('a wrong-typed value falls back to the default', () => {
+    expect(pickDraft({ language: 5, runDiarize: 'yes', extraNames: 'ok' }, TRANSCRIBE_DRAFT_SHAPE)).toEqual({ extraNames: 'ok' })
+    expect(pickDraft({ from: 'url' }, SOURCE_DRAFT_SHAPE)).toEqual({ from: 'url' })
+    expect(pickDraft({ url: 'https://x', audioOnly: 'no' }, URL_DRAFT_SHAPE)).toEqual({ url: 'https://x' })
+  })
+  it('the Compare prompt starts from the names kept on the Transcribe stage, or blank', () => {
+    const s = memory()
+    vi.stubGlobal('window', { localStorage: s })
+    expect(transcribeExtraNames(3)).toBe('')
+    s.setItem(draftKey(3, TRANSCRIBE_DRAFT_STAGE), JSON.stringify({ v: DRAFT_VERSION, values: { extraNames: '沈清疑' } }))
+    expect(transcribeExtraNames(3)).toBe('沈清疑')
+    expect(transcribeExtraNames(4)).toBe('')
     const boom = () => {
       throw new Error('blocked')
     }
-    vi.stubGlobal('sessionStorage', { getItem: boom, setItem: boom })
-    expect(loadSourceForm(1)).toEqual({})
-    expect(() => saveSourceForm(1, state)).not.toThrow()
+    vi.stubGlobal('window', { localStorage: { getItem: boom, setItem: boom, removeItem: boom } })
+    expect(transcribeExtraNames(3)).toBe('')
   })
   it('names the reattachable job ids', () => {
     expect(sourceJobIds(7)).toEqual(['transcribe_7', 'diarize_7', 'ocrchapter_7', 'extract_audio_7', 'urlmedia_7'])

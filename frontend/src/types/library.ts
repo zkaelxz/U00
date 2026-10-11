@@ -149,6 +149,7 @@ export interface DramaMetadataUpdate {
   default_female_pronouns?: boolean // the Translate stage's she/her default
   include_genre_notes?: boolean // the Translate stage's genre guidance
   translate_by_sentence?: boolean // the Translate stage's whole-sentence mode
+  keep_original?: boolean // the Media stage's "Keep original files" pin
   media_type?: string
   publication_status?: string // unknown / ongoing / completed / hiatus
   series_id?: number // 0 takes the drama out of its series

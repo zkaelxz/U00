@@ -15,7 +15,7 @@ const ITEMS: [string, RegExp][] = [
   ['Library tools', /#\/library-tools$/],
   ['Sources', /#\/sources$/],
   ['Discover', /#\/discover$/],
-  ['Translate text', /#\/translate$/],
+  ['Quick translate', /#\/translate$/],
   ['Live', /#\/live$/],
   ['Jobs', /#\/jobs$/],
   ['Settings', /#\/settings$/],

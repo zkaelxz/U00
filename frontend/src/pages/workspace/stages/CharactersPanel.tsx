@@ -30,6 +30,8 @@ import './characters.css'
 
 const COLUMNS = 6
 
+const formKey = (e: CharacterEntry) => JSON.stringify(toCharacterForm(e))
+
 function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged }: {
   entry: CharacterEntry
   engines: CloneEngines | null
@@ -46,11 +48,13 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
   const { dramaId } = useStage()
   const [form, setForm] = useState<CharacterForm>(() => toCharacterForm(entry))
   // A change from outside the row (an accepted voice suggestion) resets
-  // the form to the saved values.
+  // the form to the saved values. Rename, merge and undo hand every row a
+  // new object, so only a change to what the form shows resets it; otherwise
+  // typing in another row would be wiped.
   const [shown, setShown] = useState(entry)
   if (shown !== entry) {
     setShown(entry)
-    setForm(toCharacterForm(entry))
+    if (formKey(shown) !== formKey(entry)) setForm(toCharacterForm(entry))
   }
   const [bankId, setBankId] = useState('')
   const [busy, setBusy] = useState(false)
@@ -163,7 +167,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
               {samples && <p className="muted character-samples">{samples}</p>}
               {entry.series_character_id ? (
                 <p className="muted character-shared">
-                  Shared with other dramas in this series: pronoun and voice defaults can come from there.
+                  Shared with other titles in this series: pronoun and voice defaults can come from there.
                 </p>
               ) : null}
               {canRemember(entry, hasSeries) && (
@@ -171,7 +175,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                   type="button"
                   className={buttonClass('ghost', 'sm')}
                   disabled={busy || nameEdited}
-                  title={nameEdited ? 'Save the name first.' : 'Adds this name to the series cast so later dramas can pick it.'}
+                  title={nameEdited ? 'Save the name first.' : 'Adds this name to the series cast so later titles can pick it.'}
                   onClick={remember}
                 >
                   Remember {entry.character_name.trim()} in this series
@@ -195,7 +199,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                 <button type="submit" disabled={busy || renameProblemText !== null} title={renameProblemText ?? undefined}>
                   {entry.line_count ? `Rename on all ${entry.line_count} lines` : 'Rename'}
                 </button>
-                <button type="button" disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
               </form>
             )}
             {mergeInto === null ? (
@@ -220,7 +224,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                 <button type="submit" disabled={busy || !mergeInto}>
                   {mergeInto ? `Merge ${entry.line_count} ${entry.line_count === 1 ? 'line' : 'lines'}` : 'Merge'}
                 </button>
-                <button type="button" disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
               </form>
             )}
           </div>
@@ -375,9 +379,12 @@ export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
       (e: unknown) => {
         setUndoBusy(false)
         setError(e)
-        // A refused undo (renamed again, label reused) won't work later either.
-        setUndo(null)
-        saveRenameUndo(dramaId, null)
+        // A refused undo (renamed again, label reused) won't work later either;
+        // a busy job or a lost connection leaves it valid, so the button stays.
+        if (!undoIdSurvives(e)) {
+          setUndo(null)
+          saveRenameUndo(dramaId, null)
+        }
       },
     )
   }

@@ -1,8 +1,8 @@
 """B-26: every provider key format the app resolves is redacted by both
-translate_engines.redact_secrets and diagnostics.redact_for_support."""
+translate_engines.redact_secrets and diagnostics_report.redact_for_support."""
 import pytest
 
-import diagnostics
+import diagnostics_report
 import translate_engines
 
 SECRETS = {
@@ -15,7 +15,7 @@ SECRETS = {
     "anthropic": "sk-ant-api03-" + "Ab12Cd34Ef56Gh78Ij90Kl12",
 }
 
-REDACTORS = [translate_engines.redact_secrets, diagnostics.redact_for_support]
+REDACTORS = [translate_engines.redact_secrets, diagnostics_report.redact_for_support]
 
 
 @pytest.mark.parametrize("redactor", REDACTORS)
@@ -44,3 +44,12 @@ def test_deepl_pro_key_after_auth_header_redacted(redactor):
 ])
 def test_ordinary_text_untouched(redactor, text):
     assert redactor(text) == text
+
+
+def test_signed_url_and_bare_signature_params_are_stripped_for_support():
+    text = diagnostics_report.redact_for_support(
+        "GET https://cdn.example.com/a/b?token=abc&sig=xyz failed; X-Amz-Signature=deadbeef "
+        "access_token=tok1 sig=s2")
+    for leaked in ("abc", "xyz", "deadbeef", "tok1", "s2", "?"):
+        assert leaked not in text
+    assert "https://cdn.example.com/a/b failed" in text

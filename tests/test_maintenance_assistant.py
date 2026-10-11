@@ -339,11 +339,11 @@ def test_test_run_env_has_no_keys_and_uses_the_guard(monkeypatch):
     assert env["BAIHE_ASSISTANT_TEST_RUN"] == "1" and "PATH" in env
     seen = {}
 
-    class P:
-        returncode, stdout, stderr = 0, "1 passed", ""
-
     monkeypatch.setattr(svc, "_tracked_files", lambda: None)
-    monkeypatch.setattr(svc.subprocess, "run", lambda cmd, **kw: seen.update(cmd=cmd, **kw) or P())
+    monkeypatch.setattr(
+        svc.proc_run, "run_captured",
+        lambda cmd, timeout, **kw: seen.update(cmd=cmd, **kw) or svc.proc_run.CapturedRun(
+            0, "1 passed", "", False, False))
     assert svc.run_tool("run_tests", {"path": "tests/test_maintenance_assistant.py"})["ok"]
     assert "services.assistant_pytest_guard" in seen["cmd"]
     assert "ANTHROPIC_API_KEY" not in seen["env"]
@@ -715,6 +715,19 @@ def test_a_failed_tier_offers_the_next_without_calling_it(dev_mode, real_build, 
                                "next_engine": "gemini"}
     assert FAKE_KEY not in e.value.message
     assert len(engines) == 1 and real_build == ["ollama"]  # Gemini was never built or called
+
+
+def test_an_ollama_that_is_not_running_reads_as_unreachable(dev_mode, real_build, keys, monkeypatch):
+    import qa
+    from lib import http
+
+    def down(system_prompt, messages, engine, max_tokens=0):
+        raise http.FetchError()
+
+    monkeypatch.setattr(qa, "dispatch_chat", down)
+    with pytest.raises(svc.ServiceError) as e:
+        svc.ask("x")
+    assert e.value.details["reason"] == "unreachable"
 
 
 def test_a_tier_with_no_key_is_reported_with_the_next_tier(dev_mode, keys, monkeypatch):

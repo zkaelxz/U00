@@ -63,3 +63,43 @@ export function novelFileStatusLine(status: NovelFileStatus | null): string {
     ? `Saved: ${status.char_count.toLocaleString()} characters (${size(status.size_bytes)}).`
     : 'Nothing saved yet.'
 }
+
+export type NovelPresence = { text: boolean; raw: boolean }
+export type NovelSections = 'full' | 'optional' | 'hidden'
+
+/**
+ * How much of the novel UI a title gets in the Source stage. Novels, comics
+ * and novel narration work from novel text, so they always get the full
+ * panels; any other title gets them once text or a raw novel is attached.
+ * Until then a streamer VOD has no use for a novel and sees nothing, and the
+ * rest (audio dramas and so on) can still attach one from a single optional
+ * row. `presence` is null while it is being read.
+ */
+export function novelSections(
+  kind: 'audio' | 'novel' | 'comic',
+  mediaType: string | null | undefined,
+  contentMode: string | null | undefined,
+  presence: NovelPresence | null,
+): NovelSections {
+  if (kind !== 'audio' || mediaType === 'novel_narration' || contentMode === 'novel_narration') return 'full'
+  if (presence && (presence.text || presence.raw)) return 'full'
+  return mediaType === 'streamer_vod' || contentMode === 'streamer_vod' ? 'hidden' : 'optional'
+}
+
+/**
+ * Keeps the Source stage's novel panels where the viewer last saw them. A raw
+ * novel saved from the optional row must not move to Transcribe, and removing
+ * one from Transcribe must not tear that panel (and its "Removed." notice)
+ * down; both hold until the page is reloaded or another title is opened.
+ * `wasOptional` / `wasFull` say this title has already shown that layout.
+ */
+export function stableNovelSections(
+  kind: 'audio' | 'novel' | 'comic',
+  fresh: NovelSections,
+  wasOptional: boolean,
+  wasFull: boolean,
+): NovelSections {
+  if (fresh === 'full' && wasOptional && kind === 'audio') return 'optional'
+  if (fresh === 'optional' && wasFull) return 'full'
+  return fresh
+}

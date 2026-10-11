@@ -36,6 +36,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
+from lib import http as lib_http
+from lib import url_guard
 from translate_engines import safe_url
 
 from . import charset_sniff, detect, health, pacing, store
@@ -198,8 +200,8 @@ class Response:
     # Cookies the response actually set, read via requests' own cookiejar
     # rather than a plain `headers` lookup: a response can carry several
     # Set-Cookie lines, and plain-dict header merging (below) only keeps
-    # the last one -- mangaz.com's own login-ticket exchange
-    # needs a specific cookie by name regardless of Set-Cookie order.
+    # the last one, so a caller that needs one cookie by name would miss
+    # it whenever it isn't the final Set-Cookie line.
     cookies: dict = field(default_factory=dict)
 
     @property
@@ -475,7 +477,7 @@ def ascii_url(url: str) -> str:
 def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits = None):
     """One request, following redirects by hand: every hop -- the
     first included -- must be http(s) with a host whose every resolved
-    address is global (services.url_guard). Without a proxy the connection
+    address is global (lib.url_guard). Without a proxy the connection
     is pinned to the validated address (Host header, SNI and certificate
     checks keep the real name); with one, the target host is validated by
     name and the proxy does the connecting.
@@ -483,12 +485,11 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
     The body is streamed under `limits` (FetchLimits: size caps, an overall
     deadline for the whole request, cancel between chunks); every response
     is closed."""
-    from services import url_guard
-
     limits = limits or FetchLimits()
     deadline_at = limits.clock() + float(limits.deadline)
 
     session = _thread_session()
+    session.max_bytes = max(limits.max_page_bytes, limits.max_image_bytes)
     # Route through a configured proxy, if one is set. Applied
     # here rather than baked into the session (session.proxies would
     # persist across a settings change within the same thread/process
@@ -505,26 +506,19 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
         _check_limits(limits, deadline_at)
         current = ascii_url(current)
         try:
-            ip = url_guard.resolve_public(current)
-        except url_guard.UnsafeURLError:
-            raise UnsafeRedirect(REDIRECT_REFUSED) from None
-        except url_guard.URLResolveError as e:
-            raise _resolve_error(e) from None
-        host = (urlsplit(current).hostname or "").lower()
-        # The adapter decides from the proxies requests actually uses
-        # whether to pin; it refuses on any host mismatch.
-        _tls.pin = (host, ip)
-        try:
             r = session.request(cur_method, current, headers=cur_headers, data=cur_data,
                                 timeout=timeout, allow_redirects=False, proxies=proxies,
                                 stream=True)
-        finally:
-            _tls.pin = None
+        except lib_http.FetchError:  # the adapter refused a host the guard did not validate
+            raise UnsafeRedirect(REDIRECT_REFUSED) from None
         hops.append(r)
         location = (r.headers or {}).get("Location") or (r.headers or {}).get("location")
         if r.status_code not in _REDIRECT_CODES or not location:
             try:
                 content = _read_body(r, limits, deadline_at)
+            except lib_http.ResponseTooLarge:
+                # a refusal like _read_body's own, not a source-health fetch error
+                raise ResponseTooLarge() from None
             finally:
                 r.close()
             break
@@ -536,8 +530,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
         cur_headers = {k: v for k, v in cur_headers.items()
                        if k.lower() not in _CONDITIONAL_HEADERS}
         if _should_strip_auth(current, nxt):
-            cur_headers = {k: v for k, v in cur_headers.items()
-                           if k.lower() not in ("authorization", "cookie")}
+            cur_headers = url_guard.cross_origin_headers(cur_headers)
         if r.status_code == 303 or (r.status_code in (301, 302) and cur_method == "POST"):
             if cur_method != "HEAD":
                 cur_method = "GET"
@@ -556,8 +549,8 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
     # any adapter makes on this thread for the app's whole runtime, and
     # flattening it with dict()/.update() raises a real
     # requests.cookies.CookieConflictError the moment two different hosts
-    # have ever set a same-named cookie (confirmed: mangaz.com's own two
-    # hosts, www.mangaz.com/vw.mangaz.com, share this session). Iterate each
+    # have ever set a same-named cookie; a site's www and reader hosts
+    # sharing this session is enough to trigger it. Iterate each
     # jar's own Cookie objects directly rather than `dict.update(jar)`: a
     # plain dict.update() against a RequestsCookieJar calls its __getitem__
     # per key, and RequestsCookieJar._find_no_duplicates treats a falsy
@@ -599,63 +592,25 @@ def _resolve_error(exc):
         return ConnectionError(str(exc))
 
 
-def _pinning_adapter():
-    """An HTTPAdapter that, while `_tls.pin` names this request's host,
-    connects to the validated IP instead of re-resolving the name (the
-    request URL is restored before the session extracts cookies, so the
-    cookie jar and Response.url still see the real host)."""
-    from requests.adapters import HTTPAdapter
-
-    class _PinningAdapter(HTTPAdapter):
-        def build_connection_pool_key_attributes(self, request, verify, cert=None):
-            host_params, pool_kwargs = super().build_connection_pool_key_attributes(
-                request, verify, cert)
-            name = getattr(request, "_baihe_pinned_name", None)
-            if name and host_params.get("scheme") == "https":
-                pool_kwargs["server_hostname"] = name
-                pool_kwargs["assert_hostname"] = name
-            return host_params, pool_kwargs
-
-        def send(self, request, **kw):
-            pin = getattr(_tls, "pin", None)
-            if not pin:
-                return super().send(request, **kw)
-            from requests.utils import select_proxy
-            parts = urlsplit(request.url)
-            name, ip = pin
-            if (parts.hostname or "").lower() != name:
-                # Fail closed: never send unpinned to a name we didn't check.
-                raise UnsafeRedirect(REDIRECT_REFUSED)
-            if select_proxy(request.url, kw.get("proxies") or {}):
-                # A proxy connects for us: the target was validated by name.
-                return super().send(request, **kw)
-            original = request.url
-            ip_host = f"[{ip}]" if ":" in ip else ip
-            request.url = parts._replace(netloc=ip_host + (f":{parts.port}" if parts.port else "")).geturl()
-            request.headers["Host"] = parts.netloc.rsplit("@", 1)[-1]
-            request._baihe_pinned_name = name
-            try:
-                resp = super().send(request, **kw)
-            finally:
-                request.url = original
-            resp.url = original
-            return resp
-
-    return _PinningAdapter()
-
-
 # One requests.Session per thread: Session is not documented as thread-safe,
 # and fetches run on several threads at once (registry.multi_search's pool,
 # background jobs, the chapter-check scheduler).
 _tls = threading.local()
 
 
+def _guard(url: str) -> str:
+    try:
+        return url_guard.resolve_public(url)
+    except url_guard.UnsafeURLError:
+        raise UnsafeRedirect(REDIRECT_REFUSED) from None
+    except url_guard.URLResolveError as e:
+        raise _resolve_error(e) from None
+
+
 def _thread_session():
-    import requests
     if not hasattr(_tls, "session"):
-        _tls.session = requests.Session()
-        _tls.session.mount("http://", _pinning_adapter())
-        _tls.session.mount("https://", _pinning_adapter())
+        _tls.session = lib_http.session(timeout=DEFAULT_TIMEOUT, guard=_guard,
+                                        max_bytes=MAX_IMAGE_BYTES, trust_env=True)
     return _tls.session
 
 
@@ -920,7 +875,7 @@ class SourceClient:
         attempt_no = 0
         slowed = False
         while True:
-            with st["sem"].at(self.policy.max_concurrent):
+            with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
                 self._wait_turn(host, st)
                 self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
@@ -1053,7 +1008,7 @@ class SourceClient:
         if poll is not None:
             poll.other_requests += 1
         st = _state(self.source)
-        with st["sem"].at(self.policy.max_concurrent):
+        with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
             self._wait_turn(_host_key(url), st)
             self.stats["access_method"] = access_method
             self.stats["requests"] += 1

@@ -4,7 +4,7 @@ Status: design spec, docs only. Branch `react-design-kit` (base `baihe-subtitler
 
 Written 2026-09-29 by the `ux-designer` agent, working from the user's feedback: "UI does not need to match Streamlit exactly but needs to look nice — take OpenNovel for example"; too much is hidden behind folds and extra clicks; checkboxes should be toggles; raw values ("streamer_vod", "zh", "claude") are shown; "Open workspace · Read" look like hyperlinks; the Library is a stack of folds; the Diagnostics support report is a raw blob.
 
-**What was seen and what was reasoned.** The agent looked at 24 screenshots in `docs/design/screens/before/`: 12 screens, each at 1280×800 and 390×844, **dark theme only, first viewport only**, all from the seeded e2e library, where the dramas have no transcript lines. **Reasoned from code only:**
+**What was seen and what was reasoned.** The agent looked at 24 screenshots in `docs/archive/screens-before/`: 12 screens, each at 1280×800 and 390×844, **dark theme only, first viewport only**, all from the seeded e2e library, where the dramas have no transcript lines. **Reasoned from code only:**
 - the light theme
 - everything below the first viewport: Library tools, the rest of the Source stage below Transcribe, the Translate Advanced body, the lower Diagnostics sections, the Settings key forms, Sources search results and the series panel
 - the Reader and Review with real lines
@@ -431,4 +431,4 @@ Layout:
 - [ ] With `prefers-reduced-motion`, there are no transitions.
 - [ ] Rules 1–15 still hold where not revised; every function reachable before is still reachable (list per task in the PR).
 
-**Screenshots per structural task** (full page, not first viewport): 390×844 touch in dark and light, 360×800 dark, 1280×800 dark and light, plus 1024×768 for Library and Sources. Compare against `docs/design/screens/before/`, which holds dark, first-viewport shots only. Structural redesigns under the root `CLAUDE.md` screenshot rule: **Library (4), Workspace shell (3), Diagnostics (7), Translate page (8)**. The other tasks are localized.
+**Screenshots per structural task** (full page, not first viewport): 390×844 touch in dark and light, 360×800 dark, 1280×800 dark and light, plus 1024×768 for Library and Sources. Compare against `docs/archive/screens-before/`, which holds dark, first-viewport shots only. Structural redesigns under the root `CLAUDE.md` screenshot rule: **Library (4), Workspace shell (3), Diagnostics (7), Translate page (8)**. The other tasks are localized.

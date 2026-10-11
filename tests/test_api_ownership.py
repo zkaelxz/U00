@@ -51,6 +51,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "engine": "an engine name (PC-only key routes, engine Test)",
     "capability": "a Step 36 task capability id, not an item (settings)",
     "package": "a Python package name (PC-only)",
+    "item_id": "a job-queue item; queue_service shows and changes only items for the "
+               "caller's own titles (_sees, _may_change)",
     "preset_id": "presets: household-wide (decision 6)",
     "entry_id": "voice bank: household-wide (decision 6)",
     "report_id": "bug report (admin.diagnostics / PC-only)",
@@ -63,6 +65,9 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "user_id": "a user account, not an owned item (admin.users only)",
     "auth_session_id": "the caller's own sign-in session; auth_service scopes it to the "
                        "caller's user id from their session (404 otherwise)",
+    "device_token_id": "an extension device token: the own route scopes it to the caller's "
+                       "user id from their session (404 otherwise); the route for "
+                       "everyone's tokens is local_only()",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a
@@ -72,6 +77,7 @@ JOB_ROUTES = {
     ("GET", "/api/jobs/{job_id}"): "jobs_service.get_job -> can_see_job",
     ("POST", "/api/jobs/{job_id}/cancel"): "jobs_service.cancel_job -> can_see_job",
     ("POST", "/api/jobs/{job_id}/delete"): "jobs_service.delete_job -> can_see_job",
+    ("POST", "/api/jobs/{job_id}/force-stop"): "jobs_service.force_stop_job -> can_see_job",
     ("GET", "/api/jobs/{job_id}/stages"): "jobs_service.get_job_stages -> can_see_job",
     ("GET", "/api/sources/jobs/{job_id}/result"):
         "sources_search_service.get_job_result -> can_see_job",
@@ -82,7 +88,7 @@ JOB_ROUTES = {
 JOB_PARAMS = {"job_id", "session_id"}
 # Children that only appear under a guarded `{drama_id}`/`{series_id}`.
 NESTED_PARAMS = {"line_id", "term_id", "note_id", "history_id", "version_id", "page_id",
-                 "character_id", "candidate_id", "bulk_job_id", "track", "kind"}
+                 "character_id", "candidate_id", "bulk_job_id", "track", "kind", "number"}
 
 
 def _app(auth="on"):
@@ -597,7 +603,7 @@ class TestDramaIdsInBodies:
         from services.service_errors import ConflictError, NotFoundError
         monkeypatch.setattr(reg, "require_source", lambda name: None)
         b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
-        with pytest.raises(NotFoundError, match="No drama"):
+        with pytest.raises(NotFoundError, match="No title"):
             reg.set_tracked("x", "s1", True, drama_id=world["private"], principal=b)
         with pytest.raises(ConflictError):     # past the drama check: series not loaded
             reg.set_tracked("x", "s1", True, drama_id=world["shared"], principal=b)

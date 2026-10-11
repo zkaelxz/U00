@@ -5,7 +5,7 @@ import { navLink, openMenu, openSettingsGroups } from './settingsNav'
 // Shared by the desktop (rail) and phone (drawer) specs: hide Discover from Settings > Customize menu.
 export async function hideDiscoverFromSettings(page: Page) {
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Customize menu' })
   await card.getByRole('switch', { name: 'Discover' }).click()
   await expect(card.getByRole('switch', { name: 'Discover' })).toHaveAttribute('aria-checked', 'false')
@@ -21,7 +21,7 @@ export async function expectDiscoverGone(page: Page) {
 
 export async function expectLockedItemsCannotBeSwitchedOff(page: Page) {
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Customize menu' })
   for (const name of ['Library', 'Settings']) {
     const sw = card.getByRole('switch', { name: name, exact: true })

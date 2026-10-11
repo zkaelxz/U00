@@ -26,8 +26,12 @@ export const LIVE_LANGUAGES = [
   { code: 'ja', label: 'Japanese' },
   { code: 'ko', label: 'Korean' },
 ]
-export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium']
-export const SEGMENT_RANGE: [number, number] = [10, 60]
+export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3-turbo']
+// Figures from the 5-minute Chinese streamer test in docs/asr-experiments.md
+// (CPU) and the graphics-memory estimate in memory_headroom.py.
+export const WHISPER_HELP =
+  'The default, small, keeps up with the stream on most PCs. large-v3-turbo is slower but more accurate: on our Chinese stream test it made about 16 character errors per 100 against small\'s 23, and took about 1.5 times as long. It needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and a 1.6 GB download the first time. medium is slower and less accurate than turbo on that test. tiny and base are faster still but rougher.'
+export const SEGMENT_RANGE: [number, number] = [3, 60]
 export const OVERLAP_RANGE: [number, number] = [0, 8]
 export const MAX_MINUTES_RANGE: [number, number] = [1, 240]
 export const MAX_URL_LEN = 2000
@@ -73,6 +77,14 @@ export const DEFAULT_FORM: LiveForm = {
 
 // The options remembered per browser (everything but the link).
 export type LiveOptions = Omit<LiveForm, 'url'>
+
+/** Sooner lines at some accuracy. Pressing it overwrites the remembered options for these keys; DEFAULT_FORM itself is unchanged. */
+export const FAST_CAPTIONS: Partial<LiveOptions> = {
+  segment_seconds: 4,
+  overlap_seconds: 1,
+  whisper_size: 'small',
+  reply_without_thinking: true,
+}
 export const DEFAULT_OPTIONS: LiveOptions = (({ url: _url, ...rest }) => rest)(DEFAULT_FORM)
 
 const SID = /^live_[0-9a-f]{32}$/
@@ -145,12 +157,24 @@ export function buildStartBody(form: LiveForm): LiveSessionStart {
 
 export const isActive = (status: string | null | undefined) => status === 'queued' || status === 'running'
 
-/** Append newly polled cues, keeping only the newest `cap`. */
-export function appendCues(prev: LiveCue[], incoming: LiveCue[], cap = CUES_KEPT): LiveCue[] {
+/** Merge polled cues into the list by id, keeping only the newest `cap`. A cue
+ *  that already finished is never put back to pending by a slower, older reply. */
+export function mergeCues(prev: LiveCue[], incoming: LiveCue[], cap = CUES_KEPT): LiveCue[] {
   if (!incoming.length) return prev
-  const all = prev.concat(incoming)
+  const byId = new Map(prev.map((c) => [c.id, c]))
+  for (const c of incoming) {
+    const have = byId.get(c.id)
+    if (!have || have.translation === 'pending' || c.translation !== 'pending') byId.set(c.id, c)
+  }
+  const all = [...byId.values()].sort((a, b) => a.id - b.id)
   return all.length > cap ? all.slice(all.length - cap) : all
 }
+
+/** Where to read from next: the oldest cue still waiting for its translation, else the end. */
+export const readFrom = (cues: LiveCue[], next: number) =>
+  Math.min(next, cues.find((c) => c.translation === 'pending')?.id ?? next)
+
+export const hasPending = (cues: LiveCue[]) => cues.some((c) => c.translation === 'pending')
 
 /** The newest `n` cues, newest first (the feed order). */
 export const feedCues = (cues: LiveCue[], n = FEED_SHOWN) => cues.slice(-n).reverse()
@@ -185,6 +209,14 @@ export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'> & { 
     default:
       return `Stopped with an error: ${s.message || 'the live session failed.'}`
   }
+}
+
+/** The caption lag and the lines left untranslated, or null before a chunk is measured. */
+export function lagLine(s: Partial<Pick<LiveSessionStatus, 'lag_seconds' | 'translations_skipped' | 'chunks_measured'>>): string | null {
+  if (!s.chunks_measured) return null
+  const lag = `Captions about ${Math.round(s.lag_seconds ?? 0)} s behind the stream.`
+  const skipped = s.translations_skipped ?? 0
+  return skipped ? `${lag} ${skipped} line${skipped === 1 ? '' : 's'} shown untranslated to keep up.` : lag
 }
 
 /** One line for the Advanced summary (its current values). */

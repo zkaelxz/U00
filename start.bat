@@ -11,8 +11,11 @@ REM prebuilt React app (frontend\dist), so no Node.js is needed to run it.
 REM Safe to run more than once: if the app is already running, this just
 REM opens a window pointed at it instead of starting a second copy.
 REM
-REM Loopback only (127.0.0.1) on purpose: the API has no login yet, so it
-REM must not be reachable from other devices (docs/remote-access-decision.md).
+REM Loopback only (127.0.0.1) on purpose: sign-in is optional and off by
+REM default (BAIHE_API_AUTH), and with it off every request is the local
+REM owner, so the API must not be reachable from other devices. Household
+REM access goes through Caddy and the household listener instead
+REM (docs/remote-access-decision.md, docs/household-access.md).
 REM This script forces BAIHE_API_HOST=127.0.0.1 even if it is set elsewhere.
 REM
 REM   start.bat            -- normal launch
@@ -133,6 +136,7 @@ if errorlevel 1 (
             echo Install Python 3.10 or newer from https://python.org/downloads/
             echo and make sure to tick "Add python.exe to PATH" during setup,
             echo then run this again.
+            echo ^(setup.bat on this PC can check and install what is missing.^)
         ) else (
             echo Python is on PATH but isn't runnable -- this is the
             echo Microsoft Store's non-functional "App execution aliases" stub,
@@ -349,6 +353,7 @@ if errorlevel 1 (
     echo --build-frontend needs Node.js and npm, and they weren't found on PATH.
     echo Install Node.js 22 from https://nodejs.org/, open a NEW window and run
     echo this again -- or use the prebuilt release zip ^(docs\RELEASE.md^).
+    echo setup.bat can install Node.js for you.
     if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
     exit /b 1
 )
@@ -392,6 +397,12 @@ if not errorlevel 1 (
     if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
     exit /b 1
 )
+
+REM --- Installs queued from Diagnostics ----------------------------------------
+REM Packages whose files the running app had loaded (Windows can't replace
+REM those) are installed here, before the server imports anything. It never
+REM fails the launch; the outcome shows in Diagnostics > Packages.
+%PY% -m pending_install
 
 REM --- Start the server ------------------------------------------------------
 echo Starting Baihe Studio at %APP_URL% ...

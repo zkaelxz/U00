@@ -67,7 +67,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from services import url_guard
+from lib import url_guard
 from services.service_errors import InvalidInputError, RateLimitedError
 
 CHANNELS = ("discord", "ntfy")
@@ -264,7 +264,7 @@ def clear_channel(channel, env_path=None) -> dict:
 
 # --- message content -------------------------------------------------------
 
-_DRAMA_REF = re.compile(r"\(drama #?(\d+)\)")
+_DRAMA_REF = re.compile(r"\((?:title|drama) #?(\d+)\)")
 _SPACES = re.compile(r"\s+")
 
 

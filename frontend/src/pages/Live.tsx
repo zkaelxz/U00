@@ -3,8 +3,9 @@
  * resolve), pick the language and engine, Start; the transcript and its
  * translation arrive chunk by chunk (pushed over GET /api/events: a status
  * event says new lines exist and the page reads them from its own cursor;
- * polled every POLL_MS only while that stream is down). Stop ends it
- * and discards a chunk still in flight. Talks to /api/live
+ * polled every POLL_MS only while that stream is down). Stop captions the
+ * audio already captured and then ends; Stop now ends at once and discards a
+ * chunk still in flight. Talks to /api/live
  * (services/live_service.py): each session has its own temp
  * folder, Use GPU reaches Whisper, and "Stop after" is a hard cap.
  *
@@ -19,9 +20,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_SIZES,
-  advancedSummary, appendCues, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, isActive,
-  listLive, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
+  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, hasPending, isActive, lagLine,
+  listLive, mergeCues, readFrom, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
@@ -31,24 +32,45 @@ import { Toggle } from '../components/Toggle'
 import { useEventStream } from '../hooks/useEventStream'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { LiveCaptions } from './live/LiveCaptions'
 import { StreamEmbed } from './live/StreamEmbed'
-import { DEFAULT_DELAY, DELAY_RANGE, canDelay, parseStreamUrl } from './live/embedLogic'
+import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, steadyDelay } from './live/embedLogic'
 import type { LiveCue, LiveSessionStatus } from '../types/live'
 import type { TranslateEngine } from '../types/translate'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
+import { buttonClass } from '../components/uiClasses'
+
+// Consecutive failed reads (about 10 s at POLL_MS) before the page says so.
+const POLL_FAILURES_SHOWN = 5
 
 const numValue = (n: number) => (Number.isFinite(n) ? n : '')
 
 type Session = { id: string; status: LiveSessionStatus | null; cues: LiveCue[]; next: number }
+
+/** The translation, or why there is none yet: the transcript above it always stays. */
+function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
+  if (cue.translation === 'pending' && waiting) {
+    return <span className="live-en muted" data-testid="live-translating">translating…</span>
+  }
+  if (cue.translation === 'skipped') {
+    return <span className="live-en muted" data-testid="live-untranslated">Not translated: skipped to keep up with the stream.</span>
+  }
+  if (cue.translation === 'pending' || cue.translation === 'cancelled') {
+    return <span className="live-en muted" data-testid="live-untranslated">Not translated: the session stopped first.</span>
+  }
+  return <span className={cue.translation === 'failed' ? 'live-en warn' : 'live-en'}>{cue.translated}</span>
+}
 
 export default function LivePage() {
   const pc = usePcOnly()
   const [prefs, setPrefs] = usePersistedState<LiveOptions>('live.options', DEFAULT_OPTIONS)
   const [url, setUrl] = useState('')
   const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
+  const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
   const [theater, setTheater] = usePersistedState<boolean>('live.theater', false)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
+  const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
   const form: LiveForm = { ...DEFAULT_FORM, ...prefs, url }
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
 
@@ -57,8 +79,12 @@ export default function LivePage() {
   const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [stopping, setStopping] = useState(false)
+  // 'finishing': the first Stop was taken and the session captions what it
+  // already captured; the button then offers Stop now.
+  const [stopping, setStopping] = useState<false | 'finishing' | 'now'>(false)
   const sessionRef = useRef<Session | null>(null)
+  const pollFailures = useRef(0)
+  const pollErrorShown = useRef(false)
   // Declared before the polling effect so a new session is in the ref first.
   useEffect(() => {
     sessionRef.current = session
@@ -109,18 +135,22 @@ export default function LivePage() {
   const poll = useCallback(async (id: string) => {
     const cur = sessionRef.current
     if (!cur || cur.id !== id) return false
-    const after = cur.next
+    // From the oldest line still waiting for its translation, so it fills in.
+    const after = readFrom(cur.cues, cur.next)
     try {
       const s = await getLive(id, after)
-      // Two polls can overlap (Stop polls at once): only the one that asked
-      // from the current index appends, so no line is shown twice.
+      pollFailures.current = 0
+      if (pollErrorShown.current) {
+        pollErrorShown.current = false
+        setError(null)
+      }
+      // Merged by id: a reply that overlaps another changes nothing twice.
       setSession((prev) => {
         if (!prev || prev.id !== id) return prev
-        if (prev.next !== after) return { ...prev, status: s }
-        return { id, status: s, cues: appendCues(prev.cues, s.cues), next: s.next_index }
+        return { id, status: s, cues: mergeCues(prev.cues, s.cues), next: Math.max(prev.next, s.next_index) }
       })
-      if (sessionRef.current?.id === id && sessionRef.current.next === after) {
-        sessionRef.current = { ...sessionRef.current, next: s.next_index }
+      if (sessionRef.current?.id === id) {
+        sessionRef.current = { ...sessionRef.current, next: Math.max(sessionRef.current.next, s.next_index) }
       }
       return isActive(s.status)
     } catch (err) {
@@ -129,7 +159,19 @@ export default function LivePage() {
         setError('That live session is gone (Baihe was restarted). Start a new one.')
         return false
       }
-      return true // a network blip: keep trying
+      // Signed out or not allowed: retrying every 2 s cannot help.
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        pollErrorShown.current = true
+        setError(describeLiveError(err))
+        return false
+      }
+      // A single blip is normal; a run of them means the feed is not coming.
+      pollFailures.current += 1
+      if (pollFailures.current >= POLL_FAILURES_SHOWN && !pollErrorShown.current) {
+        pollErrorShown.current = true
+        setError(describeLiveError(err))
+      }
+      return true
     }
   }, [])
 
@@ -140,7 +182,7 @@ export default function LivePage() {
     const cur = sessionRef.current
     if (type !== 'live' || !s || !cur || s.session_id !== cur.id) return
     setSession((prev) => (prev && prev.id === s.session_id ? { ...prev, status: { ...s, cues: [] } } : prev))
-    if (s.next_index > cur.next) void poll(cur.id)
+    if (s.next_index > cur.next || hasPending(cur.cues)) void poll(cur.id)
   })
   const polling = stream.mode === 'poll'
 
@@ -188,10 +230,12 @@ export default function LivePage() {
 
   async function stop() {
     if (!session) return
-    setStopping(true)
+    const again = stopping === 'finishing'
+    setStopping('now')
     setError(null)
     try {
-      await stopLive(session.id)
+      const r = await stopLive(session.id)
+      if (r.finishing && !again) setStopping('finishing')
       await poll(session.id)
     } catch (err) {
       setStopping(false)
@@ -205,6 +249,16 @@ export default function LivePage() {
   const streamRef = videoLive ? parseStreamUrl(url) : null
   const feed = session ? feedCues(session.cues) : []
   const total = session?.next ?? 0
+  const lag = session?.status ? lagLine(session.status) : null
+
+  // Held steady between small changes of the estimate: each change seeks the picture.
+  const estimate = autoDelay(session?.status?.segment_seconds || form.segment_seconds,
+    session?.status?.processing_seconds ?? 0, (session?.status?.chunks_measured ?? 0) > 0)
+  const [autoValue, setAutoValue] = useState<number | null>(null)
+  useEffect(() => {
+    setAutoValue((cur) => steadyDelay(cur, estimate))
+  }, [estimate])
+  const delay = delayAuto ? (autoValue ?? estimate) : videoDelay
 
   return (
     <section className={videoLive ? 'panel live-page live-wide' : 'panel page-narrow live-page'} aria-label="Live">
@@ -260,7 +314,14 @@ export default function LivePage() {
         {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
         <Section storageKey="live.advanced" title="Advanced" summary={advancedSummary(form)}>
           <div className="field-row">
-            <Field label="Whisper model" help="Smaller is faster per chunk, closer to real time; medium is usually too slow for short chunks.">
+            <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active}
+              onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
+              Fast captions
+            </button>
+            <p className="muted">Chunk 4 s, overlap 1 s, Whisper small, no thinking: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).</p>
+          </div>
+          <div className="field-row">
+            <Field label="Whisper model" help={WHISPER_HELP}>
               <select value={form.whisper_size} disabled={active} onChange={(e) => setOpt('whisper_size', e.target.value)}>
                 {WHISPER_SIZES.map((w) => (
                   <option key={w} value={w}>
@@ -270,7 +331,7 @@ export default function LivePage() {
               </select>
             </Field>
             <Field label="Chunk" unit="s" help="Shorter shows lines sooner; longer transcribes better per chunk.">
-              <input type="number" min={SEGMENT_RANGE[0]} max={SEGMENT_RANGE[1]} step={5} value={numValue(form.segment_seconds)} disabled={active}
+              <input type="number" min={SEGMENT_RANGE[0]} max={SEGMENT_RANGE[1]} step={1} value={numValue(form.segment_seconds)} disabled={active}
                 onChange={(e) => setOpt('segment_seconds', e.target.valueAsNumber)} />
             </Field>
             <Field label="Overlap" unit="s" help="Re-hears this much of the previous chunk so a sentence cut at a boundary is heard whole. 0 turns it off; at most half the chunk.">
@@ -300,8 +361,8 @@ export default function LivePage() {
         </Section>
         <div className="actions">
           {active ? (
-            <button type="button" className="primary" onClick={() => void stop()} disabled={stopping}>
-              {stopping ? 'Stopping…' : status === 'queued' ? 'Cancel' : 'Stop'}
+            <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping === 'now'}>
+              {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : status === 'queued' ? 'Cancel' : 'Stop'}
             </button>
           ) : (
             <button type="submit" className="primary" disabled={!!blocker || busy}>
@@ -331,6 +392,9 @@ export default function LivePage() {
                   <Toggle checked={theater} onChange={setTheater} />
                 </Field>
               </div>
+              <Field label="Captions over video" help="Draws the current line over the picture, the translation once it is ready and the transcript until then.">
+                <Toggle checked={captionsOn} onChange={setCaptionsOn} />
+              </Field>
               <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
                 <Toggle checked={showVideo} onChange={setShowVideo} />
               </Field>
@@ -338,12 +402,24 @@ export default function LivePage() {
             {!streamRef && <p className="muted">This site can't be shown here; the lines still work.</p>}
             {streamRef && showVideo && (
               <>
-                <StreamEmbed stream={streamRef} delay={videoDelay} />
+                <StreamEmbed stream={streamRef} delay={delay}
+                  captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
                 {canDelay(streamRef) && (
-                  <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up.">
-                    <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={videoDelay}
-                      onChange={(e) => setVideoDelay(e.target.valueAsNumber)} />
-                  </Field>
+                  <>
+                    <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up. Moving the slider sets it by hand.">
+                      <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={delay}
+                        onChange={(e) => {
+                          setDelayAuto(false)
+                          setVideoDelay(e.target.valueAsNumber)
+                        }} />
+                    </Field>
+                    <Field label="Automatic video delay" help="Sets the delay from the chunk length and how long the last chunks took to caption.">
+                      <Toggle checked={delayAuto} onChange={setDelayAuto} />
+                    </Field>
+                    <p className="muted" data-testid="live-delay-mode">
+                      {delayAuto ? `Video delay: auto (about ${delay} s)` : `Video delay: ${videoDelay} s, set by hand`}
+                    </p>
+                  </>
                 )}
               </>
             )}
@@ -353,14 +429,20 @@ export default function LivePage() {
           <p className={status === 'error' ? 'error' : 'muted'} data-testid="live-status">
             {session.status ? statusLine(session.status, total) : 'Connecting…'}
           </p>
+          {lag && <p className="muted" data-testid="live-lag">{lag}</p>}
+          {!!session.status?.notes?.length && (
+            <ul className="muted live-notes" data-testid="live-notes" aria-label="Live events">
+              {session.status.notes.map((n, i) => <li key={`${i}-${n}`}>{n}</li>)}
+            </ul>
+          )}
           {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
           {feed.length > 0 && (
             <ol className="live-cues" aria-label="Live lines, newest first">
-              {feed.map((c, i) => (
-                <li key={total - i}>
+              {feed.map((c) => (
+                <li key={c.id}>
                   <span className="live-ts">{fmtTs(c.start)}</span>
                   <span className="live-src" lang={form.source_language}>{c.text}</span>
-                  <span className={c.translated.startsWith('[translation failed') ? 'live-en warn' : 'live-en'}>{c.translated}</span>
+                  <TranslationText cue={c} waiting={active} />
                 </li>
               ))}
             </ol>

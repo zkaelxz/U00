@@ -42,12 +42,16 @@ from typing import Optional
 
 import background_jobs
 import core as core_module
+import whisper_models
+from segment_splitting import (MIN_WORD_GAP_SECONDS, SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, SplitRules, encode_line_words, line_word_index, line_words, span_words)
 import db
 import diarize
+import long_line_split
 import raw_transcript
 import resegment
 import subtitle_formats
 import translate_engines
+from engine_backends import llm_tasks
 from services import (diarization_service, drama_service, settings_service, transcribe_service,
                       translate_service)
 from services.review_lines_service import line_dict
@@ -85,13 +89,13 @@ def _drama_lock(drama_id: int) -> threading.Lock:
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return drama
 
 
 def _refuse_if_job_running(drama_id: int):
     if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError("A background job is still running for this drama -- wait for it "
+        raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before restructuring lines.")
 
 
@@ -106,7 +110,7 @@ def _id_list(name: str, value) -> list:
 
 def _check_expected(current, expected_line_ids):
     if [ln.id for ln in current] != list(expected_line_ids):
-        raise ConflictError("This drama's lines changed since you loaded them -- reload and "
+        raise ConflictError("This title's lines changed since you loaded them -- reload and "
                             "try again.")
 
 
@@ -135,17 +139,17 @@ def lines_fingerprint(lines) -> str:
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _commit(drama_id: int, current, new_lines, label: str) -> int:
-    """Snapshot `current` (fresh from the DB), then full-sync `new_lines`.
+def _commit(drama_id: int, current, new, label: str) -> int:
+    """Snapshot `current` (fresh from the DB), then full-sync `new`.
     Caller holds the drama lock and has already checked expected ids.
     Returns the snapshot's `history_id`, so the caller can offer an undo."""
     history_id = db.save_line_history_snapshot(drama_id, current, label)
     if db.load_line_ids(drama_id) != {ln.id for ln in current}:
-        raise ConflictError("This drama's lines changed while saving -- nothing was changed; "
+        raise ConflictError("This title's lines changed while saving -- nothing was changed; "
                             "reload and try again.")
-    for i, ln in enumerate(new_lines):
+    for i, ln in enumerate(new):
         ln.idx = i
-    db.save_lines(drama_id, new_lines)
+    translate_service.save_synced(drama_id, new)
     return history_id
 
 
@@ -191,7 +195,7 @@ def _index_of(lines, line_id) -> int:
     for i, ln in enumerate(lines):
         if ln.id == line_id:
             return i
-    raise NotFoundError(f"No line with id {line_id} in this drama.")
+    raise NotFoundError(f"No line with id {line_id} in this title.")
 
 
 # ---------------------------------------------------------------------------
@@ -248,9 +252,9 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             raise InvalidInputError("line_ids must be adjacent lines, in order.")
         head, rest = lines[first], lines[first + 1:first + len(line_ids)]
         # Joined only when every line's words are valid and in time order; else dropped.
-        words = core_module.line_words(head)
+        words = line_words(head)
         for ln in rest:
-            more = core_module.line_words(ln)
+            more = line_words(ln)
             words = (words + more if words and more and more[0]["start"] >= words[-1]["start"]
                      else None)
         for ln in rest:
@@ -265,7 +269,7 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             if ln.lang != head.lang:
                 head.lang = None
         head.end = max(head.end, rest[-1].end)
-        head.word_timings = core_module.encode_line_words(head.zh, words) if words else None
+        head.word_timings = encode_line_words(head.zh, words) if words else None
         return lines[:first + 1] + lines[first + len(line_ids):], [head]
     return structural_write(drama_id, expected_line_ids, "before merge", build, with_words=True)
 
@@ -307,9 +311,9 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
         en_first, en_second = ln.en, ""
         if en_at_char is not None:
             en_first, en_second = ln.en[:en_at_char].rstrip(), ln.en[en_at_char:].strip()
-        index = core_module.line_word_index(ln)
-        words = ([core_module.span_words(index, 0, at_char, pieces[0]),
-                  core_module.span_words(index, at_char, len(ln.zh), pieces[1])]
+        index = line_word_index(ln)
+        words = ([span_words(index, 0, at_char, pieces[0]),
+                  span_words(index, at_char, len(ln.zh), pieces[1])]
                  if index is not None else [None, None])
         second = core_module.Line(idx=0, start=cut, end=ln.end, zh=pieces[1], en=en_second,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
@@ -372,7 +376,8 @@ def preview_resegmentation(drama_id: int) -> dict:
             "changed": [{"line_id": ln.id, "idx": ln.idx, "zh": ln.zh, "pieces": list(p)}
                         for ln, p in changed],
             **_affected_counts(drama_id, lines, changed_ids),
-            "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"])}
+            "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"]),
+            "reason": long_line_split.resegment_reason(lines, language, changed)}
 
 
 def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
@@ -380,7 +385,7 @@ def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
     with _drama_lock(drama_id):
         current = db.load_line_objects(drama_id)
         if [ln.id for ln in current] != source_ids:
-            raise RuntimeError("This drama's lines changed while re-segmenting -- nothing was "
+            raise RuntimeError("This title's lines changed while re-segmenting -- nothing was "
                                "changed; run it again.")
         _commit(drama_id, current, list(new_lines), "before re-segment")
     return {"line_count": len(new_lines)}
@@ -393,12 +398,27 @@ def _usage_logger(drama_id, engine_name, engine):
     return log
 
 
+def _raise_if_cancelled(job_id):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+
+
+def _bounded(job_id, engine):
+    if engine is None:
+        return contextlib.nullcontext()
+    return llm_tasks.bounded_job_calls(
+        job_id, lambda: background_jobs.is_cancel_requested(job_id),
+        deadline=llm_tasks.request_deadline_for(engine), lenient_empty=True)
+
+
 def _run_resegment_job(job_id, drama_id, lines, source_ids, language, engine, engine_name,
                        segments, script, min_pause):
     usage = _usage_logger(drama_id, engine_name, engine) if engine is not None else None
-    new_lines, changed = resegment.resegment_lines(lines, language, engine=engine,
-                                                   segments=segments, chinese_script=script,
-                                                   usage_cb=usage, min_pause=min_pause)
+    with _bounded(job_id, engine):
+        new_lines, changed = resegment.resegment_lines(
+            lines, language, engine=engine, segments=segments, chinese_script=script,
+            usage_cb=usage, min_pause=min_pause,
+            check_cancel=lambda: _raise_if_cancelled(job_id))
     result = {"changed": len(changed)}
     if changed:
         result.update(_apply_resegmented(drama_id, new_lines, source_ids))
@@ -415,7 +435,7 @@ def _make_on_done(drama_id, source_ids, engine_name, engine):
 
 
 def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str]):
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
@@ -426,7 +446,7 @@ def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str])
         raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get_gemini_free_tier(),
+        free_tier=settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
     return engine_name, engine
@@ -460,18 +480,18 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
     if confirm is not True and _needs_confirm(drama_id, lines, language):
         raise InvalidInputError(_CONFIRM_NEEDED)
     job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
-    desc = f"Re-segmenting (drama #{drama_id})"
+    desc = f"Re-segmenting (title #{drama_id})"
     if engine_name == "ollama":
         started = background_jobs.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
-            description=desc, on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
+            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
     else:
         started = background_jobs.start_job(
             job_id, _run_resegment_job, job_id, drama_id, lines, expected_line_ids, language,
             eng, engine_name, segments, script, min_pause, description=desc)
     if not started:
-        raise ConflictError("A re-segmentation is already running for this drama.")
+        raise ConflictError("A re-segmentation is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id}
 
 
@@ -518,10 +538,11 @@ def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, eng
 
 def _run_llm_preview_job(job_id, drama_id, lines, language, engine, engine_name, segments,
                          script, min_pause):
-    new_lines, changed = resegment.resegment_lines(
-        [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
-        chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine),
-        min_pause=min_pause)
+    with _bounded(job_id, engine):
+        new_lines, changed = resegment.resegment_lines(
+            [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
+            chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine),
+            min_pause=min_pause, check_cancel=lambda: _raise_if_cancelled(job_id))
     _store_llm_preview(drama_id, lines, language, new_lines,
                        [(ln.id, ln.idx, ln.zh, p) for ln, p in changed], engine_name)
     background_jobs.set_result(job_id, {"line_count": len(new_lines)})
@@ -548,25 +569,25 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
     language, script, segments, min_pause = _reseg_inputs(drama_id, drama)
     engine_name, eng = _build_engine(drama, engine, model)
     translate_run_service.refuse_when_cap_spent(engine_name,
-                                                settings_service.get_gemini_free_tier())
+                                                settings_service.get("gemini_free_tier"))
     lines = db.load_line_objects(drama_id, with_words=True)
     job_id = f"{RESEGMENT_PREVIEW_JOB_PREFIX}{drama_id}"
     if background_jobs.is_running(job_id):
-        raise ConflictError("A re-segmentation preview is already running for this drama.")
+        raise ConflictError("A re-segmentation preview is already running for this title.")
     with _llm_previews_lock:
         _llm_previews.pop(drama_id, None)
-    desc = f"Re-segmentation preview (drama #{drama_id})"
+    desc = f"Re-segmentation preview (title #{drama_id})"
     if engine_name == "ollama":
         started = background_jobs.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
-            description=desc, on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
+            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
     else:
         started = background_jobs.start_job(
             job_id, _run_llm_preview_job, job_id, drama_id, lines, language, eng, engine_name,
             segments, script, min_pause, description=desc)
     if not started:
-        raise ConflictError("A re-segmentation preview is already running for this drama.")
+        raise ConflictError("A re-segmentation preview is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id}
 
 
@@ -587,7 +608,7 @@ def get_llm_resegment_preview(drama_id: int) -> dict:
                 _llm_previews.pop(drama_id, None)
         preview = None
     if preview is None:
-        raise NotFoundError("No LLM re-segmentation preview is ready for this drama.")
+        raise NotFoundError("No LLM re-segmentation preview is ready for this title.")
     return {k: v for k, v in preview.items() if not k.startswith("_")}
 
 
@@ -602,7 +623,7 @@ def _apply_llm_preview_job(job_id, drama_id, preview, confirm: bool = False):
     with _drama_lock(drama_id):
         current = db.load_line_objects(drama_id)
         if _line_fingerprint(current) != state["fingerprint"]:
-            raise RuntimeError("This drama's lines changed since the preview -- nothing was "
+            raise RuntimeError("This title's lines changed since the preview -- nothing was "
                                "changed; run the preview again.")
         if confirm is not True and _needs_confirm(drama_id, current, state["language"]):
             raise RuntimeError("Re-segmenting would now clear translations, flags or notes on "
@@ -622,13 +643,13 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
     with _llm_previews_lock:
         preview = _llm_previews.get(drama_id)
     if preview is None:
-        raise NotFoundError("No LLM re-segmentation preview is ready for this drama -- run the "
+        raise NotFoundError("No LLM re-segmentation preview is ready for this title -- run the "
                             "preview first.")
     _refuse_if_job_running(drama_id)
     lines = db.load_line_objects(drama_id)
     _check_expected(lines, expected_line_ids)
     if _line_fingerprint(lines) != preview["_apply"]["fingerprint"]:
-        raise ConflictError("This drama's lines changed since the preview -- run the preview "
+        raise ConflictError("This title's lines changed since the preview -- run the preview "
                             "again.")
     # Recounted on the lines as they are now, not the preview's needs_confirm:
     # a translation note added since isn't in the fingerprint.
@@ -637,9 +658,9 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
     job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
         job_id, _apply_llm_preview_job, job_id, drama_id, preview, confirm is True,
-        description=f"Applying re-segmentation preview (drama #{drama_id})")
+        description=f"Applying re-segmentation preview (title #{drama_id})")
     if not started:
-        raise ConflictError("A re-segmentation is already running for this drama.")
+        raise ConflictError("A re-segmentation is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id}
 
 
@@ -669,7 +690,7 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
     # the raw rows: the read above returns dub_filename as a bare basename
     rows = db.get_line_history_snapshot(history_id)
     if rows is None:
-        raise NotFoundError(f"No history snapshot {history_id} for drama {drama_id}.")
+        raise NotFoundError(f"No history snapshot {history_id} for title {drama_id}.")
 
     def build(lines):
         # Checked under the drama lock, but line edits don't take it: one saved
@@ -711,25 +732,25 @@ class _Resplit:
     language: str = "zh"
     sensitivity: str = "normal"
     max_seconds: Optional[float] = None
-    min_pause: float = core_module.MIN_WORD_GAP_SECONDS
+    min_pause: float = MIN_WORD_GAP_SECONDS
 
     @property
     def label(self) -> str:
         return RESPLIT_SENSITIVITIES[self.sensitivity] + (
             f", {self.max_seconds:g} s cap" if self.max_seconds else "")
 
-    def rules(self, ln) -> Optional[core_module.SplitRules]:
+    def rules(self, ln) -> Optional[SplitRules]:
         """None is today's fixed 8 s / 40 CJK characters. The cap replaces the
         8 s limit rather than adding to it: a cap above 8 would otherwise do nothing."""
         if self.sensitivity == "normal" and not self.max_seconds:
             return None
-        seconds = self.max_seconds or core_module.SPLIT_MAX_SECONDS
+        seconds = self.max_seconds or SPLIT_MAX_SECONDS
         if self.sensitivity == "normal":
-            return core_module.SplitRules(seconds, core_module.SPLIT_MAX_CJK_CHARS, count_latin=False)
+            return SplitRules(seconds, SPLIT_MAX_CJK_CHARS, count_latin=False)
         if self.sensitivity == "more":
-            return core_module.SplitRules(
+            return SplitRules(
                 seconds, subtitle_formats.line_char_limit(ln.lang or self.language))
-        return core_module.SplitRules(self.max_seconds, None, per_sentence=True)
+        return SplitRules(self.max_seconds, None, per_sentence=True)
 
     def too_long(self, ln) -> bool:
         return len(ln.zh) > RESPLIT_MAX_CHARS and self.rules(ln) is not None
@@ -740,12 +761,11 @@ class _Resplit:
         seg = {"start": ln.start, "end": ln.end, "text": ln.zh}
         if self.too_long(ln):
             return [seg]
-        words = core_module.line_words(ln)
+        words = line_words(ln)
+        kw = {"rules": self.rules(ln), "min_pause": self.min_pause}
         if not words:
-            return core_module.split_long_segments([seg], rules=self.rules(ln),
-                                                   min_pause=self.min_pause)
-        pieces = core_module.split_long_segments([{**seg, "words": words}], rules=self.rules(ln),
-                                                 min_pause=self.min_pause)
+            return long_line_split.split_long_segments([seg], **kw)
+        pieces = long_line_split.split_long_segments([{**seg, "words": words}], **kw)
         # Word times tighten a piece to its speech, but the line's outer edges
         # may have been re-timed on purpose (by hand or a re-time run); the
         # Review split and the AI re-split keep them, so this does too.
@@ -771,20 +791,8 @@ def _resplit_plan(lines, cfg: _Resplit) -> dict:
 
 
 def _nothing_to_split(lines, cfg: _Resplit) -> str:
-    """Why a run cut nothing: lines over the limits with nowhere to cut are
-    not the same problem as no line being over them."""
-    stuck = 0
-    for ln in _resplit_candidates(lines):
-        if cfg.too_long(ln):
-            stuck += 1
-            continue
-        rules = cfg.rules(ln) or core_module.SplitRules(max_chars=core_module.SPLIT_MAX_CJK_CHARS,
-                                                         count_latin=False)
-        stuck += core_module.exceeds_limits({"start": ln.start, "end": ln.end, "text": ln.zh}, rules)
-    if stuck:
-        return (f"{stuck} line{'s' if stuck != 1 else ''} over the limits at {cfg.label} "
-                "sensitivity, but none has a sentence or comma break to cut at.")
-    return f"No line is over the limits at {cfg.label} sensitivity. {_RESPLIT_NEXT[cfg.sensitivity]}"
+    return long_line_split.nothing_to_split(_resplit_candidates(lines), cfg,
+                                            _RESPLIT_NEXT[cfg.sensitivity])
 
 
 def _resplit_snapshot(lines, plan) -> dict:
@@ -830,7 +838,7 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
         # Another job (e.g. a translation) started while aligning would write
         # its per-line result onto the first piece, which keeps the parent's id.
         if own_job_id and drama_service.job_running_for_drama(drama_id, own_job_id):
-            raise ConflictError("Another job started on this drama while the lines were being "
+            raise ConflictError("Another job started on this title while the lines were being "
                                 "aligned -- nothing was changed; wait for it to finish and try "
                                 "again.")
         current = db.load_line_objects(drama_id, with_words=True)
@@ -852,14 +860,14 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             aligned += ln.id in timed
             first, *rest = pieces
             ln.start, ln.end, ln.zh, ln.en = first["start"], first["end"], first["text"], ""
-            ln.word_timings = core_module.encode_line_words(first["text"], first.get("words"))
+            ln.word_timings = encode_line_words(first["text"], first.get("words"))
             if first.get("flag"):
                 ln.flag, ln.flag_note = first["flag"], first["flag_note"]
             new_pieces = [core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
                                            speaker=ln.speaker, speaker_manual=ln.speaker_manual,
                                            sfx=ln.sfx, lang=ln.lang, flag=p.get("flag"),
                                            flag_note=p.get("flag_note", ""),
-                                           word_timings=core_module.encode_line_words(
+                                           word_timings=encode_line_words(
                                                p["text"], p.get("words")))
                           for p in rest]
             new_lines.append(ln)
@@ -908,7 +916,7 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
                 break
             try:
                 got = _aligned_pieces(audio_path, by_id[line_id], pieces, language, use_gpu)
-            except (ImportError, core_module.ModelDownloadError) as exc:
+            except (ImportError, whisper_models.ModelDownloadError) as exc:
                 aligner_down = ("The Qwen3 forced aligner isn't available "
                                 f"({type(exc).__name__}; see Diagnostics)")
                 break
@@ -921,7 +929,7 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
             if got:
                 timed[line_id] = got
     finally:  # a cancelled or failed run must not leave the aligner holding VRAM
-        core_module.release_gpu_models()
+        whisper_models.release_gpu_models()
     if background_jobs.is_cancel_requested(job_id):
         background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
         return
@@ -995,13 +1003,13 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     if audio_path is None:
         return _apply_resplit(
             drama_id, expected_line_ids, confirm, {}, "proportional",
-            "This drama has no stored audio, so the lines were split with estimated timing.",
+            "This title has no stored audio, so the lines were split with estimated timing.",
             _resplit_snapshot(lines, plan), cfg)
     job_id = f"{RESPLIT_JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
         job_id, _run_resplit_job, job_id, drama_id, expected_line_ids, confirm, audio_path,
-        cfg.language, settings_service.get_use_gpu(), cfg,
-        gpu_touching=True, description=f"Re-splitting lines (drama #{drama_id})")
+        cfg.language, settings_service.get("use_gpu"), cfg,
+        gpu_touching=True, description=f"Re-splitting lines (title #{drama_id})")
     if not started:
-        raise ConflictError("Lines are already being re-split for this drama.")
+        raise ConflictError("Lines are already being re-split for this title.")
     return {"job_id": job_id, "drama_id": drama_id}

@@ -239,7 +239,7 @@ def _refused_address(url: str):
     "unresolved" when the name doesn't resolve here: the static tier may
     still run and fail normally, but the browser tiers are dropped (with
     split-horizon DNS Chromium could resolve it to a private IP)."""
-    from services import url_guard
+    from lib import url_guard
     try:
         url_guard.resolve_public(ascii_url(url))
     except (url_guard.UnsafeURLError, UnsafeRedirect):
@@ -464,7 +464,7 @@ def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
     # declared expectation, never itself tested=True) must not permanently
     # block a real confirmed result from updating access_method -- several
     # adapters preset a non-None default here (bilibili_manga.py,
-    # mangaz.py, manhuaku.py), which the old `is None` check could never
+    # manhuaku.py), which the old `is None` check could never
     # overwrite. Update it when there's no confirmed access_method yet,
     # when the one on record was never actually tested, or when this
     # tier is strictly preferred (earlier in the ladder) over it.

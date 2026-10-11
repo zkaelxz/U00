@@ -13,9 +13,7 @@ too.
 """
 
 import os
-import re
 import sqlite3
-from urllib.parse import urlsplit
 
 import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -28,34 +26,11 @@ def cache_hit_share(usage: dict) -> float:
     return (usage.get("cache_read_tokens") or 0) / total if total else 0.0
 
 
-# A path segment that looks like a credential (a long random run, or a
-# Telegram-style bot<id>:<key>), e.g. a path-signed CDN or bot file link.
-_TOKEN_SEGMENT = re.compile(r"^(?:bot\d+:.+|[A-Za-z0-9_\-.~:=]{32,})$")
-
-
 def display_source_url(url) -> str:
-    """A drama's stored source_url as the API may return it: http(s) only,
-    scheme + host + path, no query, fragment, userinfo or ;params. URL
-    download stores the pasted link as given, and that can carry a signed
-    token (same rule as sources_registry_service.safe_url); a path that
-    looks like it holds one is dropped, leaving only the host. Anything
-    else (unparsable, scheme-less, file://) gives ""."""
-    try:
-        parts = urlsplit(str(url or "").strip())
-        host = parts.hostname or ""
-        port = f":{parts.port}" if parts.port else ""
-    except ValueError:
-        return ""
-    if parts.scheme.lower() not in ("http", "https") or not host:
-        return ""
-    if ":" in host:
-        host = f"[{host}]"          # IPv6 keeps its brackets
-    path = parts.path.split(";", 1)[0]
-    from translate_engines import redact_secrets   # lazy: a heavy module
-    if (redact_secrets(path) != path
-            or any(_TOKEN_SEGMENT.match(seg) for seg in path.split("/") if seg)):
-        path = "/"
-    return f"{parts.scheme.lower()}://{host}{port}{path}"
+    """A drama's stored source_url as the API may return it (see
+    translate_engines.display_url)."""
+    from translate_engines import display_url   # lazy: a heavy module
+    return display_url(url)
 
 
 def split_custom_tags(drama: dict) -> list:
@@ -115,10 +90,13 @@ def get_library_drama(drama_id: int) -> dict:
     of `db.get_drama`'s bare None, so every caller reports the same
     thing the same way."""
     if not isinstance(drama_id, int) or isinstance(drama_id, bool) or drama_id < 1:
-        raise InvalidInputError("A drama id is a positive whole number.")
+        raise InvalidInputError("A title id is a positive whole number.")
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
+    # The raw source link may carry a token; only source_link_service reads
+    # it, so a route that returns this dict untyped can't leak it.
+    drama.pop("source_url_full", None)
     return drama
 
 

@@ -37,11 +37,9 @@ import re
 import threading
 import time
 
-import requests
-
 import action_tiers
 import db
-from services import capped_body
+from lib import http
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, ServiceError)
 
@@ -177,21 +175,20 @@ def _call(token: str, method: str, path: str, *, json=None, params=None, ok=(200
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "baihe-maintenance-assistant"}
     try:
-        resp = requests.request(method, API + path, headers=headers, json=json, params=params,
-                               timeout=TIMEOUT, allow_redirects=False, stream=True)
+        resp = http.request(method, API + path, headers=headers, json=json, params=params,
+                            timeout=TIMEOUT, max_bytes=MAX_RESPONSE_BYTES, guard=None)
+    except http.ResponseTooLarge:
+        raise ServiceError("GitHub sent back more data than expected.") from None
     except Exception as e:
         raise DependencyUnavailableError("Couldn't reach GitHub: " + _scrub(e, token)[:200]) from None
-
-    def too_big():
-        return ServiceError("GitHub sent back more data than expected.")
-    raw = capped_body.read_capped(resp, MAX_RESPONSE_BYTES, TIMEOUT * 3, too_big)
-    if resp.status_code not in ok:
+    raw = resp.body
+    if resp.status not in ok:
         detail = ""
         try:
             detail = str(_json.loads(raw).get("message", ""))
         except Exception:
             pass
-        raise ServiceError(f"GitHub said {resp.status_code}"
+        raise ServiceError(f"GitHub said {resp.status}"
                            + (f": {_scrub(detail, token)[:200]}" if detail else "") + ".")
     try:
         return _json.loads(raw)

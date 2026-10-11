@@ -7,6 +7,7 @@ extraction ladder itself (sources/adaptive.py) runs for real."""
 import time
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -19,7 +20,8 @@ import translate_engines
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, settings_service, url_guard
+from services import auth_service, settings_service
+from lib import url_guard
 from sources import generic_import, registry
 from sources.ladder import LadderResult
 from sources.models import AccessTier, AttemptRecord
@@ -140,7 +142,7 @@ def test_engine_list_names_only(client):
 
 
 def test_default_engine_not_usable_is_none(client, monkeypatch):
-    monkeypatch.setattr(settings_service, "get_default_engine", lambda: "google")
+    patch_setting(monkeypatch, "default_engine", "google")
     assert client.get("/api/sources/url/ai-engines").json()["default"] is None
     did = db.create_drama(title_en="N", media_type="novel")
     r = client.post("/api/sources/url/import",
@@ -354,6 +356,17 @@ def test_comic_download_caps_and_content_type(client, env, comic, monkeypatch):
     assert reasons["006.png"] == "not downloaded (too many images on the page)"
     assert "006.png" not in " ".join(comic.got)          # never requested
     assert res["pages_added"] == len(db.list_pages(did)) == 3
+
+
+def test_comic_budget_takes_its_caps_from_the_shared_default(client, env, comic, monkeypatch):
+    from sources import generic_import
+    env["fetch"].pages[COMIC_URL] = comic_page_html(6)
+    monkeypatch.setattr(generic_import, "default_budget",
+                        lambda: generic_import.DownloadBudget(3, 10**9))
+    did = _comic_drama()
+    res = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
+    reasons = [s["reason"] for s in res.json()["result"]["skipped"]]
+    assert reasons.count("not downloaded (too many images on the page)") == 4
 
 
 def test_comic_needs_review_writes_nothing(client, env, comic, monkeypatch):
@@ -1052,12 +1065,12 @@ def test_direct_import_writes_one_page_at_a_time(client, env, comic, monkeypatch
         box["images"] = list(res.images)
         return res, report
 
-    def counting_add(drama_id, pages):
+    def counting_add(drama_id, pages, **kw):
         pages = list(pages)
         # One image's pages per call; each written download is dropped at once,
         # so only the ones not yet written are still held.
         held.append((len(pages), sum(1 for c in box["images"] if c.content)))
-        return real_add(drama_id, pages)
+        return real_add(drama_id, pages, **kw)
     monkeypatch.setattr(imp.adaptive, "import_comic", spy_import)
     monkeypatch.setattr(pipeline, "add_page_images", counting_add)
     did = _comic_drama()
@@ -1076,8 +1089,8 @@ def test_review_import_reads_one_image_at_a_time(client, env, comic, monkeypatch
     real_read, real_add = svc._read, pipeline.add_page_images
     monkeypatch.setattr(svc, "_read", lambda r, i: reads.append(i) or real_read(r, i))
     monkeypatch.setattr(pipeline, "add_page_images",
-                        lambda d, pages: calls.append((len(reads), len(list(pages)))) or
-                        real_add(d, pages))
+                        lambda d, pages, **kw: calls.append((len(reads), len(list(pages)))) or
+                        real_add(d, pages, **kw))
     assert client.post(f"/api/sources/dramas/{did}/extraction/import",
                        json={"revision": rv["revision"]}).status_code == 200
     _wait(f"sourceimport_{did}")

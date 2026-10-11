@@ -2,9 +2,6 @@ import { expect, test } from '@playwright/test'
 
 import { withTranslateLines } from './stageLineMocks'
 
-// Mirrors translate_engines.TRANSLATION_ONLY_ENGINES (none are offered now).
-const TRANSLATION_ONLY: string[] = []
-
 // The run and job endpoints are mocked: nothing is translated. Config,
 // estimate, glossary and characters reads hit the real seeded API.
 
@@ -15,10 +12,7 @@ const job = (status: string, extra: object = {}) => ({
 
 test('shows config, estimates, and starts a run with the chosen options', async ({ page }) => {
   const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
-  // A fallback must be the same kind as the main engine (AI or translation-only).
-  const kind = (n: string) => TRANSLATION_ONLY.includes(n)
-  const other = config.engines.find((e: { name: string }) =>
-    e.name !== config.translation_engine && kind(e.name) === kind(config.translation_engine)).name
+  const other = config.engines.find((e: { name: string }) => e.name !== config.translation_engine).name
 
   const bodies: Record<string, unknown>[] = []
   let cancelled = false
@@ -47,7 +41,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await run.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(page.getByTestId('estimate').or(page.getByRole('alert'))).toBeVisible()
 
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
 
   // Out-of-range values are caught before any request.
   await run.getByLabel('Batch size', { exact: true }).fill('500')
@@ -76,23 +70,22 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   })
   expect('line_ids' in bodies[0]).toBe(false)
 
-  await page.getByRole('button', { name: 'Cancel job' }).click()
+  await page.getByRole('button', { name: /^Cancel / }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
-test('fallback engines: the rule is shown, only same-kind engines are offered, Reflect turns them off', async ({ page }) => {
+// No translation-only engine is offered, so every engine is the same kind and the cross-kind alert
+// cannot be reached here; translateForm.test.ts pins that rule with a stand-in engine.
+test('fallback engines: the rule is shown, every other engine is offered, Reflect turns them off', async ({ page }) => {
   const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
   const names: string[] = config.engines.map((e: { name: string }) => e.name)
-  const main: string = config.translation_engine
-  const kind = (n: string) => TRANSLATION_ONLY.includes(n)
-  const sameKind = names.filter((n) => n !== main && kind(n) === kind(main))
-  const otherKind = names.find((n) => kind(n) !== kind(main))
-  test.skip(!sameKind.length || !otherKind, 'the seeded config needs engines of both kinds')
+  const others = names.filter((n) => n !== config.translation_engine)
+  expect(others.length, 'the seeded config needs a second engine').toBeGreaterThan(0)
 
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   const group = run.getByTestId('fallback-engines')
   await expect(group).toContainText('Up to 2, tried in order only after the main engine keeps failing (it retries first).')
   await expect(group).toContainText('Not with Reflect or Bulk.')
@@ -100,25 +93,15 @@ test('fallback engines: the rule is shown, only same-kind engines are offered, R
   await group.getByRole('button', { name: 'Add fallback engine' }).click()
   const slot = group.getByLabel('Fallback engine 1')
   const offered = await slot.locator('option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter(Boolean))
-  expect(offered).toEqual(sameKind)
-  await slot.selectOption(sameKind[0])
-
-  // Switching the main engine to the other kind flags the chosen fallback.
-  await run.getByLabel('AI engine', { exact: true }).selectOption(otherKind!)
-  await expect(group.getByRole('alert')).toHaveText(/must be the same kind as the main engine/)
-  await expect(slot.locator('option:checked')).toContainText("can't be used here")
-  await group.getByRole('button', { name: 'Remove' }).click()
+  expect(offered).toEqual(others)
+  await slot.selectOption(others[0])
   await expect(group.getByRole('alert')).toHaveCount(0)
 
-  // Back on an AI engine, Reflect turns the picker off and says why.
-  if (!kind(main)) {
-    await run.getByLabel('AI engine', { exact: true }).selectOption('')
-    await group.getByRole('button', { name: 'Add fallback engine' }).click()
-    await run.getByRole('switch', { name: 'Reflect' }).click()
-    await expect(group).toContainText('Off while Reflect is on; remove these to run.')
-    await expect(group.getByLabel('Fallback engine 1')).toBeDisabled()
-    await expect(group.getByRole('button', { name: 'Add fallback engine' })).toHaveCount(0)
-  }
+  // Reflect turns the picker off and says why.
+  await run.getByRole('switch', { name: 'Reflect' }).click()
+  await expect(group).toContainText('Off while Reflect is on; remove these to run.')
+  await expect(group.getByLabel('Fallback engine 1')).toBeDisabled()
+  await expect(group.getByRole('button', { name: 'Add fallback engine' })).toHaveCount(0)
 })
 
 test('a 409 on start says a translate job is already running', async ({ page }) => {
@@ -127,7 +110,7 @@ test('a 409 on start says a translate job is already running', async ({ page }) 
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   await page.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
-  await expect(page.getByText('A translate job is already running for this drama.')).toBeVisible()
+  await expect(page.getByText('A translate job is already running for this title.')).toBeVisible()
 })
 
 test('with no lines, Translate is disabled and links to Source (rule 22)', async ({ page }) => {
@@ -136,7 +119,7 @@ test('with no lines, Translate is disabled and links to Source (rule 22)', async
   await expect(run.getByRole('button', { name: 'Translate 0 lines' })).toBeDisabled()
   const blocker = run.getByTestId('translate-blocker')
   await expect(blocker).toContainText('Still needed: lines to translate.')
-  await blocker.getByRole('link', { name: 'Go to Source' }).click()
+  await blocker.getByRole('link', { name: 'Go to Media' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/source$/)
 })
 
@@ -152,7 +135,7 @@ test('with every line translated, the reason offers Re-translate in one tap', as
   await expect(run.getByTestId('translate-blocker')).toHaveCount(0)
 })
 
-test('glossary and characters panels load; a drama without a series is told it cannot hold terms (X09)', async ({ page }) => {
+test('glossary and characters panels load; a title without a series is told it cannot hold terms (X09)', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   // Glossary starts open; Characters is a collapsed Section, open it to reach the body.
   await page.locator('details.section', { hasText: 'Characters' }).first().locator(':scope > summary').click()

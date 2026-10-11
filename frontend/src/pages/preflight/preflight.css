@@ -1,0 +1,15 @@
+.preflight-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.preflight-row {
+  display: grid; grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr) auto; gap: var(--space-1) var(--space-3);
+  align-items: center; overflow-wrap: anywhere;
+}
+.preflight-action p { margin: 0; }
+.preflight-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.preflight-key { grid-column: 1 / -1; }
+
+/* Phones: label, state, then the action at full width; nothing waits on hover. */
+@media (max-width: 640px) {
+  .preflight-row { grid-template-columns: minmax(0, 1fr); }
+  .preflight-action .btn, .preflight-action .confirm-button, .preflight-actions .btn { width: 100%; }
+  .preflight-actions { flex-direction: column; }
+}

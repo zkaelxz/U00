@@ -16,6 +16,7 @@ import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
+from lib import http
 from services import auth_service, translate_service
 from services import model_registry_service as svc
 
@@ -52,14 +53,12 @@ class FakeResp:
         self._body = body
 
     headers = {}
+    status_code = 200
 
     def iter_content(self, size):
         yield json.dumps(self._body).encode()
 
     def close(self):
-        pass
-
-    def raise_for_status(self):
         pass
 
 
@@ -92,9 +91,8 @@ def test_check_and_switch_are_pc_only(isolated_db):
 
 
 def test_check_flags_unlisted_model_without_leaking_key(isolated_db, monkeypatch):
-    import requests
     db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
-    monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp({"data": [{"id": "claude-sonnet-5"}]}))
+    monkeypatch.setattr(http, "pinned_get", lambda url, ip, headers, *a, **kw: FakeResp({"data": [{"id": "claude-sonnet-5"}]}))
     r = _local().post("/api/models/check", headers=LOCAL_HDR)
     assert r.status_code == 200
     assert SECRET not in r.text

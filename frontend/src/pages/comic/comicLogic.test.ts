@@ -12,6 +12,7 @@ import {
   loadComicPrefs,
   NO_ZOOM,
   orderedLines,
+  inRenderWindow,
   preloadWindow,
   regionBox,
   sanitizePrefs,
@@ -58,7 +59,7 @@ describe('comic types and defaults', () => {
     expect(sanitizePrefs({ mode: 'vertical', rtl: 'yes', fit: 'huge', text: true }, d)).toEqual({ ...d, mode: 'vertical', text: true })
   })
 
-  it('remembers prefs per drama', () => {
+  it('remembers prefs per title', () => {
     const s = memoryStorage()
     const d = defaultPrefs('manhua')
     expect(saveComicPrefs(s, 7, { ...d, mode: 'paged' })).toBe(true)
@@ -173,5 +174,14 @@ describe('zoom maths', () => {
     const z = toggleZoomAt(NO_ZOOM, 200, 300, 400, 600)
     expect(z.scale).toBe(2)
     expect(toggleZoomAt(z, 10, 10, 400, 600)).toEqual(NO_ZOOM)
+  })
+})
+
+describe('inRenderWindow', () => {
+  it('keeps the current page and a few each side decoded, nothing further', () => {
+    expect([1, 5, 6, 7, 8].map((n) => inRenderWindow(n, 6, 2))).toEqual([false, true, true, true, true])
+    expect(inRenderWindow(12, 6, 2)).toBe(false)
+    expect(inRenderWindow(100, 1)).toBe(false)
+    expect(inRenderWindow(6, 1)).toBe(true)
   })
 })

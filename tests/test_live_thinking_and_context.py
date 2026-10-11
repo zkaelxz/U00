@@ -8,6 +8,7 @@ import threading
 
 import pytest
 import requests
+from tests.saved_settings import patch_setting
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -177,7 +178,7 @@ class TestOllamaThinking:
             raise requests.HTTPError("500", response=resp)
         monkeypatch.setattr(local, "_ollama_chat", boom)
         with pytest.raises(requests.HTTPError):
-            thinking.ollama_chat_no_thinking(boom, "http://x", {"model": "m"})
+            thinking.ollama_chat_with_think(boom, "http://x", {"model": "m"})
 
     def test_a_separate_thinking_field_never_reaches_the_line(self, monkeypatch):
         thinking._think_refused.clear()
@@ -266,7 +267,7 @@ class TestLiveServiceWiring:
 
     def test_a_start_without_an_engine_is_ollama_never_the_settings_default(self, isolated_db, monkeypatch):
         from services import settings_service, translate_service
-        monkeypatch.setattr(settings_service, "get_default_engine", lambda: "deepseek")
+        patch_setting(monkeypatch, "default_engine", "deepseek")
         built = []
         monkeypatch.setattr(te, "get_engine", lambda name, *a, **k: built.append(name) or type(
             "E", (), {"base_url": "http://x", "model": "gemma4:12b"})())
@@ -347,9 +348,9 @@ class TestOllamaRealRequestRemembersRefusal:
         post = self._post(bodies, error_text)
         chat = lambda base, payload: local._ollama_chat_request(post, base, payload)
         key = {"model": "m", "messages": []}
-        thinking.ollama_chat_no_thinking(chat, "http://x", dict(key))
+        thinking.ollama_chat_with_think(chat, "http://x", dict(key))
         first = len(bodies)
-        thinking.ollama_chat_no_thinking(chat, "http://x", dict(key))
+        thinking.ollama_chat_with_think(chat, "http://x", dict(key))
         thinking._think_refused.clear()
         return first, len(bodies) - first
 

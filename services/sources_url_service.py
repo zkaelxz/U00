@@ -5,7 +5,7 @@ URL routes share.
 
 `check_public_url` runs in the request, before any job or fetch: http(s)
 only, no userinfo, at most 2000 characters, and every resolved address
-public (services.url_guard). Errors are fixed strings: a pasted URL
+public (lib.url_guard). Errors are fixed strings: a pasted URL
 can carry a signed token, so it is never echoed.
 
 `start_preview` wraps sources.front_door.preview in the fixed-id job
@@ -22,7 +22,7 @@ import re
 from urllib.parse import urlsplit
 
 import background_jobs
-from services import url_guard
+from lib import url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 from services.sources_extension_service import require_url_not_extension_only

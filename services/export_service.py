@@ -17,7 +17,9 @@ out, so a CLI or another service could call them too.
 """
 import os
 import re
+import unicodedata
 from typing import Optional
+from urllib.parse import quote
 
 import auto_qc
 import core as core_module
@@ -33,10 +35,100 @@ _SUBTITLE_FORMATS = ("srt", "vtt", "lrc")
 _SUBTITLE_FIELDS = ("en", "zh", "bilingual")
 
 
+# The stem is capped in UTF-8 bytes, not characters: 120 CJK characters are
+# 360 bytes, over the 255-byte filename limit on Linux and macOS.
+_MAX_STEM_BYTES = 200
+_MAX_LANGUAGE_CHARS = 40
+_MAX_LANGUAGE_BYTES = 60
+_MIN_TITLE_BYTES = 30
+_NAME_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
+# What the browser saves a download as, per artifact kind.
+ARTIFACT_WHAT = {"audio": "audiobook", "video": "burned-in", "softsub_video": "soft sub",
+                 "dubbed_video": "dubbed", "scanlate_zip": "pages", "scanlate_pdf": "pages"}
+
+
+# Windows reads a name as the device when the part before its first dot is one
+# of these, whatever follows the dot; the superscript digits count too.
+_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"{base}{d}" for base in ("COM", "LPT") for d in "0123456789\u00b9\u00b2\u00b3"])
+
+
+def _name_part(text) -> str:
+    # Control and format characters (bidi overrides, zero-width, BOM) would
+    # let a title disguise the real extension or vanish from the saved name.
+    kept = "".join(c for c in str(text or "") if not unicodedata.category(c).startswith("C"))
+    return " ".join(_NAME_ILLEGAL.sub(" ", kept).split())
+
+
+def _truncate_bytes(text: str, limit: int) -> str:
+    """The longest prefix of `text` that fits `limit` UTF-8 bytes without
+    cutting a character."""
+    return text.encode("utf-8")[:max(limit, 0)].decode("utf-8", errors="ignore")
+
+
+def field_language(drama: dict, field: str) -> str:
+    """Readable code for the language a subtitle field holds."""
+    source = drama.get("source_language") or "zh"
+    return {"en": "en", "zh": source, "bilingual": f"{source}+en"}.get(field, "")
+
+
+def narration_language(drama: dict) -> str:
+    original = (drama.get("content_mode") == "novel_narration"
+                and drama.get("narration_language") == "original")
+    return (drama.get("source_language") or "zh") if original else "en"
+
+
+def download_filename(drama_id: int, what: str, language: str, ext: str) -> str:
+    """`<Title> - Ep <n> - <what> (<language>).<ext>` for the Content-Disposition
+    name. Only the name the browser saves: stored artifact names stay ID-only
+    because job ids and lookups depend on them."""
+    drama = db.get_drama(drama_id) or {}
+    title = _name_part(drama.get("title_en")) or _name_part(drama.get("title_zh"))
+    episode = drama.get("episode_number")
+    tail = (f" - Ep {episode}" if isinstance(episode, int) else "") + f" - {_name_part(what)}"
+    language = _truncate_bytes(_name_part(language)[:_MAX_LANGUAGE_CHARS], _MAX_LANGUAGE_BYTES).strip()
+    if language:
+        tail += f" ({language})"
+    ext = "." + re.sub(r"[^A-Za-z0-9]", "", ext.lstrip("."))[:10] if ext.strip(". ") else ""
+    room = max(_MIN_TITLE_BYTES, _MAX_STEM_BYTES - len(tail.encode("utf-8")))
+    title = _truncate_bytes(title, room).rstrip(". ")
+    # The " - <what>" tail means a plain title is never a bare device name,
+    # but a dot in the title ends the device-name part early.
+    if "." in title and title.split(".")[0].strip(" ").upper() in _DEVICE_NAMES:
+        title = "_" + title
+    return (title or f"drama {drama_id}") + tail + ext
+
+
+def content_disposition(filename: str) -> str:
+    """Attachment header with an ASCII fallback and the RFC 5987 UTF-8 name.
+    Control characters and quotes never reach the header."""
+    clean = _NAME_ILLEGAL.sub("_", filename) or "download"
+    fallback = "".join(c if " " <= c <= "~" and c not in '%\\' else "_" for c in clean)
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(clean, safe='')}"
+
+
+def drama_disposition(drama_id: int, what: str, language: str, ext: str) -> str:
+    return content_disposition(download_filename(drama_id, what, language, ext))
+
+
+def dub_track_disposition(drama_id: int, track_name: str) -> str:
+    what = "narration track" if track_name.startswith("narration") else "dub track"
+    language = narration_language(db.get_drama(drama_id) or {})
+    return drama_disposition(drama_id, what, language, "wav")
+
+
+def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subtitles") -> str:
+    drama = db.get_drama(drama_id) or {}
+    what = f"bilingual {noun}" if field == "bilingual" else noun
+    return content_disposition(download_filename(
+        drama_id, what, field_language(drama, field), ext))
+
+
 def _load_drama_and_lines(drama_id: int):
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = core_module.lines_from_rows(db.load_lines(drama_id))
     return drama, lines
 
@@ -210,7 +302,7 @@ def get_export_readiness(drama_id: int) -> dict:
     lines yet returns all-zero/false counts rather than an error."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -228,7 +320,7 @@ def get_export_readiness(drama_id: int) -> dict:
     names = auto_qc.build_name_list(
         glossary_terms, db.list_series_characters(series_id) if series_id else [])
     qc_issues = auto_qc.find_issues(lines, names, auto_qc.build_banned_terms(glossary_terms))
-    dense = subtitle_formats.dense_lines(lines, mode=subtitle_formats.reading_speed_mode_of(drama))
+    dense = subtitle_formats.dense_lines(lines, mode=subtitle_formats.flagging_mode_of(drama))
 
     return {
         "drama_id": drama_id,
@@ -275,7 +367,7 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
 
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -326,7 +418,7 @@ def flag_dense_lines(drama_id: int) -> dict:
     drama, lines = _load_drama_and_lines(drama_id)
 
     newly_flagged = subtitle_formats.flag_dense_lines(
-        lines, mode=subtitle_formats.reading_speed_mode_of(drama))
+        lines, mode=subtitle_formats.flagging_mode_of(drama))
     if newly_flagged:
         # flag/flag_note only: a concurrent edit to a line's text, timing or
         # speaker must survive this write.
@@ -338,7 +430,7 @@ def get_reading_speed_mode(drama_id: int) -> dict:
     """{"mode": ...} for the title. Raises NotFoundError for an unknown drama id."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     return {"mode": subtitle_formats.reading_speed_mode_of(drama)}
 
 
@@ -351,7 +443,7 @@ def set_reading_speed_mode(drama_id: int, mode: str) -> dict:
         raise InvalidInputError(
             "mode must be one of " + ", ".join(subtitle_formats.READING_SPEED_MODES) + ".")
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     db.update_drama(drama_id, reading_speed_mode=mode)
     return {"mode": mode}
 
@@ -378,7 +470,7 @@ def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
                 ln.flag = None
                 ln.flag_note = ""
         reflagged = (subtitle_formats.flag_dense_lines(
-            lines, mode=subtitle_formats.reading_speed_mode_of(drama)) if recheck else 0)
+            lines, mode=subtitle_formats.flagging_mode_of(drama)) if recheck else 0)
         if targets or reflagged:
             db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return {"cleared_count": len(targets), "flagged_count": reflagged, "history_id": history_id}
@@ -453,6 +545,6 @@ def mark_exported(drama_id: int) -> dict:
     """The Export stage's "Mark as exported": sets only the drama's status
     to "exported" (no other field is touched). Raises NotFoundError."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     db.update_drama(drama_id, status="exported")
     return {"drama_id": drama_id, "status": "exported"}

@@ -17,12 +17,15 @@ const els = {
   cancelCapture: document.getElementById("cancelCapture"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
+  novelSection: document.getElementById("novelSection"),
+  saveNovel: document.getElementById("saveNovel"),
   dramaTitle: document.getElementById("dramaTitle"),
   openLink: document.getElementById("openInBaihe"),
+  allowSites: document.getElementById("allowSites"),
   notice: document.getElementById("notice"),
   noticeText: document.getElementById("noticeText"),
   noticeAction: document.getElementById("noticeAction"),
-  controls: [...document.querySelectorAll("#pageSection select, #pageSection input, #pageSection button, #textSection select, #textSection button")],
+  controls: [...document.querySelectorAll("#pageSection select, #pageSection input, #pageSection button, #textSection select, #textSection button, #novelSection button")],
 };
 
 // The service worker words this error; matching its opening is the only way to tell "no token" from
@@ -35,6 +38,7 @@ let noticeHandler = null;
 // link carries only a drama id.
 const APP_URL = "http://127.0.0.1:8600";
 const dramaTitles = new Map();
+const dramaMedia = new Map();
 
 function setControlsEnabled(enabled) {
   for (const el of els.controls) el.disabled = !enabled;
@@ -48,8 +52,93 @@ function showNotice(text, actionLabel, handler) {
   setControlsEnabled(false);
 }
 
+// Set while the "Allow <site>" buttons are showing: the action to repeat once one is granted.
+let pendingRetry = null;
+
+// The permission prompt can close the popup on some platforms, which would lose the in-memory retry.
+// What to repeat is therefore kept in session storage (never in a content script's reach) and
+// offered again the next time the popup opens on the same tab.
+const PENDING_ACCESS_KEY = "pendingSiteAccess";
+
+function retryFor(action) {
+  return action.kind === "capture" ? () => runCapture(!!action.fromHere) : () => run(!!action.all);
+}
+
+async function rememberPendingAccess(tabId, origins, action) {
+  try {
+    await chrome.storage.session.set({ [PENDING_ACCESS_KEY]: { tabId, origins, action } });
+  } catch (e) {
+    // Without it the buttons still work while this popup stays open.
+  }
+}
+
+async function forgetPendingAccess() {
+  try {
+    await chrome.storage.session.remove(PENDING_ACCESS_KEY);
+  } catch (e) {
+    // Nothing stored, or no session storage: nothing to forget.
+  }
+}
+
+async function restorePendingAccess() {
+  try {
+    const stored = (await chrome.storage.session.get(PENDING_ACCESS_KEY))[PENDING_ACCESS_KEY];
+    const tab = await activeTab();
+    if (!stored || !tab || tab.id !== stored.tabId) return;
+    say("Allow the site below to finish translating this page.", true);
+    offerSiteAccess({ origins: stored.origins }, stored.action);
+  } catch (e) {
+    // A popup that cannot read the stored request just opens clean.
+  }
+}
+
+// One button per origin, never one request for all of them: the origins come from the page, so a
+// hostile page could otherwise bundle a real CDN with names it wants the person to approve unseen.
+function offerSiteAccess(result, action) {
+  pendingRetry = retryFor(action);
+  els.allowSites.replaceChildren();
+  const origins = [...new Set(result.origins || [])].filter(sitePattern);
+  for (const origin of origins) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary";
+    button.textContent = `Allow ${origin}`;
+    button.addEventListener("click", () => allowSite(origin));
+    els.allowSites.append(button);
+  }
+  els.allowSites.hidden = !origins.length;
+  activeTab().then((tab) => {
+    if (tab && tab.id && origins.length) return rememberPendingAccess(tab.id, origins, action);
+  });
+}
+
+// chrome.permissions.request needs the click that happens here, which is why the worker only reports
+// the need and never asks itself. The optional permission is per origin, so nothing broader is granted.
+async function allowSite(origin) {
+  const retry = pendingRetry;
+  const pattern = sitePattern(origin);
+  if (!retry || !pattern) return;
+  try {
+    const granted = await chrome.permissions.request({ origins: [pattern] });
+    if (!granted) {
+      say("Not allowed, so the page's images still can't be read.", true);
+      els.allowSites.hidden = false;
+      return;
+    }
+  } catch (e) {
+    say(`Couldn't ask for that permission (${e.message}).`, true);
+    els.allowSites.hidden = false;
+    return;
+  }
+  pendingRetry = null;
+  forgetPendingAccess();
+  els.allowSites.hidden = true;
+  retry();
+}
+
 function say(message, bad = false) {
   els.status.textContent = message;
+  els.allowSites.hidden = true;
   els.status.classList.toggle("bad", !!bad);
   // A new message replaces the result it described, so its link goes too.
   els.openLink.hidden = true;
@@ -62,6 +151,27 @@ function showDramaTitle() {
   els.dramaTitle.textContent = title;
   els.dramaTitle.hidden = !title;
   els.drama.title = title;
+  els.saveNovel.textContent = novelButtonLabel(title, dramaMedia.get(els.drama.value));
+}
+
+// The button names where the text will go, so a wrong pick shows before the click.
+function novelButtonLabel(title, mediaType) {
+  if (!title) return "Save text into a title";
+  if ((mediaType || "").toLowerCase() !== "novel") return "Pick a novel title to save text";
+  return `Save text into ${title}`;
+}
+
+// Offered only where the page reads as prose or the person has selected text; on a comic
+// page the comic actions above are the ones that apply.
+async function showNovelSection() {
+  try {
+    const tab = await activeTab();
+    if (!tab || !tab.id) return;
+    await ensureContentScript(tab.id);
+    const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
+    els.novelSection.hidden = !(status && status.ok &&
+                                (status.data.textPage || status.data.hasSelection));
+  } catch (e) { /* a page the browser keeps extensions out of */ }
 }
 
 function showOpenLink(dramaId) {
@@ -106,6 +216,68 @@ async function ensureContentScript(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
 }
 
+// Names the exact place, because "Settings" alone sent people to the wrong
+// section; Ollama is the one engine that needs no account or key.
+const NO_ENGINE_NOTE =
+  "Connected, but no translation engine is chosen yet, so pages come back with their " +
+  "original text only. In Baihe, open Settings → Browser extension and pick one under " +
+  "“Translation engine”. For a free option that runs on your PC, install Ollama and pick " +
+  "Ollama there.";
+
+const MAX_NAMED_PROBLEMS = 3;
+
+// One line that accounts for every page, so a shortfall shows up as a
+// mismatch between the counts instead of a quietly smaller total.
+function summarizeCapture(data, { store, dramaId }) {
+  const pages = (data.pages || []).length;
+  const cached = data.cached || 0;
+  const skipped = data.skipped || [];
+  const failed = data.failed || [];
+  const unreadable = data.unreadable || [];
+  const saving = !!(store && dramaId);
+  const notes = (data.pages || []).flatMap((p) => p.notes || []);
+
+  const parts = [];
+  if (data.captured !== undefined) {
+    parts.push(`${data.captured} captured`);
+    if (data.sent !== undefined) parts.push(`${data.sent} sent`);
+    if (data.received !== undefined) parts.push(`${data.received} received`);
+  }
+  const reused = data.alreadyStored || 0;
+  parts.push(`${pages - reused} translated`);
+  if (saving && data.stored !== undefined) {
+    parts.push(`${data.stored} stored in ${dramaTitles.get(String(dramaId)) || "the drama"}`);
+  }
+  if (cached) parts.push(`${cached} already done`);
+  if (reused) parts.push(`${reused} already in library`);
+  if (skipped.length) parts.push(`${skipped.length} skipped as not a page`);
+  if (data.unverified) {
+    parts.push(`${data.unverified} read from the page's source image, so the text may not match what is drawn`);
+  }
+
+  const problems = [
+    ...unreadable.map((u) => `page ${u.position}: ${u.error}`),
+    ...failed.map((f) => `page ${f.position || "?"}: ${f.error}`),
+  ];
+  if (problems.length) {
+    const shown = problems.slice(0, MAX_NAMED_PROBLEMS).join("; ");
+    const more = problems.length > MAX_NAMED_PROBLEMS
+      ? `; and ${problems.length - MAX_NAMED_PROBLEMS} more` : "";
+    parts.push(`${problems.length} not delivered (${shown}${more})`);
+  }
+
+  const short = (data.sent !== undefined && data.received !== undefined &&
+                 data.received < data.sent) ||
+                (saving && data.stored !== undefined && data.stored < pages);
+  const stopped = data.stopped && data.stopped.message;
+  if (stopped) parts.push(stopped);
+  const bad = problems.length > 0 || short || !!stopped || notes.some((n) => n[0] === "error");
+  return {
+    text: parts.join(" · ") + (notes.length ? ` — ${notes[0][1]}` : ""),
+    bad,
+  };
+}
+
 async function load() {
   els.notice.hidden = true;
   say("Checking the app…");
@@ -135,6 +307,7 @@ async function load() {
       : drama.title;
     option.title = drama.title;
     dramaTitles.set(option.value, drama.title);
+    dramaMedia.set(option.value, drama.media_type || "");
     els.drama.appendChild(option);
   }
   // Reading a long series shouldn't be a per-page decision.
@@ -149,10 +322,7 @@ async function load() {
     els.textDirection.value = directionValue;
   }
 
-  say(data.engine_configured
-    ? "Connected. Ready to translate."
-    : "Connected, but no translation engine is set in Baihe's Settings — pages will come " +
-      "back with their original text only.");
+  say(data.engine_configured ? "Connected. Ready to translate." : NO_ENGINE_NOTE);
 }
 
 let pageRunInFlight = false;
@@ -172,6 +342,7 @@ async function run(all) {
       return say("Pick a drama to save into, or untick saving.", true);
     }
     say(all ? "Reading every visible page…" : "Reading this page…");
+    forgetPendingAccess();
     await ensureContentScript(tab.id);
     // Prefer the host the page reports about itself: `tab.url` is only
     // populated when this extension has access to that tab, and keying
@@ -192,26 +363,15 @@ async function run(all) {
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: "translateVisible", dramaId, store: els.store.checked, all });
     if (!result || !result.ok) {
-      return say((result && result.error) || "That didn't work.", true);
+      say((result && result.error) || "That didn't work.", true);
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, { kind: "run", all });
+      return;
     }
-    const pageList = result.data.pages || [];
-    const cached = result.data.cached || 0;
-    const skipped = (result.data.skipped || []).length;
-    const notes = pageList.flatMap((p) => p.notes || []);
-    // The server reports per page whether it was really saved (no drama, or store off, means not).
-    const saved = pageList.filter((p) => p.stored).length;
-    const store = els.store.checked;
-    const parts = describeDestination({
-      sent: store ? saved : pageList.length, cached, store, dramaId });
-    if (store && pageList.length > saved) {
-      parts.push(`${pageList.length - saved} drawn only, not saved`);
-    }
-    if (skipped) parts.push(`${skipped} skipped as not a page`);
-    const failed = result.data.failed;
-    if (failed) parts.push(failed.message);
-    say(parts.join(", ") + (notes.length ? ` — ${notes[0][1]}` : ""),
-        !!failed || notes.some((n) => n[0] === "error"));
-    if (store && dramaId && saved) showOpenLink(dramaId);
+    const summary = summarizeCapture(result.data, { store: els.store.checked, dramaId });
+    const saved = (result.data.pages || []).filter((p) => p.stored).length;
+    say(summary.text, summary.bad);
+    if (result.data.origins) offerSiteAccess(result.data, { kind: "run", all });
+    if (els.store.checked && dramaId && saved) showOpenLink(dramaId);
   } catch (e) {
     // The usual cause is a page the browser won't let an extension into
     // (the Chrome Web Store, a PDF viewer, chrome:// pages).
@@ -260,6 +420,7 @@ async function startCapture(fromHere) {
     return say("Pick a drama to save into, or untick saving.", true);
   }
   say("Starting…");
+  forgetPendingAccess();
   showCapturing(true);
   try {
     await ensureContentScript(tab.id);
@@ -272,12 +433,17 @@ async function startCapture(fromHere) {
     await chrome.storage.local.set({ overlay: els.overlay.checked });
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: "captureChapter", dramaId, store: els.store.checked, fromHere });
-    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    if (!result || !result.ok) {
+      say((result && result.error) || "That didn't work.", true);
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, { kind: "capture", fromHere });
+      return;
+    }
     const { message, translated = 0, stored = 0 } = result.data;
     const store = els.store.checked;
     const destination = describeDestination({
       sent: store ? stored : translated, cached: 0, store, dramaId }).join(", ");
-    say(destination ? `${message} ${destination}.` : message, result.data.reason === "error");
+    say(destination ? `${message} ${destination}.` : message, result.data.reason === "error" || result.data.failed > 0);
+    if (result.data.origins) offerSiteAccess(result.data, { kind: "capture", fromHere });
     if (store && dramaId && stored) showOpenLink(dramaId);
   } catch (e) {
     say(`Couldn't run on this page (${e.message}).`, true);
@@ -333,6 +499,40 @@ async function runText() {
   }
 }
 
+// One line for the save's outcome: whether a chapter was added, and from what.
+function describeNovelSave(data) {
+  const title = dramaTitles.get(String(data.drama_id)) || "the title";
+  if (!data.saved) return `Already saved in ${title}; nothing was added.`;
+  const from = data.fromSelection ? "the selected text" : "the page's main text";
+  return `Saved ${from} (${data.chars} characters) into ${title} as a new chapter.`;
+}
+
+let novelSaveInFlight = false;
+
+async function runSaveNovel() {
+  if (novelSaveInFlight) return;
+  const dramaId = els.drama.value ? Number(els.drama.value) : null;
+  if (!dramaId || (dramaMedia.get(els.drama.value) || "").toLowerCase() !== "novel") {
+    return say("Pick a novel title to save the text into.", true);
+  }
+  novelSaveInFlight = true;
+  els.saveNovel.disabled = true;
+  try {
+    const tab = await activeTab();
+    if (!tab || !tab.id) return say("No active tab.", true);
+    say("Saving the text…");
+    await ensureContentScript(tab.id);
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "saveNovelText", dramaId });
+    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    say(describeNovelSave({ ...result.data, drama_id: dramaId }));
+  } catch (e) {
+    say(`Couldn't run on this page (${e.message}).`, true);
+  } finally {
+    novelSaveInFlight = false;
+    els.saveNovel.disabled = false;
+  }
+}
+
 els.drama.addEventListener("change", showDramaTitle);
 els.translate.addEventListener("click", () => run(false));
 els.translateAll.addEventListener("click", () => run(true));
@@ -348,6 +548,7 @@ els.cancelCapture.addEventListener("click", async () => {
   }
 });
 els.translateText.addEventListener("click", runText);
+els.saveNovel.addEventListener("click", runSaveNovel);
 els.toggle.addEventListener("click", async () => {
   const tab = await activeTab();
   if (!tab || !tab.id) return;
@@ -370,4 +571,4 @@ els.openLink.addEventListener("click", (event) => {
 });
 els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
 
-load().then(syncCaptureUi);
+load().then(syncCaptureUi).then(restorePendingAccess).then(showNovelSection);

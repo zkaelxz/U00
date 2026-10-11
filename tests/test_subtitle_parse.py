@@ -114,7 +114,7 @@ class TestEncodings:
             sp.parse_subtitle(data, encoding="utf-8")
 
     @pytest.mark.parametrize("name", ["ascii", "rot13", "hex", "base64", "idna", "punycode",
-                                      "unicode_escape", "latin-1", "shift_jis"])
+                                      "unicode_escape", "latin-1"])
     def test_encoding_outside_the_ui_allowlist_is_refused(self, name):
         with pytest.raises(sp.SubtitleParseError, match="Unsupported"):
             sp.parse_subtitle(b"[00:01.00]hi\n", encoding=name)
@@ -241,74 +241,127 @@ class TestLrcExport:
         assert subtitle_formats._lrc_ts(59.999) == "[01:00.00]"
 
 
+class _CountingPattern:
+    """Stands in for a compiled regex and records every input it is handed, so a
+    hostile-input test can bound the work done instead of timing it (a wall-clock
+    limit is flaky on a loaded CI runner)."""
+
+    def __init__(self, real):
+        self._real = real
+        self.inputs = []
+
+    def __getattr__(self, name):
+        method = getattr(self._real, name)
+
+        def call(*args, **kwargs):
+            # sub() takes the replacement first, so the subject is the longest string argument.
+            self.inputs.append(max(len(a) for a in args if isinstance(a, str)))
+            return method(*args, **kwargs)
+        return call
+
+    @property
+    def longest(self):
+        return max(self.inputs, default=0)
+
+
 class TestHostileInput:
-    """A 2 MB upload must fail or finish fast; `re` holds the GIL, so a slow
-    parse would stall every other request."""
-    LIMIT = 1.0
+    """A 2 MB upload must be refused or parsed with bounded work; `re` holds the
+    GIL, so an unbounded parse would stall every other request. Each pattern is
+    written so one attempt cannot rescan a row, which makes "one call per row,
+    never on more than one row" the whole cost."""
+    ROWS = 250
 
-    def _fast(self, data, filename="", expect_error=True):
-        import time
-        started = time.perf_counter()
-        if expect_error:
-            with pytest.raises(sp.SubtitleParseError):
-                sp.parse_subtitle(data, filename)
-        else:
-            sp.parse_subtitle(data, filename)
-        assert time.perf_counter() - started < self.LIMIT
+    def _spy(self, monkeypatch, name):
+        spy = _CountingPattern(getattr(sp, name))
+        monkeypatch.setattr(sp, name, spy)
+        return spy
 
-    def test_sniffing_a_file_of_blank_lines_is_fast(self):
-        self._fast((" \n" * (sp.MAX_FILE_BYTES // 2 - 1)).encode() + b"x", "a.txt")
+    def test_sniffing_a_file_of_blank_lines_only_reads_the_head(self, monkeypatch):
+        sniffed = self._spy(monkeypatch, "_SRT_LINE")
+        split = []
+        real_lines = sp._lines_of
+        monkeypatch.setattr(sp, "_lines_of", lambda text: (split.append(1), real_lines(text))[1])
+        data = (" \n" * (sp.MAX_FILE_BYTES // 2 - 1)).encode() + b"x"
+        with pytest.raises(sp.SubtitleParseError):
+            sp.parse_subtitle(data, "a.txt")
+        assert sniffed.inputs and sniffed.longest <= sp.SNIFF_CHARS
+        assert not split
 
     def test_sniffing_only_reads_the_head(self):
         late = b"x\n" * sp.SNIFF_CHARS + b"00:00:01,000 --> 00:00:02,000\nhi\n"
         with pytest.raises(sp.SubtitleParseError, match="doesn't look like"):
             sp.parse_subtitle(late, "a.txt")
 
-    @pytest.mark.parametrize("body", ["<" * 7000, "{\\" * 3500, "<i " * 2300])
-    def test_srt_and_vtt_tag_stripping_is_linear_on_one_row(self, body):
-        import time
-        started = time.perf_counter()
-        rows = "".join(f"{k}\n00:00:01,000 --> 00:00:02,000\n{body}\n\n" for k in range(250))
+    @pytest.mark.parametrize("body", ["<" * 7000, "{\\" * 3500, "<i " * 2300], ids=["angles", "braces", "open-tags"])
+    def test_srt_and_vtt_tag_stripping_is_linear_on_one_row(self, body, monkeypatch):
+        srt_tags, vtt_tags = self._spy(monkeypatch, "_SRT_TAGS"), self._spy(monkeypatch, "_VTT_TAGS")
+        rows = "".join(f"{k}\n00:00:01,000 --> 00:00:02,000\n{body}\n\n" for k in range(self.ROWS))
         sp.parse_subtitle(rows.encode(), "a.srt")
-        vtt = "WEBVTT\n\n" + "".join(f"00:01.000 --> 00:02.000\n{body}\n\n" for _ in range(250))
+        vtt = "WEBVTT\n\n" + "".join(f"00:01.000 --> 00:02.000\n{body}\n\n" for _ in range(self.ROWS))
         sp.parse_subtitle(vtt.encode())
-        assert time.perf_counter() - started < self.LIMIT
+        for spy in (srt_tags, vtt_tags):
+            assert len(spy.inputs) == self.ROWS
+            assert spy.longest == len(body)
 
-    @pytest.mark.parametrize("body", ["{" * 7000, "{\\" * 3500])
-    def test_ass_override_stripping_is_linear_on_one_row(self, body):
-        import time
-        started = time.perf_counter()
+    @pytest.mark.parametrize("body", ["{" * 7000, "{\\" * 3500], ids=["braces", "backslash-braces"])
+    def test_ass_override_stripping_is_linear_on_one_row(self, body, monkeypatch):
+        overrides = self._spy(monkeypatch, "_ASS_OVERRIDE")
         head = ("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-        rows = "".join(f"Dialogue: 0,0:00:01.00,0:00:02.00,D,,0,0,0,,{body}\n" for _ in range(250))
+        rows = "".join(f"Dialogue: 0,0:00:01.00,0:00:02.00,D,,0,0,0,,{body}\n" for _ in range(self.ROWS))
         sp.parse_subtitle((head + rows).encode(), "a.ass")
-        assert time.perf_counter() - started < self.LIMIT
+        # One findall (drawing check) and one sub (strip) per row.
+        assert len(overrides.inputs) == 2 * self.ROWS
+        assert overrides.longest == len(body)
 
-    def test_a_two_megabyte_single_row_is_refused(self):
+    def test_a_two_megabyte_single_row_is_refused_before_any_tag_stripping(self, monkeypatch):
+        tags = self._spy(monkeypatch, "_SRT_TAGS")
         row = "<" * (sp.MAX_FILE_BYTES - 100)
-        self._fast(f"1\n00:00:01,000 --> 00:00:02,000\n{row}\n".encode(), "a.srt")
+        with pytest.raises(sp.SubtitleParseError):
+            sp.parse_subtitle(f"1\n00:00:01,000 --> 00:00:02,000\n{row}\n".encode(), "a.srt")
+        assert tags.inputs == []
 
     def test_a_row_past_the_limit_names_its_line(self):
         data = b"1\n00:00:01,000 --> 00:00:02,000\n" + b"a" * (sp.MAX_PHYSICAL_LINE_CHARS + 1) + b"\n"
         with pytest.raises(sp.SubtitleParseError, match="Line 3"):
             sp.parse_subtitle(data, "a.srt")
 
-    def test_lrc_repeated_stamps_over_long_words_is_refused_fast(self):
+    def test_lrc_repeated_stamps_over_long_words_is_refused_without_joining(self, monkeypatch):
+        stamp = self._spy(monkeypatch, "_LRC_STAMP")
         stamps = "[00:01.00]" * 700
         row = stamps + "w" * (sp.MAX_PHYSICAL_LINE_CHARS - len(stamps) - 10)
-        self._fast(f"{row}\n{row}\n".encode(), "a.lrc")
+        with pytest.raises(sp.SubtitleParseError, match="one time stamp"):
+            sp.parse_subtitle(f"{row}\n{row}\n".encode(), "a.lrc")
+        # Two rows of 700 stamps, each scanned once plus the probe that ends it.
+        assert len(stamp.inputs) <= 2 * (700 + 2)
 
     def test_lrc_many_short_rows_at_one_stamp_is_refused_before_joining(self):
         data = ("".join(f"[00:01.00]{'w' * 900}\n" for _ in range(5))).encode()
         with pytest.raises(sp.SubtitleParseError, match="one time stamp"):
             sp.parse_subtitle(data, "a.lrc")
 
-    def test_lrc_stamp_count_is_capped_while_parsing(self):
+    def test_lrc_stamp_count_is_capped_while_parsing(self, monkeypatch):
+        stamp = self._spy(monkeypatch, "_LRC_STAMP")
+        seen = []
+        real = sp._check_cue_count
+        monkeypatch.setattr(sp, "_check_cue_count", lambda count: (seen.append(count), real(count))[1])
         row = "[00:01.00]" * 700 + "x\n"
-        self._fast((row * 40).encode(), "a.lrc")
+        with pytest.raises(sp.SubtitleParseError):
+            sp.parse_subtitle((row * 40).encode(), "a.lrc")
+        first_over = (sp.MAX_CUES // 700 + 1) * 700
+        assert max(seen) == first_over
+        # Parsing stopped at that row; the other rows were never scanned.
+        assert len(stamp.inputs) <= (first_over // 700) * (700 + 2)
 
-    def test_srt_cue_count_is_capped_while_parsing(self):
+    def test_srt_cue_count_is_capped_while_parsing(self, monkeypatch):
+        # Counted rather than timed: a wall-clock limit failed at 1.04 s on a loaded
+        # CI runner. A parser that built every cue first would see the full count.
         data = ("1\n00:00:01,000 --> 00:00:02,000\nx\n\n" * (sp.MAX_CUES + 5)).encode()
-        self._fast(data, "a.srt")
+        seen = []
+        real = sp._check_cue_count
+        monkeypatch.setattr(sp, "_check_cue_count", lambda count: (seen.append(count), real(count))[1])
+        with pytest.raises(sp.SubtitleParseError):
+            sp.parse_subtitle(data, "a.srt")
+        assert max(seen) == sp.MAX_CUES + 1
 
     def test_numeric_entity_with_thousands_of_digits_is_not_a_server_error(self):
         data = ("1\n00:00:01,000 --> 00:00:02,000\n&#" + "9" * 5000 + "\n").encode()
@@ -398,3 +451,19 @@ class TestMatchingScales:
         assert list(sp.match_cues_to_lines([sp.Cue(1.0, 3.0, "tie", 1)], lines)) == []  # 1.0 is not over half of 2.0
         assert list(sp.match_cues_to_lines([sp.Cue(0.5, 2.9, "x", 1)], lines)) == [0]
         assert list(sp.match_cues_to_lines([sp.Cue(2.0, 2.0, "pt", 1)], lines)) == [1]
+
+
+class TestEncodingAliases:
+    @pytest.mark.parametrize("alias,canonical", [
+        ("shift_jis", "cp932"), ("sjis", "cp932"), ("Shift-JIS", "cp932"),
+        ("gbk", "gb18030"), ("GB2312", "gb18030")])
+    def test_common_names_map_to_the_offered_codec(self, alias, canonical):
+        sample = "こんにちは世界" if canonical == "cp932" else "你好,世界"
+        text, used, guessed = sp.decode_subtitle_bytes(sample.encode(canonical), alias)
+        assert (text, used, guessed) == (sample, canonical, False)
+
+    def test_shift_jis_with_kana_is_not_read_as_gb18030_under_a_chinese_title(self):
+        data = "[00:01.00]こんにちは世界、元気ですか。\n".encode("cp932")
+        parsed = sp.parse_subtitle(data, language="zh")
+        assert parsed.encoding == "cp932" and parsed.encoding_guessed
+        assert parsed.cues[0].text == "こんにちは世界、元気ですか。"

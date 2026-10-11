@@ -18,7 +18,8 @@ import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, url_guard
+from services import auth_service
+from lib import url_guard
 from services import sources_import_service as imp
 from services import sources_url_service as url_svc
 from sources import front_door, generic_import, pipeline, registry

@@ -29,6 +29,8 @@ class ComicChapter(BaseModel):
     first_page: int
     page_count: int
     hidden_count: int
+    # The chapter's page on its source (display-safe), "" when not known.
+    url: str = ""
 
 
 class ComicPageList(BaseModel):

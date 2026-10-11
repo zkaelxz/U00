@@ -10,25 +10,18 @@ import { capFirst, languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine, TmSuggestion } from '../../../../types/review'
+import type { TimingSuggestion } from '../../../../types/timingCheck'
 import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi } from './LineAi'
 import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
-import {
-  buildPatch,
-  CONFLICT_MESSAGE,
-  formatTime,
-  isToolMode,
-  JOB_RUNNING_MESSAGE,
-  LINE_LANGUAGES,
-  lineLangChip,
-  titleDefaultLabel,
-  type LineDraft,
-  type PanelMode,
-} from './reviewLogic'
+import { buildPatch, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, type LineDraft } from './reviewDraft'
+import { CONFLICT_MESSAGE, formatTime, isToolMode, type PanelMode } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
+import { isSourceChanged } from '../sourceChanged'
 
 export interface NoteDraft {
   term: string
@@ -71,6 +64,8 @@ export interface RowActions {
   setAi: (id: number, mode: PanelMode | null) => void
   useSuggestion: (id: number, text: string) => Promise<boolean>
   dismissFlag: (id: number) => void
+  // Shortens a timing-flagged line to the speech the check found (compare-and-set on the server).
+  snapToSpeech?: (id: number) => void
   applyLine: (saved: ReviewLine, closeEdit: boolean) => void
   playLine: (line: ReviewLine) => void
   acceptTm: (id: number, entryId: number, expectedEn: string) => void
@@ -101,6 +96,8 @@ interface Props {
   tm: TmSuggestion | null
   // The stronger engine offered for this hard line, if any.
   stronger?: StrongerOffer | null
+  // The corrected times saved for this timing-flagged line, if any.
+  timingSnap?: TimingSuggestion | null
   issue: RowIssue | null
   actions: RowActions
   // Shown as a search result: offers "Show on its page".
@@ -163,7 +160,7 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -230,6 +227,11 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
           </span>
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
+        {isSourceChanged(line) && (
+          <span data-testid="source-changed-badge" title="The source text changed after this line was translated">
+            <Badge tone="warn">Source changed</Badge>
+          </span>
+        )}
         {line.dub_filename && !isPhone && <span>Dub: {line.dub_filename}</span>}
         {line.flag && isPhone && (
           <span className="review-flag" data-testid="line-flag">
@@ -369,9 +371,16 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
           >
             Merge ↓
           </button>
+          {timingSnap && actions.snapToSpeech && (
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.snapToSpeech?.(line.id)}
+                    title={`Set ${formatTime(timingSnap.new_start)} – ${formatTime(timingSnap.new_end)}; saves a history snapshot first`}>
+              Snap to speech
+            </button>
+          )}
           {line.flag && (
-            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)} title="Dismiss flag (F)">
-              Dismiss flag
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)}
+                    title={isSourceChanged(line) ? 'Keep this English for the new source text (F)' : 'Dismiss flag (F)'}>
+              {isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}
             </button>
           )}
           {jobRunning ? (

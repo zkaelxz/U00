@@ -23,8 +23,9 @@ import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnl
 import type { DiskUsageItem, DiskUsageScan, DiskUsageTrashList, UnusedVoiceClipList } from '../../types/diskUsage'
 import {
   PARTIAL_TEXT, barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeMoved,
-  diskLine, itemTone, linkedText, moveBlock, moveConfirmLabel, percentText, scanLinkedText, sizeLine,
+  diskLine, itemTone, linkedText, moveBlock, moveConfirmLabel, percentText, scanLinkedText, sizeLine, titleSizesText,
 } from './diskUsageModel'
+import { TempCleanup } from './TempCleanup'
 import { TrashPanel } from './TrashPanel'
 import { UnusedVoiceClips } from './UnusedVoiceClips'
 import { squarify } from './treemap'
@@ -211,6 +212,7 @@ function DiskUsageLive() {
           }}
           onStale={() => rescan(true)}
         />
+        <TempCleanup onCleaned={() => rescan(true)} />
       </section>
     </Section>
   )
@@ -302,6 +304,7 @@ function ItemRow({ item, scan, onOpen, onChanged, onStale }: {
         <span className="du-pct muted num">{percentText(item.percent_of_parent)}</span>
       </div>
       {linkedText(item) && <p className="muted du-why du-linked">{linkedText(item)}</p>}
+      {titleSizesText(item.title_sizes) && <p className="muted du-why du-kinds">{titleSizesText(item.title_sizes)}</p>}
       <div className="du-bar" aria-hidden="true">
         <span style={{ width: `${barPercent(item)}%` }} />
       </div>

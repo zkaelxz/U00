@@ -6,6 +6,7 @@ re-transcription logic, exercised against fake qwen_asr/torch modules
 and a monkeypatched audio slicer, since the real model needs a GPU/
 network this sandbox doesn't have.
 """
+import whisper_models
 import os
 import sys
 import types
@@ -247,7 +248,7 @@ class TestLoadQwen3Asr:
         seen = self._load(from_pretrained, use_gpu=True)
         assert seen["device"] == ["CPU"]
         import core
-        reason = core.short_reason(seen["fallback"][0])
+        reason = whisper_models.short_reason(seen["fallback"][0])
         assert "CUBLAS_STATUS_NOT_INITIALIZED" in reason
         assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in reason
         assert "\n" not in reason and len(reason) <= 200
@@ -276,6 +277,6 @@ class TestLoadQwen3Asr:
         importlib.reload(asr_backend)
         asr_backend._asr_model_cache.clear()
 
-        from core import ModelDownloadError
+        from whisper_models import ModelDownloadError
         with pytest.raises(ModelDownloadError):
             asr_backend.load_qwen3_asr(use_gpu=False)

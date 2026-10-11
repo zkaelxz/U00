@@ -15,7 +15,7 @@ drama, and no other URL download runs in this process.
 
 Job `urlmedia_<drama_id>` downloads into a fresh `.urldl_*` temp folder in
 the drama folder (removed in `finally`) with capped yt-dlp options (see
-`ydl_options`): one item, no live streams, at most 6 h long, at most the
+`services.ytdlp_child.ydl_options`): one item, no live streams, at most 6 h long, at most the
 upload cap in bytes and 2 h of wall clock, native downloader only, no
 cookie option in those caps (the saved Settings yt-dlp cookies, a browser
 or a cookies.txt path, are passed separately: the route is PC-only), and
@@ -31,9 +31,11 @@ audio is extracted with ffmpeg inside the temp folder first, then the
 video becomes `source<ext>` and the audio `audio.wav`. Files go in place
 through media_upload_service.install_media, as an upload does: never over
 an existing file (`-2`... while the old one is there), one field-scoped DB
-write as the commit point (audio_filename, [source_video_filename],
-source_url and, only when both titles are empty (re-read just before
-writing), title_zh), then the replaced files move to kept_media/.
+write as the commit point (audio_filename, [source_video_filename] and,
+only when both titles are empty (re-read just before writing), title_zh),
+then the replaced files move to kept_media/. The link is recorded after
+that like any import's (drama_service.set_source_url_once: cleaned form,
+raw form kept apart, never over a link the title already has).
 Audio-only clears an older source_video_filename and moves that video there too.
 
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
@@ -50,20 +52,22 @@ import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
+import applog
 import background_jobs
 import db
 import storage
+import translate_engines
 import video_export
-from services import drama_service, media_upload_service, settings_service
+from services import drama_service, media_upload_service, settings_service, ytdlp_child
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.sources_url_service import check_public_url
 
 JOB_PREFIX = "urlmedia_"
-MAX_DURATION_SECONDS = 6 * 60 * 60
+MAX_DURATION_SECONDS = ytdlp_child.MAX_DURATION_SECONDS
 MAX_WALL_SECONDS = 2 * 60 * 60
-SOCKET_TIMEOUT = 30
-_BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+SOCKET_TIMEOUT = ytdlp_child.SOCKET_TIMEOUT
+_BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 _ONE_AT_A_TIME = "Another URL download is running. Wait for it to finish or cancel it."
 _NO_YTDLP = "Downloading from a URL needs yt-dlp, which isn't installed on this PC."
 _FAILED = ("Couldn't download from that link. It may be private, region-locked or not "
@@ -109,73 +113,24 @@ def _any_url_download_running() -> bool:
     return False
 
 
-class _Caps:
-    """The progress hook and match filter for one download: wall clock cap,
-    a free-disk-space floor and cancel (raise video_download.DownloadAborted),
-    and the live/playlist/duration filter (remembers that it rejected). There
-    is no size cap: a long video is allowed, but never to the point of filling
-    the drive."""
+class _SpaceWatch:
+    """Free-disk-space floor for one download, polled from the child's
+    progress events. There is no size cap: a long video is allowed, but never
+    to the point of filling the drive."""
 
-    def __init__(self, job_id: str, tmp_dir: str, clock=time.monotonic):
-        self.job_id, self.tmp_dir, self.clock = job_id, tmp_dir, clock
-        self.started = clock()
-        self.rejected = False
-        self._space_checked = float("-inf")
+    def __init__(self, tmp_dir: str, clock=time.monotonic):
+        self.tmp_dir, self.clock = tmp_dir, clock
+        self._checked = float("-inf")
 
-    def _drive_nearly_full(self) -> bool:
+    def nearly_full(self) -> bool:
         now = self.clock()
-        if now - self._space_checked < SPACE_CHECK_SECONDS:
+        if now - self._checked < SPACE_CHECK_SECONDS:
             return False
-        self._space_checked = now
+        self._checked = now
         try:
             return shutil.disk_usage(self.tmp_dir).free < MIN_FREE_BYTES
         except OSError:
             return False
-
-    def hook(self, d):
-        import video_download
-        if background_jobs.is_cancel_requested(self.job_id):
-            raise video_download.DownloadAborted("cancelled")
-        if self.clock() - self.started > MAX_WALL_SECONDS:
-            raise video_download.DownloadAborted("time")
-        if self._drive_nearly_full():
-            raise video_download.DownloadAborted("space")
-        got = d.get("downloaded_bytes") or 0
-        total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-        if d.get("status") == "downloading":
-            frac = min(got / total, 1.0) if total else 0.0
-            background_jobs.update_progress(self.job_id, 0.05 + 0.8 * frac, "Downloading...")
-
-    def match_filter(self, info, *args, **kwargs):
-        info = info or {}
-        duration = info.get("duration")
-        if (info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming")
-                or info.get("_type") == "playlist"
-                or (isinstance(duration, (int, float)) and duration > MAX_DURATION_SECONDS)):
-            self.rejected = True
-            return "Refused: a live stream, a playlist or longer than 6 hours."
-        return None
-
-
-def ydl_options(tmp_dir: str, caps: _Caps) -> dict:
-    """The options merged over video_download's own (they win). Never any
-    cookie option, and every default extractor except `generic`."""
-    return {
-        "allowed_extractors": ["default", "-generic"],
-        "noplaylist": True,
-        "playlistend": 1,
-        "match_filter": caps.match_filter,
-        "progress_hooks": [caps.hook],
-        "socket_timeout": SOCKET_TIMEOUT,
-        "retries": 3,
-        "fragment_retries": 3,
-        "concurrent_fragment_downloads": 1,
-        "external_downloader": {"default": "native"},
-        "paths": {"home": tmp_dir, "temp": tmp_dir},
-        "restrictfilenames": True,
-        "quiet": True,
-        "no_warnings": True,
-    }
 
 
 def _extract_cmd(video_path: str, wav_path: str) -> list:
@@ -204,6 +159,7 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     refused), so the cancel and wall-clock checks run after every raw chunk
     and every decode step, and both raw and decoded bytes count against the
     cap (security review M-1). Fixed-text errors only."""
+    from lib import http
     from services import metadata_service as ms
     from sources import http as shttp
     limit = media_upload_service.max_upload_bytes()
@@ -212,7 +168,7 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     for _ in range(MAX_DIRECT_REDIRECTS + 1):
         try:
             ip = ms.check_public_url(current)
-            resp = ms.pinned_get(current, ip, _DIRECT_HEADERS)
+            resp = http.pinned_get(current, ip, _DIRECT_HEADERS)
         except Exception:
             raise RuntimeError(_FAILED) from None
         try:
@@ -324,32 +280,55 @@ def _failure_reason(exc: BaseException) -> str:
 
 
 def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
-    import video_download
-    caps = _Caps(job_id, tmp)
-    fetched = {}
+    """Runs yt-dlp in a child process (services.ytdlp_child) that Cancel, the
+    wall-clock cap and a nearly full drive kill, then returns (path, title)."""
+    spec = {"url": url, "audio_only": audio_only, **settings_service.get_cookie_settings()}
+    watch = _SpaceWatch(tmp)
+    result, end = {}, {}
+    out_of_space = False
+    path_ignored_logged = False
+    events = ytdlp_child.run_download(
+        tmp, spec, MAX_WALL_SECONDS, lambda: background_jobs.is_cancel_requested(job_id))
     try:
-        path = video_download.download(
-            url, tmp, audio_only=audio_only,
-            title_cb=lambda t: fetched.setdefault("title", t),
-            extra_opts=ydl_options(tmp, caps), **settings_service.get_cookie_settings())
-    except video_download.DownloadAborted as e:
-        reason = str(e)
-        if reason == "cancelled":
-            raise background_jobs.JobCancelled(job_id) from None
-        raise RuntimeError(_DISK_NEARLY_FULL if reason == "space" else _TOO_SLOW) from None
-    except ImportError:
-        raise RuntimeError(_NO_YTDLP) from None
-    except Exception as e:
-        if caps.rejected:
-            raise RuntimeError(_REJECTED) from None
-        reason = _failure_reason(e)
-        raise RuntimeError(f"{reason} {_FAILED}" if reason else _FAILED) from None
-    if background_jobs.is_cancel_requested(job_id):
+        for item in events:
+            event = item.get("event")
+            if event is None:
+                end = item
+            elif "progress" in event:
+                background_jobs.update_progress(
+                    job_id, 0.05 + 0.8 * min(max(float(event["progress"]), 0.0), 1.0),
+                    "Downloading...")
+                if watch.nearly_full():
+                    out_of_space = True
+                    break
+            elif "path" in event and "path" in result:
+                if not path_ignored_logged:
+                    path_ignored_logged = True
+                    applog.get_logger().warning("The download child reported a second file; keeping the first.")
+            else:
+                result.update(event)
+    finally:
+        events.close()  # kills the child tree if we stopped early
+    if end.get("cancelled") or background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
+    if out_of_space:
+        raise RuntimeError(_DISK_NEARLY_FULL)
+    if end.get("timed_out"):
+        raise RuntimeError(_TOO_SLOW)
+    path = result.get("path")
+    if not isinstance(path, str):
+        if result.get("rejected"):
+            raise RuntimeError(_REJECTED)
+        if result.get("missing"):
+            raise RuntimeError(_NO_YTDLP)
+        reason = _failure_reason(RuntimeError(translate_engines.redact_secrets(
+            str(result.get("error") or ""))))
+        raise RuntimeError(f"{reason} {_FAILED}" if reason else _FAILED)
     real = os.path.realpath(path)
     if not real.startswith(os.path.realpath(tmp) + os.sep) or not os.path.isfile(real):
         raise RuntimeError(_FAILED)
-    return real, fetched.get("title")
+    title = result.get("title")
+    return real, title if isinstance(title, str) else None
 
 
 def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
@@ -377,7 +356,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
             _extract_audio(job_id, path, wav, tmp)
             new_files = {"source_video_filename": (path, "source", ext),
                          "audio_filename": (wav, "audio", ".wav")}
-        fields = {"source_url": url}
+        fields = {}
         drama = db.get_drama(drama_id) or {}  # re-read just before writing
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
@@ -385,6 +364,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
             media_upload_service.install_media(drama_id, new_files, **fields)
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
+        drama_service.set_source_url_once(drama_id, url)
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
                                             "title_filled": "title_zh" in fields})
         background_jobs.update_progress(job_id, 1.0, "Downloaded.")
@@ -403,17 +383,17 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
     url = check_public_url(url)
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in media_upload_service.UPLOAD_CONTENT_MODES:
         raise InvalidInputError(media_upload_service.NO_UPLOAD_MODE)
     if media_upload_service.has_media(drama, drama_id) and not confirm_replace_audio:
-        raise InvalidInputError("This drama already has audio. Confirm replacing it first.",
+        raise InvalidInputError("This title already has audio. Confirm replacing it first.",
                                 details={"reason": "confirm_replace_audio"})
     if direct_media_ext(url) is None and not _yt_dlp_installed():
         raise DependencyUnavailableError(_NO_YTDLP)
     with media_upload_service.claims_lock:
         if drama_id in media_upload_service.claimed:
-            raise ConflictError("Another upload is in progress for this drama.")
+            raise ConflictError("Another upload is in progress for this title.")
         media_upload_service.claimed.add(drama_id)
     try:
         with _start_lock:
@@ -425,7 +405,7 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
             background_jobs.clear_job(job_id)
             if not background_jobs.start_job(job_id, _download_job, job_id, drama_id, url,
                                              audio_only,
-                                             description=f"URL download (drama #{drama_id})"):
+                                             description=f"URL download (title #{drama_id})"):
                 raise ConflictError(_BUSY)
         return {"job_id": job_id}
     finally:

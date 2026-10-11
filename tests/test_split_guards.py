@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests.test_static_analysis import (  # noqa: E402
     PROJECT_ROOT,
     _find_requests_calls_missing_timeout,
+    parsed,
 )
 
 _SKIP_DIRS = {"__pycache__", "node_modules", ".git", ".claude", "venv", ".venv", "tmp"}
@@ -36,7 +37,7 @@ def _walk_files(top, suffixes, skip=_SKIP_DIRS):
 
 # --- 1. HTTP timeouts by folder -------------------------------------------
 
-_TIMEOUT_FOLDERS = ("sources", "installer", "engine_backends", "scripts", "tools", "extension")
+_TIMEOUT_FOLDERS = ("sources", "installer", "engine_backends", "scripts", "tools", "extension", "lib")
 
 
 def _timeout_scan_files():
@@ -72,7 +73,6 @@ class TestHttpTimeoutsByFolder:
 MAX_FRONTEND_BYTES = 40 * 1024
 # Exact byte sizes today. A listed file may shrink but never grow.
 OVERSIZED_FRONTEND_BYTES = {
-    "frontend/src/pages/workspace/stages/review/LinesPanel.tsx": 55746,
     "frontend/e2e/review-stage.spec.ts": 48405,
 }
 
@@ -176,7 +176,7 @@ def _missing_front_door_names(module):
     missing, checked = {}, 0
     for f in _all_py_files():
         try:
-            tree = ast.parse(open(f, encoding="utf-8").read(), f)
+            tree = parsed(f)
         except SyntaxError:
             continue
         for name in _referenced_names(tree, module):
@@ -227,7 +227,7 @@ class TestDbPackageRule:
         init = os.path.join(_DB_DIR, "__init__.py")
         public = set()
         if os.path.exists(init):
-            tree = ast.parse(open(init, encoding="utf-8").read())
+            tree = parsed(init)
             for node in tree.body:
                 if isinstance(node, ast.ImportFrom):
                     public |= {a.asname or a.name for a in node.names if not a.name.startswith("_")}
@@ -235,7 +235,7 @@ class TestDbPackageRule:
         for f in _walk_files(_DB_DIR, ".py"):
             if os.path.basename(f) == "__init__.py":
                 continue
-            tree = ast.parse(open(f, encoding="utf-8").read(), f)
+            tree = parsed(f)
             own = {n.name for n in ast.walk(tree)
                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
             for node in ast.walk(tree):
@@ -246,3 +246,16 @@ class TestDbPackageRule:
                         and node.func.id in public and node.func.id not in own:
                     problems.append(f"{_rel(f)}:{node.lineno} bare call {node.func.id}(); use db.{node.func.id}()")
         assert problems == [], "db/ submodules must call public functions as db.<name>:\n" + "\n".join(problems)
+
+
+def test_even_split_cuts_unpunctuated_text_and_flags_it():
+    import long_line_split
+    import segment_splitting
+    text = "".join(chr(0x4e00 + i) for i in range(100))
+    seg = {"start": 146.69, "end": 243.46, "text": text}
+    assert len(segment_splitting.split_long_segments([seg])) == 1  # the core splitter still leaves it whole
+    out = long_line_split.split_long_segments([seg])
+    assert "".join(p["text"] for p in out) == text and len(out) >= 3
+    assert all(len(p["text"]) <= segment_splitting.SPLIT_MAX_CJK_CHARS for p in out)
+    assert {p["flag"] for p in out} == {"timing_uncertain"}
+    assert out[0]["start"] == seg["start"] and out[-1]["end"] == seg["end"]

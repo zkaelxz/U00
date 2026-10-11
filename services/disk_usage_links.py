@@ -13,10 +13,18 @@ at from its parent or opened. Nothing here names a target path.
 import os
 import re
 import stat
+import time
 
 # Linked folders measured in one scan, and link paths remembered per folder.
 # A folder with more links than this reports its linked size as incomplete.
 MAX_LINK_TARGETS = 64
+
+# Seconds the scan may spend on linked folders in all, counted from the first
+# link looked at: a large library walk before that must not use it up. The
+# walk's own budget only checks the clock every few entries, which a slow
+# network folder can stall inside one call; this cap also stops starting
+# further targets.
+MAX_LINK_SECONDS = 20
 
 # A chain of links longer than this is treated as a loop.
 MAX_LINK_HOPS = 8
@@ -81,6 +89,24 @@ def _local_target(path: str, depth: int = 0):
     return None
 
 
+def _may_be_folder(path: str) -> bool:
+    """Whether a link could lead to a folder, decided without opening its
+    target where that can stall: a file link then stays "not measured" after
+    the deadline. Windows says so in the link's own entry (a directory
+    symlink or junction carries the directory attribute). Elsewhere the entry
+    is just "a symlink" and only the target says, but stat'ing it can hang on
+    a dead network mount (SMB under /Volumes, NFS, autofs, FUSE), so it is
+    assumed to be a folder and left unmeasured."""
+    try:
+        st = os.lstat(path)
+        attrs = getattr(st, "st_file_attributes", None)
+        if attrs is None:
+            return True
+        return bool(attrs & stat.FILE_ATTRIBUTE_DIRECTORY)
+    except OSError:
+        return False
+
+
 class LinkedSizes:
     """The size of the folders links lead to, for one scan.
 
@@ -95,6 +121,7 @@ class LinkedSizes:
         self._within = within
         self._measure = measure
         self._done = []
+        self._deadline = None
 
     def of(self, link_paths: list, budget, cut: bool = False):
         """(bytes, files, complete) for the folders `link_paths` lead to, or
@@ -103,10 +130,21 @@ class LinkedSizes:
         not local, or a chain of links that loops, is too long or reaches one,
         is never touched and makes the result incomplete; so does a target
         that overlaps one already measured in this scan."""
+        if self._deadline is None:
+            self._deadline = time.monotonic() + MAX_LINK_SECONDS
         total = files = 0
         measured = skipped = False
         complete = not cut
         for path in link_paths:
+            # Before any readlink or stat: those touch the target, and on a
+            # disconnected mapped drive each one waits out a network timeout
+            # while the scan holds its lock.
+            late = time.monotonic() > self._deadline or (budget is not None and budget.hit)
+            if late:
+                if _may_be_folder(path):
+                    skipped = True
+                    break
+                continue
             real = _local_target(path)
             if real is None:
                 skipped = True

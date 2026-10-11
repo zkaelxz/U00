@@ -10,7 +10,7 @@ from collections import Counter
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOC = os.path.join(PROJECT_ROOT, "FILE_ORGANIZATION.md")
-WATCHED_DIRS = ("", "services", "api/routers")
+WATCHED_DIRS = ("", "lib", "services", "api/routers")
 
 
 def _doc_text():
@@ -19,7 +19,7 @@ def _doc_text():
 
 
 def _watched_modules():
-    """Repo-relative paths of non-test .py files in the root, services/ and api/routers/."""
+    """Repo-relative paths of non-test .py files in the root, lib/, services/ and api/routers/."""
     found = []
     for rel_dir in WATCHED_DIRS:
         folder = os.path.join(PROJECT_ROOT, rel_dir) if rel_dir else PROJECT_ROOT
@@ -33,6 +33,7 @@ def _watched_modules():
 
 SECTIONS = {  # heading -> folder its entries live in
     "## Top-level modules": "",
+    "## lib/": "lib",
     "## services/": "services",
     "### api/routers/": "api/routers",
 }
@@ -61,6 +62,7 @@ def _section_entries():
 
 SECTIONS = {  # heading -> folder its entries live in
     "## Top-level modules": "",
+    "## lib/": "lib",
     "## services/": "services",
     "### api/routers/": "api/routers",
 }

@@ -123,7 +123,7 @@ class TestStartDiarizationRun:
         calls = []
 
         def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
-                                   on_done=None):
+                                   on_done=None, run_settings=None, **launch):
             calls.append({"job_id": job_id, "target": target, "args": args,
                           "gpu_touching": gpu_touching, "description": description})
             return True
@@ -138,7 +138,7 @@ class TestStartDiarizationRun:
         assert call["target"] is diarize.diarize_subprocess_worker
         assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3, {"use_gpu": False, "min_speakers": None, "max_speakers": None})
         assert call["gpu_touching"] is True
-        assert call["description"] == f"Diarization (drama #{did})"
+        assert call["description"] == f"Diarization (title #{did})"
 
     def test_expected_speakers_none_is_passed_through_as_none(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
@@ -146,7 +146,7 @@ class TestStartDiarizationRun:
         calls = []
 
         def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
-                                   on_done=None):
+                                   on_done=None, run_settings=None, **launch):
             calls.append(args)
             return True
         monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
@@ -295,11 +295,11 @@ class TestOverwriteManual:
 
 class TestDiarizationSpeedRecording:
     def _run(self, isolated_db, monkeypatch, result):
-        from services import transcribe_service
+        from services import transcribe_pipeline, transcribe_service
         did = isolated_db.create_drama(title_en="D")
         monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: None)
         monkeypatch.setattr(diarization_service, "_drama_audio_path", lambda d, dr: "/x.wav")
-        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda p: 600.0)
+        monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 600.0)
         diarization_service.make_apply_on_done(did)("diarize_1", result)
         return transcribe_service
 
@@ -368,3 +368,15 @@ def test_on_done_reports_cpu_fallback_loudly(isolated_db, monkeypatch):
         "device_notice"] == diarize.PLACEMENT_FALLBACK_DONE_MESSAGE
     assert on_done("j", {"segments": [], "fell_back_to_cpu": False}) is None
     assert messages[-1] == "Matching speakers to lines..."
+
+
+class TestRunSettings:
+    def test_the_settings_travel_with_the_start_not_after_it(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
+        did, _ = _drama_with_audio(isolated_db)
+        seen = []
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda job_id, target, **k: seen.append(k["run_settings"]) or False)
+        with pytest.raises(ConflictError):
+            diarization_service.start_diarization_run(did, expected_speakers=3)
+        assert seen[0]["expected_speakers"] == 3

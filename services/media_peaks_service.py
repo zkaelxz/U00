@@ -117,7 +117,7 @@ def get_peaks(drama_id: int, start: float, end: float, buckets: int, caller: str
     try:
         st = os.stat(path)
     except OSError:
-        raise NotFoundError("This drama has no audio file to draw.")
+        raise NotFoundError("This title has no audio file to draw.")
     key = (path, st.st_mtime_ns, st.st_size, start, end, buckets)
     with _cache_lock:
         hit = _cache.get(key)

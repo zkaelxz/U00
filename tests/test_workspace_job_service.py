@@ -4,6 +4,7 @@ function (a guard against a move or rename dropping one).
 """
 
 import services.workspace_job_service as wjs
+from tests.saved_settings import patch_setting
 
 
 def test_every_moved_workspace_function_is_exported():
@@ -118,7 +119,7 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
 def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, engine, "audio_drama")
     assert seen["kwargs"]["cost_cap_usd"] == pytest.approx(5.0)
-    assert seen["args"][13] == 6 and seen["kwargs"]["batch_size"] == 20
+    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == 30
 
 
 def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
@@ -236,10 +237,6 @@ def test_fix_flagged_reads_each_lines_language(isolated_db, monkeypatch):
 
 
 def test_bulk_passes_the_settings_default_style_note(isolated_db, monkeypatch):
-    from services import settings_service
-    real = settings_service.get_preference
-    monkeypatch.setattr(settings_service, "get_preference",
-                        lambda name: "Keep honorifics." if name == "default_style_note"
-                        else real(name))
+    patch_setting(monkeypatch, "default_style_note", "Keep honorifics.")
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "claude", "audio_drama")
     assert seen["args"][5] == "Keep honorifics."

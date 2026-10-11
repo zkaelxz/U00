@@ -12,9 +12,11 @@ This page links the pieces; it does not repeat them.
 frontend/ (React)
   -> frontend/src/api/*            the only code that makes HTTP calls
   -> api/routers/*_routes.py       thin: parse, declare permission, call a service
-  -> services/*_service.py         UI-free logic; raises services/service_errors.py errors
+  -> services/*_service.py         UI-free logic; raises lib/errors.py errors
   -> root domain modules           core, translate_engines, scanlate, ...
   -> db.py                         plain sqlite3
+  lib/                             shared helpers (errors, url_guard, capped_body, http, proc, proc_kill,
+                                   cancellable_lock, settings_schema, link_new); every layer may import it, it imports none
 ```
 
 - A router function validates input through a Pydantic model, calls one
@@ -167,7 +169,8 @@ Related helpers:
   `docs/route-permissions.md` (`| Route | Declaration |`) and
   fails if any `METHOD /path` or its declaration differs from what the app
   declares, or if a row is not one route sorted by path then method. A new
-  route therefore needs one row in that doc, in the same change.
+  route therefore needs its row regenerated in the same change
+  (`python tools/route_table.py --write`).
 
 The same file also covers CSRF, local-only, loopback and bypass cases.
 
@@ -221,7 +224,7 @@ re-exports every name, so a router writes `from api.schemas import X`.
   `TranslateEngine.key_configured`). Write endpoints are write-only; the
   one place a token comes back (`POST /api/extension/token`, with
   `confirm=true`) sends `Cache-Control: no-store`.
-- No filesystem paths, stored filenames or fetched URLs. A path becomes a
+- No filesystem paths, stored filenames or fetched URLs, except a `display_url`-cleaned source page link (scheme, host, path only). A path becomes a
   boolean (`has_audio`) or an opaque id (reference-clip candidates are
   addressed by one); downloads use a generic name, never the stored one.
 - API keys go in request headers, never in URLs, logs or stored errors
@@ -283,6 +286,10 @@ disk. The pattern, where a route takes a raw body or multipart:
 - A route that streams back media supports Range requests and HEAD
   (`/api/media/dramas/{drama_id}/audio`, `/video`), under `media.stream`.
 
+## Declared settings and the Settings page
+
+`GET /api/settings/schema` (`admin.settings`) returns the rows of `lib/settings_schema.py` that have a field on the page: label, help, unit, type, limits and, for a choice, its resolved options. Secrets, `.env` keys, rows with no tab and (unless Developer Mode is on) `dev_only` rows are left out, and it never carries a value; the page reads values from `GET /api/settings` and saves through `POST /api/settings`. `frontend/src/pages/settings/SchemaCard.tsx` renders one field per row of a `section` (the Translation style, Spending and Advanced cards use it), so to add a setting you declare it, give the validator in `settings_service` its rule, and the field follows. A hand-written card keeps the rows it owns by marking them `custom`. `services/settings_schema_service.py` builds the response.
+
 ## Server-sent events
 
 `GET /api/events?topics=jobs,notifications,live`
@@ -324,7 +331,7 @@ the client to follow.
   needs the TypeScript edited in the same change. Where a limit exists on
   both sides the TS comment says so (for example
   `MAX_TRANSLATE_TEXT_CHARS` mirrors a schema constant).
-  `npx tsc --noEmit` and the per-module `*.test.ts` files catch a client
+  `npx tsc -b` and the per-module `*.test.ts` files catch a client
   that drifts from its own types, not from the API.
 
 ## Adding an endpoint
@@ -348,9 +355,10 @@ the client to follow.
    `media.stream`; use `local_only()` for anything touching the PC; reserve
    `public_route()` and `authenticated()` for the cases above. Use
    `{drama_id}`/`{series_id}` in the path for an owned item.
-4. **Route-table row** in `docs/route-permissions.md`: add one
-   row (the route as `METHOD /path`, then its declaration) in sorted
-   position, path first and then method. There are no counts to update.
+4. **Route-table row** in `docs/route-permissions.md`: regenerate the table
+   with `python tools/route_table.py --write` (it is derived from the
+   decorators and sorted by path, then method; don't edit rows by hand).
+   There are no counts to update.
 5. **Ownership**: an item in the path is guarded automatically. An item in a
    body, or a job id, is checked in the service; list new path parameters in
    `OWNERSHIP_EXEMPT_PARAMS` (with a reason) in `tests/test_api_ownership.py`

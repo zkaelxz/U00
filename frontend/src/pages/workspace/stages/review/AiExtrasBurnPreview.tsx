@@ -9,7 +9,8 @@ import { Section } from '../../../../components/Section'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
-import { buildAssRequest, loadAssForm } from '../../exportForm'
+import { draftStorage, readDraft } from '../../../../hooks/useStageDraft'
+import { assFormFromDraft, buildAssRequest, EXPORT_DRAFT_STAGE } from '../../exportForm'
 import { burnPreviewJobId } from '../../stageJobIds'
 import type { AssStyleOptions } from '../../../../types/export'
 import type { BurnPreviewInfo } from '../../../../types/reviewExtras'
@@ -28,7 +29,7 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
   const [lineText, setLineText] = useState('')
   const [lineError, setLineError] = useState<string | null>(null)
   const [pad, setPad] = useState('2')
-  const [saved] = useState(() => loadAssForm(dramaId))
+  const [saved] = useState(() => assFormFromDraft(readDraft(draftStorage(), dramaId, EXPORT_DRAFT_STAGE)))
   const [preset, setPreset] = useState(saved?.preset || 'Clean')
   const [styleOptions, setStyleOptions] = useState<AssStyleOptions | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -150,7 +151,7 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
         </div>
       </form>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      <JobPanel jobId={jobId} job={job} pollError={pollError} lastRun={{ dramaId, ids: [burnPreviewJobId(dramaId)], retryFor: () => () => void render() }} />
       {info?.clip && (
         <figure className="stack" style={{ margin: 0 }} data-testid="burn-preview-clip">
           <video

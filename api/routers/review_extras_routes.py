@@ -83,8 +83,8 @@ def _global_style_pc_only(request: Request, drama_id: int) -> None:
 @router.get("/dramas/{drama_id}/style", dependencies=[require_permission("review.use")],
             response_model=StyleState, summary="The learned style profile for this drama's scope",
             responses={404: {"model": ErrorResponse}})
-def get_style(drama_id: int = Path(ge=1)):
-    return svc.get_style(drama_id)
+def get_style(request: Request, drama_id: int = Path(ge=1)):
+    return svc.get_style(drama_id, principal=request.state.principal)
 
 
 @router.post("/dramas/{drama_id}/style/learn", dependencies=[require_permission("jobs.start")],
@@ -95,7 +95,8 @@ def post_style_learn(body: StyleLearnRequest, request: Request, drama_id: int = 
     _global_style_pc_only(request, drama_id)
     require_engines_allowed(request, body.engine, model=body.model)
     with llm_slot(request):
-        return svc.learn_style(drama_id, body.engine, body.model, body.gemini_free_tier)
+        return svc.learn_style(drama_id, body.engine, body.model, body.gemini_free_tier,
+                               principal=request.state.principal)
 
 
 @router.post("/dramas/{drama_id}/style/apply", dependencies=[require_permission("lines.edit")],
@@ -104,7 +105,7 @@ def post_style_learn(body: StyleLearnRequest, request: Request, drama_id: int = 
              responses={**_R, 403: {"model": ErrorResponse}})
 def post_style_apply(body: StyleApplyRequest, request: Request, drama_id: int = Path(ge=1)):
     _global_style_pc_only(request, drama_id)
-    return svc.set_style_applied(drama_id, body.apply)
+    return svc.set_style_applied(drama_id, body.apply, principal=request.state.principal)
 
 
 # PC-only: irreversibly wipes a series-wide or library-wide learned profile
@@ -112,10 +113,10 @@ def post_style_apply(body: StyleApplyRequest, request: Request, drama_id: int = 
 @router.post("/dramas/{drama_id}/style/reset", dependencies=[local_only()],
              response_model=StyleState, summary="Forget the learned profile (confirm=true; PC only)",
              responses={**_R, 403: {"model": ErrorResponse}})
-def post_style_reset(body: StyleResetRequest, drama_id: int = Path(ge=1)):
+def post_style_reset(body: StyleResetRequest, request: Request, drama_id: int = Path(ge=1)):
     if body.confirm is not True:
         raise InvalidInputError("Resetting the learned style needs confirm=true.")
-    return svc.reset_style(drama_id)
+    return svc.reset_style(drama_id, principal=request.state.principal)
 
 
 # PC-only: undoes a learn or reset (the profile it replaces stays in the
@@ -124,8 +125,8 @@ def post_style_reset(body: StyleResetRequest, drama_id: int = Path(ge=1)):
              response_model=StyleState,
              summary="Restore an earlier learned profile (index 0 = the last replaced; PC only)",
              responses={**_R, 403: {"model": ErrorResponse}})
-def post_style_restore(body: StyleRestoreRequest, drama_id: int = Path(ge=1)):
-    return svc.restore_style(drama_id, body.index)
+def post_style_restore(body: StyleRestoreRequest, request: Request, drama_id: int = Path(ge=1)):
+    return svc.restore_style(drama_id, body.index, principal=request.state.principal)
 
 
 # --- SenseVoice audio tags ---------------------------------------------

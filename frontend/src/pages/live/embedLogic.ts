@@ -11,6 +11,14 @@ export type StreamRef =
 export const YT_ORIGIN = 'https://www.youtube-nocookie.com'
 export const DELAY_RANGE = [0, 90] as const
 export const DEFAULT_DELAY = 15
+/**
+ * Processing seconds assumed per chunk until the session has measured one:
+ * Whisper small took about 7 s for a 20 s chunk on a 4-core CPU in
+ * docs/asr-experiments.md, and a translation follows it.
+ */
+export const AUTO_PROCESSING_GUESS_S = 8
+/** Below 5 s the picture is ahead of almost every caption; the top is the slider's. */
+export const AUTO_DELAY_RANGE = [5, DELAY_RANGE[1]] as const
 /** Seconds to wait for the player to report a seekable window before saying it can't be delayed. */
 export const DVR_WAIT_S = 10
 
@@ -201,7 +209,8 @@ export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupp
   const m = measuredDelay(info, offset)
   if (m === null) return WAITING_NOTE
   if (opts.moving) return `Moving to about ${reachableDelay(info, delay, offset)} s behind live…`
-  if (m > IMPLAUSIBLE_DELAY_S) return UNREACHABLE_NOTE
+  // A paused player falls behind the edge by itself, so a long pause is no sign of a wrong `duration`.
+  if (m > IMPLAUSIBLE_DELAY_S && info?.playerState !== 2) return UNREACHABLE_NOTE
   const limit = rewindLimit(info, offset)
   const clamped = limit !== null && Math.max(0, Math.min(DELAY_RANGE[1], delay)) > limit
   return clamped
@@ -209,7 +218,45 @@ export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupp
     : `Playing about ${m} s behind live.`
 }
 
+/**
+ * Seconds the captions must wait for the picture: the delay it really has, so
+ * a stream that rewinds less than the slider asks is not outrun by its own
+ * captions. 0 while the picture is not behind live (not started, moving,
+ * unreported, ignoring seeks), because holding captions then only makes them
+ * later still. Once a seek was confirmed, a picture that no longer sits at the
+ * target (the viewer used the player's own LIVE button or scrubbed) is held for
+ * what it measures, since the overlay cannot intercept those clicks.
+ */
+export function captionDelay(info: PlayerInfo | null, delay: number, opts: { unsupported: boolean; moving: boolean; unreachable: boolean; offset?: number }): number {
+  const offset = opts.offset ?? 0
+  if (notStarted(info) || opts.unsupported || opts.moving) return 0
+  const m = measuredDelay(info, offset)
+  if (m === null || m > IMPLAUSIBLE_DELAY_S) return 0
+  const reached = delayReached(info, delay, offset)
+  if (opts.unreachable && !reached) return 0
+  return reached ? reachableDelay(info, delay, offset) : m
+}
+
 /** The postMessage payloads for the YouTube player. */
 export const ytListenMessage = () => JSON.stringify({ event: 'listening', id: 1, channel: 'widget' })
 export const ytSeekMessage = (to: number) => JSON.stringify({ event: 'command', func: 'seekTo', args: [to, true] })
 export const ytCommand = (func: string, args: unknown[] = []) => JSON.stringify({ event: 'command', func, args })
+
+/**
+ * The automatic video delay: a chunk's first word waits the whole chunk, then
+ * the chunk's processing (wait, Whisper, translation), so the picture plays
+ * that far behind live for its captions to be ready when it is shown.
+ */
+export function autoDelay(segmentSeconds: number, processingSeconds: number, measured: boolean): number {
+  const segment = Number.isFinite(segmentSeconds) ? segmentSeconds : 0
+  const processing = measured ? (Number.isFinite(processingSeconds) ? processingSeconds : 0) : AUTO_PROCESSING_GUESS_S
+  return Math.min(AUTO_DELAY_RANGE[1], Math.max(AUTO_DELAY_RANGE[0], Math.round(segment + processing)))
+}
+
+/**
+ * The delay to apply: a new estimate replaces the current one only once it has
+ * moved by more than SETTLE_TOLERANCE_S, since every change seeks the picture.
+ */
+export function steadyDelay(current: number | null, next: number): number {
+  return current === null || Math.abs(next - current) > SETTLE_TOLERANCE_S ? next : current
+}

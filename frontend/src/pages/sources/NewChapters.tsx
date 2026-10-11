@@ -7,7 +7,8 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import type { CheckResult, OpenSeries, SourceNotification, SourceSummary, TrackedSeries } from '../../types/sources'
-import { ago, checkSummary, isoTime, percent, trackedDramaChoices } from './sourcesFormat'
+import { ago, isoTime, percent } from './sourcesFormat'
+import { checkSummary, trackedDramaChoices } from './sourcesSettings'
 import { dramaLabel } from './urlImportFormat'
 import { useDramaList } from './useDramaList'
 import { useSourcesJob } from './useSourcesJob'
@@ -216,7 +217,7 @@ export function NewChapters({
                         onChange={(e) => link(t, e.target.value)}
                       >
                         <option value="">None</option>
-                        {current && <option value={t.drama_id!}>Drama #{t.drama_id}</option>}
+                        {current && <option value={t.drama_id!}>Title #{t.drama_id}</option>}
                         {choices.map((d) => (
                           <option key={d.id} value={d.id}>
                             {dramaLabel(d)}

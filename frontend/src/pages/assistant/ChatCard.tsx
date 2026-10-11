@@ -65,18 +65,36 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
   const [offer, setOffer] = useState<Offer | null>(null)
   const [reportFor, setReportFor] = useState<number | null>(null)
   const nextId = useRef(1)
+  const askAbort = useRef<AbortController | null>(null)
+
+  // A model that never answers must not outlive the page.
+  useEffect(() => () => askAbort.current?.abort(), [])
+
+  const cancelAsk = () => {
+    askAbort.current?.abort()
+    askAbort.current = null
+    setExchanges((xs) => xs.map((x) => (x.response || x.error || x.cancelled ? x : { ...x, cancelled: true })))
+    setAsking(false)
+  }
 
   const send = (q: string, history: ChatTurn[], eng: string, escalation?: Escalation) => {
     const id = nextId.current++
     setExchanges((xs) => [...xs, { id, question: q, response: null, error: null }])
     setAsking(true)
+    const ctl = new AbortController()
+    askAbort.current = ctl
     // A typed model name belongs to the picked engine, not to another tier.
-    askAssistant(q, history, eng, eng === engine ? model : '', undefined, escalation).then(
+    askAssistant(q, history, eng, eng === engine ? model : '', undefined, escalation, ctl.signal).then(
       (response) => {
+        if (ctl.signal.aborted) return
+        askAbort.current = null
         setExchanges((xs) => xs.map((x) => (x.id === id ? { ...x, response } : x)))
         setAsking(false)
       },
       (e: unknown) => {
+        // Cancel and unmount already settled the exchange.
+        if (ctl.signal.aborted) return
+        askAbort.current = null
         const failure = tierFailureOf(e)
         const text = failure ? failureText(failure) : assistantErrorText(e)
         setExchanges((xs) => xs.map((x) => (x.id === id ? { ...x, error: text, failure } : x)))
@@ -122,7 +140,11 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
                 <span className="visually-hidden">You asked: </span>
                 {x.question}
               </p>
-              {x.response ? (
+              {x.cancelled ? (
+                <p className="muted" role="status">
+                  Cancelled. The assistant may still finish on the PC, but its answer is not shown.
+                </p>
+              ) : x.response ? (
                 <Answer response={x.response} question={x.question} github={github} onAddToBacklog={onAddToBacklog} />
               ) : x.error ? (
                 <p className="error" role="alert">
@@ -133,7 +155,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
                   Working on it. This can take a minute.
                 </p>
               )}
-              {(x.response || x.error) && !asking && (
+              {(x.response || x.error || x.cancelled) && !asking && (
                 <TurnActions next={nextTierOf(x)} onEscalate={(next) => escalate(i, next)} onReport={() => setReportFor(i)} />
               )}
             </li>
@@ -166,6 +188,11 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
           <button type="submit" className={buttonClass('primary')} disabled={asking || !question.trim()}>
             {asking ? 'Asking…' : 'Ask'}
           </button>
+          {asking && (
+            <button type="button" className={buttonClass('ghost')} onClick={cancelAsk}>
+              Cancel
+            </button>
+          )}
         </div>
       </form>
       <EngineSection

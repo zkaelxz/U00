@@ -11,6 +11,10 @@ export interface TranslateRunConfig {
   default_female_pronouns?: boolean | null
   include_genre_notes?: boolean | null
   translate_by_sentence?: boolean | null
+  // Engines whose request can switch thinking (DeepSeek, Ollama), and the
+  // title's remembered "think harder" choice.
+  thinking_switch_engines?: string[]
+  title_thinking?: boolean
   engines: TranslateEngine[]
   // guidance: what the style asks the translator for (parity X04)
   style_presets: { key: string; label: string; guidance?: string }[]
@@ -59,6 +63,9 @@ export interface TranslateRunEstimate {
   effective_cap_usd: number | null
   monthly_refusal: boolean
   estimate_above_cap: boolean
+  thinking?: boolean
+  // True when thinking is on: hidden reasoning is billed but cannot be predicted.
+  estimate_is_lower_bound?: boolean
 }
 
 export interface EstimateParams {
@@ -68,6 +75,7 @@ export interface EstimateParams {
   job_cost_cap_usd?: number
   reflect?: boolean
   bulk?: boolean
+  thinking?: boolean
 }
 
 export interface FallbackEngine {
@@ -89,6 +97,7 @@ export interface TranslateRunStartBody {
   fallback_chain?: FallbackEngine[]
   reflect?: boolean
   bulk?: boolean
+  thinking?: boolean // omitted: the title's remembered choice
   default_female_pronouns?: boolean // omitted: false
   include_genre_notes?: boolean // omitted: true
 }
@@ -107,7 +116,7 @@ export interface BulkJobEntry {
   kind: string
   stage: string | null
   pipeline_id: string | null
-  /** submitting|submitted|scheduled|running|applied|cancelled|failed|auth_error */
+  /** submitting|submitted|scheduled|running|applying|needs_resubmit|applied|cancelled|failed|auth_error */
   status: string
   pending: boolean
   cancellable: boolean
@@ -185,6 +194,16 @@ export type GlossaryAffectedRunBody = Omit<TranslateRunStartBody, 'force_retrans
   preview_hash: string
   include_hand_edited: boolean
   term_ids?: number[]
+}
+
+// Review's "Retranslate these": the Translate run options plus the lines to redo.
+export type SourceChangedRunBody = Omit<TranslateRunStartBody, 'force_retranslate' | 'bulk'> & {
+  line_ids: number[]
+}
+
+export interface SourceChangedRunStarted extends TranslateRunStarted {
+  // The lines the run will translate: those still flagged when it started.
+  line_ids: number[]
 }
 
 export interface GlossaryAffectedRunStarted extends TranslateRunStarted {

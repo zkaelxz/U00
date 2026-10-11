@@ -32,7 +32,7 @@ describe('engine display helpers', () => {
   })
 
   it('summarises a long label as its first sentence', () => {
-    const long = 'Paid, cloud, very cheap -- roughly 5-10 cents per drama. Strong on Chinese.'
+    const long = 'Paid, cloud, very cheap -- roughly 5-10 cents per title. Strong on Chinese.'
     expect(engineSummary(long)).toBe('Paid, cloud, very cheap')
     expect(engineSummary('Paid, cloud. Best for tone.')).toBe('Paid, cloud.')
     expect(engineSummary('Paid, cloud, very cheap; strong on Chinese.')).toBe(

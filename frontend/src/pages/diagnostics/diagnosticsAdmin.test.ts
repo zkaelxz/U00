@@ -47,6 +47,12 @@ describe('setup rows', () => {
     if (!pkg) expect(rows.find((r) => r.key === 'playwright')?.text).toContain('no browser download is needed')
   })
 
+  it.each([[null], [undefined]])('shows no Playwright row when the package state is unknown (%s)', (pkg) => {
+    const rows = setupRows(checks({ browser: { found: true, name: 'Chrome', package: pkg } }), gpu)
+    expect(rows.map((r) => r.key)).not.toContain('playwright')
+    expect(rows.some((r) => r.problem)).toBe(false)
+  })
+
   it('reads "Label: value" when everything is fine', () => {
     const rows = setupRows(checks(), gpu)
     expect(rows.map((r) => r.text)).toEqual([
@@ -133,15 +139,16 @@ describe('packages', () => {
     expect(installBlockedReason(true, null)).toBe('Wait for running jobs to finish.')
     expect(installBlockedReason(false, { kind: 'install', name: 'x' })).toBe('Wait for the install to finish.')
     expect(installBlockedReason(false, { kind: 'reset', name: 'library' })).toBe('Wait for the reset to finish.')
-    expect(resetBlockedReason(true, null)).toBe('Stop running jobs first (see Jobs above).')
+    expect(resetBlockedReason(true, null)).toBe('Stop running jobs first.')
     expect(resetBlockedReason(false, { kind: 'upgrade', name: 'x' })).toBe('Wait for the install to finish.')
     expect(resetBlockedReason(false, { kind: 'reset', name: 'library' })).toBeNull()
   })
 
   it('announces a running install or upgrade, never a reset', () => {
     expect(busyLine({ kind: 'install', name: 'jieba' })).toBe(
-      'Installing jieba… this can take several minutes. Keep this tab open.')
-    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toMatch(/^Updating jieba…/)
+      'Installing jieba… this can take several minutes. Cancel it below if needed.')
+    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toBe(
+      'Updating jieba… this can take several minutes. Keep this tab open.')
     expect(busyLine({ kind: 'reset', name: 'library' })).toBeNull()
     expect(busyLine(null)).toBeNull()
   })
@@ -227,8 +234,8 @@ describe('other sections', () => {
   })
 
   it('states library size before a reset', () => {
-    expect(libraryStatsLine({ total_dramas: 12, total_lines: 48210 })).toBe('Currently 12 dramas, 48,210 lines.')
-    expect(libraryStatsLine({ total_dramas: 1, total_lines: 1 })).toBe('Currently 1 drama, 1 line.')
+    expect(libraryStatsLine({ total_dramas: 12, total_lines: 48210 })).toBe('Currently 12 titles, 48,210 lines.')
+    expect(libraryStatsLine({ total_dramas: 1, total_lines: 1 })).toBe('Currently 1 title, 1 line.')
     expect(libraryStatsLine({ total_dramas: 0, total_lines: 0 })).toBeNull()
   })
 })

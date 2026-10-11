@@ -12,19 +12,25 @@ import os
 import numpy as np
 import pytest
 
-cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core
-
 import scanlate
+import scanlate_detect
 import translate_engines
 
 
+@pytest.fixture
+def cv2():
+    # requirements-media.txt, not core. Only the image tests need it: the
+    # id-matching translation tests must still run on an install without it.
+    return pytest.importorskip("cv2")
+
+
 def _write(path, img):
-    cv2.imwrite(str(path), img)
+    pytest.importorskip("cv2").imwrite(str(path), img)
     return str(path)
 
 
 @pytest.fixture
-def bubble_page(tmp_path):
+def bubble_page(tmp_path, cv2):
     """Dark page, one white rectangular bubble with horizontal scribble lines."""
     img = np.full((400, 600, 3), 50, dtype=np.uint8)
     cv2.rectangle(img, (100, 80), (400, 220), (255, 255, 255), -1)
@@ -35,7 +41,7 @@ def bubble_page(tmp_path):
 
 
 @pytest.fixture
-def oval_page(tmp_path):
+def oval_page(tmp_path, cv2):
     """White page, one white oval bubble with a black outline, no text."""
     img = np.full((400, 600, 3), 255, dtype=np.uint8)
     img[:, :] = (90, 90, 90)
@@ -73,7 +79,7 @@ class TestStructuredRegions:
         assert r.confidence == pytest.approx(0.87)
         assert r.orientation in ("horizontal", "vertical")
         assert r.panel_id is None or isinstance(r.panel_id, int)
-        assert r.kind in scanlate.TEXT_REGION_KINDS
+        assert r.kind in scanlate_detect.TEXT_REGION_KINDS
         assert r.page_id == 7
 
     def test_to_bubble_is_the_flat_shape_save_bubbles_takes(self, bubble_page):
@@ -95,7 +101,7 @@ class TestStructuredRegions:
             bubble_page, [{"x": 100, "y": 80, "w": 300, "h": 140}], "ja")[0]
         assert r.orientation == "horizontal"
 
-    def test_vertical_columns_read_as_vertical_for_cjk(self, tmp_path):
+    def test_vertical_columns_read_as_vertical_for_cjk(self, tmp_path, cv2):
         img = np.full((400, 400, 3), 255, dtype=np.uint8)
         for i in range(5):
             x = 120 + i * 30
@@ -107,7 +113,7 @@ class TestStructuredRegions:
         # Latin-script languages are never laid out vertically.
         assert scanlate.estimate_text_orientation(gray, box, "en") == "horizontal"
 
-    def test_panel_id_and_reading_order_follow_panels(self, tmp_path):
+    def test_panel_id_and_reading_order_follow_panels(self, tmp_path, cv2):
         # Two side-by-side panels; manga order reads the RIGHT one first.
         img = np.full((600, 800, 3), 255, dtype=np.uint8)
         cv2.rectangle(img, (20, 20), (380, 580), (0, 0, 0), 4)
@@ -115,7 +121,7 @@ class TestStructuredRegions:
         path = _write(tmp_path / "panels.png", img)
         left_box = {"x": 60, "y": 60, "w": 100, "h": 80}
         right_box = {"x": 460, "y": 300, "w": 100, "h": 80}
-        panels = scanlate.detect_panels(path)
+        panels = scanlate_detect.detect_panels(path)
         assert len(panels) >= 2
         regions = scanlate.analyze_page_regions(path, [left_box, right_box], "ja")
         by_x = {r.x: r for r in regions}
@@ -248,18 +254,6 @@ class TestFailedTranslationDoesNotBlankBubbles:
             scanlate.translate_page_bubbles(bubbles, _FakeLLM(), {})
         assert bubbles[0]["translated_text"] == "Senior Sister (hand-edited)"
 
-    def test_genuinely_empty_translations_list_is_distinct_from_a_parse_failure(self, monkeypatch):
-        # A well-formed response the model legitimately returned with nothing
-        # to translate is not a failure -- translate_page_with_context()
-        # returns it as-is, unlike the None sentinel the failure cases above
-        # return. (It still won't be silently applied here: the length
-        # mismatch against the one bubble that was actually sent is caught
-        # by the existing, separate length check.)
-        monkeypatch.setattr(translate_engines, "call_llm_json",
-                            lambda *a, **kw: json.dumps({"translations": []}))
-        translations, _ = scanlate.translate_page_with_context(["师姐"], _FakeLLM(), {})
-        assert translations == []
-
 
 # ---------------------------------------------------------------------------
 # Item 3: text fitted to the bubble's real shape
@@ -270,6 +264,7 @@ class TestShapeAwareFitting:
 
     def _ink_outside(self, oval_page, mask):
         from PIL import Image
+        cv2 = pytest.importorskip("cv2")
         canvas = Image.new("RGB", (600, 400), (255, 255, 255))
         text = " ".join(["word"] * 40)
         scanlate.render_text_in_box(canvas, self.BOX, text, font_size=22, mask=mask)
@@ -280,13 +275,13 @@ class TestShapeAwareFitting:
         return int((ink & (oval == 0)).sum())
 
     def test_mask_follows_the_oval_not_the_rectangle(self, oval_page):
-        mask = scanlate.bubble_shape_mask(oval_page, self.BOX)
+        mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
         assert mask is not None and mask.shape == (220, 400)
         assert not mask[0, 0] and not mask[-1, -1]   # rectangle corners are outside
         assert mask[110, 200]                         # centre is inside
 
     def test_text_stays_inside_an_oval_bubble(self, oval_page):
-        mask = scanlate.bubble_shape_mask(oval_page, self.BOX)
+        mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
         # Rectangle layout spills into the corners outside the oval...
         assert self._ink_outside(oval_page, None) > 0
         # ...the shape-aware layout doesn't.
@@ -294,7 +289,7 @@ class TestShapeAwareFitting:
 
     def test_all_words_are_still_drawn_with_a_mask(self, oval_page):
         from PIL import Image, ImageDraw
-        mask = scanlate.bubble_shape_mask(oval_page, self.BOX)
+        mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
         font = scanlate._find_font(None)
         from PIL import ImageFont
         draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
@@ -307,7 +302,7 @@ class TestShapeAwareFitting:
 
     def test_no_light_region_means_no_mask(self, tmp_path):
         dark = _write(tmp_path / "dark.png", np.full((200, 200, 3), 20, dtype=np.uint8))
-        assert scanlate.bubble_shape_mask(dark, {"x": 20, "y": 20, "w": 100, "h": 100}) is None
+        assert scanlate_detect.bubble_shape_mask(dark, {"x": 20, "y": 20, "w": 100, "h": 100}) is None
 
 
 # ---------------------------------------------------------------------------
@@ -402,22 +397,22 @@ class TestGlossaryInScanlateTranslation:
         def fake_call(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
             prompts.append(prompt)
             use = "Senior Sister" if "师姐 → Senior Sister" in prompt else "Shijie"
-            return json.dumps({"translations": [f"Wait, {use}!"], "context_summary": "s"})
+            return json.dumps({"translations": {"0": f"Wait, {use}!"}, "context_summary": "s"})
         monkeypatch.setattr(translate_engines, "call_llm_json", fake_call)
 
     def test_honorific_term_is_applied_in_the_output(self, monkeypatch):
         prompts = []
         self._fake_llm_that_follows_the_glossary(monkeypatch, prompts)
-        translations, _ = scanlate.translate_page_with_context(
-            ["等等，师姐！"], _FakeLLM(), {}, glossary_terms=HONORIFIC)
-        assert translations == ["Wait, Senior Sister!"]
+        translations, _ = scanlate.translate_regions_by_id(
+            {"0": "等等，师姐！"}, _FakeLLM(), {}, glossary_terms=HONORIFIC)
+        assert translations == {"0": "Wait, Senior Sister!"}
         assert "TERM GLOSSARY" in prompts[0]
 
     def test_without_the_glossary_the_term_is_not_applied(self, monkeypatch):
         prompts = []
         self._fake_llm_that_follows_the_glossary(monkeypatch, prompts)
-        translations, _ = scanlate.translate_page_with_context(["等等，师姐！"], _FakeLLM(), {})
-        assert translations == ["Wait, Shijie!"]
+        translations, _ = scanlate.translate_regions_by_id({"0": "等等，师姐！"}, _FakeLLM(), {})
+        assert translations == {"0": "Wait, Shijie!"}
         assert "TERM GLOSSARY" not in prompts[0]
 
     def test_pure_mt_engine_is_handed_the_glossary_too(self):
@@ -486,3 +481,79 @@ class TestSfxSkipByDefault:
         assert not scanlate.region_excluded_from_auto({"kind": "sfx", "include_sfx": 1})
         assert not scanlate.region_excluded_from_auto({"kind": "bubble"})
         assert not scanlate.region_excluded_from_auto({})
+
+
+# ---------------------------------------------------------------------------
+# A dense page is translated in id-checked chunks
+# ---------------------------------------------------------------------------
+
+class TestChunkedPageTranslation:
+    @staticmethod
+    def _sent_ids(prompt):
+        payload = prompt.split("(JSON):\n", 1)[1].split("\n\n", 1)[0]
+        return [item["id"] for item in json.loads(payload)]
+
+    def _fake_llm(self, monkeypatch, answer_for):
+        calls = []
+
+        def fake_call(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+            ids = self._sent_ids(prompt)
+            calls.append({"ids": ids, "max_tokens": max_tokens, "prompt": prompt})
+            return answer_for(len(calls), ids)
+        monkeypatch.setattr(translate_engines, "call_llm_json", fake_call)
+        return calls
+
+    @staticmethod
+    def _shuffled_answer(ids, n):
+        reordered = list(reversed(ids))
+        return json.dumps({"translations": {i: f"EN{i}" for i in reordered},
+                           "context_summary": f"after chunk {n}"})
+
+    def test_a_hundred_regions_go_out_in_three_bounded_calls(self, monkeypatch):
+        calls = self._fake_llm(monkeypatch, lambda n, ids: self._shuffled_answer(ids, n))
+        texts = {str(i): f"台词{i}" for i in range(100)}
+        got, context = scanlate.translate_regions_by_id(texts, _FakeLLM(), {})
+        assert len(calls) == 3
+        assert all(len(c["ids"]) <= 40 for c in calls)
+        assert sorted((i for c in calls for i in c["ids"]), key=int) == list(texts)
+        assert all(c["max_tokens"] <= 8192 for c in calls)
+        assert got == {i: f"EN{i}" for i in texts}      # reversed answers, applied by id
+        assert context == "after chunk 3"
+
+    def test_each_chunk_carries_the_previous_chunks_context(self, monkeypatch):
+        calls = self._fake_llm(monkeypatch, lambda n, ids: self._shuffled_answer(ids, n))
+        scanlate.translate_regions_by_id({str(i): "字" for i in range(81)}, _FakeLLM(), {},
+                                         previous_context="page before")
+        assert "page before" in calls[0]["prompt"]
+        assert "after chunk 1" in calls[1]["prompt"]
+        assert "after chunk 2" in calls[2]["prompt"]
+
+    def test_a_garbage_chunk_leaves_only_its_own_ids_untranslated(self, monkeypatch):
+        calls = self._fake_llm(monkeypatch, lambda n, ids: (
+            "not json, cut off mid-answer" if n == 2 else self._shuffled_answer(ids, n)))
+        texts = {str(i): f"台词{i}" for i in range(100)}
+        got, context = scanlate.translate_regions_by_id(texts, _FakeLLM(), {})
+        failed = set(calls[1]["ids"])
+        assert failed and set(got) == set(texts) - failed
+        assert all(got[i] == f"EN{i}" for i in got)
+        assert context == "after chunk 3"
+
+    def test_page_bubbles_keep_the_good_chunks_and_report_the_rest(self, monkeypatch):
+        calls = self._fake_llm(monkeypatch, lambda n, ids: (
+            json.dumps({"translations": {ids[0]: "only one"}}) if n == 1
+            else self._shuffled_answer(ids, n)))
+        bubbles = [{"source_text": f"台词{i}", "translated_text": "old"} for i in range(100)]
+        with pytest.raises(ValueError, match="40 of 100"):
+            scanlate.translate_page_bubbles(bubbles, _FakeLLM(), {})
+        first_chunk = {int(i) for i in calls[0]["ids"]}
+        for i, b in enumerate(bubbles):
+            if i in first_chunk:
+                assert b["translated_text"] == "old"           # a short chunk applies nothing
+            else:
+                assert b["translated_text"] == f"EN{i}"
+
+    def test_every_chunk_failing_is_the_same_as_one_failed_answer(self, monkeypatch):
+        self._fake_llm(monkeypatch, lambda n, ids: None)
+        got, context = scanlate.translate_regions_by_id(
+            {str(i): "字" for i in range(50)}, _FakeLLM(), {}, previous_context="kept")
+        assert got is None and context == "kept"

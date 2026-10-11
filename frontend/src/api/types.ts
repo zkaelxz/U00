@@ -65,6 +65,7 @@ export interface DramaDetail extends DramaSummary {
   has_audio: boolean
   has_novel_reference: boolean
   has_cover_art: boolean
+  keep_original?: boolean
 }
 
 export interface DramaListResponse {

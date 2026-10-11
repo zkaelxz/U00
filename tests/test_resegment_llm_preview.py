@@ -2,6 +2,7 @@
 start_llm_resegment_preview / get_llm_resegment_preview and
 /api/restructure/.../resegment/preview-llm). Fully mocked: no real LLM, no
 GPU, no subprocess. The preview must never write the drama's lines."""
+import queue
 import time
 
 import pytest
@@ -117,6 +118,8 @@ def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
     svc.start_llm_resegment_preview(did, engine="ollama")
     assert captured["target"] is resegment.resegment_subprocess_worker
     assert captured["kw"]["gpu_touching"] is True
+    assert captured["kw"]["kill_whole_tree"] is True
+    assert captured["kw"]["start_method"] == "spawn"
     assert svc.get_llm_resegment_preview(did)["engine"] == "ollama"
     assert _snapshot(did) == before
 
@@ -318,3 +321,11 @@ def test_stale_preview_for_other_lines_is_not_read_back(monkeypatch):
     with pytest.raises(NotFoundError):
         svc.get_llm_resegment_preview(did)
     assert did not in svc._llm_previews
+
+
+def test_resegment_worker_leaves_the_parents_process_group(monkeypatch):
+    left = []
+    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
+    q = queue.Queue()
+    resegment.resegment_subprocess_worker([], "zh", None, None, "simplified", 0.5, q)
+    assert left == [True]

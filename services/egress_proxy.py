@@ -36,7 +36,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from services import url_guard
+from lib import url_guard
 
 MAX_HEADER_BYTES = 65_536
 MAX_CONNECTIONS = 64

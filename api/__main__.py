@@ -24,12 +24,25 @@ import portable
 portable.activate_portable_mode()
 
 import argparse
+import os
 import sys
 from dataclasses import replace
 
 
 def _serve():
     import uvicorn
+    import db
+    from lib.errors import NewerDatabaseError
+    try:
+        db.init_db()
+    except NewerDatabaseError as e:
+        # One readable line instead of a traceback; also in the log.
+        try:
+            import applog
+            applog.get_logger().error(e.message)
+        except OSError:
+            pass   # the console line below has it
+        raise SystemExit(f"ERROR: {e.message}")
     from api.api_config import (check_bind_safety, check_household_bind_safety, is_loopback_host,
                                load_settings)
     try:
@@ -59,7 +72,8 @@ def _serve():
             settings = replace(settings, household_port=0)
     _warn_single_port_sign_in(settings)
     if settings.is_development:
-        uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True)
+        uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True,
+                    access_log=not settings.auth_enabled)
         return
     # Stopping stops everything. On Windows every child process (ffmpeg,
     # Playwright's Node driver and Chromium, pip...) is in this process's
@@ -85,8 +99,11 @@ def _serve():
         return
     # timeout_graceful_shutdown: an open connection (a media stream the app
     # window holds) can't keep a clean stop past the launcher's grace period.
+    # No access log with sign-in on: the callback's request line carries the
+    # Google code and state in its query string.
     server = uvicorn.Server(uvicorn.Config("api.server:app", host=settings.host,
-                                           port=settings.port, timeout_graceful_shutdown=3))
+                                           port=settings.port, timeout_graceful_shutdown=3,
+                                           access_log=not settings.auth_enabled))
     shutdown_service.register_stopper(lambda: setattr(server, "should_exit", True))
     try:
         server.run()
@@ -200,6 +217,16 @@ def _run_servers(servers) -> bool:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
     return bool(failed)
+
+
+def _apply_pending_install():
+    """The Windows service has no launcher in front of it, so the install
+    queued from Diagnostics runs here, before anything heavy is imported."""
+    try:
+        import pending_install
+        pending_install.apply(echo=True)
+    except Exception as exc:        # the server start comes first
+        print(f"Queued install skipped: {type(exc).__name__}", flush=True)
 
 
 def _grant_admin(email: str) -> int:
@@ -321,6 +348,8 @@ def main(argv=None) -> int:
         return _grant(args.email, args.permission)
     if args.command == "list-users":
         return _list_users()
+    if os.environ.get("BAIHE_APPLY_PENDING") == "1":
+        _apply_pending_install()
     _serve()
     return 0
 

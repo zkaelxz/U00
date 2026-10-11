@@ -3,13 +3,17 @@ import { ApiError } from '../../api/client'
 import type { SessionState } from '../../hooks/useSession'
 import type { SetPrivateResult, SharingItem } from '../../types/sharing'
 
+export const CHECKING_ACCOUNT_NOTE = 'Checking your account…'
+export const ACCOUNT_UNAVAILABLE_NOTE =
+  "Couldn't check your account yet, so sharing settings are hidden. Baihe keeps retrying; use Retry to try now."
+
 export const SHARE_DEFAULT_LABEL = 'New items I create are shared with the household'
 
 /** The plain line under the share-by-default switch. */
 export function shareDefaultHelp(on: boolean, admin: boolean): string {
   const now = on
-    ? 'On: new dramas and series you create can be seen by everyone in the household.'
-    : 'Off: new dramas and series you create are private to you (admins can still see them).'
+    ? 'On: new titles and series you create can be seen by everyone in the household.'
+    : 'Off: new titles and series you create are private to you (admins can still see them).'
   const existing = admin
     ? 'This only affects new items. Change existing ones one at a time in the list below.'
     : 'This only affects new items. An admin can change existing ones one at a time.'
@@ -17,10 +21,11 @@ export function shareDefaultHelp(on: boolean, admin: boolean): string {
 }
 
 /** Whether to show every item (admins, and the owner at the PC with sign-in off).
- * Unknown session (older API): try, and hide the list if the server says no. */
+ * null while /me has not answered; false when it failed, so an unknown account
+ * gets the least-privilege view rather than controls it may not be allowed to use. */
 export function canSeeAllItems(s: SessionState): boolean | null {
   if (s.status === 'loading') return null
-  if (s.status === 'unavailable') return true
+  if (s.status === 'unavailable') return false
   return s.me.permissions.includes('admin.library')
 }
 
@@ -39,12 +44,12 @@ export function statusLabel(item: SharingItem): 'Shared' | 'Private' {
 }
 
 export function itemTitle(item: SharingItem): string {
-  return item.title.trim() || (item.kind === 'series' ? 'Untitled series' : 'Untitled drama')
+  return item.title.trim() || (item.kind === 'series' ? 'Untitled series' : 'Untitled')
 }
 
 export function seriesNote(item: SharingItem): string {
   const name = item.series_name?.trim() || 'its series'
-  return `In the series “${name}”. Dramas in a series follow the series; change the series instead.`
+  return `In the series “${name}”. Titles in a series follow the series; change the series instead.`
 }
 
 /** Apply a flip the server confirmed; a series also updates its dramas. */

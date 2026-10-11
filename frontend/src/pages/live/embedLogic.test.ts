@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, UNREACHABLE_NOTE, WAITING_NOTE, canDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, probeOffset, ytCommand,
+  AUTO_DELAY_RANGE, AUTO_PROCESSING_GUESS_S, DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, UNREACHABLE_NOTE, WAITING_NOTE, autoDelay, canDelay, steadyDelay, captionDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, probeOffset, ytCommand,
 } from './embedLogic'
 
 const ID = 'dQw4w9WgXcQ'
@@ -151,6 +151,10 @@ describe('delayNote', () => {
     expect(delayNote(report({ duration: 300, currentTime: 285 }), 30, { unsupported: false, moving: true })).toBe('Moving to about 30 s behind live…')
     expect(delayNote(report({ duration: 45, currentTime: 45 }), 90, { unsupported: false, moving: true })).toBe('Moving to about 45 s behind live…')
   })
+  it('does not call a long pause a stream that cannot be delayed', () => {
+    expect(delayNote(report({ duration: 900, currentTime: 100, playerState: 1 }), 15, flags)).toBe(UNREACHABLE_NOTE)
+    expect(delayNote(report({ duration: 900, currentTime: 100, playerState: 2 }), 15, flags)).toBe('Playing about 800 s behind live.')
+  })
   it('says a stream with no rewind buffer cannot be delayed', () => {
     expect(delayNote(report({ duration: 0 }), 15, { unsupported: true, moving: false })).toBe(NO_DELAY_NOTE)
   })
@@ -209,5 +213,56 @@ describe('a live stream whose duration is the time since it began', () => {
     expect(probeOffset(20, report({ duration: 43830, currentTime: 22 }))).toBeNull()
     expect(probeOffset(undefined, report({ duration: 43830, currentTime: 22 }))).toBeNull()
     expect(probeOffset(20, null)).toBeNull()
+  })
+})
+
+describe('captionDelay', () => {
+  const flags = { unsupported: false, moving: false, unreachable: false }
+  it('is the delay the picture has once it got there', () => {
+    expect(captionDelay(report({ duration: 300, currentTime: 285 }), 15, flags)).toBe(15)
+  })
+  it('is the clamped window when the slider asks for more than the stream keeps', () => {
+    expect(captionDelay(report({ duration: 10, currentTime: 0 }), 30, flags)).toBe(10)
+  })
+  it('follows the measured delay when the viewer scrubs away from the target', () => {
+    expect(captionDelay(report({ duration: 300, currentTime: 300 }), 15, flags)).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 290 }), 30, flags)).toBe(10)
+  })
+  it('is 0 while the picture is not yet behind live', () => {
+    expect(captionDelay(null, 15, flags)).toBe(0)
+    expect(captionDelay(report({ duration: 300 }), 15, flags)).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 285 }), 30, { ...flags, moving: true })).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 300, playerState: -1 }), 15, flags)).toBe(0)
+  })
+  it('is 0 for a stream that cannot be delayed or ignores seeks', () => {
+    expect(captionDelay(report({ duration: 0 }), 15, { ...flags, unsupported: true })).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 300 }), 20, { ...flags, unreachable: true })).toBe(0)
+    expect(captionDelay(report({ duration: 43826, currentTime: 100 }), 20, flags)).toBe(0)
+  })
+})
+
+describe('autoDelay', () => {
+  it('is the chunk length plus the measured processing time, rounded', () => {
+    expect(autoDelay(20, 7.4, true)).toBe(27)
+    expect(autoDelay(4, 2.6, true)).toBe(7)
+  })
+
+  it('uses a stated guess for the processing time until a chunk is measured', () => {
+    expect(autoDelay(20, 0, false)).toBe(20 + AUTO_PROCESSING_GUESS_S)
+  })
+
+  it('stays within a range the player can seek to', () => {
+    expect(autoDelay(3, 0.2, true)).toBe(AUTO_DELAY_RANGE[0])
+    expect(autoDelay(60, 120, true)).toBe(AUTO_DELAY_RANGE[1])
+    expect(autoDelay(Number.NaN, Number.NaN, true)).toBe(AUTO_DELAY_RANGE[0])
+  })
+})
+
+describe('steadyDelay', () => {
+  it('takes the first estimate and then moves only for a change past the settle tolerance', () => {
+    expect(steadyDelay(null, 27)).toBe(27)
+    expect(steadyDelay(27, 29)).toBe(27)
+    expect(steadyDelay(27, 31)).toBe(31)
+    expect(steadyDelay(27, 23)).toBe(23)
   })
 })

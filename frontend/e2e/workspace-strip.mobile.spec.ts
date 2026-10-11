@@ -17,7 +17,9 @@ test('phone: strip sticks, Next is a 44px bottom bar, no sideways scroll', async
   expect(box.y + box.height).toBeGreaterThan(800)
   await page.evaluate(() => { (document.querySelector('section.workspace') as HTMLElement).style.minHeight = '3000px' })
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
-  expect((await page.locator('.ws-strip').boundingBox())!.y).toBeLessThanOrEqual(1)
+  // The strip pins under the sticky app header.
+  const header = (await page.locator('.app-header').boundingBox())!
+  expect(Math.abs((await page.locator('.ws-strip').boundingBox())!.y - (header.y + header.height))).toBeLessThan(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await next.click()
   await expect(page).toHaveURL(/#\/drama\/1\/review$/)

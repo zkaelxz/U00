@@ -65,7 +65,8 @@ How it behaves:
 - **Order.** Pages are ordered by the reader's own index when its elements carry one (`data-index`, `data-page`, `aria-posinset`), otherwise by position in the scrolled content, and sent in that order, so the saved pages land in the drama in chapter order.
 - **Cost.** A capture can send up to 300 pages, each a separate engine call. The bridge's `/health` only says whether an engine is configured, not whether it is paid, so the popup can't warn about it; check your engine's pricing before capturing a long chapter with a paid one. While a capture runs, the popup's Translate buttons are disabled and the page refuses a plain translate, so no page is saved twice.
 - **Duplicates.** Pages are de-duplicated by content hash, so two identical pages in a chapter (say, blank ones) count once. Running it again on the same tab skips everything already translated; after a reload the cache is empty, so a second capture into the same drama saves the pages again.
-- **The site is left alone.** It makes no requests of its own and never touches the site's APIs or tokens: it only reads pixels the reader's own JavaScript has already drawn for you, one step at a time. It needs no extra permissions.
+- **The site is left alone.** It makes no requests of its own and never touches the site's APIs or tokens: it only reads pixels the reader's own JavaScript has already drawn for you, one step at a time. It needs no extra permissions, except in the tainted-image case below.
+- **Images the browser won't let a page read.** Many readers (for example twmanga.com) show a page from an image server on another domain, with no CORS header. The browser then refuses to let any script read those pixels (`Tainted canvases may not be exported`). The extension finds the image's address (the `<img>` itself, or for a canvas a sibling `<img>` sitting exactly where the canvas is (several candidates, or none aligned, count as not found), a `data-src`-style attribute or a CSS background) and has its service worker download that file. The first time, the popup says so and shows **Allow this site**; one click grants the extension access to that one image origin (a page that needs several gets one button each; single-word names such as `http://nas` and `.lan`, `.internal`, `.home.arpa` style names are refused like other private addresses, and granted sites are revoked at `chrome://extensions` → the extension → Site access) (`optional_host_permissions`, asked per origin, never `<all_urls>`), and it repeats the action. The download is accepted only if the bytes are a PNG, JPEG or WebP of at most 12 MB within 20 s; the download sends no cookies and refuses redirects, so a granted origin cannot be used with the person's login or bounced to another address. Named hosts only are granted (no IP literals, no wildcards), and literal loopback, private, link-local, shared (100.64/10), benchmark, multicast and reserved addresses, `localhost`, `.local` and the wildcard-DNS names `.nip.io`, `.sslip.io` and `.localtest.me` are refused; a public name that resolves to a private address (DNS rebinding) cannot be excluded from inside an extension. The request carries only the page's origin as its Referer, which a browser may ignore for a worker's cross-origin request. A CDN that needs cookies or a Referer still fails with the original "wouldn't let this page's image be read" message, as does a canvas whose image can't be found or whose file has different proportions from what is drawn. A canvas read this way is reported as taken from the page's source image: a reader that reassembles scrambled tiles can have the same proportions, so the text may be in the scrambled order. Chapter capture does the same per page. A screenshot fallback is not implemented.
 - **Overlays.** A virtualised reader throws pages away when they scroll far off, and their overlays go with them. The translation is already sent and saved; scrolling back does not redraw it.
 
 Paging back to something already translated is instant: results are
@@ -169,10 +170,16 @@ The endpoint's four routes:
 
 | Route | What it does |
 |---|---|
-| `GET /health` | Confirms the app is up, and lists the dramas to send to. |
+| `GET /health` | Confirms the app is up, lists the dramas to send to, and advertises `max_images_per_request` (the extension batches to it). |
 | `POST /page` | One image. |
-| `POST /pages` | Several — a spread, or everything visible. |
+| `POST /pages` | Several, up to the advertised cap per request. Answers `pages`, `skipped`, `failed`, `received`, `stored`, `already_stored` and, when a run stops early, `stopped`. |
 | `POST /text` | A block of raw page text. |
+
+A page whose bytes already match one in the drama is reused, not added again,
+and counts in `already_stored`. Its saved bubbles are never re-read or
+overwritten; only bubbles still untranslated are translated, or a note points
+to Scanlate when no engine is set. Capture sends no chapter labels, so an
+identical page shared by two chapters (credits) is reused too, not duplicated.
 
 Everything funnels into the existing, tested pipeline
 (`scanlate.detect_and_ocr_page` → `scanlate.translate_page_bubbles`) and
@@ -230,6 +237,39 @@ tab can make requests to localhost**. So:
 
 `tests/test_extension_manifest.py` pins the browser-side half of that
 statically, because none of it can be checked by running the app.
+
+## Remote mode (planned; tokens built)
+
+Today the extension talks only to the bridge on this PC (127.0.0.1:8756,
+one shared token). Remote mode will let a household member's own computer
+(desktop Chrome or Edge) reach Baihe through the household address, and is
+being built in three parts:
+
+1. **Per-device tokens (built).** Settings > Browser extension devices: a
+   signed-in member with the `extension.send` permission names a device
+   and gets a token once (`baihe_dt_…`, 256 random bits; Baihe stores only
+   its SHA-256). They see when each was last used (time and a coarse
+   network prefix) and revoke one at once; at most 10 active per person,
+   5 new per hour, expiry (30 days, 90 when none is given, a year or
+   never, which must be chosen explicitly). The owner at the PC (or an admin there) sees and revokes
+   everyone's; an admin can still revoke their own from anywhere, but adds
+   one only at the PC. Losing `extension.send`, the account, or ending
+   their sessions (Sign out all other devices included) revokes a person's
+   tokens. `api.auth.require_device_token()` checks a token: only from
+   `Authorization: Bearer`, never a cookie or URL; one 401 for any bad
+   token, failures throttled per address; the person must still hold
+   `extension.send`; the token acts with member rights only, even for an
+   admin account. No route accepts a device token yet, and no existing
+   route ever does (`tests/test_device_tokens.py`).
+2. **Bridge routes in the API (next).** The `/page` and `/text` work moves
+   behind `require_device_token()` with the same size and count caps, the
+   caller's drama ownership, the spending cap and no fetching of URLs.
+3. **Extension (after).** A configurable Baihe address and token in the
+   options, https only for anything but loopback, host permission asked
+   for at run time, and the loopback mode kept working.
+
+The PC-only shared token above is unchanged and still what the extension
+on the PC itself uses. Port 8756 is never routed by the reverse proxy.
 
 ## What was actually verified
 

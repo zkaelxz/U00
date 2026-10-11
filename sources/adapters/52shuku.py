@@ -62,6 +62,14 @@ class FiftyTwoShukuSource(SourceAdapter):
     display_name = "52shuku.net"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
+    # Fast covers book and chapter pages only. robots.txt disallows /so/, so
+    # a search added later must be paced at normal, not fast.
+    pacing_profile = pacing.PacingProfile(
+        fast=pacing.PaceLevel(min_delay=1.0, max_delay=2.0, max_concurrent=2),
+        evidence=("robots.txt fetched 2026-10-09: no Crawl-delay, /e/ /d/ /so/ disallowed "
+                  "(adapter avoids them); banquan.html copyright notice has no "
+                  "automated-access or rate clause."),
+        fast_allowed=True)
     # A real, confirmed site change (2026-09-26 live check): the site's
     # real book-URL shape is now `/<category>/<N>_b/<alnum-id>.html` (e.g.
     # `/KeHuan/20_b/bkceK.html`), not the plain `/<category>/b/<id>` this

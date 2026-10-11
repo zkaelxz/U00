@@ -35,9 +35,9 @@ describe('describeError', () => {
 
 describe('ErrorBanner', () => {
   it('renders an alert, and nothing without an error', () => {
-    const html = renderToStaticMarkup(createElement(ErrorBanner, { error: err('not_found', 'No drama with id 9.') }))
+    const html = renderToStaticMarkup(createElement(ErrorBanner, { error: err('not_found', 'No title with id 9.') }))
     expect(html).toContain('role="alert"')
-    expect(html).toContain('No drama with id 9.')
+    expect(html).toContain('No title with id 9.')
     expect(renderToStaticMarkup(createElement(ErrorBanner, { error: null }))).toBe('')
   })
 })

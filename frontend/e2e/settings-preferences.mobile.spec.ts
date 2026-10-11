@@ -18,8 +18,9 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
     return route.abort()
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   for (const title of [...CARDS, ...SECTIONS]) {
+    await openSettingsGroups(page, CARDS.includes(title) ? 'Translation and keys' : 'System')
     let s = page.getByRole('region', { name: title, exact: true })
     if (SECTIONS.includes(title)) {
       s = page.locator(`details.section:has(> summary > .section-title:text-is("${title}"))`)
@@ -32,6 +33,7 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
       expect(box && box.height).toBeGreaterThanOrEqual(44)
     }
   }
+  await openSettingsGroups(page, 'Translation and keys')
   await expect(page.getByLabel('English variant', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/settings-preferences-phone.png', fullPage: true })

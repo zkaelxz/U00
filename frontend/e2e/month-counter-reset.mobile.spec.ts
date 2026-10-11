@@ -34,7 +34,7 @@ test('spending: reset with a confirm, then undo, on a phone', async ({ page }) =
     return route.fulfill({ json: { before, after: status() } })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Translation and keys')
   const box = page.getByTestId('month-counter')
   await expect(page.getByTestId('month-spend')).toHaveText('This month: $12.50')
   await noSideways(page)

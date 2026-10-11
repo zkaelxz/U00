@@ -11,6 +11,7 @@ import type {
   DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
+import type { DiagnosticsJobState } from '../../types/diagnosticsInstalls'
 import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import type { LibraryDashboard } from '../../types/library'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
@@ -28,7 +29,8 @@ export const installConfirmLabel = (name: string): string | undefined =>
 // ---- page-wide busy state ----
 
 export type AdminAction = 'install' | 'upgrade' | 'reset'
-export type AdminBusy = { kind: AdminAction; name: string } | null
+// `job`: the install job's latest state (progress and message), once it reports one.
+export type AdminBusy = { kind: AdminAction; name: string; job?: DiagnosticsJobState | null } | null
 
 /** Why Install/Update can't run now, or null. */
 export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
@@ -41,15 +43,16 @@ export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): stri
 /** Why Reset library can't run now, or null. */
 export function resetBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
   if (busy && busy.kind !== 'reset') return 'Wait for the install to finish.'
-  if (jobsActive) return 'Stop running jobs first (see Jobs above).'
+  if (jobsActive) return 'Stop running jobs first.'
   return null
 }
 
 /** The aria-live line while an install or upgrade runs. */
 export function busyLine(busy: AdminBusy): string | null {
   if (!busy || busy.kind === 'reset') return null
-  const verb = busy.kind === 'install' ? 'Installing' : 'Updating'
-  return `${verb} ${busy.name}… this can take several minutes. Keep this tab open.`
+  // An install is a server job: it carries on if the tab closes, and can be cancelled.
+  if (busy.kind === 'install') return `Installing ${busy.name}… this can take several minutes. Cancel it below if needed.`
+  return `Updating ${busy.name}… this can take several minutes. Keep this tab open.`
 }
 
 export function installResultText(kind: 'install' | 'upgrade', name: string, ok: boolean): string {
@@ -106,7 +109,8 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
   if (c.browser) {
-    if (c.browser.package !== undefined) {
+    // null/undefined means the server couldn't tell; only a definite false is a problem.
+    if (typeof c.browser.package === 'boolean') {
       add('playwright', 'Playwright package', c.browser.package, 'installed',
         'Playwright package not installed (add it from Diagnostics > Packages, the playwright row, or run pip install playwright; no browser download is needed when Chrome or Edge is installed)')
     }
@@ -251,7 +255,7 @@ export const COPIED_MS = 2000
 export function libraryStatsLine(s: Pick<LibraryDashboard, 'total_dramas' | 'total_lines'>): string | null {
   if (s.total_dramas <= 0) return null
   const n = s.total_dramas
-  return `Currently ${n.toLocaleString('en-US')} ${n === 1 ? 'drama' : 'dramas'}, ` +
+  return `Currently ${n.toLocaleString('en-US')} ${n === 1 ? 'title' : 'titles'}, ` +
     `${s.total_lines.toLocaleString('en-US')} ${s.total_lines === 1 ? 'line' : 'lines'}.`
 }
 

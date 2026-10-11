@@ -43,7 +43,7 @@ test('warns when Ollama is unreachable, keeps Translate enabled, and Check again
   await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
 
   // An unsaved form edit survives the re-check.
-  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByText('More options', { exact: true }).click()
   await run.getByLabel('Batch size', { exact: true }).fill('17')
 
   // Still down: the warning stays and says it checked.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { emptyTrash, listTrash, listUnusedVoiceClips, trashUnusedVoiceClips, moveItem, moveToTrash, purgeTrashItem, restoreTrashItem, scanDiskUsage } from './diskUsage'
+import { cleanTempFiles, emptyTrash, listTrash, listUnusedVoiceClips, trashUnusedVoiceClips, moveItem, moveToTrash, purgeTrashItem, restoreTrashItem, scanDiskUsage } from './diskUsage'
 import { resetPcModeForTests } from './pcOnly'
 
 function reply(body: unknown = {}) {
@@ -70,6 +70,15 @@ describe('disk usage api', () => {
     expect(JSON.parse(mock.mock.calls[3][1].body)).toEqual({
       confirm_text: 'DELETE', expected_item_count: 2, expected_size_bytes: 400,
     })
+  })
+
+  it('cleans temp files with a JSON body and the PC header', async () => {
+    const { mock, f } = reply({ removed: 2, freed_mb: 1.5 })
+    await expect(cleanTempFiles(f)).resolves.toEqual({ removed: 2, freed_mb: 1.5 })
+    expect(mock.mock.calls[0][0]).toBe('/api/data-usage/clean-temp')
+    expect(mock.mock.calls[0][1].method).toBe('POST')
+    expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({ confirm: true })
+    expect(header(mock.mock.calls[0][1], 'X-Baihe-Local')).toBe('1')
   })
 
   it('lists unused voice clips and moves them with the sizes shown, over the PC header', async () => {

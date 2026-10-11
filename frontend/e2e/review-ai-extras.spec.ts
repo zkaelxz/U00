@@ -254,7 +254,7 @@ test('burned preview: a line number resolves to its id, then the clip plays (ffm
   const extras = await openSub(page, 'Burned subtitle preview')
   await extras.getByLabel('Line', { exact: true }).fill('9')
   await extras.getByRole('button', { name: 'Render preview' }).click()
-  await expect(extras.getByText('No line #9 in this drama.')).toBeVisible()
+  await expect(extras.getByText('No line #9 in this title.')).toBeVisible()
   expect(bodies).toEqual([])
 
   await extras.getByLabel('Line', { exact: true }).fill('2')

@@ -62,6 +62,7 @@ from urllib.parse import quote, urljoin
 from ..base import SourceAdapter
 from ..domains import SiteDomains
 from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
+from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 
 BASE_URL = "https://toonkor0.org"
@@ -95,8 +96,8 @@ def decode_toon_img(html: str) -> list:
         raise LayoutChanged("the chapter's toon_img script")
     try:
         decoded = base64.b64decode(m.group(1)).decode("utf-8", errors="replace")
-    except Exception as e:
-        raise LayoutChanged(f"a readable toon_img payload ({e})") from None
+    except Exception:
+        raise LayoutChanged("a readable toon_img payload") from None
     urls = _IMG_SRC.findall(decoded)
     if not urls:
         raise LayoutChanged("any page images inside the decoded toon_img payload")
@@ -125,6 +126,10 @@ class ToonkorSource(SourceAdapter):
     display_name = "툰코 ToonKor"
     content_types = [ContentType.MANHWA.value]
     languages = ["ko"]
+    pacing_profile = PacingProfile(
+        fast=PaceLevel(min_delay=1.0, max_delay=2.5, max_concurrent=2),
+        evidence=("toonkor2.org robots.txt (2026-10-09): User-agent * Allow /, no Crawl-delay; no terms page found on the home page."),
+        fast_allowed=True)
     # toonkor0.org today; the site has a real history of moving, so this
     # only anchors on "toonkor" plus a trailing digit and common TLDs
     # rather than hardcoding the current numeral.

@@ -15,9 +15,9 @@ import { engineOptionLabel } from '../translatePage'
 import { BenchSection } from './BenchSection'
 import { NO_CASES_HINT } from './benchmarkHelp'
 import {
-  OCR_LABELS, STAGE_LABELS, TIER_LABELS, casesInSelection, comparePrefill, configLabel, defaultConfig, enginesMissingKey,
-  estimateKey, formatCost, parseCompareParam, plainError, restoreConfigs, runRequestBody, selectionProblems, setOptions,
-  runningStatus, startState, type ComparePrefill, type RunSelection,
+  JUDGE_SAME_MODEL_WARNING, OCR_LABELS, STAGE_LABELS, TIER_LABELS, casesInSelection, comparePrefill, configLabel, defaultConfig,
+  enginesMissingKey, estimateKey, formatCost, judgeOverlap, parseCompareParam, plainError, restoreConfigs, runRequestBody,
+  selectionProblems, setOptions, runningStatus, startState, type ComparePrefill, type JudgePick, type RunSelection,
 } from './benchmarkForm'
 
 type Props = {
@@ -43,6 +43,8 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
   const [promptVersion, setPromptVersion] = usePersistedState<string>('benchmark.promptVersion', '')
   const [savedConfigs, setSavedConfigs] = usePersistedState<Record<string, unknown>>('benchmark.configs', {})
   const [label, setLabel] = useState('')
+  const [savedJudge, setSavedJudge] = usePersistedState<JudgePick | null>('benchmark.judge', null)
+  const [allowSameJudge, setAllowSameJudge] = useState(false)
   const [estimate, setEstimate] = useState<BenchmarkEstimate | null>(null)
   const [estimateFor, setEstimateFor] = useState<string | null>(null)
   const [busy, setBusy] = useState<'estimate' | 'start' | null>(null)
@@ -72,7 +74,10 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
   const tierValue = (options.tiers as string[]).includes(tier) ? (tier as BenchmarkTier) : ''
   const setChoices = setOptions(sets, st, tierValue)
   const setValue = setChoices.includes(setName) ? setName : ''
-  const sel: RunSelection = { stage: st, configs, tier: tierValue, setName: setValue, label, promptVersion }
+  // A remembered judge only counts while its engine is still offered, and only for translation.
+  const judge = st === 'translation' && savedJudge && options.translation_engines.some((e) => e.name === savedJudge.engine) ? savedJudge : null
+  const sel: RunSelection = { stage: st, configs, tier: tierValue, setName: setValue, label, promptVersion, judge, allowSameJudge }
+  const overlap = judgeOverlap(sel)
   const key = estimateKey(sel)
   const shown = estimate && estimateFor === key ? estimate : null
   const missingKeys = enginesMissingKey(sel, options.translation_engines)
@@ -161,6 +166,20 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
           {st === 'transcription' ? 'Transcription' : 'OCR'} cases are audio or image files registered on the PC; this page
           can only add translation cases.
         </p>
+      )}
+
+      {st === 'translation' && (
+        <JudgeFields
+          options={options}
+          judge={judge}
+          overlapCount={overlap.length}
+          allowSame={allowSameJudge}
+          onJudge={(next) => {
+            setSavedJudge(next)
+            setAllowSameJudge(false)
+          }}
+          onAllowSame={setAllowSameJudge}
+        />
       )}
 
       {prefill && <PrefillNote prefill={prefill} onDismiss={() => setPrefill(null)} />}
@@ -309,6 +328,56 @@ function ConfigRow({ stage, options, config, index, onChange }: {
   )
 }
 
+function JudgeFields({ options, judge, overlapCount, allowSame, onJudge, onAllowSame }: {
+  options: BenchmarkOptions
+  judge: JudgePick | null
+  overlapCount: number
+  allowSame: boolean
+  onJudge: (next: JudgePick | null) => void
+  onAllowSame: (on: boolean) => void
+}) {
+  const engine = judge ? options.translation_engines.find((e) => e.name === judge.engine) : undefined
+  return (
+    <fieldset className="bench-judge">
+      <legend>Judge (optional)</legend>
+      <div className="bench-config-fields">
+        <Field
+          label="Judge engine"
+          help="Also have a model score each output for accuracy, tone and naturalness, without knowing which engine wrote it. The similarity score stays the main number."
+        >
+          <select value={judge?.engine ?? ''} onChange={(e) => onJudge(e.target.value ? { engine: e.target.value, model: '' } : null)}>
+            <option value="">No judge</option>
+            {options.translation_engines.map((e) => (
+              <option key={e.name} value={e.name}>{engineOptionLabel(e)}</option>
+            ))}
+          </select>
+        </Field>
+        {judge && engine?.models && (
+          <Field label="Judge model">
+            <select value={judge.model} onChange={(e) => onJudge({ engine: judge.engine, model: e.target.value })}>
+              <option value="">Default</option>
+              {engine.models.map((m) => (
+                <option key={m} value={m}>{modelOptionLabel(engine, m)}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+      </div>
+      {judge && (
+        <p className="muted">One extra call per case. Its cost is estimated below and counts toward the monthly cap.</p>
+      )}
+      {overlapCount > 0 && (
+        <div className="warn bench-judge-warning" role="alert" data-testid="judge-same-warning">
+          <p>{JUDGE_SAME_MODEL_WARNING}</p>
+          <label className="bench-check">
+            <input type="checkbox" checked={allowSame} onChange={(e) => onAllowSame(e.target.checked)} /> Judge with it anyway
+          </label>
+        </div>
+      )}
+    </fieldset>
+  )
+}
+
 function PrefillNote({ prefill, onDismiss }: { prefill: ComparePrefill; onDismiss: () => void }) {
   const names = prefill.configs.map((c) => configLabel('translation', c.engine, c.model))
   return (
@@ -356,7 +425,18 @@ export function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: B
             <span className="num">{formatCost(c.estimated_cost_usd)}</span>
           </li>
         ))}
+        {est.judge && (
+          <li data-testid="estimate-judge">
+            <span>Judge: {configLabel(stage, est.judge.engine, est.judge.model)}</span>
+            <span className="num">{formatCost(est.judge.estimated_cost_usd)}</span>
+          </li>
+        )}
       </ul>
+      {est.judge?.warning && (
+        <p className="warn" role="note">
+          {est.judge.warning}
+        </p>
+      )}
       <p className="muted num">{capLine}</p>
       {warning && (
         <p className="warn" role="alert">

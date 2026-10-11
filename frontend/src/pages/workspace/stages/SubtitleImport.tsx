@@ -155,24 +155,29 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
         </p>
       )}
       {file && checking && !preview && <p className="muted" role="status">Checking the file…</p>}
-      {preview && (
+      {/* Options stay up when the preview fails: a wrong encoding is the usual reason it does. */}
+      {file && (
         <div className="subtitle-import-report" data-testid="subtitle-import-report">
-          <p data-testid="subtitle-import-summary">{fileSummary(preview)}</p>
-          {preview.problems.length > 0 && (
-            <ul className="subtitle-import-problems" aria-label="Problems found">
-              {preview.problems.map((p) => (
-                <li key={p.code} className={p.severity === 'error' ? 'error' : 'muted'}>
-                  {p.message}
-                </li>
-              ))}
-            </ul>
-          )}
-          {preview.sample.length > 0 && (
-            <ol className="subtitle-import-sample muted" aria-label="First cues">
-              {preview.sample.slice(0, 3).map((c, i) => (
-                <li key={i}>{c.text.replace(/\n/g, ' / ')}</li>
-              ))}
-            </ol>
+          {preview && (
+            <>
+              <p data-testid="subtitle-import-summary">{fileSummary(preview)}</p>
+              {preview.problems.length > 0 && (
+                <ul className="subtitle-import-problems" aria-label="Problems found">
+                  {preview.problems.map((p) => (
+                    <li key={p.code} className={p.severity === 'error' ? 'error' : 'muted'}>
+                      {p.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {preview.sample.length > 0 && (
+                <ol className="subtitle-import-sample muted" aria-label="First cues">
+                  {preview.sample.slice(0, 3).map((c, i) => (
+                    <li key={i}>{c.text.replace(/\n/g, ' / ')}</li>
+                  ))}
+                </ol>
+              )}
+            </>
           )}
           <div className="segmented subtitle-import-mode" role="radiogroup" aria-label="Import as">
             {(['source', 'translation'] as SubtitleImportMode[]).map((m) => (
@@ -215,18 +220,22 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
               </select>
             </Field>
           </div>
-          {preview.bilingual_suspected && !opts.splitBilingual && (
-            <p className="muted">Most cues have two lines. Turn on "Two lines per cue" to split them.</p>
-          )}
-          <p data-testid="subtitle-import-impact">{impactLine(preview)}</p>
-          {opts.splitBilingual && preview.unsplit_cues > 0 && (
-            <p className="muted">{preview.unsplit_cues} cue(s) don't have exactly two lines and stay whole.</p>
-          )}
-          {confirmKind && (
-            <label className="subtitle-import-confirm">
-              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-              {confirmLabel(preview)}
-            </label>
+          {preview && (
+            <>
+              {preview.bilingual_suspected && !opts.splitBilingual && (
+                <p className="muted">Most cues have two lines. Turn on "Two lines per cue" to split them.</p>
+              )}
+              <p data-testid="subtitle-import-impact">{impactLine(preview)}</p>
+              {opts.splitBilingual && preview.unsplit_cues > 0 && (
+                <p className="muted">{preview.unsplit_cues} cue(s) don't have exactly two lines and stay whole.</p>
+              )}
+              {confirmKind && (
+                <label className="subtitle-import-confirm">
+                  <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+                  {confirmLabel(preview)}
+                </label>
+              )}
+            </>
           )}
           <div className="setting-list">
             <Field label="Re-align with the audio afterwards" help="Starts the Re-time job on the imported lines. You review the new times in Review before they are applied.">

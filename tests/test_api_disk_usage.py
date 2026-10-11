@@ -88,6 +88,20 @@ def test_scan_clear_flow_and_no_absolute_paths(tree, renames):
         assert tree not in text and db.LIBRARY_DIR not in text
 
 
+def test_title_folders_carry_their_size_split_as_numbers_only(tree):
+    did = db.create_drama(title_en="T", audio_filename="audio.mp3")
+    d = os.path.join(db.DRAMAS_DIR, str(did))
+    _write(os.path.join(d, "audio.mp3"), 1000)
+    _write(os.path.join(d, "raw_transcript.json"), 30)
+    r = _local(_app()).get(BASE, params={"path": "library/dramas"})
+    assert r.status_code == 200, r.text
+    item = next(i for i in r.json()["items"] if i["name"] == str(did))
+    sizes = item["title_sizes"]
+    assert sizes == {"originals_bytes": 1000, "raw_transcript_bytes": 30, "history_bytes": 0,
+                     "regenerable_bytes": 0, "complete": True}
+    assert tree not in r.text and "audio.mp3" not in r.text
+
+
 @pytest.mark.parametrize("path", ["..", "/etc", "C:\\Windows", "library/../.."])
 def test_bad_paths_are_422(tree, renames, path):
     c = _local(_app())
@@ -140,7 +154,8 @@ ROUTES = [("GET", BASE, None),
           ("POST", f"{BASE}/to-trash", {"path": "library/source_cache", "confirm": True,
                                        "expected_size_bytes": 400, "expected_file_count": 1}),
           ("POST", f"{BASE}/move", {"path": "library/backups/auto", "destination": "/tmp",
-                                    "confirm": True})]
+                                    "confirm": True}),
+          ("POST", f"{BASE}/clean-temp", {"confirm": True})]
 
 
 @pytest.mark.parametrize("method,path,body", ROUTES)
@@ -272,3 +287,35 @@ def test_the_trash_folder_cannot_be_cleared_through_the_normal_route(tree):
                                              "expected_size_bytes": 0, "expected_file_count": 0})
         assert r.status_code == 422, (rel, r.text)
     assert os.path.exists(os.path.join(tree, dus.TRASH_DIRNAME, tid, "payload", "x.html"))
+
+
+@pytest.mark.parametrize("body", [{}, {"confirm": False}, {"confirm": "true"}, {"confirm": True, "x": 1}])
+def test_clean_temp_refused_without_confirm_true(tree, body):
+    import storage
+    leftover = os.path.join(storage.temp_root(), "gone~1")
+    _write(os.path.join(leftover, "f.bin"), 10)
+    r = _local(_app()).post(f"{BASE}/clean-temp", json=body)
+    assert r.status_code == 422
+    assert os.path.isdir(leftover)
+
+
+def test_clean_temp_returns_counts_only_and_409_while_a_job_runs(tree):
+    import background_jobs
+    import storage
+    leftover = os.path.join(storage.temp_root(), "gone~1")
+    _write(os.path.join(leftover, "f.bin"), 1024)
+    c = _local(_app())
+    with background_jobs._lock:
+        background_jobs._jobs["busy_1"] = {"status": "running"}
+    try:
+        r = c.post(f"{BASE}/clean-temp", json={"confirm": True})
+        assert r.status_code == 409 and r.json()["error"]["message"]
+        assert os.path.isdir(leftover)
+    finally:
+        with background_jobs._lock:
+            background_jobs._jobs.pop("busy_1", None)
+    r = c.post(f"{BASE}/clean-temp", json={"confirm": True})
+    assert r.status_code == 200
+    assert r.json() == {"removed": 1, "freed_mb": 0.0}
+    assert not os.path.exists(leftover)
+    assert tree not in r.text and db.LIBRARY_DIR not in r.text

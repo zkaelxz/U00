@@ -242,3 +242,40 @@ class TestHardening:
         [t.start() for t in threads]
         [t.join() for t in threads]
         assert all(store.source_pace(n) == "careful" for n in names)
+
+
+FAST_VETTED = {"52shuku", "xbanxia", "piaotian", "zerosumonline", "toonkor"}
+
+
+class TestVettedAdapters:
+    @staticmethod
+    def _adapters():
+        import sources.adapters  # noqa: F401  (registers the built-ins)
+        from sources import registry
+        return {n: c for n, c in registry.adapter_classes().items() if not getattr(c, "is_demo", False)}
+
+    def test_fast_is_allowed_for_exactly_the_vetted_sites(self):
+        allowed = {n for n, c in self._adapters().items() if c.pacing_profile.fast_allowed}
+        assert allowed == FAST_VETTED
+
+    def test_every_fast_adapter_records_dated_evidence(self):
+        for name, cls in self._adapters().items():
+            if cls.pacing_profile.fast_allowed:
+                assert "2026-10-09" in cls.pacing_profile.evidence, name
+
+    def test_fast_is_no_slower_than_normal_and_keeps_the_host_floor(self, isolated_db):
+        for name, cls in self._adapters().items():
+            if not cls.pacing_profile.fast_allowed:
+                continue
+            base = PacingPolicy.from_settings(cls.host_min_interval)
+            normal = pacing.apply_level(base, cls.pacing_profile, "normal")
+            fast = pacing.apply_level(base, cls.pacing_profile, "fast")
+            assert fast.min_delay <= normal.min_delay and fast.max_delay <= normal.max_delay, name
+            assert fast.host_min_interval == cls.host_min_interval, name
+            for floor in cls.host_min_interval.values():
+                assert cls.pacing_profile.fast.min_delay >= floor, name
+
+    def test_other_adapters_resolve_fast_to_normal(self):
+        for name, cls in self._adapters().items():
+            if name not in FAST_VETTED:
+                assert pacing.effective_level(cls.pacing_profile, "fast") == "normal", name

@@ -41,7 +41,7 @@ const personas: Record<string, NavContext> = {
 
 const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-const ALL = ['Library', 'Library tools', 'Translate text', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
+const ALL = ['Library', 'Library tools', 'Quick translate', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
 
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
@@ -60,9 +60,9 @@ describe('nav registry per persona', () => {
     expect(labels(personas['remote admin'])).toEqual([...ALL, 'Admin'])
   })
 
-  it('auth unavailable: renders as before sign-in existed, Admin included', () => {
+  it('auth unavailable: every page but the admin ones until /me answers', () => {
     const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
-    expect(labels(ctx)).toEqual([...ALL, 'Admin', 'Diagnostics', 'Benchmark Lab'])
+    expect(labels(ctx)).toEqual(ALL)
   })
 
   it('session still loading: no Admin or Diagnostics', () => {
@@ -117,14 +117,14 @@ describe('left rail', () => {
     expect(visibleRailGroups(owner).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
       ['Find and add', ['Sources', 'Discover']],
-      ['Tools', ['Translate text', 'Live']],
+      ['Tools', ['Quick translate', 'Live']],
       ['System', ['Jobs', 'Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
     ])
   })
 
   it('household member: no Admin, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
-    expect(labelsOf).toEqual(['Library', 'Library tools', 'Sources', 'Discover', 'Translate text', 'Live', 'Jobs', 'Settings'])
+    expect(labelsOf).toEqual(['Library', 'Library tools', 'Sources', 'Discover', 'Quick translate', 'Live', 'Jobs', 'Settings'])
   })
 
   it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab but not Admin', () => {
@@ -133,9 +133,12 @@ describe('left rail', () => {
     expect(labelsOf).not.toContain('Admin')
   })
 
-  it('a failed /me still renders every page, as before sign-in existed', () => {
+  it('a failed /me still renders every non-admin page', () => {
     const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
-    expect(railLabels(ctx)).toEqual(expect.arrayContaining(['Admin', 'Diagnostics', 'Benchmark Lab', 'Jobs']))
+    const labelsOf = railLabels(ctx)
+    expect(labelsOf).toContain('Jobs')
+    expect(labelsOf).not.toEqual(expect.arrayContaining(['Admin']))
+    expect(labelsOf).not.toContain('Diagnostics')
   })
 
   it('Assistant appears only on the PC in Developer Mode', () => {
@@ -163,7 +166,7 @@ describe('left rail', () => {
     ['library tools', { name: 'library-tools' }, ['Library tools']],
     ['diagnostics', { name: 'diagnostics' }, ['Diagnostics']],
     ['benchmark', { name: 'benchmark' }, ['Benchmark Lab']],
-    ['translate', { name: 'translate' }, ['Translate text']],
+    ['translate', { name: 'translate' }, ['Quick translate']],
   ])('%s marks exactly one rail item current', (_name, route, expected) => {
     expect(railCurrent({ ...owner, developerMode: true }, route)).toEqual(expected)
   })

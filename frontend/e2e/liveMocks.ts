@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test'
+import { expect, type Locator, type Page, type Route } from '@playwright/test'
 import { REMOTE_HEALTH_OFF } from './authMocks'
 
 // Shared page.route mocks for the Live specs. A real session would run
@@ -21,9 +21,12 @@ const OLLAMA = {
 }
 
 export const cue = (n: number) => ({
-  start: n * 20, end: n * 20 + 4, text: `第${n}句台词，内容比较长一些以便测试换行效果。`,
+  id: n, translation: 'done' as 'done' | 'pending' | 'failed' | 'cancelled', start: n * 20, end: n * 20 + 4, text: `第${n}句台词，内容比较长一些以便测试换行效果。`,
   translated: `Line ${n}: a longer English translation so the phone layout has to wrap it.`,
 })
+
+/** A line whose transcript is shown and whose translation has not arrived. */
+export const pendingCue = (n: number) => ({ ...cue(n), translated: '', translation: 'pending' as const })
 
 interface LiveMocks {
   ollamaChecks: string[]
@@ -37,6 +40,11 @@ interface LiveMocks {
     cues: ReturnType<typeof cue>[]
     startStatus: number
     model: string | null
+    notes: string[]
+    /** Lag figures added to the status (lag_seconds, processing_seconds, ...). */
+    figures: Record<string, number>
+    /** The first Stop is taken as "finish": the session keeps running until a second one. */
+    finishOnStop: boolean
   }
 }
 
@@ -45,7 +53,7 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({ stat
 export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
-    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null },
+    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null, notes: [], figures: {}, finishOnStop: false },
   }
   // Registered first, so it only answers what nothing below handles.
   await page.route('**/api/**', (route) => {
@@ -96,15 +104,19 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     m.polls.push(`after=${after}`)
     const { status, message, cues } = m.state
     return json(route, {
-      session_id: SID, status, message, model: m.state.model, progress: 0, cues: cues.slice(after), next_index: Math.max(after, cues.length),
+      session_id: SID, status, message, model: m.state.model, progress: 0, notes: m.state.notes, cues: cues.slice(after), next_index: Math.max(after, cues.length), ...m.state.figures,
     })
   })
   await page.route(`**/api/live/sessions/${SID}/stop`, (route) => {
     const r = route.request()
     m.posts.push({ url: r.url(), body: null, headers: r.headers() })
+    if (m.state.finishOnStop) {
+      m.state.finishOnStop = false
+      return json(route, { session_id: SID, stopping: true, finishing: true })
+    }
     m.state.status = 'cancelled'
     m.state.message = 'Cancelled.'
-    return json(route, { session_id: SID, stopping: true })
+    return json(route, { session_id: SID, stopping: true, finishing: false })
   })
   return m
 }
@@ -112,4 +124,16 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
 export async function openLive(page: Page) {
   await page.goto('/#/live')
   return page.getByRole('region', { name: 'Live' })
+}
+
+// A switch inside a Field must keep its own 44x24 track with the knob at the right end when on.
+export async function expectSwitchKeepsItsSize(live: Locator) {
+  const toggle = live.getByRole('switch', { name: 'Reply without thinking' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  const track = await toggle.boundingBox()
+  const thumb = await toggle.locator('.toggle-thumb').boundingBox()
+  expect(track!.width).toBeCloseTo(44, 0)
+  expect(track!.height).toBeCloseTo(24, 0)
+  expect(thumb!.x + thumb!.width).toBeLessThanOrEqual(track!.x + track!.width)
+  expect(track!.x + track!.width - (thumb!.x + thumb!.width)).toBeLessThanOrEqual(4)
 }

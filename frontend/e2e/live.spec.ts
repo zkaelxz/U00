@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { SCREENS, SID, cue, mockLive, openLive } from './liveMocks'
+import { SCREENS, SID, cue, expectSwitchKeepsItsSize, mockLive, openLive, pendingCue } from './liveMocks'
 
 // Live page (#/live): start a session from a pasted link, watch lines
 // arrive by polling, stop it. Every /api call is mocked (liveMocks.ts).
@@ -82,6 +82,36 @@ test('a refused start is explained', async ({ page }) => {
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect(live.getByRole('alert')).toContainText('import from a link')
   expect(m.unmocked).toEqual([])
+})
+
+test('a 403 while polling stops the polling and says why', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 0 }]
+  let reads = 0
+  await page.route(`**/api/live/sessions/${SID}?*`, (route) => {
+    reads += 1
+    return route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
+  })
+  const live = await openLive(page)
+  await expect(live.getByRole('alert')).toContainText('owner')
+  // The event stream failing over to polling re-reads once; after that, no timer.
+  await page.waitForTimeout(1000)
+  const seen = reads
+  await page.waitForTimeout(5000)
+  expect(reads).toBe(seen)
+})
+
+test('repeated read failures are surfaced, and clear when the feed returns', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 0 }]
+  let fail = true
+  await page.route(`**/api/live/sessions/${SID}?*`, (route) => fail
+    ? route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Boom.' } } })
+    : route.fulfill({ json: { session_id: SID, status: 'running', message: 'Listening', model: null, progress: 0, notes: [], cues: [], next_index: 0 } }))
+  const live = await openLive(page)
+  await expect(live.getByRole('alert')).toBeVisible({ timeout: 20_000 })
+  fail = false
+  await expect(live.getByRole('alert')).toHaveCount(0, { timeout: 10_000 })
 })
 
 test('Start stays disabled until the engine list has loaded', async ({ page }) => {
@@ -217,4 +247,78 @@ test('model picker: when the engine list fails to load, says the default model i
   await expect(live.getByLabel('Model', { exact: true })).toHaveCount(0)
   await expect(live.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
   expect(m.posts).toEqual([])
+})
+
+test('the transcript shows first, then the translation fills the same line', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  m.state.cues = [cue(0), pendingCue(1)]
+  const items = live.getByRole('list', { name: 'Live lines, newest first' }).getByRole('listitem')
+  await expect(items).toHaveCount(2)
+  await expect(items.first()).toContainText('第1句台词')
+  await expect(items.first().getByTestId('live-translating')).toHaveText('translating…')
+  await expect(items.last().getByTestId('live-translating')).toHaveCount(0)
+
+  // The translation lands on line 1 only; the reader asks again from that line.
+  m.state.cues = [cue(0), cue(1)]
+  await expect(items.first()).toContainText('Line 1:')
+  await expect(items).toHaveCount(2)
+  expect(m.polls).toContain('after=1')
+})
+
+test('a stopped session leaves the transcript with a plain note', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.cues = [pendingCue(0)]
+  await expect(live.getByTestId('live-translating')).toBeVisible()
+  m.state.status = 'cancelled'
+  m.state.cues = [{ ...pendingCue(0), translation: 'cancelled' }]
+  await expect(live.getByTestId('live-untranslated')).toContainText('Not translated')
+  await expect(live.getByText('第0句台词')).toBeVisible()
+})
+
+test('a switch inside a field keeps its own size', async ({ page }) => {
+  await mockLive(page)
+  const live = await openLive(page)
+  await live.getByText('Advanced').click()
+  await expectSwitchKeepsItsSize(live)
+})
+
+test('the first Stop finishes what was captured, and Stop now ends it at once', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 1 }]
+  m.state.status = 'running'
+  m.state.message = 'Chunk 4: transcribing 20 s of audio with Whisper small (CPU)'
+  m.state.cues = [cue(0), { ...cue(1), translated: '', translation: 'skipped' }]
+  m.state.finishOnStop = true
+  const live = await openLive(page)
+  await expect(live.getByText('Not translated: skipped to keep up with the stream.')).toBeVisible()
+  await live.getByRole('button', { name: 'Stop', exact: true }).click()
+  m.state.notes = ['Stopping: the audio already captured is being captioned. Press Stop now to end at once.']
+  const stopNow = live.getByRole('button', { name: 'Stop now', exact: true })
+  await expect(stopNow).toBeEnabled()
+  await expect(live.getByTestId('live-notes')).toContainText('Press Stop now')
+  await stopNow.click()
+  await expect(live.getByTestId('live-status')).toHaveText('Stopped · 2 lines')
+  expect(m.posts.filter((p) => p.url.endsWith('/stop'))).toHaveLength(2)
+  expect(m.unmocked).toEqual([])
+})
+
+test('large-v3-turbo is offered with what it costs, small stays the default', async ({ page }) => {
+  await mockLive(page)
+  const live = await openLive(page)
+  await live.getByText('Advanced').click()
+  const select = live.getByLabel('Whisper model', { exact: true })
+  await expect(select).toHaveValue('small')
+  await expect(select.locator('option')).toHaveText(['tiny', 'base', 'small', 'medium', 'large-v3-turbo'])
+  await expect(select).toHaveAccessibleDescription(/large-v3-turbo is slower but more accurate/)
+  await expect(select).toHaveAccessibleDescription(/about 2\.6 GB of graphics memory/)
+  await expect(select).toHaveAccessibleDescription(/medium is slower and less accurate than turbo/)
 })

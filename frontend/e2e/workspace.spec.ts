@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
-import { openTranscribeOptions } from './sourceHelpers'
+import { openTranscribeOptions, enableDeveloperMode } from './sourceHelpers'
 
 // Offline paths only: the run/job endpoints are mocked, so nothing is
 // transcribed. Reads and the upload pre-check hit the real seeded API.
@@ -32,7 +32,7 @@ async function mockRun(page: Page, dramaId: number) {
 // Advanced options are collapsed by default (and remembered once opened).
 async function openAdvanced(page: Page) {
   await openTranscribeOptions(page)
-  const details = page.locator('.section-title', { hasText: /^Advanced$/ }).locator('xpath=ancestor::details[1]')
+  const details = page.locator('.section-title', { hasText: /^More options$/ }).locator('xpath=ancestor::details[1]')
   await expect(details).toBeVisible()
   if ((await details.getAttribute('open')) === null) await details.locator(':scope > summary').click()
   await expect(details).toHaveAttribute('open', '')
@@ -49,14 +49,14 @@ test('opens the workspace from the library and navigates stages', async ({ page 
   // Header: humanized badges and a real back button.
   await expect(page.locator('.workspace-header .pill').first()).not.toHaveText(/_/)
   await expect(page.getByRole('link', { name: 'Back to Library' })).toHaveClass(/btn/)
-  await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('media-status')).toContainText(/limit/i)
 
   await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Review' }).click()
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
 
   await page.goto('/#/drama/3/not-a-stage')
-  await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
 const progress = (stage: string, states: Record<string, string>) => ({
@@ -72,7 +72,7 @@ test('opens on the reported stage and marks progress in the stepper (P16/P17)', 
   const nav = page.getByRole('navigation', { name: 'Stages' })
   await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
-  await expect(nav.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('data-state', 'done')
+  await expect(nav.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('data-state', 'done')
   await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: Next step · 1 flagged')
   await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('title', 'Translate: Done · 2 left')
   await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toContainText('Translate· 2 left')
@@ -88,7 +88,7 @@ test('falls back to Source when progress cannot be read', async ({ page }) => {
   await page.route('**/api/workflow/dramas/2/progress', (route) =>
     route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
   await page.goto('/#/drama/2')
-  await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('stage-counts')).toHaveCount(0)
 })
 
@@ -209,7 +209,7 @@ test('upload-and-transcribe waits for the replace box, also after the server ask
     if (!confirm) {
       return route.fulfill({
         status: 422,
-        json: { error: { code: 'invalid_input', message: 'This drama already has audio. Confirm replacing it first.', details: { reason: 'confirm_replace_audio' } } },
+        json: { error: { code: 'invalid_input', message: 'This title already has audio. Confirm replacing it first.', details: { reason: 'confirm_replace_audio' } } },
       })
     }
     await route.fulfill({ json: { upload: { name: 'source.mp3', size: 3, kind: 'audio', job_id: null }, job_id: 'fake-job' } })
@@ -278,6 +278,7 @@ test('after upload-and-transcribe the next run transcribes the stored audio inst
 })
 
 test('starts a transcription with the right body, polls the job and cancels it', async ({ page }) => {
+  await enableDeveloperMode(page)
   const run = await mockRun(page, 1)
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
@@ -285,7 +286,6 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Extra names to expect', { exact: true }).fill('names: Wei')
-  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
   await page.getByLabel('Expected speakers', { exact: true }).fill('2')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
@@ -294,12 +294,13 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(run.bodies[0]).toMatchObject({ extra_names: 'names: Wei', expected_speakers: 2, run_diarize: false })
 
-  await page.getByRole('button', { name: 'Cancel job' }).click()
+  await page.getByRole('button', { name: /^Cancel / }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
-  await expect(page.getByRole('button', { name: 'Cancel job' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Cancel / })).toHaveCount(0)
 })
 
 test('an out-of-range option is caught before saving and a server 409 shows a banner', async ({ page }) => {
+  await enableDeveloperMode(page)
   await page.route('**/api/transcribe/dramas/1/run', (route) =>
     route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'A job is already running.' } } }))
   await page.goto('/#/drama/1/source')
@@ -322,7 +323,8 @@ test('an out-of-range option is caught before saving and a server 409 shows a ba
   await expect(page.getByRole('alert').filter({ hasText: 'cannot be done right now' })).toBeVisible()
 })
 
-test('switching dramas does not leak stage state', async ({ page }) => {
+test('switching titles does not leak stage state', async ({ page }) => {
+  await enableDeveloperMode(page)
   await mockRun(page, 1)
   await page.goto('/#/drama/1/source')
   // The config form (and the Transcript text box, which depends on it) renders only once the config has loaded.
@@ -342,6 +344,7 @@ test('switching dramas does not leak stage state', async ({ page }) => {
 })
 
 test('source options offer turbo with a Korean/Chinese note, the Taiwan script label and a GPU note', async ({ page }) => {
+  await enableDeveloperMode(page)
   await page.goto('/#/drama/1/source')
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
@@ -362,6 +365,7 @@ test('source options offer turbo with a Korean/Chinese note, the Taiwan script l
 })
 
 test('form state and the running job survive a stage-tab switch', async ({ page }) => {
+  await enableDeveloperMode(page)
   await mockRun(page, 1)
   await page.route('**/api/jobs/transcribe_1', (route) => route.fulfill({ json: job('running', { job_id: 'transcribe_1' }) }))
   await page.goto('/#/drama/1/source')
@@ -370,7 +374,7 @@ test('form state and the running job survive a stage-tab switch', async ({ page 
   await page.getByLabel('Extra names to expect', { exact: true }).fill('keep me')
   await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Review' }).click()
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
-  await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Source', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Media', exact: true }).click()
   await expect(page.getByLabel('Extra names to expect', { exact: true })).toHaveValue('keep me')
   await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(page.getByTestId('job-percent')).toHaveText('40%')
@@ -379,6 +383,7 @@ test('form state and the running job survive a stage-tab switch', async ({ page 
 })
 
 test('a second run with the same job id shows the new run, not the stale done', async ({ page }) => {
+  await enableDeveloperMode(page)
   let runs = 0
   await page.route('**/api/transcribe/dramas/1/run', (route) => { runs += 1; return route.fulfill({ json: { job_id: 'transcribe_1' } }) })
   await page.route('**/api/jobs/transcribe_1', (route) => {
@@ -399,6 +404,7 @@ test('a second run with the same job id shows the new run, not the stale done', 
 })
 
 test('the primary action is Transcribe, options are collapsed and changed options auto-save on run', async ({ page }) => {
+  await enableDeveloperMode(page)
   const run = await mockRun(page, 1)
   const saves: Record<string, unknown>[] = []
   await page.route('**/api/transcribe/dramas/1/config', async (route) => {
@@ -415,7 +421,7 @@ test('the primary action is Transcribe, options are collapsed and changed option
   // Collapsed: the tuning fields are not visible until Advanced is opened.
   await expect(page.getByLabel('Beam size', { exact: true })).toBeHidden()
   await openTranscribeOptions(page)
-  await expect(region.locator('details.section > summary').filter({ hasText: 'Advanced' }).first()).toContainText(/defaults/i)
+  await expect(region.locator('details.section > summary').filter({ hasText: 'More options' }).first()).toContainText(/defaults/i)
   await openAdvanced(page)
   await page.getByLabel('Beam size', { exact: true }).fill('7')
   const transcript = page.getByLabel('Transcript text', { exact: true })

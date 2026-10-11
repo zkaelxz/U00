@@ -7,7 +7,7 @@ import { mockSources, posted } from './sourcesMocks'
 // chapters), sign-in and per-tier tests (a source's Details) and the proxy
 // (Source settings). Every call is mocked (sourcesMocks.ts, sourcesAccessMocks.ts).
 
-test('check now runs, reports, and reloads the lists; auto-import drama is saved', async ({ page }) => {
+test('check now runs, reports, and reloads the lists; auto-import title is saved', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED })
   await mockAccess(page, s)
   await page.goto('/#/sources')
@@ -99,7 +99,7 @@ test('proxy section: closed by default showing none, open state remembered', asy
   expect(s.unmocked).toEqual([])
 })
 
-test('another device: no Check now, no drama link, settings PC only', async ({ page }) => {
+test('another device: no Check now, no title link, settings PC only', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED, local: false })
   await mockAccess(page, s)
   await page.goto('/#/sources')

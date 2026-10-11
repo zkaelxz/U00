@@ -6,7 +6,7 @@ Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engin
 
 ## What the app is
 
-- **Pages.** Library, Library tools (with Saved manga), Translate text, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
+- **Pages.** Library, Library tools (with Saved manga), Quick translate, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
 - **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). **Audit log** and **Users** are on the Admin page.
 - **Background services.** `python -m api` also starts the scheduled chapter check and other schedulers (`api/background.py`), and the browser-extension bridge (`page_server.py`) when the extension setting is on.
 - **Three content modes**: audio drama (your audio or video plus a transcript, aligned to real timing), novel narration (paste the text; the app chunks it, tags speakers with the LLM, translates, and can generate a narration/dub) and streamer VOD (see [Streamer VODs and series](#streamer-vods-and-series)).
@@ -76,7 +76,7 @@ Diagnostics > Danger zone > **Reset library** deletes every drama, translation, 
 
 Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; an engine that can't follow instructions tags everything "Narrator".
 
-**Context from recent lines.** Translate > Advanced has "Context before" and "Context ahead" (number fields; the default before is 6, or 10 for novels; 0 turns it off). They show LLM engines how the preceding lines were already translated, so pronouns and relation-only references stay consistent across batches. Consistency across separate VODs of one streamer comes from assigning them to the same series.
+**Context from recent lines.** Translate > More options has "Context before" and "Context ahead" (number fields; the defaults are 10 before and 6 ahead, for novels too; 0 turns it off). They show LLM engines how the preceding lines were already translated, so pronouns and relation-only references stay consistent across batches. Consistency across separate VODs of one streamer comes from assigning them to the same series.
 
 ### Translation guide (style, terms, and notes)
 
@@ -98,17 +98,19 @@ Lines you rewrite in Review are recorded as before/after pairs. After 8 or more,
 
 Review > AI review > "Flag lines for a second look" asks the translation engine to flag only the already-translated lines worth a second look (possible mistranslation, unresolved pronoun, uncertain name, idiom). Flags are saved, can be filtered with the "Flagged" tab, and clear when you edit the line or dismiss the flag.
 
+A line marked "Source changed" had its source text changed (by an edit, a re-transcription or Fix flagged) after it was translated: its English is kept but may no longer match, and Translate and Export show how many such lines remain. In Review checks, "Retranslate these" translates exactly those lines again with the Translate stage's starting options, and "Keep English for all" (or "Keep English" on one line) keeps the English as it is and removes the mark.
+
 ### Emotion-aware translation
 
 Lines are tagged with an emotional register (14, including sarcasm, dry humour, suppressed anger) plus an intensity, and the tags are folded into the next translation run for charged lines only. Tags also map to TTS rate and pitch for dubbing.
 
 ### Streamer VODs and series
 
-For a streamer, "English title" and "Original title" are the translated and untranslated stream name, and the **Source URL** field keeps the original link (auto-filled for URL downloads). Assign every stream to one **series** to share its glossary, style profile and named characters. Speaker labels (`SPEAKER_00`) are not stable across recordings, so a named character lives at series level: add it from the Characters section, then pick it from the dropdown in later streams. Typing a name does not add it to the series unless you tick "Remember {name} in this series".
+For a streamer, "English title" and "Original title" are the translated and untranslated stream name, and the **Source URL** field keeps the original link (auto-filled for URL downloads, and shown without its `?query` part; see **Open original page**). Assign every stream to one **series** to share its glossary, style profile and named characters. Speaker labels (`SPEAKER_00`) are not stable across recordings, so a named character lives at series level: add it from the Characters section, then pick it from the dropdown in later streams. Typing a name does not add it to the series unless you tick "Remember {name} in this series".
 
 ### Raw novel
 
-One upload of the original-language novel (Workspace > Source > "Raw source novel") feeds transcription priming and, with an English reference translation, matched-pair glossary extraction.
+One upload of the original-language novel (Workspace > Media > "Raw source novel") feeds transcription priming and, with an English reference translation, matched-pair glossary extraction.
 
 ## Transcription & OCR
 
@@ -120,17 +122,18 @@ Whisper often mishears proper nouns in Chinese without it showing. In order of v
 3. **`large-v3` instead of `medium`**: slightly more accurate on Korean and clean Chinese in our tests, about twice as slow and ~3GB. The default (`large-v3-turbo`) is the same on CPU and GPU; see "Which Whisper model to pick" in `docs/asr-experiments.md`.
 4. **Wider beam search** (8-10): costs time only.
 
-Other transcribe options (Workspace > Source > "Transcribe audio or video"; fine controls under Advanced):
+Other transcribe options (Workspace > Media > "Transcribe audio or video"; fine controls under Advanced):
 - **Min silence** (ms; default 300, range 100-3000; lower values split at shorter pauses and can cut mid-sentence) and **VAD threshold** (the Silero speech-detection threshold, 0.1-0.9): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines. A "Sensitivity" preset (normal / sensitive): sensitive lowers a VAD threshold you haven't changed from 0.5 to 0.35 and drops Whisper's repeat penalties; it leaves Min silence alone.
 - **Separate vocals first** (removes background music before transcribing): vocal separation with `audio-separator` (preferred) or Demucs. Adds a full extra pass; skip it unless the background is music alone (in the benchmark it hurt with noise and did nothing on clean audio).
 - **Realign long segments** (experimental, off by default): re-aligns a line against its own audio with Meta's MMS aligner (`pip install torchaudio uroman`, ~1.1GB model on first use). It only re-times text Whisper already produced.
 - **Coverage checks.** Review shows a "Coverage and pacing" section (long lines, large gaps, no source text, not translated) to look at before translating. The Source stage has a separate "Speech coverage" > "Check coverage".
 - A translation that failed in the background shows as a banner in the Workspace until dismissed; press Translate again and already-translated lines are skipped.
+- **Raw transcripts.** Every transcription run's untouched output is kept in the title's folder (`raw_transcript.json` for the first run, a timestamped file for each later one); Review's "what did transcription originally say" reads the newest. None is ever deleted: the first run and the newest 5 stay as plain JSON, and the runs in between are compressed in place to `.json.gz` (checked by reading it back before the plain file goes). A title with "Keep original files" on keeps every run as plain JSON.
 
 ### OCR (image-based chapter scans)
 
 Upload page images in the novel-narration OCR section instead of pasting text. Always review OCR output before translating.
-- **Tesseract** (default): `pip install pytesseract pillow` plus the Tesseract binary with language packs (macOS `brew install tesseract tesseract-lang`; Ubuntu `sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor`; Windows [installer](https://github.com/UB-Mannheim/tesseract/wiki)). If Windows can't find it, set Settings > Advanced > OCR > "Tesseract program" to `tesseract.exe`.
+- **Tesseract** (used for languages other than ja, zh and ko when the OCR default is `auto`, the setting's default; ja picks manga-ocr and zh/ko pick PaddleOCR): `pip install pytesseract pillow` plus the Tesseract binary with language packs (macOS `brew install tesseract tesseract-lang`; Ubuntu `sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor`; Windows [installer](https://github.com/UB-Mannheim/tesseract/wiki)). If Windows can't find it, set Settings > System > Advanced > OCR > "Tesseract program" to `tesseract.exe`.
 - **PaddleOCR** (`pip install paddleocr paddlepaddle`): heavier, better on stylized Chinese fonts.
 - **manga-ocr** (`pip install manga-ocr`): Japanese speech bubbles; best on single-bubble crops.
 
@@ -149,7 +152,14 @@ Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and acc
 ### Live (experimental)
 
 The Live page pulls a running stream, cuts it into short chunks (your choice of length), transcribes and translates each in the background, and shows a growing feed. Needs `yt-dlp` and `ffmpeg`.
-- Latency is at least one chunk; shorter chunks lower it but give Whisper less context.
+- **Chunk length.** Latency is at least one chunk: a word at the start of a 20 s chunk waits the whole 20 s before Whisper hears it. Shorter chunks lower that but give Whisper less context. **Fast captions** (Advanced) sets a 4 s chunk, 1 s overlap, Whisper small and no thinking for sooner, rougher lines. It replaces the current values of those four options, which the browser then remembers; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).
+- **Whisper model** (Advanced). small is the default and keeps up on most PCs. large-v3-turbo is slower but more accurate (on a 5-minute Chinese stream test, about 16 character errors per 100 against small's 23, in about 1.5 times the time on a CPU); it needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and downloads about 1.6 GB the first time. medium was both slower and less accurate than turbo on that test. If the model is too slow for the chunk length, Live skips audio to catch up (below).
+- **Translation runs beside Whisper.** Each chunk's lines go to the engine in one request while Whisper carries on with the next chunk. If the engine falls behind the stream, the oldest waiting lines are shown untranslated ("skipped to keep up") and counted, so captions stay close to the speech.
+- **Video delay.** With **Automatic video delay** on (the default), the picture plays about one chunk plus the measured time to caption a chunk (the median of the last five) behind live, shown as "Video delay: auto (about N s)". Before the first chunk is measured it assumes 8 s of processing. Moving the slider sets the delay by hand and turns the automatic delay off.
+- **Caption lag.** "Captions about N s behind the stream" is how long after the first word of the newest captioned chunk was spoken its translation was ready: the chunk's own length plus its wait, Whisper and translation time. It is measured from when the audio reached Baihe, so the platform's own delay (often several seconds) comes on top.
+- Whisper loads before capture starts, so the first chunk is not behind the stream. The status names each step and how fast the last chunk was (audio seconds, time taken, times real time).
+- If Whisper is slower than the stream, the oldest waiting audio is skipped ("Skipped N s to catch up") instead of falling further behind. A chunk Whisper cannot finish in max(30 s, 6 x chunk length) is skipped ("Skipped chunk N") and the run goes on; while an abandoned Whisper call is still running, further chunks are skipped ("Whisper is still busy") instead of starting a second one. Skips are counted in one line per reason and stay listed under the status.
+- **Stop** captions what was already captured (the chunks still waiting and the last partial chunk), lets their translations finish, then ends; the button then reads **Stop now**, which ends at once, within a couple of seconds even in the middle of a Whisper call. An error ends the session without captioning what was waiting.
 - Accuracy is lower than the normal pipeline: each chunk is transcribed alone with a few seconds of overlap and no glossary priming.
 - The feed is not saved to the Library; copy what you want before you stop.
 - A resolved stream URL can expire after a few hours; stop and start again.
@@ -192,10 +202,12 @@ Raw and translated text side by side, for proofing and language learning.
 - **Dashboard**: totals, translated lines, API calls, estimated spend, cache-hit rate, per-drama costs.
 - **Series**: dramas sharing a glossary or characters get a consolidated view.
 - **Search and bulk actions**: a global search over every drama's original and translated lines; bulk status, delete (typed confirm) and translate (skips dramas without a key, lines, or already running).
-- **Library tools** (page): export all as a zip, per-drama export package (with a manifest of what was included), backup and restore, presets, voice bank, storage scan with quality presets (Archival, Balanced, Minimal; only regenerable files are removed), and a disk usage view with a Trash folder. Disk usage never follows a link or junction when it counts a folder: the folder's size is what is inside it, and the folders the links lead to are shown apart as "Linked folder, stored elsewhere" with their own size, and as "plus N in linked folders" next to the total. Those are not counted in the folder's size or percentage, and a link, or a folder holding one, can't be moved to Trash from here.
-- **Backup and restore**: a database-only snapshot or a full zip with media, streamed to disk; restore validates the zip first and needs a typed confirm. Signed-in browser sessions from Sources are not included. Automatic backups are opt-in (Settings). See `docs/runbook.md` section 3.
+- **Library tools** (page): export all as a zip, per-drama export package (with a manifest of what was included), backup and restore, presets, voice bank, storage scan with quality presets (Archival, Balanced, Minimal; only regenerable files are removed), and a disk usage view with a Trash folder. Disk usage never follows a link or junction when it counts a folder: the folder's size is what is inside it, and the folders the links lead to are shown apart as "Linked folder, stored elsewhere" with their own size, and as "plus N in linked folders" next to the total. Those are not counted in the folder's size or percentage, and a link, or a folder holding one, can't be moved to Trash from here. In library > dramas each title also shows its size by kind: originals (source video and audio, uploaded and replaced media, page scans, the novel files), raw transcripts, line history (the snapshots in the database) and rebuildable files (what the storage presets may remove).
+- **Backup and restore**: a database-only snapshot or a full zip with media, streamed to disk; restore validates the zip first and needs a typed confirm. Signed-in browser sessions from Sources are not included. Automatic backups are opt-in (Settings). Before each automatic backup Baihe checks the backup drive: with less free space than 1.2 times the expected copy (the last copy's size, or the library's for the first one) the run is skipped, the settings page shows a warning, no old copy is deleted, and it is tried again a day later. See `docs/runbook.md` section 3. Baihe records which version last opened your library and refuses to start if that was a newer version than the one you are running, since an older build could misread the newer data. Upgrade Baihe, or restore a backup from the backups folder in your Baihe data folder. The database inside a backup (and the per-person backup) holds each title's source link as it was imported, query included, which can carry a site's sign-in or download token; treat backup files as private. A backup's `manifest.json`, the export zip and support reports never carry it.
+- **Keep original files** (a title's Media stage): when on, the storage scan presets never remove that title's source audio and video, uploaded files, raw novel text, raw transcripts or page scans; the export zip puts them in the title's `originals/` folder; and deleting an item from Trash that came from the title's folder says so in the confirmation. They keep using disk space. Changing it needs the same permission as editing the title's details.
+- **Open original page**: every page shows the title's source link without its `?query` part, which can hold a download token. On the main PC the button opens the link exactly as it was imported or typed instead (a video link may need its `?v=`); away from the PC it opens the cleaned link. The full link is never sent to household or remote accounts.
 - **Translation versions**: every translation run is saved with its engine and model; compare versions side by side and activate one (the current one is snapshotted first).
-- **Undo**: line snapshots are taken before risky edits (a force re-translate, an applied merge, a re-transcribe, a shorten, a cleanup, activating a version); restore from Review > "Versions and history" > "Line history" (the 10 most recent are kept).
+- **Undo**: line snapshots are taken before risky edits (a force re-translate, an applied merge, a re-transcribe, a shorten, a cleanup, activating a version); restore from Review > "Versions and history" > "Line history" (the 10 most recent are kept; all but the newest 3 are stored compressed, and they restore the same way).
 - **Drama IDs skip numbers after a deletion, on purpose.** Lines, glossaries and versions reference a drama by id, so reusing one could re-attach stale rows or conflict with an older backup. The Library shows a separate sequential **#** column.
 
 ### Discover and titles
@@ -222,7 +234,7 @@ Limits: the CV detector misses borderless or irregular bubbles; inpainting is Op
 
 ### Browser extension
 
-A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Integrations > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Details: [`browser-extension.md`](browser-extension.md).
+A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Preferences > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Pages of one title are translated one at a time, each with the context of the page that finished just before it: that follows the order captures get their turn, not page order, so a page sent out of order (or racing another) reads the wrong neighbour's context, and one that waits over 30 seconds behind a slow engine is translated without context. Details: [`browser-extension.md`](browser-extension.md).
 
 ### Metadata romanization
 
@@ -231,6 +243,17 @@ Credits keep the original script and gain a romanized companion: 一半山川 di
 ### Fetching from JS-heavy sites
 
 Some sites (baihehub, Fanjiao) build pages with JavaScript, so a plain fetch returns an empty shell. `page_fetch.py` handles it in three layers: it detects an unrendered shell and says so; with the `playwright` package installed (Diagnostics > Packages, or `pip install playwright`) it re-fetches with a real browser: an installed Chrome or Edge, Playwright's own Chromium, or the program named by the `BAIHE_BROWSER_PATH` system environment variable. No browser download is needed when Chrome or Edge is installed; Diagnostics > Setup shows the package and the browser separately; and manual paste (copy the page text into the app) always works.
+
+## The job queue
+
+The Jobs page has a Queue card for lining up work and letting it run hands-off, for example overnight. Pick a title and a step (Transcribe, Translate or Export subtitles) and add it; reorder with Move up and Move down, remove an item, or press Retry on one that failed, was skipped or was interrupted.
+
+- Items run one at a time, in order, through the same path as the stage's Run button, with the title's saved options. Transcribe replaces the title's lines (the old ones stay in line History); a title that transcribes from a pasted transcript can't be queued. Export subtitles saves English SRT as the title's subtitle download.
+- **Translate items spend money.** On a paid engine a Translate item uses your API key and costs money; the card says which engine before you add it. The queue respects the Spending caps in Settings: before each Translate item it checks this month's cap and skips the item ("Skipped: ...") when the cap is used up or the estimate is above what is left, and the run itself still stops at the cap. With no monthly cap set, paid Translate items are skipped: unattended paid work always has a ceiling.
+- "Start queue now" runs it; "Start at" runs it once at that time on the PC's clock, then the schedule clears. Pause starts no new item; the running one finishes, or cancel its job in the jobs list. "Stop the queue when an item fails" is off by default, so a failed item is marked and the next one starts.
+- An item that can't start (the spending cap, a job already running on that title, a deleted title, a missing key) is marked "Skipped" with the reason, and the queue moves on.
+- After a restart nothing runs on its own: an item that was running shows "Interrupted", and a start time that passed while Baihe was off shows "Missed: start now?" until you start or dismiss it.
+- With sign-in on, each account sees and changes only the items for its own titles (at most 50 items per account); only the PC owner starts, pauses or schedules the queue. A queue restored from a backup is stopped, like after a restart.
 
 ## Reliability
 
@@ -255,15 +278,15 @@ If Whisper's first download fails with `getaddrinfo failed` or `LocalEntryNotFou
 4. A DNS blocker (Pi-hole, AdGuard, corporate filter) answering `0.0.0.0`. Check with `nslookup huggingface.co`; if it answers `0.0.0.0` or `::`, allow `huggingface.co`, `cdn-lfs.huggingface.co`, `cdn-lfs-us-1.hf.co` and `hf.co` (the `cdn-lfs` hosts serve the model files), then flush DNS. The app names this case itself.
 5. Blocked by your ISP or region: set a mirror, e.g. `$env:HF_ENDPOINT="https://hf-mirror.com"` (PowerShell) before `python -m api`.
 
-Fully offline: download a `faster-whisper` model elsewhere and point Settings > Advanced > "Offline and performance" > "Offline Whisper model folder" at it.
+Fully offline: download a `faster-whisper` model elsewhere and point Settings > System > Advanced > "Offline and performance" > "Offline Whisper model folder" at it.
 
 ### GPU transcription failures ("cublas64_12.dll is not found")
 
-The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctranslate2 wheel or a CUDA version that doesn't match the driver. Turn "Use the GPU for transcription" off (Settings > Jobs > Performance) to silence it. Background: `docs/technical-notes.md`.
+The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctranslate2 wheel or a CUDA version that doesn't match the driver. Turn "Use the GPU for transcription" off (Settings > System > Performance) to silence it. Background: `docs/technical-notes.md`.
 
 ### Sharing the PC with other programs (Keep free memory)
 
-If this PC also runs something else that needs the GPU or RAM (a media server doing hardware transcoding, say), set Settings > Advanced > Offline and performance > "Keep free graphics memory" and "Keep free RAM". Before a local model loads (Whisper, Qwen3-ASR, the aligner, vocal separation, a local Ollama translation model, the dub voices), Baihe compares the model's estimated size and the memory that is free right now with that reserve. If loading would break it, the job stops at once with a message saying what is needed, what is free and what is kept free, instead of running out of memory halfway. Then unload another model (Settings > Loaded now, once no job is running), pick a smaller model or int8, or lower the setting. The default is 0 (off). Sizes are estimates, so leave a little slack. Cloud engines and an Ollama on another machine use none of this PC's memory and are not checked. If the memory can't be read (no NVIDIA GPU, or an OS Baihe can't query for RAM), the check is skipped and Loaded now says so. The app and the command line use the same check; on the command line a refusal is reported as that drama's failure (the batch summary lists it) and, like every other per-drama failure there, the exit code stays 0. A refused Ollama translation stops the run after the first batch rather than retrying every batch. A Whisper model folder is sized by its folder name when it is a known model; otherwise no estimate is made and the check is skipped. Not yet covered: diarization, OCR other than the manga model, and a llama.cpp server.
+If this PC also runs something else that needs the GPU or RAM (a media server doing hardware transcoding, say), set Settings > System > Advanced > Offline and performance > "Keep free graphics memory" and "Keep free RAM". Before a local model loads (Whisper, Qwen3-ASR, the aligner, vocal separation, a local Ollama translation model, the dub voices), Baihe compares the model's estimated size and the memory that is free right now with that reserve. If loading would break it, the job stops at once with a message saying what is needed, what is free and what is kept free, instead of running out of memory halfway. Then unload another model (Settings > System > Loaded now, once no job is running), pick a smaller model or int8, or lower the setting. The default is 0 (off). Sizes are estimates, so leave a little slack. Cloud engines and an Ollama on another machine use none of this PC's memory and are not checked. If the memory can't be read (no NVIDIA GPU, or an OS Baihe can't query for RAM), the check is skipped and Loaded now says so. The app and the command line use the same check; on the command line a refusal is reported as that drama's failure (the batch summary lists it) and, like every other per-drama failure there, the exit code stays 0. A refused Ollama translation stops the run after the first batch rather than retrying every batch. A Whisper model folder is sized by its folder name when it is a known model; otherwise no estimate is made and the check is skipped. Not yet covered: diarization, OCR other than the manga model, and a llama.cpp server.
 
 ### GPU PyTorch (NVIDIA)
 
@@ -314,6 +337,6 @@ The Benchmark Lab page (linked from Diagnostics) checks whether a model, engine 
 ## Notes & tips
 
 - The first run downloads the Whisper model (a few hundred MB to ~3GB, once).
-- No GPU is required, but a GPU makes transcription much faster (Settings > Jobs > Performance).
+- No GPU is required, but a GPU makes transcription much faster (Settings > System > Performance).
 - Alignment is an approximation that interpolates timing for lines Whisper didn't clearly catch; skim the review table before exporting.
 - Your API keys and files never leave your machine except for the direct call to your chosen translation/TTS provider.

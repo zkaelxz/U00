@@ -54,7 +54,7 @@ def compute_workspace_stage_index(drama, lines, ddir):
 
 
 # Stage keys of the React stage bar (five stages) and the 7-tab index each
-# one covers (docs/specs/ux-workspace-shell-and-review.md, "Stage status").
+# one covers (docs/archive/ux-workspace-shell-and-review.md, "Stage status").
 STAGE_KEYS = ("source", "translate", "review", "dub", "export")
 _STAGE_FOR_INDEX = {0: "source", 1: "source", 2: "source", 3: "translate",
                     4: "review", 5: "dub", 6: "export"}
@@ -72,7 +72,7 @@ def get_drama_progress(drama_id: int) -> dict:
     from services.service_errors import NotFoundError
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     lines = core_module.lines_from_rows(db.load_lines(drama_id))
     ddir = os.path.join(db.DRAMAS_DIR, str(drama_id))
     index = compute_workspace_stage_index(drama, lines, ddir)

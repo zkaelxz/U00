@@ -26,7 +26,7 @@ pyannote.audio<5     # 4.x changed pipeline(audio)'s return type (DiarizeOutput
                       # change just as much again with no warning.
 transformers<6        # backs Scanlate's ML models and Qwen3-ASR/ForcedAligner.
 torch<3               # the tested GPU set is torch 2.11.0 / torchvision 0.26.0 /
-torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics.TORCH_VARIANTS;
+torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics_torch.TORCH_VARIANTS;
                       # Diagnostics > GPU PyTorch installs it). Every Diagnostics install
                       # also pins whatever torch family is installed, exactly.
 faster-whisper<2       # core.transcribe_for_timing's main transcription backend.

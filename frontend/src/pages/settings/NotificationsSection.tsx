@@ -131,7 +131,7 @@ function NotificationControls() {
     >
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
       <p className="settings-note">
-        Sends a short message (job type, drama title) when a job finishes or fails, or when tracked
+        Sends a short message (job type, title name) when a job finishes or fails, or when tracked
         sources have new chapters.
       </p>
       {!status ? (

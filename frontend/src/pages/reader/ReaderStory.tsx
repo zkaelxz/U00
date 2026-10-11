@@ -306,8 +306,8 @@ function AskSection({ dramaId, engines, engine, paid }: { dramaId: number; engin
   })
   const latest = [...history].reverse().find((t) => t.role === 'assistant')
   return (
-    <Section title="Ask about the story" storageKey="reader.ask" summary="Questions answered from the drama's own lines">
-      <p className="muted">Q&amp;A uses the whole drama, including later lines.</p>
+    <Section title="Ask about the story" storageKey="reader.ask" summary="Questions answered from the title's own lines">
+      <p className="muted">Q&amp;A uses the whole title, including later lines.</p>
       <EngineLine engines={engines} engine={engine} />
       {history.length > 0 && (
         <ol className="reader-chat" aria-label="Conversation">

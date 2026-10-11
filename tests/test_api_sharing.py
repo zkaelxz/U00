@@ -12,6 +12,7 @@ import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
+from lib.errors import ForbiddenError
 from services import auth_service, ownership_service
 
 REMOTE = "https://baihe.example.com"
@@ -112,7 +113,7 @@ class TestFlip:
                         owner_user_id=world["b_id"])
         r = _flip(c, world["admin"], "series", world["series"], True)
         assert r.status_code == 409
-        assert "other people's dramas" in r.json()["error"]["message"]
+        assert "other people's titles" in r.json()["error"]["message"]
         assert _private("series", world["series"]) == 0
 
     def test_series_with_a_pc_drama_is_admin_only(self, world):
@@ -120,7 +121,7 @@ class TestFlip:
         db.update_drama(world["pc"], series_id=world["series"])
         r = _flip(c, world["a"], "series", world["series"], True)
         assert r.status_code == 409
-        assert r.json()["error"]["message"] == "This series holds a drama owned at the PC; ask an admin."
+        assert r.json()["error"]["message"] == "This series holds a title owned at the PC; ask an admin."
         assert _flip(c, world["admin"], "series", world["series"], True).status_code == 200
 
     def test_flips_are_audited_with_the_actor(self, world):
@@ -194,7 +195,7 @@ class TestList:
     def test_household_users_are_refused(self, world):
         r = _client(_app()).get("/api/sharing/items", headers=world["a"])
         assert r.status_code == 403
-        with pytest.raises(Exception):
+        with pytest.raises(ForbiddenError):
             ownership_service.list_sharing({"user_id": world["a_id"], "is_admin": False,
                                             "is_local_owner": False})
 

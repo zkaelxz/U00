@@ -170,6 +170,31 @@
     }
   }
 
+  // True when the element currently paints a single colour. A canvas the
+  // reader has sized but not drawn yet looks exactly like this, and sending
+  // it would store an empty page. An unreadable (tainted) element is not
+  // called blank: the real read below reports that itself.
+  function looksUnpainted(el) {
+    const signature = sampleSignature(el);
+    if (signature === null) return false;
+    const values = signature.split(",");
+    for (let i = 4; i < values.length; i += 4) {
+      if (values[i] !== values[0] || values[i + 1] !== values[1] || values[i + 2] !== values[2]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Gives a late-painting page time to appear before calling it blank.
+  async function waitUntilPainted(el, attempts = 6, delayMs = 400) {
+    for (let i = 0; i < attempts; i += 1) {
+      if (!looksUnpainted(el)) return true;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+    return !looksUnpainted(el);
+  }
+
   // Draws the element at its own full resolution and reads the pixels
   // back. This is the step that reaches content an adapter can't: a
   // `blob:` image, or a page the site's own reader has already
@@ -179,6 +204,9 @@
     const { width, height } = elementSize(el);
     if (!width || !height) throw new Error("that image hasn't finished loading");
     await waitForStableSignature(el);
+    if (!(await waitUntilPainted(el))) {
+      throw new Error("the page was still blank after waiting for it to draw");
+    }
     let source = el;
     if (el.tagName !== "CANVAS") {
       const canvas = document.createElement("canvas");
@@ -187,18 +215,23 @@
       canvas.getContext("2d").drawImage(el, 0, 0, width, height);
       source = canvas;
     }
-    const blob = await new Promise((resolve, reject) => {
-      try {
-        // toBlob throws a SecurityError on a canvas tainted by a
-        // cross-origin image drawn without CORS. That is a real limit,
-        // not a bug to route around: the browser is refusing to let any
-        // script read those pixels, and this extension respects that.
-        source.toBlob((b) => (b ? resolve(b) : reject(new Error("the image could not be read"))),
-                      "image/png");
-      } catch (e) {
-        reject(e);
-      }
-    });
+    let blob;
+    try {
+      // toBlob throws a SecurityError on a canvas tainted by a cross-origin
+      // image drawn without CORS: the browser will not let any script read
+      // those pixels, and nothing here tries to get around that.
+      blob = await new Promise((resolve, reject) => {
+        try {
+          source.toBlob((b) => (b ? resolve(b) : reject(new Error("the image could not be read"))),
+                        "image/png");
+        } catch (e) {
+          reject(e);
+        }
+      });
+    } catch (e) {
+      if (!(e && e.name === "SecurityError")) throw e;
+      return extractViaWorker(el, e);
+    }
     const buffer = await blob.arrayBuffer();
     return {
       data: base64(buffer),
@@ -208,6 +241,135 @@
       hash: await sha256Hex(buffer),
       url: el.currentSrc || el.src || location.href,
     };
+  }
+
+  // Canvases whose pixels came from the worker's download, because their own
+  // are unreadable. They have no pixel hash to key an overlay on.
+  const taintedCanvases = new WeakSet();
+
+  const IMAGE_URL_ATTRS = ["data-src", "data-original", "data-lazy-src", "data-url", "src"];
+
+  function httpUrl(value) {
+    if (!value) return "";
+    try {
+      const url = new URL(value, location.href);
+      return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // The file behind an element whose pixels are unreadable: its own src, or for
+  // a canvas the image the reader painted it from, kept as a sibling <img>, a
+  // data attribute or a CSS background on the canvas or its container.
+  function findImageUrl(el) {
+    if (el.tagName !== "CANVAS") return httpUrl(el.currentSrc || el.src);
+    const holders = [el];
+    for (let node = el.parentElement; node && holders.length < 4; node = node.parentElement) {
+      holders.push(node);
+    }
+    for (const holder of holders) {
+      for (const attr of IMAGE_URL_ATTRS) {
+        const found = httpUrl(holder.getAttribute(attr));
+        if (found) return found;
+      }
+      const background = /url\(["']?([^"')]+)["']?\)/.exec(getComputedStyle(holder).backgroundImage || "");
+      if (background && httpUrl(background[1])) return httpUrl(background[1]);
+    }
+    return siblingImageUrl(el);
+  }
+
+  function imageUrlOf(node) {
+    return httpUrl(node.currentSrc || node.src
+      || IMAGE_URL_ATTRS.map((a) => node.getAttribute(a)).find(Boolean));
+  }
+
+  const hasBox = (r) => !!r && r.width > 0 && r.height > 0;
+
+  // A reader with one <img> and one canvas per page under one container would hand every canvas
+  // the first page's image if "the first image" were taken, and capture would then drop pages
+  // 2..N as duplicates. So a sibling counts only when it sits exactly where the canvas sits, or,
+  // when nothing has a box yet, at the same index; any doubt is "no image" rather than a wrong one.
+  function siblingImageUrl(el) {
+    const parent = el.parentElement;
+    if (!parent) return "";
+    const images = [...parent.querySelectorAll("img, amp-img")]
+      .map((node) => ({ node, url: imageUrlOf(node) })).filter((c) => c.url);
+    if (!images.length) return "";
+    const box = el.getBoundingClientRect();
+    if (hasBox(box)) {
+      const slack = (a, b) => Math.abs(a - b) <= Math.max(4, Math.max(a, b) * 0.02);
+      const aligned = images.filter(({ node }) => {
+        const r = node.getBoundingClientRect();
+        return hasBox(r) && slack(r.width, box.width) && slack(r.height, box.height)
+          && slack(r.left, box.left) && slack(r.top, box.top);
+      });
+      return aligned.length === 1 ? aligned[0].url : "";
+    }
+    const canvases = [...parent.querySelectorAll("canvas")];
+    const index = canvases.indexOf(el);
+    return index >= 0 && canvases.length === images.length ? images[index].url : "";
+  }
+
+  // Asks the service worker to download the file instead. For a canvas the download must have the
+  // canvas's proportions. That only rules out a thumbnail or another image: a scrambled tile sheet
+  // has the same size as the page reassembled from it, so such a file is passed on flagged
+  // `unverified` for the popup to say where the text came from.
+  async function extractViaWorker(el, taintError) {
+    const url = findImageUrl(el);
+    if (!url) throw taintError;
+    const response = await chrome.runtime.sendMessage({ type: "fetchImage", url });
+    if (!response || !response.ok) {
+      const reason = (response && response.error) || "the image could not be downloaded";
+      const err = new Error(reason);
+      if (response && response.code === "NEEDS_PERMISSION") {
+        err.code = response.code;
+        err.origin = response.origin;
+      }
+      throw err;
+    }
+    const { data, content_type } = response.data;
+    const raw = atob(data);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: content_type }));
+    const { width, height } = bitmap;
+    bitmap.close();
+    if (el.tagName === "CANVAS") {
+      const same = (a, b) => Math.abs(a - b) <= Math.max(a, b) * 0.02;
+      if (!(same(width / height, el.width / el.height))) {
+        throw new Error("the image file doesn't match what the page draws, so it can't be used");
+      }
+      taintedCanvases.add(el);
+    }
+    return {
+      data, content_type, width, height,
+      hash: await sha256Hex(bytes.buffer), url: response.data.url || url,
+      ...(el.tagName === "CANVAS" ? { unverified: true } : {}),
+    };
+  }
+
+  // The refusal when nothing could be read. A page whose images only need the
+  // person's go-ahead for one site gets a code the popup turns into a button.
+  function unreadableResult(reason, needAccess) {
+    if (needAccess.size) {
+      const origins = [...needAccess];
+      return {
+        ok: false, code: "NEEDS_SITE_ACCESS", origins,
+        error: `This page draws its images from ${origins.join(", ")}, and the browser won't let the page ` +
+               'read them. Click an "Allow" button to let the extension download them itself.',
+      };
+    }
+    return {
+      ok: false,
+      error: `Your browser wouldn't let this page's image be read (${reason}). ` +
+             "That happens when the site draws it from another domain without allowing it.",
+    };
+  }
+
+  // Sent with a partial result too, so the popup still offers Allow for the pages that were left out.
+  function accessNeeded(needAccess) {
+    return needAccess.size ? { origins: [...needAccess] } : {};
   }
 
   function base64(buffer) {
@@ -501,6 +663,56 @@
     };
   }
 
+  // -- saving a novel page into a title -----------------------------------
+
+  // Prose, not a comic: no page-sized images (the same test the comic
+  // actions use) and a main text block of at least a few paragraphs.
+  const MIN_TEXT_PAGE_CHARS = 300;
+  // extension_novel_service.MAX_CAPTURE_CHARS, kept equal by a test. Over it
+  // the save is refused rather than cut, since a cut chapter would be saved
+  // as though it were whole.
+  const MAX_NOVEL_CHARS = 200000;
+
+  function isTextPage() {
+    return !candidateElements().length && mainContentBlock().length >= MIN_TEXT_PAGE_CHARS;
+  }
+
+  // Novel readers put the chapter title in the first heading; the tab title
+  // usually adds the book and site names, so it is only the fallback.
+  // Cut by code point: a UTF-16 slice can split an emoji or rare CJK
+  // character, and the lone surrogate left behind cannot be encoded as UTF-8.
+  function capHeading(text) {
+    return Array.from(text).slice(0, 200).join("");
+  }
+
+  function chapterHeading() {
+    for (const tag of ["h1", "h2", "h3"]) {
+      const el = document.querySelector(tag);
+      const text = el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+      if (text) return capHeading(text);
+    }
+    return capHeading((document.title || "").trim());
+  }
+
+  async function saveNovelText({ dramaId }) {
+    const selected = selectedText();
+    const text = selected || mainContentBlock();
+    if (!text) {
+      return { ok: false, error: "No chapter text found here. Select the text to save, or open the chapter itself." };
+    }
+    if (text.length > MAX_NOVEL_CHARS) {
+      return { ok: false, error: `That is more than ${MAX_NOVEL_CHARS} characters; select one chapter's worth and save that.` };
+    }
+    const response = await chrome.runtime.sendMessage({
+      type: "saveNovelText", dramaId, heading: chapterHeading(), text,
+      source: location.host, url: location.href,
+    });
+    if (!response || !response.ok) {
+      return response || { ok: false, error: "No answer from the extension's background worker." };
+    }
+    return { ok: true, data: { ...response.data, fromSelection: !!selected } };
+  }
+
   // -- text panel --------------------------------------------------------
 
   function ensureTextPanel() {
@@ -601,7 +813,8 @@
   // batches also keep saved pages (store=true) in chapter order, since
   // the app appends pages in request order. `send(batch, range)` returns
   // the background's {ok, data|error, status}; `onBatch(batch, data)`
-  // handles each successful reply. Stops at the first hard error.
+  // handles each successful reply and may return true to stop the run.
+  // Stops at the first hard error.
   async function sendInBatches(items, send, onBatch, limit = MAX_IMAGES_PER_REQUEST) {
     let done = 0;
     let sentAny = false;
@@ -614,8 +827,11 @@
         { ok: false, error: "No answer from the extension's background worker." };
       if (response.ok) {
         sentAny = true;
-        await onBatch(batch, response.data || {});
+        const halt = await onBatch(batch, response.data || {});
         done += batch.length;
+        // The app stopped the whole request (every later page would fail
+        // the same way); sending the rest would only repeat that.
+        if (halt === true) return { sentAny, limit: size, failure: null, halted: true };
         continue;
       }
       const match = response.status === 413 && /at most (\d+) images/.exec(response.error || "");
@@ -673,8 +889,10 @@
     // gets the same overlay.
     const pending = new Map();
     const unreadable = [];
+    const needAccess = new Set();
+    const unverified = new Set();
     const fromCache = [];
-    for (const el of chosen) {
+    for (const [position, el] of chosen.entries()) {
       try {
         const extracted = await extractBytes(el);
         const cached = state.cache.get(extracted.hash);
@@ -683,14 +901,17 @@
           fromCache.push(el);
           continue;
         }
+        if (extracted.unverified) unverified.add(extracted.hash);
         const entry = pending.get(extracted.hash);
         if (entry) {
           entry.elements.push(el);
         } else {
-          pending.set(extracted.hash, { extracted, elements: [el] });
+          pending.set(extracted.hash, { extracted, elements: [el], position: position + 1 });
         }
       } catch (e) {
-        unreadable.push(String(e && e.message ? e.message : e));
+        if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
+        unreadable.push({ position: position + 1,
+                          error: String(e && e.message ? e.message : e) });
       }
     }
     const images = [...pending.values()];
@@ -698,20 +919,23 @@
     if (!images.length) {
       if (fromCache.length) {
         watchForPageChanges();
-        return { ok: true, data: { pages: [], cached: fromCache.length } };
+        return { ok: true, data: { pages: [], cached: fromCache.length,
+                                   captured: chosen.length, unreadable, ...accessNeeded(needAccess) } };
       }
-      return {
-        ok: false,
-        error: unreadable.length
-          ? `Your browser wouldn't let this page's image be read (${unreadable[0]}). ` +
-            "That happens when the site draws it from another domain without allowing it."
-          : "Nothing on this page could be read as an image.",
-      };
+      return unreadable.length
+        ? unreadableResult(unreadable[0].error, needAccess)
+        : { ok: false, error: "Nothing on this page could be read as an image." };
     }
 
     const pages = [];
     const skipped = [];
+    const failedPages = [];
+    const totals = { sent: 0, received: 0, stored: 0, alreadyStored: 0 };
+    // Name a problem page by where it sits in the chapter, which is what a
+    // person can check, not by its content hash.
+    const positionByKey = new Map(images.map((i) => [i.extracted.hash, i.position]));
     let drawn = 0;
+    let serverStop = "";
     const outcome = await sendInBatches(images, async (batch, range) => {
       reportProgress(`Translating ${range.from}-${range.to} of ${range.total}...`);
       return chrome.runtime.sendMessage({
@@ -747,20 +971,37 @@
       }
       pages.push(...(data.pages || []));
       skipped.push(...(data.skipped || []));
+      for (const item of [...(data.failed || []), ...(data.skipped || [])]) {
+        item.position = positionByKey.get(item.key);
+      }
+      failedPages.push(...(data.failed || []));
+      totals.sent += Number.isFinite(data.sent) ? data.sent : batch.length;
+      totals.received += Number.isFinite(data.received) ? data.received : batch.length;
+      totals.stored += Number.isFinite(data.stored) ? data.stored : 0;
+      totals.alreadyStored += Number.isFinite(data.alreadyStored) ? data.alreadyStored : 0;
+      if (data.stopped) serverStop = String(data.stopped);
+      return !!data.stopped;
     });
 
     if (outcome.sentAny) watchForPageChanges();
-    const data = { pages, skipped, drawn, cached: fromCache.length };
+    const data = { pages, skipped, failed: failedPages, ...totals, drawn,
+                   cached: fromCache.length, captured: chosen.length, unreadable,
+                   unverified: unverified.size, ...accessNeeded(needAccess) };
     if (outcome.failure) {
       const f = outcome.failure;
       if (!pages.length && !skipped.length) {
         return { ok: false, error: f.reason, ...(f.status ? { status: f.status } : {}) };
       }
-      data.failed = {
+      data.stopped = {
         done: f.done, total: images.length, at: f.done + 1, reason: f.reason,
+        // The reason can be a raw network error, so the message names the
+        // place only.
         message: `Translated ${f.done} of ${images.length} pages; stopped at page ` +
-                 `${f.done + 1}: ${f.reason}`,
+                 `${f.done + 1} because the app stopped answering`,
       };
+    }
+    if (serverStop) {
+      data.stopped = { reason: serverStop, message: `Stopped early: ${serverStop}` };
     }
     return { ok: true, data };
   }
@@ -904,15 +1145,30 @@
     await Promise.race([loaded, sleep(CAPTURE_LOAD_WAIT_MS)]);
   }
 
+  // The page's own canvas identity and size are in the key because a reader that repaints a canvas
+  // without touching its data-src would otherwise keep the key, and the previous page's overlay.
+  // No URL means no key, so nothing is ever reused for such a canvas.
+  const taintedIds = new WeakMap();
+  let nextTaintedId = 0;
+  function taintedKey(el) {
+    const url = findImageUrl(el);
+    if (!url) return null;
+    if (!taintedIds.has(el)) taintedIds.set(el, ++nextTaintedId);
+    return `tainted:${taintedIds.get(el)}:${el.width}x${el.height}:${url}`;
+  }
+
   // A canvas has no src, so its draw target is identified by the hash of its pixels: a reader that
   // repaints the canvas with another page while a batch is in flight changes the hash, and the
   // bubbles are not drawn on the wrong page.
   function drawTargetKey(el, hash) {
+    if (taintedCanvases.has(el)) return taintedKey(el);
     return el.tagName === "CANVAS" ? hash : elementKey(el);
   }
 
   async function currentDrawTargetKey(el) {
     if (el.tagName !== "CANVAS") return elementKey(el);
+    // Its pixels can never be hashed; the file it was painted from stands in.
+    if (taintedCanvases.has(el)) return taintedKey(el);
     try {
       const blob = await new Promise((resolve, reject) => {
         el.toBlob((b) => (b ? resolve(b) : reject(new Error("unreadable"))), "image/png");
@@ -921,6 +1177,29 @@
     } catch (e) {
       return null;
     }
+  }
+
+  // Unreadable pages are counted once per element and what it held: a
+  // virtualised reader recycles elements, so the element alone would drop a
+  // later miss, while re-reading the same failure every step would repeat it.
+  // elementKey is null for a canvas, and a virtualised reader recycles
+  // same-sized canvases, so the page's place in the chapter must be part of
+  // the signature or a second failed page on one canvas is never counted.
+  function canvasSignature(el, place) {
+    const { width, height } = elementSize(el);
+    return `canvas|${width}x${height}|${place}`;
+  }
+
+  function unreadableLog() {
+    const last = new WeakMap();
+    return {
+      isNew(el, signature) {
+        if (last.get(el) === signature) return false;
+        last.set(el, signature);
+        return true;
+      },
+      read(el) { last.delete(el); },
+    };
   }
 
   function elementKey(el) {
@@ -978,17 +1257,46 @@
     }
   }
 
+  // The closing line of a chapter capture: every page found is either
+  // counted in it or named as unreadable, so a shortfall is never silent.
+  function captureTally(found, counts, firstFailure, unreadablePages) {
+    const tally = [`${found} page${found === 1 ? "" : "s"} found`];
+    if (counts.translated) tally.push(`${counts.translated} translated`);
+    if (counts.cached) tally.push(`${counts.cached} already done`);
+    if (counts.alreadyStored) tally.push(`${counts.alreadyStored} already in library`);
+    if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
+    if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
+    if (counts.unverified) tally.push(`${counts.unverified} read from the page's source image, not checked against what is drawn`);
+    if (unreadablePages.length) {
+      const named = unreadablePages.slice(0, 3)
+        .map((u) => `page ${u.position}: ${u.error}`).join("; ");
+      const more = unreadablePages.length > 3 ? `; and ${unreadablePages.length - 3} more` : "";
+      tally.push(`${unreadablePages.length} unreadable (${named}${more})`);
+    }
+    return tally.join(", ");
+  }
+
   async function runCapture(run, ui, scroller, { dramaId, store, fromHere }) {
     // Hashes already handled this run (sent, cached, skipped or duplicate).
     // Distinct pages seen is also what the cap counts.
     const seen = new Set();
     const handled = new WeakMap();
     const queue = [];
-    const counts = { translated: 0, stored: 0, cached: 0, skipped: 0, drawn: 0 };
+    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0 };
+    let firstFailure = "";
+    let serverStop = "";
     let seq = 0;
     let limit = MAX_IMAGES_PER_REQUEST;
     let capHit = false;
     let unreadable = "";
+    const needAccess = new Set();
+    // A tainted canvas has no element key to skip it by, so without this every step would download,
+    // re-encode and re-hash it again (up to 12 MB each).
+    const taintedReads = new Map();
+    // Pages that could not be read, numbered in the order they were met, so
+    // the closing summary can name them like Translate-visible does.
+    const unreadablePages = [];
+    const unreadableAs = unreadableLog();
     let failure = "";
 
     const report = (suffix = "") => {
@@ -1012,12 +1320,25 @@
         if (key !== null && handled.get(el) === key) continue;
         let extracted;
         try {
-          extracted = await extractBytes(el);
+          const taintedId = el.tagName === "CANVAS" ? taintedKey(el) : null;
+          extracted = taintedId && taintedReads.get(taintedId);
+          if (!extracted) {
+            extracted = await extractBytes(el);
+            if (taintedCanvases.has(el) && taintedId) taintedReads.set(taintedId, extracted);
+          }
         } catch (e) {
           unreadable = String(e && e.message ? e.message : e);
+          if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
+          const signature = key !== null ? key
+            : canvasSignature(el, readerIndexOf(el) ?? Math.round(scroller.positionOf(el)));
+          if (unreadableAs.isNew(el, signature)) {
+            unreadablePages.push({ position: seen.size + unreadablePages.length + 1,
+                                   error: unreadable });
+          }
           if (key !== null) handled.set(el, key);
           continue;
         }
+        unreadableAs.read(el);
         if (key !== null) handled.set(el, key);
         const cached = state.cache.get(extracted.hash);
         if (seen.has(extracted.hash)) {
@@ -1026,6 +1347,7 @@
         }
         seen.add(extracted.hash);
         found += 1;
+        if (extracted.unverified) counts.unverified += 1;
         if (cached) {
           drawOverlay(el, cached);
           counts.cached += 1;
@@ -1067,19 +1389,26 @@
             // later page while this batch was in flight; drawing then
             // would put these bubbles on the wrong page.
             for (const el of elements) {
-              if (el.isConnected && await currentDrawTargetKey(el) === srcKey) {
+              if (srcKey && el.isConnected && await currentDrawTargetKey(el) === srcKey) {
                 drawOverlay(el, regions);
                 counts.drawn += 1;
               }
             }
           }
-          counts.translated += (data.pages || []).length;
+          const reused = (data.pages || []).filter((p) => p.already_stored).length;
+          counts.translated += (data.pages || []).length - reused;
+          counts.alreadyStored += reused;
           counts.stored += (data.pages || []).filter((p) => p.stored).length;
           counts.skipped += (data.skipped || []).length;
+          counts.failed += (data.failed || []).length;
+          if (!firstFailure && (data.failed || []).length) firstFailure = data.failed[0].error;
+          if (data.stopped) serverStop = String(data.stopped);
+          return !!data.stopped;
         }, limit);
         limit = outcome.limit || limit;
         if (outcome.sentAny) watchForPageChanges();
         if (outcome.failure) return outcome.failure.reason;
+        if (serverStop) return serverStop;
       }
       return "";
     }
@@ -1106,6 +1435,8 @@
         found = await collectNew();
       }
       if (run.cancelled) { reason = "cancelled"; break; }
+      // Scrolling the whole chapter cannot help until the person allows the site.
+      if (needAccess.size && !seen.size) { reason = "end"; break; }
       stalls = found ? 0 : stalls + 1;
       report();
       if (queue.length >= limit) {
@@ -1134,23 +1465,18 @@
     }
 
     if (!seen.size) {
-      return {
-        ok: false,
-        error: reason === "error" ? failure
-          : unreadable
-            ? `Your browser wouldn't let this page's image be read (${unreadable}). ` +
-              "That happens when the site draws it from another domain without allowing it."
-            : "No page-sized images found here. If the page is still loading, try again.",
-      };
+      if (reason === "error") return { ok: false, error: failure };
+      return unreadable
+        ? unreadableResult(unreadable, needAccess)
+        : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
-    const tally = [`${seen.size} page${seen.size === 1 ? "" : "s"} found`];
-    if (counts.translated) tally.push(`${counts.translated} translated`);
-    if (counts.cached) tally.push(`${counts.cached} already done`);
-    if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
-    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally.join(", ")}.`;
+    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages);
+    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}.`;
     reportProgress(message);
     toast(message, 8000);
-    return { ok: true, data: { reason, message, found: seen.size, ...counts, pages: [] } };
+    return { ok: true, data: { reason, message, found: seen.size, ...counts,
+                               unreadable: unreadablePages, pages: [],
+                               ...accessNeeded(needAccess) } };
   }
 
   function cancelCapture() {
@@ -1172,6 +1498,9 @@
           case "captureChapter":
             respond(await captureChapter(message));
             break;
+          case "saveNovelText":
+            respond(await saveNovelText(message));
+            break;
           case "cancelCapture":
             respond({ ok: true, data: { cancelled: cancelCapture() } });
             break;
@@ -1187,6 +1516,8 @@
               translated: state.active.size,
               overlaysVisible: state.overlaysVisible,
               capture: state.capture ? { running: true, text: state.capture.text } : null,
+              textPage: isTextPage(),
+              hasSelection: !!selectedText(),
               // The page's own host. The popup uses this to key "which
               // drama does this site go to", rather than reading
               // `tab.url` -- that needs the `tabs` permission or an
@@ -1206,8 +1537,9 @@
   });
 
   // Exposed for the popup's injected checks and for tests.
-  window.__baihe = { translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
+  window.__baihe = { canvasSignature, translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
+                     isTextPage, chapterHeading, saveNovelText,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture };
+                     captureChapter, cancelCapture, captureTally, unreadableLog };
 })();

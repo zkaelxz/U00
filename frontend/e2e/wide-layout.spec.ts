@@ -37,9 +37,9 @@ for (const width of WIDTHS) {
 
     test('library grid gains columns, cards keep their width range', async ({ page }) => {
       await page.goto('/')
-      const cards = page.locator('.drama-grid > li')
+      const cards = page.locator('.drama-grid:not(.skeleton) > li')
       await expect(cards.first()).toBeVisible()
-      const grid = await page.locator('.drama-grid').boundingBox()
+      const grid = await page.locator('.drama-grid:not(.skeleton)').boundingBox()
       const card = await cards.first().boundingBox()
       expect(grid!.width).toBeGreaterThan(Math.min(width - RAIL_MAX, 1800) - 80)
       expect(card!.width).toBeGreaterThanOrEqual(299)
@@ -53,7 +53,7 @@ test.describe('desktop 1440px library row cards', () => {
 
   test('tile stays small and the text column keeps its room', async ({ page }) => {
     await page.goto('/')
-    const card = page.locator('.drama-grid > li').first()
+    const card = page.locator('.drama-grid:not(.skeleton) > li').first()
     await expect(card).toBeVisible()
     const tile = await card.locator('.drama-tile').boundingBox()
     const main = await card.locator('.drama-card-main').boundingBox()

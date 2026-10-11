@@ -3,7 +3,7 @@
 from .prompts import build_batch_user_message, build_claude_system_blocks
 from .shared import (
     ContentModerationBlocked,
-    SDK_REQUEST_TIMEOUT,
+    make_anthropic_client,
     _add_usage,
     _empty_usage,
     claude_usage,
@@ -21,8 +21,7 @@ class ClaudeEngine:
     supports_reference = True
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-5-5"):
-        import anthropic
-        self.client = anthropic.Anthropic(api_key=api_key, timeout=SDK_REQUEST_TIMEOUT)
+        self.client = make_anthropic_client(api_key)
         self.model = model
         self.last_usage = _empty_usage()
 

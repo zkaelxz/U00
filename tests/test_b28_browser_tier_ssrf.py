@@ -8,7 +8,7 @@ import threading
 import pytest
 
 import page_fetch
-from services import url_guard
+from lib import url_guard
 from sources import ladder
 from sources.ladder import AccessTier, TierOutcome
 

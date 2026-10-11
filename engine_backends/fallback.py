@@ -1,11 +1,14 @@
 """Translate fallback chain."""
 
+from lib.http import FetchError
+
 from .engine_registry import ENGINES, TRANSLATION_ONLY_ENGINES, unknown_engine_message
 from .pricing import estimate_cost_for_engine
 from .shared import (
     ContentModerationBlocked,
     _cancellable_sleep,
     _empty_usage,
+    ProviderRedirected,
     _is_rate_limit_error,
     redact_secrets,
 )
@@ -36,8 +39,9 @@ def is_fallback_error(e: Exception) -> bool:
         status = status or getattr(resp, "status_code", None)
     if status in (401, 403) or _is_rate_limit_error(e):
         return True
-    return any(hint in cls.__name__.lower()
-               for cls in type(e).__mro__ for hint in _FALLBACK_NAME_HINTS)
+    return isinstance(e, FetchError) or any(
+        hint in cls.__name__.lower()
+        for cls in type(e).__mro__ for hint in _FALLBACK_NAME_HINTS)
 
 
 # Transient errors (rate limit, timeout, connection)
@@ -63,8 +67,11 @@ def is_transient_fallback_error(e: Exception) -> bool:
         return False
     if _is_rate_limit_error(e):
         return True
-    return any(hint in cls.__name__.lower()
-               for cls in type(e).__mro__ for hint in _TRANSIENT_NAME_HINTS)
+    if isinstance(e, ProviderRedirected):  # repeats identically; switch engines instead
+        return False
+    return isinstance(e, FetchError) or any(
+        hint in cls.__name__.lower()
+        for cls in type(e).__mro__ for hint in _TRANSIENT_NAME_HINTS)
 
 
 MAX_FALLBACK_ENGINES = 2

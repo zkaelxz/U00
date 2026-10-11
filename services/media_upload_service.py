@@ -56,6 +56,7 @@ import time
 import background_jobs
 import db
 import video_export
+from lib import settings_schema
 from services import drama_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -72,7 +73,7 @@ _NO_DISK_ROOM = ("There is not enough free disk space for this upload. Free up s
 # The content modes with an audio pipeline (source_service's
 # `has_audio_pipeline`); keep in sync by hand.
 UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
-NO_UPLOAD_MODE = ("This drama has no audio to upload (it is set to work from a novel). "
+NO_UPLOAD_MODE = ("This title has no audio to upload (it is set to work from a novel). "
                    "Change what you are working from to Audio drama or Streamer/VOD first.")
 _BAD_TYPE = "Unsupported file type. Upload an audio or video file."
 _EXTRACT_FAILED = ("Could not read audio from that video file. The uploaded video was kept "
@@ -80,7 +81,7 @@ _EXTRACT_FAILED = ("Could not read audio from that video file. The uploaded vide
 _SAVE_FAILED = ("Could not put the upload in place as this title's media. The uploaded file was "
                 "kept in this title's folder and is counted with the old copies; the title's "
                 "audio and video are unchanged.")
-_CONFIRM_REPLACE = "This drama already has audio. Confirm replacing it first."
+_CONFIRM_REPLACE = "This title already has audio. Confirm replacing it first."
 KEPT_DIRNAME = "kept_media"
 _MEDIA_FIELDS = ("audio_filename", "source_video_filename")
 # A new title has no transcript_mode (it reads as have_transcript), which
@@ -96,11 +97,21 @@ EXTRACT_JOB_PREFIX = "extract_audio_"
 # job "running" forever; cancel kills it sooner.
 EXTRACT_TIMEOUT_SECONDS = 2 * 60 * 60
 _FOLLOW_POLL_SECONDS = 0.5
+# The follow-up transcription's own watchdog is per worker; this bounds the
+# wait for a run that never ends (a hung queue slot). The floor covers short
+# media, where model loading dominates; the multiple covers slow CPU runs.
+_FOLLOW_FLOOR_SECONDS = 2 * 60 * 60
+_FOLLOW_PER_MEDIA_SECOND = 5
+FOLLOW_TIMEOUT_MESSAGE = "Transcription took much longer than expected and was stopped."
+
+
+def follow_deadline_seconds(media_seconds) -> float:
+    return max(_FOLLOW_FLOOR_SECONDS, _FOLLOW_PER_MEDIA_SECOND * float(media_seconds or 0.0))
 # An unnamed in-place file younger than this may be one another Baihe process
 # has just put in place and not yet recorded (the upload claim is per
 # process), so recovery leaves it for a later pass.
 UNNAMED_MIN_AGE_SECONDS = 10 * 60
-_BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+_BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 # Per-drama upload claim: held from the running-job check until the
 # file is in place and any extraction job is registered, so a concurrent
 # upload is refused before it touches `source<ext>`. In-process only;
@@ -120,7 +131,7 @@ def _env_limit_mb():
     if not (math.isfinite(mb) and mb > 0):
         return None
     # 1e303 is finite, but int(mb * _MB) would overflow to inf.
-    return min(mb, settings_service.MAX_UPLOAD_MB)
+    return min(mb, settings_schema.UPLOAD_MB_MAX)
 
 
 def upload_limit_from_env() -> bool:
@@ -134,7 +145,7 @@ def max_upload_bytes() -> int:
     so there is no separate household limit to apply."""
     mb = _env_limit_mb()
     if mb is None:
-        mb = settings_service.get_preference("max_upload_mb")
+        mb = settings_service.get("max_upload_mb")
     return int(mb * _MB)
 
 
@@ -455,7 +466,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
     ext = _safe_extension(client_filename)
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in UPLOAD_CONTENT_MODES:
         raise InvalidInputError(NO_UPLOAD_MODE)
     if has_media(drama, drama_id) and not confirm_replace_audio:
@@ -505,7 +516,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         raise InvalidInputError("confirm_replace_audio must be true or false.")
     with claims_lock:
         if drama_id in claimed:
-            raise ConflictError("Another upload is in progress for this drama.")
+            raise ConflictError("Another upload is in progress for this title.")
         claimed.add(drama_id)
     try:
         if drama_service.job_running_for_drama(drama_id):
@@ -532,7 +543,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         try:
             started = background_jobs.start_job(
                 job_id, _extract_audio_job, job_id, drama_id, ext, staged, transcribe_options,
-                description=f"Audio extraction (drama #{drama_id})")
+                description=f"Audio extraction (title #{drama_id})")
         except BaseException:
             _keep_failed_upload(ddir, staged, ext)
             raise
@@ -556,6 +567,11 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     try:
         background_jobs.run_cancellable(job_id, cmd, cwd=ddir, timeout=EXTRACT_TIMEOUT_SECONDS)
         failed = _SAVE_FAILED
+        from services import transcribe_pipeline, transcribe_service
+        # Probed before install_media moves the file, and only when a
+        # transcription will follow and need its deadline.
+        media_seconds = (transcribe_pipeline._audio_duration_seconds(part_path)
+                         if transcribe_options is not None else None)
         install_media(drama_id, {"source_video_filename": (staged, "source", ext),
                                  "audio_filename": (part_path, "audio", ".wav")})
     except BaseException as exc:
@@ -570,25 +586,34 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     if transcribe_options is None:
         background_jobs.update_progress(job_id, 1.0, "Audio extracted.")
         return
-    from services import transcribe_service
     if background_jobs.is_cancel_requested(job_id):  # never start a GPU run after a cancel
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.1, "Audio extracted. Starting transcription...")
     run = transcribe_service.start_transcribe_run(drama_id, **transcribe_options)
-    _follow_job(job_id, run["job_id"])
+    _follow_job(job_id, run["job_id"], follow_deadline_seconds(media_seconds))
 
 
-def _follow_job(job_id, child_id):
+def _follow_job(job_id, child_id, deadline_s):
     """Mirrors child_id's progress onto job_id until the child ends and
     forwards a cancel to it; a child error or cancel ends job_id the same way.
     A queued child is removed outright by cancel_queued, so once a cancel
-    has been forwarded a vanished child also counts as cancelled."""
+    has been forwarded a vanished child also counts as cancelled. A child
+    still going after deadline_s seconds of running is stopped and job_id ends
+    as an error, so this job can't wait forever. Time spent queued behind
+    another title's GPU job doesn't count: the clock starts when it runs."""
     forwarded = False
+    give_up_at = time.monotonic() + deadline_s
     while True:
         child = background_jobs.get_status(child_id) or {}
         status = child.get("status")
         if status not in ("running", "queued"):
-            break
+            break  # a child that ended just past the deadline still counts as ended
+        if status == "queued":
+            give_up_at = time.monotonic() + deadline_s
+        elif time.monotonic() >= give_up_at:
+            if not background_jobs.cancel_queued(child_id):
+                background_jobs.request_cancel(child_id)
+            raise RuntimeError(FOLLOW_TIMEOUT_MESSAGE)
         if background_jobs.is_cancel_requested(job_id) and not forwarded:
             forwarded = True
             if not background_jobs.cancel_queued(child_id):
@@ -642,7 +667,7 @@ def get_media_status(drama_id) -> dict:
     """Booleans, counts and the upload cap only -- never a path or filename."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     audio = drama.get("audio_filename")
     return {
         "drama_id": drama_id,

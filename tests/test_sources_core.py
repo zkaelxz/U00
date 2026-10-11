@@ -843,7 +843,7 @@ class TestLadder:
     def _public_dns(self, monkeypatch):
         # B-28: an unresolvable start URL drops the browser tiers; these
         # fake `.invalid` hosts stand for public sites, so resolve them.
-        monkeypatch.setattr("services.url_guard.resolve_public", lambda url: "93.184.216.34")
+        monkeypatch.setattr("lib.url_guard.resolve_public", lambda url: "93.184.216.34")
 
     def test_tries_each_level_in_order_and_stops_at_first_success(self, isolated_db):
         log = []
@@ -950,7 +950,7 @@ class TestRealCaseMatrix:
     def _public_dns(self, monkeypatch):
         # B-28: an unresolvable start URL drops the browser tiers; these
         # fake `.invalid` hosts stand for public sites, so resolve them.
-        monkeypatch.setattr("services.url_guard.resolve_public", lambda url: "93.184.216.34")
+        monkeypatch.setattr("lib.url_guard.resolve_public", lambda url: "93.184.216.34")
 
     """Shapes of the real cases the roadmap's vetting actually hit."""
 
@@ -1173,7 +1173,7 @@ class TestRequestsTransport:
         # the fake `.invalid` hosts don't resolve, so map them to a public IP.
         # The fake session below still hands back a response with `history`,
         # which the transport keeps merging (the cookie behaviour under test).
-        monkeypatch.setattr("services.url_guard.resolve_public", lambda url: "93.184.216.34")
+        monkeypatch.setattr("lib.url_guard.resolve_public", lambda url: "93.184.216.34")
 
     class _FakeResp:
         def __init__(self, status_code=200, headers=None, content=b"", url="",

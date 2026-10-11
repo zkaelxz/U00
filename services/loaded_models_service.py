@@ -8,6 +8,7 @@ sizes and booleans only -- never a path or a URL.
 """
 
 import ipaddress
+import json
 import shutil
 import subprocess
 import sys
@@ -16,7 +17,9 @@ from urllib.parse import urlsplit
 
 import background_jobs
 import core
+import whisper_models
 import memory_headroom
+from lib import http
 from services import settings_service
 from services.service_errors import ConflictError
 
@@ -24,6 +27,7 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 # llama.cpp's server default; one fixed probe rather than another setting.
 LLAMA_CPP_PORT = 8080
 PROBE_TIMEOUT_SECONDS = 2
+PROBE_MAX_BYTES = 1_000_000
 NVIDIA_SMI_TIMEOUT_SECONDS = 5
 
 _UNKNOWN_MEMORY = {"state": "unknown", "total_bytes": None, "free_bytes": None,
@@ -47,12 +51,11 @@ def is_loopback_url(url: str) -> bool:
 
 
 def _loopback_get(url: str):
-    import requests
+    # guard=None: the caller has already checked the address is loopback.
     # trust_env off: a configured proxy must never see (or be asked to
     # reach) a loopback probe.
-    with requests.Session() as session:
-        session.trust_env = False
-        return session.get(url, timeout=PROBE_TIMEOUT_SECONDS)
+    return http.get(url, timeout=PROBE_TIMEOUT_SECONDS, max_bytes=PROBE_MAX_BYTES, guard=None,
+                    trust_env=False, max_error_bytes=1)
 
 
 def _ollama_rows() -> dict:
@@ -65,7 +68,7 @@ def _ollama_rows() -> dict:
         resp = _loopback_get(f"{base}/api/ps")
         if not resp.ok:
             return {"state": "unavailable", "models": []}
-        loaded = resp.json().get("models") or []
+        loaded = json.loads(resp.body).get("models") or []
     except Exception:
         return {"state": "not_running", "models": []}
     models = []
@@ -90,9 +93,9 @@ def _app_rows() -> dict:
     """Reads the caches as they are; loads nothing and imports nothing new."""
     models = []
     try:
-        for key in list(core._whisper_model_cache):
+        for key in list(whisper_models._whisper_model_cache):
             target = key.rsplit("_", 1)[0]
-            info = core._whisper_device_info.get(key) or {}
+            info = whisper_models._whisper_device_info.get(key) or {}
             device = info.get("device") or ("cuda" if key.endswith("_gpu") else "cpu")
             models.append({"name": _model_label(target), "kind": "Whisper",
                            "device": _device_label(device)})
@@ -154,7 +157,7 @@ def _gpu_row() -> dict:
 def _llama_cpp_running() -> bool:
     try:
         resp = _loopback_get(f"http://127.0.0.1:{LLAMA_CPP_PORT}/v1/models")
-        return bool(resp.ok and isinstance(resp.json().get("data"), list))
+        return bool(resp.ok and isinstance(json.loads(resp.body).get("data"), list))
     except Exception:
         return False
 
@@ -195,5 +198,5 @@ def free_app_models() -> dict:
     using one of them, and the cache gives no way to tell which."""
     if _gpu_job_running():
         raise ConflictError(BUSY_MESSAGE)
-    core.release_gpu_models()
+    whisper_models.release_gpu_models()
     return get_loaded_models()

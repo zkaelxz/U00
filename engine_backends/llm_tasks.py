@@ -1,20 +1,278 @@
 """Single-prompt LLM calls for features other than a translation batch:
 speaker tagging, pacing, consistency, summaries and flagging."""
 
+import contextlib
+import contextvars
 import re
+import threading
+import time
+from .fallback import (FALLBACK_BACKOFF_BASE_SECONDS, FALLBACK_BACKOFF_CAP_SECONDS,
+                       FALLBACK_TRANSIENT_RETRIES, FallbackEngine)
 from .gemini import GeminiEngine
-from .local import OllamaEngine, _ollama_chat, estimate_ollama_num_ctx, strip_ollama_thinking
+from .local import (OllamaEngine, _ollama_chat, abort_check_var, estimate_ollama_num_ctx,
+                    ollama_chat_timeout, strip_ollama_thinking)
 from .openai_compat import OpenAIEngine
 from .shared import (
+    _backoff_wait_var,
+    _cancel_check_var,
     _id_keyed_batch_request,
+    LLMTaskTimeout,
     build_numbered_lines,
     call_with_backoff,
     extract_first_json_value,
+    language_name,
+    parse_flag_entries,
     parse_json_array,
-    read_json_capped,
+    post_json,
     redact_secrets,
     request_translations_with_retry,
+    SDK_REQUEST_TIMEOUT,
+    TranslationCancelled,
 )
+from .thinking import deepseek_extra_body
+from services import job_timing_service
+
+# DeepSeek's per-request bound. It is only a per-read idle timeout, so
+# LLM_TASK_DEADLINE_SECONDS is what actually ends a call whose server keeps the
+# connection alive while it queues or reasons. Other engines keep their own
+# client timeout: Claude's 300 s is deliberate (a shorter one re-sends and
+# re-bills a reply that was still coming).
+LLM_TASK_REQUEST_TIMEOUT = 120
+LLM_TASK_DEADLINE_SECONDS = 180
+# Past the client timeout so the engine's own error surfaces before the
+# deadline cuts in.
+_DEADLINE_MARGIN_SECONDS = 30
+# Conservative: DeepSeek's chat models refuse a larger max_tokens with a 400,
+# and callers size theirs by line count (scanlate asks for 10000 on a big page).
+DEEPSEEK_MAX_OUTPUT_TOKENS = 8192
+
+
+class _BoundedScope:
+    def __init__(self, job_id, cancel_check, deadline, no_thinking, lenient_empty=False,
+                 closes_ollama=True):
+        self.job_id = job_id
+        self.cancel_check = cancel_check
+        self.deadline = deadline
+        self.no_thinking = no_thinking
+        # Callers written before calls were bounded (Reflect, line tools...)
+        # parse an empty reply into their own default instead of failing.
+        self.lenient_empty = lenient_empty
+        # False for a scope nobody opened: with no cancel source to honour, the
+        # request is left to Ollama's own timeout instead of the abortable path.
+        self.closes_ollama = closes_ollama
+
+
+_scope_var = contextvars.ContextVar("llm_task_scope", default=None)
+# True inside the worker thread of a bounded call, so a nested call runs
+# directly instead of stacking a second worker and deadline.
+_in_worker_var = contextvars.ContextVar("llm_task_in_worker", default=False)
+# Calls with no job id (request threads, CLI) can't be limited per job, so the
+# limit is on how many workers per engine may be alive at once, abandoned ones
+# included. A worker takes its slot under the lock before it starts, so two
+# calls checking together can't both pass with one slot left.
+_MAX_ABANDONED_JOBLESS = 4
+_abandoned_jobless = {}  # engine key -> worker threads alive or not yet pruned
+# job id -> worker thread of a call this job stopped waiting for. A python
+# thread can't be killed, so the rule is one such thread per job id: a new
+# call is refused while it lives, instead of piling more up.
+_abandoned = {}
+_abandoned_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
+                      deadline: float = None, no_thinking: bool = False,
+                      lenient_empty: bool = False):
+    """Inside this block every call_llm_json waits at most `deadline` seconds
+    in total (retries included) and gives up within a moment of cancel_check()
+    turning true. The blocking call runs in a worker thread so the job can
+    stop waiting; its late result is discarded. on_wait(delay, next_attempt,
+    max_retries) is told about each retry.
+
+    deadline=None picks one per engine (_deadline_for). no_thinking switches
+    DeepSeek's reasoning off for short JSON tasks; it is opt-in because a
+    title's Reflect translation passes also call call_llm_json and must keep
+    the title's own thinking choice."""
+    tokens = (_scope_var.set(_BoundedScope(job_id, cancel_check, deadline, no_thinking, lenient_empty)),
+              _cancel_check_var.set(cancel_check),
+              _backoff_wait_var.set(on_wait))
+    try:
+        yield
+    finally:
+        _backoff_wait_var.reset(tokens[2])
+        _cancel_check_var.reset(tokens[1])
+        _scope_var.reset(tokens[0])
+
+
+@contextlib.contextmanager
+def bounded_job_calls(job_id: str, cancel_check, deadline: float = None,
+                      lenient_empty: bool = False):
+    """bounded_llm_calls for a thread job that ends "cancelled": a cancel
+    inside a call or its retry wait raises TranslationCancelled, which
+    background_jobs would record as an error."""
+    import background_jobs
+    try:
+        with bounded_llm_calls(job_id, cancel_check, deadline=deadline,
+                               lenient_empty=lenient_empty):
+            yield
+    except TranslationCancelled:
+        raise background_jobs.JobCancelled(job_id) from None
+
+
+# A translation batch may legitimately make a second request (missing ids are
+# asked for once more), so its deadline is two client timeouts plus the margin.
+_BATCH_REQUESTS = 2
+
+
+def _request_timeout_for(engine) -> float:
+    if isinstance(engine, OllamaEngine):
+        return ollama_chat_timeout(engine.model)
+    return SDK_REQUEST_TIMEOUT
+
+
+def request_deadline_for(engine) -> float:
+    """Total seconds one request to this engine may take: its client timeout
+    plus the margin. DeepSeek with thinking on keeps the connection alive
+    while it reasons, so its idle timeout never fires and a scope that runs
+    one request per call (a Reflect pass, a Scanlate page) must allow at
+    least this much rather than LLM_TASK_DEADLINE_SECONDS."""
+    if isinstance(engine, FallbackEngine):
+        return max(request_deadline_for(e) for e in engine.engines)
+    return _request_timeout_for(engine) + _DEADLINE_MARGIN_SECONDS
+
+
+def _fallback_backoff_total() -> float:
+    return sum(min(FALLBACK_BACKOFF_CAP_SECONDS, FALLBACK_BACKOFF_BASE_SECONDS * (2 ** i))
+               for i in range(FALLBACK_TRANSIENT_RETRIES))
+
+
+def batch_deadline_for(engine) -> float:
+    """Total seconds one engine.translate_batch call may take, retries inside
+    it included. A fallback chain gets one window per engine so a hung first
+    engine still leaves time for the next: that window covers every attempt
+    FallbackEngine makes on the same engine before switching, plus the
+    backoff between them."""
+    if isinstance(engine, FallbackEngine):
+        attempts = FALLBACK_TRANSIENT_RETRIES + 1
+        return sum(attempts * _BATCH_REQUESTS * _request_timeout_for(e) + _fallback_backoff_total()
+                   for e in engine.engines) + _DEADLINE_MARGIN_SECONDS
+    return _BATCH_REQUESTS * _request_timeout_for(engine) + _DEADLINE_MARGIN_SECONDS
+
+
+def llm_tasks_scope_active() -> bool:
+    return _scope_var.get() is not None
+
+
+def _deadline_for(scope: _BoundedScope, engine) -> float:
+    if scope.deadline is not None:
+        return scope.deadline
+    if getattr(engine, "name", "") == "deepseek":
+        return LLM_TASK_DEADLINE_SECONDS
+    # Ollama's own chat timeout is the bound (up to 900 s for the big models,
+    # which legitimately take that long); the deadline must not cut a local
+    # run short. Other clients' timeout surfaces first, then the deadline.
+    return max(LLM_TASK_DEADLINE_SECONDS, request_deadline_for(engine))
+
+
+def _engine_key(engine) -> str:
+    return getattr(engine, "name", None) or type(engine).__name__
+
+
+def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None,
+                 on_late_result=None):
+    """on_late_result() is called once, from whichever thread notices first,
+    when fn returns after the call was abandoned: the result is discarded but
+    the request was billed, so the caller can still log its usage."""
+    box = {}
+    scope_on_wait = _backoff_wait_var.get()
+    ctx = contextvars.copy_context()
+    abandon = threading.Event()
+    # Once the job lets go, the worker's retry loop must stop at its next
+    # backoff check and write nothing: job ids repeat per drama, so a late
+    # progress update or a cancel check would land on the next run.
+    ctx.run(_cancel_check_var.set, lambda: abandon.is_set() or bool(scope.cancel_check()))
+    if scope_on_wait is not None:
+        def on_wait(*args):
+            if not abandon.is_set():
+                scope_on_wait(*args)
+        ctx.run(_backoff_wait_var.set, on_wait)
+    ctx.run(_scope_var.set, scope)
+    ctx.run(_in_worker_var.set, True)
+    # Lets cancel and the deadline close an Ollama request (also one inside a
+    # fallback chain), which makes it stop generating; otherwise it holds the
+    # GPU after the job has let go. Other engines never read it.
+    if scope.closes_ollama:
+        ctx.run(abort_check_var.set, lambda: abandon.is_set() or bool(scope.cancel_check()))
+    # The job's stage cost is keyed by a thread-local the job thread set; the
+    # worker inherits it so usage logged inside the call still reaches the job.
+    timing_job = job_timing_service.current_job()
+    late_once = threading.Lock()
+
+    def record_late_result():
+        if on_late_result is not None and late_once.acquire(blocking=False):
+            try:
+                on_late_result()
+            except Exception as exc:
+                import applog
+                applog.get_logger().warning(
+                    "usage of an abandoned AI call was not logged: %s", redact_secrets(str(exc)))
+
+    def work():
+        job_timing_service.set_current_job(timing_job)
+        try:
+            box["value"] = ctx.run(fn)
+        except BaseException as exc:
+            box["error"] = exc
+            return
+        if abandon.is_set():
+            record_late_result()
+
+    worker = threading.Thread(target=work, daemon=True, name=f"llm-task-{scope.job_id}")
+    with _abandoned_lock:
+        if scope.job_id is None:
+            slots = _abandoned_jobless.setdefault(_engine_key(engine), [])
+            slots[:] = [w for w in slots if w.is_alive()]
+            busy = len(slots) >= _MAX_ABANDONED_JOBLESS
+        else:
+            old = _abandoned.get(scope.job_id)
+            busy = old is not None and old.is_alive()
+            if not busy:
+                _abandoned.pop(scope.job_id, None)
+        if busy:
+            raise LLMTaskTimeout(
+                "The previous AI request is still finishing. Wait a minute and try again.")
+        if scope.job_id is None:
+            slots.append(worker)
+        worker.start()
+    if deadline is None:
+        deadline = _deadline_for(scope, engine)
+    end = time.monotonic() + deadline
+    while True:
+        worker.join(0.25)
+        if not worker.is_alive():
+            break
+        cancelled = scope.cancel_check()
+        if cancelled or time.monotonic() >= end:
+            abandon.set()
+            # Gives a closed Ollama request a moment to unwind so the GPU is
+            # free before the job reports back.
+            worker.join(2.0)
+            if worker.is_alive():
+                if scope.job_id is not None:
+                    with _abandoned_lock:
+                        _abandoned[scope.job_id] = worker
+            elif "value" in box:
+                # Returned between the check and abandon.set(); the worker may
+                # have missed the flag, so the discarded result is logged here.
+                record_late_result()
+            if cancelled:
+                raise TranslationCancelled("cancelled")
+            raise LLMTaskTimeout(
+                f"The AI engine did not answer within {int(deadline)} seconds. "
+                "Try again, or pick a different engine.")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "[]",
@@ -41,7 +299,67 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     after a successful call, the same shape already used by the main
     Translate job's own usage_cb -- so a caller can log real spend here
     too, instead of only translation ever reaching the cost dashboard.
+
+    Always has a total deadline; inside bounded_llm_calls it can also be
+    cancelled and reports retries.
     """
+    return _bounded(lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb), engine)
+
+
+def _bounded(fn, engine, deadline: float = None, on_late_result=None):
+    if _in_worker_var.get():
+        return fn()
+    scope = _scope_var.get()
+    if scope is None:
+        # Whoever called has no job to cancel; a cancel check set for the
+        # backoff waits still applies.
+        scope = _BoundedScope(None, _cancel_check_var.get() or (lambda: False), None, False,
+                              lenient_empty=True, closes_ollama=False)
+    return _run_bounded(scope, fn, engine, deadline, on_late_result)
+
+
+def bound_batches(engine):
+    """Makes every engine.translate_batch call on this engine instance run
+    under call_batch_bounded, for code that calls it directly. Instance-level
+    on purpose: the engine keeps its class, its client and its last_usage."""
+    original = getattr(engine, "translate_batch", None)
+    if original is None:
+        return engine
+    engine.translate_batch = lambda *a, **kw: call_batch_bounded(
+        engine, lambda: original(*a, **kw))
+    return engine
+
+
+def call_batch_bounded(engine, fn, on_late_result=None):
+    """Runs one engine.translate_batch-style call (fn, no arguments) under the
+    batch deadline, so a hung engine ends the call and Cancel is noticed within
+    a moment instead of after the SDK's own timeouts. on_late_result() runs once
+    if fn returns after the call was abandoned (see _run_bounded)."""
+    return _bounded(fn, engine, batch_deadline_for(engine), on_late_result)
+
+
+def _is_deepseek(engine) -> bool:
+    return getattr(engine, "name", "") == "deepseek"
+
+
+def _deepseek_kwargs(engine, max_tokens) -> dict:
+    """Request arguments only DeepSeek gets: its keep-alive connection needs
+    the tighter read timeout, and thinking is off only when the bounded call
+    asked for it.
+
+    max_tokens is sent only with thinking off: with thinking on (the default)
+    hidden reasoning counts toward it, so a cap sized for the visible JSON cuts
+    the reply off and returns empty content."""
+    scope = _scope_var.get()
+    kwargs = {"timeout": LLM_TASK_REQUEST_TIMEOUT}
+    if scope is not None:
+        if scope.no_thinking:
+            kwargs["max_tokens"] = min(max_tokens, DEEPSEEK_MAX_OUTPUT_TOKENS)
+            kwargs.update(deepseek_extra_body({"reply_without_thinking": True}))
+    return kwargs
+
+
+def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb) -> str:
     client = getattr(engine, "client", None)
     if client is not None and hasattr(client, "messages"):
         resp = call_with_backoff(lambda: client.messages.create(
@@ -56,21 +374,28 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     if client is not None:
         resp = call_with_backoff(lambda: client.chat.completions.create(
             model=engine.model, messages=[{"role": "user", "content": prompt}],
+            **(_deepseek_kwargs(engine, max_tokens) if _is_deepseek(engine)
+               else {"max_tokens": max_tokens}),
         ))
         if usage_cb and getattr(resp, "usage", None):
             usage_cb(getattr(resp.usage, "prompt_tokens", 0),
                      getattr(resp.usage, "completion_tokens", 0))
-        return resp.choices[0].message.content.strip()
+        content = resp.choices[0].message.content
+        # Only a bounded caller treats "" as a failure; the others have always
+        # parsed an empty reply into their own default.
+        scope = _scope_var.get()
+        if not content and scope is not None and not scope.lenient_empty:
+            raise RuntimeError(
+                "The AI engine returned an empty reply (it may have run out of output tokens).")
+        return (content or "").strip()
 
     if isinstance(engine, GeminiEngine):
-        import requests
         engine._throttle_for_free_tier()
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{engine.model}:generateContent")
-        resp = call_with_backoff(lambda: requests.post(
-            url, headers={"x-goog-api-key": engine.api_key},
-            json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=120, stream=True))
-        data = read_json_capped(resp, 120)
+        data, _ = call_with_backoff(lambda: post_json(
+            url, {"contents": [{"parts": [{"text": prompt}]}]}, timeout=120,
+            headers={"x-goog-api-key": engine.api_key}, label="Gemini"))
         usage = data.get("usageMetadata") or {}
         if usage_cb:
             usage_cb(usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0))
@@ -177,24 +502,29 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
     return labels
 
 
-def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 1.2):
+def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 1.2,
+                        too_long_margin: float = 1.15, short_ratio: float = 0.4):
     """Post-translation pacing pass (idea borrowed from KrillinAI/
     VideoLingo): flags English lines that are too short to read
     comfortably at their assigned duration, or too long to say
     naturally within it, using a simple words-per-minute estimate.
     Returns a list of {idx, issue, suggestion} for lines worth a second
     look before dubbing -- this doesn't auto-edit anything, just tells
-    you where the pacing is likely to feel rushed or dragged out."""
+    you where the pacing is likely to feel rushed or dragged out.
+    `severity` (how many times over the slot, or how empty it is) lets a
+    caller list the worst first."""
     flags = []
     for ln in en_lines:
         duration = max(ln.end - ln.start, 0.01)
         word_count = len(ln.en.split())
         needed_seconds = word_count / (target_wpm / 60)
-        if needed_seconds > duration * 1.15:
+        if needed_seconds > duration * too_long_margin:
             flags.append({"idx": ln.idx, "issue": "too_long_for_slot",
+                          "severity": needed_seconds / duration,
                           "detail": f"~{needed_seconds:.1f}s needed, only {duration:.1f}s available"})
-        elif duration > min_seconds and needed_seconds < duration * 0.4:
+        elif duration > min_seconds and needed_seconds < duration * short_ratio:
             flags.append({"idx": ln.idx, "issue": "very_short_relative_to_slot",
+                          "severity": duration / max(needed_seconds, 0.01),
                           "detail": f"~{needed_seconds:.1f}s needed, {duration:.1f}s available -- "
                                     "may sound like a long pause"})
     return flags
@@ -234,7 +564,7 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15, usage_cb=
     return lines_to_fix
 
 
-def build_consistency_prompt(batch: list) -> str:
+def build_consistency_prompt(batch: list, source_language=None) -> str:
     """The consistency-check prompt for one window of already-translated
     lines. Position-based (1., 2., ...), not id-keyed -- an issue names a
     TERM ("a character's name spelled two ways"), never a specific line,
@@ -244,8 +574,9 @@ def build_consistency_prompt(batch: list) -> str:
     window of lines."""
     pairs = "\n".join(f"{i+1}. {ln.zh} -> {ln.en}" for i, ln in enumerate(batch))
     return (
-        "Below are Chinese source lines paired with their English translations, from the "
-        "same drama. Look for CONSISTENCY issues: the same Chinese name, term, or recurring "
+        f"Below are {language_name(source_language, 'source-language')} source lines paired with "
+        "their English translations, from the "
+        "same drama. Look for CONSISTENCY issues: the same source-language name, term, or recurring "
         "phrase translated differently in different lines (e.g. a character's name spelled "
         "two ways, or a recurring term like a nickname/title rendered inconsistently). "
         "Ignore normal translation variation for ordinary sentences -- only flag terms that "
@@ -256,7 +587,8 @@ def build_consistency_prompt(batch: list) -> str:
     )
 
 
-def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, cancel_check=None):
+def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, cancel_check=None,
+                          source_language=None):
     """Reviews already-translated lines for consistency issues: the same
     Chinese term/name translated differently in different places. Works
     on the .zh/.en pairs already present -- doesn't call any external
@@ -289,7 +621,7 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
             cancel_check()
         batch = translated[start:start + batch_size]
         total_batches += 1
-        prompt = build_consistency_prompt(batch)
+        prompt = build_consistency_prompt(batch, source_language)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback=None,
                                   usage_cb=usage_cb)
@@ -380,11 +712,18 @@ SYSTEM_FLAG_REASONS = {
     "language_uncertain": ("Language uncertain -- the text doesn't match the language detected "
                            "for this line"),
     "timing_overlap": "Overlaps the next line -- exports trim it",
+    "timing_drift": "Timing disagrees with the audio -- the line may start or end away from the speech",
     "reading_speed": "Too fast to read -- too many characters for the time it's shown",
     "factual_detail": ("Auto QC: a number, date, name, amount or unit differs between the "
                        "source and the translation"),
+    "gap_untranscribed": ("Added for a stretch with no subtitle line -- check the text "
+                          "heard there"),
     "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
                             "result wasn't applied; translate this line again"),
+    "source_changed": ("Source changed -- the source text was changed after this line was "
+                       "translated; retranslate it or keep the English"),
+    "pronoun_check": ("Pronoun check -- the translation says he/him but no he/him character "
+                      "is set for this speaker"),
     "content_blocked": ("Blocked by the translation engine's own content-moderation system -- "
                         "see the note for which engine and its stated reason"),
 }
@@ -406,7 +745,7 @@ def matching_glossary_terms(zh: str, glossary_terms) -> list:
     return [t for t in (glossary_terms or []) if any(f and f in zh for f in _term_forms(t))]
 
 
-def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
+def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx, source_language=None) -> str:
     """The review-queue prompt for one batch of already-translated lines,
     each numbered by id_fn(ln) (its position by default, matching what
     flag_uncertain_lines' own by_idx lookup expects back). bulk_translate.py's
@@ -417,7 +756,8 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     reasons_desc = "\n".join(f"  - {k}: {v}" for k, v in FLAG_REASONS.items())
     pairs = "\n".join(f"[{id_fn(ln)}] {ln.zh} -> {ln.en}" for ln in batch)
     return (
-        "Below are Chinese source lines paired with their English translations. Flag ONLY "
+        f"Below are {language_name(source_language, 'source-language')} source lines paired with "
+        "their English translations. Flag ONLY "
         "the lines that genuinely need a second look -- most lines need none at all, and "
         "over-flagging defeats the point (the person reviewing this can't tell a real issue "
         "from noise). Reasons worth flagging:\n\n"
@@ -428,8 +768,13 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     )
 
 
+def flaggable_lines(lines) -> list:
+    """Translated lines without a system flag, which the model must not replace."""
+    return [ln for ln in lines if (ln.en or "").strip() and ln.flag not in SYSTEM_FLAG_REASONS]
+
+
 def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None,
-                         cancel_check=None):
+                         cancel_check=None, source_language=None, stats=None):
     """
     Reviews already-translated lines and flags the ones worth a second
     look -- the review-queue idea: instead of scanning a whole multi-hour
@@ -443,21 +788,25 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
     untouched -- every line's .flag stays whatever it already was.
     cancel_check: called before each batch; it may raise to stop the
     run between batches (a batch already sent still finishes).
+    stats, if given, gets unparsable_entries / failed_batches / total_batches.
     """
+    if stats is not None:
+        stats.update(unparsable_entries=0, failed_batches=0, total_batches=0)
     if not getattr(engine, "supports_reference", False):
         return lines
-    translated = [ln for ln in lines if ln.en.strip()]
+    translated = flaggable_lines(lines)
     if not translated:
         return lines
 
     n_batches = (len(translated) + batch_size - 1) // batch_size
     failed_batches = 0
+    unparsable = 0
 
     for bi, start in enumerate(range(0, len(translated), batch_size)):
         if cancel_check:
             cancel_check()
         batch = translated[start:start + batch_size]
-        prompt = build_flag_prompt(batch)
+        prompt = build_flag_prompt(batch, source_language=source_language)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]",
                                   usage_cb=usage_cb)
@@ -468,19 +817,18 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
         if progress_cb:
             progress_cb((bi + 1) / n_batches)
 
-        flagged = parse_json_array(text, 0)
-        if not isinstance(flagged, list):
-            continue
-        by_idx = {ln.idx: ln for ln in batch}
-        for f in flagged:
-            if not isinstance(f, dict) or f.get("line_idx") is None:
-                continue
-            ln = by_idx.get(int(f["line_idx"]))
-            if ln is None:
+        flagged, bad = parse_flag_entries(parse_json_array(text, 0))
+        unparsable += bad
+        for ln in batch:
+            f = flagged.get(ln.idx)
+            if f is None:
                 continue
             reason = f.get("reason") if f.get("reason") in FLAG_REASONS else "uncertain_translation"
             ln.flag = reason
             ln.flag_note = f.get("note", "")
+    if stats is not None:
+        stats.update(unparsable_entries=unparsable, failed_batches=failed_batches,
+                     total_batches=n_batches)
     if failed_batches:
         # Those batches were not checked, which is not the same as "no issues".
         import applog

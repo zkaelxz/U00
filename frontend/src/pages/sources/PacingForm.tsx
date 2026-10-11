@@ -6,18 +6,7 @@ import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import type { SourcesSettings } from '../../types/sources'
-import {
-  BOOL_FIELDS,
-  CACHE_MAX_FIELD,
-  CHECK_FIELD,
-  PACING_ROWS,
-  cacheLabel,
-  draftFrom,
-  pacingErrors,
-  settingsChanges,
-  type NumField,
-  type PacingDraft,
-} from './sourcesFormat'
+import { BOOL_FIELDS, CACHE_MAX_FIELD, CHECK_FIELD, PACING_ROWS, cacheLabel, draftFrom, pacingErrors, settingsChanges, type NumField, type PacingDraft } from './sourcesSettings'
 
 type Props = {
   settings: SourcesSettings

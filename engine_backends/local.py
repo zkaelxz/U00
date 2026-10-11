@@ -1,20 +1,22 @@
 """Local engine: Ollama."""
 
 import contextvars
+import json
 import re
 import threading
 import weakref
 
-from services import capped_body
+from lib import capped_body, http
 
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import (
+    PROVIDER_RESPONSE_MAX_BYTES,
     TranslationCancelled,
     read_json_capped,
     redact_secrets,
     request_translations_with_retry,
 )
-from .thinking import ollama_chat_no_thinking, wants_no_thinking
+from .thinking import ollama_chat_with_think, thinking_choice
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -151,7 +153,6 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
     load can take minutes), and a blocked read has no other way to be woken.
     Closing the connection also tells Ollama to stop generating, which frees
     the GPU for whatever runs next."""
-    import requests
     # The tracking adapter is live_fetch's: it keeps every socket (even one
     # still in its TLS handshake or awaiting headers) reachable for shutdown.
     from live_fetch import _TrackingAdapter, _shutdown
@@ -171,10 +172,12 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
             sockets.discard(sock)
             sock.close()
 
-    session = requests.Session()
-    adapter = _TrackingAdapter(track, release)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
+    # guard=None: the address is the one the PC owner set in Settings.
+    session = http.session(timeout=ollama_chat_timeout(str(payload.get("model") or "")),
+                           guard=None,
+                           # only a backstop: read_json_capped refuses at the exact cap
+                           max_bytes=PROVIDER_RESPONSE_MAX_BYTES + capped_body.DEFAULT_CHUNK,
+                           adapter=_TrackingAdapter(track, release))
     box = {}
 
     def work():
@@ -213,7 +216,7 @@ OLLAMA_ERROR_BODY_MAX_BYTES = 2000
 def _error_body_text(resp) -> str:
     """A small, redacted slice of an error response's body; "" if unreadable.
     read_capped closes the response."""
-    from services import capped_body
+    from lib import capped_body
     try:
         raw = capped_body.read_capped(resp, OLLAMA_ERROR_BODY_MAX_BYTES, 5.0,
                                       lambda: ValueError("error body too large"))
@@ -358,10 +361,11 @@ class OllamaEngine:
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
             }
-            if wants_no_thinking(context):
-                resp = ollama_chat_no_thinking(_ollama_chat, self.base_url, payload)
-            else:
+            choice = thinking_choice(context)
+            if choice is None:
                 resp = _ollama_chat(self.base_url, payload)
+            else:
+                resp = ollama_chat_with_think(_ollama_chat, self.base_url, payload, choice)
             return strip_ollama_thinking(resp["message"]["content"])
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
@@ -385,17 +389,19 @@ def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
     """Cheap health check (GET /api/tags, 2.5s timeout) -- true only if
     the server actually responds, not just that the URL is well-formed."""
     import time
-    import requests
     base_url = base_url.rstrip("/")
     now = time.time()
     cached = _ollama_reachability_cache.get(base_url)
     if cached and now - cached[0] < OLLAMA_REACHABILITY_CACHE_SECONDS:
         return cached[1]
     try:
-        # stream=True so only the status is read; the model list isn't needed here.
-        resp = requests.get(f"{base_url}/api/tags", timeout=2.5, stream=True)
-        reachable = resp.ok
-        resp.close()
+        # Only the status matters: truncate=True cuts the body instead of failing on a long model list.
+        # guard=None: base_url is the Ollama address the user configured (loopback or LAN).
+        # Redirects are followed like _ollama_chat_request does, so a proxy that
+        # answers 308 doesn't make Live say Ollama is down while translation works.
+        resp = http.get(f"{base_url}/api/tags", timeout=2.5, max_bytes=1, truncate=True, guard=None,
+                        allow_redirects=True)
+        reachable = 200 <= resp.status < 300
     except Exception:
         reachable = False
     _ollama_reachability_cache[base_url] = (now, reachable)
@@ -406,11 +412,13 @@ def check_ollama_model_installed(base_url: str, model: str) -> None:
     """Raises OllamaUnavailableError (the same plain texts the chat call uses)
     when the server is down or `model` isn't pulled, so a live session fails
     at Start rather than on its first chunk."""
-    import requests
     base_url = base_url.rstrip("/")
     try:
-        resp = requests.get(f"{base_url}/api/tags", timeout=5, stream=True)
-        tags = read_json_capped(resp, 5)
+        resp = http.get(f"{base_url}/api/tags", timeout=5, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
+                        guard=None, allow_redirects=True)
+        if not 200 <= resp.status < 300:
+            raise ValueError(f"HTTP {resp.status}")
+        tags = json.loads(resp.body)
     except Exception:
         raise OllamaUnavailableError(
             "ollama_unreachable",

@@ -187,11 +187,11 @@ def _ip_check_url(env_path=None):
 
 def _current_public_ip(url):
     """This PC's public address, from the configured https check."""
-    from services import metadata_service, url_guard
+    from lib import http, url_guard
     if urlsplit(url).scheme != "https":
         raise ValueError("not https")
     ip = _bounded(lambda: url_guard.resolve_public(url), RESOLVE_TIMEOUT)
-    resp = metadata_service.pinned_get(url, ip, {"Accept": "text/plain"})
+    resp = http.pinned_get(url, ip, {"Accept": "text/plain"})
     try:
         if resp.status_code != 200:
             raise ValueError("bad status")
@@ -388,7 +388,8 @@ def validate_ip_check_url(value) -> str:
     the value): https, a host, no user info, at most IP_CHECK_MAX_URL
     characters, nothing that could break the .env line, every address
     public."""
-    from services import notification_service, url_guard
+    from services import notification_service
+    from lib import url_guard
     value = notification_service.clean_value(value)
     if len(value) > IP_CHECK_MAX_URL:
         raise InvalidInputError("The address is too long.")

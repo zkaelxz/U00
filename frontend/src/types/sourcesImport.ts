@@ -1,4 +1,4 @@
-// Mirrors api/schemas/sources.py and api/sources_import_schemas.py (contract: docs/specs/discover-sources-live-api-spec.md,
+// Mirrors api/schemas/sources.py and api/sources_import_schemas.py (contract: docs/archive/discover-sources-live-api-spec.md,
 // S-4/S-5): the paste-a-URL preview, the novel-text URL import, the chapter
 // import, tracking (existing TrackedSeries shape) and the Workspace
 // video-URL download. Server text is scrubbed; URLs are scheme+host+path.
@@ -35,6 +35,8 @@ export interface ChapterImportRow {
   title: string
   outcome: ChapterOutcome | string
   pages?: number | null
+  // Why images on the chapter page were left out, one plain reason each.
+  skipped_pages?: string[]
   chars?: number | null
   error?: string | null
 }

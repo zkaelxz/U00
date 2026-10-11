@@ -14,8 +14,8 @@ imported directly by their routers. New models go here, not there.
 - `python tools/repo_map.py --find <field_name>` finds the model that carries a field.
 
 ## Rules
-- Models are not database rows: no stored filenames, paths, secrets or fetched URLs
-  (reduce them to booleans).
+- Models are not database rows: no stored filenames, paths, secrets or fetched URLs,
+  except a `display_url`-cleaned source page link (scheme, host, path only) (reduce them to booleans).
 - Adding a field is compatible; renaming or removing one is not.
 - The React types in `frontend/src/types/<area>.ts` mirror these; change both.
 

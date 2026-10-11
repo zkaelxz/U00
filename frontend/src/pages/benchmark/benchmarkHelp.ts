@@ -8,6 +8,21 @@ export const BENCH_INTRO: string[] = [
   'Your titles and lines are never touched. Only promoting a model changes a setting.',
 ]
 
+// The page's (i): the whole flow in four steps.
+export const BENCH_PAGE_HELP: string[] = [
+  'Build a set: pick a reviewed title under Golden sets, then Build set.',
+  'Pick engines: choose a set and one to four engines under Run a benchmark.',
+  'Run: Estimate cost, check it, then Start. A judge is optional.',
+  'Compare: tick runs under Recent runs, then Compare in Arena.',
+  'Similarity is the main score. Judge scores sit beside it.',
+]
+
+// Shown at the top of "Build a set from a reviewed title".
+export const BUILD_SET_HELP =
+  'Turns a title\'s corrected lines into cases: the original line is the source, your reviewed translation is the reference. ' +
+  'Reviewed means you edited and saved the line, or approved it into translation memory (series titles). ' +
+  'A line you read and left alone has no mark, so choose All lines to use those too.'
+
 export type BenchSectionId = 'sets' | 'run' | 'reeval' | 'runs'
 
 type SectionCopy = {
@@ -26,7 +41,8 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
       'A case is a source line plus its reference translation.',
       'A case without a reference is run but not scored.',
       'Show cases to read a set or delete a case.',
-      'Importing, adding and deleting happen on the main PC only.',
+      'Or build a set from a title you have reviewed.',
+      'Importing, adding, building and deleting happen on the main PC only.',
     ],
   },
   run: {
@@ -38,6 +54,7 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
       'Press Estimate cost. Start unlocks once the estimate is shown.',
       'Press Start. Progress shows here while it runs.',
       'Read the scores under Recent runs.',
+      'Optional: pick a judge to also score accuracy, tone and naturalness.',
     ],
   },
   reeval: {

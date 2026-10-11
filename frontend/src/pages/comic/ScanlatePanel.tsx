@@ -1,7 +1,7 @@
 /*
  * The Comic page's Translate panel: upload pages (PC only), pick an engine,
  * "Translate all pages" (skips pages that already have text), "Redo this
- * page", "Redo all…" (confirm), job progress and cancel, the current page's
+ * page" (confirm), "Redo all…" (confirm), job progress and cancel, the current page's
  * run notes, and ZIP/PDF export. One Scanlate job runs per drama; when it
  * finishes, onChanged() lets the viewer reload its pages so the typeset
  * images show. Server notes are rendered as text only.
@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { scanlateApi, scanlateExportUrl } from '../../api/scanlate'
+import { engineOptionLabel, engineShortName } from '../../api/translate'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -47,6 +48,8 @@ interface Props {
   // Page counts for "this chapter" and "all chapters" (hidden pages never count).
   scopes?: ScopeCounts
   onChanged: () => void
+  // The job this panel follows (null once it has finished), for a parent that outlives the panel.
+  onJob?: (jobId: string | null) => void
 }
 
 const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
@@ -55,7 +58,7 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
   { value: 'ml', label: 'ML model (downloads once)' },
 ]
 
-export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }: Props) {
+export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, onJob }: Props) {
   const pc = usePcOnly()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
   const [notes, setNotes] = useState<ScanlatePageNotes[]>([])
@@ -81,10 +84,14 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }
       if (job.status === 'done' && pendingExport.current.length) setExported(pendingExport.current)
       reload()
       onChanged()
+      onJob?.(null)
     },
-    [reload, onChanged],
+    [reload, onChanged, onJob],
   )
   const { job, done, error: pollError } = useJob(jobId, { runKey, onDone })
+  useEffect(() => {
+    if (jobId !== null) onJob?.(jobId)
+  }, [jobId, runKey, onJob])
   const running = starting || (jobId !== null && !done && !pollError)
 
   useEffect(() => {
@@ -119,6 +126,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }
 
   const blocked = runBlockedReason(config, engine)
   const usable = usableEngines(config)
+  const selectedEngine = usable.find((e) => e.name === engine)
 
   // "This chapter" only when the title has more than one chapter.
   const chapterScope = scope === 'chapter' && scopes?.chapter ? scopes.chapter : null
@@ -242,12 +250,15 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }
       )}
 
       <div className="scanlate-run-row">
-        <Field label={AI_ENGINE_LABEL} help="Keys stay on the PC; engines without a key are not listed.">
+        <Field
+          label={AI_ENGINE_LABEL}
+          help={`Keys stay on the PC; engines without a key are not listed.${selectedEngine ? ` ${engineShortName(selectedEngine)}: ${selectedEngine.label}` : ''}`}
+        >
           <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={!usable.length}>
             {usable.length === 0 && <option value="">No engine has a key</option>}
             {usable.map((e) => (
               <option key={e.name} value={e.name}>
-                {e.label}
+                {engineOptionLabel(e)}
               </option>
             ))}
           </select>
@@ -275,14 +286,16 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }
         >
           {running && jobKind === 'run' ? 'Translating…' : `Translate ${targetName}`}
         </button>
-        <button
-          type="button"
-          className={buttonClass('secondary')}
-          disabled={!config || !!blocked || running || !pageId}
-          onClick={() => void start('page')}
-        >
-          {pageNumber ? `Redo page ${pageNumber}` : 'Redo this page'}
-        </button>
+        <ConfirmButton
+          name={pageNumber ? `page ${pageNumber}` : 'this page'}
+          label={pageNumber ? `Redo page ${pageNumber}…` : 'Redo this page…'}
+          verb="redo"
+          ariaLabel={pageNumber ? `Redo page ${pageNumber}` : 'Redo this page'}
+          confirmLabel={pageNumber ? `Replace text on page ${pageNumber}` : 'Replace text on this page'}
+          busy={running}
+          disabled={!config || !!blocked || !pageId}
+          onConfirm={() => void start('page')}
+        />
         {blocked && (
           <span id="scanlate-blocked" className="muted">
             {blocked}

@@ -2,9 +2,10 @@
 and setup, jobs, updates, notifications, extension, ports and bug reports.
 """
 
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic import (BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr,
+                      StringConstraints)
 
 from api.schemas.common import TranslateEngine
 
@@ -40,6 +41,7 @@ __all__ = [
     "SettingsUpdateRequest",
     "JobCancelResult",
     "JobDeleteResult",
+    "JobForceStopResult",
     "JobsClearFinishedResult",
     "ArtifactInfo",
     "EngineKeySetRequest",
@@ -75,7 +77,7 @@ __all__ = [
     "DiagnosticsTorchVerify",
     "DiagnosticsGpuTorchStatus",
     "DiagnosticsGpuTorchSetupRequest",
-    "DiagnosticsGpuTorchSetupResult",
+    "DiagnosticsDependencyInstallRequest",
     "DiagnosticsResetRequest",
     "DiagnosticsResetResult",
     "ExtensionStatus",
@@ -85,6 +87,14 @@ __all__ = [
     "ExtensionToken",
     "ExtensionEngineSettings",
     "ExtensionEngineRequest",
+    "DeviceTokenStatus",
+    "DeviceToken",
+    "DeviceTokenList",
+    "DeviceTokenCreateRequest",
+    "DeviceTokenCreated",
+    "DeviceTokenRevoked",
+    "AdminDeviceToken",
+    "AdminDeviceTokenList",
     "NotificationChannel",
     "NotificationOutcome",
     "NotificationStatus",
@@ -264,6 +274,9 @@ class JobRecord(BaseModel):
     # Running here, but no progress update for a while (advisory; the state
     # is unchanged). Distinct from `stale`, which is about a dead owner.
     stalled: bool = False
+    # Cancel was heard over a minute ago and the worker still runs: the
+    # Force stop button's condition (job_force_stop.can_force_stop).
+    can_force_stop: bool = False
     # The caller started this job or owns its drama (auth off and the local
     # owner: every job). Server-computed from the caller's session; true
     # only where the caller may also cancel it.
@@ -400,6 +413,15 @@ class JobCancelResult(BaseModel):
     job_id: str
     cancel_requested: bool
     status: str
+
+
+class JobForceStopResult(BaseModel):
+    job_id: str
+    force_stopped: bool
+    status: str
+    # The worker thread cannot be killed: true while it is still finishing,
+    # in which case the job id cannot be started again until it ends.
+    worker_still_running: bool
 
 
 class JobDeleteResult(BaseModel):
@@ -678,9 +700,16 @@ class DiagnosticsGpuTorchSetupRequest(BaseModel):
     variant: Optional[Literal["cu128", "cpu"]] = None
 
 
-class DiagnosticsGpuTorchSetupResult(DiagnosticsInstallResult):
-    variant: str
-    verify: Optional[DiagnosticsTorchVerify] = None
+class DiagnosticsDependencyInstallRequest(BaseModel):
+    """confirm=true; accept_risk=true with accepted_risks (the plan's
+    needs_confirm sentences the owner was shown) when the install plan
+    downgrades a package Baihe needs or could not be previewed. 409 without
+    them, or when the server's plan has a risk the list lacks."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    accept_risk: StrictBool = False
+    accepted_risks: List[Annotated[StrictStr, StringConstraints(max_length=500)]] = Field(
+        default_factory=list, max_length=20)
 
 
 class DiagnosticsResetRequest(BaseModel):
@@ -741,6 +770,52 @@ class ExtensionEngineRequest(BaseModel):
     engine: Optional[StrictStr] = None
     model: Optional[StrictStr] = None
 
+
+# --- Extension device tokens (services/device_token_service.py) ----------------
+DeviceTokenStatus = Literal["active", "revoked", "expired"]
+
+
+class DeviceToken(BaseModel):
+    """One extension device token. Never the token or its hash."""
+    id: int
+    label: str
+    created_at: float                     # epoch seconds
+    last_used_at: Optional[float] = None
+    last_used_ip_prefix: str              # IPv4 /24 ("203.0.113") or IPv6 /48; "" if unused
+    expires_at: Optional[float] = None    # None: never expires
+    revoked_at: Optional[float] = None
+    status: DeviceTokenStatus
+
+
+class DeviceTokenList(BaseModel):
+    tokens: List[DeviceToken]
+    max_active: int
+
+
+class DeviceTokenCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: StrictStr = Field(..., min_length=1, max_length=40)
+    # Omitted means 90 days; an explicit null means the token never expires.
+    expires_in_days: Optional[StrictInt] = Field(90, ge=1, le=365)
+
+
+class DeviceTokenCreated(BaseModel):
+    """`token` is shown this once and can't be read again."""
+    token: str
+    device_token: DeviceToken
+
+
+class DeviceTokenRevoked(BaseModel):
+    revoked: int
+
+
+class AdminDeviceToken(DeviceToken):
+    user_id: int
+    user_name: str                        # display name, else a masked email
+
+
+class AdminDeviceTokenList(BaseModel):
+    tokens: List[AdminDeviceToken]
 
 # --- Job notifications (Discord / ntfy) ---------------------------------------
 NotificationChannel = Literal["discord", "ntfy"]

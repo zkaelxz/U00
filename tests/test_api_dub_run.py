@@ -30,9 +30,10 @@ def started(monkeypatch):
     monkeypatch.setattr(dub_service, "_missing_engine_dependency", lambda e: None)
     monkeypatch.setattr(background_jobs, "get_status", lambda j: None)
 
-    def fake_start(job_id, target, args=(), gpu_touching=False, description=None, on_done=None):
+    def fake_start(job_id, target, args=(), gpu_touching=False, description=None, on_done=None,
+                   **launch):
         calls.append(dict(job_id=job_id, target=target, args=args, gpu=gpu_touching,
-                          on_done=on_done))
+                          on_done=on_done, launch=launch))
         return True
     monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
     return calls

@@ -10,7 +10,7 @@ test('Settings has the save folder card and Use this folder saves it', async ({ 
   const s = newState()
   await mockSavedComics(page, s)
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   const card = page.getByRole('region', { name: 'Save folder' })
   await expect(card.getByTestId('save-folder')).toHaveText('C:\\Baihe\\data\\saved_comics')
   await expect(card).toContainText('Default')
@@ -61,7 +61,7 @@ test('from another device Settings does not show the save folder card', async ({
   await page.route(/\/api\/meta$/, (route) =>
     route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: false } }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page)
+  await openSettingsGroups(page, 'Preferences')
   await expect(page.getByRole('region', { name: 'Save folder' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Open folder' })).toHaveCount(0)
   expect(s.calls.filter((c) => c !== 'GET /api/saved-comics/folder')).toEqual([])

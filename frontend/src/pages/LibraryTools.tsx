@@ -16,6 +16,7 @@ import { SharingControl } from '../components/SharingControl'
 import { VoiceBankPlayButton } from '../components/VoiceBankPlayButton'
 import { countDramas, dramaName, parseTime, readHref, workspaceHref } from '../components/libraryView'
 import { buttonClass } from '../components/uiClasses'
+import { useHolds } from '../hooks/useHolds'
 import { useLoad } from '../hooks/useLoad'
 import { PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
@@ -108,6 +109,8 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
   const [busyId, setBusyId] = useState<number | null>(null)
   const [renamingId, setRenamingId] = useState<number | null>(null)
   const [error, setError] = useState<unknown>(null)
+  // Renaming needs admin.library; deleting is PC only (pc).
+  const canRename = useHolds('admin.library')
   const run = (id: number) => {
     setBusyId(id)
     setError(null)
@@ -132,7 +135,9 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
                 <span>{x.name} <span className="muted">{x.meta}</span></span>
                 <span className="row-actions">
                   {extra?.(x.id, x.name)}
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Rename ${x.name}`} onClick={() => setRenamingId(x.id)}>Rename</button>
+                  {canRename && (
+                    <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Rename ${x.name}`} onClick={() => setRenamingId(x.id)}>Rename</button>
+                  )}
                   {pc !== 'remote' && <ConfirmButton name={x.name} busy={busyId === x.id} onConfirm={() => run(x.id)} />}
                 </span>
               </>
@@ -141,6 +146,7 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
         ))}
       </ul>
       <p className="muted">{pc === 'remote' ? PC_ONLY_DELETE_NOTE : help}</p>
+      {!canRename && !!items?.length && <p className="muted" data-testid="no-rename-note">Renaming is for the library admin.</p>}
       <ErrorBanner error={error} describe={{ pcOnly: true }} />
     </>
   )
@@ -172,7 +178,7 @@ function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) 
           onConfirm={run}
         />
       </div>
-      <p className="muted">Where you left off in each drama is kept.</p>
+      <p className="muted">Where you left off in each title is kept.</p>
       <ErrorBanner error={error} describe={{ pcOnly: true }} onDismiss={() => setError(null)} />
     </>
   )
@@ -216,7 +222,7 @@ export default function LibraryToolsPage() {
                 <span className="muted series-meta">{countsLine(x.types, 'mediaType')}</span>
                 <span className="muted series-meta">{sharedLine(x)}</span>
                 <SharingControl kind="series" id={x.id} title={x.name} isPrivate={x.is_private} ownedByMe={x.owned_by_me} onChanged={onChanged} />
-                <ul className="series-drama-list" aria-label={`Dramas in ${x.name}`}>
+                <ul className="series-drama-list" aria-label={`Titles in ${x.name}`}>
                   {x.dramas.map((d) => (
                     <li key={d.id} className="series-drama">
                       <span className="series-drama-text">
@@ -239,7 +245,7 @@ export default function LibraryToolsPage() {
         <ToolSection title="Presets" count={presets.data?.items.length} error={presets.error}>
           <DeletableList
             pc={pc}
-            help="Dramas that used it keep their settings."
+            help="Titles that used it keep their settings."
             items={presets.data?.items.map((p) => ({
               id: p.id, name: p.name, meta: p.translation_engine ? engineLabel(p.translation_engine) : null,
             }))}
@@ -265,7 +271,7 @@ export default function LibraryToolsPage() {
         </ToolSection>
         <h3 className="tools-group-title">Activity</h3>
         <ToolSection
-          title="Cost by drama"
+          title="Cost by title"
           count={costs.data?.items.length}
           summary={totalCost !== undefined ? `$${totalCost.toFixed(2)} in all` : undefined}
           error={costs.error}

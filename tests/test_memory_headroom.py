@@ -2,6 +2,7 @@
 the reserve before anything is allocated, skips (never blocks) when memory
 can't be read, and never applies to cloud or remote engines."""
 
+import whisper_models
 import pytest
 
 import memory_headroom as mh
@@ -97,11 +98,11 @@ def test_before_load_frees_ollama_first_and_skips_cached(monkeypatch, reserve):
 def test_whisper_loader_refuses_before_importing_the_model(monkeypatch, reserve):
     import core
     reserve(vram=31, vram_free=2 * GB)
-    monkeypatch.setattr(core, "_whisper_model_cache", {})
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
     import ollama_unload
     monkeypatch.setattr(ollama_unload, "prepare_gpu_for_transcription", lambda g: None)
     with pytest.raises(mh.HeadroomError):
-        core.load_whisper_model("large-v3", use_gpu=True)
+        whisper_models.load_whisper_model("large-v3", use_gpu=True)
 
 
 def test_vram_service_check_fits_honours_the_reserve(reserve):
@@ -219,9 +220,9 @@ class _TrippedTorch:
 
 def test_status_and_settings_save_never_touch_torch(monkeypatch, isolated_db):
     import sys
-    import diagnostics
+    import diagnostics_torch
     monkeypatch.setitem(sys.modules, "torch", _TrippedTorch)
-    monkeypatch.setattr(diagnostics, "external_gpu_load",
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load",
                         lambda: {"memory_total_mb": 8 * GB, "memory_free_mb": 6 * GB})
     assert loaded_models_service._memory_row()["vram"]["free_bytes"] == 6 * GB * mh.MB
     settings_service.set_settings({"keep_free_vram_gb": 1})
@@ -238,8 +239,8 @@ def test_load_time_check_uses_torch_only_once_cuda_is_initialized(monkeypatch):
             mem_get_info = staticmethod(lambda: (3 * GB * mh.MB, 8 * GB * mh.MB))
     monkeypatch.setitem(sys.modules, "torch", Torch)
     monkeypatch.setattr(mh, "reserved_mb", lambda memory: 4 * GB)
-    import diagnostics
-    monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None)
+    import diagnostics_torch
+    monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: None)
     assert mh.read_memory_mb("vram", at_load=True) is None
     Torch.cuda.initialized = True
     assert mh.read_memory_mb("vram", at_load=True) == (8 * GB, 3 * GB)
@@ -268,6 +269,17 @@ def test_separation_none_follows_what_the_library_would_pick(monkeypatch, reserv
     mh.check_separation(None)  # device unknown: skipped
     with pytest.raises(mh.HeadroomError):
         mh.check_separation(True)
+
+
+def test_separation_on_cpu_checks_ram_not_vram(monkeypatch, reserve):
+    import sys, types
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(
+        cuda=types.SimpleNamespace(is_available=lambda: False)))
+    reserve(vram=4, vram_free=1 * GB, ram=4, ram_free=64 * GB)
+    mh.check_separation(None)  # plenty of RAM; the tight VRAM is irrelevant on CPU
+    reserve(vram=0, vram_free=64 * GB, ram=4, ram_free=1 * GB)
+    with pytest.raises(mh.HeadroomError):
+        mh.check_separation(None)
 
 
 class TestRefusalStopsTheRun:

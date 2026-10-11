@@ -33,7 +33,7 @@ describe('sharingView', () => {
       .toEqual({ show: true, label: 'Shared', follows: false, actionLabel: 'Make private' })
   })
 
-  it('marks a drama in a series as following it', () => {
+  it('marks a title in a series as following it', () => {
     const v = sharingView(ready(me()), { kind: 'drama', is_private: true, owned_by_me: true, series_id: 4 })
     expect(v.show && v.follows).toBe(true)
   })
@@ -63,7 +63,7 @@ describe('SharingControl', () => {
 
   beforeEach(() => resetSessionForTests(ready(me())))
 
-  it('shows a badge and one button for my private drama', () => {
+  it('shows a badge and one button for my private title', () => {
     const out = html({ isPrivate: true, ownedByMe: true })
     expect(out).toContain('>Private</span>')
     expect(out).toContain('aria-label="Share with household: Hidden"')
@@ -75,7 +75,7 @@ describe('SharingControl', () => {
     expect(out).toContain('aria-label="Make private: Saga"')
   })
 
-  it('explains instead of offering a button for a drama in a series', () => {
+  it('explains instead of offering a button for a title in a series', () => {
     const out = html({ isPrivate: true, ownedByMe: true, seriesId: 9 })
     expect(out).not.toContain('<button')
     expect(out).toContain('whole series')

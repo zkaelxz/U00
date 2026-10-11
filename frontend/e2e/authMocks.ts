@@ -69,6 +69,7 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/continue': EMPTY,
   '/api/library/filter-options': { studios: [], authors: [], voice_actors: [], custom_tags: [] },
   '/api/library/presets': EMPTY,
+  '/api/translate/engines': { items: [], default_engine: null },
   '/api/library/voice-bank': EMPTY,
   // Library tools lists the saved manga series.
   '/api/saved-comics/series': [],
@@ -95,6 +96,8 @@ const GET_FIXTURES: Record<string, unknown> = {
     idle_timeout_days: 14,
     absolute_timeout_days: 30,
   },
+  // Settings > Browser extension devices, for a signed-in person: none yet.
+  '/api/auth/device-tokens': { tokens: [], max_active: 10 },
 }
 
 // The Library admin panel polls its last backup/export job and artifact;

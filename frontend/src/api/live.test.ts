@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, appendCues, buildStartBody, checkLiveUrl, resolveModel,
-  describeLiveError, feedCues, fmtTs, getLive, isActive, pickSession, startLive, statusLine, stopLive,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
+  describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
 
-const cue = (n: number) => ({ start: n, end: n + 1, text: `t${n}`, translated: `e${n}` })
+import type { LiveCue } from '../types/live'
+
+const cue = (n: number, translation: LiveCue['translation'] = 'done'): LiveCue => ({
+  id: n, start: n, end: n + 1, text: `t${n}`, translated: translation === 'done' ? `e${n}` : '', translation,
+})
 const SID = `live_${'a'.repeat(32)}`
 
 describe('checkLiveUrl', () => {
@@ -29,10 +33,16 @@ describe('buildStartBody', () => {
 
   it('clamps numbers, caps overlap at half the chunk and drops unknown choices', () => {
     const b = buildStartBody({
-      ...DEFAULT_FORM, url: 'https://a.test', segment_seconds: 5, overlap_seconds: 8, max_minutes: 9999,
+      ...DEFAULT_FORM, url: 'https://a.test', segment_seconds: 2, overlap_seconds: 8, max_minutes: 9999,
       source_language: 'xx', whisper_size: 'huge', engine: '', use_gpu: true,
     })
-    expect(b).toMatchObject({ segment_seconds: 10, overlap_seconds: 5, max_minutes: 240, source_language: 'zh', whisper_size: 'small', engine: null, use_gpu: true })
+    expect(b).toMatchObject({ segment_seconds: 3, overlap_seconds: 1.5, max_minutes: 240, source_language: 'zh', whisper_size: 'small', engine: null, use_gpu: true })
+  })
+
+  it('Fast captions is a short chunk that still goes out as chosen, and DEFAULT_FORM itself is unchanged', () => {
+    expect(DEFAULT_FORM).toMatchObject({ segment_seconds: 20, overlap_seconds: 3, whisper_size: 'small', reply_without_thinking: true })
+    const b = buildStartBody({ ...DEFAULT_FORM, ...FAST_CAPTIONS, url: 'https://a.test' })
+    expect(b).toMatchObject({ segment_seconds: 4, overlap_seconds: 1, whisper_size: 'small', reply_without_thinking: true })
   })
 
   it('falls back to defaults for blank (NaN or null) numbers', () => {
@@ -42,10 +52,28 @@ describe('buildStartBody', () => {
 })
 
 describe('cues', () => {
-  it('appends and keeps only the newest', () => {
+  it('merges by id and keeps only the newest', () => {
     const prev = [cue(1), cue(2)]
-    expect(appendCues(prev, [])).toBe(prev)
-    expect(appendCues(prev, [cue(3), cue(4)], 3).map((c) => c.start)).toEqual([2, 3, 4])
+    expect(mergeCues(prev, [])).toBe(prev)
+    expect(mergeCues(prev, [cue(3), cue(4)], 3).map((c) => c.id)).toEqual([2, 3, 4])
+  })
+
+  it('fills a transcript in place when its translation arrives', () => {
+    const merged = mergeCues([cue(1), cue(2, 'pending')], [cue(2), cue(3, 'pending')])
+    expect(merged.map((c) => [c.id, c.translation])).toEqual([[1, 'done'], [2, 'done'], [3, 'pending']])
+    expect(merged[1].translated).toBe('e2')
+  })
+
+  it('never puts a finished line back to pending from an older reply', () => {
+    const merged = mergeCues([cue(1)], [cue(1, 'pending')])
+    expect(merged[0].translation).toBe('done')
+  })
+
+  it('reads again from the oldest line still translating', () => {
+    expect(readFrom([cue(0), cue(1, 'pending'), cue(2, 'pending')], 3)).toBe(1)
+    expect(readFrom([cue(0), cue(1)], 2)).toBe(2)
+    expect(hasPending([cue(0), cue(1, 'pending')])).toBe(true)
+    expect(hasPending([cue(0)])).toBe(false)
   })
 
   it('shows the newest first', () => {
@@ -174,5 +202,31 @@ describe('model choice', () => {
   })
   it('shows the model in the status line', () => {
     expect(statusLine({ status: 'running', message: 'Listening', model: 'qwen3:8b' }, 1)).toBe('Listening · 1 line · qwen3:8b')
+  })
+})
+
+describe('Whisper model choice', () => {
+  it('offers large-v3-turbo and keeps small as the default', () => {
+    expect(WHISPER_SIZES).toContain('large-v3-turbo')
+    expect(WHISPER_SIZES).toContain('medium')
+    expect(DEFAULT_FORM.whisper_size).toBe('small')
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', whisper_size: 'large-v3-turbo' }).whisper_size).toBe('large-v3-turbo')
+  })
+})
+
+describe('lagLine', () => {
+  const base = { lag_seconds: 0, processing_seconds: 0, translations_skipped: 0, chunks_measured: 0 }
+
+  it('says nothing before a chunk is measured', () => {
+    expect(lagLine(base)).toBeNull()
+    expect(lagLine({})).toBeNull()
+  })
+
+  it('gives the caption lag and the untranslated count as numbers', () => {
+    expect(lagLine({ ...base, chunks_measured: 2, lag_seconds: 27.4 })).toBe('Captions about 27 s behind the stream.')
+    expect(lagLine({ ...base, chunks_measured: 2, lag_seconds: 27.4, translations_skipped: 1 }))
+      .toBe('Captions about 27 s behind the stream. 1 line shown untranslated to keep up.')
+    expect(lagLine({ ...base, chunks_measured: 3, lag_seconds: 9, translations_skipped: 5 }))
+      .toBe('Captions about 9 s behind the stream. 5 lines shown untranslated to keep up.')
   })
 })

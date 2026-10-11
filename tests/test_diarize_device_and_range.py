@@ -16,6 +16,7 @@ import sys
 import types
 
 import pytest
+from tests.saved_settings import patch_setting
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -217,8 +218,8 @@ class TestServiceAndApi:
         calls = []
 
         def fake_start(job_id, target, args=(), gpu_touching=False, description=None,
-                       on_done=None):
-            calls.append({"args": args, "on_done": on_done})
+                       on_done=None, run_settings=None, **launch):
+            calls.append({"args": args, "on_done": on_done, "launch": launch})
             return True
         monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
         return calls
@@ -226,12 +227,22 @@ class TestServiceAndApi:
     def test_service_passes_use_gpu_and_range_to_the_worker(self, isolated_db, monkeypatch):
         from services import diarization_service, settings_service
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf")
-        monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+        patch_setting(monkeypatch, "use_gpu", True)
         did, ddir = _drama_with_audio(isolated_db)
         calls = self._capture_start(monkeypatch)
         diarization_service.start_diarization_run(did, min_speakers=2, max_speakers=4)
         assert calls[0]["args"] == (os.path.join(ddir, "audio.wav"), "hf", None,
                                     {"use_gpu": True, "min_speakers": 2, "max_speakers": 4})
+
+    def test_diarization_runs_spawned_and_is_killed_as_a_tree(self, isolated_db, monkeypatch):
+        """Spawn keeps a forked child from inheriting CUDA state; the whole
+        tree is killed so a cancel leaves no grandchild holding the card."""
+        from services import diarization_service, settings_service
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf")
+        did, _ = _drama_with_audio(isolated_db)
+        calls = self._capture_start(monkeypatch)
+        diarization_service.start_diarization_run(did)
+        assert calls[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn"}
 
     def test_service_rejects_an_inverted_range(self, isolated_db, monkeypatch):
         from services import diarization_service, settings_service
@@ -286,7 +297,7 @@ class TestCliParity:
         import cli
         from services import settings_service
         from core import Line
-        monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+        patch_setting(monkeypatch, "use_gpu", True)
         monkeypatch.setattr(cli, "release_gpu_models", lambda: None)
         did, ddir = _drama_with_audio(isolated_db)
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a")])
@@ -347,3 +358,13 @@ class TestProgressReporting:
         items = _drain(q)
         assert items[-1][0] == "ok" and seen
         assert any(i[2] == "Detecting speakers..." for i in items if i[0] == "progress")
+
+
+def test_diarize_worker_leaves_the_parents_process_group(monkeypatch):
+    import queue
+    import background_jobs
+    import diarize
+    left = []
+    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
+    diarize.diarize_subprocess_worker("missing.wav", "hf", None, queue.Queue())
+    assert left == [True]

@@ -10,6 +10,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
+from api.schemas.disk_usage import DiskUsageTitleSizes
+
 
 class DiskUsageRegenerable(BaseModel):
     label: str
@@ -50,6 +52,8 @@ class DiskUsageItem(BaseModel):
                                                    "clearing needs an extra confirm.")
     irreplaceable_note: Optional[str] = None
     movable: DiskUsageMovable
+    title_sizes: Optional[DiskUsageTitleSizes] = Field(
+        None, description="Set on each title folder when library/dramas is listed.")
 
 
 class DiskUsageTrashSummary(BaseModel):
@@ -108,6 +112,11 @@ class DiskUsageMoveRequest(BaseModel):
     confirm: StrictBool = False
 
 
+class TempCleanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: Literal[True]
+
+
 class DiskUsageMoveDone(BaseModel):
     moved_bytes: int
     remaining_bytes: int
@@ -126,6 +135,9 @@ class DiskUsageTrashItem(BaseModel):
     file_count: Optional[int] = None
     trashed_at: Optional[str] = None
     restorable: bool
+    from_kept_title: bool = Field(
+        False, description="It came from the folder of a title with \"Keep original files\" on; "
+                           "the delete confirmation names that.")
 
 
 class DiskUsageTrashList(BaseModel):

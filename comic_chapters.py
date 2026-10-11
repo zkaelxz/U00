@@ -11,8 +11,11 @@ media drops the file; those pages then read as "Chapter unknown", which is
 also what every title imported before this file existed shows.
 
     {"version": 1,
-     "chapters": [{"key", "id", "title", "host", "files": [filename, ...]}],
+     "chapters": [{"key", "id", "title", "url", "files": [filename, ...]}],
      "hidden": [filename, ...]}
+
+`url` is optional (the chapter's page on its source, display-safe); entries
+written before it existed read as having none.
 
 Reading never raises: a missing, truncated or hand-edited file reads as "no
 chapter data". Pages are the authority for what exists; entries naming a page
@@ -26,7 +29,7 @@ import time
 
 import core
 import db
-from translate_engines import redact_for_storage
+from translate_engines import display_url, redact_for_storage
 
 MANIFEST_NAME = "chapters.json"
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
@@ -37,8 +40,9 @@ MAX_WRITE_BYTES = 3 * 1024 * 1024
 _REPLACE_ATTEMPTS = 5
 _REPLACE_DELAY = 0.05
 MAX_TITLE = 200
+MAX_URL = 2000
 UNKNOWN_ID = "unknown"
-_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _WIN_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>]*|\\\\[^\s\"'<>]+")
 _locks = {}
 _locks_guard = threading.Lock()
@@ -57,7 +61,7 @@ def _lock(drama_id: int) -> threading.RLock:
 
 
 def _text(value, limit=MAX_TITLE) -> str:
-    return _CONTROL.sub(" ", str(value or "")).strip()[:limit]
+    return CONTROL_CHARS.sub(" ", str(value or "")).strip()[:limit]
 
 
 def _title(value) -> str:
@@ -68,15 +72,21 @@ def _title(value) -> str:
     return _text(text)
 
 
-def chapter_ref(chapter_id=None, title=None, source=None):
+def _url(value) -> str:
+    link = display_url(value)
+    return link if len(link) <= MAX_URL else ""
+
+
+def chapter_ref(chapter_id=None, title=None, source=None, url=None):
     """The label a page writer passes for the chapter it is adding, or None
-    when it has neither an id nor a title (the pages then stay unlabelled)."""
+    when it has neither an id nor a title (the pages then stay unlabelled).
+    `url` is the chapter's page on its source; kept only in display-safe form."""
     cid, name = _text(chapter_id, 100), _title(title)
     if not cid and not name:
         return None
     src = _text(source, 40)
     return {"key": f"{src}:{cid}" if cid else f"title:{name}",
-            "id": cid, "title": name}
+            "id": cid, "title": name, "url": _url(url)}
 
 
 def _path(drama_id: int) -> str:
@@ -104,7 +114,7 @@ def _read(drama_id: int):
         if not isinstance(c, dict) or not isinstance(c.get("files"), list):
             continue
         chapters.append({"key": _text(c.get("key"), 160), "id": _text(c.get("id"), 100),
-                         "title": _text(c.get("title")),
+                         "title": _text(c.get("title")), "url": _url(c.get("url")),
                          "files": [f for f in c["files"] if isinstance(f, str)]})
     hidden = raw.get("hidden")
     return {"version": 1, "chapters": chapters,
@@ -169,6 +179,8 @@ def record_pages(drama_id: int, ref: dict, filenames) -> None:
         if entry is None:
             entry = {**{k: ref[k] for k in ("key", "id", "title")}, "files": []}
             manifest["chapters"].append(entry)
+        if ref.get("url") and not entry.get("url"):
+            entry["url"] = ref["url"]
         entry["files"].extend(f for f in filenames if f not in entry["files"])
         _save(drama_id, manifest)
 
@@ -201,7 +213,7 @@ def group_pages(pages, manifest: dict) -> list:
     chapter's `first_page` is always the ordinal of a real page. Pages the
     manifest does not name form an "unknown" group. Each group:
     {id, title, known, first_page (1-based ordinal), page_count,
-    hidden_count, filenames}."""
+    hidden_count, filenames, url}."""
     owner = {f: c for c in manifest["chapters"] for f in c["files"]}
     hidden = set(manifest["hidden"])
     groups, seen = [], {}
@@ -214,6 +226,7 @@ def group_pages(pages, manifest: dict) -> list:
             groups.append({"_key": key, "id": gid, "known": c is not None,
                            "title": c["title"] if c and c["title"] else "",
                            "chapter_id": c["id"] if c else "",
+                           "url": c.get("url", "") if c else "",
                            "first_page": ordinal,
                            "page_count": 0, "hidden_count": 0, "filenames": []})
         g = groups[-1]

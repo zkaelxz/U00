@@ -49,6 +49,8 @@ export interface TranscribeConfig {
   measured_diarize_runs?: number
   // False when faster-whisper isn't installed (transcription can't run).
   whisper_installed: boolean
+  // CUDA runtime DLLs Whisper needs on the GPU; "unknown" off Windows or without a CUDA device.
+  gpu_runtime: { status: 'ok' | 'missing' | 'unknown'; reason: string | null }
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
@@ -90,6 +92,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'measured_diarize_speed'
     | 'measured_diarize_runs'
     | 'whisper_installed'
+    | 'gpu_runtime'
     | 'has_video_source'
     | 'effective_vad_threshold'
   >
@@ -278,6 +281,92 @@ export interface RetranscribeApplyResult {
   drama_id: number
   line_id: number
   zh: string
+}
+
+// api/schemas/retranscribe_lines.py: Review's "Re-transcribe selected" (several lines, one job).
+export interface RetranscribeManyRequest {
+  line_ids: number[]
+  initial_prompt?: string
+  extra_names?: string
+}
+
+export interface RetranscribeManyStarted {
+  job_id: string
+  drama_id: number
+  line_count: number
+}
+
+// Raw line text (the proposal is only readable here, never in the job record).
+// had_english: applying it keeps that English and flags the line source_changed.
+export interface RetranscribeManyProposal {
+  line_id: number
+  number: number
+  base_zh: string
+  proposed_zh: string
+  had_english: boolean
+}
+
+// reason: "empty" | "audio_slice" | "line_gone"
+export interface RetranscribeManyFailure {
+  line_id: number
+  number: number
+  reason: string
+}
+
+export interface RetranscribeManyResult {
+  job_id: string
+  line_count: number
+  proposals: RetranscribeManyProposal[]
+  failures: RetranscribeManyFailure[]
+  unchanged_count: number
+  truncated: boolean
+  device_notice: string | null
+}
+
+export interface RetranscribeManyApplyItem {
+  line_id: number
+  expected_zh: string
+  expected_proposed: string
+}
+
+export interface RetranscribeManyApplyResult {
+  applied: number[]
+  skipped: number[]
+  untranslated_count: number
+}
+
+// A stretch no subtitle line covers. speech: true when the speech coverage
+// check found speech there, null when it has not run (never false).
+export interface TranscribeGap {
+  start: number
+  end: number
+  seconds: number
+  pieces: number
+  part: number
+  parts: number
+  after_line_id: number | null
+  before_line_id: number | null
+  speech: boolean | null
+}
+
+export interface TranscribeGaps {
+  gaps: TranscribeGap[]
+  speech_checked: boolean
+}
+
+export interface GapAddLinesRequest {
+  expected_line_ids: number[]
+  start: number
+  end: number
+  after_line_id: number | null
+}
+
+export interface GapAddLinesResult {
+  new_line_ids: number[]
+  line_ids: number[]
+  split: 'single' | 'pauses' | 'even'
+  history_id: number | null
+  lines_fingerprint: string | null
 }
 
 // GET /api/workflow/dramas/{id}/progress (api/schemas/library.py WorkflowProgress).

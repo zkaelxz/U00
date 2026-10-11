@@ -8,9 +8,7 @@ import type { ExtensionOnlyMark as Mark, SourceAttempt, SourceDetail as Detail, 
 import { humanizeValue as humanize } from '../../components/labels'
 import { ExtensionOnlyMark } from './ExtensionOnlyMark'
 import { SourceAccess } from './SourceAccess'
-import {
-  accessMethodLabel, ago, healthLine, healthTooltip, isoTime, pausedFor, statusLabel, tierLines,
-} from './sourcesFormat'
+import { accessMethodLabel, ago, healthLine, healthTooltip, isoTime, pausedFor, statusLabel, tierLines } from './sourcesFormat'
 
 type Props = {
   name: string

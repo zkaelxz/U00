@@ -7,7 +7,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import type { EnCleanupPreview } from '../../../../types/reviewExtras'
 import { cleanupDone, cleanupSummary } from './aiExtrasLogic'
-import { JOB_RUNNING_MESSAGE } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 
 const SHOWN = 8
 

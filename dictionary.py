@@ -13,7 +13,6 @@ define feature.
 import io
 import os
 import re
-import urllib.request
 
 import portable
 from core import atomic_write
@@ -23,7 +22,16 @@ CEDICT_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024   # the gzip is a few MB
 CEDICT_MAX_UNPACKED_BYTES = 80 * 1024 * 1024    # the text is a few tens of MB
 CEDICT_PATH = os.path.join(portable.data_dir(), "library", "cedict.txt")
 
+# Whole-download budget: the per-read timeout alone restarts on every chunk, so a
+# server dripping bytes would hold the Reader's first lookup open indefinitely.
+CEDICT_DOWNLOAD_DEADLINE_SECONDS = 120
+
 _cedict_cache = None
+
+
+class CedictDownloadError(RuntimeError):
+    """The message is already user-ready: services show it as is rather than
+    wrapping it as an engine failure."""
 
 
 def _ensure_cedict():
@@ -34,14 +42,25 @@ def _ensure_cedict():
         return
     import gzip
     os.makedirs(os.path.dirname(CEDICT_PATH), exist_ok=True)
-    with urllib.request.urlopen(CEDICT_URL, timeout=30) as resp:
-        packed = resp.read(CEDICT_MAX_DOWNLOAD_BYTES + 1)
-    if len(packed) > CEDICT_MAX_DOWNLOAD_BYTES:
-        raise RuntimeError("The CC-CEDICT download is larger than expected.")
+    from lib import http
+    try:
+        # The URL is a constant of ours, not user input, so no SSRF guard.
+        resp = http.get(CEDICT_URL, timeout=30, max_bytes=CEDICT_MAX_DOWNLOAD_BYTES,
+                        deadline=CEDICT_DOWNLOAD_DEADLINE_SECONDS, guard=None,
+                        allow_redirects=True)
+    except http.ResponseTooLarge:
+        raise CedictDownloadError("The CC-CEDICT download is larger than expected.") from None
+    except http.ResponseTooSlow:
+        raise CedictDownloadError("The CC-CEDICT download took too long.") from None
+    except http.FetchError:
+        raise CedictDownloadError("The CC-CEDICT download failed; check the connection and try again.") from None
+    if resp.status != 200:
+        raise CedictDownloadError("The CC-CEDICT download failed; check the connection and try again.")
+    packed = resp.body
     with gzip.GzipFile(fileobj=io.BytesIO(packed)) as gz:
         raw = gz.read(CEDICT_MAX_UNPACKED_BYTES + 1)
     if len(raw) > CEDICT_MAX_UNPACKED_BYTES:
-        raise RuntimeError("The CC-CEDICT download is larger than expected.")
+        raise CedictDownloadError("The CC-CEDICT download is larger than expected.")
     atomic_write(CEDICT_PATH, raw, binary=True)
 
 
