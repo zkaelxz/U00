@@ -333,7 +333,7 @@ def _tol(profile, key):
 
 def _cer(actual: str, reference: str) -> float:
     sys.path.insert(0, str(REPO_ROOT))
-    from services.benchmark_lab_service import error_rate
+    from services.benchmark_scoring_service import error_rate
     return error_rate(actual, reference, "char")
 
 
