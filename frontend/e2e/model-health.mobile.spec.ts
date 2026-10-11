@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
 
-// Model health card on a phone (390x844, touch): no sideways scroll, 44px
+// Model status card on a phone (390x844, touch): no sideways scroll, 44px
 // targets for its buttons and links, and the two-step preset switch.
 // Every /api/models call that isn't a GET is mocked (catch-all guard).
 // Set MODEL_HEALTH_SHOTS_DIR=<dir> to save phone screenshots.
@@ -27,8 +27,8 @@ test('phone: the card fits, targets are 44px, and a switch asks twice', async ({
     posted += 1
     return r.fulfill({ json: { preset_id: 9, engine: 'deepseek', from_model: 'deepseek-chat', to_model: 'deepseek-v4-flash' } })
   })
-  await page.goto('/#/diagnostics')
-  const card = page.getByRole('region', { name: 'Model health' })
+  await page.goto('/#/diagnostics?card=model-status')
+  const card = page.getByRole('region', { name: 'Model status' })
   await expect(card.getByTestId('model-health-badge')).toHaveText('2 warnings')
   await card.scrollIntoViewIfNeeded()
 

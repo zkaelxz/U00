@@ -99,6 +99,8 @@ class TestGetTranscribeConfig:
             "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper",
             "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
+            "whisper_size_notice": None,
+            "whisper_exclusions": whisper_models.whisper_language_exclusions(),
             "whisper_model_cached": whisper_models.is_whisper_model_cached(whisper_models.DEFAULT_WHISPER_SIZE),
             "measured_speed": None,
             "measured_speed_runs": 0,

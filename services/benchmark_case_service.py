@@ -28,11 +28,22 @@ def redact(text, key=None):
     return jobs_service.redact_text(text)
 
 
+def whisper_options() -> dict:
+    """The Whisper choices the Lab offers, and the per-language table the picker reads."""
+    return {"whisper_sizes": [*whisper_models.WHISPER_MODELS, benchmark.LOCAL_FOLDER_MODEL],
+            "whisper_exclusions": whisper_models.whisper_language_exclusions()}
+
+
 def require_whisper_fits_cases(stage, configs, cases):
-    """A Japanese-only Whisper model runs only on Japanese cases."""
-    if stage == "transcription" and not all(whisper_models.whisper_model_fits_language(
-            c["model"], k.get("source_language") or "zh") for c in configs for k in cases):
-        raise InvalidInputError("That Whisper model is only for Japanese cases.")
+    """A Whisper model runs only on cases whose language it is recommended for."""
+    if stage != "transcription":
+        return
+    for config in configs:
+        for case in cases:
+            problem = whisper_models.whisper_model_language_problem(
+                config["model"], case.get("source_language") or "zh")
+            if problem:
+                raise InvalidInputError(problem)
 
 
 def _translation_context(case: dict) -> dict:

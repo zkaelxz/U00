@@ -43,3 +43,27 @@ test('a developer value changed with the mode on is still saved after the mode t
   await card.locator('.section-title', { hasText: /^More options$/ }).click()
   await expect(card.locator('details.section > summary').filter({ hasText: 'More options' }).first()).toContainText('1 developer option changed')
 })
+
+test('a Whisper model not recommended for the language is disabled with its reason, and the saved fallback is announced', async ({ page }) => {
+  const reason = 'Whisper medium isn’t recommended for Japanese: in our tests it made about 1.9 points more errors than large-v3-turbo and was slower.'
+  await page.route('**/api/transcribe/dramas/1/config', async (route) => {
+    const resp = await route.fetch()
+    const cfg = await resp.json()
+    if (route.request().method() !== 'GET') return route.fulfill({ response: resp, json: cfg })
+    return route.fulfill({
+      response: resp,
+      json: { ...cfg, whisper_exclusions: { medium: { ja: reason } }, whisper_size_notice: 'This title was saved with medium. It now uses large-v3-turbo.' },
+    })
+  })
+  await page.goto('/#/drama/1/source')
+  await openTranscribeOptions(page)
+  const card = page.getByRole('region', { name: 'Transcribe' })
+  await expect(card.getByTestId('whisper-size-notice')).toContainText('saved with medium')
+  await card.getByLabel('Source language').selectOption('ja')
+  const medium = card.getByLabel('Whisper model').locator('option', { hasText: /^medium/ })
+  await expect(medium).toBeDisabled()
+  await expect(medium).toHaveText(/not for Japanese/)
+  await expect(card.getByText(reason)).toBeVisible()
+  await card.getByLabel('Source language').selectOption('ko')
+  await expect(card.getByLabel('Whisper model').locator('option', { hasText: /^medium/ })).toBeEnabled()
+})

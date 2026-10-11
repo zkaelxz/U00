@@ -26,6 +26,28 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 - `python scripts/source_probe.py` does one polite GET of each site's root (sequential, 2 s apart, no cookies) and prints reachable / challenge-page / http-error / dns-failure / timeout. `--json` for machine output; `--include-set-aside` also lists set-aside sites that answered again. It never edits a file and does nothing when `CI` is set. In a cloud sandbox, whose only way out is a proxy, add `--use-env-proxy` (honours `HTTPS_PROXY` and `REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE`, TLS verification stays on); it checks reachability only, a 200 can be a challenge page, so real adapter checks still need the owner's PC.
 - After re-vetting a site by hand, update its row in `docs/source-status.json` and run `python scripts/source_status.py` (`--check` verifies).
 
+## 2c. Run the hardware self-test
+
+On the PC: `python -m tools.self_test`. It prints PASS / FAIL / SKIPPED per check and writes `self-test-report.txt` in the data folder (`--out FILE` to choose another). The report holds no key values, paths or URLs; paste it to the assistant. SKIPPED means the hardware or an optional engine is absent; only FAIL makes the exit code 1. `--model NAME` picks the Whisper model for the GPU check; it must already be downloaded, since the test never downloads.
+
+The 13 owner checks (`docs/session-harvest/triage-2026-10-10.md`, "Owner checks", items 6-18; no separate checklist file is in the repo) map to it like this. Anything marked "listening/looking only" needs a person with real audio, a stream, a site or a Windows install.
+
+| # | Check | Self-test line |
+|---|---|---|
+| 6 | Gemma 4 on real Ollama | "Ollama": reachable only; listening/looking only for output quality |
+| 7 | OmniVoice (transformers 5.3+) | "TTS engines" |
+| 8 | PaddleOCR-VL-For-Manga | "OCR engines" and "torch / CUDA": installed only; page quality, speed and VRAM are looking only |
+| 9 | Disk usage on UNC / linked folders | listening/looking only |
+| 10 | Live delay on a YouTube stream | listening/looking only |
+| 11 | Runbook 3b steps 7, 11, 13 | listening/looking only |
+| 12 | Live with a real stream, Ollama `think`, DeepSeek | "Ollama" and "API key presence": setup only; the stream is looking only |
+| 13 | twmanga tainted-canvas fallback | listening/looking only |
+| 14 | Live chunk-1 stall (VRAM) | "GPU faster-whisper" and "VRAM / RAM headroom": the GPU loads and how much is free; the live run is looking only |
+| 15 | Title #25 Qwen-only "Check timing" | "torch / CUDA": setup only; thresholds on real audio are listening only |
+| 16 | Cancel mid-batch with a real engine | "API key presence": setup only; listening/looking only |
+| 17 | Recalibrate `CHRF_PASS_THRESHOLD` | listening/looking only |
+| 18 | OCR defaults and offline model paths | "OCR engines": installed only; real-page reading is looking only |
+
 ## 3. Restore a backup
 Close other work first: a restore is refused while any job runs. Restores are PC-only.
 **Automatic backups (Settings -> "Automatic backups")**
@@ -86,6 +108,14 @@ For an installed copy (Setup .exe) that serves household users. "Data folder" is
 4. Press "Estimate cost" first. Paid engines are capped by the monthly cap and stop at it.
 5. Press "Start arena". When done, tick the runs in the recent-runs list and press "Compare" to see scores side by side (Model Arena).
 6. Use the winner: pick that engine on the drama's Translate page. (Not verified: whether the drama remembers it as its own setting.)
+
+## 5b. Tesla V100 (Volta, compute 7.0)
+- Diagnostics -> "GPU PyTorch" recommends the CUDA 12.6 build (`cu126`, same torch 2.11.0 / torchvision 0.26.0 / torchaudio 2.11.0) for any GPU below compute 7.5. The CUDA 12.8 wheels no longer contain Volta kernels, so a cu128 install fails the setup check with "no kernels for your GPU".
+- Volta needs a CUDA 12 wheel index; torch 2.14 is the last PyTorch release that has one. Moving past it means a different GPU or a CPU build.
+- Transcription (faster-whisper / CTranslate2) runs on a V100 in float16 and int8_float16 and needs only cuBLAS 12. Volta has no native bfloat16 (torch only emulates it, slowly), so Qwen3 ASR and PaddleOCR-VL load in float16 there.
+- Video burn-in always re-encodes on the CPU (libx264): the V100 has no NVENC, and Baihe never asks for it.
+- Hardware: the card is passively cooled (it needs case airflow or a duct), takes EPS (CPU-style) power rather than PCIe 8-pin, and the motherboard needs Above 4G Decoding on. NVIDIA's R580 driver branch is the last data-center branch that lists the V100.
+- Not re-verified for this page: the driver-branch and torch-2.14 statements come from the owner's research notes; check NVIDIA's and PyTorch's current pages before relying on them.
 
 ## Branches to keep
 Never delete these when cleaning up branches; they are the only record of the work they hold.
