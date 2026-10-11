@@ -1,0 +1,26 @@
+# Advisory local checks; CI does not run them. See docs/runbook.md.
+exclude: '^(frontend/package-lock\.json|\.test_durations|tests/fixtures/|.*\.min\.(js|css)|.*snapshots?/.*)$'
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+        # Run on the whole tree so a changed file can't hide a pyflakes error elsewhere.
+        pass_filenames: false
+        args: [".", "--config", "ruff.toml"]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        types: [python]
+      - id: end-of-file-fixer
+        types: [python]
+  - repo: local
+    hooks:
+      - id: warn-large-files
+        name: warn on files over 1 MB
+        language: system
+        # Warns only (always exits 0): large files are sometimes intentional.
+        entry: >-
+          bash -c 'for f in "$@"; do [ -f "$f" ] && [ "$(wc -c <"$f")" -gt 1048576 ] && echo "warning - $f is over 1 MB"; done; exit 0' --
+        verbose: true
