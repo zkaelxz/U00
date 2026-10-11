@@ -51,6 +51,14 @@ def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplifi
 
 _TESSERACT_CMD_LOCK = threading.Lock()
 
+# The cached PaddleOCR / PaddleOCR-VL / manga-ocr models are shared by every
+# caller (Scanlate, the novel OCR job, the extension bridge, hardsub OCR), and
+# not all of them hold scanlate_pages_service.pipeline_lock(): a first load
+# could build a model twice and two inferences could share one model at once.
+# Lock order: pipeline_lock() first when a caller holds it, then this one.
+# Nothing run under this lock takes another lock, so the order never inverts.
+_MODEL_LOCK = threading.Lock()
+
 
 # One page should take seconds; a tesseract that hangs on a damaged image
 # would otherwise stall a whole chapter job that Cancel cannot reach.
@@ -142,15 +150,16 @@ def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
     """
     from paddleocr import PaddleOCR
     global _paddle_instances
-    if "_paddle_instances" not in globals():
-        globals()["_paddle_instances"] = {}
-    instances = globals()["_paddle_instances"]
-    if lang not in instances:
-        instances[lang] = PaddleOCR(
-            use_doc_orientation_classify=False, use_doc_unwarping=False,
-            use_textline_orientation=True, lang=lang, enable_mkldnn=False,
-            **(_PADDLE_CH_MODELS if lang == "ch" else {}))
-    result = instances[lang].predict(image_path)
+    with _MODEL_LOCK:
+        if "_paddle_instances" not in globals():
+            globals()["_paddle_instances"] = {}
+        instances = globals()["_paddle_instances"]
+        if lang not in instances:
+            instances[lang] = PaddleOCR(
+                use_doc_orientation_classify=False, use_doc_unwarping=False,
+                use_textline_orientation=True, lang=lang, enable_mkldnn=False,
+                **(_PADDLE_CH_MODELS if lang == "ch" else {}))
+        result = instances[lang].predict(image_path)
     lines = []
     for page in result:
         lines.extend(page.get("rec_texts", []))
@@ -218,34 +227,35 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     global _paddle_vl_manga_model, _paddle_vl_manga_processor
-    if "_paddle_vl_manga_model" not in globals():
-        cuda = torch.cuda.is_available()
-        if cuda:
-            from services import vram_service
-            vram_service.check_fits("PaddleOCR-VL-For-Manga")
-        globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
-            _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False)
-        model = AutoModelForImageTextToText.from_pretrained(
-            _PADDLE_VL_MANGA_REPO, trust_remote_code=False,
-            dtype=torch.bfloat16 if cuda else torch.float32)
-        if cuda:
-            model = model.to("cuda")
-        model.eval()
-        globals()["_paddle_vl_manga_model"] = model
+    with _MODEL_LOCK:
+        if "_paddle_vl_manga_model" not in globals():
+            cuda = torch.cuda.is_available()
+            if cuda:
+                from services import vram_service
+                vram_service.check_fits("PaddleOCR-VL-For-Manga")
+            globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
+                _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False)
+            model = AutoModelForImageTextToText.from_pretrained(
+                _PADDLE_VL_MANGA_REPO, trust_remote_code=False,
+                dtype=torch.bfloat16 if cuda else torch.float32)
+            if cuda:
+                model = model.to("cuda")
+            model.eval()
+            globals()["_paddle_vl_manga_model"] = model
 
-    model = globals()["_paddle_vl_manga_model"]
-    processor = globals()["_paddle_vl_manga_processor"]
-    image = Image.open(image_path).convert("RGB")
-    messages = [{"role": "user", "content": [{"type": "image", "image": image},
-                                             {"type": "text", "text": "OCR:"}]}]
-    inputs = processor.apply_chat_template(
-        messages, add_generation_prompt=True, tokenize=True, return_dict=True,
-        return_tensors="pt").to(model.device, dtype=model.dtype)
-    output_ids = model.generate(**inputs, max_new_tokens=256)
-    # generate() returns prompt + answer; decoding the prompt too would put
-    # the "OCR:" instruction in the extracted text.
-    generated = output_ids[:, inputs["input_ids"].shape[1]:]
-    return processor.batch_decode(generated, skip_special_tokens=True)[0].strip()
+        model = globals()["_paddle_vl_manga_model"]
+        processor = globals()["_paddle_vl_manga_processor"]
+        image = Image.open(image_path).convert("RGB")
+        messages = [{"role": "user", "content": [{"type": "image", "image": image},
+                                                 {"type": "text", "text": "OCR:"}]}]
+        inputs = processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=True, return_dict=True,
+            return_tensors="pt").to(model.device, dtype=model.dtype)
+        output_ids = model.generate(**inputs, max_new_tokens=256)
+        # generate() returns prompt + answer; decoding the prompt too would put
+        # the "OCR:" instruction in the extracted text.
+        generated = output_ids[:, inputs["input_ids"].shape[1]:]
+        return processor.batch_decode(generated, skip_special_tokens=True)[0].strip()
 
 
 def extract_text_manga_ocr(image_path: str) -> str:
@@ -258,9 +268,10 @@ def extract_text_manga_ocr(image_path: str) -> str:
     page results will be noisier."""
     from manga_ocr import MangaOcr
     global _manga_ocr_instance
-    if "_manga_ocr_instance" not in globals():
-        globals()["_manga_ocr_instance"] = MangaOcr()
-    return globals()["_manga_ocr_instance"](image_path)
+    with _MODEL_LOCK:
+        if "_manga_ocr_instance" not in globals():
+            globals()["_manga_ocr_instance"] = MangaOcr()
+        return globals()["_manga_ocr_instance"](image_path)
 
 
 def extract_text_from_images(image_paths, backend: str = "tesseract",

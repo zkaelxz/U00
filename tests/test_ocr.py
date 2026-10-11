@@ -358,3 +358,119 @@ class TestPaddleVlMangaNative:
         from transformers.models.auto.modeling_auto import MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES
         assert "paddleocr_vl" in MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES
         assert hasattr(transformers, "PaddleOCRVLProcessor")
+
+
+class TestModelLock:
+    """The cached OCR models are shared by Scanlate, the novel OCR job and the
+    extension bridge, and only Scanlate and the bridge share pipeline_lock()."""
+
+    @pytest.fixture
+    def fake_manga_ocr(self, monkeypatch):
+        import threading
+        import time
+        import types
+
+        stats = {"constructed": 0, "active": 0, "max_active": 0}
+        guard = threading.Lock()
+
+        class FakeMangaOcr:
+            def __init__(self):
+                time.sleep(0.05)  # widens the check-then-construct window
+                with guard:
+                    stats["constructed"] += 1
+
+            def __call__(self, path):
+                with guard:
+                    stats["active"] += 1
+                    stats["max_active"] = max(stats["max_active"], stats["active"])
+                time.sleep(0.02)
+                with guard:
+                    stats["active"] -= 1
+                return f"text of {path}"
+
+        monkeypatch.setitem(sys.modules, "manga_ocr", types.SimpleNamespace(MangaOcr=FakeMangaOcr))
+        monkeypatch.delitem(ocr.__dict__, "_manga_ocr_instance", raising=False)
+        yield stats
+        ocr.__dict__.pop("_manga_ocr_instance", None)
+
+    def _run_threads(self, targets):
+        import threading
+        errors = []
+
+        def wrap(fn):
+            def run():
+                try:
+                    fn()
+                except Exception as exc:  # surfaced by the assert below
+                    errors.append(exc)
+            return run
+
+        threads = [threading.Thread(target=wrap(t)) for t in targets]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+        assert not any(t.is_alive() for t in threads), "an OCR thread deadlocked"
+        assert errors == []
+
+    def test_two_threads_build_one_model_and_never_overlap_inference(self, fake_manga_ocr):
+        results = []
+
+        def job():
+            results.append(ocr.extract_text_from_images(["a.png", "b.png"], backend="manga_ocr"))
+
+        self._run_threads([job, job])
+        assert fake_manga_ocr["constructed"] == 1
+        assert fake_manga_ocr["max_active"] == 1
+        assert results == ["text of a.png\n\ntext of b.png"] * 2
+
+    def test_pipeline_lock_holder_and_a_lockless_caller_both_finish(self, fake_manga_ocr):
+        # Scanlate holds the page pipeline lock around OCR; the novel OCR job
+        # doesn't. Taking the OCR lock inside the pipeline lock, and never the
+        # other way round, means neither can wait on the other forever.
+        import page_server
+
+        def scanlate_page():
+            with page_server.PIPELINE_LOCK:
+                ocr.extract_text_from_images(["s.png"], backend="manga_ocr")
+
+        def novel_chapter():
+            ocr.extract_text_from_images(["n.png"], backend="manga_ocr")
+
+        self._run_threads([scanlate_page, novel_chapter, scanlate_page, novel_chapter])
+        assert fake_manga_ocr["constructed"] == 1
+        assert fake_manga_ocr["max_active"] == 1
+
+    def test_paddle_instances_are_built_once_across_threads(self, monkeypatch):
+        import threading
+        import time
+        import types
+
+        stats = {"constructed": 0, "active": 0, "max_active": 0}
+        guard = threading.Lock()
+
+        class FakePaddleOCR:
+            def __init__(self, **kwargs):
+                time.sleep(0.05)
+                with guard:
+                    stats["constructed"] += 1
+
+            def predict(self, path):
+                with guard:
+                    stats["active"] += 1
+                    stats["max_active"] = max(stats["max_active"], stats["active"])
+                time.sleep(0.02)
+                with guard:
+                    stats["active"] -= 1
+                return [{"rec_texts": ["你好"]}]
+
+        monkeypatch.setitem(sys.modules, "paddleocr", types.SimpleNamespace(PaddleOCR=FakePaddleOCR))
+        monkeypatch.delitem(ocr.__dict__, "_paddle_instances", raising=False)
+        try:
+            def job():
+                ocr.extract_text_from_images(["p.png"], backend="paddle", source_language="zh")
+            self._run_threads([job, job, job])
+        finally:
+            ocr.__dict__.pop("_paddle_instances", None)
+        assert stats["constructed"] == 1
+        assert stats["max_active"] == 1
