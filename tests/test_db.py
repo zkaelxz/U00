@@ -11,13 +11,17 @@ import sqlite3
 import subprocess
 import sys
 import os
+
+import pytest
 import tempfile
 import threading
+import time
 import weakref
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
 from core import Line
+from jobs import gpu_slots
 
 
 class TestDramaCRUD:
@@ -1380,102 +1384,102 @@ class TestGpuLock:
     coordination point both sides check."""
 
     def test_free_lock_is_acquired(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
-        holder, description = isolated_db.gpu_lock_status()
+        assert gpu_slots.take("ui:job1", "Transcription") is True
+        holder, description = gpu_slots.status()
         assert holder == "ui:job1"
         assert description == "Transcription"
 
     def test_held_lock_refuses_a_different_holder(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is False
+        assert gpu_slots.take("ui:job1", "Transcription") is True
+        assert gpu_slots.take("cli:1234", "CLI dub") is False
         # Still job1's -- the failed attempt above must not have touched it.
-        holder, description = isolated_db.gpu_lock_status()
+        holder, description = gpu_slots.status()
         assert holder == "ui:job1"
         assert description == "Transcription"
 
     def test_same_holder_can_reacquire_its_own_lock(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
-        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
+        assert gpu_slots.take("ui:job1", "Transcription") is True
+        assert gpu_slots.take("ui:job1", "Transcription") is True
 
     def test_release_frees_it_for_someone_else(self, isolated_db):
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
-        isolated_db.release_gpu_lock("ui:job1")
-        assert isolated_db.gpu_lock_status() == (None, None)
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is True
+        gpu_slots.take("ui:job1", "Transcription")
+        gpu_slots.release("ui:job1")
+        assert gpu_slots.status() == (None, None)
+        assert gpu_slots.take("cli:1234", "CLI dub") is True
 
     def test_releasing_the_wrong_holder_is_a_no_op(self, isolated_db):
         """A lock that went stale and was taken over by someone else must
         not be released out from under its new, legitimate holder by a
         late release() call from whoever held it before."""
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
-        isolated_db.release_gpu_lock("cli:1234")  # never held it
-        holder, _ = isolated_db.gpu_lock_status()
+        gpu_slots.take("ui:job1", "Transcription")
+        gpu_slots.release("cli:1234")  # never held it
+        holder, _ = gpu_slots.status()
         assert holder == "ui:job1"
 
     def test_stale_lock_is_taken_over(self, isolated_db):
         """A holder that crashed without releasing shouldn't permanently
         block the GPU -- a lock whose heartbeat is older than
         GPU_LOCK_STALE_SECONDS is treated as abandoned."""
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        gpu_slots.take("ui:job1", "Transcription")
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ? WHERE id = 1",
-                    (isolated_db.GPU_LOCK_STALE_SECONDS + 1,))
+                    (gpu_slots.GPU_LOCK_STALE_SECONDS + 1,))
         conn.commit()
         conn.close()
-        assert isolated_db.gpu_lock_status() == (None, None)
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is True
+        assert gpu_slots.status() == (None, None)
+        assert gpu_slots.take("cli:1234", "CLI dub") is True
 
     def test_heartbeat_keeps_a_long_running_holder_from_going_stale(self, isolated_db):
-        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        gpu_slots.take("ui:job1", "Transcription")
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ? WHERE id = 1",
-                    (isolated_db.GPU_LOCK_STALE_SECONDS - 1,))
+                    (gpu_slots.GPU_LOCK_STALE_SECONDS - 1,))
         conn.commit()
         conn.close()
-        isolated_db.heartbeat_gpu_lock("ui:job1")
+        gpu_slots.heartbeat(["ui:job1"])
         # Refreshed -- still held, and a competing holder is still refused.
-        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is False
+        assert gpu_slots.take("cli:1234", "CLI dub") is False
 
     def test_status_is_free_when_nothing_has_ever_held_it(self, isolated_db):
-        assert isolated_db.gpu_lock_status() == (None, None)
+        assert gpu_slots.status() == (None, None)
 
     def test_max_holders_allows_that_many_and_no_more(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
-        assert isolated_db.try_acquire_gpu_lock("cli:1", "B", max_holders=2) is True
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is False
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C") is False  # a cap of 1 too
-        assert isolated_db.gpu_lock_holder_count() == 2
-        assert isolated_db.gpu_lock_holder_count(exclude_holder="ui:a") == 1
-        isolated_db.release_gpu_lock("ui:a")
-        assert isolated_db.gpu_lock_status() == ("cli:1", "B")  # only its own row went
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True
+        assert gpu_slots.take("ui:a", "A", max_holders=2) is True
+        assert gpu_slots.take("cli:1", "B", max_holders=2) is True
+        assert gpu_slots.take("ui:c", "C", max_holders=2) is False
+        assert gpu_slots.take("ui:c", "C") is False  # a cap of 1 too
+        assert gpu_slots.holder_count() == 2
+        assert gpu_slots.holder_count(exclude_holder="ui:a") == 1
+        gpu_slots.release("ui:a")
+        assert gpu_slots.status() == ("cli:1", "B")  # only its own row went
+        assert gpu_slots.take("ui:c", "C", max_holders=2) is True
 
     def test_max_holders_is_capped_by_the_table(self, isolated_db):
-        for i in range(isolated_db.GPU_LOCK_MAX_SLOTS):
-            assert isolated_db.try_acquire_gpu_lock(f"ui:{i}", max_holders=99) is True
-        assert isolated_db.try_acquire_gpu_lock("ui:extra", max_holders=99) is False
+        for i in range(gpu_slots.GPU_LOCK_MAX_SLOTS):
+            assert gpu_slots.take(f"ui:{i}", max_holders=99) is True
+        assert gpu_slots.take("ui:extra", max_holders=99) is False
 
     def test_settle_seconds_refuses_joining_a_fresh_holder(self, isolated_db):
-        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2, settle_seconds=60) is True
-        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is False
+        assert gpu_slots.take("ui:a", "A", max_holders=2, settle_seconds=60) is True
+        assert gpu_slots.take("ui:b", "B", max_holders=2, settle_seconds=60) is False
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET acquired_at = acquired_at - 61")
         conn.commit()
         conn.close()
-        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is True
+        assert gpu_slots.take("ui:b", "B", max_holders=2, settle_seconds=60) is True
 
     def test_a_stale_holder_does_not_count_and_heartbeat_is_per_holder(self, isolated_db):
-        isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2)
-        isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2)
+        gpu_slots.take("ui:a", "A", max_holders=2)
+        gpu_slots.take("ui:b", "B", max_holders=2)
         conn = isolated_db.get_conn()
         conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
-                     (isolated_db.GPU_LOCK_STALE_SECONDS + 1,))
+                     (gpu_slots.GPU_LOCK_STALE_SECONDS + 1,))
         conn.commit()
         conn.close()
-        isolated_db.heartbeat_gpu_lock("ui:b")
-        assert isolated_db.gpu_lock_holder_count() == 1
-        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True  # took a's slot
-        assert isolated_db.try_acquire_gpu_lock("ui:d", "D", max_holders=2) is False
+        gpu_slots.heartbeat(["ui:b"])
+        assert gpu_slots.holder_count() == 1
+        assert gpu_slots.take("ui:c", "C", max_holders=2) is True  # took a's slot
+        assert gpu_slots.take("ui:d", "D", max_holders=2) is False
 
     def test_old_single_row_table_is_migrated_keeping_the_holder(self, isolated_db):
         conn = isolated_db.get_conn()
@@ -1483,12 +1487,12 @@ class TestGpuLock:
         conn.execute("""CREATE TABLE gpu_lock (id INTEGER PRIMARY KEY CHECK (id = 1),
                         holder TEXT NOT NULL, description TEXT, acquired_at REAL NOT NULL,
                         heartbeat_at REAL NOT NULL)""")
+        conn.execute("INSERT INTO gpu_lock VALUES (1, 'cli:1', 'CLI', ?, ?)", (time.time(), time.time()))
         conn.commit()
         conn.close()
-        assert isolated_db.try_acquire_gpu_lock("cli:1", "CLI") is True
         isolated_db.init_db()
-        assert isolated_db.gpu_lock_status() == ("cli:1", "CLI")
-        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
+        assert gpu_slots.status() == ("cli:1", "CLI")
+        assert gpu_slots.take("ui:a", "A", max_holders=2) is True
 
 
 class TestImportTimeSafety:
@@ -1990,6 +1994,7 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
 _INIT_DB_MIGRATED_COLUMNS = {
     "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id", "kind",
                     "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
+    "gpu_lock": ("owner_pid", "owner_instance", "job_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
               "word_timings"),
     "dramas": (
@@ -2217,6 +2222,28 @@ class TestInitDbSchema:
         finally:
             conn.close()
 
+    def test_library_read_holders_get_lines_read_once_for_the_reader_page(self, isolated_db):
+        from services import auth_service
+        reader = auth_service.add_user("reader@example.com")["id"]
+        nobody = auth_service.add_user("nobody@example.com")["id"]
+        for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+            if p != "library.read":
+                isolated_db.auth_revoke_permission(reader, p)
+            isolated_db.auth_revoke_permission(nobody, p)
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:   # as before the migration ran
+            conn.execute("DELETE FROM app_settings WHERE key = 'migrations.reader_page_lines_read'")
+            conn.commit()
+        finally:
+            conn.close()
+        isolated_db.init_db()
+        assert set(isolated_db.auth_get_permissions(reader)) == {"library.read", "lines.read"}
+        assert not isolated_db.auth_get_permissions(nobody)
+        # Once only: a later revoke survives the next start.
+        isolated_db.auth_revoke_permission(reader, "lines.read")
+        isolated_db.init_db()
+        assert set(isolated_db.auth_get_permissions(reader)) == {"library.read"}
+
 
 # Tables with a line_id that a full sync deliberately leaves alone when a line
 # is removed or merged. A new per-line table must go here or in
@@ -2294,3 +2321,80 @@ def test_snapshot_waits_for_a_concurrent_writer_instead_of_failing(isolated_db):
         stop.set()
         t.join()
     assert errors == []
+
+
+def _stored_version():
+    return db.get_app_setting(db.APP_VERSION_SETTING)
+
+
+def _open_as(monkeypatch, running):
+    monkeypatch.setattr(db, "_running_app_version", lambda: running)
+    db.init_db()
+
+
+def test_init_db_refuses_a_library_last_opened_by_a_newer_version(isolated_db, monkeypatch):
+    from lib.errors import NewerDatabaseError
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.1.0")
+    with pytest.raises(NewerDatabaseError) as err:
+        _open_as(monkeypatch, "2.0.5")
+    message = err.value.message
+    assert "2.1.0" in message and "2.0.5" in message and "backups" in message
+    assert db.LIBRARY_DIR not in message and os.sep not in message
+    assert _stored_version() == "2.1.0"
+
+
+def test_a_refused_library_stays_refused_on_the_next_use(isolated_db, monkeypatch):
+    from lib.errors import NewerDatabaseError
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.1.0")
+    monkeypatch.setattr(db, "_running_app_version", lambda: "2.0.5")
+    db.configure_library_dir(db.LIBRARY_DIR)   # forget readiness, as a fresh start
+    with pytest.raises(NewerDatabaseError):
+        db.get_conn()
+    with pytest.raises(NewerDatabaseError):
+        db.get_conn()
+
+
+@pytest.mark.parametrize("stored", ["1.9.0", "2.0.5"])
+def test_init_db_opens_an_older_or_equal_version_and_records_the_running_one(
+        isolated_db, monkeypatch, stored):
+    db.set_app_setting(db.APP_VERSION_SETTING, stored)
+    _open_as(monkeypatch, "2.0.5")
+    assert _stored_version() == "2.0.5"
+
+
+def test_init_db_opens_when_no_version_was_recorded(isolated_db, monkeypatch):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (db.APP_VERSION_SETTING,))
+        conn.commit()
+    _open_as(monkeypatch, "2.0.5")
+    assert _stored_version() == "2.0.5"
+
+
+@pytest.mark.parametrize("stored", ["dev", "banana", "", 7, None])
+def test_init_db_opens_when_the_stored_version_is_malformed(isolated_db, monkeypatch, stored):
+    db.set_app_setting(db.APP_VERSION_SETTING, stored)
+    _open_as(monkeypatch, "2.0.5")
+    assert _stored_version() == "2.0.5"
+
+
+def test_a_source_checkout_neither_checks_nor_records_a_version(isolated_db, monkeypatch):
+    db.set_app_setting(db.APP_VERSION_SETTING, "9.9.9")
+    _open_as(monkeypatch, None)
+    assert _stored_version() == "9.9.9"
+
+
+def test_installed_app_version_comes_from_the_install_manifest(tmp_path, monkeypatch):
+    import portable
+    app = tmp_path / "app"
+    app.mkdir()
+    monkeypatch.setattr(portable, "APP_DIR", str(app))
+    monkeypatch.setattr(portable, "is_installed", lambda: True)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text('{"product": "Baihe Studio", "app_version": "0.1.0"}')
+    assert portable.installed_app_version() == "0.1.0"
+    manifest.write_text('{"product": "Other", "app_version": "0.1.0"}')
+    assert portable.installed_app_version() is None
+    manifest.write_text("not json")
+    assert portable.installed_app_version() is None
+    monkeypatch.setattr(portable, "is_installed", lambda: False)
+    assert portable.installed_app_version() is None

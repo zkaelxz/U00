@@ -57,8 +57,8 @@ import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
-from services import (asr_options_service, diarization_service, run_settings_service, settings_service, source_service,
-                      timing_check_service, transcribe_pipeline)
+from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
+                      settings_service, source_service, timing_check_service, transcribe_pipeline)
 from services.retranscribe_worker import (apply_retranscribe_outcome as _apply_retranscribe_outcome,
                                            retranscribe_timeout_s as _retranscribe_timeout_s,
                                            retranscribe_worker as _retranscribe_worker)
@@ -290,6 +290,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "measured_diarize_speed": measured_diarize_speed(settings_service.get_use_gpu()),
         "measured_diarize_runs": measured_diarize_runs(settings_service.get_use_gpu()),
         "whisper_installed": diagnostics.check_dependency("faster_whisper"),
+        "gpu_runtime": whisper_models.whisper_gpu_runtime(),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
@@ -498,6 +499,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
+    if db.load_line_ids(drama_id):
+        # The run replaces every line the title already has.
+        ownership_service.require_acting_lines_edit()
     min_speakers, max_speakers = diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
 
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):

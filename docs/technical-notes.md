@@ -226,6 +226,18 @@ from a page that genuinely had no metadata. A silent failure. See the
 `docs/user-guide.md`'s "Fetching from JS-heavy sites" section for the three-layer fix
 that's in place now.
 
+## Guarded fetches ignore environment proxies
+
+`lib.http.get/post` with the default `guard=check_public` (metadata research,
+source adapters, `safe_fetch`) validate the name with `url_guard.resolve_public`
+and connect to that exact address. A proxy would resolve the name again on its
+own, so the check would no longer describe where the request goes (DNS
+rebinding); these fetches therefore set `trust_env=False` and never use
+`HTTP_PROXY`/`HTTPS_PROXY`. On a PC that reaches the internet only through such
+a proxy they fail with "could not be fetched". Fetches with `guard=None` (vendor
+APIs whose URL the code fixes, the Ollama address set in Settings) still honour
+environment proxies, as do engine SDK calls.
+
 ## Migrating off components.html
 
 `st.components.v1.html` and `st.components.v1.iframe` are both
