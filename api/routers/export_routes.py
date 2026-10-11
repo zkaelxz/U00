@@ -27,6 +27,7 @@ from services import export_service, media_export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
+_MAX_LONG_CUES_REPORTED = 50
 _MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt", "lrc": "text/plain; charset=utf-8"}
 
 
@@ -46,14 +47,18 @@ def get_subtitle_text(
         field: str = Query("en", pattern="^(en|zh|bilingual)$"),
         include_notes: bool = Query(False),
         wrap_chars_en: int = Query(None, ge=1, le=200),
-        wrap_chars_source: int = Query(None, ge=1, le=200)):
+        wrap_chars_source: int = Query(None, ge=1, le=200),
+        tidy_timing: bool = Query(False)):
     result = export_service.generate_subtitle_export(
         drama_id, fmt, field, include_notes=include_notes,
-        wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source)
+        wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source, tidy_timing=tidy_timing)
     return Response(
         content=result["text"], media_type=_MEDIA_TYPES[fmt],
         headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, field, fmt),
-                 "X-Cues-Adjusted": str(result["timing_adjusted_count"])})
+                 "X-Cues-Extended": str(result["cues_extended"]),
+                 "X-Cues-Trimmed": str(result["cues_trimmed"]),
+                 # Cue numbers, capped so a badly timed title can't make a huge header.
+                 "X-Cues-Left-Long": ",".join(map(str, result["cues_left_long"][:_MAX_LONG_CUES_REPORTED]))})
 
 
 @router.post("/dramas/{drama_id}/flag-overlaps", dependencies=[require_permission("lines.edit")], response_model=FlagActionResult,

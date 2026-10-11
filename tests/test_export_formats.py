@@ -291,10 +291,10 @@ class TestReadingSpeed:
         assert sf.reading_speed_mode_of({"reading_speed_mode": None}) == "normal"
         assert sf.reading_speed_mode_of({"reading_speed_mode": "relaxed"}) == "relaxed"
 
-    def test_the_note_names_the_setting_and_does_not_only_say_lengthen(self):
+    def test_the_note_says_what_the_speech_allows(self):
         ln = self._en("word " * 60, 3.0)
         sf.flag_dense_lines([ln])
-        assert "Reading speed check" in ln.flag_note and "may be fine" in ln.flag_note
+        assert "The speech is this fast: shorten the text" in ln.flag_note
 
     def test_translation_finishing_honours_the_titles_mode(self, isolated_db):
         import bulk_translate

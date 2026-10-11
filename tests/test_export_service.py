@@ -103,7 +103,7 @@ class TestGenerateSubtitleText:
         did = self._drama_with_lines(isolated_db)
         text = export_service.generate_subtitle_text(did, "srt", "en")
         assert "Hello" in text
-        assert "00:00:00,000 --> 00:00:01,917" in text  # 2-frame gap before the next cue
+        assert "00:00:00,000 --> 00:00:02,000" in text
         assert "你好" not in text
 
     def test_srt_bilingual(self, isolated_db):
@@ -125,11 +125,10 @@ class TestGenerateSubtitleText:
             Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
         ])
         text = export_service.generate_subtitle_text(did, "srt", "en")
-        # clamp_overlaps trims line 0's end to line 1's start (2.0), then
-        # the timing pass leaves 2 frames before it -- the raw, untrimmed
-        # 3.0 end must not appear in the export.
+        # clamp_overlaps trims line 0's end to line 1's start (2.0) --
+        # the raw, untrimmed 3.0 end must not appear in the export.
         assert "00:00:00,000 --> 00:00:03,000" not in text
-        assert "00:00:00,000 --> 00:00:01,917" in text
+        assert "00:00:00,000 --> 00:00:02,000" in text
 
     def test_wrap_chars_applies_to_srt(self, isolated_db):
         did = _drama(isolated_db)

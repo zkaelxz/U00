@@ -1,5 +1,6 @@
-"""Per-language reading-speed limits and the Netflix-style duration/gap pass
-that SRT exports go through (ASS, VTT and LRC are deliberately left alone)."""
+"""Per-language reading-speed limits, the flag note that says whether a cue
+could be shown longer, and the opt-in "Tidy cue timing for players" pass for
+SRT exports (ASS, VTT and LRC are deliberately left alone)."""
 import copy
 
 import pytest
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 import subtitle_formats as sf
 from api.api_config import ApiSettings
 from api.server import create_app
-from core import Line, fmt_ts
+from core import Line, fmt_ts, lines_to_srt
 from services import export_service
 
 FPS = 24.0
@@ -81,62 +82,91 @@ class TestReadingSpeedProfiles:
         assert sf.flag_dense_lines([ln]) == 0 and ln.flag == "uncertain_translation"
 
 
-class TestTimingRules:
-    def test_a_short_cue_is_extended_to_twenty_frames(self):
-        out, n = sf.apply_timing_rules([_line(0, 0, 0.3), _line(1, 5, 6)], FPS)
-        assert out[0].end == pytest.approx(MIN_DUR) and n == 1
+class TestDenseFlagNote:
+    """A reading-speed flag only says what is true; it never moves a time."""
+
+    def _flagged(self, lines):
+        before = [(ln.start, ln.end) for ln in lines]
+        assert sf.flag_dense_lines(lines) >= 1
+        assert [(ln.start, ln.end) for ln in lines] == before
+        return lines[0].flag_note
+
+    def test_free_time_after_the_cue_is_reported(self):
+        # 63 chars in 3 s is 21 cps; 17 cps needs 3.71 s, so 0.71 s more.
+        lines = [_line(0, 0, 3, "a" * 63), _line(1, 10, 12)]
+        note = self._flagged(lines)
+        assert "could be shown 0.8 s longer" in note and "speech is this fast" not in note
+
+    def test_back_to_back_speech_means_shorten_the_text(self):
+        note = self._flagged([_line(0, 0, 3, "a" * 63), _line(1, 3, 6)])
+        assert "The speech is this fast: shorten the text" in note and "longer" not in note
+
+    def test_room_that_is_too_small_is_not_offered(self):
+        # needs 0.71 s but only 0.3 s remains after the 2-frame gap
+        note = self._flagged([_line(0, 0, 3, "a" * 63), _line(1, 3 + 0.3 + GAP, 6)])
+        assert "The speech is this fast" in note
+
+    def test_the_last_cue_has_no_later_speech_to_collide_with(self):
+        assert "could be shown" in self._flagged([_line(0, 0, 3, "a" * 63)])
+
+    def test_the_note_offers_no_timing_fix_when_there_is_no_room(self):
+        note = self._flagged([_line(0, 0, 3, "a" * 63), _line(1, 3, 6)])
+        assert "lengthen" not in note and "stretch" not in note.lower()
+
+
+class TestTidyCueTiming:
+    def test_a_short_cue_is_extended_into_free_silence(self):
+        out, rep = sf.tidy_cue_timing([_line(0, 0, 0.3), _line(1, 5, 6)], FPS)
+        assert out[0].end == pytest.approx(MIN_DUR) and rep["extended"] == 1
 
     def test_extension_stops_a_gap_before_the_next_cue(self):
-        out, _ = sf.apply_timing_rules([_line(0, 0, 0.3), _line(1, 0.6, 3)], FPS)
+        out, _ = sf.tidy_cue_timing([_line(0, 0, 0.3), _line(1, 0.6, 3)], FPS)
         assert out[0].end == pytest.approx(0.6 - GAP)
 
-    def test_a_cue_is_never_shrunk_to_make_room_for_the_gap(self):
-        out, n = sf.apply_timing_rules([_line(0, 0, 0.3), _line(1, 0.35, 3)], FPS)
-        assert out[0].end == 0.3 and n == 0
-
-    def test_a_long_cue_is_capped_at_seven_seconds(self):
-        out, n = sf.apply_timing_rules([_line(0, 0, 16)], FPS)
-        assert out[0].end == 7.0 and n == 1
-
-    def test_back_to_back_cues_get_a_two_frame_gap(self):
-        out, n = sf.apply_timing_rules([_line(0, 0, 2), _line(1, 2, 4)], FPS)
-        assert out[0].end == pytest.approx(2 - GAP) and out[1].end == 4 and n == 1
-
-    def test_overlapping_cues_are_gapped_after_the_clamp(self):
-        clamped, _ = sf.clamp_overlaps([_line(0, 0, 3.4), _line(1, 3, 5)])
-        out, _ = sf.apply_timing_rules(clamped, FPS)
-        assert out[0].end == pytest.approx(3 - GAP)
-
-    def test_a_cue_already_clear_of_the_next_is_untouched(self):
-        lines = [_line(0, 0, 2), _line(1, 3, 5)]
-        out, n = sf.apply_timing_rules(lines, FPS)
-        assert [(c.start, c.end) for c in out] == [(0, 2), (3, 5)] and n == 0
+    def test_extension_is_at_most_one_second(self):
+        out, _ = sf.tidy_cue_timing([_line(0, 0, 0.05), _line(1, 5, 6)], 8.0)  # 20 frames = 2.5 s
+        assert out[0].end == pytest.approx(1.05)
 
     def test_starts_never_move_and_originals_are_left_alone(self):
-        lines = [_line(0, 0, 0.3), _line(1, 0.6, 20)]
-        before = copy.deepcopy([(ln.start, ln.end) for ln in lines])
-        out, n = sf.apply_timing_rules(lines, FPS)
-        assert [(ln.start, ln.end) for ln in lines] == before
-        assert [c.start for c in out] == [0, 0.6] and n == 2
+        lines = [_line(0, 0, 0.3), _line(1, 0.6, 3)]
+        out, _ = sf.tidy_cue_timing(lines, FPS)
+        assert [ln.end for ln in lines] == [0.3, 3] and [c.start for c in out] == [0, 0.6]
 
-    def test_nothing_ends_after_the_next_cues_start_minus_the_gap(self):
-        lines = [_line(i, i * 0.5, i * 0.5 + 0.2) for i in range(6)]
-        out, _ = sf.apply_timing_rules(lines, FPS)
-        for cur, nxt in zip(out, out[1:]):
-            assert cur.end <= nxt.start - GAP + 1e-9
+    def test_touching_cues_lose_two_frames_from_the_earlier_one(self):
+        out, rep = sf.tidy_cue_timing([_line(0, 0, 2), _line(1, 2, 4)], FPS)
+        assert out[0].end == pytest.approx(2 - GAP) and out[1].end == 4 and rep["trimmed"] == 1
+
+    def test_overlapping_cues_are_trimmed_by_at_most_two_frames(self):
+        clamped, _ = sf.clamp_overlaps([_line(0, 0, 3.4), _line(1, 3, 5)])
+        out, _ = sf.tidy_cue_timing(clamped, FPS)
+        assert out[0].end == pytest.approx(3 - GAP)
+
+    def test_a_cue_too_short_to_trim_is_left_alone(self):
+        out, rep = sf.tidy_cue_timing([_line(0, 0, 0.05), _line(1, 0.05, 3)], FPS)
+        assert out[0].end == 0.05 and rep == {"extended": 0, "trimmed": 0, "left_long": []}
+
+    def test_long_cues_are_reported_and_never_cut(self):
+        out, rep = sf.tidy_cue_timing([_line(0, 0, 16), _line(1, 20, 21), _line(2, 22, 30)], FPS)
+        assert [c.end for c in out] == [16, 21, 30]
+        assert rep["left_long"] == [1, 3]  # cue numbers as in the SRT
+
+    def test_nothing_is_changed_when_there_is_nothing_to_tidy(self):
+        lines = [_line(0, 0, 2), _line(1, 3, 5)]
+        out, rep = sf.tidy_cue_timing(lines, FPS)
+        assert [(c.start, c.end) for c in out] == [(0, 2), (3, 5)]
+        assert rep == {"extended": 0, "trimmed": 0, "left_long": []}
 
     @pytest.mark.parametrize("fps", [None, 0, -5, float("nan")])
     def test_unknown_frame_rate_means_24(self, fps):
-        out, _ = sf.apply_timing_rules([_line(0, 0, 0.3)], fps)
+        out, _ = sf.tidy_cue_timing([_line(0, 0, 0.3)], fps)
         assert out[0].end == pytest.approx(20 / 24)
 
     def test_frame_rate_scales_both_rules(self):
-        out, _ = sf.apply_timing_rules([_line(0, 0, 0.3), _line(1, 10, 11), _line(2, 11, 12)], 25.0)
-        assert out[0].end == pytest.approx(0.8)
-        assert out[1].end == pytest.approx(11 - 2 / 25)
+        out, _ = sf.tidy_cue_timing([_line(0, 0, 0.3), _line(1, 10, 11), _line(2, 11, 12)], 25.0)
+        assert out[0].end == pytest.approx(0.8) and out[1].end == pytest.approx(11 - 2 / 25)
 
     def test_sfx_cues_follow_the_same_rules(self):
-        out, _ = sf.apply_timing_rules([_line(0, 0, 0.2, sfx=True)], FPS)
+        out, _ = sf.tidy_cue_timing([_line(0, 0, 0.2, sfx=True)], FPS)
         assert out[0].end == pytest.approx(MIN_DUR)
 
 
@@ -151,44 +181,64 @@ ROWS = [Line(idx=0, start=0.0, end=0.3, zh="甲", en="Hi"),
         Line(idx=2, start=4.0, end=20.0, zh="丙", en="Long one")]
 
 
-class TestExportAppliesTheRules:
-    def test_srt_is_adjusted_and_counted_and_stored_times_are_not(self, isolated_db):
+class TestExportOption:
+    def test_off_is_byte_identical_to_the_untidied_export(self, isolated_db):
         did = _seed(isolated_db, ROWS)
+        clamped, _ = sf.clamp_overlaps(core_lines(isolated_db, did))
+        expected = lines_to_srt(clamped, "en")
         result = export_service.generate_subtitle_export(did, "srt", "en")
+        assert result["text"] == expected
+        assert (result["cues_extended"], result["cues_trimmed"], result["cues_left_long"]) == (0, 0, [])
+
+    def test_on_tidies_srt_and_reports_counts(self, isolated_db):
+        did = _seed(isolated_db, ROWS)
+        result = export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True)
         cues = result["text"].split("\n\n")
         assert fmt_ts(MIN_DUR) in cues[0]
         assert fmt_ts(4.0 - GAP) in cues[1]
-        assert fmt_ts(11.0) in cues[2]
-        assert result["timing_adjusted_count"] == 3
+        assert fmt_ts(20.0) in cues[2]  # long cue is kept as it is
+        assert (result["cues_extended"], result["cues_trimmed"], result["cues_left_long"]) == (1, 1, [3])
         assert [(r["start"], r["end"]) for r in isolated_db.load_lines(did)] == [
             (0.0, 0.3), (2.0, 4.0), (4.0, 20.0)]
 
-    def test_bilingual_srt_gets_the_same_rules(self, isolated_db):
+    def test_bilingual_srt_is_tidied_too(self, isolated_db):
         did = _seed(isolated_db, ROWS)
-        assert fmt_ts(MIN_DUR) in export_service.generate_subtitle_text(did, "srt", "bilingual")
-
-    def test_generate_subtitle_text_returns_the_same_text(self, isolated_db):
-        did = _seed(isolated_db, ROWS)
-        assert (export_service.generate_subtitle_text(did, "srt", "en")
-                == export_service.generate_subtitle_export(did, "srt", "en")["text"])
+        text = export_service.generate_subtitle_export(did, "srt", "bilingual", tidy_timing=True)["text"]
+        assert fmt_ts(MIN_DUR) in text
 
     @pytest.mark.parametrize("fmt", ["vtt", "lrc"])
-    def test_vtt_and_lrc_keep_todays_timing(self, isolated_db, fmt):
+    def test_vtt_and_lrc_ignore_the_option(self, isolated_db, fmt):
         did = _seed(isolated_db, ROWS)
-        result = export_service.generate_subtitle_export(did, fmt, "en")
-        clamped, _ = sf.clamp_overlaps(ROWS)
-        expected = (sf.lines_to_vtt if fmt == "vtt" else sf.lines_to_lrc)(clamped, "en")
-        assert result["text"] == expected and result["timing_adjusted_count"] == 0
+        plain = export_service.generate_subtitle_export(did, fmt, "en")
+        tidy = export_service.generate_subtitle_export(did, fmt, "en", tidy_timing=True)
+        assert tidy == plain and tidy["cues_extended"] == 0
 
     def test_ass_keeps_todays_timing(self, isolated_db):
         did = _seed(isolated_db, ROWS)
         text = export_service.generate_ass_text(did, per_speaker_colors=False)
-        assert "0:00:00.00,0:00:00.30" in text
-        assert "0:00:04.00,0:00:20.00" in text
+        assert "0:00:00.00,0:00:00.30" in text and "0:00:04.00,0:00:20.00" in text
 
-    def test_route_reports_the_count_in_a_header(self, client, isolated_db):
+    def test_route_option_and_headers(self, client, isolated_db):
         did = _seed(isolated_db, ROWS)
-        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en")
-        assert resp.headers["X-Cues-Adjusted"] == "3"
-        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=vtt&field=en")
-        assert resp.headers["X-Cues-Adjusted"] == "0"
+        base = f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en"
+        off = client.get(base)
+        assert off.headers["X-Cues-Extended"] == "0" and off.headers["X-Cues-Left-Long"] == ""
+        on = client.get(base + "&tidy_timing=true")
+        assert on.headers["X-Cues-Extended"] == "1" and on.headers["X-Cues-Trimmed"] == "1"
+        assert on.headers["X-Cues-Left-Long"] == "3"
+        assert on.text != off.text
+
+
+def core_lines(db, did):
+    from core import lines_from_rows
+    return lines_from_rows(db.load_lines(did))
+
+
+def test_flagging_a_title_never_changes_stored_times(isolated_db):
+    rows = [Line(idx=0, start=0.0, end=3.0, zh="甲", en="a" * 63),
+            Line(idx=1, start=3.0, end=6.0, zh="乙", en="ok")]
+    did = _seed(isolated_db, rows)
+    assert export_service.flag_dense_lines(did) == {"flagged_count": 1}
+    stored = isolated_db.load_lines(did)
+    assert [(r["start"], r["end"]) for r in stored] == [(0.0, 3.0), (3.0, 6.0)]
+    assert "speech is this fast" in stored[0]["flag_note"]

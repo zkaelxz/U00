@@ -108,42 +108,53 @@ def clamp_overlaps(lines):
 # ------------------------------------------------------ duration and gap
 
 # Netflix Timed Text Style Guide, subtitle timing: at least 20 frames
-# (5/6 s at 24 fps) on screen, at most 7 s, and 2 frames between cues so a
-# player redraws the next cue instead of holding the old one through it.
+# (5/6 s at 24 fps) on screen, 2 frames between cues so a player redraws the
+# next cue instead of holding the old one through it, and 7 s at most.
 MIN_DURATION_FRAMES = 20
-MAX_DURATION_S = 7.0
 MIN_GAP_FRAMES = 2
+MAX_DURATION_S = 7.0
+# A cue is lengthened by at most this much: it can only grow into silence,
+# and a long stretch of it is more likely speech the aligner missed.
+MAX_EXTENSION_S = 1.0
 DEFAULT_FPS = 24.0
 _TIMING_EPSILON = 0.0005  # below SRT's millisecond resolution
 
 
-def apply_timing_rules(lines, fps=None):
-    """Returns (copies, adjusted_count): copies of `lines` (already
-    overlap-clamped) with only end times changed, for SRT output. A cue is
-    capped at 7 s, lengthened toward 20 frames, and ended 2 frames before
-    the next cue starts. Conservative on purpose: a cue is never lengthened
-    past the next cue's start minus the gap (that start belongs to the next
-    speaker), and never shortened below the shorter of its own length and
-    20 frames just to make room for the gap. The originals are untouched
-    and stored times are never written."""
-    fps = fps if isinstance(fps, (int, float)) and math.isfinite(fps) and fps > 0 else DEFAULT_FPS
+def _frame_rate(fps) -> float:
+    return fps if isinstance(fps, (int, float)) and math.isfinite(fps) and fps > 0 else DEFAULT_FPS
+
+
+def tidy_cue_timing(lines, fps=None):
+    """Returns (copies, report) for the opt-in "Tidy cue timing for players"
+    SRT export; `lines` are already overlap-clamped. Only cue ends move,
+    and only so far as the audio allows:
+    - a cue shorter than 20 frames is lengthened toward that, into free
+      silence only: never past the next cue's start minus 2 frames, never
+      by more than MAX_EXTENSION_S;
+    - the earlier of two cues that touch or sit closer than 2 frames loses
+      at most 2 frames, to leave that gap;
+    - a cue over 7 s is not cut (the speech may really run that long): its
+      cue number is reported for the user to review.
+    The report is {"extended": n, "trimmed": n, "left_long": [cue numbers]}.
+    Originals are untouched; stored line times are never written."""
+    fps = _frame_rate(fps)
     min_dur, gap = MIN_DURATION_FRAMES / fps, MIN_GAP_FRAMES / fps
     out = [copy.copy(ln) for ln in lines]
-    adjusted = 0
+    extended = trimmed = 0
     for i, ln in enumerate(out):
-        original_end = ln.end
-        end = min(ln.end, ln.start + MAX_DURATION_S)
-        room = out[i + 1].start - gap if i + 1 < len(out) else math.inf
-        if end - ln.start < min_dur:
-            end = max(end, min(ln.start + min_dur, room))
-        if end > room:
-            # Trimming for the gap may not leave the cue shorter than it
-            # would have been allowed to be anyway.
-            end = max(room, ln.start + min(original_end - ln.start, min_dur))
-        if abs(end - original_end) > _TIMING_EPSILON:
-            ln.end = end
-            adjusted += 1
-    return out, adjusted
+        nxt = out[i + 1] if i + 1 < len(out) else None
+        room = nxt.start - gap - ln.end if nxt else math.inf
+        grow = min(min_dur - (ln.end - ln.start), room, MAX_EXTENSION_S)
+        if grow > _TIMING_EPSILON:
+            ln.end += grow
+            extended += 1
+        elif nxt is not None and nxt.start - ln.end < gap - _TIMING_EPSILON:
+            trim = min(gap - (nxt.start - ln.end), gap)
+            if ln.end - trim > ln.start:
+                ln.end -= trim
+                trimmed += 1
+    left_long = [i + 1 for i, ln in enumerate(out) if ln.end - ln.start > MAX_DURATION_S]
+    return out, {"extended": extended, "trimmed": trimmed, "left_long": left_long}
 
 
 def overlap_note(ln, next_start: float) -> str:
@@ -275,17 +286,33 @@ def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE
     return out
 
 
-def flag_dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE) -> int:
+def _dense_note(ln, field: str, cps: float, limit: float, nxt, gap: float) -> str:
+    """What is true about the flag: whether the next cue leaves enough room
+    after this one to show it longer. A speech-rate flag is never a timing
+    fix, so with no room the note offers none."""
+    head = f"{cps:.1f} characters/second -- more than ~{limit:g}/s is hard to read in time. "
+    needed = len((getattr(ln, field, "") or "").strip()) / limit - (ln.end - ln.start) if limit else 0
+    room = nxt.start - gap - ln.end if nxt is not None else math.inf
+    # Beyond MAX_EXTENSION_S the extra time is more likely speech than silence.
+    if 0 < needed <= min(room, MAX_EXTENSION_S):
+        return head + (f"The next line leaves room: it could be shown {math.ceil(needed * 10) / 10:.1f} s "
+                       "longer, or shorten the text.")
+    return head + "The speech is this fast: shorten the text."
+
+
+def flag_dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE,
+                     fps=None) -> int:
     """Flags (in place) lines too dense to read, without replacing a flag
-    that's already there. Returns how many were newly flagged."""
+    that's already there. Returns how many were newly flagged. Only the flag
+    and its note are written: line times are never changed. `lines` are in
+    time order, so the next one bounds the free time after a cue."""
+    gap = MIN_GAP_FRAMES / _frame_rate(fps)
+    following = {id(a): b for a, b in zip(lines, lines[1:])}
     n = 0
     for ln, cps, limit in dense_lines(lines, field, mode):
         if not ln.flag:
             ln.flag = READING_SPEED_FLAG
-            ln.flag_note = (f"{cps:.1f} characters/second -- more than ~{limit:g}/s is hard to "
-                            "read in time. For fast speech the line may be fine; otherwise shorten "
-                            "it or lengthen its timing. This title's \"Reading speed check\" "
-                            "setting (Normal, Relaxed or Off) changes what gets flagged.")
+            ln.flag_note = _dense_note(ln, field, cps, limit, following.get(id(ln)), gap)
             n += 1
     return n
 
