@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getInstallPresets, installDependency } from '../../../../api/diagnostics'
+import { getSettings } from '../../../../api/settings'
 import { getDiarizationConfig } from '../../../../api/workspace'
 import { ApiError } from '../../../../api/client'
 import { listAllLines, reassignSpeakersFromSaved, resplitLines, restoreSnapshot } from '../../../../api/restructure'
@@ -21,14 +22,13 @@ import { resplitJobId } from '../../stageJobIds'
 import { JobPanel } from '../JobPanel'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import { speakerTimeFooter, speakerTimeLines, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
-import { JOB_RUNNING_MESSAGE, RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, wordSplitterPackages } from './reviewResegment'
+import { JOB_RUNNING_MESSAGE, QUICK_SPLIT_DEFAULTS, RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, quickSplitHelp, quickSplitLimits, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, wordSplitterPackages } from './reviewResegment'
 import { UndoNotice } from './UndoNotice'
 import { retireUndoOffer, useUndoOffer } from './undoOffer'
 
-// Lines over ~12 s or ~40 characters, cut at sentence ends, then commas, then
-// pauses, then evenly, and timed from the audio when the aligner is available.
-const QUICK_SPLIT = { align_to_audio: true, max_seconds: 12 }
-const QUICK_SPLIT_HELP = 'Splits every line over about 12 seconds or 40 characters at sentence ends, then commas, then the longest pauses (evenly by length, flagged approximate, if there is nothing else), and re-times the pieces from the audio.'
+// Lines over the quick-split limits (Settings > Timing and splitting; 12 s and 40
+// characters unless changed), cut at sentence ends, then commas, then pauses, then evenly,
+// and timed from the audio when the aligner is available.
 
 interface Props {
   dramaId: number
@@ -67,6 +67,11 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   useEffect(() => {
     saveDraft({ align, sensitivity, capSec: cap ?? 0 })
   }, [saveDraft, align, sensitivity, cap])
+  // The saved one-click limits; another device or a member who cannot read Settings keeps the defaults.
+  const [quickLimits, setQuickLimits] = useState(QUICK_SPLIT_DEFAULTS)
+  useEffect(() => {
+    void getSettings().then((s) => setQuickLimits(quickSplitLimits(s.preferences)), () => {})
+  }, [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [needsConfirm, setNeedsConfirm] = useState(false)
@@ -127,7 +132,7 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
       const lines = await listAllLines(dramaId)
       const r = await resplitLines(dramaId, {
         expected_line_ids: lines.map((l) => l.id), confirm, dry_run: dryRun,
-        ...(oneClick ? QUICK_SPLIT : { align_to_audio: align, sensitivity: chosen, max_seconds: cap }),
+        ...(oneClick ? { align_to_audio: true, max_seconds: quickLimits.seconds } : { align_to_audio: align, sensitivity: chosen, max_seconds: cap }),
       })
       if (dryRun) setSummary(resplitPreviewSummary(r))
       else if (r.job_id) {
@@ -263,7 +268,7 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
         </div>
         <div className="actions">
           <button type="button" className="primary" disabled={blocked} onClick={() => run(false, false, true)}
-            title={QUICK_SPLIT_HELP}>
+            title={quickSplitHelp(quickLimits)}>
             Split long lines
           </button>
           <button type="button" disabled={blocked} onClick={() => run(false, true, false)}>

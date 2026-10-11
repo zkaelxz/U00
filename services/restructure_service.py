@@ -43,18 +43,18 @@ from typing import Optional
 import background_jobs
 import core as core_module
 import whisper_models
-from segment_splitting import (MIN_WORD_GAP_SECONDS, SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, SplitRules, encode_line_words, line_word_index, line_words, span_words)
+from segment_splitting import encode_line_words, line_word_index, line_words, span_words
 import db
 import diarize
 import long_line_split
 import raw_transcript
 import resegment
 import segment
-import subtitle_formats
 import translate_engines
 from engine_backends import llm_tasks
-from services import (diarization_service, drama_service, settings_service, transcribe_service,
-                      translate_service)
+from services import (diarization_service, drama_service, settings_service, timing_settings_service,
+                      transcribe_service, translate_service)
+from services.resplit_config import RESPLIT_MAX_CHARS, RESPLIT_SENSITIVITIES, _Resplit
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
 from services.service_errors import (
@@ -68,9 +68,6 @@ from services.service_errors import (
 )
 
 MAX_LINE_TEXT_CHARS = 2000
-# Lines already past the cap (merged before it existed) are not re-split by the
-# rules presets, whose quote and abbreviation checks cost more per character.
-RESPLIT_MAX_CHARS = 10 * MAX_LINE_TEXT_CHARS
 MAX_SPEAKER_CHARS = 100
 MAX_MERGE_LINES = 50
 RESEGMENT_JOB_PREFIX = "resegment_"  # already in background_jobs.DRAMA_JOB_PREFIXES
@@ -721,61 +718,10 @@ _RESPLIT_CONFIRM = ("Some long lines already have a translation. A split piece c
                     "it, so those lines would lose their English -- pass confirm=true.")
 
 
-RESPLIT_SENSITIVITIES = {"more": "More", "sentence": "Sentence by sentence"}
 # None is no preset: only the fresh-transcription limits (plus any duration cap).
 _RESPLIT_NEXT = {None: 'Try "More" or "Sentence by sentence".',
                  "more": 'Try "Sentence by sentence".',
                  "sentence": "Try a shorter duration cap."}
-
-
-@dataclasses.dataclass(frozen=True)
-class _Resplit:
-    """What to cut: the sensitivity preset, an optional duration cap and the
-    title language lines fall back to."""
-    language: str = "zh"
-    sensitivity: Optional[str] = None
-    max_seconds: Optional[float] = None
-    min_pause: float = MIN_WORD_GAP_SECONDS
-
-    @property
-    def label(self) -> str:
-        return RESPLIT_SENSITIVITIES.get(self.sensitivity, "Default limits") + (
-            f", {self.max_seconds:g} s cap" if self.max_seconds else "")
-
-    def rules(self, ln) -> Optional[SplitRules]:
-        """None is today's fixed 8 s / 40 CJK characters. The cap replaces the
-        8 s limit rather than adding to it: a cap above 8 would otherwise do nothing."""
-        if self.sensitivity is None and not self.max_seconds:
-            return None
-        seconds = self.max_seconds or SPLIT_MAX_SECONDS
-        if self.sensitivity is None:
-            return SplitRules(seconds, SPLIT_MAX_CJK_CHARS, count_latin=False)
-        if self.sensitivity == "more":
-            return SplitRules(
-                seconds, subtitle_formats.line_char_limit(ln.lang or self.language))
-        return SplitRules(self.max_seconds, None, per_sentence=True)
-
-    def too_long(self, ln) -> bool:
-        return len(ln.zh) > RESPLIT_MAX_CHARS and self.rules(ln) is not None
-
-    def split(self, ln) -> list:
-        """Pieces cut by split_long_segments; with the line's valid stored words
-        it cuts at real pauses with real times and hands each piece its words."""
-        seg = {"start": ln.start, "end": ln.end, "text": ln.zh}
-        if self.too_long(ln):
-            return [seg]
-        words = line_words(ln)
-        kw = {"rules": self.rules(ln), "min_pause": self.min_pause}
-        if not words:
-            return long_line_split.split_long_segments([seg], **kw)
-        pieces = long_line_split.split_long_segments([{**seg, "words": words}], **kw)
-        # Word times tighten a piece to its speech, but the line's outer edges
-        # may have been re-timed on purpose (by hand or a re-time run); the
-        # Review split and the AI re-split keep them, so this does too.
-        if len(pieces) >= 2:
-            pieces[0] = {**pieces[0], "start": ln.start}
-            pieces[-1] = {**pieces[-1], "end": ln.end}
-        return pieces
 
 
 def _resplit_candidates(lines):
@@ -963,7 +909,7 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     its pieces start empty.
 
     sensitivity: None (the limits of a fresh transcription: 8 s / 40 CJK
-    characters), "more" (the per-language subtitle line length, in each line's
+    characters unless Settings changed them), "more" (the per-language subtitle line length, in each line's
     own language) or "sentence" (every sentence end). max_seconds replaces the
     preset's duration limit. Pieces under 0.8 s or 4 CJK characters / 2 words
     are folded into a neighbour in "more" and "sentence".
@@ -979,7 +925,8 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     if max_seconds is not None and not 2 <= max_seconds <= 120:
         raise InvalidInputError("max_seconds must be between 2 and 120.")
     cfg = _Resplit(drama.get("source_language") or "zh", sensitivity, max_seconds,
-                   transcribe_service.stored_min_pause_sec(drama))
+                   transcribe_service.stored_min_pause_sec(drama),
+                   **timing_settings_service.resplit_limits())
     if not dry_run:
         _refuse_if_job_running(drama_id)
     lines = db.load_line_objects(drama_id, with_words=True)
