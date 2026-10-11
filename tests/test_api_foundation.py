@@ -601,7 +601,7 @@ class TestExportFlaggingEndpoints:
     def test_clear_reading_speed_flags(self, client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [
-            Line(idx=0, start=0.0, end=5.0, zh="", en="word " * 12, flag="reading_speed", flag_note="x"),
+            Line(idx=0, start=0.0, end=5.0, zh="", en="word " * 20, flag="reading_speed", flag_note="x"),
             Line(idx=1, start=5.0, end=9.0, zh="", en="Hi", flag="timing_overlap", flag_note="y")])
         resp = client.post(f"/api/export/dramas/{did}/clear-reading-speed-flags?recheck=true")
         assert resp.status_code == 200
