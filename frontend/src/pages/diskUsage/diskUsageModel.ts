@@ -110,6 +110,15 @@ export function cellLabel(item: DiskUsageItem, w: number, h: number): string {
 
 export const TRASH_WORD = 'DELETE'
 
+export const FROM_KEPT_TITLE = 'It came from a title with "Keep original files" on, so it may be one of that title\'s originals.'
+
+/** For Empty Trash: how many items came from titles with "Keep original files" on, or null for none. */
+export function keptTitlesLine(items: { from_kept_title?: boolean }[]): string | null {
+  const n = items.filter((i) => i.from_kept_title).length
+  if (!n) return null
+  return `${n === 1 ? '1 item' : `${n} items`} came from titles with "Keep original files" on, so they may be those titles' originals.`
+}
+
 /** The always-visible Trash size line. */
 export const trashLine = (size_bytes: number, partial = false) =>
   `Trash uses ${partial ? 'at least ' : ''}${formatBytes(size_bytes)}; nothing is freed until you delete from it.`

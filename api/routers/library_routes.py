@@ -28,7 +28,7 @@ _SUMMARY_FIELDS = tuple(f for f in DramaSummary.model_fields
                         if f not in ("custom_tags", "is_private", "owned_by_me"))
 _DETAIL_FIELDS = tuple(f for f in DramaDetail.model_fields
                        if f not in ("custom_tags", "is_private", "owned_by_me", "has_audio", "has_novel_reference",
-                                    "has_cover_art", "source_url"))
+                                    "has_cover_art", "source_url", "keep_original"))
 
 
 def _to_summary(drama: dict) -> DramaSummary:
@@ -45,7 +45,8 @@ def to_detail(drama: dict) -> DramaDetail:
                        source_url=library_service.display_source_url(drama.get("source_url")) or None,
                        has_audio=bool(drama.get("audio_filename")),
                        has_novel_reference=bool(drama.get("novel_reference_filename")),
-                       has_cover_art=bool(drama.get("cover_art_filename")))
+                       has_cover_art=bool(drama.get("cover_art_filename")),
+                       keep_original=bool(drama.get("keep_original")))
 
 
 @router.get("/dramas", dependencies=[require_permission("library.read")], response_model=DramaListResponse,
