@@ -297,8 +297,8 @@ def test_absolute_repo_prefix_and_github_token_are_removed():
 
 
 def test_untracked_files_are_not_readable(monkeypatch):
-    monkeypatch.setattr(svc, "_tracked_files", lambda: {"db.py"})
-    assert svc.run_tool("read_file", {"path": "db.py", "end": 2})["ok"] is True
+    monkeypatch.setattr(svc, "_tracked_files", lambda: {"core.py"})
+    assert svc.run_tool("read_file", {"path": "core.py", "end": 2})["ok"] is True
     out = svc.run_tool("read_file", {"path": "qa.py", "end": 2})
     assert out["ok"] is False and "outside" in out["output"]
     assert "qa.py" not in svc.run_tool("list_files", {"path": ""})["output"]

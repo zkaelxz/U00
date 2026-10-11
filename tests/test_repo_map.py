@@ -165,7 +165,7 @@ def test_unknown_target_and_bad_part_exit_cleanly(tmp_path, monkeypatch):
 def test_real_repo_smoke_every_listing_fits_the_budget(monkeypatch):
     files = rm.source_files()
     monkeypatch.setattr(rm, "source_files", lambda: files)  # walk the checkout once, not per listing
-    assert "db.py" in files and "services/drama_service.py" in files
+    assert "db/__init__.py" in files and "services/drama_service.py" in files
     assert not any(f.startswith(("tests/", "docs/archive/")) or "node_modules" in f for f in files)
     outputs = {"map": _run()}
     for rel in files:
@@ -177,7 +177,7 @@ def test_real_repo_smoke_every_listing_fits_the_budget(monkeypatch):
                 outputs[f"{rel} part {n}"] = _run(rel, "--part", str(n))
     for folder in sorted({f.rsplit("/", 1)[0] for f in files if "/" in f}):
         outputs[folder + "/"] = _run(folder)
-    assert "Too large to list at once" in outputs["db.py"]
+    assert "Too large to list at once" in outputs["db/__init__.py"]
     too_big = {k: len(v.encode()) for k, v in outputs.items() if len(v.encode()) > MAX_LISTING_BYTES}
     assert too_big == {}
     assert all(str(ROOT) not in v for v in outputs.values())
