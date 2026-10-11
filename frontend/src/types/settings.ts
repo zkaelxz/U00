@@ -92,3 +92,32 @@ export interface MonthCounterResetResult {
   before: MonthSpendStatus
   after: MonthSpendStatus
 }
+
+// GET /api/settings/schema: the declared settings the page builds forms from.
+// Metadata only; values come from the overview.
+export type SettingsSchemaType = 'bool' | 'int' | 'float' | 'text' | 'choice' | 'path' | 'json'
+
+export interface SettingsSchemaChoice {
+  value: string
+  label: string
+}
+
+export interface SettingsSchemaRow {
+  key: string
+  type: SettingsSchemaType
+  default: unknown
+  scope: string
+  label: string
+  help: string
+  unit: string
+  placeholder: string
+  tab: string
+  section: string
+  custom: boolean // a hand-written card owns this key's field
+  dev_only: boolean
+  choices: SettingsSchemaChoice[] | null
+  min: number | null
+  max: number | null
+  max_len: number | null
+  multiline: boolean
+}

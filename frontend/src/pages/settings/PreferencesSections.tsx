@@ -8,118 +8,82 @@
  *
  * Layout (UI refresh §3.12): Defaults and Spending are Cards;
  * OCR, offline, downloads and server addresses are rare, so they are
- * Sections inside one "Advanced" Card.
+ * Sections inside one "Advanced" Card. Their fields are generated from the
+ * declared settings (SchemaCard); the server addresses are .env values and
+ * stay hand-written.
  */
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 
-import { clearEndpointUrl, resetMonthCounter, setEndpointUrl, undoMonthCounterReset, updatePreferences } from '../../api/settings'
+import { clearEndpointUrl, resetMonthCounter, setEndpointUrl, undoMonthCounterReset } from '../../api/settings'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { humanize, humanizeValue } from '../../components/labels'
 import { Section } from '../../components/Section'
-import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
-import type { EndpointName, SettingsOverview, SettingsPreferences } from '../../types/settings'
+import type { EndpointName, SettingsOverview, SettingsSchemaRow } from '../../types/settings'
 import {
   capSummary,
-  changedPreferences,
   checkEndpointUrl,
-  checkPath,
   cookiesSummary,
   ENDPOINTS,
   OCR_LABELS,
-  parseCap,
-  parseKeepFreeGb,
-  parseNumCtx,
-  parseUploadMb,
-  DEFAULT_UPLOAD_MB,
   SAVED_ON_PC_NOTE,
-  type Parsed,
 } from './preferences'
+import { SchemaCard } from './SchemaCard'
 
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
 
-type Props = { settings: SettingsOverview; onSettings: (s: SettingsOverview) => void }
+type Props = {
+  settings: SettingsOverview
+  onSettings: (s: SettingsOverview) => void
+  schema: SettingsSchemaRow[] | null
+}
 // Bumping a signal opens the Advanced card's Sections: `openSignal` all of them (a search hit),
 // `uploadsSignal` only Uploads (the Source stage's link). Section reacts to any change of its number.
 type AdvancedProps = Props & { openSignal?: number; uploadsSignal?: number }
 
-function useCommon({ settings, onSettings }: Props) {
-  const remote = usePcOnly() === 'remote'
-  return { prefs: settings.preferences, remote, onSaved: onSettings }
-}
-
-export function DefaultsCard(props: Props) {
-  const common = useCommon(props)
-  const p = props.settings.preferences
-  const c = props.settings.choices
+export function DefaultsCard({ schema, settings, onSettings }: Props) {
+  const p = settings.preferences
   return (
-    <PrefsSection
-      {...common}
+    <SchemaCard
+      schema={schema}
+      settings={settings}
+      onSettings={onSettings}
+      section="Translation style"
       as="card"
       title="Translation style"
       summary={`${humanize('locale', p.default_locale)}${p.default_style_note ? ' · style note' : ''}`}
-      fromPrefs={(x) => ({
-        default_locale: x.default_locale,
-        default_style_note: x.default_style_note,
-      })}
-      toPatch={(d) => ({ ok: true, value: d as Partial<SettingsPreferences> })}
-    >
-      {(d, set) => (
-        <>
-          <Field label="English variant" help="Spelling for new translations. Pre-fills the Translate form.">
-            <select value={String(d.default_locale)} onChange={(e) => set('default_locale', e.target.value)}>
-              {c.locales.map((l) => (
-                <option key={l} value={l}>{humanize('locale', l)}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Style note" help="Pre-fills the Translate form's style note.">
-            <textarea rows={2} maxLength={2000} value={String(d.default_style_note)} onChange={(e) => set('default_style_note', e.target.value)} />
-          </Field>
-        </>
-      )}
-    </PrefsSection>
+    />
   )
 }
 
 export function SpendingCard(props: Props) {
-  const common = useCommon(props)
-  const { settings } = props
-  const p = settings.preferences
+  const { schema, settings, onSettings } = props
+  const remote = usePcOnly() === 'remote'
   return (
-    <PrefsSection
-      {...common}
+    <SchemaCard
+      schema={schema}
+      settings={settings}
+      onSettings={onSettings}
+      section="Spending"
       as="card"
       title="Spending"
-      summary={capSummary(p.monthly_cap_usd, settings.monthly_cap_env_usd)}
-      fromPrefs={(x) => ({ monthly_cap_usd: x.monthly_cap_usd === null ? '' : String(x.monthly_cap_usd) })}
-      toPatch={(d) => {
-        const cap = parseCap(String(d.monthly_cap_usd))
-        return cap.ok ? { ok: true, value: { monthly_cap_usd: cap.value } } : cap
-      }}
-    >
-      {(d, set) => (
+      summary={capSummary(settings.preferences.monthly_cap_usd, settings.monthly_cap_env_usd)}
+      placeholderOverride={{ monthly_cap_usd: settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'None' }}
+      after={
         <>
-          <Field
-            label="Monthly cap"
-            unit="USD"
-            help="Compared with the estimated spend this month (UTC). Once it is used up, new translations won't start and a running one stops, keeping finished lines. 0 means no cap; blank uses BAIHE_MONTHLY_CAP_USD from .env."
-          >
-            <input type="text" inputMode="decimal" value={String(d.monthly_cap_usd)} onChange={(e) => set('monthly_cap_usd', e.target.value)} placeholder={settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'None'} />
-          </Field>
           <p className="muted" data-testid="cap-effective">
             {settings.effective_monthly_cap_usd > 0
               ? `Cap in effect: $${settings.effective_monthly_cap_usd.toFixed(2)} a month.`
               : 'No monthly cap in effect.'}
           </p>
-          <MonthCounter {...props} remote={common.remote} />
+          <MonthCounter {...props} remote={remote} />
         </>
-      )}
-    </PrefsSection>
+      }
+    />
   )
 }
 
@@ -182,280 +146,73 @@ function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolea
   )
 }
 
+// How the Advanced section's rows fold. A row of the section that no fold names lands in
+// "Other", so a newly declared setting shows up without touching this list.
+const ADVANCED_FOLDS: { title: string; keys: string[] }[] = [
+  { title: 'OCR', keys: ['ocr_backend', 'ocr_prefer_paddle_vl_manga', 'tesseract_cmd'] },
+  { title: 'Offline and performance', keys: ['whisper_model_path', 'ollama_num_ctx_override', 'keep_free_vram_gb', 'keep_free_ram_gb'] },
+  { title: 'Downloads', keys: ['cookies_browser', 'cookies_file', 'lncrawl_cmd'] },
+  { title: 'Uploads', keys: ['max_upload_mb'] },
+]
+
 export function AdvancedCard(props: AdvancedProps) {
-  const common = useCommon(props)
-  const { settings, onSettings, openSignal = 0, uploadsSignal = 0 } = props
+  const remote = usePcOnly() === 'remote'
+  const { schema, settings, onSettings, openSignal = 0, uploadsSignal = 0 } = props
   const p = settings.preferences
-  const c = settings.choices
+  const named = new Set(ADVANCED_FOLDS.flatMap((f) => f.keys))
+  const other = (schema ?? []).filter((r) => r.section === 'Advanced' && !r.custom && !r.dev_only && !named.has(r.key)).map((r) => r.key)
+  const common = { schema, settings, onSettings, section: 'Advanced' }
+  const summaries: Record<string, string> = {
+    OCR: OCR_LABELS[p.ocr_backend] ?? humanizeValue(p.ocr_backend),
+    'Offline and performance': [
+      p.whisper_model_path ? 'Whisper folder set' : 'Whisper downloads',
+      p.ollama_num_ctx_override ? `num_ctx ${p.ollama_num_ctx_override}` : 'num_ctx auto',
+      p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve',
+    ].join(' · '),
+    Downloads: `Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`,
+    Uploads: `Limit ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`,
+  }
   return (
     <Card title="Advanced" meta="OCR, offline models, memory to keep free, downloads, uploads, server addresses" aria-label="Advanced">
-      <PrefsSection
-        {...common}
-        openSignal={openSignal}
-        title="OCR"
-        summary={OCR_LABELS[p.ocr_backend] ?? humanizeValue(p.ocr_backend)}
-        fromPrefs={(x) => ({
-          ocr_backend: x.ocr_backend,
-          ocr_prefer_paddle_vl_manga: x.ocr_prefer_paddle_vl_manga,
-          tesseract_cmd: x.tesseract_cmd,
-        })}
-        toPatch={(d) => pathPatch(d, ['tesseract_cmd'])}
-      >
-        {(d, set) => (
-          <>
-            <Field label="Default backend" help="Used when a page has no OCR choice. Auto picks manga_ocr for Japanese, PaddleOCR for Chinese and Korean, otherwise Tesseract.">
-              <select value={String(d.ocr_backend)} onChange={(e) => set('ocr_backend', e.target.value)}>
-                {c.ocr_backends.map((b) => (
-                  <option key={b} value={b}>{OCR_LABELS[b] ?? humanizeValue(b)}</option>
-                ))}
-              </select>
-            </Field>
-            <div className="setting-list">
-              <Field label="Japanese: prefer PaddleOCR-VL" help="Changes only what Auto picks for Japanese. Leave off unless it reads your pages better than manga_ocr.">
-                <Toggle checked={Boolean(d.ocr_prefer_paddle_vl_manga)} onChange={(next) => set('ocr_prefer_paddle_vl_manga', next)} />
-              </Field>
-            </div>
-            <Field label="Tesseract program" help="Full path to tesseract.exe on the Baihe PC. Needed only if OCR says Tesseract is missing after you installed it. Leave blank otherwise.">
-              <input type="text" spellCheck={false} value={String(d.tesseract_cmd)} onChange={(e) => set('tesseract_cmd', e.target.value)} placeholder="C:\Program Files\Tesseract-OCR\tesseract.exe" />
-            </Field>
-          </>
-        )}
-      </PrefsSection>
-      <PrefsSection
-        {...common}
-        openSignal={openSignal}
-        title="Offline and performance"
-        summary={[
-          p.whisper_model_path ? 'Whisper folder set' : 'Whisper downloads',
-          p.ollama_num_ctx_override ? `num_ctx ${p.ollama_num_ctx_override}` : 'num_ctx auto',
-          p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve',
-        ].join(' · ')}
-        fromPrefs={(x) => ({
-          whisper_model_path: x.whisper_model_path,
-          ollama_num_ctx_override: x.ollama_num_ctx_override ? String(x.ollama_num_ctx_override) : '',
-          keep_free_vram_gb: x.keep_free_vram_gb ? String(x.keep_free_vram_gb) : '',
-          keep_free_ram_gb: x.keep_free_ram_gb ? String(x.keep_free_ram_gb) : '',
-        })}
-        toPatch={(d) => {
-          const n = parseNumCtx(String(d.ollama_num_ctx_override))
-          if (!n.ok) return n
-          const vram = parseKeepFreeGb(String(d.keep_free_vram_gb))
-          if (!vram.ok) return vram
-          const ram = parseKeepFreeGb(String(d.keep_free_ram_gb))
-          if (!ram.ok) return ram
-          const paths = pathPatch(d, ['whisper_model_path'])
-          return paths.ok
-            ? { ok: true, value: { ...paths.value, ollama_num_ctx_override: n.value, keep_free_vram_gb: vram.value, keep_free_ram_gb: ram.value } }
-            : paths
-        }}
-      >
-        {(d, set) => (
-          <>
-            <Field label="Offline Whisper model folder" help="For a PC that can't reach Hugging Face: a folder on the Baihe PC with a downloaded faster-whisper model. Blank downloads it on first use.">
-              <input type="text" spellCheck={false} value={String(d.whisper_model_path)} onChange={(e) => set('whisper_model_path', e.target.value)} />
-            </Field>
-            <Field label="Ollama context window" unit="tokens" help="Blank or 0 sizes it from each prompt (recommended). A value here can only raise it above that, never lower it.">
-              <input type="text" inputMode="numeric" value={String(d.ollama_num_ctx_override)} onChange={(e) => set('ollama_num_ctx_override', e.target.value)} placeholder="Auto" />
-            </Field>
-            <Field label="Keep free graphics memory" unit="GB" help="For other programs on this PC, such as Jellyfin transcoding. A local model that would use this memory is not loaded and the job stops with a message. Sizes are estimates. Blank or 0 turns it off.">
-              <input type="text" inputMode="decimal" value={String(d.keep_free_vram_gb)} onChange={(e) => set('keep_free_vram_gb', e.target.value)} placeholder="Off" />
-            </Field>
-            <Field label="Keep free RAM" unit="GB" help="The same for system memory when a model runs on the CPU. Blank or 0 turns it off.">
-              <input type="text" inputMode="decimal" value={String(d.keep_free_ram_gb)} onChange={(e) => set('keep_free_ram_gb', e.target.value)} placeholder="Off" />
-            </Field>
-          </>
-        )}
-      </PrefsSection>
-      <PrefsSection
-        {...common}
-        openSignal={openSignal}
-        title="Downloads"
-        summary={`Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`}
-        fromPrefs={(x) => ({ cookies_browser: x.cookies_browser ?? '', cookies_file: x.cookies_file, lncrawl_cmd: x.lncrawl_cmd })}
-        toPatch={(d) => {
-          const paths = pathPatch(d, ['cookies_file', 'lncrawl_cmd'])
-          return paths.ok
-            ? { ok: true, value: { ...paths.value, cookies_browser: String(d.cookies_browser) || null } }
-            : paths
-        }}
-      >
-        {(d, set) => (
-          <>
-            <p className="settings-note">
-              Some sites block downloads unless you are signed in. yt-dlp can use your browser login
-              for video URL downloads and Live capture started on this PC. Other devices never get
-              these cookies.
-            </p>
-            <Field label="Cookies from browser" help="yt-dlp reads this browser's cookies on the Baihe PC.">
-              <select value={String(d.cookies_browser)} onChange={(e) => set('cookies_browser', e.target.value)}>
-                <option value="">None</option>
-                {c.cookie_browsers.map((b) => (
-                  <option key={b} value={b}>{humanizeValue(b)}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Cookie file (cookies.txt)" help="Path to a cookies.txt file on the Baihe PC (export one with a browser add-on). Used instead of the browser above. Only the path is saved, never the file.">
-              <input type="text" spellCheck={false} value={String(d.cookies_file)} onChange={(e) => set('cookies_file', e.target.value)} />
-            </Field>
-            <Field label="Novel downloader (lightnovel-crawler)" help="Full path to lncrawl on the Baihe PC (a separate program you install). Needed only if it isn't on PATH. The file must be named lncrawl or lightnovel-crawler. Blank finds it on PATH.">
-              <input type="text" spellCheck={false} value={String(d.lncrawl_cmd)} onChange={(e) => set('lncrawl_cmd', e.target.value)} placeholder="C:\Users\you\.local\bin\lncrawl.exe" />
-            </Field>
-          </>
-        )}
-      </PrefsSection>
-      <PrefsSection
-        {...common}
-        openSignal={openSignal + uploadsSignal}
-        title="Uploads"
-        summary={`Limit ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`}
-        fromPrefs={(x) => ({ max_upload_mb: String(x.max_upload_mb) })}
-        toPatch={(d) => {
-          const n = parseUploadMb(String(d.max_upload_mb), DEFAULT_UPLOAD_MB)
-          return n.ok ? { ok: true, value: { max_upload_mb: n.value } } : n
-        }}
-      >
-        {(d, set) => (
-          <>
-            {settings.upload_max_mb_from_env && (
-              <p className="settings-note">Set by the environment, so it can't be changed here.</p>
-            )}
-            <Field
-              label="Upload size limit (MB)"
-              help={
-                settings.upload_max_mb_from_env
-                  ? `Set by BAIHE_MAX_UPLOAD_MB (${settings.effective_upload_max_mb.toLocaleString('en-US')} MB), so it can't be changed here. Remove the variable to use a saved limit.`
-                  : `The largest audio, video or backup file you can upload to this PC (100 to 1,048,576 MB). Blank uses ${DEFAULT_UPLOAD_MB.toLocaleString('en-US')} MB. The drive needs room for it. Other devices can't upload.`
-              }
-            >
-              <input
-                type="text"
-                inputMode="numeric"
-                value={settings.upload_max_mb_from_env ? String(settings.effective_upload_max_mb) : String(d.max_upload_mb)}
-                disabled={settings.upload_max_mb_from_env}
-                onChange={(e) => set('max_upload_mb', e.target.value)}
-                placeholder={String(DEFAULT_UPLOAD_MB)}
-              />
-            </Field>
-          </>
-        )}
-      </PrefsSection>
-      <EndpointsSection settings={settings} remote={common.remote} onSettings={onSettings} openSignal={openSignal} />
+      {ADVANCED_FOLDS.map((fold) => (
+        <SchemaCard
+          key={fold.title}
+          {...common}
+          keys={fold.keys}
+          title={fold.title}
+          summary={summaries[fold.title]}
+          openSignal={fold.title === 'Uploads' ? openSignal + uploadsSignal : openSignal}
+          {...(fold.title === 'Downloads' ? { before: DOWNLOADS_NOTE } : {})}
+          {...(fold.title === 'Uploads' ? uploadsEnv(settings) : {})}
+        />
+      ))}
+      {other.length > 0 && (
+        <SchemaCard {...common} keys={other} title="Other" summary={`${other.length} setting${other.length === 1 ? '' : 's'}`} openSignal={openSignal} />
+      )}
+      <EndpointsSection settings={settings} remote={remote} onSettings={onSettings} openSignal={openSignal} />
     </Card>
   )
 }
 
-function pathPatch(d: Draft, keys: (keyof SettingsPreferences)[]): Parsed<Partial<SettingsPreferences>> {
-  const value: Partial<SettingsPreferences> = {}
-  for (const k of keys) {
-    const raw = String(d[k] ?? '').trim()
-    const problem = checkPath(raw)
-    if (problem) return { ok: false, error: problem }
-    ;(value as Record<string, unknown>)[k] = raw
+const DOWNLOADS_NOTE = (
+  <p className="settings-note">
+    Some sites block downloads unless you are signed in. yt-dlp can use your browser login
+    for video URL downloads and Live capture started on this PC. Other devices never get
+    these cookies.
+  </p>
+)
+
+// BAIHE_MAX_UPLOAD_MB wins over the saved limit, so the field shows it and cannot be edited.
+function uploadsEnv(settings: SettingsOverview) {
+  if (!settings.upload_max_mb_from_env) return {}
+  const mb = settings.effective_upload_max_mb
+  return {
+    before: <p className="settings-note">Set by the environment, so it can't be changed here.</p>,
+    locked: { max_upload_mb: String(mb) },
+    helpOverride: {
+      max_upload_mb: `Set by BAIHE_MAX_UPLOAD_MB (${mb.toLocaleString('en-US')} MB), so it can't be changed here. Remove the variable to use a saved limit.`,
+    },
   }
-  return { ok: true, value: { ...(d as Partial<SettingsPreferences>), ...value } }
-}
-
-type Draft = Record<string, string | boolean | number | null>
-
-type PrefsSectionProps = {
-  as?: 'card' | 'section'
-  openSignal?: number
-  title: string
-  summary: string
-  prefs: SettingsPreferences
-  remote: boolean
-  fromPrefs: (p: SettingsPreferences) => Draft
-  toPatch: (d: Draft) => Parsed<Partial<SettingsPreferences>>
-  onSaved: (s: SettingsOverview) => void
-  children: (d: Draft, set: (key: string, value: string | boolean) => void) => ReactNode
-}
-
-function PrefsSection({ as = 'section', openSignal, title, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
-  const [draft, setDraft] = useState<Draft>(() => fromPrefs(prefs))
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
-  const [problem, setProblem] = useState<string | null>(null)
-  const [error, setError] = useState<unknown>(null)
-
-  if (remote) {
-    return (
-      <Block as={as} openSignal={openSignal} title={title} summary={PC_ONLY_SUMMARY}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Block>
-    )
-  }
-
-  const base = fromPrefs(prefs)
-  const dirty = Object.keys(base).some((k) => base[k] !== draft[k])
-  const set = (key: string, value: string | boolean) => {
-    setDraft((cur) => ({ ...cur, [key]: value }))
-    setNote(null)
-    setProblem(null)
-  }
-  const save = () => {
-    const parsed = toPatch(draft)
-    if (!parsed.ok) {
-      setProblem(parsed.error)
-      return
-    }
-    const patch = changedPreferences(prefs, parsed.value)
-    if (Object.keys(patch).length === 0) {
-      setDraft(base)
-      setNote('Nothing to change.')
-      return
-    }
-    setBusy(true)
-    setError(null)
-    updatePreferences(patch).then(
-      (s) => {
-        setBusy(false)
-        setDraft(fromPrefs(s.preferences))
-        setNote('Saved.')
-        onSaved(s)
-      },
-      (e: unknown) => {
-        setBusy(false)
-        setError(e)
-      },
-    )
-  }
-
-  return (
-    <Block as={as} openSignal={openSignal} title={title} summary={summary}>
-      <div style={grid}>
-        <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
-        {children(draft, set)}
-        {problem && <p className="error" role="alert">{problem}</p>}
-        <div className="settings-actions">
-          {/* Save is a Card's main action; the Advanced Card holds several, so there it stays secondary. */}
-          <button type="button" className={buttonClass(as === 'card' ? 'primary' : 'secondary')} disabled={busy || !dirty} onClick={save}>
-            {busy ? 'Saving…' : 'Save'}
-          </button>
-          {dirty && !busy && (
-            <button type="button" className={buttonClass('ghost')} onClick={() => { setDraft(base); setProblem(null) }}>
-              Undo changes
-            </button>
-          )}
-          <span className="muted" role="status">{note ?? ''}</span>
-        </div>
-      </div>
-    </Block>
-  )
-}
-
-// A Card (always open; the summary is its meta line) or a Section fold.
-function Block({ as, openSignal, title, summary, children }: { as: 'card' | 'section'; openSignal?: number; title: string; summary: string; children: ReactNode }) {
-  if (as === 'card')
-    return (
-      <Card title={title} meta={summary} aria-label={title}>
-        {children}
-      </Card>
-    )
-  return (
-    <Section title={title} summary={summary} openSignal={openSignal}>
-      {children}
-    </Section>
-  )
 }
 
 function EndpointsSection({ settings, remote, onSettings, openSignal }: { settings: SettingsOverview; remote: boolean; onSettings: (s: SettingsOverview) => void; openSignal: number }) {

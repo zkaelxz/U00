@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ApiError } from '../api/client'
 import {
   clampGpuMaxParallel,
+  fetchSettingsSchema,
   getSettings,
   GPU_MAX_PARALLEL_MAX,
   gpuMaxParallelHelp,
@@ -34,7 +35,7 @@ import { SharingCard } from './settings/SharingCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
-import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
+import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
 import { filterSettings, SETTINGS_INDEX, SETTINGS_TABS, type SettingsTab } from './settings/settingsIndex'
 import { SettingsCard, SettingsSearch, VisibleCardsProvider } from './settings/SettingsSearch'
 import { panelId, SettingsTabs, tabId } from './settings/SettingsTabs'
@@ -57,6 +58,7 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsOverview | null>(null)
+  const [schema, setSchema] = useState<SettingsSchemaRow[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   // The routing card reloads after any key, endpoint or preference save here
   // (a replaced key keeps configured=true but clears its Test).
@@ -107,6 +109,9 @@ export default function SettingsPage() {
     getSettings().then(setSettings, (e: unknown) => {
       if (!(e instanceof ApiError && e.status === 403)) setError(e)
     })
+    fetchSettingsSchema().then(setSchema, (e: unknown) => {
+      if (!(e instanceof ApiError && e.status === 403)) setError(e)
+    })
   }, [])
 
   async function toggle(key: SettingsToggleKey, value: boolean) {
@@ -149,6 +154,7 @@ export default function SettingsPage() {
   const prefProps = settings
     ? {
         settings,
+        schema,
         onSettings: (s: SettingsOverview) => {
           setSettings(s)
           bumpRouting()
