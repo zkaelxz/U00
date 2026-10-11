@@ -10,6 +10,8 @@ on. The app, the CLI and every job reach the prompt through
 `block_for`, so they cannot differ.
 """
 
+import contextlib
+
 import db
 import language_packs
 from services import ownership_service
@@ -75,6 +77,23 @@ def _stored_choice(drama_id: int, language: str):
         return own, False
     default = db.get_app_setting(_DEFAULT_KEY.format(language))
     return (default if isinstance(default, dict) else {"packs": {}}), True
+
+
+def forget_title(drama_id: int) -> None:
+    """Drops the title's own choice so a deleted title leaves no row behind.
+    db has no app-setting delete; a missing key is not an error."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (_TITLE_KEY.format(drama_id),))
+        conn.commit()
+
+
+def get_language_default(language: str) -> dict:
+    """The packs a title of this source language follows until it has its own choice."""
+    if language not in ("zh", "ja", "ko"):
+        raise InvalidInputError("The language must be zh, ja or ko.")
+    stored = db.get_app_setting(_DEFAULT_KEY.format(language))
+    packs = (stored or {}).get("packs") if isinstance(stored, dict) else None
+    return {"language": language, "packs": sorted(packs) if isinstance(packs, dict) else []}
 
 
 def get_title_packs(drama_id: int, principal=None) -> dict:

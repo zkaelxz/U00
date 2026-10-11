@@ -494,3 +494,18 @@ def test_metadata_title_with_nul_is_rejected(isolated_db):
     with pytest.raises(InvalidInputError):
         ds.update_drama_metadata(d["id"], title_en="a\x00b")
     assert db.get_drama(d["id"])["title_en"] == "T"
+
+
+def test_delete_drops_only_that_titles_language_pack_choice(isolated_db):
+    a = ds.create_drama(source_language="ja", title_en="A")["id"]
+    b = ds.create_drama(source_language="ja", title_en="B")["id"]
+    for did in (a, b):
+        db.set_app_setting(f"language_packs.title.{did}", {"packs": {"ja-address": None}})
+    ds.delete_drama(a, confirm=True, confirm_text="DELETE")
+    assert db.get_app_setting(f"language_packs.title.{a}") is None
+    assert db.get_app_setting(f"language_packs.title.{b}") == {"packs": {"ja-address": None}}
+
+
+def test_delete_without_a_language_pack_choice_is_fine(isolated_db):
+    a = ds.create_drama(source_language="zh", title_en="A")["id"]
+    assert ds.delete_drama(a, confirm=True, confirm_text="DELETE")["deleted"] is True
