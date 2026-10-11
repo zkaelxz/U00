@@ -1,5 +1,5 @@
 /*
- * "Clean temp files now" under Library tools > Disk usage: deletes everything
+ * "Clean temp files now" under Library tools > Storage: deletes everything
  * in Baihe's own temp folder, where jobs keep work files that a crash or a
  * killed job can leave behind. Refused by the server while a job runs (409).
  * The result is counts and megabytes only.
@@ -35,7 +35,6 @@ export function TempCleanup({ onCleaned }: { onCleaned: () => void }) {
   }
   return (
     <section aria-label="Temp files" className="du-trash du-temp">
-      <h3 className="du-trash-title">Temp files</h3>
       <p className="muted du-why">{TEMP_CLEAN_INTRO}</p>
       <div className="du-actions">
         <ConfirmButton

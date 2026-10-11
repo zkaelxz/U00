@@ -1,5 +1,5 @@
 /*
- * "Unused voice clips" under Library tools > Disk usage: the reference clips in
+ * "Unused voice clips" under Library tools > Storage: the reference clips in
  * each title's voice_refs/ folder that no speaker points to. The server sends
  * only the file type, size, date and an opaque id (no file name or path) and
  * checks every clip again before moving it, so a clip a speaker started using
@@ -53,7 +53,6 @@ export function UnusedVoiceClips({ clips, onChanged, onStale }: Props) {
   const all = clips.titles.flatMap((t) => t.clips)
   return (
     <section aria-label="Unused voice clips" className="du-trash du-clips">
-      <h3 className="du-trash-title">Unused voice clips</h3>
       <p className="muted du-why">{UNUSED_CLIPS_INTRO}</p>
       {clips.total_count === 0 ? (
         <p className="muted">No unused voice clips.</p>

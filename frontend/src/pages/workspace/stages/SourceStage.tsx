@@ -49,7 +49,7 @@ import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBloc
 const keptMediaNote = (m: MediaStatus | null) =>
   m && m.kept_media_files > 0
     ? `Old copies kept in this title's folder: ${m.kept_media_files} file${m.kept_media_files === 1 ? '' : 's'}, ` +
-      `${formatBytes(m.kept_media_bytes)}. Removing audio/video doesn't delete them; clear them in Library tools → Disk usage.`
+      `${formatBytes(m.kept_media_bytes)}. Removing audio/video doesn't delete them; clear them in Library tools → Storage.`
     : null
 
 export default function SourceStage() {

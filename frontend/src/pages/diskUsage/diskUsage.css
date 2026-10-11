@@ -1,4 +1,4 @@
-/* Library tools > Disk usage (DiskUsageSection.tsx). Tokens only, so light,
+/* Library tools > Data folder and Storage (DiskUsageSection.tsx). Tokens only, so light,
    dark, OLED and sepia follow the app theme. */
 .du { display: grid; gap: var(--space-3); min-width: 0; }
 .du-intro, .du-disk, .du-busy { margin: 0; }
@@ -58,3 +58,8 @@ button.du-name { min-height: 44px; text-align: left; padding-inline: 0; }
 
 .du-clip-title { display: grid; gap: var(--space-2); min-width: 0; }
 .du-clip-heading { margin: 0; font-size: var(--text-md, 1rem); overflow-wrap: anywhere; }
+
+.du-program { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); padding: var(--space-2) var(--space-3); margin-top: var(--space-2); }
+.du-program > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); cursor: pointer; }
+.du-program-list { list-style: none; margin: var(--space-1) 0 0; padding: 0; display: grid; gap: var(--space-1); }
+.du-storage-line { margin: 0 0 var(--space-2); font-weight: 600; }

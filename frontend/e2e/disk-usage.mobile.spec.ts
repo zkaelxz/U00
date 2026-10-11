@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
 
-// Phone project (390x844, touch): Disk usage has no sideways scroll and
+// Phone project (390x844, touch): the Storage and Data folder tabs have no sideways scroll and
 // 44px targets. DISK_SHOTS_DIR=<dir> also saves review screenshots.
 
 const SHOTS = process.env.DISK_SHOTS_DIR
@@ -20,10 +20,9 @@ async function noSideways(page: Page) {
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
 }
 
-async function open(page: Page) {
-  await page.goto('/#/library-tools')
-  await page.locator('summary', { hasText: 'Disk usage' }).click()
-  return page.getByRole('region', { name: 'Disk usage', exact: true })
+async function open(page: Page, tab: 'data' | 'storage' = 'data') {
+  await page.goto(`/#/library-tools?tab=${tab}`)
+  return page.getByRole('tabpanel')
 }
 
 async function shortTargets(page: Page, selector: string) {
@@ -57,7 +56,7 @@ test('the Trash list and its typed-word confirms fit the phone', async ({ page }
     { path: 'library/dramas/12/a_very_long_folder_name_that_must_wrap_on_a_phone_screen', size: 21_000_000_000, files: 400, restorable: false },
     { path: 'library/tmp', size: 2_400_000_000, files: 80 },
   ] })
-  const sec = await open(page)
+  const sec = await open(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash.getByTestId('trash-line')).toContainText('Trash uses 23.4 GB')
   await trash.getByRole('button', { name: 'Delete library/tmp permanently' }).tap()
@@ -82,4 +81,18 @@ test('the two-step confirm and the move form fit the phone', async ({ page }) =>
   await noSideways(page)
   expect(await shortTargets(page, '.du button:not(.du-cell), .du .du-ack')).toEqual([])
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-move-phone.png`, fullPage: true })
+})
+
+test('the tab bar scrolls inside itself; the page does not scroll sideways on any tab', async ({ page }) => {
+  await mockDiskUsage(page)
+  await page.goto('/#/library-tools')
+  const bar = page.getByRole('tablist', { name: 'Library tools' })
+  await expect(bar.getByRole('tab')).toHaveCount(5)
+  for (const name of ['Organize', 'Activity', 'Backup', 'Storage', 'Data folder']) {
+    await bar.getByRole('tab', { name }).tap()
+    await expect(bar.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
+    await noSideways(page)
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/tab-${name.toLowerCase().replace(/\W+/g, '-')}-phone.png`, fullPage: true })
+  }
+  expect(await shortTargets(page, '.ui-tab')).toEqual([])
 })

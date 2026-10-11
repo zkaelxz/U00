@@ -4,7 +4,7 @@ import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
   CLIP_BATCH_SIZE, clipBatches, clipsDoneBeforeError, describeClipsStopped, sumClipResults,
-  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, keptTitlesLine, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, titleSizesText, trashItemName, trashLine, trashSizeLine, trashedOn,
+  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, keptTitlesLine, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, splitProgramFiles, storageSummary, titleSizesText, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
@@ -205,5 +205,40 @@ describe('keptTitlesLine', () => {
     expect(keptTitlesLine([{ from_kept_title: false }, {}])).toBeNull()
     expect(keptTitlesLine([{ from_kept_title: true }, {}])).toContain('1 item came from titles with "Keep original files" on')
     expect(keptTitlesLine([{ from_kept_title: true }, { from_kept_title: true }])).toMatch(/^2 items came from/)
+  })
+})
+
+describe('storage summary', () => {
+  it('says how much Baihe uses and how much of the drive is free', () => {
+    expect(storageSummary(5_300_000_000, { disk_free_bytes: 1_300_000_000_000 })).toBe('5.3 GB used, 1.3 TB free on this drive')
+  })
+  it('stays empty until both numbers are known', () => {
+    expect(storageSummary(null, { disk_free_bytes: 5 })).toBe('')
+    expect(storageSummary(5, { disk_free_bytes: null })).toBe('')
+    expect(storageSummary(5, null)).toBe('')
+  })
+})
+
+describe('program files grouping', () => {
+  const program = (name: string, size: number) => item({ name, size_bytes: size, protected: true, protected_reason: 'Part of the program, not your data.' })
+  it('folds program files into one group with their total and lists own items biggest first', () => {
+    const out = splitProgramFiles([
+      item({ name: 'small', size_bytes: 10 }), program('venv', 700), item({ name: 'big', size_bytes: 500 }), program('.git', 30),
+      item({ name: 'mid', size_bytes: 100 }),
+    ])
+    expect(out.own.map((i) => i.name)).toEqual(['big', 'mid', 'small'])
+    expect(out.program.map((i) => i.name)).toEqual(['venv', '.git'])
+    expect(out.programBytes).toBe(730)
+  })
+  it('keeps protected items that are the user\'s data in the list', () => {
+    const library = item({ name: 'library', size_bytes: 9, protected: true, protected_reason: 'The database or key files live here. Open it and clear items inside instead.' })
+    const out = splitProgramFiles([library, item({ name: 'models', size_bytes: 20 })])
+    expect(out.own.map((i) => i.name)).toEqual(['models', 'library'])
+    expect(out.program).toEqual([])
+  })
+  it('does not reorder or change its input', () => {
+    const input = [item({ name: 'a', size_bytes: 1 }), item({ name: 'b', size_bytes: 2 })]
+    splitProgramFiles(input)
+    expect(input.map((i) => i.name)).toEqual(['a', 'b'])
   })
 })

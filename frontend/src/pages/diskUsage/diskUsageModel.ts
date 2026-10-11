@@ -1,4 +1,4 @@
-// Pure helpers for the Disk usage section (DiskUsageSection.tsx).
+// Pure helpers for the Storage and Data folder tabs (DiskUsageSection.tsx).
 import type {
   DiskUsageClearDone, DiskUsageItem, DiskUsageMoveDone, DiskUsageScan, DiskUsageTitleSizes, DiskUsageTrashItem, TempCleanDone,
   UnusedVoiceClip,
@@ -113,6 +113,24 @@ export const describeMoved = (r: DiskUsageMoveDone) =>
 export function diskLine(scan: Pick<DiskUsageScan, 'disk_free_bytes' | 'disk_total_bytes'>): string {
   if (scan.disk_free_bytes == null || scan.disk_total_bytes == null) return ''
   return `${formatBytes(scan.disk_free_bytes)} free of ${formatBytes(scan.disk_total_bytes)} on this drive`
+}
+
+/** "5.3 GB used, 1.3 TB free on this drive", or '' until both numbers are known. `used` is Baihe's data folder. */
+export function storageSummary(usedBytes: number | null, scan: Pick<DiskUsageScan, 'disk_free_bytes'> | null): string {
+  if (usedBytes == null || scan?.disk_free_bytes == null) return ''
+  return `${formatBytes(usedBytes)} used, ${formatBytes(scan.disk_free_bytes)} free on this drive`
+}
+
+// The server's reasons (services/disk_usage_service._protection) for an item that is the program, not
+// data. Other protected items (the library folder, the database) are the user's data and stay in the list.
+export const PROGRAM_FILE_REASONS = ['Part of the program, not your data.', 'Holds the program files.', 'Install or installer file.']
+
+/** The user's own items biggest first, and the program files folded into one group with their total. */
+export function splitProgramFiles(items: DiskUsageItem[]): { own: DiskUsageItem[]; program: DiskUsageItem[]; programBytes: number } {
+  const isProgram = (i: DiskUsageItem) => i.protected && PROGRAM_FILE_REASONS.includes(i.protected_reason ?? '')
+  const program = items.filter(isProgram)
+  const own = items.filter((i) => !isProgram(i)).sort((a, b) => b.size_bytes - a.size_bytes)
+  return { own, program, programBytes: program.reduce((sum, i) => sum + i.size_bytes, 0) }
 }
 
 /** Treemap cell label: name, plus the size when the cell is big enough (units out of 100 wide). */

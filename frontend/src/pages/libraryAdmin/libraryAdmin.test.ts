@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
-import { AdminSection } from './AdminSection'
+import { CleanupBlock } from './AdminBlocks'
+import { BackupTab } from '../libraryTools/BackupTab'
 import type { AdminJob } from './useAdminJob'
 import { SelectionBar } from './SelectionBar'
 import {
@@ -154,20 +155,28 @@ describe('SelectionBar', () => {
   })
 })
 
-describe('AdminSection', () => {
-  it('remote: keeps the title, says PC only, renders no buttons', () => {
-    const out = renderToStaticMarkup(createElement(AdminSection, { pc: 'remote', exportable: 3, exporter: idleJob() }))
-    expect(out).toContain('Backup &amp; storage')
+describe('BackupTab', () => {
+  it('remote: keeps the heading, says PC only, renders no buttons', () => {
+    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'remote', exportable: 3, exporter: idleJob() }))
+    expect(out).toContain('Backup and restore')
     expect(out).toContain('Run this on the main PC.')
     expect(out).not.toContain('<button')
   })
 
-  it('on the PC: export, backup, restore and storage blocks', () => {
-    const out = renderToStaticMarkup(createElement(AdminSection, { pc: 'local', exportable: 3, exporter: idleJob() }))
-    for (const text of ['Export all translated (3)', 'Back up library', 'Database only',
+  it('on the PC: a card each for export, backup, just-my-stuff, restore and automatic copies', () => {
+    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'local', exportable: 3, exporter: idleJob() }))
+    for (const text of ['Backup and restore', 'Export all translated (3)', 'Back up library', 'Database only',
       'Backup of just my stuff', 'Items owned at this PC', 'Back up just these items',
-      'Site sign-ins are never included.', 'accept=".zip"', '>Scan</button>', 'Scan first.']) {
+      'Site sign-ins are never included.', 'accept=".zip"', 'Automatic backup copies']) {
       expect(out).toContain(text)
     }
+    expect(out).not.toContain('Backup &amp; storage')
+  })
+})
+
+describe('CleanupBlock', () => {
+  it('starts with a dry-run scan', () => {
+    const out = renderToStaticMarkup(createElement(CleanupBlock))
+    for (const text of ['Cleanup preset', '>Scan</button>', 'Scan first.']) expect(out).toContain(text)
   })
 })

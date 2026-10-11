@@ -24,7 +24,7 @@ type Props = {
   items: DramaSummary[]
   pc: PcMode
   phone: boolean
-  // The page-level export job (shared with Backup & storage).
+  // The page-level export job (shared with the Backup tab).
   exporter: AdminJob
   onClear: () => void
   // Phone: leave select mode.

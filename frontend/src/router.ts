@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 
+import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
 export type Route =
   | { name: 'library' }
-  | { name: 'library-tools' }
+  // tab: "#/library-tools?tab=storage" opens that tab (the last one used is remembered otherwise).
+  | { name: 'library-tools'; tab?: LibraryToolsTab }
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
   // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
@@ -41,7 +43,10 @@ export function parseRoute(hash: string): Route {
   const [path, qs = ''] = hash.replace(/^#\/?/, '').split('?')
   const parts = path.split('/').filter(Boolean)
   const [head, a, b] = parts
-  if (head === 'library-tools' && parts.length === 1) return { name: 'library-tools' }
+  if (head === 'library-tools' && parts.length === 1) {
+    const tab = new URLSearchParams(qs).get('tab')
+    return isLibraryToolsTab(tab) ? { name: 'library-tools', tab } : { name: 'library-tools' }
+  }
   if (head === 'jobs' && parts.length === 1) return { name: 'jobs' }
   if (head === 'settings' && parts.length === 1) {
     const section = new URLSearchParams(qs).get('section')
@@ -119,6 +124,7 @@ export function routeHref(r: Route): string {
     const base = `#/manga/${[r.source, r.series, r.chapter].map(encodeURIComponent).join('/')}`
     return r.page ? `${base}?page=${r.page}` : base
   }
+  if (r.name === 'library-tools' && r.tab) return `#/library-tools?tab=${r.tab}`
   if (r.name === 'diagnostics' && (r.card || r.tab)) return r.card ? `#/diagnostics?card=${r.card}` : `#/diagnostics?tab=${r.tab}`
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
   if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`

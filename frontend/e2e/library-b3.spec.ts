@@ -70,9 +70,8 @@ const costs = {
 
 test('Cost by drama: tokens, cache hits, and free engines labelled (L04)', async ({ page }) => {
   await page.route('**/api/library/costs', (r) => r.fulfill({ json: costs }))
-  await page.goto('/#/library-tools')
+  await page.goto('/#/library-tools?tab=activity')
   const tools = page.getByRole('region', { name: 'Library tools' })
-  await tools.locator('summary', { hasText: 'Cost by title' }).click()
   const rows = tools.getByRole('region', { name: 'Cost by title' }).getByRole('listitem')
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0)).toContainText('$3.47')
@@ -114,7 +113,7 @@ test('Series fold is hidden when no series has 2+ titles (L05)', async ({ page }
     r.fulfill({ json: { items: [series.items[1]] } }))
   await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
-  await expect(tools.locator('summary', { hasText: 'Cost by title' }).or(tools.locator('summary', { hasText: 'Backup' })).first()).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Backup' })).toBeVisible()
   await expect(tools.locator('summary', { hasText: /^Series/ })).toHaveCount(0)
 })
 

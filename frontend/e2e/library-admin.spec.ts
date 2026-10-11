@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// Library admin (selection bar, Backup & storage, PC-only deletes).
+// Library admin (selection bar, Backup and Storage tabs, PC-only deletes).
 // Real API for the bulk flow on two dramas this spec creates and deletes
 // (the seeded three stay untouched); page.route mocks for job states,
 // restore errors, remote mode and presets.
@@ -68,10 +68,9 @@ test.describe('selection bar (real API)', () => {
   })
 })
 
-test.describe('Backup & storage (mocked)', () => {
-  async function openSection(page: Page) {
-    await page.goto('/#/library-tools')
-    await page.getByText('Backup & storage', { exact: true }).click()
+test.describe('Backup and Storage tabs (mocked)', () => {
+  async function openSection(page: Page, tab: 'backup' | 'storage' = 'backup') {
+    await page.goto(`/#/library-tools?tab=${tab}`)
   }
 
   test('export job reaching done shows the download link', async ({ page }) => {
@@ -112,6 +111,7 @@ test.describe('Backup & storage (mocked)', () => {
         message: 'That file is not a Baihe library backup.' } } })
     })
     await openSection(page)
+    await page.locator('summary', { has: page.locator('.section-title', { hasText: /^Restore$/ }) }).click()
     await page.getByLabel('Backup file', { exact: true }).setInputFiles({ name: 'b.zip', mimeType: 'application/zip', buffer: Buffer.from('PK') })
     await page.getByLabel(/Type RESTORE to confirm/).fill('RESTORE')
     const restore = page.getByRole('button', { name: 'Restore', exact: true })
@@ -140,7 +140,7 @@ test.describe('Backup & storage (mocked)', () => {
       return r.fulfill({ json: { preset: 'balanced', freed_bytes: 2.3e9,
         results: [{ drama_id: 1, ok: true }, { drama_id: 2, ok: false, error: 'job_running' }] } })
     })
-    await openSection(page)
+    await openSection(page, 'storage')
     const cleanUp = page.getByRole('button', { name: 'Clean up…' })
     await expect(cleanUp).toBeDisabled()
     await page.getByRole('button', { name: 'Scan' }).click()
@@ -164,11 +164,11 @@ test.describe('Backup & storage (mocked)', () => {
     expect(cleanBody).toEqual({ preset: 'balanced', confirm: true, confirm_text: 'CLEAN' })
   })
 
-  test('remote meta: section says main PC with no buttons; bar has no Delete or Export', async ({ page }) => {
+  test('remote meta: the backup tab says main PC with no buttons; bar has no Delete or Export', async ({ page }) => {
     await page.route('**/api/meta', (r) => r.fulfill({ json: {
       app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
     await openSection(page)
-    await expect(page.getByText('Run this on the main PC.').first()).toBeVisible()
+    await expect(page.getByRole('tabpanel').getByText('Run this on the main PC.')).toBeVisible()
     await expect(page.getByRole('button', { name: /Back up library|Scan|Export all/ })).toHaveCount(0)
     await page.goto('/#/library')
     // Grid view: Select turns the cards into checkboxes.

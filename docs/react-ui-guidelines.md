@@ -52,7 +52,7 @@ Apply to every new or reworked React page. A reviewer can check each with a yes 
 16. **Card or Section.** Use a `Card` (always open) for what people use on most visits: the primary run
     form of a stage, the drama list, Continue reading, API key status, Setup checks, Support report. Use a
     `Section` (`<details>`) for rare, advanced or destructive content: Advanced options, Series, Cost by
-    drama, Presets, Voice bank, Backup & storage, Log, Danger zone. A closed Section's summary shows the
+    drama, Presets, Voice bank, the cards on Library tools' Backup and Storage tabs, Log, Danger zone. A closed Section's summary shows the
     current state in one line, and a Section with nothing in it is not rendered.
 17. **Button hierarchy.** Each Card has at most one `.btn-primary`, and it is its main action.
     Alternatives use `.btn-secondary`; quiet or tertiary actions (Estimate cost, Detect speakers only,

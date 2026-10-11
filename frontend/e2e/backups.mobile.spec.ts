@@ -45,10 +45,7 @@ test('Settings card fits a phone with 44px targets', async ({ page }) => {
 
 test('restore one title from the newest copy on a phone', async ({ page }) => {
   const state = await mockBackups(page)
-  await page.goto('/#/library-tools')
-  const summary = page.locator('summary', { hasText: 'Backup & storage' })
-  const details = page.locator('details.section', { has: summary })
-  if ((await details.getAttribute('open')) === null) await summary.click()
+  await page.goto('/#/library-tools?tab=backup')
   const block = page.getByTestId('snapshot-block')
   await expect(block.getByTestId('snapshot-info')).toContainText('Database only · 12.3 MB · 3 titles')
   await block.scrollIntoViewIfNeeded()
@@ -89,10 +86,7 @@ test('restore one title from the newest copy on a phone', async ({ page }) => {
 
 test('import from a backup file fits a phone with 44px targets', async ({ page }) => {
   await mockBackups(page)
-  await page.goto('/#/library-tools')
-  const summary = page.locator('summary', { hasText: 'Backup & storage' })
-  const details = page.locator('details.section', { has: summary })
-  if ((await details.getAttribute('open')) === null) await summary.click()
+  await page.goto('/#/library-tools?tab=backup')
   const block = page.getByTestId('snapshot-block')
   await block.scrollIntoViewIfNeeded()
   await block.getByRole('button', { name: 'From a backup file…' }).click()

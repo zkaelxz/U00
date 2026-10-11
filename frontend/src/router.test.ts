@@ -6,6 +6,9 @@ describe('parseRoute', () => {
   it('parses the Library tools page', () => {
     expect(parseRoute('#/library-tools')).toEqual({ name: 'library-tools' })
     expect(parseRoute('#/library-tools/x')).toEqual({ name: 'library' })
+    expect(parseRoute('#/library-tools?tab=storage')).toEqual({ name: 'library-tools', tab: 'storage' })
+    expect(parseRoute('#/library-tools?tab=disk-usage')).toEqual({ name: 'library-tools' })
+    expect(routeHref({ name: 'library-tools', tab: 'data' })).toBe('#/library-tools?tab=data')
   })
 
   it('defaults to the library', () => {
