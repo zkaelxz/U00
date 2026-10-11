@@ -221,6 +221,7 @@ class _Session:
         self.server, self.calls = server, []
 
     def request(self, method, url, headers=None, **kw):
+        http._guard(url)  # the real session guards every hop
         assert kw["timeout"] and kw["allow_redirects"] is False and kw["stream"] is True
         self.calls.append(dict(headers))
         r = self.server(method, url, headers, None, kw["timeout"])

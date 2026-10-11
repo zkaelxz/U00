@@ -118,17 +118,22 @@ def test_http_fetch_uses_timeout_no_redirects_no_proxy(monkeypatch):
         def close(self): pass
 
     class Sess:
-        def __init__(self): self.proxies = None
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def request(self, method, url, **kw):
-            seen.update(kw, method=method, url=url, trust_env=self.trust_env, proxies=self.proxies)
+            seen.update(kw, method=method, url=url)
             return Resp()
 
-    monkeypatch.setattr(requests, "Session", Sess)
+    def factory(**kw):
+        seen["factory"] = kw
+        return Sess()
+
+    from lib import http as lib_http
+    monkeypatch.setattr(lib_http, "session", factory)
     assert sp.http_fetch("https://x.example/") == (200, {}, "ok")
     assert seen["timeout"] == (5, 10) and seen["allow_redirects"] is False
-    assert seen["trust_env"] is False and seen["proxies"] == {}
+    assert seen["factory"]["trust_env"] is False and seen["factory"]["guard"] is None
+    assert seen["factory"]["timeout"] == (5, 10)
     assert "Baihe" in seen["headers"]["User-Agent"]
 
 
