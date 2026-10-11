@@ -1675,6 +1675,21 @@ def owner_process_alive(pid) -> bool:
     return True
 
 
+def _cancel_queued_locked(job_id, job, requested_at=None) -> list:
+    """Caller holds _lock and has seen `job` still queued: it ends
+    "cancelled" without ever starting, and its record stays so the Jobs
+    page lists the cancelled run. Returns the finish hooks to run once
+    _lock is released."""
+    job["cancel_requested"] = True
+    job.setdefault("cancel_requested_at", requested_at or time.time())
+    job["status"] = "cancelled"
+    job["finished_at"] = time.time()
+    hooks = _take_queued_locked(job_id)
+    _mirror_locked(job_id)
+    _refresh_queue_messages_locked()
+    return hooks
+
+
 def request_cancel(job_id: str, requested_at=None):
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check
@@ -1695,15 +1710,12 @@ def request_cancel(job_id: str, requested_at=None):
         job = _jobs.get(job_id)
         if job is None:
             return
-        job["cancel_requested"] = True
-        job.setdefault("cancel_requested_at", requested_at or time.time())
         if job.get("status") == "queued":
-            job["status"] = "cancelled"
-            job["finished_at"] = time.time()
-            hooks = _take_queued_locked(job_id)
-            _mirror_locked(job_id)
-            _refresh_queue_messages_locked()
-        elif job.get("status") == "running" and job.get("message") != CANCELLING_MESSAGE:
+            hooks = _cancel_queued_locked(job_id, job, requested_at)
+        else:
+            job["cancel_requested"] = True
+            job.setdefault("cancel_requested_at", requested_at or time.time())
+        if job.get("status") == "running" and job.get("message") != CANCELLING_MESSAGE:
             job["message"] = CANCELLING_MESSAGE
             _mirror_locked(job_id)
     _run_finish_hooks(hooks)
@@ -1809,20 +1821,25 @@ def cancel_queued(job_id: str) -> bool:
     entry left for Stop/request_cancel to reach -- it would keep running
     for real, invisibly and uncancellably.
 
-    Returns True if the job was still queued and its record was cleared.
+    Returns True if the job was still queued (it is now "cancelled" and
+    stays listed) or is unknown here (any leftover record is cleared).
     Returns False if it had already been promoted to running -- the
     caller should fall back to whatever it does for a live "Stop" (e.g.
     bumping a generation counter) before/alongside calling
     request_cancel(), since the job is now genuinely running."""
     with _lock:
         job = _jobs.get(job_id)
-        if not (job is None or job["status"] == "queued"):
-            return False
-        hooks = _clear_job_locked(job_id)
-    # Outside the lock, as in clear_job: a busy database can make the
-    # delete wait seconds, and every job update waits on the lock.
-    _delete_job_record(job_id)
-    _emit_change(job_id)
+        if job is not None:
+            if job["status"] != "queued":
+                return False
+            hooks = _cancel_queued_locked(job_id, job)
+        else:
+            hooks = _clear_job_locked(job_id)
+    if job is None:
+        # Outside the lock, as in clear_job: a busy database can make the
+        # delete wait seconds, and every job update waits on the lock.
+        _delete_job_record(job_id)
+        _emit_change(job_id)
     _run_finish_hooks(hooks)
     return True
 

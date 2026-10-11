@@ -250,8 +250,9 @@ CLI prints the same sentence.
   about that long. If no live owner exists (pid gone or no heartbeat for
   `STALE_JOB_SECONDS`), `cancel_job` closes the row itself as `cancelled`.
 
-Related: `cancel_queued` clears a still-queued job (re-checking under the lock that it
-was not just promoted); `clear_job` removes a finished record, and for a live process job
+Related: `cancel_queued` ends a still-queued job as `cancelled` and keeps its record, so
+the Jobs page lists the cancelled run (re-checking under the lock that it was not just
+promoted); `clear_job` removes a finished record, and for a live process job
 also stops the process; `cancel_line_jobs(drama_id)` cancels the line-writing jobs
 (`LINE_WRITING_JOB_PREFIXES`) before something replaces all of a title's lines. The CLI
 does the same plus the `job_records` flag for jobs run by the API.
