@@ -24,6 +24,7 @@ echo ============================================
 echo.
 
 set "INSTALLED_ANY="
+set "HAVE_LISTED="
 set "MISS_GIT=" & set "MISS_PY=" & set "MISS_FFMPEG=" & set "MISS_LIBASS=" & set "MISS_NODE="
 set "NEW_GIT=" & set "NEW_PY=" & set "NEW_FFMPEG=" & set "NEW_NODE="
 
@@ -48,7 +49,7 @@ echo Git: not found
 set "PKG_ID=Git.Git"
 set "PKG_NAME=Git"
 call :winget_install
-if errorlevel 1 (set "MISS_GIT=1") else (set "NEW_GIT=1")
+if errorlevel 2 (set "HAVE_LISTED=1") else if errorlevel 1 (set "MISS_GIT=1") else (set "NEW_GIT=1")
 
 REM --- Python ------------------------------------------------------------
 REM Same real-versus-Store-stub test as start.bat: running it is the only
@@ -75,7 +76,7 @@ echo Python: not found
 set "PKG_ID=Python.Python.3.12"
 set "PKG_NAME=Python 3.12"
 call :winget_install
-if errorlevel 1 (set "MISS_PY=1") else (set "NEW_PY=1")
+if errorlevel 2 (set "HAVE_LISTED=1") else if errorlevel 1 (set "MISS_PY=1") else (set "NEW_PY=1")
 
 REM --- ffmpeg ------------------------------------------------------------
 :check_ffmpeg
@@ -96,7 +97,7 @@ echo ffmpeg: not found
 set "PKG_ID=Gyan.FFmpeg"
 set "PKG_NAME=ffmpeg"
 call :winget_install
-if errorlevel 1 (set "MISS_FFMPEG=1") else (set "NEW_FFMPEG=1")
+if errorlevel 2 (set "HAVE_LISTED=1") else if errorlevel 1 (set "MISS_FFMPEG=1") else (set "NEW_FFMPEG=1")
 
 REM --- Node.js (only to build the app's screens) -------------------------
 :check_node
@@ -127,7 +128,7 @@ if /i "!ANSWER!"=="no" goto :node_declined
 set "PKG_ID=OpenJS.NodeJS.LTS"
 set "PKG_NAME=Node.js LTS"
 call :winget_install
-if errorlevel 1 (set "MISS_NODE=1") else (set "NEW_NODE=1")
+if errorlevel 2 (set "HAVE_LISTED=1") else if errorlevel 1 (set "MISS_NODE=1") else (set "NEW_NODE=1")
 goto :check_nvidia
 :node_declined
 echo Skipped. Download baihe-frontend-^<version^>.zip from the project's GitHub
@@ -155,6 +156,11 @@ if defined MISS_PY set "STILL=1"
 if defined MISS_FFMPEG set "STILL=1"
 if defined MISS_LIBASS set "STILL=1"
 if defined MISS_NODE set "STILL=1"
+if not defined STILL if defined HAVE_LISTED (
+    echo Everything is installed. Open a NEW window so PATH updates, then run start.bat.
+    pause
+    exit /b 0
+)
 if not defined STILL (
     echo Ready: everything Baihe needs is installed. Double-click start.bat.
     pause
@@ -178,9 +184,15 @@ if defined MISS_NODE echo still missing: Node.js 22 or newer -- https://nodejs.o
 pause
 exit /b 1
 
-REM --- Helper: installs %PKG_ID% with winget; errorlevel 0 if it did -------
+REM --- Helper: installs %PKG_ID% with winget; errorlevel 0 if it did, 2 if --
+REM winget already lists it (installed, just not on PATH in this window) ------
 :winget_install
 if not defined HAVE_WINGET exit /b 1
+winget list --id %PKG_ID% -e >nul 2>nul
+if not errorlevel 1 (
+    echo %PKG_NAME% already installed
+    exit /b 2
+)
 echo Installing %PKG_NAME% with winget ^(it may ask for permission^)...
 winget install -e --id %PKG_ID% --accept-package-agreements --accept-source-agreements
 if errorlevel 1 exit /b 1
