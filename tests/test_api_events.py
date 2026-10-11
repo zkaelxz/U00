@@ -59,6 +59,20 @@ def _parse(text):
     return out
 
 
+_HELPER_THREADS = []
+
+
+@pytest.fixture(autouse=True)
+def _join_helper_threads(isolated_db):
+    """A helper thread still writing job rows when isolated_db removes the
+    library folder fails the run with an unhandled thread exception, so wait
+    for them while the folder still exists."""
+    yield
+    for t in _HELPER_THREADS:
+        t.join(timeout=10)
+    _HELPER_THREADS.clear()
+
+
 def _after_open(fn, count=1):
     """Runs fn in a thread once `count` streams are registered."""
     def run():
@@ -69,6 +83,7 @@ def _after_open(fn, count=1):
         fn()
     t = threading.Thread(target=run, daemon=True)
     t.start()
+    _HELPER_THREADS.append(t)
     return t
 
 
