@@ -18,8 +18,23 @@ WHISPER_MODELS = {
     "medium": "medium -- no faster or more accurate than turbo in our tests",
     "large-v3": "large-v3 -- slightly more accurate on Korean and clean Chinese, about 2x slower, ~3GB",
     "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
+    "ja-1.5b": ("Japanese (whisper-ja 1.5B) -- anime and games, opt-in, about 3 GB, needs a GPU; "
+                "its licence is not declared"),
 }
 DEFAULT_WHISPER_SIZE = "large-v3-turbo"
+
+# Keys that name a pinned Hugging Face repo instead of a faster-whisper size. The
+# repo and its full commit sha live only here: a client sends the key, never a repo
+# id or revision, and a branch name could be moved after the files were reviewed.
+PINNED_CT2_REPOS = {
+    "ja-1.5b": ("TransWithAI/whisper-ja-1.5B-ct2", "1527314b14da5bdf0d14e7328649d4fa26840188"),
+}
+# Offered and accepted only for a Japanese title; never a default or part of a preset.
+JA_ONLY_WHISPER_MODELS = frozenset({"ja-1.5b"})
+
+
+def whisper_model_fits_language(model_size: str, source_language: str) -> bool:
+    return model_size not in JA_ONLY_WHISPER_MODELS or source_language == "ja"
 # Live's choices. small stays its default: Live has to keep up with the stream
 # on a CPU, and turbo takes about 1.5x small's time on the repo's CPU test.
 LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo")
@@ -124,12 +139,26 @@ def is_network_error(exc: Exception) -> bool:
     return any(m in text for m in markers)
 
 
+def _hub_dir() -> str:
+    hub = os.environ.get("HF_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache", "huggingface")
+    return os.path.join(hub, "hub")
+
+
+def _pinned_snapshot(model_size: str):
+    """Folder of a pinned repo's download at exactly its pinned revision, or None.
+    Another revision of the same repo is not the reviewed one, so it does not count."""
+    repo, revision = PINNED_CT2_REPOS[model_size]
+    folder = os.path.join(_hub_dir(), "models--" + repo.replace("/", "--"), "snapshots", revision)
+    return folder if os.path.isfile(os.path.join(folder, "model.bin")) else None
+
+
 def is_whisper_model_cached(model_size: str) -> bool:
     """Whether a model is already downloaded, so the UI can warn about a
     large download before starting rather than failing partway."""
-    hub = os.environ.get("HF_HOME") or os.path.join(
-        os.path.expanduser("~"), ".cache", "huggingface")
-    hub_dir = os.path.join(hub, "hub")
+    if model_size in PINNED_CT2_REPOS:
+        return _pinned_snapshot(model_size) is not None
+    hub_dir = _hub_dir()
     if not os.path.isdir(hub_dir):
         return False
     # Exact repo name: a substring match reads large-v3 as cached when only
@@ -228,6 +257,39 @@ def _download_model(model_size: str, token: str) -> str:
                                               "model.bin", "tokenizer.json", "vocabulary.*"])
 
 
+def _fetch_pinned_model(model_size: str, token) -> str:
+    """Local folder of a pinned repo, listed before anything is downloaded.
+
+    The listing is checked first because a repo owner can add a script or pickle
+    next to the weights; at the pinned revision that cannot change, but the check
+    keeps a mistaken pin from fetching one. Only the allowed files are requested."""
+    cached = _pinned_snapshot(model_size)
+    if cached:
+        return cached
+    from lib.ct2_repo import RepoFilesRefused, select_ct2_files
+    import huggingface_hub
+    repo, revision = PINNED_CT2_REPOS[model_size]
+    try:
+        info = huggingface_hub.HfApi().model_info(repo, revision=revision, token=token, timeout=30)
+        try:
+            wanted = select_ct2_files(s.rfilename for s in info.siblings)
+        except RepoFilesRefused as exc:
+            raise ModelDownloadError(
+                f"Not downloading the '{model_size}' model: {exc}. Nothing was downloaded. "
+                "This model is only used when its repository holds plain CTranslate2 files.") from exc
+        return huggingface_hub.snapshot_download(
+            repo, revision=revision, token=token, allow_patterns=wanted, etag_timeout=30)
+    except ModelDownloadError:
+        raise
+    except Exception as exc:
+        if is_network_error(exc):
+            raise
+        # Fixed text: the raw error can carry URLs and local paths.
+        raise ModelDownloadError(
+            f"Couldn't download the '{model_size}' model ({type(exc).__name__}). "
+            "Check your Hugging Face token in Settings and try again.") from exc
+
+
 _CUBLAS_DLL = "cublas64_12.dll"
 GPU_RUNTIME_MISSING_REASON = (
     "The CUDA 12 runtime libraries that Whisper needs on the GPU (cuBLAS) aren't installed on this PC.")
@@ -297,7 +359,9 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
 
     device_info = {"device": "cpu", "compute_type": "int8", "gpu_error": None}
     try:
-        if _tok and not local_model_path:
+        if model_size in PINNED_CT2_REPOS and not local_model_path:
+            model_path = _fetch_pinned_model(model_size, _tok)
+        elif _tok and not local_model_path:
             model_path = _download_model(model_size, _tok)
         if use_gpu:
             try:
