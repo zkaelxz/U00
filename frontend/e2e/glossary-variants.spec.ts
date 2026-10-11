@@ -88,3 +88,15 @@ test('possible names: a cluster can be named, but needs a series first', async (
   await expect(names.getByRole('button', { name: 'Make a term from ミカ' })).toBeDisabled()
   await expect(names.getByText('Still needed: a series (above).')).toBeVisible()
 })
+
+test('empty results say so for both scans', async ({ page }) => {
+  await page.route('**/api/glossary/dramas/1/variants?*', (route) => route.fulfill({ json: { ...VARIANTS, candidates: [] } }))
+  await page.route('**/api/glossary/dramas/1/name-clusters', (route) => route.fulfill({
+    json: { available: true, reason: '', lines_scanned: 50, truncated: false, clusters: [] },
+  }))
+  const glossary = await openGlossary(page)
+  await glossary.getByRole('button', { name: 'Find similar spellings of ヤロ' }).click()
+  await expect(glossary.getByRole('region', { name: 'Similar spellings of ヤロ' })).toContainText('No other spellings found in 120 lines.')
+  await glossary.getByRole('button', { name: 'Find possible names' }).click()
+  await expect(glossary.getByRole('region', { name: 'Possible names' })).toContainText('No recurring names found yet.')
+})
