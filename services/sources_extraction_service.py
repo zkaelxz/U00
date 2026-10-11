@@ -8,7 +8,7 @@ saved site profile, then deterministic extraction, and asks an LLM only
 when those come back empty or ambiguous: one call per page, cached. The
 API makes it opt-in per request (`use_ai`), with the engine picked from
 the reference-capable ones (`ai_engines`), defaulting to the saved default
-engine (Settings > Defaults, settings_service.get_default_engine) when that
+engine (Settings > Defaults, settings_service.get("default_engine")) when that
 is one of them. The key is resolved here, on the PC, from .env; it is never
 taken from, or returned to, the client, and a failure to build the engine
 is reported without it (translate_engines.redact_secrets). The route checks
@@ -102,7 +102,7 @@ def ai_engines() -> list:
 
 def default_ai_engine() -> Optional[str]:
     """The saved default engine when the fallback can use it, else None."""
-    name = settings_service.get_default_engine()
+    name = settings_service.get("default_engine")
     return name if name in ai_engines() else None
 
 
@@ -145,7 +145,7 @@ def build_ai_engine(name: Optional[str]):
     try:
         return translate_engines.get_engine(
             name, key, base_url=base_url,
-            free_tier=name == "gemini" and settings_service.get_gemini_free_tier())
+            free_tier=name == "gemini" and settings_service.get("gemini_free_tier"))
     except ImportError:
         raise DependencyUnavailableError(
             f"The {name} engine isn't installed on this PC.") from None

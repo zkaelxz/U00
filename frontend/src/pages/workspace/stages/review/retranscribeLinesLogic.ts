@@ -57,12 +57,12 @@ export function applyItems(rows: RetranscribeManyProposal[], checked: ReadonlySe
     .map((p) => ({ line_id: p.line_id, expected_zh: p.base_zh, expected_proposed: p.proposed_zh }))
 }
 
-export function applyNote(r: RetranscribeManyApplyResult, clearedEnglish: number): string {
+export function applyNote(r: RetranscribeManyApplyResult, sourceChanged: number): string {
   const n = r.applied.length
   const parts = [`Replaced the source text of ${n} line${n === 1 ? '' : 's'}.`]
-  if (clearedEnglish > 0) {
+  if (sourceChanged > 0) {
     parts.push(
-      `Cleared the English on ${clearedEnglish}; Translate will pick ${clearedEnglish === 1 ? 'it' : 'them'} up (${r.untranslated_count} left).`,
+      `Kept the English on ${sourceChanged} and marked ${sourceChanged === 1 ? 'it' : 'them'} “Source changed”: retranslate or keep ${sourceChanged === 1 ? 'it' : 'them'} from Review checks.`,
     )
   }
   if (r.skipped.length > 0) {

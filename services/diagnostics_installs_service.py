@@ -21,23 +21,26 @@ actions the React page runs as background jobs:
 - Q06 "Test first": upgrade_check.check_upgrade_candidate for one package's
   update target (a throwaway environment plus this app's test suite, so
   minutes, not seconds). The version comes only from the last "Check for
-  updates" (the same cached target the Upgrade route installs).
+  updates" (the same cached target the Upgrade route installs). An installed
+  copy has no tests/ folder, so the status says Test first is unavailable.
 
 Both start through the install guard of diagnostics_gaps_service
 (confirm=true; 409 while any job, restore, reset, cleanup or install is in
 progress) and run as ordinary background_jobs jobs, so they show in the
 running-jobs list and an install can't start under them. Their progress
 and final result are read back from GET routes here (nothing is returned
-as a path; every output line goes through diagnostics.redact_for_support).
+as a path; every output line goes through diagnostics_report.redact_for_support).
 """
 
 import contextlib
 import hashlib
+import importlib.metadata
 import os
 import platform
 import re
 import shutil
 import stat
+import sysconfig
 import tempfile
 import threading
 import time
@@ -48,11 +51,15 @@ import background_jobs
 import job_process_kill
 import db
 import diagnostics
+import diagnostics_report
 import diagnostics_torch
+import install_plan
+import pending_install
 import upgrade_check
 from lib import proc as proc_run
 from services import diagnostics_gaps_service as gaps
-from services import drama_service
+from services import drama_service, pending_install_service
+from services.pending_install_service import PlanNeedsConfirm
 from services.service_errors import ConflictError
 
 DENO_JOB_ID = "deno_install"
@@ -79,6 +86,7 @@ _VERSIONED_PATH = re.compile(r"^/denoland/deno/releases/download/(v[0-9][0-9A-Za
 MAX_REDIRECTS = 5
 DENO_MAX_BYTES = 250 * 1024 * 1024          # the zip is ~45 MB
 CHECKSUM_MAX_BYTES = 4096
+DENO_VERSION_TIMEOUT = 10
 REQUEST_TIMEOUT = (15, 60)                  # connect, per-read (seconds)
 DOWNLOAD_DEADLINE_SECONDS = 30 * 60
 WINGET_TIMEOUT_SECONDS = 20 * 60
@@ -108,8 +116,12 @@ class DependencyInstallFailed(Exception):
     """Ends the install job as an error; the details are in the stored result."""
 
 
+class InstallNeedsRestart(gaps.AdminActionRefused, ConflictError):
+    """pip would replace files this process has loaded (409)."""
+
+
 def _redact(text) -> str:
-    return diagnostics.redact_for_support("" if text is None else str(text))
+    return diagnostics_report.redact_for_support("" if text is None else str(text))
 
 
 def _job_view(job_id: str):
@@ -130,12 +142,19 @@ def _winget_links_path() -> str:
     return os.path.join(base, "Microsoft", "WinGet", "Links", "deno.exe") if base else ""
 
 
+def _deno_runs(path: str) -> bool:
+    # A file that merely exists can be a stub left by a killed download.
+    try:
+        proc = proc_run.run_captured([path, "--version"], DENO_VERSION_TIMEOUT)
+    except OSError:
+        return False
+    return proc.returncode == 0 and not proc.timed_out
+
+
 def _deno_installed_somewhere() -> bool:
-    if shutil.which("deno"):
-        return True
     link = _winget_links_path() if platform.system() == "Windows" else ""
-    return (os.path.exists(diagnostics.deno_default_install_path())
-            or bool(link and os.path.exists(link)))
+    files = [p for p in (diagnostics.deno_default_install_path(), link) if p and os.path.exists(p)]
+    return any(p and _deno_runs(p) for p in [shutil.which("deno"), *files])
 
 
 def _deno_download_url():
@@ -355,11 +374,40 @@ def _download_and_unpack(say):
         shutil.rmtree(work, ignore_errors=True)
 
 
+_ALREADY_INSTALLED = "Deno is already installed; nothing was changed."
+
+
+def _place_binary(partial: str, dest: str):
+    """Moves the new binary into place. A working Deno at `dest` is never
+    replaced (the start refuses that case; this closes the gap to the job
+    running), but a file there that does not run is: _deno_installed_somewhere
+    already reports it as missing, so refusing would fail the same way forever."""
+    try:
+        os.link(partial, dest)        # atomic create-if-absent
+        return
+    except FileExistsError:
+        pass
+    except OSError:                   # no hard links here (FAT, some shares)
+        if not os.path.exists(dest):
+            os.rename(partial, dest)  # Windows: fails rather than overwrite
+            return
+    if _deno_runs(dest):
+        raise DenoInstallFailed(_ALREADY_INSTALLED)
+    if os.name == "nt":
+        # os.replace can't overwrite a file another process has open, and
+        # os.rename never overwrites, so the broken stub goes first.
+        os.remove(dest)
+        os.rename(partial, dest)
+    else:
+        os.replace(partial, dest)
+
+
 def _unpack_binary(zip_path: str):
-    """Only the single top-level `deno`/`deno.exe` member is written, into
-    a file created exclusively: an existing binary there is never replaced
-    (the start refuses that case; this closes the gap to the job running)."""
+    """Only the single top-level `deno`/`deno.exe` member is written. It goes
+    to a ".partial" file first, so a hard kill mid-copy never leaves a stub
+    at the real path; see _place_binary for when it may replace one."""
     dest = diagnostics.deno_default_install_path()
+    partial = dest + ".partial"
     name = os.path.basename(dest)
     try:
         with zipfile.ZipFile(zip_path) as zf:
@@ -368,29 +416,25 @@ def _unpack_binary(zip_path: str):
                 raise DenoInstallFailed("The Deno download did not contain Deno.")
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             try:
-                out = open(dest, "xb")
-            except FileExistsError:
-                raise DenoInstallFailed("Deno is already installed; nothing was changed.") from None
-            try:
-                with zf.open(member) as src, out:
+                with zf.open(member) as src, open(partial, "wb") as out:
                     shutil.copyfileobj(src, out, _CHUNK)
-            except BaseException:
+                os.chmod(partial, os.stat(partial).st_mode
+                         | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                _place_binary(partial, dest)
+            finally:
                 try:
-                    os.remove(dest)       # only the file this call created
+                    os.remove(partial)
                 except OSError:
                     pass
-                raise
     except zipfile.BadZipFile:
         raise DenoInstallFailed("The Deno download was not a valid zip file.") from None
-    os.chmod(dest, os.stat(dest).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 # ---------------------------------------------------------------------------
 # Q06: package install and GPU PyTorch setup
 # ---------------------------------------------------------------------------
 
-_CANCELLED_HINT = ("Cancelled. If pip was part-way through replacing files, run the install "
-                   "again to finish it.")
+_READ_ONLY_HINT = "Stop the service and start Baihe from the Start menu to install packages."
 
 
 def get_dependency_install() -> dict:
@@ -402,20 +446,85 @@ def get_dependency_install() -> dict:
     return {**state, "job_id": DEPENDENCY_JOB_ID, "job": _job_view(DEPENDENCY_JOB_ID)}
 
 
-def start_dependency_install(name: str, confirm: bool = False) -> dict:
-    """PC only (the route is local_only()). 422 unconfirmed, 404 for a name
-    that is not an installable package, 409 while any job, restore, reset,
-    cleanup or install runs."""
+def _writable(folder: str) -> bool:
+    # os.access on a Windows folder checks only the read-only attribute, not
+    # the ACL that keeps the boot service account read-only, so try for real.
+    try:
+        with tempfile.TemporaryFile(dir=folder):
+            return True
+    except OSError:
+        return False
+
+
+def _require_writable_site_packages():
+    # The boot service account gets read-only access to the install, so pip
+    # would fail part-way after removing files.
+    paths = sysconfig.get_paths()
+    if not all(_writable(d) for d in dict.fromkeys((paths["purelib"], paths["platlib"]))):
+        raise gaps.AdminActionNotPossible(_READ_ONLY_HINT)
+
+
+def _plan_busy() -> ConflictError:
+    return ConflictError("An install, restore or another preview is in progress; "
+                         "try again in a moment.")
+
+
+def _require_safe_plan(name: str, accept_risk: bool, accepted_risks):
+    """The client's own preview is advisory: a direct POST must meet the same
+    clash, downgrade and in-use checks before pip touches the environment.
+    accept_risk covers only the risks the owner was shown (accepted_risks): a
+    plan that gained one since the preview asks again."""
+    plan = install_plan.build_plan([name])
+    if plan["blocked"]:
+        raise gaps.AdminActionNotPossible(plan["blocked"][0])
+    unseen = [r for r in plan["needs_confirm"] if r not in set(accepted_risks or ())]
+    if plan["needs_confirm"] and (accept_risk is not True or unseen):
+        raise PlanNeedsConfirm(" ".join(unseen or plan["needs_confirm"])
+                               + " Confirm again to go ahead anyway.")
+    if plan["mode"] == "restart":
+        raise InstallNeedsRestart(((plan["note"] or "") + " Queue it for the next start "
+                                   "instead.").strip())
+
+
+def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool = False,
+                             accepted_risks=None) -> dict:
+    """PC only (the route is local_only()). 422 unconfirmed, with a read-only
+    install folder, or for a plan pip refuses; 404 for a name that is not an
+    installable package; 409 while any job, restore, reset, cleanup, install
+    or install preview runs, for a downgrade of something Baihe needs (or an
+    install pip could not preview) that the owner did not accept, or when the
+    install must wait for the next start."""
     gaps.guard(confirm)
     if name not in gaps.installable_packages():
         raise gaps.AdminActionUnknownPackage("Unknown or non-installable package.")
-    return _start_install_job("package", name, f"Installing {name}", name)
+    _require_writable_site_packages()
+    # The plan is only true of the environment it was made against: no
+    # second plan, and no install or restore, may move it before the job holds it.
+    if background_jobs.exclusive_held() or not pending_install_service._PREVIEW_LOCK.acquire(
+            blocking=False):
+        raise _plan_busy()
+    try:
+        if background_jobs.exclusive_held():
+            raise _plan_busy()
+        _require_safe_plan(name, accept_risk, accepted_risks)
+        return _start_install_job("package", name, f"Installing {name}", name)
+    finally:
+        pending_install_service._PREVIEW_LOCK.release()
 
 
 def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
-    """PC only. The refusals of gaps.prepare_gpu_torch_setup (422/409), then
-    the setup runs as a job."""
+    """PC only. The refusals of gaps.prepare_gpu_torch_setup (422/409), a
+    read-only install folder (422), and 409 on Windows while this process
+    has PyTorch loaded. The fixed-index triple has no pip preview, so only
+    the in-use part of the install plan applies."""
     variant = gaps.prepare_gpu_torch_setup(variant, confirm)
+    _require_writable_site_packages()
+    if os.name == "nt":
+        loaded = [d for d in sorted(diagnostics_torch.TORCH_FAMILY) if install_plan.dist_in_use(d)]
+        if loaded:
+            raise InstallNeedsRestart(
+                "Baihe is using " + ", ".join(loaded) + " right now, and Windows can't replace "
+                "files in use. Restart Baihe and run the setup before anything uses PyTorch.")
     return _start_install_job("gpu_torch", "torch", f"Setting up PyTorch ({variant})", variant)
 
 
@@ -467,28 +576,118 @@ def _store_dependency_result(result: dict, status: str):
                                                    or ("Done." if result.get("ok") else "")})
 
 
+def _non_index_dists() -> set:
+    """Installed dists pip took from git, a link or a local wheel or folder:
+    pip writes direct_url.json only for those, and `name==version` from the
+    index would not bring them back."""
+    out = set()
+    for dist in importlib.metadata.distributions():
+        try:
+            if dist.read_text("direct_url.json") is not None:
+                out.add(diagnostics.canonical_dist(dist.metadata["Name"] or ""))
+        except Exception:     # noqa: BLE001 -- unreadable metadata just isn't skipped
+            continue
+    return out
+
+
+def _restore(before: dict, skip: set, cancel):
+    """(restored, failed, skipped, stopped, added) dist names after putting back
+    every package whose version pip changed or removed."""
+    now = pending_install.snapshot()
+    wanted = {n: v for n, v in before.items() if now.get(n) != v}
+    skipped = sorted(n for n in wanted if n in skip)
+    safe = {n: v for n, v in wanted.items() if n not in skip
+            and pending_install._NAME_RE.match(n) and pending_install._VERSION_RE.match(v)}
+    failed = sorted(set(wanted) - set(safe) - set(skipped))
+    stopped = False
+    if safe:
+        argv = pending_install._python() + [
+            "-m", "pip", "install", "--no-deps", "--no-cache-dir", "--disable-pip-version-check",
+            *[f"{n}=={v}" for n, v in sorted(safe.items())]]
+        for event in proc_run.stream_tree(argv, pending_install.RESTORE_SECONDS, cancel=cancel,
+                                          warn=job_process_kill._warn_via_jobs):
+            stopped = stopped or bool(event.get("cancelled"))
+        now = pending_install.snapshot()
+    restored = sorted(n for n, v in safe.items() if now.get(n) == v)
+    failed = sorted(failed + [n for n in safe if n not in restored])
+    return restored, failed, skipped, stopped, sorted(set(now) - set(before))
+
+
+def _put_back(kind: str, before: dict, skip: set) -> str:
+    """Reinstalls every package whose version pip changed or removed; the
+    sentence says how that went (dist names only)."""
+    background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.95, "Putting your earlier packages back...")
+    probe = gaps._cancel_probe(DEPENDENCY_JOB_ID)
+    # Cancel is sticky: after a cancelled pip the probe is already true, and
+    # honouring it would skip the very restore the Cancel asked for.
+    cancel = None if probe() else probe
+    try:
+        restored, failed, skipped, stopped, added = _restore(before, skip, cancel)
+    except Exception:     # noqa: BLE001 -- the install's own outcome must still be stored
+        return "Your earlier packages could not be put back; check Packages."
+    again = ("Set up PyTorch again under GPU PyTorch." if kind == "gpu_torch"
+             else "Install them again from Packages.")
+    parts = []
+    if stopped:
+        parts.append("Putting your earlier packages back was cancelled.")
+    if failed:
+        parts.append("Some packages could not be put back: " + ", ".join(failed) + ". " + again)
+    if skipped:
+        parts.append(", ".join(skipped) + " came from outside the package index (git, a link "
+                     "or a local file), so it was not put back; install it again the way you "
+                     "first did.")
+    if restored and not (failed or skipped):
+        parts.append("Your earlier packages were put back.")
+    if added:
+        parts.append("pip added " + ", ".join(added) + ", which were left in place.")
+    elif not parts:
+        parts.append("Nothing else was changed.")
+    return _redact(" ".join(parts))[:600]
+
+
+def _run_pip_step(kind: str, arg: str) -> dict:
+    if kind == "gpu_torch":
+        return gaps.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
+    return gaps.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)
+
+
+def _pip_failed(kind: str, result: dict) -> bool:
+    # A GPU setup whose pip succeeded but whose check failed keeps the new
+    # torch: its hint asks for a restart or a driver update, not a rollback.
+    return not result["ok"] and not (kind == "gpu_torch" and result.get("verify") is not None)
+
+
 def _dependency_job(kind: str, arg: str):
     with _STATE_LOCK:
         package = _DEPENDENCY["package"]
     failure = {"package": package, "ok": False, "output_tail": [], "hint": None}
+    restore_note = None
     try:
         with _job_hold(DEPENDENCY_JOB_ID):
             background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.02, "Starting pip...")
-            if kind == "gpu_torch":
-                result = gaps.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
-            else:
-                result = gaps.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)
+            # Restored on failure or Cancel (still under the hold), so pip
+            # stopping part-way never leaves the environment half-replaced.
+            before, skip = pending_install.snapshot(), _non_index_dists()
+            try:
+                result = _run_pip_step(kind, arg)
+            except Exception:
+                restore_note = _put_back(kind, before, skip)
+                raise
+            if _pip_failed(kind, result):
+                result["hint"] = " ".join(x for x in (result.get("hint"),
+                                                      _put_back(kind, before, skip)) if x)
     except background_jobs.JobCancelled:
-        _store_dependency_result({**failure, "cancelled": True, "hint": _CANCELLED_HINT},
+        _store_dependency_result({**failure, "cancelled": True,
+                                  "hint": "Cancelled. " + (restore_note or "Nothing was changed.")},
                                  "cancelled")
         raise
     except gaps.AdminActionRefused as exc:      # lost the race for the hold
         _store_dependency_result({**failure, "hint": str(exc)}, "failed")
         raise DependencyInstallFailed(str(exc)) from None
     except Exception as exc:     # noqa: BLE001 -- never echo an exception (paths, keys)
-        _store_dependency_result(
-            {**failure, "hint": f"The install stopped unexpectedly ({type(exc).__name__})."},
-            "failed")
+        hint = f"The install stopped unexpectedly ({type(exc).__name__})."
+        _store_dependency_result({**failure, "hint": " ".join(x for x in (hint, restore_note) if x)},
+                                 "failed")
         raise DependencyInstallFailed("The install stopped unexpectedly.") from None
     result = {**result, "cancelled": False}
     _store_dependency_result(result, "ok" if result["ok"] else "failed")
@@ -505,7 +704,10 @@ def get_upgrade_check() -> dict:
         state = {"package": _UPGRADE_CHECK["package"], "target": _UPGRADE_CHECK["target"],
                  "output_tail": list(_UPGRADE_CHECK["tail"]),
                  "result": dict(_UPGRADE_CHECK["last"]) if _UPGRADE_CHECK["last"] else None}
-    return {**state, "job_id": UPGRADE_CHECK_JOB_ID, "job": _job_view(UPGRADE_CHECK_JOB_ID)}
+    unavailable = (None if upgrade_check.test_suite_available(gaps.default_project_root())
+                   else upgrade_check.NO_TEST_SUITE)
+    return {**state, "unavailable_reason": unavailable,
+            "job_id": UPGRADE_CHECK_JOB_ID, "job": _job_view(UPGRADE_CHECK_JOB_ID)}
 
 
 def start_upgrade_check(name: str, target: str = None, confirm: bool = False) -> dict:
@@ -520,6 +722,8 @@ def start_upgrade_check(name: str, target: str = None, confirm: bool = False) ->
     gaps.guard(confirm)
     if name not in gaps.installable_packages():
         raise gaps.AdminActionUnknownPackage("Unknown or non-installable package.")
+    if not upgrade_check.test_suite_available(gaps.default_project_root()):
+        raise gaps.AdminActionNotPossible(upgrade_check.NO_TEST_SUITE)
     checked = gaps.cached_update(name)
     if checked is None or checked.get("status") != "update" or not checked.get("target"):
         raise gaps.AdminActionStale("Check for updates first; there is no update to test.")

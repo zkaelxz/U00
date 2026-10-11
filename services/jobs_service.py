@@ -22,7 +22,7 @@ from typing import Optional
 
 import db
 from services import job_stage_service, ownership_service, run_settings_service
-import diagnostics
+import diagnostics_report
 import background_jobs
 import job_force_stop
 from jobs import job_store
@@ -56,6 +56,8 @@ RESULT_ALLOWED_KEYS = (
     # Own-lines re-translate: line ids whose review flag wasn't saved because
     # the line's text, timing or flag changed while the job ran.
     "flags_needing_recheck",
+    # Fix flagged: line ids it left alone because the user edited them meanwhile.
+    "kept_your_edit",
     # Re-split long lines: counts, the timing mode and a one-line note.
     "split_lines", "lines_before", "aligned_lines", "cleared_translations",
     "speakers_reassigned", "timing", "note",
@@ -88,11 +90,11 @@ def redact_text(text: str) -> str:
     """redact_for_support, but never raising: getpass.getuser() inside it
     can fail in some containers, so fall back to secret + path redaction."""
     try:
-        return diagnostics.redact_for_support(text)
+        return diagnostics_report.redact_for_support(text)
     except Exception:
         import translate_engines
         text = translate_engines.redact_secrets(text or "")
-        return diagnostics.PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+        return diagnostics_report.PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
 
 
 def _error_item_text(item) -> str:
@@ -349,6 +351,8 @@ def derive_outcome(status, error, result):
     if "fixed_count" in result:
         parts.append(f"Fixed {result.get('fixed_count') or 0} of "
                      f"{result.get('total_flagged') or 0} flagged line(s).")
+    if result.get("kept_your_edit"):
+        parts.append(f"{len(result['kept_your_edit'])} line(s) edited while it ran kept your edit.")
     if isinstance(cap, (int, float)) and not isinstance(cap, bool):
         parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")
     if errors:
@@ -461,8 +465,11 @@ def is_stale(record: dict, now: Optional[float] = None) -> bool:
         return False
     if job_store.owner_gone(record):
         return True
+    now = time.time() if now is None else now
     updated = record.get("updated_at") or 0
-    return (time.time() if now is None else now) - updated > STALE_JOB_SECONDS
+    if job_store.owner_alive_elsewhere(record.get("owner_pid"), updated, now):
+        return False
+    return now - updated > STALE_JOB_SECONDS
 
 
 # One entry per background_jobs.DRAMA_JOB_PREFIXES prefix (a test fails when

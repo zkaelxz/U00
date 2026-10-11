@@ -6,6 +6,7 @@ import os
 import pytest
 
 import db
+from lib import settings_schema
 from services import media_upload_service as mus
 from services import settings_service
 from services.service_errors import InvalidInputError
@@ -135,7 +136,7 @@ def test_settings_route_rejects_bad_value_with_clear_text(isolated_db):
 
 def test_huge_env_value_is_clamped_not_an_overflow(isolated_db, monkeypatch):
     monkeypatch.setenv("BAIHE_MAX_UPLOAD_MB", "1e303")
-    assert mus.max_upload_bytes() == settings_service.MAX_UPLOAD_MB * MB
+    assert mus.max_upload_bytes() == settings_schema.UPLOAD_MB_MAX * MB
     assert _client(local=True).get("/api/settings").status_code == 200
 
 
@@ -155,7 +156,7 @@ def test_household_listener_refuses_every_upload_route(isolated_db):
     ]
     for path, kw in calls:
         assert c.post(path, **kw).status_code in (401, 403), path
-    assert settings_service.get_preference("max_upload_mb") == 20480
+    assert settings_service.get("max_upload_mb") == 20480
 
 
 def test_only_local_only_routes_reach_max_upload_bytes():

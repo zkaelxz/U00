@@ -47,6 +47,11 @@ TAIL_LINES = 40
 CAPTURE_LINES = TAIL_LINES * 5
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 _VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.!_-]{0,63}$")      # no "+": local builds aren't on PyPI
+LOCK_TOUCH_SECONDS = 30
+_PINS_RE = re.compile(r"^baihe-torch-pins-[A-Za-z0-9_]+\.txt$")      # install_registry.write_torch_pins
+# Mirrors diagnostics.PIP_INSTALL_FLAGS, which this stdlib-only module cannot import;
+# a test keeps the two equal.
+_PIP_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
 _FILES = {"pending": "pending.json", "result": "result.json", "lock": "apply.lock"}
 
 
@@ -141,12 +146,189 @@ def clear_result() -> None:
     _remove("result")
 
 
-def apply_running() -> bool:
-    """True while a live apply holds the lock (a stale one doesn't count)."""
+# Windows byte-range locks are mandatory, so the lock sits on a byte far past the
+# JSON: status() and the launcher must still be able to read the pid.
+_LOCK_BYTE = 1 << 30
+_LOCK = {"fd": None}        # the open apply.lock this process holds the OS lock on
+_OWN_START = []
+
+
+def _kernel32():
+    import ctypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+    kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+    kernel32.GetProcessTimes.argtypes = [ctypes.c_void_p] + [ctypes.POINTER(ctypes.c_ulonglong)] * 4
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    return kernel32
+
+
+def _win_pid_running(pid: int, kernel32, get_last_error) -> bool:
+    import ctypes
+    handle = kernel32.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return get_last_error() == 5                        # access denied: it exists
     try:
-        return time.time() - os.path.getmtime(_path("lock")) < OVERALL_SECONDS + 120
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True         # the call failed: unknown, and wrongly calling it dead runs pip twice
+        return code.value == 259                            # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _pid_running(pid: int) -> bool:
+    if not 0 < pid <= 0xFFFFFFFF:
+        return False            # no real process has it; ctypes and os.kill would raise
+    if os.name == "nt":
+        import ctypes
+        return _win_pid_running(pid, _kernel32(), ctypes.get_last_error)
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True                                             # EPERM: owned by someone else, still running
+    except (OSError, OverflowError):
+        return False
+    return True
+
+
+def _process_start(pid: int):
+    """An opaque start time for `pid`, or None where it can't be read. A reused
+    pid has a different one, so a lock written by a dead process isn't kept alive
+    by whatever got its number."""
+    if not 0 < pid <= 0xFFFFFFFF:
+        return None
+    if os.name == "nt":
+        import ctypes
+        kernel32 = _kernel32()
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return None
+        try:
+            created, *rest = [ctypes.c_ulonglong() for _ in range(4)]
+            ok = kernel32.GetProcessTimes(handle, ctypes.byref(created), *map(ctypes.byref, rest))
+            return created.value if ok and created.value else None
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as f:
+            # Field 22 (starttime); the command name in field 2 may contain spaces and ")".
+            return int(f.read().rsplit(b")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _pid_alive(pid: int, started=None) -> bool:
+    if not _pid_running(pid):
+        return False
+    if not isinstance(started, int) or isinstance(started, bool):
+        return True             # older lock files and the launcher's readers carry no start time
+    now = _process_start(pid)
+    return now is None or now == started
+
+
+def _record_live(doc, mtime: float) -> bool:
+    """The lock file's own word on whether its writer still runs. Only consulted
+    when no process holds the OS lock (a crashed start, or a writer without one)."""
+    if time.time() - mtime >= OVERALL_SECONDS + 120:
+        return False
+    # After a crash the lock is fresh for the next hour; its pid says nobody holds it.
+    # A lock without a readable pid keeps the age rule alone.
+    pid = (doc if isinstance(doc, dict) else {}).get("pid")
+    if isinstance(pid, int) and not isinstance(pid, bool):
+        return _pid_alive(pid, doc.get("started"))
+    return True
+
+
+def _os_lock(fd: int) -> bool:
+    try:
+        if os.name == "nt":
+            import msvcrt
+            os.lseek(fd, _LOCK_BYTE, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
     except OSError:
         return False
+
+
+def _close_held(fd: int) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+            os.lseek(fd, _LOCK_BYTE, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)      # closing alone frees it only "eventually"
+    except OSError:
+        pass
+    os.close(fd)
+
+
+def _try_hold(create: bool):
+    """(fd, busy): an fd holding the OS lock on apply.lock, or busy=True when
+    another open handle (any process) holds it."""
+    flags = os.O_RDWR | getattr(os, "O_BINARY", 0) | (os.O_CREAT if create else 0)
+    for _ in range(3):
+        try:
+            fd = os.open(_path("lock"), flags)
+        except OSError:
+            return None, False
+        if not _os_lock(fd):
+            os.close(fd)
+            return None, True
+        if os.name == "nt":
+            return fd, False    # Windows can't delete a file another handle has open
+        try:
+            if os.path.samestat(os.fstat(fd), os.stat(_path("lock"))):
+                return fd, False
+        except OSError:
+            pass
+        _close_held(fd)         # the holder unlinked it before we locked it: try the new file
+    return None, False
+
+
+def _write_held(fd: int) -> None:
+    if not _OWN_START:
+        _OWN_START.append(_process_start(os.getpid()))
+    doc = {"pid": os.getpid(), "time": int(time.time())}
+    if _OWN_START[0] is not None:
+        doc["started"] = _OWN_START[0]
+    data = json.dumps(doc).encode("utf-8")
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, data)
+    os.ftruncate(fd, len(data))
+
+
+def _release_lock() -> None:
+    """Frees and removes the lock this process holds; a lock it doesn't hold is
+    another start's and is left alone."""
+    fd = _LOCK.pop("fd", None)
+    _LOCK["fd"] = None
+    if fd is None:
+        return
+    if os.name == "nt":
+        _close_held(fd)         # Windows refuses to delete a file with an open handle
+        _remove("lock")         # and refuses while a newer start holds it, so this can't take theirs
+    else:
+        _remove("lock")         # unlinked while still held, so no newer start's file is deleted
+        _close_held(fd)
+
+
+def apply_running() -> bool:
+    """True while a live apply holds the lock (a stale one doesn't count)."""
+    # The OS lock first: a clock stepped forward must not age out a lock still held.
+    fd, busy = _try_hold(create=False)
+    if busy:
+        return True
+    if fd is not None:
+        _close_held(fd)
+    try:
+        mtime = os.path.getmtime(_path("lock"))
+    except OSError:
+        return False
+    return _record_live(_read_json("lock") or {}, mtime)
 
 
 def status() -> dict:
@@ -174,7 +356,24 @@ def run_capture(argv: list, timeout: float, echo: bool = False):
     """(returncode, last lines, timed_out). No shell; the tree is killed on
     timeout so pip's own children can't outlive the budget."""
     lines, end = [], {"returncode": None, "timed_out": False}
-    for event in stream_tree(argv, timeout=max(1.0, timeout), cancel=lambda: _CURRENT["stop"]):
+    touched = [time.monotonic()]
+
+    def cancel():
+        # Polled even while pip is silent, unlike the output lines; status()
+        # reads a stale lock as a crashed apply, so a live one keeps it fresh.
+        if time.monotonic() - touched[0] >= LOCK_TOUCH_SECONDS:
+            touched[0] = time.monotonic()
+            try:
+                fd = _LOCK.get("fd")
+                if fd is not None and not _CURRENT["stop"]:     # the watchdog may be closing it
+                    _write_held(fd)             # Windows can't utime a file with an open handle
+                else:
+                    os.utime(_path("lock"))
+            except OSError:
+                pass
+        return _CURRENT["stop"]
+
+    for event in stream_tree(argv, timeout=max(1.0, timeout), cancel=cancel):
         if "line" in event:
             lines.append(event["line"])
             del lines[:-CAPTURE_LINES]
@@ -220,6 +419,42 @@ def child_json(*args, stdin_text: str = None):
     return None
 
 
+def _argv_accepted(argv) -> bool:
+    """The child prints the command on its stdout, where any stray JSON line in
+    a module it imports would win; run only a registry-shaped `pip install`."""
+    if (not isinstance(argv, list) or len(argv) < 5 or argv[0] != sys.executable
+            or argv[1:4] != ["-m", "pip", "install"]
+            or not all(isinstance(a, str) for a in argv)):
+        return False
+    # pip reads options such as --extra-index-url from a constraints file, so
+    # only the app's own file and a torch pins file may follow -c.
+    app_constraints = _norm(os.path.join(os.path.dirname(os.path.abspath(__file__)), "constraints.txt"))
+    rest, i = argv[4:], 0
+    while i < len(rest):
+        arg = rest[i]
+        if arg in _PIP_FLAGS or _NAME_RE.match(arg):
+            i += 1
+        elif arg == "-c" and i + 1 < len(rest):
+            if not (_norm(rest[i + 1]) == app_constraints or _is_pins_file(rest[i + 1])):
+                return False
+            i += 2
+        else:
+            return False
+    return True
+
+
+def _norm(path: str) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _is_pins_file(path) -> bool:
+    """A torch pins file as install_registry.write_torch_pins names it. The
+    shared temp dir alone is not enough: anyone can write there."""
+    return (isinstance(path, str)
+            and os.path.dirname(_norm(path)) == _norm(tempfile.gettempdir())
+            and bool(_PINS_RE.match(os.path.basename(os.path.realpath(path)))))
+
+
 def snapshot() -> dict:
     """{canonical dist name: version} of everything installed (metadata only)."""
     out = {}
@@ -240,21 +475,44 @@ def _redacted_tail(lines: list) -> list:
 
 # --- the apply step -------------------------------------------------------
 
+def _left_by_live_start(fd: int) -> bool:
+    """Read while holding the OS lock, so whoever wrote it no longer holds it."""
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        raw = os.read(fd, 4096)
+        mtime = os.fstat(fd).st_mtime
+    except OSError:
+        return False
+    if not raw.strip():
+        return False            # a start that died between creating the file and writing it
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        doc = {}
+    if isinstance(doc, dict) and doc.get("pid") == os.getpid():
+        return False            # ours, from an earlier apply in this process
+    return _record_live(doc, mtime)
+
+
 def _acquire_lock(wait_until: float, sleep=time.sleep) -> bool:
+    # The OS lock, not the file, decides: two starts after a crash can both read
+    # a dead pid, but only one can hold the lock, and nobody deletes a held file.
     os.makedirs(state_dir(), exist_ok=True)
     while True:
-        try:
-            fd = os.open(_path("lock"), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            with os.fdopen(fd, "w") as f:
-                json.dump({"pid": os.getpid(), "time": int(time.time())}, f)
-            return True
-        except FileExistsError:
-            if not apply_running():
-                _remove("lock")          # left behind by a crash
-                continue
-            if time.time() >= wait_until:
-                return False
-            sleep(1.0)
+        fd, _busy = _try_hold(create=True)
+        if fd is not None:
+            if not _left_by_live_start(fd):
+                try:
+                    _write_held(fd)
+                except BaseException:
+                    _close_held(fd)
+                    raise
+                _LOCK["fd"] = fd
+                return True
+            _close_held(fd)
+        if time.time() >= wait_until:
+            return False
+        sleep(1.0)
 
 
 def wait_while_running(until: float, echo: bool = False, sleep=time.sleep) -> bool:
@@ -309,6 +567,7 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
     if not _acquire_lock(started + wait_seconds):
         return {"ran": False, "locked": True}
     deadline = time.time() + OVERALL_SECONDS     # the lock wait is not part of the install's budget
+    temp_files = []
     try:
         payload, problem = read_pending()
         if payload is None:
@@ -331,19 +590,24 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
                 "message": (plan or {}).get("message") or
                            "The queued install was not run: the package list was not accepted. "
                            "Nothing was changed."}, [])}
+        # Read from the child's stdout like argv, so only a pins-shaped file is deleted.
+        if isinstance(plan.get("temp_files"), list):
+            temp_files = [p for p in plan["temp_files"] if _is_pins_file(p)]
+        argv = plan.get("argv")
+        if not _argv_accepted(argv):
+            return {"ran": True, **_finish({
+                "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
+                "message": "The queued install was not run: the package list was not accepted. "
+                           "Nothing was changed."}, [])}
         before = snapshot()
-        argv = plan["argv"]
+        # Saved before pip runs so the watchdog, which can exit mid-restore, can still say what was at risk.
+        _write_json("result", {"status": "running", "packages": keys, "before": before, "tail": [],
+                               "message": "Installing the packages you queued...",
+                               "restored": [], "restore_failed": []})
         argv[1:1] = _python()[1:]
         if echo:
             print("Installing the packages you queued: " + ", ".join(keys), flush=True)
-        try:
-            rc, lines, timed_out = run_capture(argv, min(PIP_SECONDS, deadline - time.time()), echo)
-        finally:
-            for path in plan.get("temp_files", []):
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+        rc, lines, timed_out = run_capture(argv, min(PIP_SECONDS, deadline - time.time()), echo)
         if rc == 0 and not timed_out:
             return {"ran": True, **_finish({
                 "status": "ok", "packages": keys, "restored": [], "restore_failed": [],
@@ -368,7 +632,28 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
             "status": "timed_out" if timed_out else "failed", "packages": keys,
             "restored": restored, "restore_failed": failed, "message": head + tail}, lines)}
     finally:
-        _remove("lock")
+        for path in temp_files:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        _release_lock()
+
+
+def _watchdog_result() -> dict:
+    """The timed_out result, keeping what the running result recorded: the exit
+    can land mid-restore, so the owner needs to know which packages were at risk."""
+    running = read_result()
+    if not (running and running.get("status") == "running"):
+        running = {}
+    packages, before = running.get("packages"), running.get("before")
+    return {"status": "timed_out", "tail": [], "restored": [], "restore_failed": [],
+            "packages": packages if isinstance(packages, list) else [],
+            "before": before if isinstance(before, dict) else {},
+            "message": "The install did not finish in time. Baihe started without waiting "
+                       "for it, so package versions may have been changed. Check Packages "
+                       "in Diagnostics.",
+            "finished": int(time.time())}
 
 
 def main(argv=None) -> int:
@@ -377,14 +662,10 @@ def main(argv=None) -> int:
         _CURRENT["stop"] = True
         time.sleep(2)       # the cancel poll runs about twice a second
         try:
-            _write_json("result", {"status": "timed_out", "packages": [], "tail": [],
-                                   "restored": [], "restore_failed": [],
-                                   "message": "The install did not finish in time. Baihe "
-                                              "started without waiting for it.",
-                                   "finished": int(time.time())})
+            _write_json("result", _watchdog_result())
         except OSError:
             pass
-        _remove("lock")
+        _release_lock()
         os._exit(0)
     timer = threading.Timer(OVERALL_SECONDS + WATCHDOG_MARGIN, watchdog)
     timer.daemon = True
@@ -393,7 +674,7 @@ def main(argv=None) -> int:
         apply(echo=True)
     except Exception as exc:        # the server start comes first
         print(f"Queued install skipped: {type(exc).__name__}", flush=True)
-        _remove("lock")
+        _release_lock()
     finally:
         timer.cancel()
     return 0

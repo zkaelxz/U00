@@ -59,7 +59,7 @@ def test_create_invalid_language_422(client):
 
 def test_create_series_id_and_new_name_422(client):
     sid = db.get_or_create_series("S")
-    resp = client.post("/api/dramas", json={"source_language": "zh", "series_id": sid,
+    resp = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T", "series_id": sid,
                                             "new_series_name": "X"})
     assert resp.status_code == 422
     _error(resp)
@@ -67,21 +67,21 @@ def test_create_series_id_and_new_name_422(client):
 
 
 def test_create_unknown_series_and_preset_404(client):
-    r1 = client.post("/api/dramas", json={"source_language": "zh", "series_id": 999})
+    r1 = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T", "series_id": 999})
     assert r1.status_code == 404 and _error(r1)["code"] == "not_found"
-    r2 = client.post("/api/dramas", json={"source_language": "zh", "preset_id": 999})
+    r2 = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T", "preset_id": 999})
     assert r2.status_code == 404 and _error(r2)["code"] == "not_found"
     assert _count() == 0
 
 
 def test_create_unknown_key_422(client):
-    resp = client.post("/api/dramas", json={"source_language": "zh", "status": "exported"})
+    resp = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T", "status": "exported"})
     assert resp.status_code == 422
     assert _count() == 0
 
 
 def test_create_with_new_series(client):
-    resp = client.post("/api/dramas", json={"source_language": "ja", "new_series_name": "Saga"})
+    resp = client.post("/api/dramas", json={"source_language": "ja", "title_en": "T", "new_series_name": "Saga"})
     assert resp.status_code == 201
     assert [s["name"] for s in db.list_series()] == ["Saga"]
     assert resp.json()["series_id"] == db.list_series()[0]["id"]
@@ -91,7 +91,7 @@ def test_create_with_preset_returns_exactly_five_defaults(client):
     pid = db.save_preset("P", translation_engine="gemini", engine_model="m",
                          style_preset="casual", locale="en-GB",
                          default_female_pronouns=True, include_genre_notes=False)
-    resp = client.post("/api/dramas", json={"source_language": "zh", "preset_id": pid})
+    resp = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T", "preset_id": pid})
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["preset_defaults"] == {"style_preset": "casual", "locale": "en-GB",
@@ -102,7 +102,7 @@ def test_create_with_preset_returns_exactly_five_defaults(client):
 
 
 def _make(client, **kw):
-    return client.post("/api/dramas", json={"source_language": "zh", **kw}).json()["id"]
+    return client.post("/api/dramas", json={"source_language": "zh", "title_en": "T", **kw}).json()["id"]
 
 
 def test_update_partial_leaves_others_intact(client):
@@ -171,7 +171,7 @@ def test_update_invalid_drama_id_422(client):
 
 def test_no_filesystem_path_in_responses(client, isolated_db):
     lib = str(isolated_db.LIBRARY_DIR)
-    r1 = client.post("/api/dramas", json={"source_language": "zh"})
+    r1 = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"})
     did = r1.json()["id"]
     r2 = client.post(f"/api/dramas/{did}/metadata", json={"title_en": "x"})
     r3 = client.post("/api/dramas/999/metadata", json={})
@@ -188,16 +188,16 @@ def test_h1_oversized_ints_are_422_never_500(client):
     for body in ({"source_language": "zh", "series_id": big},
                  {"source_language": "zh", "preset_id": big}):
         assert client.post("/api/dramas", json=body).status_code == 422
-    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     for f in ("chapter_count", "episode_number", "series_id"):
         assert client.post(f"/api/dramas/{did}/metadata", json={f: big}).status_code == 422
     assert client.post(f"/api/dramas/{big}/metadata", json={"title_en": "x"}).status_code == 422
 
 
 def test_h1_caps_and_url_scheme(client):
-    assert client.post("/api/dramas", json={"source_language": "zh",
+    assert client.post("/api/dramas", json={"source_language": "zh", "title_en": "T",
                                             "title_en": "a" * 301}).status_code == 422
-    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     r = client.post(f"/api/dramas/{did}/metadata", json={"source_url": "javascript:alert(1)"})
     assert r.status_code == 422 and "javascript" not in r.text
     r = client.post(f"/api/dramas/{did}/metadata", json={"summary": "a" * 5001})
@@ -266,7 +266,7 @@ def test_delete_fresh_job_record_409(client):
 
 
 def test_metadata_new_series_name_and_unassign(client):
-    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     r = client.post(f"/api/dramas/{did}/metadata", json={"new_series_name": "Saga"})
     assert r.status_code == 200, r.text
     sid = db.list_series()[0]["id"]
@@ -285,7 +285,7 @@ def test_metadata_new_series_name_and_unassign(client):
 
 def test_metadata_p10_fields_round_trip_through_the_detail(client):
     # Parity P10: the Workspace's Edit details reads these back to show them.
-    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     body = {"genre": "xianxia", "publication_status": "ongoing", "chapter_count": 120,
             "episode_number": 3, "source_url": "https://example.com/d/1",
             "episode_summary": "Key events."}
@@ -303,7 +303,7 @@ def test_metadata_p10_fields_round_trip_through_the_detail(client):
 
 def test_detail_source_url_never_returns_a_query_or_userinfo(client):
     # URL download stores the pasted link as given; it can carry a token.
-    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     db.update_drama(did, source_url="https://u:p@cdn.example.com:8443/v/1.mp4?X-Amz-Signature=abc&token=t#f")
     for body in (client.get(f"/api/library/dramas/{did}").json(),
                  client.post(f"/api/dramas/{did}/metadata", json={"genre": "x"}).json()):
@@ -325,13 +325,13 @@ def test_detail_source_url_never_returns_a_query_or_userinfo(client):
     ("https://www.example.com/drama/tgcf-123", "https://www.example.com/drama/tgcf-123"),
 ])
 def test_detail_source_url_drops_path_tokens_and_non_http(client, stored, shown):
-    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     db.update_drama(did, source_url=stored)
     assert client.get(f"/api/library/dramas/{did}").json()["source_url"] == shown
 
 
 def test_translate_toggles_are_saved_through_the_metadata_update(client):
-    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     assert db.get_drama(did)["default_female_pronouns"] is None
     r = client.post(f"/api/dramas/{did}/metadata",
                     json={"default_female_pronouns": True, "include_genre_notes": False})
@@ -340,3 +340,16 @@ def test_translate_toggles_are_saved_through_the_metadata_update(client):
     assert (row["default_female_pronouns"], row["include_genre_notes"]) == (1, 0)
     assert client.post(f"/api/dramas/{did}/metadata",
                        json={"default_female_pronouns": "yes"}).status_code == 422
+
+
+@pytest.mark.parametrize("titles", [{}, {"title_en": ""}, {"title_en": "  ", "title_zh": "\t"}])
+def test_create_needs_a_non_blank_title(client, titles):
+    resp = client.post("/api/dramas", json={"source_language": "zh", **titles})
+    assert resp.status_code == 422
+    assert _count() == 0
+
+
+def test_metadata_title_with_nul_is_422(client):
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
+    resp = client.post(f"/api/dramas/{did}/metadata", json={"title_en": "a\u0000b"})
+    assert resp.status_code == 422
