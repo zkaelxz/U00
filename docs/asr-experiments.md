@@ -34,6 +34,33 @@ table) is in `archive/asr-experiments-history.md`.
 Saving the four experiment settings (batch size, forced-aligner refine, Mixed languages, Voice detector) is PC-only (`local_only()`); another device
 sees "PC only". They are stored in `app_settings` (`services/asr_options_service.py`).
 
+### ASR bench (`tools/asr_bench.py`)
+
+`python -m tools.asr_bench TITLE_ID --config RECIPE [--config RECIPE ...] [--from S] [--to S] [--reference FILE.srt] [--yes] [--out FILE]`
+runs one window of a title's stored audio through each recipe with the app's own transcription code and writes
+`asr-bench-report.md` (data folder). Dry run unless `--yes`. Reads the title, writes nothing to it.
+
+A recipe is `BACKEND[:MODEL][,KEY=VALUE]...`; the first is the baseline. Unknown backends, models, keys, values, a key the backend does not use,
+or a model that `whisper_models.WHISPER_LANGUAGE_RULES` excludes for the title's language are refused before anything loads.
+
+| Part | Values | Applies to |
+|---|---|---|
+| `BACKEND` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long` | |
+| `:MODEL` | any key of `whisper_models.WHISPER_MODELS` (default: the title's saved model) | `whisper`, `qwen3_asr` (its Whisper pass) |
+| `vad=` | `normal`, `sensitive` (`sensitivity_preset.py`; default: the title's preset) | `whisper`, `qwen3_asr` |
+| `beam=` | 1-20 (default: the title's value) | `whisper`, `qwen3_asr` |
+| `prompt=` | `on` (default, the automatic name/glossary prompt), `off` | `whisper`, `qwen3_asr` |
+| `align=` | `on` (forced aligner refines line times), `off` (default) | `whisper`, `qwen3_asr_vad` (`qwen3_asr_long` always aligns) |
+| `detector=` | `standard`, `asmr` (default: the Settings choice) | `qwen3_asr_vad`, `qwen3_asr_long` |
+
+Anything a recipe does not name is what the title already uses (min silence, VAD threshold, hallucination guard, repeat guard, fast mode), so the
+bench matches a real run. Models are released between recipes, so every recipe pays its own load time; the wall time includes it.
+Timing, merged and missed lines are measured against the reference lines fully inside the window, by time overlap (at least 30% of the shorter line).
+Accuracy uses `benchmark_scoring_service.score_output`, the Benchmark Lab's scorer. Loops and stock phrases are counted after the app's own
+repeat filter, so they show what survives it. "In silence" uses the app's default speech detector on the window.
+Peak VRAM is whole-GPU memory above the level before the recipe, read from `nvidia-smi`, so other programs count too; it is n/a on CPU or when unreadable.
+A new recipe backend (an `anime_whisper`, say) is one `BackendSpec` entry in `tools/asr_bench_recipes.py`.
+
 ### Which backend a title gets
 
 A saved `asr_backend_choice` wins. A title with none saved (or a removed one) gets
