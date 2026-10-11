@@ -724,7 +724,62 @@ begin
   end;
 end;
 
+// Total size of the files under Dir, for the "how much am I about to lose"
+// text; unreadable entries count as zero.
+function FolderBytes(const Dir: String): Int64;
+var
+  Rec: TFindRec;
+  Path: String;
+  Size: Int64;
+begin
+  Result := 0;
+  if FindFirst(AddBackslash(Dir) + '*', Rec) then
+  try
+    repeat
+      if (Rec.Name = '.') or (Rec.Name = '..') then
+        Continue;
+      Path := AddBackslash(Dir) + Rec.Name;
+      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+      begin
+        // A junction or symlink could lead outside the folder or loop.
+        if (Rec.Attributes and $400) = 0 then // FILE_ATTRIBUTE_REPARSE_POINT
+          Result := Result + FolderBytes(Path);
+      end
+      else if FileSize64(Path, Size) then
+        Result := Result + Size;
+    until not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
+end;
+
+function SizeText(Bytes: Int64): String;
+begin
+  if Bytes >= 1073741824 then
+    Result := Format('%d.%d GB', [Bytes div 1073741824, (Bytes mod 1073741824) * 10 div 1073741824])
+  else
+    Result := Format('%d MB', [Bytes div 1048576]);
+end;
+
+// Deleting the library takes its backups with it (they are inside it by
+// default), so a ticked box alone is not enough: the exact word, in capitals,
+// must be typed. Anything else, including Cancel, keeps it.
+function ConfirmLibraryDelete(): Boolean;
+var
+  Typed: String;
+begin
+  Typed := '';
+  Result := InputQuery('Delete your library?',
+    'Your library (' + UninstDataDir + '\library) is ' + SizeText(FolderBytes(UninstDataDir + '\library')) +
+    '. It holds your projects, translations, audio and video, and your backups too - ' +
+    'backups are inside it by default. This can''t be undone.' + #13#10#13#10 +
+    'Type DELETE in capital letters to delete it. Anything else keeps it.', Typed) and
+    (CompareStr(Typed, 'DELETE') = 0);
+end;
+
 function InitializeUninstall(): Boolean;
+var
+  Extra: String;
 begin
   Result := True;
   DeleteLibrary := False;
@@ -748,7 +803,34 @@ begin
     end;
   end
   else if (UninstDataDir <> '') and DirExists(UninstDataDir) then
+  begin
     Result := AskWhatToDelete();
+    if Result and DeleteLibrary and not ConfirmLibraryDelete() then
+    begin
+      // "Remove everything" would delete the whole data folder, library
+      // included, so it can't stand once the library is kept. The settings
+      // and models it ticked go back to what the user had chosen themselves,
+      // as when they answer No to its own confirmation.
+      if CleanAll then
+      begin
+        DeleteSettings := PrevSettings;
+        DeleteModels := PrevModels;
+      end;
+      CleanAll := False;
+      DeleteLibrary := False;
+      Extra := '';
+      if DeleteSettings then
+        Extra := Extra + #13#10 + '  - your settings and API keys (.env)';
+      if DeleteModels then
+        Extra := Extra + #13#10 + '  - downloaded AI models (model_cache)';
+      if Extra = '' then
+        MsgBox('Your library was kept: you did not type DELETE. Nothing else of yours will be deleted.',
+          mbInformation, MB_OK)
+      else
+        MsgBox('Your library was kept: you did not type DELETE. These will still be deleted, ' +
+          'because you ticked them:' + Extra, mbInformation, MB_OK);
+    end;
+  end;
   if Result then
     Result := RemoveService();
 end;
@@ -811,10 +893,17 @@ begin
     DeleteTempMatches('baihe-torch-pins-*', True);
 end;
 
+function EnvOrDefault(const Name, Fallback: String): String;
+begin
+  Result := GetEnv(Name);
+  if Result = '' then
+    Result := Fallback;
+end;
+
 procedure NoteShared(const Path, Name: String; var Left: String);
 begin
   if DirExists(Path) then
-    AddLine(Left, Name + ' (' + Path + ') - shared with other programs');
+    AddLine(Left, Name + ' (' + Path + ', ' + SizeText(FolderBytes(Path)) + ') - shared with other programs, never deleted here');
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -886,8 +975,11 @@ begin
   AddLine(Removed, 'the Start menu and desktop shortcuts, and the Apps entry');
   NoteShared(ExpandConstant('{localappdata}\ms-playwright'), 'Playwright browsers', Left);
   NoteShared(ExpandConstant('{localappdata}\pip\cache'), 'pip''s download cache', Left);
-  NoteShared(ExpandConstant('{%USERPROFILE}\.cache\huggingface'), 'Hugging Face''s default model cache', Left);
+  NoteShared(EnvOrDefault('HF_HOME', ExpandConstant('{%USERPROFILE}\.cache\huggingface')), 'Hugging Face''s model cache', Left);
+  NoteShared(EnvOrDefault('TORCH_HOME', ExpandConstant('{%USERPROFILE}\.cache\torch')), 'PyTorch''s cache', Left);
+  NoteShared(EnvOrDefault('OLLAMA_MODELS', ExpandConstant('{%USERPROFILE}\.ollama\models')), 'Ollama models', Left);
   NoteShared(ExpandConstant('{%USERPROFILE}\.deno'), 'Deno (the JavaScript runtime Diagnostics can install)', Left);
+  AddLine(Left, 'Python, Git, ffmpeg and Node.js, if you installed them with winget (remove them in Settings > Apps)');
   AddLine(Left, 'temporary files other programs could also have made (%TEMP%\tmp*)');
   AddLine(Left, 'automatic backups you pointed at a folder outside the data folder, if any');
 

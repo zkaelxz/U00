@@ -4,9 +4,14 @@
 
 Baihe is in beta. Tag versions `0.x.y-beta.N` (for example `v0.1.0-beta.1`): a
 version with a `-` is published as a GitHub pre-release and sorts below the
-final release. Settings → App updates ignores pre-releases, so a beta install
-is updated by running the newer Setup `.exe` by hand and checking it against
-its `.sha256`.
+final release (`0.1.0-beta.2` is newer than `0.1.0-beta.1`, and `0.1.0` is
+newer than any `0.1.0-beta.N`). Settings → App updates ignores pre-releases by
+default. A beta install gets the next beta by turning on Developer Mode and
+then "Include pre-releases in app updates" (System → Developer Mode): checks
+then offer a pre-release only if it sorts above the installed version, and the
+download is still checked against its `.sha256`. Drafts are never offered.
+Otherwise update by running the newer Setup `.exe` by hand and checking it
+against its `.sha256`.
 
 Stable (a plain `v0.x.y` tag) waits for all of these:
 - The jobs and settings work in `docs/STATUS.md` ("Next") is merged.

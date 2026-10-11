@@ -26,6 +26,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "comic_chapters.py",
     "core.py",
     "db/__init__.py",
+    "db/benchmark.py",
     "debug_view.py",
     "device_tokens.py",
     "diagnostics.py",
