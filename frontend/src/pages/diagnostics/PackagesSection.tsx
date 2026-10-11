@@ -52,7 +52,7 @@ export type Outcome =
  * an upgrade is still one request that stays open. Either way every admin
  * button on the page waits for it.
  */
-export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange, onJobStarted, onShowEngines }: {
+export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange, onJobStarted, onQueuedChange, openSignal }: {
   overview: DiagnosticsOverview
   pc: PcMode
   jobsActive: boolean
@@ -63,8 +63,9 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   onOpenChange: (open: boolean) => void
   // "Test first" started a server job: refresh the jobs list.
   onJobStarted: () => void
-  // Opens Setup at its model engines, which hold their own Install buttons.
-  onShowEngines: () => void
+  // How many installs wait for the next start (drives the tab's attention badge).
+  onQueuedChange: (count: number) => void
+  openSignal: number
 }) {
   const [openRef, open] = useDetailsOpen()
   const [outcome, setOutcome] = useState<Outcome | null>(null)
@@ -110,6 +111,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     if (pc === 'local') loadQueued()
   }, [pc, loadQueued])
   const queued = pendingKeys(queuedStatus)
+  const queuedCount = queued.size
+  useEffect(() => onQueuedChange(queuedCount), [queuedCount, onQueuedChange])
   const [planned, setPlanned] = useState<PlannedInstall | null>(null)
   const [queueing, setQueueing] = useState(false)
   const [planError, setPlanError] = useState<unknown>(null)
@@ -130,7 +133,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   const leftover = deps.missing.filter((d) => !inTask.has(d.name) && d.tier !== 'required' && d.tier !== 'dev')
   const running = busyLine(busy)
 
-  // "Check for updates": PyPI is asked (on the server) only when pressed.
+  // "Check for package updates": PyPI is asked (on the server) only when pressed.
   const [updates, setUpdates] = useState<DiagnosticsPackageUpdates | null>(null)
   const [checking, setChecking] = useState(false)
   const [checkError, setCheckError] = useState<string | null>(null)
@@ -339,11 +342,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     )
 
   return (
-    <Section title="Packages" defaultOpen storageKey="diagnostics.packages" summary={`${deps.installed.length} installed, ${deps.missing.length} missing.`}>
+    <Section title="Packages" defaultOpen openSignal={openSignal} storageKey="diagnostics.packages" summary={`${deps.installed.length} installed, ${deps.missing.length} missing.`}>
       <div ref={openRef} data-testid="dependency-panel" className="diag-stack">
-        <p>
-          {deps.installed.length} installed, {deps.missing.length} missing.
-        </p>
         {pc === 'remote' && <p className="muted">Installing is PC only.</p>}
         {pending && <p className="muted" data-testid="pc-pending">{pending}</p>}
         {local && blocked && !running && <p className="muted" id={reasonId}>{blocked}</p>}
@@ -410,17 +410,11 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
             onConfirm={() => void runGpuSetup(v)}
           />
         )} />
-        {overview.model_engine_versions.length > 0 && (
-          <p className="muted" data-testid="engines-moved">
-            Model engines (install, status and downloads) are in Setup.{' '}
-            <button type="button" className={buttonClass('secondary', 'sm')} onClick={onShowEngines}>Show model engines</button>
-          </p>
-        )}
         {deps.installed.length > 0 && (
           <Section storageKey="diagnostics.installed" title="Installed packages" count={deps.installed.length}>
             <div className="actions" data-testid="update-check">
               <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => void checkUpdates()} disabled={checking} aria-busy={checking}>
-                {checking ? 'Checking PyPI…' : updates ? 'Check again' : 'Check for updates'}
+                {checking ? 'Checking PyPI…' : updates ? 'Check again' : 'Check for package updates'}
               </button>
               <span className="muted" aria-live="polite">
                 {checkError ?? (updates ? updatesSummary(updates)
@@ -463,7 +457,7 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
   info: DiagnosticsPackageInfo | undefined
   torchInstalled: boolean
   installed?: boolean
-  // The last "Check for updates" result for this package, if any.
+  // The last "Check for package updates" result for this package, if any.
   update?: DiagnosticsPackageUpdate
   // The task row already shows the not-offered reason and warning.
   quiet?: boolean

@@ -1,6 +1,6 @@
 /* Diagnostics admin sections. Tokens only; phone rules via index.css's coarse-pointer block. */
 
-/* Page: head with a badge strip, then Jobs / Setup / report cards, then the folds. */
+/* Page: head with a badge strip, then the tabs, then one tab's folds. */
 .diag-page { display: grid; gap: var(--space-5); min-width: 0; }
 .diag-page > * { min-width: 0; margin: 0; }
 .diag-page ul { margin: 0; padding-left: 1.2rem; }
@@ -9,20 +9,20 @@
 .diag-head { display: grid; gap: var(--space-2); }
 .diag-head h2 { margin: 0; font-size: var(--text-2xl); font-weight: 600; }
 .diag-head .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-/* Rare, advanced and destructive tools: folds, one under another. */
-.diag-folds { display: grid; gap: var(--space-3); }
-.diag-folds > details.section { margin: 0; background: var(--surface); }
-/* A fold inside a fold (Missing / Installed packages, Model engines) is a divided row, not a box in a box. */
-.diag-folds details.section details.section { margin: 0; padding-inline: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; }
+/* Each tab is a stack of folds. */
+.diag-panel { display: grid; gap: var(--space-3); min-width: 0; }
+.diag-panel[hidden], .diag-card:empty { display: none; }
+.diag-card { min-width: 0; scroll-margin-top: var(--space-4); }
+.diag-card > details.section { margin: 0; background: var(--surface); }
+/* A fold inside a fold (Missing / Installed packages) is a divided row, not a box in a box. */
+.diag-card details.section details.section { margin: 0; padding-inline: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; }
 @media (pointer: coarse), (max-width: 640px) {
-  .diag-folds > details.section > summary, .danger-zone details.section > summary { min-height: 44px; align-items: center; }
+  .diag-card > details.section > summary, .danger-zone details.section > summary { min-height: 44px; align-items: center; }
 }
-.diag-lab-link { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
-.diag-lab-link > p { margin: 0; }
+.diag-lab-link { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 @media (max-width: 640px) {
-  .diag-page { gap: var(--space-6); }
-  .diag-folds { gap: var(--space-5); }
-  .diag-lab-link { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+  .diag-page { gap: var(--space-5); }
+  .diag-panel { gap: var(--space-4); }
 }
 
 .diag-stack { display: grid; gap: var(--space-2); min-width: 0; }
@@ -134,11 +134,10 @@
 .stage-times-bar > span { display: block; height: 100%; min-width: 2px; background: var(--info); border-radius: inherit; }
 .stage-times-total { margin-top: var(--space-2); font-size: var(--text-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
 
-/* Danger zone: last, set apart from everything above. */
+/* Reset library: last on the System tab, set apart from everything above. */
 .danger-zone { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 2px solid var(--bad); }
 .danger-zone details.section { margin: 0; background: var(--surface); }
 .danger-zone .section-title { color: var(--bad); }
-.danger-zone h3 { margin: 0; }
 
 /* Settings > Browser extension: the read-only token row. */
 .token-row { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }

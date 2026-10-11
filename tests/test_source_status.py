@@ -212,6 +212,19 @@ def test_main_flag_selects_env_proxy_fetch(monkeypatch):
     assert seen["proxies"]["https"] == "http://proxy.example:3128"
 
 
+@pytest.mark.parametrize("var", ["REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"])
+def test_missing_ca_bundle_is_a_plain_message_not_a_traceback(monkeypatch, capsys, tmp_path, var):
+    for name in ("CI", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    missing = tmp_path / "secret-folder" / "ca.crt"
+    monkeypatch.setenv(var, str(missing))
+    fetch = _fetcher({})
+    assert sp.main(["--use-env-proxy"], fetch=sp.http_fetch) == 2
+    err = capsys.readouterr().err
+    assert var in err and "secret-folder" not in err
+    assert fetch.calls == []
+
+
 def test_probe_refuses_in_ci(monkeypatch, capsys):
     monkeypatch.setenv("CI", "true")
     fetch = _fetcher({})

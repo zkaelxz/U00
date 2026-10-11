@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { CURRENT_ROWS, OLDER_PRESET, RETIRED_PRESET, guardWrites, status } from './modelHealthMocks'
 
-// Model health card on Diagnostics (desktop). The real e2e API has
+// Model status card on Diagnostics (desktop). The real e2e API has
 // no keys, so the first test only checks the card against the real status
 // route; the rest mock /api/models/* so the provider check and the preset
 // switch never touch the shared seeded library (a catch-all fails the test
@@ -11,7 +11,7 @@ import { CURRENT_ROWS, OLDER_PRESET, RETIRED_PRESET, guardWrites, status } from 
 
 const SHOTS = process.env.MODEL_HEALTH_SHOTS_DIR
 
-const card = (page: Page) => page.getByRole('region', { name: 'Model health' })
+const card = (page: Page) => page.getByRole('region', { name: 'Model status' })
 
 // The card is a fold that opens itself only on a problem; these specs need it open.
 test.beforeEach(async ({ page }) => {
@@ -29,8 +29,8 @@ test('the card reads the real status route and never checks providers by itself'
   page.on('request', (r) => {
     if (r.url().includes('/api/models/') && r.method() !== 'GET') posts.push(r.url())
   })
-  await page.goto('/#/diagnostics')
-  await expect(page.locator('summary', { hasText: /^Model health/ })).toBeVisible()
+  await page.goto('/#/diagnostics?card=model-status')
+  await expect(page.locator('summary', { hasText: /^Model status/ })).toBeVisible()
   await expect(card(page).getByTestId('model-health-badge')).toBeVisible()
   await expect(card(page).getByRole('button', { name: 'Check providers now' })).toBeEnabled()
   expect(posts).toEqual([])
@@ -39,7 +39,7 @@ test('the card reads the real status route and never checks providers by itself'
 test('retired and older rows come first with their notes; the rest fold away', async ({ page }) => {
   const unmocked = await guardWrites(page)
   await page.route('**/api/models/status', (r) => r.fulfill({ json: status() }))
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/diagnostics?card=model-status')
   const c = card(page)
 
   await expect(c.getByTestId('model-health-badge')).toHaveText('2 warnings')
@@ -97,7 +97,7 @@ test('Check providers now shows the check time and per-engine errors; a second c
       }),
     })
   })
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/diagnostics?card=model-status')
   const c = card(page)
   await expect(c.getByTestId('model-health-badge')).toHaveText('2 warnings')
   expect(checks).toBe(0)
@@ -132,7 +132,7 @@ test('switching a preset takes a second press, sends the model seen, then refres
     switched = true
     return r.fulfill({ json: { preset_id: 7, engine: 'claude', from_model: 'claude-sonnet-4-6', to_model: 'claude-sonnet-5' } })
   })
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/diagnostics?card=model-status')
   const c = card(page)
   const row = c.getByRole('list', { name: 'Models that need attention' }).locator(':scope > li', { hasText: 'Preset: Title A' })
 
@@ -157,7 +157,7 @@ test('a stale switch (409) shows the server sentence and reloads the list', asyn
   await page.route('**/api/models/presets/*/switch', (r) =>
     r.fulfill({ status: 409, json: { error: { code: 'conflict', message: "The preset's model changed since you looked; refresh and try again." } } }),
   )
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/diagnostics?card=model-status')
   const c = card(page)
   await c.getByRole('button', { name: 'Switch Preset: Old DeepSeek to deepseek-v4-flash' }).click()
   await c.getByRole('button', { name: 'Confirm switch to deepseek-v4-flash' }).click()
@@ -169,7 +169,7 @@ test('a stale switch (409) shows the server sentence and reloads the list', asyn
 test('Compare in Benchmark Lab sets up both models in the run form', async ({ page }) => {
   const unmocked = await guardWrites(page)
   await page.route('**/api/models/status', (r) => r.fulfill({ json: status() }))
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/diagnostics?card=model-status')
   const row = card(page).getByRole('list', { name: 'Models that need attention' }).locator(':scope > li', { hasText: 'Preset: Title A' })
   const link = row.getByRole('link', { name: 'Compare claude-sonnet-4-6 with claude-sonnet-5 in Benchmark Lab' })
   await expect(link).toHaveAttribute('href', '#/benchmark?compare=claude:claude-sonnet-4-6,claude:claude-sonnet-5')
@@ -177,7 +177,7 @@ test('Compare in Benchmark Lab sets up both models in the run form', async ({ pa
 
   const run = page.getByRole('region', { name: 'Run a benchmark' })
   await expect(run.getByTestId('bench-compare-note')).toContainText(
-    'Set up from Model health: Claude · claude-sonnet-4-6 vs Claude · claude-sonnet-5.',
+    'Set up from Model status: Claude · claude-sonnet-4-6 vs Claude · claude-sonnet-5.',
   )
   await expect(run.getByLabel('Stage', { exact: true })).toHaveValue('translation')
   await expect(run.getByLabel('Engine 1', { exact: true })).toHaveValue('claude')
