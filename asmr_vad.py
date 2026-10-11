@@ -124,7 +124,7 @@ class AsmrVad:
         return hysteresis_spans(scores, self.start, self.stop)
 
 
-def load_detector() -> AsmrVad:
+def load_detector(start: float = START_THRESHOLD, stop: float = STOP_THRESHOLD) -> AsmrVad:
     """Raises AsmrVadUnavailable (never ImportError or OSError) when it can't run."""
     try:
         import onnxruntime
@@ -137,7 +137,7 @@ def load_detector() -> AsmrVad:
         raise AsmrVadUnavailable("The ASMR voice detector model is not downloaded.")
     try:
         session = onnxruntime.InferenceSession(path, providers=["CPUExecutionProvider"])
-        detector = AsmrVad(session)
+        detector = AsmrVad(session, start, stop)
         # One silent window now, so a model or feature extractor that can't
         # run (wrong input shape, a different mel frame count) is caught here
         # and not in the middle of a transcription.
@@ -147,15 +147,19 @@ def load_detector() -> AsmrVad:
         raise AsmrVadUnavailable("The ASMR voice detector model could not be loaded.") from exc
 
 
-def vad_fn_or_fallback(on_notice: Optional[Callable[[str], None]] = None):
+def vad_fn_or_fallback(on_notice: Optional[Callable[[str], None]] = None,
+                       start: float = START_THRESHOLD, stop: float = STOP_THRESHOLD):
     """The ASMR detector, or None (meaning Silero) with a short notice why.
     A scoring failure later in the run falls back the same way, with the same
-    notice. on_notice=None falls back silently."""
+    notice. on_notice=None falls back silently. `start` and `stop` are the
+    thresholds that switch a span on and off."""
     def tell(reason: str) -> None:
         if on_notice:
             on_notice(f"{reason} Used the Standard detector instead.")
     try:
-        detector = load_detector()
+        # A default run calls load_detector() exactly as it always has.
+        detector = (load_detector() if (start, stop) == (START_THRESHOLD, STOP_THRESHOLD)
+                    else load_detector(start, stop))
     except AsmrVadUnavailable as exc:
         tell(str(exc))
         return None

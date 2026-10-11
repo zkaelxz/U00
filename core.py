@@ -431,15 +431,15 @@ def collapse_phrase_loop(text):
         text = text[:unit_end] + text[run_end:]
 
 
-def _is_isolated_stock_phrase(segments, i):
+def _is_isolated_stock_phrase(segments, i, isolation_sec=STOCK_PHRASE_ISOLATION_SEC):
     key = _stock_key(segments[i]["text"])
     if not any(rx.fullmatch(key) for rx in _STOCK_PHRASE_RES):
         return False
     seg = segments[i]
     try:
-        if i > 0 and seg["start"] - segments[i - 1]["end"] < STOCK_PHRASE_ISOLATION_SEC:
+        if i > 0 and seg["start"] - segments[i - 1]["end"] < isolation_sec:
             return False
-        if i + 1 < len(segments) and segments[i + 1]["start"] - seg["end"] < STOCK_PHRASE_ISOLATION_SEC:
+        if i + 1 < len(segments) and segments[i + 1]["start"] - seg["end"] < isolation_sec:
             return False
     except KeyError:
         return False
@@ -459,7 +459,8 @@ def _without_phrase_loop(seg):
     return {k: v for k, v in seg.items() if k != "words"} | {"text": text}
 
 
-def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
+def filter_hallucinated_segments(segments, min_repeat_count: int = 4,
+                                 stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC):
     """
     Whisper is well known to loop a short phrase across MANY separate
     segments when fed silence or background music -- often a training-
@@ -494,7 +495,7 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
 
     Also drops a segment whose WHOLE text is a stock credit/outro phrase
     ("Thanks for watching", "字幕由…提供", "ご視聴ありがとうございました") when it
-    has at least STOCK_PHRASE_ISOLATION_SEC of silence on each side.
+    has at least `stock_isolation_sec` (STOCK_PHRASE_ISOLATION_SEC) of silence on each side.
     """
     if not segments:
         return segments
@@ -518,7 +519,8 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
         else:
             out.extend(segments[i:j])
         i = j
-    return [seg for k, seg in enumerate(out) if not _is_isolated_stock_phrase(out, k)]
+    return [seg for k, seg in enumerate(out)
+            if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)]
 
 
 def _accepts_transcribe_kwarg(model, name):
@@ -539,7 +541,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
                            on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,
                            hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC,
-                           repeat_guard: bool = False, sensitivity_preset: str = "normal"):
+                           repeat_guard: bool = False, sensitivity_preset: str = "normal",
+                           stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -582,6 +585,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     consecutive segments with identical text, a well-known Whisper
     failure mode on silence/music that its own per-segment decoding
     thresholds don't catch. Set to 0 or None to disable entirely.
+
+    stock_isolation_sec: the silence a credit line ("Thanks for watching") needs on
+    each side to be dropped; see filter_hallucinated_segments.
 
     hallucination_silence_sec: faster-whisper's hallucination_silence_threshold --
     a segment with a silent gap this long inside its word timings is
@@ -642,7 +648,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
         if filter_hallucination_repeats:
-            result = filter_hallucinated_segments(result, filter_hallucination_repeats)
+            result = filter_hallucinated_segments(result, filter_hallucination_repeats,
+                                                  stock_isolation_sec)
         return result
 
     def _run(m):

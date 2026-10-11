@@ -17,7 +17,7 @@ import core as core_module
 import db
 import sensitivity_preset as presets
 import source_change
-from services import gpu_process_job, retranscribe_worker
+from services import gpu_process_job, retranscribe_worker, timing_settings_service
 from services import transcribe_service as ts
 from translate_engines import redact_secrets
 
@@ -45,7 +45,7 @@ def hearing_settings(drama_id, drama, whisper_size, source_language, use_gpu) ->
         "beam_size": drama.get("beam_size") or ts._DEFAULT_TUNING["beam_size"],
         "min_silence_duration_ms": drama.get("min_silence_ms")
         or ts._DEFAULT_TUNING["min_silence_ms"],
-        "vad_threshold": presets.stored_vad_threshold(drama),
+        "vad_threshold": timing_settings_service.vad_threshold_for(drama),
         "fast_mode": bool(drama.get("whisper_fast_mode")),
         "hallucination_silence_sec": ts.stored_hallucination_silence_sec(drama),
         "repeat_guard": bool(drama.get("whisper_repeat_guard")),

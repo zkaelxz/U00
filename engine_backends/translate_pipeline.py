@@ -321,13 +321,17 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float = None,
                                  cap_cb=None, target_ids=None, detail_cb=None,
                                  scene_aware_batches: bool = False, thinking: bool = None,
-                                 translate_by_sentence=None):
+                                 translate_by_sentence=None,
+                                 scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
+                                 sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS):
     """thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
     answering; None = the title's remembered choice, else off. Its reasoning is
     never saved with a line.
 
     scene_aware_batches: start batches at scene breaks (plan_batches)
     instead of cutting fixed slices of batch_size. Same maximum size.
+    scene_break_gap: the pause, in seconds, that counts as a scene break.
+    sentence_limits: how much translate_by_sentence may join into one sentence.
 
     translate_by_sentence: show the model each run of timed fragments that
     makes one sentence as that whole sentence, and put its English back onto
@@ -472,14 +476,15 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             usage_cb(inp, out, cache_read, cache_write)
 
     size = batch_size or default_batch_size(engine)
-    batches = (plan_batches(target_lines, size) if scene_aware_batches
+    batches = (plan_batches(target_lines, size, scene_break_gap) if scene_aware_batches
                else [target_lines[i:i + size]
                      for i in range(0, len(target_lines), size)])
     if translate_by_sentence is None:
         translate_by_sentence = bool((drama_meta or {}).get("translate_by_sentence"))
     sentence_mode = (translate_by_sentence and not reflect
                      and getattr(engine, "supports_reference", False))
-    groups = sentence_groups.group_fragments(target_lines, lines) if sentence_mode else []
+    groups = (sentence_groups.group_fragments(target_lines, lines, sentence_limits)
+              if sentence_mode else [])
     if groups:
         batches = sentence_groups.align_batches_to_groups(batches, groups)
     n_batches = len(batches)

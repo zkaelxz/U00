@@ -20,8 +20,8 @@ from core import lines_from_rows
 from jobs import gpu_slots
 from lib.errors import ServiceError
 from services import (engine_routing_service, glossary_retranslate_service, line_provenance_service,
-                      settings_service, translate_run_service, translate_service,
-                      workspace_job_service)
+                      settings_service, timing_settings_service, translate_run_service,
+                      translate_service, workspace_job_service)
 from services.translate_run_service import (engine_cap_applies, get_translate_config_defaults,
                                             validate_run_options)
 
@@ -331,6 +331,7 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             reflect=getattr(args, "reflect", False), scene_aware_batches=scene_aware,
+            **timing_settings_service.translate_limits(),
             notes_cb=notes_cb,
             progress_cb=_progress,
             save_cb=save_cb,

@@ -265,13 +265,26 @@ class TestWritesAndReadsAgree:
             assert "sk-secret" not in str(caught.value)
 
 
+def _float_probe(row):
+    """A float inside the row's range that is not its default and survives the row's
+    rounding. 2.5 where that fits (most rows); the threshold-style rows, whose range
+    excludes it, get the middle of their range."""
+    middle = round((row.min + row.max) / 2, 2) if row.max is not None else None
+    for candidate in (2.5, middle):
+        if (candidate is not None and (row.min is None or candidate >= row.min)
+                and (row.max is None or candidate <= row.max) and candidate != row.default
+                and (row.digits is None or round(candidate, row.digits) == candidate)):
+            return candidate
+    return round(row.min + (row.max - row.min) / 4, 1)
+
+
 def _valid_and_bad(row):
     """A stored value that is valid and different from the default, what it
     reads as, and a stored value that must read as the default."""
     if row.type == "bool":
         return (not row.default), (not row.default), "yes"
     if row.type in ("int", "float"):
-        valid = row.max if row.clamp else (row.min if row.type == "int" else 2.5)
+        valid = row.max if row.clamp else (row.min if row.type == "int" else _float_probe(row))
         return valid, valid, "lots"
     if row.type in ("text", "path"):
         return "value", "value", 123

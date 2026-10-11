@@ -44,6 +44,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('system', 'advanced', 'OCR backend', 'tesseract paddleocr manga_ocr'),
   e('system', 'advanced', 'Downloads', 'cookies browser yt-dlp lncrawl novel downloader'),
   e('system', 'advanced', 'Upload size limit', 'uploads max mb'),
+  e('system', 'timing-splitting', 'Timing and splitting', 'voice detection vad silence line length split long lines sentence grouping scene break pause threshold seconds characters reset default'),
   e('system', 'transcription-experiments', 'Transcription experiments', 'asr whisper experimental'),
   e('system', 'developer-mode', 'Developer Mode', 'assistant maintenance ai developer'),
   e('system', 'ports', 'Ports', 'diagnostics network port'),
