@@ -147,6 +147,8 @@ Choose "Read burned-in subtitles" as the transcript source (needs a video file).
 
 For `zh` sources, the "Chinese script" select (Keep current, Simplified (Mainland), Traditional (Taiwan, Hong Kong); the default is Simplified) affects only OCR (Tesseract `chi_sim` vs `chi_tra`; install the matching language pack) and Reader word segmentation (Traditional is converted with OpenCC to find word boundaries, then the original text is sliced). Whisper and translation are unaffected.
 
+**VTuber names (optional, personal use).** In a title's Glossary panel, *VTuber names* can download a list of VTuber names from the public dd-center/vdb database to this PC (about 2.4 MB, only when you press Download). It is under the VTuber Public Database International License v1.0 (CC BY-NC-SA 4.0 plus GPL text): it is for your own non-commercial use, Baihe never exports, backs up for sharing or uploads it, and it is not part of the app or installer. If you share it or anything made from it, credit dd-center/vdb and use the same licence. Switch it on per title (off by default): names found in that title's text then appear under *Find possible names* as *Known VTuber names* (you decide which become glossary terms) and are sent to the translator as "keep as written", never overriding a glossary term. Delete removes the file.
+
 ### Speaker diarization
 
 Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and accepting the model terms at https://huggingface.co/pyannote/speaker-diarization-community-1. First run downloads the model. CPU works, GPU is faster.

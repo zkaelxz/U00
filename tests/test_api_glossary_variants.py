@@ -57,7 +57,7 @@ def test_reading_the_lines_permission_is_enough(remote):
     assert set(body["candidates"][0]) == {"text", "count", "score", "is_alias", "is_term", "examples"}
     clusters = remote.get(f"/api/glossary/dramas/{did}/name-clusters", headers=headers)
     assert clusters.status_code == 200 and set(clusters.json()) == {
-        "available", "reason", "lines_scanned", "truncated", "clusters"}
+        "available", "reason", "lines_scanned", "truncated", "clusters", "known_vtuber_names"}
 
 
 def test_snippets_are_line_text_so_library_read_alone_is_refused(remote):
