@@ -430,10 +430,9 @@ def _offline_model_folder():
     return folder if folder and os.path.isdir(folder) else None
 
 
-def _run_file_case(stage, cfg, case, use_gpu):
+def _run_file_case(stage, cfg, case, use_gpu, folder=None):
     if stage != "transcription" or cfg.get("model") != benchmark.LOCAL_FOLDER_MODEL:
         return _run_case_file(stage, cfg, case, use_gpu)
-    folder = _offline_model_folder()
     if not folder:
         return {"output_text": "", "error": _NO_MODEL_FOLDER, "duration_seconds": 0.0}
     if not case.get("input_filename"):
@@ -644,6 +643,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
     ordered = [cases[i] for i in case_ids if i in cases]
     total_steps = max(1, len(ordered) * len(plan))
     step = 0
+    # Fixed for the run: a Settings change mid-run would mix two models in one session.
+    folder = _offline_model_folder() if stage == "transcription" else None
     run_spent = 0.0     # real spend across every config in this run
     for session_id, cfg, api_key in plan:
         db.update_benchmark_session(session_id, status="running")
@@ -708,7 +709,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                     status = "cancelled"
                     break
             else:
-                r = _run_file_case(stage, cfg, case, use_gpu)
+                r = _run_file_case(stage, cfg, case, use_gpu, folder)
             score, metric, scorer = score_output(stage, r.get("output_text") or "",
                                                  case.get("reference_text"),
                                                  case.get("source_language"))

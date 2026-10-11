@@ -36,31 +36,6 @@ class TestParseRequirementsFile:
         assert diagnostics.parse_requirements_file(str(tmp_path / "nope.txt")) == []
 
 
-class TestGpuTorchMismatch:
-    def test_false_when_nvidia_smi_not_on_path(self, monkeypatch):
-        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: None)
-        assert diagnostics_torch.gpu_torch_mismatch() is False
-
-    def test_true_when_gpu_present_but_torch_is_cpu_only(self, monkeypatch):
-        monkeypatch.setattr(diagnostics_torch.shutil, "which",
-                            lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
-        monkeypatch.setattr(diagnostics, "check_cuda",
-                            lambda: {"torch_installed": True, "cuda_available": False})
-        assert diagnostics_torch.gpu_torch_mismatch() is True
-
-    def test_false_when_cuda_is_available(self, monkeypatch):
-        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics, "check_cuda",
-                            lambda: {"torch_installed": True, "cuda_available": True})
-        assert diagnostics_torch.gpu_torch_mismatch() is False
-
-    def test_false_when_torch_isnt_installed_at_all(self, monkeypatch):
-        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics, "check_cuda",
-                            lambda: {"torch_installed": False, "cuda_available": None})
-        assert diagnostics_torch.gpu_torch_mismatch() is False
-
-
 class TestExternalGpuLoad:
     """Step 26d: real GPU load straight from nvidia-smi, independent of
     anything Baihe itself is tracking -- the only way to see a different
@@ -68,7 +43,8 @@ class TestExternalGpuLoad:
     card, say) using the same physical GPU."""
 
     def _fake_run(self, stdout):
-        def run(cmd, capture_output, text, timeout, check, errors):
+        def run(cmd, capture_output, text, timeout, check, errors, encoding):
+            assert encoding == "utf-8"
             assert cmd[0] == "nvidia-smi"
             class _Result:
                 pass

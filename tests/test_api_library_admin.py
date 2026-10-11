@@ -645,6 +645,8 @@ class TestMaintenanceBlocksArchiving:
             background_jobs.exit_maintenance()
         assert not background_jobs.maintenance_active()
         assert client.post(BASE + path, json=body).status_code == 200
+        # The job it started writes under the test's library; let it finish first.
+        assert background_jobs.wait_for_job_threads(10.0)
 
 
 class TestBulkTranslateDoesNotAdopt:

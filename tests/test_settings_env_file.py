@@ -50,6 +50,12 @@ class TestLoadsFromEnvFile:
         env_path = _write_env(tmp_path / ".env", "this is not a valid env line at all")
         assert not settings_service.resolve_key("hf_token", env_path)  # must not raise
 
+    def test_bytes_that_are_not_utf8_do_not_hide_the_other_keys(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_bytes(b"# \xb1\xb2 GBK comment\nBAIHE_HF_TOKEN=hf_abc123\nBAIHE_GROQ_KEY=gsk_x\n")
+        assert settings_service.resolve_key("hf_token", str(env_path)) == "hf_abc123"
+        assert settings_service.resolve_key("groq", str(env_path)) == "gsk_x"
+
     def test_loads_gemini_key(self, tmp_path):
         env_path = _write_env(tmp_path / ".env", "GEMINI_API_KEY=g_abc123\n")
         assert settings_service.resolve_key("gemini", env_path) == "g_abc123"
@@ -65,6 +71,13 @@ class TestSaveKeyToEnv:
     """Step 16 item 6: saving a typed key writes/updates the matching
     BAIHE_<NAME>_KEY line in place, so it survives a restart without the
     user hand-editing .env."""
+
+    def test_saving_a_key_keeps_bytes_that_are_not_utf8_untouched(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_bytes(b"# \xb1\xb2 GBK comment\nBAIHE_GROQ_KEY=gsk_x\n")
+        settings_service.set_engine_key("hf_token", "hf_new_value", str(env_path))
+        assert env_path.read_bytes() == (
+            b"# \xb1\xb2 GBK comment\nBAIHE_GROQ_KEY=gsk_x\nBAIHE_HF_TOKEN=hf_new_value\n")
 
     def test_creates_the_file_when_it_does_not_exist_yet(self, tmp_path):
         env_path = str(tmp_path / ".env")

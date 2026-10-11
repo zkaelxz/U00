@@ -103,14 +103,14 @@ def read_env_file(path) -> dict:
     change this file, so only a value compared to a fixed string is used."""
     env = {}
     try:
-        with open(path, encoding="utf-8-sig") as fh:
+        with open(path, encoding="utf-8-sig", errors="replace") as fh:
             for line in fh:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 k, v = line.split("=", 1)
                 env[k.strip()] = v.strip().strip('"').strip("'")
-    except (OSError, UnicodeDecodeError):
+    except OSError:
         return {}
     return env
 

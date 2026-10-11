@@ -82,6 +82,27 @@ test.describe('member without admin.library', () => {
     await page.getByRole('button', { name: 'Dismiss' }).first().click()
     await expect(page.getByTestId('member-empty-note').getByRole('link', { name: 'Sources' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'New title' })).toHaveCount(0)
+    // Said once: the list's own empty card would repeat the page's note.
+    await expect(page.getByText(/No titles yet/)).toHaveCount(1)
+  })
+
+  test('a dismissed first-run view never shows the folded Make subtitles toggle while stats load', async ({ page }) => {
+    await mockLibrarySharing(page, ME.signedIn)
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.library.getStarted.dismissed', 'true'))
+    await page.route('**/api/library/stats', async (r) => {
+      await new Promise((done) => setTimeout(done, 1500))
+      await r.fulfill({ json: {
+        total_dramas: 0, by_status: {}, by_media_type: {}, total_lines: 0, translated_lines: 0,
+        usage: { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, estimated_cost_usd: 0, call_count: 0 },
+      } })
+    })
+    const toggle = page.locator('button[aria-controls="make-subtitles-body"]')
+    await page.goto('/')
+    // Stats are still in flight here: neither the folded toggle nor the card is placed yet.
+    await expect(page.getByRole('heading', { name: 'Library' }).first()).toBeVisible()
+    await expect(toggle).toHaveCount(0)
+    await expect(page.getByTestId('member-empty-note')).toBeVisible()
+    await expect(toggle).toHaveCount(0)
   })
 
   test('a failed Continue load shows a banner', async ({ page }) => {

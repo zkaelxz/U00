@@ -343,6 +343,23 @@ def test_valid_restore_calls_existing_swap(isolated_db, monkeypatch):
     assert called == [db.LIBRARY_DIR]
 
 
+def test_restore_that_flips_developer_mode_syncs_the_echo_engine(isolated_db, monkeypatch):
+    from engine_backends import echo, engine_registry
+    from services import maintenance_assistant_service as assistant
+    echo.set_enabled(False)
+    monkeypatch.setattr(wjs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
+        assistant._SETTINGS_PREFIX + "developer_mode", True))
+    try:
+        las.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
+        assert echo.ENGINE_ID in engine_registry.ENGINES
+        monkeypatch.setattr(wjs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
+            assistant._SETTINGS_PREFIX + "developer_mode", False))
+        las.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
+        assert echo.ENGINE_ID not in engine_registry.ENGINES
+    finally:
+        echo.set_enabled(False)
+
+
 # ---- storage --------------------------------------------------------------
 
 def test_storage_scan_then_cleanup(isolated_db, monkeypatch):

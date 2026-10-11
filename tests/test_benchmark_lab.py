@@ -135,7 +135,7 @@ class TestScorerChoice:
 
     def test_run_records_builtin_scorer_without_jiwer(self, isolated_db, monkeypatch):
         _hide_jiwer(monkeypatch)
-        monkeypatch.setattr(svc, "_run_file_case", lambda stage, cfg, case, use_gpu: {
+        monkeypatch.setattr(svc, "_run_file_case", lambda *args: {
             "output_text": "你好世", "duration_seconds": 0.1})
         case = db.create_benchmark_case("c", "ocr", "image", "zh", input_filename="img.png",
                                         reference_text="你好世界")
@@ -436,6 +436,36 @@ class TestOfflineModelFolderArm:
         detail = svc.get_run(sid)
         assert detail["run"]["model"] == "offline model folder"
         assert "secret-ja-finetune" not in repr(detail)
+
+    def test_the_folder_is_resolved_once_per_run(self, isolated_db, monkeypatch, folder, tmp_path):
+        for name in ("a", "b"):
+            db.create_benchmark_case(name, "transcription", "audio_drama", input_filename=f"{name}.wav",
+                                     reference_text="こんにちは")
+        other = tmp_path / "other-model"
+        other.mkdir()
+        used = []
+
+        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None):
+            used.append(local_model_path)
+            # Settings are edited while the run is going.
+            patch_setting(monkeypatch, "whisper_model_path", str(other))
+            return {"output_text": "こんにちは", "duration_seconds": 0.1, "error": None, "score": None}
+        monkeypatch.setattr(benchmark, "run_transcription_case", fake)
+        _run(stage="transcription", configs=[{"engine": "whisper", "model": benchmark.LOCAL_FOLDER_MODEL}])
+        assert used == [str(folder), str(folder)]
+
+    def test_a_failed_model_load_does_not_leak_the_folder_path(self, isolated_db, monkeypatch, folder):
+        self._case()
+        monkeypatch.setattr(benchmark, "run_transcription_case", lambda *a, **k: {
+            "output_text": "", "duration_seconds": 0.0, "score": None,
+            "error": f"Unable to load model from {folder}: missing model.bin"})
+        (sid,) = _run(stage="transcription",
+                      configs=[{"engine": "whisper", "model": benchmark.LOCAL_FOLDER_MODEL}])["session_ids"]
+        (res,) = svc.get_run(sid)["results"]
+        assert "missing model.bin" in res["error"]
+        # Only the last segment survives redaction.
+        assert str(folder) not in repr(svc.get_run(sid))
+        assert str(folder.parent) not in repr(svc.get_run(sid))
 
     @pytest.mark.parametrize("setting", ["", "/no/such/folder"])
     def test_unset_or_missing_folder_is_a_plain_error(self, isolated_db, monkeypatch, setting):
