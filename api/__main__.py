@@ -72,7 +72,8 @@ def _serve():
             settings = replace(settings, household_port=0)
     _warn_single_port_sign_in(settings)
     if settings.is_development:
-        uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True)
+        uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True,
+                    access_log=not settings.auth_enabled)
         return
     # Stopping stops everything. On Windows every child process (ffmpeg,
     # Playwright's Node driver and Chromium, pip...) is in this process's
@@ -98,8 +99,11 @@ def _serve():
         return
     # timeout_graceful_shutdown: an open connection (a media stream the app
     # window holds) can't keep a clean stop past the launcher's grace period.
+    # No access log with sign-in on: the callback's request line carries the
+    # Google code and state in its query string.
     server = uvicorn.Server(uvicorn.Config("api.server:app", host=settings.host,
-                                           port=settings.port, timeout_graceful_shutdown=3))
+                                           port=settings.port, timeout_graceful_shutdown=3,
+                                           access_log=not settings.auth_enabled))
     shutdown_service.register_stopper(lambda: setattr(server, "should_exit", True))
     try:
         server.run()

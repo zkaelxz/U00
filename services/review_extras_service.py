@@ -46,8 +46,8 @@ import en_cleanup
 import sensevoice_tags
 import subtitle_formats
 import translate_engines
-from services import (export_service, media_playback_service, restructure_service, settings_service,
-                      translate_run_service, translate_service, workspace_job_service)
+from services import (export_service, media_playback_service, ownership_service,
+                      restructure_service, settings_service, translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -245,7 +245,17 @@ def _scope(drama: dict) -> str:
     return f"series:{drama['series_id']}" if drama.get("series_id") else "global"
 
 
-def _style_view(drama_id: int, drama: dict, message: Optional[str] = None) -> dict:
+def _visible_edit_samples(principal) -> list:
+    """Other users' private edits must neither feed a user's learned style
+    nor be counted for them."""
+    samples = db.list_edit_samples()
+    visible = set(ownership_service.filter_visible_drama_ids(
+        principal, {s["drama_id"] for s in samples}))
+    return [s for s in samples if s["drama_id"] in visible]
+
+
+def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
+                principal=None) -> dict:
     scope = _scope(drama)
     stored = db.get_style_profile(scope)
     pr = (stored or {}).get("profile") or {}
@@ -257,7 +267,7 @@ def _style_view(drama_id: int, drama: dict, message: Optional[str] = None) -> di
                    "updated_at": stored.get("updated_at"),
                    "applied": pr.get("apply") is not False}
     return {"drama_id": drama_id, "scope": "series" if drama.get("series_id") else "global",
-            "edit_count": len(db.list_edit_samples()),
+            "edit_count": len(_visible_edit_samples(principal)),
             "drama_edit_count": len(db.list_edit_samples(drama_id)),
             "min_samples": adaptive_style.MIN_SAMPLES_TO_LEARN,
             "profile": profile,
@@ -275,9 +285,9 @@ def style_scope_is_global(drama_id: int) -> bool:
     return _scope(_require_drama(drama_id)) == "global"
 
 
-def get_style(drama_id: int) -> dict:
+def get_style(drama_id: int, principal=None) -> dict:
     """The stored learned profile for this drama's scope (never runs the LLM)."""
-    return _style_view(drama_id, _require_drama(drama_id))
+    return _style_view(drama_id, _require_drama(drama_id), principal=principal)
 
 
 def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
@@ -306,14 +316,14 @@ def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
 
 
 def learn_style(drama_id: int, engine_name: str = None, model: str = None,
-                gemini_free_tier: bool = None) -> dict:
-    """Analyzes every recorded edit (all dramas) and saves
+                gemini_free_tier: bool = None, principal=None) -> dict:
+    """Analyzes every recorded edit the principal may see and saves
     the learned preferences for this drama's scope. Keeps the profile's
     apply toggle. Nothing is saved when no clear pattern is found. Refused
     before the LLM call when this month's spending cap is used up (capped
     engines only)."""
     drama = _require_drama(drama_id)
-    samples = db.list_edit_samples()
+    samples = _visible_edit_samples(principal)
     if len(samples) < adaptive_style.MIN_SAMPLES_TO_LEARN:
         raise UnsupportedOperationError(
             f"Only {len(samples)} edit(s) recorded; at least "
@@ -338,7 +348,8 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
     prefs = [str(p) for p in (result.get("preferences") or []) if str(p).strip()]
     if not prefs:
         return _style_view(drama_id, drama, message=str(result.get("summary")
-                                                        or "No clear patterns found yet.")[:500])
+                                                        or "No clear patterns found yet.")[:500],
+                           principal=principal)
     profile = {"preferences": prefs, "summary": str(result.get("summary") or ""),
                "confidence": str(result.get("confidence") or "low")}
     with _STYLE_LOCK:
@@ -352,10 +363,11 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
         if current.get("apply") is False:
             profile["apply"] = False
         db.replace_style_profile(scope, profile, sample_count=len(samples))
-    return _style_view(drama_id, drama, message=f"Learned {len(prefs)} preference(s).")
+    return _style_view(drama_id, drama, message=f"Learned {len(prefs)} preference(s).",
+                       principal=principal)
 
 
-def set_style_applied(drama_id: int, apply: bool) -> dict:
+def set_style_applied(drama_id: int, apply: bool, principal=None) -> dict:
     """Turns the learned profile on or off for future translations."""
     if not isinstance(apply, bool):
         raise InvalidInputError("apply must be true or false.")
@@ -371,19 +383,19 @@ def set_style_applied(drama_id: int, apply: bool) -> dict:
         else:
             profile["apply"] = False
         db.save_style_profile(scope, profile, sample_count=stored.get("sample_count") or 0)
-    return _style_view(drama_id, drama)
+    return _style_view(drama_id, drama, principal=principal)
 
 
-def reset_style(drama_id: int) -> dict:
+def reset_style(drama_id: int, principal=None) -> dict:
     """Forgets the learned profile for this drama's scope; the forgotten
     profile stays restorable (restore_style)."""
     drama = _require_drama(drama_id)
     with _STYLE_LOCK:
         db.replace_style_profile(_scope(drama), {"preferences": []}, 0)
-    return _style_view(drama_id, drama)
+    return _style_view(drama_id, drama, principal=principal)
 
 
-def restore_style(drama_id: int, index: int = 0) -> dict:
+def restore_style(drama_id: int, index: int = 0, principal=None) -> dict:
     """Brings back an earlier learned profile for this drama's scope
     (index 0 = the one the last learn or reset replaced). The profile it
     replaces is kept in the history in its place."""
@@ -393,7 +405,8 @@ def restore_style(drama_id: int, index: int = 0) -> dict:
     with _STYLE_LOCK:
         if not db.restore_style_profile(_scope(drama), index):
             raise NotFoundError("No earlier learned style to restore.")
-    return _style_view(drama_id, drama, message="Restored an earlier learned style.")
+    return _style_view(drama_id, drama, message="Restored an earlier learned style.",
+                       principal=principal)
 
 
 # ---------------------------------------------------------------------------
