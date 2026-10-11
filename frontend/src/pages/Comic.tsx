@@ -18,6 +18,7 @@ import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Sheet } from '../components/Sheet'
 import { SourceLink } from './discover/ExternalLink'
+import { useJob } from '../hooks/useJob'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useShortcut } from '../hooks/useShortcut'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
@@ -42,6 +43,7 @@ import {
   comicHref,
   hashIsComic,
   defaultPrefs,
+  inRenderWindow,
   keyAction,
   loadComicPrefs,
   preloadWindow,
@@ -166,6 +168,16 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     requested.current.clear()
     setRegions({})
   }, [id])
+
+  // The Translate panel unmounts when closed; its job must still reload the
+  // pages when it finishes. While the panel is open it follows the job itself.
+  const [watchedJob, setWatchedJob] = useState<string | null>(null)
+  useJob(toolsOpen ? null : watchedJob, {
+    onDone: () => {
+      setWatchedJob(null)
+      refreshPages()
+    },
+  })
 
   const count = data?.page_count ?? data?.pages.length ?? 0
   const pages = useMemo(() => data?.pages ?? [], [data])
@@ -415,6 +427,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       pageNumber={currentPage ? current : null}
       scopes={scopes}
       onChanged={refreshPages}
+      onJob={setWatchedJob}
     />
   )
 
@@ -448,12 +461,13 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     </div>
   )
 
+  const visibleSet = new Set(visible)
   const shownPages: [ComicPageInfo, number][] =
     paged
       ? currentPage && current !== null
         ? [[currentPage, current]]
         : []
-      : pages.map((p, i): [ComicPageInfo, number] => [p, i + 1]).filter(([, n]) => visible.includes(n))
+      : pages.map((p, i): [ComicPageInfo, number] => [p, i + 1]).filter(([, n]) => visibleSet.has(n))
   const stage = current !== null && pages.length > 0 && (
     <div
       ref={stageRef}
@@ -485,6 +499,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               src={srcFor(p)}
               fit={prefs.fit}
               eager={paged || Math.abs(n - (current ?? 1)) <= 1}
+              mounted={paged || inRenderWindow(n, current ?? 1)}
               regions={overlayFor(p)}
               boxText={!phone}
               onProblem={onProblem}
