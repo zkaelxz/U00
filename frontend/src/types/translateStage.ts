@@ -355,3 +355,54 @@ export interface TranslatePresetSaved {
   preset: LibraryPreset
   replaced: boolean
 }
+
+// GET /api/glossary/dramas/{id}/variants and /name-clusters: read-only, offline.
+export interface GlossaryVariantExample {
+  line_idx: number
+  snippet: string
+}
+
+export interface GlossaryVariantCandidate {
+  text: string
+  count: number
+  /** 0..1, 1 = the same sound. */
+  score: number
+  is_alias: boolean
+  is_term: boolean
+  examples: GlossaryVariantExample[]
+}
+
+export interface GlossaryVariants {
+  term: string
+  /** False when a reading library for the title's language is missing; `reason` says which. */
+  available: boolean
+  reason: string
+  lines_scanned: number
+  truncated: boolean
+  candidates: GlossaryVariantCandidate[]
+}
+
+export interface GlossaryNameSpelling {
+  text: string
+  count: number
+  sources: string[]
+  is_alias: boolean
+  is_term: boolean
+}
+
+export interface GlossaryNameCluster {
+  suggested_original: string
+  /** Set when one of the spellings is already a term or alias. */
+  existing_term: string | null
+  total: number
+  spellings: GlossaryNameSpelling[]
+  examples: GlossaryVariantExample[]
+}
+
+export interface GlossaryNameClusters {
+  available: boolean
+  reason: string
+  lines_scanned: number
+  truncated: boolean
+  clusters: GlossaryNameCluster[]
+}

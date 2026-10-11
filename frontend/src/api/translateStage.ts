@@ -15,8 +15,10 @@ import type {
   GlossaryBulkDeleteResult,
   GlossaryImportBody,
   GlossaryImportResult,
+  GlossaryNameClusters,
   GlossaryTerm,
   GlossaryTermUpsert,
+  GlossaryVariants,
   SourceChangedRunBody,
   SourceChangedRunStarted,
   TranslateErrorsDismissed,
@@ -93,6 +95,12 @@ export const getGlossaryTerms = (id: number, f?: Fetch) =>
   getJson<GlossaryTerm[]>(`/api/glossary/dramas/${id}/terms`, f)
 export const saveGlossaryTerm = (id: number, term: GlossaryTermUpsert, f?: Fetch) =>
   postJson<GlossaryTerm>(`/api/glossary/dramas/${id}/terms`, term, f)
+/** Other spellings of `term` in the source lines (read-only, no engine, no cost). */
+export const getGlossaryVariants = (id: number, term: string, f?: Fetch) =>
+  getJson<GlossaryVariants>(`/api/glossary/dramas/${id}/variants?term=${encodeURIComponent(term)}`, f)
+/** Names that recur under several sound-alike spellings (read-only, no engine, no cost). */
+export const getGlossaryNameClusters = (id: number, f?: Fetch) =>
+  getJson<GlossaryNameClusters>(`/api/glossary/dramas/${id}/name-clusters`, f)
 /** Deletes the named terms in one request (by id); ids no longer in the glossary come back in not_found. */
 export const deleteGlossaryTerms = (id: number, termIds: number[], f?: Fetch) =>
   postJson<GlossaryBulkDeleteResult>(`/api/glossary/dramas/${id}/terms/bulk-delete`, { term_ids: termIds, confirm: true }, f)
