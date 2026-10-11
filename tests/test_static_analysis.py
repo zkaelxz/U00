@@ -740,7 +740,7 @@ class TestSubprocessTextDecoding:
 # when the split of that file lands. A listed file may shrink but never grow.
 MAX_MODULE_BYTES = 40 * 1024
 OVERSIZED_MODULE_BYTES = {
-    "db/__init__.py": 254276,
+    "db/__init__.py": 219836,
     "diagnostics.py": 109290,
     "services/transcribe_service.py": 102565,
     "cli.py": 90858,
