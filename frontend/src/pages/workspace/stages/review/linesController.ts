@@ -16,6 +16,8 @@ import type { Edge } from './Waveform'
 
 export type Target = 'first' | 'last' | number
 export type Pending = { target: Target; edit?: boolean }
+// The lines a write changes: some ids, or every line (a version, a restore).
+export type LineScope = number[] | 'all'
 
 // What the stable row callbacks read at call time, kept current by the panel.
 export interface LinesState {
@@ -122,6 +124,10 @@ export function createLinesController(deps: LinesControllerDeps) {
     const now = st.current.edit
     return !!now && now.lineId === lineId && isDirty(now.base, now.draft)
   }
+  const editIn = (scope: LineScope) => {
+    const cur = st.current.edit
+    return cur && (scope === 'all' || scope.includes(cur.lineId)) ? cur : null
+  }
 
   // Close the editor, saving a dirty draft first; false keeps it open.
   const leaveEdit = async (): Promise<boolean> => {
@@ -136,6 +142,33 @@ export function createLinesController(deps: LinesControllerDeps) {
       return false
     }
     setEditNow(null)
+    return true
+  }
+
+  // A write that replaces lines under an open edit would leave the edit on a
+  // stale base, so its next save gets a 409 whose only way out (Reload)
+  // throws the typing away. Save and close that edit first; a message when
+  // it can't be saved, so the write waits.
+  const beforeWrite = async (scope: LineScope): Promise<string | null> => {
+    const cur = editIn(scope)
+    if (!cur || (await leaveEdit())) return null
+    return `Save or discard your edit to #${lineNumber(cur.base.idx)} first.`
+  }
+  // An edit opened on those lines while the write ran started from the old
+  // text: close it when nothing was typed.
+  const afterWrite = (scope: LineScope) => {
+    const cur = editIn(scope)
+    if (cur && !isDirty(cur.base, cur.draft)) setEditNow(null)
+  }
+
+  // A draft kept from an earlier visit (useDraftGuard), rebased on the line as
+  // it is now. Never replaces an edit already open.
+  const restoreDraft = (base: ReviewLine, draft: LineDraft): boolean => {
+    if (st.current.edit) return false
+    setActiveId(base.id)
+    setIssue(null)
+    setEditNow({ lineId: base.id, base, draft, details: false, note: null })
+    setStatus(`Your unsaved edit to #${lineNumber(base.idx)} is back. Save or discard it.`)
     return true
   }
 
@@ -320,6 +353,11 @@ export function createLinesController(deps: LinesControllerDeps) {
       setAi(mode ? { lineId: id, mode } : null)
     },
     useSuggestion: async (id, text) => {
+      const blocked = await beforeWrite([id])
+      if (blocked) {
+        setStatus(blocked)
+        return false
+      }
       const line = find(id)
       if (!line) return false
       const patch = suggestionPatch(line, text)
@@ -327,6 +365,7 @@ export function createLinesController(deps: LinesControllerDeps) {
       try {
         const saved = await patchLine(dramaId, id, patch)
         replaceLine(saved)
+        afterWrite([id])
         setIssue(null)
         st.current.onChanged()
         return true
@@ -362,10 +401,14 @@ export function createLinesController(deps: LinesControllerDeps) {
     },
     playLine: (line) => player.current?.playLine(line),
     select: (id, range) => selectRef.current(id, range),
-    acceptTm: (id, entryId, expectedEn) => {
+    acceptTm: async (id, entryId, expectedEn) => {
+      const blocked = await beforeWrite([id])
+      if (blocked) {
+        setStatus(blocked)
+        return
+      }
       acceptTmSuggestion(dramaId, id, entryId, expectedEn).then((saved) => {
-        // A clean edit of this line now has a stale base: close it.
-        if (st.current.edit?.lineId === id && !stillDirty(id)) setEditNow(null)
+        afterWrite([id])
         replaceLine(saved)
         setIssue(null)
         st.current.onChanged()
@@ -415,5 +458,26 @@ export function createLinesController(deps: LinesControllerDeps) {
     return run
   }
   const retime = (id: number, edge: Edge, value: number) => setTiming(id, edge, () => value)
-  return { actions, retime, setTiming, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty, setEditNow }
+  return {
+    dramaId, actions, retime, setTiming, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo,
+    saveEdit, stillDirty, setEditNow, beforeWrite, afterWrite, restoreDraft, setStatus,
+  }
 }
+
+export type LinesController = ReturnType<typeof createLinesController>
+
+// Records (Use this version, Restore, TM Accept) sits outside the lines panel
+// but writes the same lines, so it reaches the open edit through here.
+const writers = new Map<number, LinesController>()
+
+export function registerLinesWriter(ctl: LinesController): () => void {
+  writers.set(ctl.dramaId, ctl)
+  return () => {
+    if (writers.get(ctl.dramaId) === ctl) writers.delete(ctl.dramaId)
+  }
+}
+
+export const beforeLinesWrite = (dramaId: number, scope: LineScope): Promise<string | null> =>
+  writers.get(dramaId)?.beforeWrite(scope) ?? Promise.resolve(null)
+
+export const afterLinesWrite = (dramaId: number, scope: LineScope): void => writers.get(dramaId)?.afterWrite(scope)

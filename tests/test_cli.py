@@ -36,7 +36,9 @@ import dub_narration
 from core import Line
 import cli
 import cli_translate
+from jobs import gpu_slots
 from services import dub_service
+from tests.saved_settings import patch_setting
 
 
 @pytest.fixture(autouse=True)
@@ -1105,7 +1107,7 @@ class TestCliGpuLock:
         with contextlib.redirect_stdout(io.StringIO()):
             cli_translate.cmd_translate(_translate_args(id=did, engine="ollama", cost_cap=None, monthly_cap=None))
         assert engine.calls == 1
-        assert isolated_db.gpu_lock_status() == (None, None)  # released when done
+        assert gpu_slots.status() == (None, None)  # released when done
 
     def test_ollama_translate_waits_for_an_externally_held_lock(self, isolated_db, monkeypatch):
         """Simulates the live UI already holding the GPU (as
@@ -1123,7 +1125,7 @@ class TestCliGpuLock:
         engine = self._OllamaEngine()
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
         did = self._drama(isolated_db)
-        assert isolated_db.try_acquire_gpu_lock("ui:live_job", "Transcription") is True
+        assert gpu_slots.take("ui:live_job", "Transcription") is True
 
         done = threading.Event()
 
@@ -1139,11 +1141,11 @@ class TestCliGpuLock:
         assert not done.is_set(), "must not translate while the UI holds the GPU lock"
         assert engine.calls == 0
 
-        isolated_db.release_gpu_lock("ui:live_job")
+        gpu_slots.release("ui:live_job")
         assert done.wait(timeout=2.0), "should proceed once the external lock is released"
         t.join(timeout=2.0)
         assert engine.calls == 1
-        assert isolated_db.gpu_lock_status() == (None, None)
+        assert gpu_slots.status() == (None, None)
 
     def test_non_ollama_translate_never_touches_the_gpu_lock(self, isolated_db, monkeypatch):
         """Every other translate engine is a remote API call, not a
@@ -1152,14 +1154,14 @@ class TestCliGpuLock:
         engine = self._ClaudeEngine()
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
         did = self._drama(isolated_db)
-        isolated_db.try_acquire_gpu_lock("ui:live_job", "Transcription")
+        gpu_slots.take("ui:live_job", "Transcription")
 
         with contextlib.redirect_stdout(io.StringIO()):
             cli_translate.cmd_translate(_translate_args(id=did, engine="claude", cost_cap=None, monthly_cap=None))
 
         assert engine.calls == 1  # ran immediately, no waiting
         # Still the other holder's -- untouched by the non-GPU translate run.
-        assert isolated_db.gpu_lock_status() == ("ui:live_job", "Transcription")
+        assert gpu_slots.status() == ("ui:live_job", "Transcription")
 
     def test_dub_only_locks_when_the_clone_map_uses_a_local_model(self, isolated_db, monkeypatch):
         """Same clone_map_uses_local_model check the Workspace tab's own
@@ -1171,16 +1173,16 @@ class TestCliGpuLock:
                             lambda lines, *a, **k: ("fake_dub.wav", []))
 
         monkeypatch.setattr(dub_module, "clone_map_uses_local_model", lambda clone_map: False)
-        isolated_db.try_acquire_gpu_lock("ui:live_job", "Transcription")
+        gpu_slots.take("ui:live_job", "Transcription")
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))  # must not block despite the held lock
-        assert isolated_db.gpu_lock_status() == ("ui:live_job", "Transcription")  # untouched
-        isolated_db.release_gpu_lock("ui:live_job")
+        assert gpu_slots.status() == ("ui:live_job", "Transcription")  # untouched
+        gpu_slots.release("ui:live_job")
 
         monkeypatch.setattr(dub_module, "clone_map_uses_local_model", lambda clone_map: True)
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
-        assert isolated_db.gpu_lock_status() == (None, None)  # acquired, then released
+        assert gpu_slots.status() == (None, None)  # acquired, then released
 
 
 class TestExportVideoClampsOverlappingCues:
@@ -1625,7 +1627,7 @@ class TestCliServiceParity:
     def test_summary_engine_gets_the_gemini_free_tier_flag(self, isolated_db, monkeypatch):
         did = isolated_db.create_drama(title_en="T", status="aligned")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
-        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        patch_setting(monkeypatch, "gemini_free_tier", True)
         built = []
         monkeypatch.setattr(translate_engines, "get_engine",
                             lambda name, key=None, model=None, **k: built.append((name, k)) or object())
@@ -1663,7 +1665,7 @@ class TestCliServiceParity:
     def test_monthly_cap_is_dropped_for_gemini_free_tier(self, isolated_db, monkeypatch):
         # A used-up monthly cap would refuse a paid run; Gemini's free tier
         # isn't billed, so --monthly-cap doesn't apply and the run goes ahead.
-        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        patch_setting(monkeypatch, "gemini_free_tier", True)
         isolated_db.log_usage(None, "claude", "m", "translate", 1, 1, 50.0)
         engines, seen = self._translate(isolated_db, monkeypatch, {}, engine="gemini",
                                         api_key=None, model=None, monthly_cap=20.0)
@@ -1746,7 +1748,7 @@ class TestCliSavedSettingsFallbacks:
         did = self._narration_drama(isolated_db)
         saved = {"gemini": "saved-gemini", "ollama_url": "http://saved:11434"}
         monkeypatch.setattr(cli.settings_service, "resolve_key", lambda k, *a: saved.get(k))
-        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        patch_setting(monkeypatch, "gemini_free_tier", True)
         built = []
 
         class _E:

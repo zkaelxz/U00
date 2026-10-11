@@ -170,7 +170,11 @@ export function outcomeSummary(r: ChapterImportResult): string {
 
 export function outcomeText(c: ChapterImportRow): string {
   if (c.outcome === 'imported') {
-    if (typeof c.pages === 'number') return `Imported · ${plural(c.pages, 'page')}`
+    if (typeof c.pages === 'number') {
+      const left = c.skipped_pages ?? []
+      const why = [...new Set(left)].join('; ')
+      return `Imported · ${plural(c.pages, 'page')}` + (left.length ? ` · ${plural(left.length, 'image')} left out (${why})` : '')
+    }
     if (typeof c.chars === 'number') return `Imported · ${plural(c.chars, 'character')}`
     return 'Imported'
   }

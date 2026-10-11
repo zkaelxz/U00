@@ -123,6 +123,49 @@ class TestChapters:
         assert len(chapters) == 2
         assert len(t.calls) == 1
 
+    def test_a_huge_pages_count_is_refused_before_walking_the_list(self, monkeypatch):
+        monkeypatch.setattr(ranobes, "MAX_LIST_PAGES", 3)
+        huge = CHAPTERS_PAGE_1.replace('"pages_count":2', '"pages_count":1000000000')
+        a, t = _adapter({
+            f"{BASE}/chapters/2001/": html(huge),
+            f"{BASE}/chapters/2001/page/2/": html(CHAPTERS_PAGE_2),
+            f"{BASE}/chapters/2001/page/3/": html(CHAPTERS_PAGE_2),
+        })
+        with pytest.raises(SourceError, match="longer than this app can fetch"):
+            a.get_chapters("novels/2001-test-novel.html")
+        assert len(t.calls) == 1
+
+    def test_a_list_one_page_over_the_cap_is_refused_not_cut_short(self):
+        # The list is newest first, so cutting it at the cap would silently
+        # lose chapter 1 onwards.
+        over = ranobes.MAX_LIST_PAGES + 1
+        first = CHAPTERS_PAGE_1.replace('"pages_count":2', f'"pages_count":{over}')
+        routes = {f"{BASE}/chapters/2001/": html(first)}
+        for n in range(2, over + 1):
+            routes[f"{BASE}/chapters/2001/page/{n}/"] = html(CHAPTERS_PAGE_2)
+        a, t = _adapter(routes)
+        with pytest.raises(SourceError, match="longer than this app can fetch"):
+            a.get_chapters("novels/2001-test-novel.html")
+        assert len(t.calls) == 1
+
+    def test_a_list_exactly_at_the_cap_is_walked(self, monkeypatch):
+        monkeypatch.setattr(ranobes, "MAX_LIST_PAGES", 3)
+        first = CHAPTERS_PAGE_1.replace('"pages_count":2', '"pages_count":3')
+        a, t = _adapter({
+            f"{BASE}/chapters/2001/": html(first),
+            f"{BASE}/chapters/2001/page/2/": html(CHAPTERS_PAGE_2),
+            f"{BASE}/chapters/2001/page/3/": html(CHAPTERS_PAGE_2),
+        })
+        a.get_chapters("novels/2001-test-novel.html")
+        assert len(t.calls) == 3
+
+    @pytest.mark.parametrize("value", ["Infinity", '"x"', "[1]", "NaN"])
+    def test_an_unreadable_pages_count_is_a_layout_error(self, value):
+        page = CHAPTERS_PAGE_1.replace('"pages_count":2', f'"pages_count":{value}')
+        a, _ = _adapter({f"{BASE}/chapters/2001/": html(page)})
+        with pytest.raises(ranobes.LayoutChanged):
+            a.get_chapters("novels/2001-test-novel.html")
+
     def test_layout_changed_when_no_data_blob(self):
         a, t = _adapter({f"{BASE}/chapters/2001/": html(CHAPTERS_PAGE_NO_DATA)})
         with pytest.raises(SourceError):

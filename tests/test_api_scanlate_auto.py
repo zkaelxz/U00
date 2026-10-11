@@ -14,6 +14,7 @@ import time
 import zipfile
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -421,7 +422,7 @@ def test_translate_all_skips_pages_with_regions(client, fake_detect):
 def test_uses_saved_ocr_backend_and_tesseract(client, fake_detect, monkeypatch):
     from services import settings_service
     monkeypatch.setattr(settings_service, "resolve_ocr_backend", lambda lang: "paddle")
-    monkeypatch.setattr(settings_service, "get_tesseract_cmd", lambda: "C:/saved/tesseract.exe")
+    patch_setting(monkeypatch, "tesseract_cmd", "C:/saved/tesseract.exe")
     did = _drama()
     _page(did)
     _run(client, did, engine="fake", detect_backend="cv")
@@ -889,7 +890,7 @@ def test_failed_error_note_write_is_logged(isolated_db, monkeypatch):
     monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
     monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
     monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)
-    monkeypatch.setattr(run_svc.settings_service, "get_tesseract_cmd", lambda: None)
+    patch_setting(monkeypatch, "tesseract_cmd", None)
 
     def page_fails(*a, **k):
         raise RuntimeError("page broke")
@@ -909,7 +910,7 @@ def _job_harness(monkeypatch):
     monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
     monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
     monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)
-    monkeypatch.setattr(run_svc.settings_service, "get_tesseract_cmd", lambda: None)
+    patch_setting(monkeypatch, "tesseract_cmd", None)
     monkeypatch.setattr(run_svc.db, "get_drama", lambda did: {})
 
 
@@ -961,7 +962,7 @@ def test_stored_page_error_note_is_redacted(isolated_db, monkeypatch):
     monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
     monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
     monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)
-    monkeypatch.setattr(run_svc.settings_service, "get_tesseract_cmd", lambda: None)
+    patch_setting(monkeypatch, "tesseract_cmd", None)
 
     def page_fails(*a, **k):
         raise RuntimeError("bad key sk-ant-abcdefghijklmnopqrstuvwxyz0123")
