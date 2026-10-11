@@ -26,6 +26,7 @@ export function subtitleQuery(o: SubtitleOptions): string {
   if (o.includeNotes) p.set('include_notes', 'true')
   if (o.wrapEn !== undefined) p.set('wrap_chars_en', String(o.wrapEn))
   if (o.wrapSource !== undefined) p.set('wrap_chars_source', String(o.wrapSource))
+  if (o.tidyTiming) p.set('tidy_timing', 'true')
   return p.toString()
 }
 
@@ -37,6 +38,22 @@ export const getAssStyleOptions = (f?: Fetch) =>
 export interface SubtitleFile {
   text: string
   filename: string | null
+  /** What "Tidy cue timing" changed (cue numbers for the long ones); null when the server sent no counts. */
+  timing: TimingTidyReport | null
+}
+
+export interface TimingTidyReport {
+  extended: number
+  trimmed: number
+  leftLong: number[]
+}
+
+function timingReport(h: Headers): TimingTidyReport | null {
+  const extended = h.get('X-Cues-Extended')
+  const trimmed = h.get('X-Cues-Trimmed')
+  if (extended === null || trimmed === null) return null
+  const long = (h.get('X-Cues-Left-Long') ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0)
+  return { extended: Number(extended) || 0, trimmed: Number(trimmed) || 0, leftLong: long }
 }
 
 /** The name in a Content-Disposition header: `filename*=` (RFC 5987, UTF-8) first, then `filename=`. */
@@ -62,6 +79,7 @@ export function dispositionFilename(header: string | null): string | null {
 const readSubtitleFile = async (r: Response): Promise<SubtitleFile> => ({
   text: await r.text(),
   filename: dispositionFilename(r.headers.get('Content-Disposition')),
+  timing: timingReport(r.headers),
 })
 
 export const getSubtitleText = (id: number, o: SubtitleOptions, f?: Fetch) =>
