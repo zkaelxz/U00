@@ -9,6 +9,7 @@ import pytest
 import asr_backend as ab
 import mixed_language as ml
 from core import Line
+from lib.errors import InvalidInputError
 from services import asr_options_service
 from vad_segments import Span
 
@@ -246,7 +247,7 @@ def test_unknown_title_language_is_still_rejected(qwen):
 def test_option_defaults_off_and_validates(isolated_db):
     assert asr_options_service.get_asr_options()["mixed_languages"] is False
     assert asr_options_service.set_asr_options(mixed_languages=True)["mixed_languages"] is True
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidInputError, match="mixed_languages must be true or false"):
         asr_options_service.set_asr_options(mixed_languages="yes")
 
 

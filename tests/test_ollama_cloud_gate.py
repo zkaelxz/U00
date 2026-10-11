@@ -16,6 +16,7 @@ import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
+from lib.errors import ForbiddenError
 from services import auth_service
 
 CLOUD = "gemma4:31b-cloud"
@@ -163,7 +164,7 @@ def test_omitted_model_is_treated_as_the_local_default():
     from unittest.mock import patch
     with patch.object(api_auth, "holds", return_value=False):
         api_auth.require_engines_allowed(SimpleNamespace(), "ollama", model=None)
-        with pytest.raises(Exception):
+        with pytest.raises(ForbiddenError):
             api_auth.require_engines_allowed(SimpleNamespace(), "ollama", model=CLOUD)
 
 
