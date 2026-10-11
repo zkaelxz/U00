@@ -48,6 +48,8 @@ interface Props {
   // Page counts for "this chapter" and "all chapters" (hidden pages never count).
   scopes?: ScopeCounts
   onChanged: () => void
+  // The job this panel follows (null once it has finished), for a parent that outlives the panel.
+  onJob?: (jobId: string | null) => void
 }
 
 const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
@@ -56,7 +58,7 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
   { value: 'ml', label: 'ML model (downloads once)' },
 ]
 
-export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }: Props) {
+export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, onJob }: Props) {
   const pc = usePcOnly()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
   const [notes, setNotes] = useState<ScanlatePageNotes[]>([])
@@ -82,10 +84,14 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }
       if (job.status === 'done' && pendingExport.current.length) setExported(pendingExport.current)
       reload()
       onChanged()
+      onJob?.(null)
     },
-    [reload, onChanged],
+    [reload, onChanged, onJob],
   )
   const { job, done, error: pollError } = useJob(jobId, { runKey, onDone })
+  useEffect(() => {
+    if (jobId !== null) onJob?.(jobId)
+  }, [jobId, runKey, onJob])
   const running = starting || (jobId !== null && !done && !pollError)
 
   useEffect(() => {
