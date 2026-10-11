@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError, withSignal } from '../../../../api/client'
 import { tryStrongerEngine } from '../../../../api/strongerEngine'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { isForbidden, LINES_READ_FORBIDDEN } from '../../../../components/errorMessages'
 import { buttonClass } from '../../../../components/uiClasses'
+import { useHolds } from '../../../../hooks/useHolds'
 import type { ReviewLine } from '../../../../types/review'
 import type { StrongerLineResult } from '../../../../types/strongerEngine'
 import { formatUsd, resultIsStale, STALE_MESSAGE, tryErrorText, tryLabel, type StrongerOffer } from './strongerEngineLogic'
@@ -28,6 +30,9 @@ export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {
   const [applying, setApplying] = useState(false)
   const [result, setResult] = useState<StrongerLineResult | null>(null)
   const [error, setError] = useState<unknown>(null)
+  // A 403 here is either the paid-engine gate or a missing lines.read (the
+  // result carries the line's English); the refusal itself doesn't say which.
+  const canReadLines = useHolds('lines.read')
   // Aborts the in-flight try on Cancel or when the row goes away; a late
   // answer is then ignored.
   const abortRef = useRef<AbortController | null>(null)
@@ -66,7 +71,8 @@ export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {
 
   const stale = result ? resultIsStale(line.en, result.based_on_en) : false
   const same = result ? result.text === (line.en ?? '') : false
-  const errorText = error !== null ? tryErrorText(error, offer.engineLabel) : null
+  const linesRefused = isForbidden(error) && !canReadLines
+  const errorText = error !== null && !linesRefused ? tryErrorText(error, offer.engineLabel) : null
 
   return (
     <div className="review-stronger" data-testid="line-stronger">
@@ -126,7 +132,9 @@ export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {
           </div>
         </div>
       )}
-      {errorText !== null ? (
+      {linesRefused ? (
+        <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>
+      ) : errorText !== null ? (
         <div className="banner error-banner" role="alert" data-testid="line-stronger-error">
           <span>
             {errorText}

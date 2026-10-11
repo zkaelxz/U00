@@ -106,7 +106,7 @@ def get_series(request: Request):
     return {"items": library_service.list_series_with_dramas(principal=request.state.principal)}
 
 
-@router.get("/search", dependencies=[require_permission("library.read")], response_model=LibrarySearchResponse, responses=_ERR,
+@router.get("/search", dependencies=[require_permission("library.read", "lines.read")], response_model=LibrarySearchResponse, responses=_ERR,
             summary="Search line text across every drama")
 def search(request: Request, q: str = Query(min_length=1, max_length=200),
            limit: int = Query(50, ge=1, le=100)):

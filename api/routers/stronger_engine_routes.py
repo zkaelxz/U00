@@ -6,7 +6,8 @@ services/stronger_engine_service.py.
 - `GET /api/stronger-engine/dramas/{drama_id}` (`lines.read`): which lines
   to suggest it for, why, and the per-line estimate. No engine call.
 - `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try`
-  (`review.use`, plus `require_engines_allowed` on the engine Settings picked,
+  (`review.use + lines.read`, since the result carries the line's English;
+  plus `require_engines_allowed` on the engine Settings picked,
   since it can be paid): one single-line translate, returned for the user to
   accept -- it never writes the line. Takes a slot from the shared LLM cap
   (api/llm_slots.py; 429 when busy). The body names no engine, model or key.
@@ -38,7 +39,7 @@ def get_suggestions(drama_id: int = Path(ge=1)):
 
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/try",
-             dependencies=[require_permission("review.use")],
+             dependencies=[require_permission("review.use", "lines.read")],
              response_model=StrongerLineResult,
              summary="Translate one line with the stronger engine (writes nothing)",
              responses=_ERRORS)
