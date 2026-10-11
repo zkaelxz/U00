@@ -63,7 +63,9 @@ for backup and restore operations see `runbook.md`.
   fields of dramas and series), `db/usage.py` (usage and cost log, monthly
   spend and its reset, re-costing, the standalone translate tool's history),
   `db/app_settings.py` (app settings, the metadata research cache and
-  results, field provenance) and `db/job_records.py` (the job_records mirror).
+  results, field provenance), `db/job_records.py` (the job_records mirror)
+  and `db/speakers.py` (characters, speaker rename and merge with its undo,
+  series characters and voice links, the voice bank).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
   `_migrate_job_records_columns` and `_migrate_gpu_lock_slots` included).

@@ -177,7 +177,7 @@ def test_real_repo_smoke_every_listing_fits_the_budget(monkeypatch):
                 outputs[f"{rel} part {n}"] = _run(rel, "--part", str(n))
     for folder in sorted({f.rsplit("/", 1)[0] for f in files if "/" in f}):
         outputs[folder + "/"] = _run(folder)
-    assert "Too large to list at once" in outputs["db/__init__.py"]
+    assert "Too large to list at once" in outputs["services/"]
     too_big = {k: len(v.encode()) for k, v in outputs.items() if len(v.encode()) > MAX_LISTING_BYTES}
     assert too_big == {}
     assert all(str(ROOT) not in v for v in outputs.values())
