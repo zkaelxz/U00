@@ -7,7 +7,7 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
 2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
-3. **Before pushing:** the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`; for the frontend also `npx tsc --noEmit` and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the full suite (`python run_tests.py -q -n auto`, about 17 minutes) and the full frontend and e2e jobs on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
+3. **Before pushing:** the area's tests plus the quick guards, `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`; for the frontend also `npx tsc --noEmit` and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the jobs the change needs (see "Which jobs a change runs"; the full suite is `python run_tests.py -q -n auto`) on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
    `npm run e2e` runs three Playwright projects: `desktop` (every spec except files matching `mobile.spec.ts` and the tests tagged `@catalogue`), `catalogue` (only the `@catalogue` tests in `e2e/discover.spec.ts`, against a second build with the Discover Catalogue tab switched on: that flag is compiled into the bundle, so the default build cannot show the tab; `E2E_CATALOGUE_PORT` moves its server off 4175) and `phone` (390x844, touch, every `e2e/*mobile.spec.ts` match, such as `mobile.spec.ts`, `settings.mobile.spec.ts` and `review-results-mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
 5. A failure is not "environmental" or "flaky" until the mechanism is confirmed (a real background thread left running by an earlier test was the cause of the "database is locked" errors fixed in PR #259).
@@ -20,10 +20,35 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 
 ## CI layout
 
-`.github/workflows/tests.yml` runs four jobs on every PR: `guards` (the quick guard files, about a minute, so a broken rule is
-red first), `test` (the full mocked suite with xdist; tests that failed on the branch's previous run go first through `--ff`
+`.github/workflows/tests.yml` runs these jobs on every PR: `changes` (decides which of the others are needed), `guards`
+(the five quick guard files, about a minute, so a broken rule is red first), `test` (the mocked suite with xdist, minus
+the five guard files that `guards` already runs; tests that failed on the branch's previous run go first through `--ff`
 and a restored `.pytest_cache`, so a repeat failure shows in the first minute), `frontend` (build, vitest, lint) and
-`e2e` (Playwright in four shards). `windows-bootstrap.yml` and `windows-installer.yml` cover the installer.
+`e2e` (Playwright in four shards). `windows-bootstrap.yml` (its own workflow, path-filtered to `start.bat`, the
+requirements and constraints files, `check_setup.py`, `api/**`, `frontend/**` and itself) and `windows-installer.yml` cover
+the installer. The five guard files are ignored only in the workflow's `test` command lines; `python run_tests.py` and the
+local commands above still run everything.
+
+### Which jobs a change runs
+
+`tools/ci_changes.py` (tested by `tests/test_ci_changes.py`) classifies the changed files of a PR. A job that is skipped
+counts as passed for branch protection, as the notes-only skip always has. `guards` and `frontend` run on every PR except
+notes-only ones (which run only `guards`).
+
+| Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test`) |
+|---|---|---|---|
+| Push to `baihe-subtitler`, or any event that is not a pull request | false | true | true |
+| PR labelled `full-ci` | false | true | true |
+| PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
+| Every changed file is under `reports/`, `research_notes/` or `docs/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test` is skipped by `notes_only` |
+| No changed file under `frontend/` or `api/` (services, db, adapters, installer, scripts, tools, tests, docs...) | as above | false | true |
+| Every changed file is under `frontend/` or `docs/` | false | true if any is under `frontend/` | false: `test` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) plus `TestHostedCloningRemoved` |
+| Anything else | false | true | true |
+| The file list is empty or the classifier errors | false | true | true |
+
+Rows combine by "any rule that says true wins". A rename counts as touching both paths. To force everything on a PR, add the
+label `full-ci` (the workflow also listens for `labeled`, so adding it starts a new full run). Anything that makes you doubt a
+skipped job: add the label, or push a trivial change under `.github/`.
 
 ## Focused checks per area
 
@@ -66,7 +91,9 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
   model.
 - Use the `isolated_db` fixture (`tests/conftest.py`) for anything that
   touches the database or `db.LIBRARY_DIR`, so each test gets a fresh
-  library. Underneath that, `tests/conftest.py` points the whole run at a
+  library (a copy of a schema-only template built once per xdist worker; a test
+  that needs a database from before the current schema builds its own folder, as
+  `TestInitDbSchema` in `tests/test_db.py` does). Underneath that, `tests/conftest.py` points the whole run at a
   temp library before any test module loads, and fails a test that opens
   an absolute path in the real `library/` folder
   (`tests/test_library_isolation_guard.py`). The guard is a backstop, not a

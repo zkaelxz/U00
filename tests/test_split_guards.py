@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests.test_static_analysis import (  # noqa: E402
     PROJECT_ROOT,
     _find_requests_calls_missing_timeout,
+    parsed,
 )
 
 _SKIP_DIRS = {"__pycache__", "node_modules", ".git", ".claude", "venv", ".venv", "tmp"}
@@ -175,7 +176,7 @@ def _missing_front_door_names(module):
     missing, checked = {}, 0
     for f in _all_py_files():
         try:
-            tree = ast.parse(open(f, encoding="utf-8").read(), f)
+            tree = parsed(f)
         except SyntaxError:
             continue
         for name in _referenced_names(tree, module):
@@ -226,7 +227,7 @@ class TestDbPackageRule:
         init = os.path.join(_DB_DIR, "__init__.py")
         public = set()
         if os.path.exists(init):
-            tree = ast.parse(open(init, encoding="utf-8").read())
+            tree = parsed(init)
             for node in tree.body:
                 if isinstance(node, ast.ImportFrom):
                     public |= {a.asname or a.name for a in node.names if not a.name.startswith("_")}
@@ -234,7 +235,7 @@ class TestDbPackageRule:
         for f in _walk_files(_DB_DIR, ".py"):
             if os.path.basename(f) == "__init__.py":
                 continue
-            tree = ast.parse(open(f, encoding="utf-8").read(), f)
+            tree = parsed(f)
             own = {n.name for n in ast.walk(tree)
                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
             for node in ast.walk(tree):
