@@ -135,7 +135,7 @@ function ResetBlock({ jobsActive, busy, onBusy, onReset, onOpenChange }: {
             ) : blocked}
             onConfirm={reset}
           >
-            <p>Deletes every title, line, glossary, series, progress and file. No undo.</p>
+            <p>Deletes every title, line, glossary, series, progress and file, and also every account, sign-in session and the audit log. No undo.</p>
           </TypedConfirm>
           {error != null && (
             <p className="error" role="alert">
